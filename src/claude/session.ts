@@ -532,8 +532,20 @@ export class SessionManager {
       case 'Write': {
         const filePath = short(input.file_path as string);
         const content = input.content as string || '';
-        const lineCount = content.split('\n').length;
-        return `📝 **Write** \`${filePath}\` *(${lineCount} lines)*`;
+        const lines = content.split('\n');
+        const lineCount = lines.length;
+
+        // Show preview of content
+        if (content && lineCount > 0) {
+          const maxLines = 6;
+          const previewLines = lines.slice(0, maxLines);
+          let preview = `📝 **Write** \`${filePath}\` *(${lineCount} lines)*\n\`\`\`\n`;
+          preview += previewLines.join('\n');
+          if (lineCount > maxLines) preview += `\n... (${lineCount - maxLines} more lines)`;
+          preview += '\n```';
+          return preview;
+        }
+        return `📝 **Write** \`${filePath}\``;
       }
       case 'Bash': {
         const cmd = (input.command as string || '').substring(0, 50);
