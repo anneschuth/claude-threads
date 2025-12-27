@@ -1,7 +1,7 @@
 {
   "name": "mattermost-claude-code",
   "version": "0.1.0",
-  "description": "Share Claude Code sessions live in a Mattermost channel",
+  "description": "Share Claude Code sessions live in a Mattermost channel with interactive features",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -12,6 +12,31 @@
     "build": "tsc",
     "start": "node dist/index.js"
   },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mattermost",
+    "bot",
+    "ai",
+    "cli",
+    "anthropic",
+    "chat"
+  ],
+  "author": "Anne Schuth",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anneschuth/mattermost-claude-code.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anneschuth/mattermost-claude-code/issues"
+  },
+  "homepage": "https://github.com/anneschuth/mattermost-claude-code#readme",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "dependencies": {
     "dotenv": "^16.4.7",
     "ws": "^8.18.0"
