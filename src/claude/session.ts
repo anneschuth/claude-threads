@@ -1,5 +1,11 @@
 import { ClaudeCli, ClaudeEvent, ClaudeCliOptions } from './cli.js';
 import { MattermostClient } from '../mattermost/client.js';
+import { readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
 
 // =============================================================================
 // Interfaces
@@ -165,7 +171,26 @@ export class SessionManager {
     }
 
     // Post session start message
-    const msg = `🚀 **Session started**\n> Working directory: \`${this.workingDir}\``;
+    const shortDir = this.workingDir.replace(process.env.HOME || '', '~');
+    const sessionNum = this.sessions.size + 1;
+    const permMode = this.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+    const promptPreview = options.prompt.length > 60
+      ? options.prompt.substring(0, 60) + '…'
+      : options.prompt;
+
+    const msg = [
+      `### 🤖 Claude Code \`v${pkg.version}\``,
+      ``,
+      `| | |`,
+      `|:--|:--|`,
+      `| 📂 **Directory** | \`${shortDir}\` |`,
+      `| 👤 **Started by** | @${username} |`,
+      `| 🔢 **Session** | #${sessionNum} of ${MAX_SESSIONS} max |`,
+      `| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`,
+      ``,
+      `> ${promptPreview}`,
+    ].join('\n');
+
     const post = await this.mattermost.createPost(msg, replyToPostId);
     const actualThreadId = replyToPostId || post.id;
 
@@ -197,7 +222,11 @@ export class SessionManager {
 
     // Register session
     this.sessions.set(actualThreadId, session);
-    console.log(`[Sessions] Started session for thread ${actualThreadId} by ${username} (active: ${this.sessions.size})`);
+    const shortId = actualThreadId.substring(0, 8);
+    console.log(`  ▶ Session #${this.sessions.size} started (${shortId}…) by @${username}`);
+
+    // Start typing indicator immediately so user sees activity
+    this.startTyping(session);
 
     // Bind event handlers with closure over threadId
     claude.on('event', (e: ClaudeEvent) => this.handleEvent(actualThreadId, e));
@@ -206,15 +235,15 @@ export class SessionManager {
     try {
       claude.start();
     } catch (err) {
-      console.error('[Session] Start error:', err);
+      console.error('  ❌ Failed to start Claude:', err);
+      this.stopTyping(session);
       await this.mattermost.createPost(`❌ ${err}`, actualThreadId);
       this.sessions.delete(actualThreadId);
       return;
     }
 
-    // Send the message and start typing indicator
+    // Send the message to Claude
     claude.sendMessage(options.prompt);
-    this.startTyping(session);
   }
 
   private handleEvent(threadId: string, event: ClaudeEvent): void {
@@ -778,7 +807,8 @@ export class SessionManager {
         this.postIndex.delete(postId);
       }
     }
-    console.log(`[Sessions] Session ended for thread ${threadId} (remaining: ${this.sessions.size})`);
+    const shortId = threadId.substring(0, 8);
+    console.log(`  ■ Session ended (${shortId}…) — ${this.sessions.size} active`);
   }
 
   // ---------------------------------------------------------------------------
@@ -820,15 +850,16 @@ export class SessionManager {
         this.postIndex.delete(postId);
       }
     }
-    console.log(`[Sessions] Session killed for thread ${threadId} (remaining: ${this.sessions.size})`);
+    const shortId = threadId.substring(0, 8);
+    console.log(`  ✖ Session killed (${shortId}…) — ${this.sessions.size} active`);
   }
 
   /** Kill all active sessions (for graceful shutdown) */
   killAllSessions(): void {
-    for (const [threadId, session] of this.sessions.entries()) {
+    const count = this.sessions.size;
+    for (const [, session] of this.sessions.entries()) {
       this.stopTyping(session);
       session.claude.kill();
-      console.log(`[Sessions] Killed session for thread ${threadId}`);
     }
     this.sessions.clear();
     this.postIndex.clear();
@@ -836,7 +867,9 @@ export class SessionManager {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
-    console.log(`[Sessions] All sessions killed`);
+    if (count > 0) {
+      console.log(`  ✖ Killed ${count} session${count === 1 ? '' : 's'}`);
+    }
   }
 
   /** Cleanup idle sessions that have exceeded timeout */
@@ -845,11 +878,13 @@ export class SessionManager {
     for (const [threadId, session] of this.sessions.entries()) {
       const idleTime = now - session.lastActivityAt.getTime();
       if (idleTime > SESSION_TIMEOUT_MS) {
-        console.log(`[Sessions] Session ${threadId} timed out after ${Math.round(idleTime / 60000)} minutes`);
+        const mins = Math.round(idleTime / 60000);
+        const shortId = threadId.substring(0, 8);
+        console.log(`  ⏰ Session (${shortId}…) timed out after ${mins}m idle`);
         this.mattermost.createPost(
-          `⏰ **Session timed out** - no activity for ${Math.round(idleTime / 60000)} minutes`,
+          `⏰ **Session timed out** — no activity for ${mins} minutes`,
           session.threadId
-        ).catch(err => console.error('[Sessions] Failed to post timeout message:', err));
+        ).catch(() => {});
         this.killSession(threadId);
       }
     }

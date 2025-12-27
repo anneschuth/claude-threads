@@ -62,7 +62,9 @@ export class ClaudeCli extends EventEmitter {
       args.push('--permission-prompt-tool', 'mcp__mm-claude-permissions__permission_prompt');
     }
 
-    console.log(`[Claude] Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
+    if (this.debug) {
+      console.log(`  [claude] Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
+    }
 
     this.process = spawn(claudePath, args, {
       cwd: this.options.workingDir,
@@ -75,16 +77,20 @@ export class ClaudeCli extends EventEmitter {
     });
 
     this.process.stderr?.on('data', (chunk: Buffer) => {
-      console.error(`[Claude stderr] ${chunk.toString().trim()}`);
+      if (this.debug) {
+        console.error(`  [claude:err] ${chunk.toString().trim()}`);
+      }
     });
 
     this.process.on('error', (err) => {
-      console.error('[Claude] Error:', err);
+      console.error('  ❌ Claude error:', err);
       this.emit('error', err);
     });
 
     this.process.on('exit', (code) => {
-      console.log(`[Claude] Exited ${code}`);
+      if (this.debug) {
+        console.log(`  [claude] Exited ${code}`);
+      }
       this.process = null;
       this.buffer = '';
       this.emit('exit', code);
@@ -99,7 +105,9 @@ export class ClaudeCli extends EventEmitter {
       type: 'user',
       message: { role: 'user', content }
     }) + '\n';
-    console.log(`[Claude] Sending: ${content.substring(0, 50)}...`);
+    if (this.debug) {
+      console.log(`  [claude] Sending: ${content.substring(0, 50)}...`);
+    }
     this.process.stdin.write(msg);
   }
 
@@ -118,7 +126,9 @@ export class ClaudeCli extends EventEmitter {
         }]
       }
     }) + '\n';
-    console.log(`[Claude] Sending tool_result for ${toolUseId}`);
+    if (this.debug) {
+      console.log(`  [claude] Sending tool_result for ${toolUseId}`);
+    }
     this.process.stdin.write(msg);
   }
 

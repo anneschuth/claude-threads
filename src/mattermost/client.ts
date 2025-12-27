@@ -28,10 +28,15 @@ export class MattermostClient extends EventEmitter {
   private reconnectDelay = 1000;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
+  private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   constructor(config: Config) {
     super();
     this.config = config;
+  }
+
+  private log(msg: string): void {
+    if (this.debug) console.log(`  [ws] ${msg}`);
   }
 
   // REST API helper
@@ -114,7 +119,7 @@ export class MattermostClient extends EventEmitter {
   async connect(): Promise<void> {
     // Get bot user first
     await this.getBotUser();
-    console.log(`[MM] Bot user ID: ${this.botUserId}`);
+    this.log(`Bot user ID: ${this.botUserId}`);
 
     const wsUrl = this.config.mattermost.url
       .replace(/^http/, 'ws')
@@ -124,7 +129,7 @@ export class MattermostClient extends EventEmitter {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.on('open', () => {
-        console.log('[MM] WebSocket connected');
+        this.log('WebSocket connected');
         // Authenticate
         this.ws!.send(
           JSON.stringify({
@@ -147,18 +152,18 @@ export class MattermostClient extends EventEmitter {
             resolve();
           }
         } catch (err) {
-          console.error('[MM] Failed to parse WebSocket message:', err);
+          this.log(`Failed to parse message: ${err}`);
         }
       });
 
       this.ws.on('close', () => {
-        console.log('[MM] WebSocket disconnected');
+        this.log('WebSocket disconnected');
         this.emit('disconnected');
         this.scheduleReconnect();
       });
 
       this.ws.on('error', (err) => {
-        console.error('[MM] WebSocket error:', err);
+        this.log(`WebSocket error: ${err}`);
         this.emit('error', err);
         reject(err);
       });
@@ -185,7 +190,7 @@ export class MattermostClient extends EventEmitter {
           this.emit('message', post, user);
         });
       } catch (err) {
-        console.error('[MM] Failed to parse post:', err);
+        this.log(`Failed to parse post: ${err}`);
       }
       return;
     }
@@ -206,24 +211,24 @@ export class MattermostClient extends EventEmitter {
           this.emit('reaction', reaction, user);
         });
       } catch (err) {
-        console.error('[MM] Failed to parse reaction:', err);
+        this.log(`Failed to parse reaction: ${err}`);
       }
     }
   }
 
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[MM] Max reconnection attempts reached');
+      console.error('  ⚠️  Max reconnection attempts reached');
       return;
     }
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    console.log(`[MM] Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts})`);
+    console.log(`  🔄 Reconnecting... (attempt ${this.reconnectAttempts})`);
 
     setTimeout(() => {
       this.connect().catch((err) => {
-        console.error('[MM] Reconnection failed:', err);
+        console.error(`  ❌ Reconnection failed: ${err}`);
       });
     }, delay);
   }

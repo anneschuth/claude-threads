@@ -18,7 +18,9 @@ function loadEnv(): void {
 
   for (const envPath of envPaths) {
     if (existsSync(envPath)) {
-      console.log(`📄 Loading config from: ${envPath}`);
+      if (process.env.DEBUG === '1' || process.argv.includes('--debug')) {
+        console.log(`  [config] Loading from: ${envPath}`);
+      }
       config({ path: envPath });
       break;
     }

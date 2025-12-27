@@ -10,6 +10,10 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
+const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
+const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
+const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
+
 async function main() {
   if (process.argv.includes('--version') || process.argv.includes('-v')) {
     console.log(pkg.version);
@@ -26,18 +30,22 @@ Usage: cd /your/project && mm-claude`);
   const workingDir = process.cwd();
   const config = loadConfig();
 
-  console.log(`🚀 mm-claude starting...`);
-  console.log(`📂 ${workingDir}`);
-  console.log(`📝 @${config.mattermost.botName} on ${config.mattermost.url}`);
+  // Nice startup banner
+  console.log('');
+  console.log(bold(`  🤖 mm-claude v${pkg.version}`));
+  console.log(dim('  ─────────────────────────────────'));
+  console.log(`  📂 ${cyan(workingDir)}`);
+  console.log(`  💬 ${cyan('@' + config.mattermost.botName)}`);
+  console.log(`  🌐 ${dim(config.mattermost.url)}`);
+  if (config.skipPermissions) {
+    console.log(`  ⚠️  ${dim('Permissions disabled')}`);
+  } else {
+    console.log(`  🔐 ${dim('Interactive permissions')}`);
+  }
+  console.log('');
 
   const mattermost = new MattermostClient(config);
   const session = new SessionManager(mattermost, workingDir, config.skipPermissions);
-
-  if (config.skipPermissions) {
-    console.log('⚠️  Permissions skipped (--dangerously-skip-permissions)');
-  } else {
-    console.log('🔐 Interactive permissions enabled');
-  }
 
   mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
     const username = user?.username || 'unknown';
@@ -71,14 +79,16 @@ Usage: cd /your/project && mm-claude`);
     await session.startSession({ prompt }, username, threadRoot);
   });
 
-  mattermost.on('connected', () => console.log('✅ Connected'));
-  mattermost.on('error', (e) => console.error('❌', e));
+  mattermost.on('connected', () => {});
+  mattermost.on('error', (e) => console.error('  ❌ Error:', e));
 
   await mattermost.connect();
-  console.log(`🎉 Ready! @${config.mattermost.botName}`);
+  console.log(`  ✅ ${bold('Ready!')} Waiting for @${config.mattermost.botName} mentions...`);
+  console.log('');
 
   const shutdown = () => {
-    console.log('\n👋 Bye');
+    console.log('');
+    console.log(`  👋 ${dim('Shutting down...')}`);
     session.killAllSessions();
     mattermost.disconnect();
     process.exit(0);

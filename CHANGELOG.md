@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-12-27
+
+### Changed
+- Cleaner console output with colors (verbose logs only shown with `DEBUG=1`)
+- Pimped session start card in Mattermost with version, directory, user, session count, permissions mode, and prompt preview
+- Typing indicator starts immediately when session begins
+- Shortened thread IDs in logs for readability
+
 ## [0.3.0] - 2025-12-27
 
 ### Added
