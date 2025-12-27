@@ -128,6 +128,20 @@ When Claude spawns subagents (Task tool):
 - Shows subagent type and description
 - Updates to ✅ completed when done
 
+### Permission Approval via Reactions
+By default, Claude Code requests permission before executing tools. This service forwards these requests to Mattermost:
+- Permission requests are posted with 👍/✅/👎 reactions
+- 👍 **Allow this** - approve this specific tool use
+- ✅ **Allow all** - approve all future tool uses in this session
+- 👎 **Deny** - reject this tool use
+
+To skip permission prompts (use with caution):
+```bash
+mm-claude --dangerously-skip-permissions
+# or set in .env:
+SKIP_PERMISSIONS=true
+```
+
 ### Code Diffs and Previews
 - **Edit**: Shows actual diff with `-` old lines and `+` new lines
 - **Write**: Shows first 6 lines of content with line count

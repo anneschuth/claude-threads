@@ -3,18 +3,25 @@ import { resolve } from 'path';
 import { existsSync } from 'fs';
 import { homedir } from 'os';
 
-// Load .env file from multiple locations (in order of priority)
-const envPaths = [
-  resolve(process.cwd(), '.env'),                          // Current directory
-  resolve(homedir(), '.config', 'mm-claude', '.env'),      // ~/.config/mm-claude/.env
-  resolve(homedir(), '.mm-claude.env'),                    // ~/.mm-claude.env
-];
+let envLoaded = false;
 
-for (const envPath of envPaths) {
-  if (existsSync(envPath)) {
-    console.log(`📄 Loading config from: ${envPath}`);
-    config({ path: envPath });
-    break;
+function loadEnv(): void {
+  if (envLoaded) return;
+  envLoaded = true;
+
+  // Load .env file from multiple locations (in order of priority)
+  const envPaths = [
+    resolve(process.cwd(), '.env'),                          // Current directory
+    resolve(homedir(), '.config', 'mm-claude', '.env'),      // ~/.config/mm-claude/.env
+    resolve(homedir(), '.mm-claude.env'),                    // ~/.mm-claude.env
+  ];
+
+  for (const envPath of envPaths) {
+    if (existsSync(envPath)) {
+      console.log(`📄 Loading config from: ${envPath}`);
+      config({ path: envPath });
+      break;
+    }
   }
 }
 
@@ -26,6 +33,7 @@ export interface Config {
     botName: string;
   };
   allowedUsers: string[];
+  skipPermissions: boolean;
 }
 
 function requireEnv(name: string): string {
@@ -37,6 +45,7 @@ function requireEnv(name: string): string {
 }
 
 export function loadConfig(): Config {
+  loadEnv();
   return {
     mattermost: {
       url: requireEnv('MATTERMOST_URL').replace(/\/$/, ''), // Remove trailing slash
@@ -48,5 +57,8 @@ export function loadConfig(): Config {
       .split(',')
       .map(u => u.trim())
       .filter(u => u.length > 0),
+    // SKIP_PERMISSIONS=true or --dangerously-skip-permissions flag
+    skipPermissions: process.env.SKIP_PERMISSIONS === 'true' ||
+      process.argv.includes('--dangerously-skip-permissions'),
   };
 }

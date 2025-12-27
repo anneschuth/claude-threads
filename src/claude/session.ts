@@ -1,4 +1,4 @@
-import { ClaudeCli, ClaudeEvent } from './cli.js';
+import { ClaudeCli, ClaudeEvent, ClaudeCliOptions } from './cli.js';
 import { MattermostClient } from '../mattermost/client.js';
 
 interface SessionState {
@@ -38,9 +38,10 @@ const EMOJI_TO_INDEX: Record<string, number> = {
 };
 
 export class SessionManager {
-  private claude: ClaudeCli;
+  private claude: ClaudeCli | null = null;
   private mattermost: MattermostClient;
   private workingDir: string;
+  private skipPermissions: boolean;
   private session: SessionState | null = null;
   private updateTimer: ReturnType<typeof setTimeout> | null = null;
   private typingTimer: ReturnType<typeof setInterval> | null = null;
@@ -51,13 +52,10 @@ export class SessionManager {
   private activeSubagents: Map<string, string> = new Map(); // taskId -> postId for subagent status
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
-  constructor(mattermost: MattermostClient, workingDir: string) {
+  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false) {
     this.mattermost = mattermost;
     this.workingDir = workingDir;
-    this.claude = new ClaudeCli(workingDir);
-
-    this.claude.on('event', (e: ClaudeEvent) => this.handleEvent(e));
-    this.claude.on('exit', (code: number) => this.handleExit(code));
+    this.skipPermissions = skipPermissions;
 
     // Listen for reactions to answer questions
     this.mattermost.on('reaction', (reaction, user) => {
@@ -71,7 +69,7 @@ export class SessionManager {
     replyToPostId?: string
   ): Promise<void> {
     // Start Claude if not running
-    if (!this.claude.isRunning()) {
+    if (!this.claude?.isRunning()) {
       const msg = `🚀 **Session started**\n> Working directory: \`${this.workingDir}\``;
       const post = await this.mattermost.createPost(msg, replyToPostId);
       const threadId = replyToPostId || post.id;
@@ -79,6 +77,17 @@ export class SessionManager {
       this.planApproved = false; // Reset for new session
       this.tasksPostId = null; // Reset tasks display
       this.activeSubagents.clear(); // Clear subagent tracking
+
+      // Create Claude CLI with options (including threadId for permissions)
+      const cliOptions: ClaudeCliOptions = {
+        workingDir: this.workingDir,
+        threadId: threadId,
+        skipPermissions: this.skipPermissions,
+      };
+      this.claude = new ClaudeCli(cliOptions);
+
+      this.claude.on('event', (e: ClaudeEvent) => this.handleEvent(e));
+      this.claude.on('exit', (code: number) => this.handleExit(code));
 
       try {
         this.claude.start();
@@ -160,7 +169,7 @@ export class SessionManager {
     // If already approved in this session, auto-continue
     if (this.planApproved) {
       console.log('[Session] Plan already approved, auto-continuing...');
-      if (this.claude.isRunning()) {
+      if (this.claude?.isRunning()) {
         this.claude.sendMessage('Continue with the implementation.');
         this.startTyping();
       }
@@ -403,7 +412,7 @@ export class SessionManager {
       // Clear and send as regular message
       this.pendingQuestionSet = null;
 
-      if (this.claude.isRunning()) {
+      if (this.claude?.isRunning()) {
         this.claude.sendMessage(answersText);
         this.startTyping();
       }
@@ -438,7 +447,7 @@ export class SessionManager {
     }
 
     // Send response to Claude
-    if (this.claude.isRunning()) {
+    if (this.claude?.isRunning()) {
       const response = isApprove
         ? 'Approved. Please proceed with the implementation.'
         : 'Please revise the plan. I would like some changes.';
@@ -642,14 +651,15 @@ export class SessionManager {
   }
 
   async sendFollowUp(message: string): Promise<void> {
-    if (!this.claude.isRunning() || !this.session) return;
+    if (!this.claude?.isRunning() || !this.session) return;
     this.claude.sendMessage(message);
     this.startTyping();
   }
 
   killSession(): void {
     this.stopTyping();
-    this.claude.kill();
+    this.claude?.kill();
+    this.claude = null;
     this.session = null;
   }
 }

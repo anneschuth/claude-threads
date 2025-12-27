@@ -1,37 +1,71 @@
 import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
+import { resolve, dirname } from 'path';
+import { fileURLToPath } from 'url';
 
 export interface ClaudeEvent {
   type: string;
   [key: string]: unknown;
 }
 
+export interface ClaudeCliOptions {
+  workingDir: string;
+  threadId?: string;  // Thread ID for permission requests
+  skipPermissions?: boolean;  // If true, use --dangerously-skip-permissions
+}
+
 export class ClaudeCli extends EventEmitter {
   private process: ChildProcess | null = null;
-  private workingDir: string;
+  private options: ClaudeCliOptions;
   private buffer = '';
   public debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
-  constructor(workingDir: string) {
+  constructor(options: ClaudeCliOptions) {
     super();
-    this.workingDir = workingDir;
+    this.options = options;
   }
 
   start(): void {
     if (this.process) throw new Error('Already running');
 
-    const claudePath = process.env.CLAUDE_PATH || '/Users/anneschuth/.local/bin/claude';
+    const claudePath = process.env.CLAUDE_PATH || 'claude';
     const args = [
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
       '--verbose',
-      '--dangerously-skip-permissions',  // Auto-approve for bot use
     ];
 
-    console.log(`[Claude] Starting: ${claudePath} ${args.join(' ')}`);
+    // Either use skip permissions or the MCP-based permission system
+    if (this.options.skipPermissions) {
+      args.push('--dangerously-skip-permissions');
+    } else {
+      // Configure the permission MCP server
+      const mcpServerPath = this.getMcpServerPath();
+      const mcpConfig = {
+        mcpServers: {
+          'mm-claude-permissions': {
+            type: 'stdio',
+            command: 'node',
+            args: [mcpServerPath],
+            env: {
+              MM_THREAD_ID: this.options.threadId || '',
+              MATTERMOST_URL: process.env.MATTERMOST_URL || '',
+              MATTERMOST_TOKEN: process.env.MATTERMOST_TOKEN || '',
+              MATTERMOST_CHANNEL_ID: process.env.MATTERMOST_CHANNEL_ID || '',
+              ALLOWED_USERS: process.env.ALLOWED_USERS || '',
+              DEBUG: this.debug ? '1' : '',
+            },
+          },
+        },
+      };
+      args.push('--mcp-config', JSON.stringify(mcpConfig));
+      args.push('--permission-prompt-tool', 'mcp__mm-claude-permissions__permission_prompt');
+    }
+
+    console.log(`[Claude] Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
 
     this.process = spawn(claudePath, args, {
-      cwd: this.workingDir,
+      cwd: this.options.workingDir,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
@@ -118,5 +152,14 @@ export class ClaudeCli extends EventEmitter {
   kill(): void {
     this.process?.kill('SIGTERM');
     this.process = null;
+  }
+
+  private getMcpServerPath(): string {
+    // Get the path to the MCP permission server
+    // When running from source: src/mcp/permission-server.ts -> dist/mcp/permission-server.js
+    // When installed globally: the bin entry points to dist/mcp/permission-server.js
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    return resolve(__dirname, '..', 'mcp', 'permission-server.js');
   }
 }

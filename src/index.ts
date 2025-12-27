@@ -3,10 +3,21 @@ import { loadConfig } from './config.js';
 import { MattermostClient } from './mattermost/client.js';
 import { SessionManager } from './claude/session.js';
 import type { MattermostPost, MattermostUser } from './mattermost/types.js';
+import { readFileSync } from 'fs';
+import { dirname, resolve } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
 
 async function main() {
+  if (process.argv.includes('--version') || process.argv.includes('-v')) {
+    console.log(pkg.version);
+    process.exit(0);
+  }
+
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`mm-claude - Share Claude Code sessions in Mattermost
+    console.log(`mm-claude v${pkg.version} - Share Claude Code sessions in Mattermost
 
 Usage: cd /your/project && mm-claude`);
     process.exit(0);
@@ -20,7 +31,13 @@ Usage: cd /your/project && mm-claude`);
   console.log(`📝 @${config.mattermost.botName} on ${config.mattermost.url}`);
 
   const mattermost = new MattermostClient(config);
-  const session = new SessionManager(mattermost, workingDir);
+  const session = new SessionManager(mattermost, workingDir, config.skipPermissions);
+
+  if (config.skipPermissions) {
+    console.log('⚠️  Permissions skipped (--dangerously-skip-permissions)');
+  } else {
+    console.log('🔐 Interactive permissions enabled');
+  }
 
   mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
     const username = user?.username || 'unknown';
