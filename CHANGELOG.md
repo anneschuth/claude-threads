@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-12-27
+
+### Added
+- **Multiple concurrent sessions** - each Mattermost thread gets its own Claude CLI process
+- Sessions tracked via `sessions: Map<threadId, Session>` and `postIndex: Map<postId, threadId>`
+- Configurable session limits via `MAX_SESSIONS` env var (default: 5)
+- Automatic idle session cleanup via `SESSION_TIMEOUT_MS` env var (default: 30 min)
+- `killAllSessions()` for graceful shutdown of all sessions
+- Session count logging for monitoring
+
+### Changed
+- `SessionManager` now manages multiple sessions instead of single session
+- `sendFollowUp(threadId, message)` takes threadId parameter
+- `isInSessionThread(threadId)` replaces `isInCurrentSessionThread()`
+- `killSession(threadId)` takes threadId parameter
+
+### Fixed
+- Reaction routing now uses post index lookup for correct session targeting
+
 ## [0.2.3] - 2025-12-27
 
 ### Added

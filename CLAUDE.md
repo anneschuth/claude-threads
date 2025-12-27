@@ -6,11 +6,13 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 **Key Features:**
 - Real-time streaming of Claude responses to Mattermost
+- **Multiple concurrent sessions** - one per Mattermost thread
 - Interactive permission approval via emoji reactions
 - Plan approval and question answering via reactions
 - Task list display with live updates
 - Code diffs and file previews
 - Multi-user access control
+- Automatic idle session cleanup
 
 ## Architecture Overview
 
@@ -25,29 +27,39 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
                                                   │
                       ┌───────────────────────────┴────────────────┐
                       │              SessionManager                 │
-                      │  - Manages Claude CLI process               │
-                      │  - Handles events, formats output           │
-                      │  - Routes reactions to appropriate handler  │
+                      │  - Manages MULTIPLE concurrent sessions     │
+                      │  - Each session tied to a Mattermost thread │
+                      │  - sessions: Map<threadId, Session>         │
+                      │  - postIndex: Map<postId, threadId>         │
+                      │  - Periodic cleanup of idle sessions        │
                       └───────────────────────────┬────────────────┘
                                                   │
-                      ┌───────────────────────────┴────────────────┐
-                      │               ClaudeCli                     │
-                      │  - Spawns: claude --input-format stream-json│
-                      │  - Configures MCP permission server         │
-                      │  - Pipes stdin/stdout for communication     │
-                      └───────────────────────────┬────────────────┘
-                                                  │
-                                                  │ spawns via --mcp-config
-                                                  ▼
-                      ┌────────────────────────────────────────────┐
-                      │         MCP Permission Server               │
-                      │  - Separate process, stdio MCP protocol     │
-                      │  - Own WebSocket to Mattermost              │
-                      │  - Posts permission requests to thread      │
-                      │  - Waits for user emoji reaction            │
-                      │  - Returns allow/deny to Claude CLI         │
-                      └────────────────────────────────────────────┘
+                              ┌───────────────────┼───────────────────┐
+                              │                   │                   │
+                              ▼                   ▼                   ▼
+                      ┌───────────┐       ┌───────────┐       ┌───────────┐
+                      │  Session  │       │  Session  │       │  Session  │
+                      │ (thread1) │       │ (thread2) │       │ (thread3) │
+                      └─────┬─────┘       └─────┬─────┘       └─────┬─────┘
+                            │                   │                   │
+                            ▼                   ▼                   ▼
+                      ┌───────────┐       ┌───────────┐       ┌───────────┐
+                      │ ClaudeCli │       │ ClaudeCli │       │ ClaudeCli │
+                      │ + MCP srv │       │ + MCP srv │       │ + MCP srv │
+                      └───────────┘       └───────────┘       └───────────┘
 ```
+
+**Session contains:**
+- `claude: ClaudeCli` - the Claude CLI process
+- `pendingApproval`, `pendingQuestionSet` - interactive state
+- `updateTimer`, `typingTimer` - per-session timers
+- `activeSubagents: Map<toolUseId, postId>` - subagent tracking
+
+**MCP Permission Server:**
+- Spawned via `--mcp-config` per Claude CLI instance
+- Each has its own WebSocket to Mattermost
+- Posts permission requests to the session's thread
+- Returns allow/deny based on user reaction
 
 ## Source Files
 
@@ -100,6 +112,8 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 | `MATTERMOST_BOT_NAME` | No | Bot username for @mentions (default: `claude-code`) |
 | `ALLOWED_USERS` | No | Comma-separated usernames who can use the bot |
 | `SKIP_PERMISSIONS` | No | Set `true` to skip permission prompts |
+| `MAX_SESSIONS` | No | Max concurrent sessions (default: `5`) |
+| `SESSION_TIMEOUT_MS` | No | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | No | Set `1` for debug logging |
 | `CLAUDE_PATH` | No | Custom path to claude binary (default: `claude`) |
 
@@ -205,7 +219,7 @@ Claude CLI emits JSON events. Key event types:
 ## Future Improvements to Consider
 
 - [ ] Add unit tests
-- [ ] Support multiple concurrent sessions (different threads)
+- [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
 - [ ] Add `/cancel` command to abort running session
 - [ ] Persist session state for recovery after restart
 - [ ] Add rate limiting for API calls

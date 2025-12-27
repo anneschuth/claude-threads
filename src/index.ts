@@ -45,12 +45,12 @@ Usage: cd /your/project && mm-claude`);
     const threadRoot = post.root_id || post.id;
 
     // Follow-up in active thread
-    if (session.isInCurrentSessionThread(threadRoot)) {
+    if (session.isInSessionThread(threadRoot)) {
       if (!mattermost.isUserAllowed(username)) return;
       const content = mattermost.isBotMentioned(message)
         ? mattermost.extractPrompt(message)
         : message.trim();
-      if (content) await session.sendFollowUp(content);
+      if (content) await session.sendFollowUp(threadRoot, content);
       return;
     }
 
@@ -79,7 +79,7 @@ Usage: cd /your/project && mm-claude`);
 
   const shutdown = () => {
     console.log('\n👋 Bye');
-    session.killSession();
+    session.killAllSessions();
     mattermost.disconnect();
     process.exit(0);
   };

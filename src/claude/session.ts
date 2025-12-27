@@ -1,11 +1,9 @@
 import { ClaudeCli, ClaudeEvent, ClaudeCliOptions } from './cli.js';
 import { MattermostClient } from '../mattermost/client.js';
 
-interface SessionState {
-  threadId: string;
-  postId: string | null;
-  content: string;
-}
+// =============================================================================
+// Interfaces
+// =============================================================================
 
 interface QuestionOption {
   label: string;
@@ -13,20 +11,52 @@ interface QuestionOption {
 }
 
 interface PendingQuestionSet {
-  toolUseId: string;  // The tool_use_id to respond to
-  currentIndex: number;  // which question we're on
-  currentPostId: string | null;  // post ID of current question
+  toolUseId: string;
+  currentIndex: number;
+  currentPostId: string | null;
   questions: Array<{
     header: string;
     question: string;
     options: QuestionOption[];
-    answer: string | null;  // null until answered
+    answer: string | null;
   }>;
 }
 
 interface PendingApproval {
   postId: string;
   type: 'plan' | 'action';
+}
+
+/**
+ * Represents a single Claude Code session tied to a Mattermost thread.
+ * Each session has its own Claude CLI process and state.
+ */
+interface Session {
+  // Identity
+  threadId: string;
+  startedBy: string;
+  startedAt: Date;
+  lastActivityAt: Date;
+
+  // Claude process
+  claude: ClaudeCli;
+
+  // Post state for streaming updates
+  currentPostId: string | null;
+  pendingContent: string;
+
+  // Interactive state
+  pendingApproval: PendingApproval | null;
+  pendingQuestionSet: PendingQuestionSet | null;
+  planApproved: boolean;
+
+  // Display state
+  tasksPostId: string | null;
+  activeSubagents: Map<string, string>;  // toolUseId -> postId
+
+  // Timers (per-session)
+  updateTimer: ReturnType<typeof setTimeout> | null;
+  typingTimer: ReturnType<typeof setInterval> | null;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -37,20 +67,30 @@ const EMOJI_TO_INDEX: Record<string, number> = {
   'four': 3, '4️⃣': 3,
 };
 
+// =============================================================================
+// Configuration
+// =============================================================================
+
+const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
+const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10); // 30 min
+
+// =============================================================================
+// SessionManager - Manages multiple concurrent Claude Code sessions
+// =============================================================================
+
 export class SessionManager {
-  private claude: ClaudeCli | null = null;
+  // Shared state
   private mattermost: MattermostClient;
   private workingDir: string;
   private skipPermissions: boolean;
-  private session: SessionState | null = null;
-  private updateTimer: ReturnType<typeof setTimeout> | null = null;
-  private typingTimer: ReturnType<typeof setInterval> | null = null;
-  private pendingQuestionSet: PendingQuestionSet | null = null;
-  private pendingApproval: PendingApproval | null = null;
-  private planApproved = false; // Track if we already approved this session
-  private tasksPostId: string | null = null; // Track the tasks display post
-  private activeSubagents: Map<string, string> = new Map(); // taskId -> postId for subagent status
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
+
+  // Multi-session storage
+  private sessions: Map<string, Session> = new Map();  // threadId -> Session
+  private postIndex: Map<string, string> = new Map();  // postId -> threadId (for reaction routing)
+
+  // Cleanup timer
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
   constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false) {
     this.mattermost = mattermost;
@@ -61,50 +101,129 @@ export class SessionManager {
     this.mattermost.on('reaction', (reaction, user) => {
       this.handleReaction(reaction.post_id, reaction.emoji_name, user?.username || 'unknown');
     });
+
+    // Start periodic cleanup of idle sessions
+    this.cleanupTimer = setInterval(() => this.cleanupIdleSessions(), 60000);
   }
+
+  // ---------------------------------------------------------------------------
+  // Session Lookup Methods
+  // ---------------------------------------------------------------------------
+
+  /** Get a session by thread ID */
+  getSession(threadId: string): Session | undefined {
+    return this.sessions.get(threadId);
+  }
+
+  /** Check if a session exists for this thread */
+  hasSession(threadId: string): boolean {
+    return this.sessions.has(threadId);
+  }
+
+  /** Get the number of active sessions */
+  getSessionCount(): number {
+    return this.sessions.size;
+  }
+
+  /** Register a post for reaction routing */
+  private registerPost(postId: string, threadId: string): void {
+    this.postIndex.set(postId, threadId);
+  }
+
+  /** Find session by post ID (for reaction routing) */
+  private getSessionByPost(postId: string): Session | undefined {
+    const threadId = this.postIndex.get(postId);
+    return threadId ? this.sessions.get(threadId) : undefined;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session Lifecycle
+  // ---------------------------------------------------------------------------
 
   async startSession(
     options: { prompt: string },
     username: string,
     replyToPostId?: string
   ): Promise<void> {
-    // Start Claude if not running
-    if (!this.claude?.isRunning()) {
-      const msg = `🚀 **Session started**\n> Working directory: \`${this.workingDir}\``;
-      const post = await this.mattermost.createPost(msg, replyToPostId);
-      const threadId = replyToPostId || post.id;
-      this.session = { threadId, postId: null, content: '' };
-      this.planApproved = false; // Reset for new session
-      this.tasksPostId = null; // Reset tasks display
-      this.activeSubagents.clear(); // Clear subagent tracking
+    const threadId = replyToPostId || '';
 
-      // Create Claude CLI with options (including threadId for permissions)
-      const cliOptions: ClaudeCliOptions = {
-        workingDir: this.workingDir,
-        threadId: threadId,
-        skipPermissions: this.skipPermissions,
-      };
-      this.claude = new ClaudeCli(cliOptions);
+    // Check if session already exists for this thread
+    const existingSession = this.sessions.get(threadId);
+    if (existingSession && existingSession.claude.isRunning()) {
+      // Send as follow-up instead
+      await this.sendFollowUp(threadId, options.prompt);
+      return;
+    }
 
-      this.claude.on('event', (e: ClaudeEvent) => this.handleEvent(e));
-      this.claude.on('exit', (code: number) => this.handleExit(code));
+    // Check max sessions limit
+    if (this.sessions.size >= MAX_SESSIONS) {
+      await this.mattermost.createPost(
+        `⚠️ **Too busy** - ${this.sessions.size} sessions active. Please try again later.`,
+        replyToPostId
+      );
+      return;
+    }
 
-      try {
-        this.claude.start();
-      } catch (err) {
-        console.error('[Session] Start error:', err);
-        await this.mattermost.createPost(`❌ ${err}`, threadId);
-        this.session = null;
-        return;
-      }
+    // Post session start message
+    const msg = `🚀 **Session started**\n> Working directory: \`${this.workingDir}\``;
+    const post = await this.mattermost.createPost(msg, replyToPostId);
+    const actualThreadId = replyToPostId || post.id;
+
+    // Create Claude CLI with options
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: this.workingDir,
+      threadId: actualThreadId,
+      skipPermissions: this.skipPermissions,
+    };
+    const claude = new ClaudeCli(cliOptions);
+
+    // Create the session object
+    const session: Session = {
+      threadId: actualThreadId,
+      startedBy: username,
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+      claude,
+      currentPostId: null,
+      pendingContent: '',
+      pendingApproval: null,
+      pendingQuestionSet: null,
+      planApproved: false,
+      tasksPostId: null,
+      activeSubagents: new Map(),
+      updateTimer: null,
+      typingTimer: null,
+    };
+
+    // Register session
+    this.sessions.set(actualThreadId, session);
+    console.log(`[Sessions] Started session for thread ${actualThreadId} by ${username} (active: ${this.sessions.size})`);
+
+    // Bind event handlers with closure over threadId
+    claude.on('event', (e: ClaudeEvent) => this.handleEvent(actualThreadId, e));
+    claude.on('exit', (code: number) => this.handleExit(actualThreadId, code));
+
+    try {
+      claude.start();
+    } catch (err) {
+      console.error('[Session] Start error:', err);
+      await this.mattermost.createPost(`❌ ${err}`, actualThreadId);
+      this.sessions.delete(actualThreadId);
+      return;
     }
 
     // Send the message and start typing indicator
-    this.claude.sendMessage(options.prompt);
-    this.startTyping();
+    claude.sendMessage(options.prompt);
+    this.startTyping(session);
   }
 
-  private handleEvent(event: ClaudeEvent): void {
+  private handleEvent(threadId: string, event: ClaudeEvent): void {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Update last activity
+    session.lastActivityAt = new Date();
+
     // Check for special tool uses that need custom handling
     if (event.type === 'assistant') {
       const msg = event.message as { content?: Array<{ type: string; name?: string; id?: string; input?: Record<string, unknown> }> };
@@ -112,21 +231,18 @@ export class SessionManager {
       for (const block of msg?.content || []) {
         if (block.type === 'tool_use') {
           if (block.name === 'ExitPlanMode') {
-            this.handleExitPlanMode();
+            this.handleExitPlanMode(session);
             hasSpecialTool = true;
           } else if (block.name === 'TodoWrite') {
-            this.handleTodoWrite(block.input as Record<string, unknown>);
-            // Don't set hasSpecialTool - let other content through
+            this.handleTodoWrite(session, block.input as Record<string, unknown>);
           } else if (block.name === 'Task') {
-            this.handleTaskStart(block.id as string, block.input as Record<string, unknown>);
-            // Don't set hasSpecialTool - let other content through
+            this.handleTaskStart(session, block.id as string, block.input as Record<string, unknown>);
           } else if (block.name === 'AskUserQuestion') {
-            this.handleAskUserQuestion(block.id as string, block.input as Record<string, unknown>);
+            this.handleAskUserQuestion(session, block.id as string, block.input as Record<string, unknown>);
             hasSpecialTool = true;
           }
         }
       }
-      // Skip normal output if we handled a special tool (we post it ourselves)
       if (hasSpecialTool) return;
     }
 
@@ -135,57 +251,55 @@ export class SessionManager {
       const msg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string }> };
       for (const block of msg?.content || []) {
         if (block.type === 'tool_result' && block.tool_use_id) {
-          const postId = this.activeSubagents.get(block.tool_use_id);
+          const postId = session.activeSubagents.get(block.tool_use_id);
           if (postId) {
-            this.handleTaskComplete(block.tool_use_id, postId);
+            this.handleTaskComplete(session, block.tool_use_id, postId);
           }
         }
       }
     }
 
-    const formatted = this.formatEvent(event);
+    const formatted = this.formatEvent(session, event);
     if (this.debug) {
-      console.log(`[DEBUG] handleEvent: ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`);
+      console.log(`[DEBUG] handleEvent(${threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`);
     }
-    if (formatted) this.appendContent(formatted);
+    if (formatted) this.appendContent(session, formatted);
   }
 
-  private async handleTaskComplete(toolUseId: string, postId: string): Promise<void> {
+  private async handleTaskComplete(session: Session, toolUseId: string, postId: string): Promise<void> {
     try {
       await this.mattermost.updatePost(postId,
-        this.activeSubagents.has(toolUseId)
+        session.activeSubagents.has(toolUseId)
           ? `🤖 **Subagent** ✅ *completed*`
           : `🤖 **Subagent** ✅`
       );
-      this.activeSubagents.delete(toolUseId);
+      session.activeSubagents.delete(toolUseId);
     } catch (err) {
       console.error('[Session] Failed to update subagent completion:', err);
     }
   }
 
-  private async handleExitPlanMode(): Promise<void> {
-    if (!this.session) return;
-
+  private async handleExitPlanMode(session: Session): Promise<void> {
     // If already approved in this session, auto-continue
-    if (this.planApproved) {
+    if (session.planApproved) {
       console.log('[Session] Plan already approved, auto-continuing...');
-      if (this.claude?.isRunning()) {
-        this.claude.sendMessage('Continue with the implementation.');
-        this.startTyping();
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage('Continue with the implementation.');
+        this.startTyping(session);
       }
       return;
     }
 
     // If we already have a pending approval, don't post another one
-    if (this.pendingApproval && this.pendingApproval.type === 'plan') {
+    if (session.pendingApproval && session.pendingApproval.type === 'plan') {
       console.log('[Session] Plan approval already pending, waiting...');
       return;
     }
 
     // Flush any pending content first
-    await this.flush();
-    this.session.postId = null;
-    this.session.content = '';
+    await this.flush(session);
+    session.currentPostId = null;
+    session.pendingContent = '';
 
     // Post approval message with reactions
     const message = `✅ **Plan ready for approval**\n\n` +
@@ -193,7 +307,10 @@ export class SessionManager {
       `👎 Request changes\n\n` +
       `*React to respond*`;
 
-    const post = await this.mattermost.createPost(message, this.session.threadId);
+    const post = await this.mattermost.createPost(message, session.threadId);
+
+    // Register post for reaction routing
+    this.registerPost(post.id, session.threadId);
 
     // Add approval reactions
     try {
@@ -204,15 +321,13 @@ export class SessionManager {
     }
 
     // Track this for reaction handling
-    this.pendingApproval = { postId: post.id, type: 'plan' };
+    session.pendingApproval = { postId: post.id, type: 'plan' };
 
     // Stop typing while waiting
-    this.stopTyping();
+    this.stopTyping(session);
   }
 
-  private async handleTodoWrite(input: Record<string, unknown>): Promise<void> {
-    if (!this.session) return;
-
+  private async handleTodoWrite(session: Session, input: Record<string, unknown>): Promise<void> {
     const todos = input.todos as Array<{
       content: string;
       status: 'pending' | 'in_progress' | 'completed';
@@ -221,9 +336,9 @@ export class SessionManager {
 
     if (!todos || todos.length === 0) {
       // Clear tasks display if empty
-      if (this.tasksPostId) {
+      if (session.tasksPostId) {
         try {
-          await this.mattermost.updatePost(this.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
+          await this.mattermost.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
         } catch (err) {
           console.error('[Session] Failed to update tasks:', err);
         }
@@ -254,20 +369,18 @@ export class SessionManager {
 
     // Update or create tasks post
     try {
-      if (this.tasksPostId) {
-        await this.mattermost.updatePost(this.tasksPostId, message);
+      if (session.tasksPostId) {
+        await this.mattermost.updatePost(session.tasksPostId, message);
       } else {
-        const post = await this.mattermost.createPost(message, this.session.threadId);
-        this.tasksPostId = post.id;
+        const post = await this.mattermost.createPost(message, session.threadId);
+        session.tasksPostId = post.id;
       }
     } catch (err) {
       console.error('[Session] Failed to update tasks:', err);
     }
   }
 
-  private async handleTaskStart(toolUseId: string, input: Record<string, unknown>): Promise<void> {
-    if (!this.session) return;
-
+  private async handleTaskStart(session: Session, toolUseId: string, input: Record<string, unknown>): Promise<void> {
     const description = input.description as string || 'Working...';
     const subagentType = input.subagent_type as string || 'general';
 
@@ -277,26 +390,24 @@ export class SessionManager {
       `⏳ Running...`;
 
     try {
-      const post = await this.mattermost.createPost(message, this.session.threadId);
-      this.activeSubagents.set(toolUseId, post.id);
+      const post = await this.mattermost.createPost(message, session.threadId);
+      session.activeSubagents.set(toolUseId, post.id);
     } catch (err) {
       console.error('[Session] Failed to post subagent status:', err);
     }
   }
 
-  private async handleAskUserQuestion(toolUseId: string, input: Record<string, unknown>): Promise<void> {
-    if (!this.session) return;
-
+  private async handleAskUserQuestion(session: Session, toolUseId: string, input: Record<string, unknown>): Promise<void> {
     // If we already have pending questions, don't start another set
-    if (this.pendingQuestionSet) {
+    if (session.pendingQuestionSet) {
       console.log('[Session] Questions already pending, waiting...');
       return;
     }
 
     // Flush any pending content first
-    await this.flush();
-    this.session.postId = null;
-    this.session.content = '';
+    await this.flush(session);
+    session.currentPostId = null;
+    session.pendingContent = '';
 
     const questions = input.questions as Array<{
       question: string;
@@ -308,7 +419,7 @@ export class SessionManager {
     if (!questions || questions.length === 0) return;
 
     // Create a new question set - we'll ask one at a time
-    this.pendingQuestionSet = {
+    session.pendingQuestionSet = {
       toolUseId,
       currentIndex: 0,
       currentPostId: null,
@@ -321,22 +432,22 @@ export class SessionManager {
     };
 
     // Post the first question
-    await this.postCurrentQuestion();
+    await this.postCurrentQuestion(session);
 
     // Stop typing while waiting for answer
-    this.stopTyping();
+    this.stopTyping(session);
   }
 
-  private async postCurrentQuestion(): Promise<void> {
-    if (!this.session || !this.pendingQuestionSet) return;
+  private async postCurrentQuestion(session: Session): Promise<void> {
+    if (!session.pendingQuestionSet) return;
 
-    const { currentIndex, questions } = this.pendingQuestionSet;
+    const { currentIndex, questions } = session.pendingQuestionSet;
     if (currentIndex >= questions.length) return;
 
     const q = questions[currentIndex];
     const total = questions.length;
 
-    // Format the question message - show "Question (1/3)" not the header
+    // Format the question message
     let message = `❓ **Question** *(${currentIndex + 1}/${total})*\n`;
     message += `**${q.header}:** ${q.question}\n\n`;
     for (let i = 0; i < q.options.length && i < 4; i++) {
@@ -349,8 +460,11 @@ export class SessionManager {
     }
 
     // Post the question
-    const post = await this.mattermost.createPost(message, this.session.threadId);
-    this.pendingQuestionSet.currentPostId = post.id;
+    const post = await this.mattermost.createPost(message, session.threadId);
+    session.pendingQuestionSet.currentPostId = post.id;
+
+    // Register post for reaction routing
+    this.registerPost(post.id, session.threadId);
 
     // Add reaction emojis
     for (let i = 0; i < q.options.length && i < 4; i++) {
@@ -362,20 +476,35 @@ export class SessionManager {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Reaction Handling
+  // ---------------------------------------------------------------------------
+
   private async handleReaction(postId: string, emojiName: string, username: string): Promise<void> {
     // Check if user is allowed
     if (!this.mattermost.isUserAllowed(username)) return;
 
+    // Find the session this post belongs to
+    const session = this.getSessionByPost(postId);
+    if (!session) return;
+
     // Handle approval reactions
-    if (this.pendingApproval && this.pendingApproval.postId === postId) {
-      await this.handleApprovalReaction(emojiName, username);
+    if (session.pendingApproval && session.pendingApproval.postId === postId) {
+      await this.handleApprovalReaction(session, emojiName, username);
       return;
     }
 
-    // Handle question reactions - must be for current question
-    if (!this.pendingQuestionSet || this.pendingQuestionSet.currentPostId !== postId) return;
+    // Handle question reactions
+    if (session.pendingQuestionSet && session.pendingQuestionSet.currentPostId === postId) {
+      await this.handleQuestionReaction(session, postId, emojiName, username);
+      return;
+    }
+  }
 
-    const { currentIndex, questions } = this.pendingQuestionSet;
+  private async handleQuestionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
+    if (!session.pendingQuestionSet) return;
+
+    const { currentIndex, questions } = session.pendingQuestionSet;
     const question = questions[currentIndex];
     if (!question) return;
 
@@ -394,14 +523,13 @@ export class SessionManager {
     }
 
     // Move to next question or finish
-    this.pendingQuestionSet.currentIndex++;
+    session.pendingQuestionSet.currentIndex++;
 
-    if (this.pendingQuestionSet.currentIndex < questions.length) {
+    if (session.pendingQuestionSet.currentIndex < questions.length) {
       // Post next question
-      await this.postCurrentQuestion();
+      await this.postCurrentQuestion(session);
     } else {
       // All questions answered - send as follow-up message
-      // (CLI auto-responds with error to AskUserQuestion, so tool_result won't work)
       let answersText = 'Here are my answers:\n';
       for (const q of questions) {
         answersText += `- **${q.header}**: ${q.answer}\n`;
@@ -410,24 +538,24 @@ export class SessionManager {
       console.log(`[Session] All questions answered, sending as message:`, answersText);
 
       // Clear and send as regular message
-      this.pendingQuestionSet = null;
+      session.pendingQuestionSet = null;
 
-      if (this.claude?.isRunning()) {
-        this.claude.sendMessage(answersText);
-        this.startTyping();
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(answersText);
+        this.startTyping(session);
       }
     }
   }
 
-  private async handleApprovalReaction(emojiName: string, username: string): Promise<void> {
-    if (!this.pendingApproval) return;
+  private async handleApprovalReaction(session: Session, emojiName: string, username: string): Promise<void> {
+    if (!session.pendingApproval) return;
 
     const isApprove = emojiName === '+1' || emojiName === 'thumbsup';
     const isReject = emojiName === '-1' || emojiName === 'thumbsdown';
 
     if (!isApprove && !isReject) return;
 
-    const postId = this.pendingApproval.postId;
+    const postId = session.pendingApproval.postId;
     console.log(`[Session] User ${username} ${isApprove ? 'approved' : 'rejected'} the plan`);
 
     // Update the post to show the decision
@@ -441,22 +569,22 @@ export class SessionManager {
     }
 
     // Clear pending approval and mark as approved
-    this.pendingApproval = null;
+    session.pendingApproval = null;
     if (isApprove) {
-      this.planApproved = true;
+      session.planApproved = true;
     }
 
     // Send response to Claude
-    if (this.claude?.isRunning()) {
+    if (session.claude.isRunning()) {
       const response = isApprove
         ? 'Approved. Please proceed with the implementation.'
         : 'Please revise the plan. I would like some changes.';
-      this.claude.sendMessage(response);
-      this.startTyping();
+      session.claude.sendMessage(response);
+      this.startTyping(session);
     }
   }
 
-  private formatEvent(e: ClaudeEvent): string | null {
+  private formatEvent(session: Session, e: ClaudeEvent): string | null {
     switch (e.type) {
       case 'assistant': {
         const msg = e.message as { content?: Array<{ type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown> }> };
@@ -490,12 +618,10 @@ export class SessionManager {
       }
       case 'result': {
         // Response complete - stop typing and start new post for next message
-        this.stopTyping();
-        if (this.session) {
-          this.flush();
-          this.session.postId = null;
-          this.session.content = '';
-        }
+        this.stopTyping(session);
+        this.flush(session);
+        session.currentPostId = null;
+        session.pendingContent = '';
         return null;
       }
       case 'system':
@@ -584,82 +710,148 @@ export class SessionManager {
     }
   }
 
-  private appendContent(text: string): void {
-    if (!this.session || !text) return;
-    this.session.content += text + '\n';
-    this.scheduleUpdate();
+  private appendContent(session: Session, text: string): void {
+    if (!text) return;
+    session.pendingContent += text + '\n';
+    this.scheduleUpdate(session);
   }
 
-  private scheduleUpdate(): void {
-    if (this.updateTimer) return;
-    this.updateTimer = setTimeout(() => {
-      this.updateTimer = null;
-      this.flush();
+  private scheduleUpdate(session: Session): void {
+    if (session.updateTimer) return;
+    session.updateTimer = setTimeout(() => {
+      session.updateTimer = null;
+      this.flush(session);
     }, 500);
   }
 
-  private startTyping(): void {
-    if (this.typingTimer) return;
+  private startTyping(session: Session): void {
+    if (session.typingTimer) return;
     // Send typing immediately, then every 3 seconds
-    this.mattermost.sendTyping(this.session?.threadId);
-    this.typingTimer = setInterval(() => {
-      this.mattermost.sendTyping(this.session?.threadId);
+    this.mattermost.sendTyping(session.threadId);
+    session.typingTimer = setInterval(() => {
+      this.mattermost.sendTyping(session.threadId);
     }, 3000);
   }
 
-  private stopTyping(): void {
-    if (this.typingTimer) {
-      clearInterval(this.typingTimer);
-      this.typingTimer = null;
+  private stopTyping(session: Session): void {
+    if (session.typingTimer) {
+      clearInterval(session.typingTimer);
+      session.typingTimer = null;
     }
   }
 
-  private async flush(): Promise<void> {
-    if (!this.session || !this.session.content.trim()) return;
+  private async flush(session: Session): Promise<void> {
+    if (!session.pendingContent.trim()) return;
 
-    const content = this.session.content.replace(/\n{3,}/g, '\n\n').trim();
+    const content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
 
-    if (this.session.postId) {
-      await this.mattermost.updatePost(this.session.postId, content);
+    if (session.currentPostId) {
+      await this.mattermost.updatePost(session.currentPostId, content);
     } else {
-      const post = await this.mattermost.createPost(content, this.session.threadId);
-      this.session.postId = post.id;
+      const post = await this.mattermost.createPost(content, session.threadId);
+      session.currentPostId = post.id;
+      // Register post for reaction routing
+      this.registerPost(post.id, session.threadId);
     }
   }
 
-  private async handleExit(code: number): Promise<void> {
-    this.stopTyping();
-    if (this.updateTimer) {
-      clearTimeout(this.updateTimer);
-      this.updateTimer = null;
-    }
-    await this.flush();
+  private async handleExit(threadId: string, code: number): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
 
-    if (code !== 0 && this.session) {
-      await this.mattermost.createPost(`**[Exited: ${code}]**`, this.session.threadId);
+    this.stopTyping(session);
+    if (session.updateTimer) {
+      clearTimeout(session.updateTimer);
+      session.updateTimer = null;
+    }
+    await this.flush(session);
+
+    if (code !== 0) {
+      await this.mattermost.createPost(`**[Exited: ${code}]**`, session.threadId);
     }
 
-    this.session = null;
+    // Clean up session from maps
+    this.sessions.delete(threadId);
+    // Clean up post index entries for this session
+    for (const [postId, tid] of this.postIndex.entries()) {
+      if (tid === threadId) {
+        this.postIndex.delete(postId);
+      }
+    }
+    console.log(`[Sessions] Session ended for thread ${threadId} (remaining: ${this.sessions.size})`);
   }
 
+  // ---------------------------------------------------------------------------
+  // Public Session API
+  // ---------------------------------------------------------------------------
+
+  /** Check if any sessions are active */
   isSessionActive(): boolean {
-    return this.session !== null;
+    return this.sessions.size > 0;
   }
 
-  isInCurrentSessionThread(threadRoot: string): boolean {
-    return this.session?.threadId === threadRoot;
+  /** Check if a session exists for this thread */
+  isInSessionThread(threadRoot: string): boolean {
+    const session = this.sessions.get(threadRoot);
+    return session !== undefined && session.claude.isRunning();
   }
 
-  async sendFollowUp(message: string): Promise<void> {
-    if (!this.claude?.isRunning() || !this.session) return;
-    this.claude.sendMessage(message);
-    this.startTyping();
+  /** Send a follow-up message to an existing session */
+  async sendFollowUp(threadId: string, message: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session || !session.claude.isRunning()) return;
+    session.claude.sendMessage(message);
+    session.lastActivityAt = new Date();
+    this.startTyping(session);
   }
 
-  killSession(): void {
-    this.stopTyping();
-    this.claude?.kill();
-    this.claude = null;
-    this.session = null;
+  /** Kill a specific session */
+  killSession(threadId: string): void {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    this.stopTyping(session);
+    session.claude.kill();
+
+    // Clean up session from maps
+    this.sessions.delete(threadId);
+    for (const [postId, tid] of this.postIndex.entries()) {
+      if (tid === threadId) {
+        this.postIndex.delete(postId);
+      }
+    }
+    console.log(`[Sessions] Session killed for thread ${threadId} (remaining: ${this.sessions.size})`);
+  }
+
+  /** Kill all active sessions (for graceful shutdown) */
+  killAllSessions(): void {
+    for (const [threadId, session] of this.sessions.entries()) {
+      this.stopTyping(session);
+      session.claude.kill();
+      console.log(`[Sessions] Killed session for thread ${threadId}`);
+    }
+    this.sessions.clear();
+    this.postIndex.clear();
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+    console.log(`[Sessions] All sessions killed`);
+  }
+
+  /** Cleanup idle sessions that have exceeded timeout */
+  private cleanupIdleSessions(): void {
+    const now = Date.now();
+    for (const [threadId, session] of this.sessions.entries()) {
+      const idleTime = now - session.lastActivityAt.getTime();
+      if (idleTime > SESSION_TIMEOUT_MS) {
+        console.log(`[Sessions] Session ${threadId} timed out after ${Math.round(idleTime / 60000)} minutes`);
+        this.mattermost.createPost(
+          `⏰ **Session timed out** - no activity for ${Math.round(idleTime / 60000)} minutes`,
+          session.threadId
+        ).catch(err => console.error('[Sessions] Failed to post timeout message:', err));
+        this.killSession(threadId);
+      }
+    }
   }
 }
