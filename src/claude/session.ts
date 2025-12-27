@@ -222,6 +222,7 @@ export class SessionManager {
 
     // Register session
     this.sessions.set(actualThreadId, session);
+    this.registerPost(post.id, actualThreadId); // For cancel reactions on session start post
     const shortId = actualThreadId.substring(0, 8);
     console.log(`  ▶ Session #${this.sessions.size} started (${shortId}…) by @${username}`);
 
@@ -516,6 +517,12 @@ export class SessionManager {
     // Find the session this post belongs to
     const session = this.getSessionByPost(postId);
     if (!session) return;
+
+    // Handle cancel reactions (❌ or 🛑) on any post in the session
+    if (emojiName === 'x' || emojiName === 'octagonal_sign' || emojiName === 'stop_sign') {
+      await this.cancelSession(session.threadId, username);
+      return;
+    }
 
     // Handle approval reactions
     if (session.pendingApproval && session.pendingApproval.postId === postId) {
@@ -852,6 +859,22 @@ export class SessionManager {
     }
     const shortId = threadId.substring(0, 8);
     console.log(`  ✖ Session killed (${shortId}…) — ${this.sessions.size} active`);
+  }
+
+  /** Cancel a session with user feedback */
+  async cancelSession(threadId: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    const shortId = threadId.substring(0, 8);
+    console.log(`  🛑 Session (${shortId}…) cancelled by @${username}`);
+
+    await this.mattermost.createPost(
+      `🛑 **Session cancelled** by @${username}`,
+      threadId
+    );
+
+    this.killSession(threadId);
   }
 
   /** Kill all active sessions (for graceful shutdown) */

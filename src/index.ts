@@ -58,6 +58,15 @@ Usage: cd /your/project && mm-claude`);
       const content = mattermost.isBotMentioned(message)
         ? mattermost.extractPrompt(message)
         : message.trim();
+
+      // Check for stop/cancel commands
+      const lowerContent = content.toLowerCase();
+      if (lowerContent === '/stop' || lowerContent === 'stop' ||
+          lowerContent === '/cancel' || lowerContent === 'cancel') {
+        await session.cancelSession(threadRoot, username);
+        return;
+      }
+
       if (content) await session.sendFollowUp(threadRoot, content);
       return;
     }
