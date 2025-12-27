@@ -1,5 +1,8 @@
 # Mattermost Claude Code Bridge
 
+[![npm version](https://img.shields.io/npm/v/mattermost-claude-code.svg)](https://www.npmjs.com/package/mattermost-claude-code)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 Share your Claude Code sessions live in a public Mattermost channel. Your colleagues can watch you work with Claude Code in real-time, and authorized users can even trigger sessions from Mattermost.
 
 ## How it works
@@ -31,20 +34,32 @@ This runs entirely on your local machine - it only makes **outbound** connection
 2. **Node.js 18+**
 3. **Mattermost bot account** with personal access token (ask your admin)
 
-## Setup
+## Installation
 
-1. Clone/copy this project
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
+### Option 1: npm (recommended)
+```bash
+npm install -g mattermost-claude-code
+```
 
-3. Copy the example env file and configure it:
-   ```bash
-   cp .env.example .env
-   ```
+### Option 2: From source
+```bash
+git clone https://github.com/anneschuth/mattermost-claude-code.git
+cd mattermost-claude-code
+npm install
+npm run build
+npm link
+```
 
-4. Edit `.env` with your Mattermost details:
+## Configuration
+
+Create a config file at `~/.config/mm-claude/.env`:
+
+```bash
+mkdir -p ~/.config/mm-claude
+cp .env.example ~/.config/mm-claude/.env
+```
+
+Edit the config with your Mattermost details:
    ```env
    MATTERMOST_URL=https://your-mattermost.com
    MATTERMOST_TOKEN=your-bot-token
@@ -58,15 +73,15 @@ This runs entirely on your local machine - it only makes **outbound** connection
 
 ## Running
 
-Development mode (hot reload):
+Navigate to your project directory and run:
 ```bash
-npm run dev
+cd /your/project
+mm-claude
 ```
 
-Production:
+With debug output:
 ```bash
-npm run build
-npm start
+mm-claude --debug
 ```
 
 ## Usage
