@@ -83,6 +83,43 @@ The bot will:
 3. Show tool activity (file reads, edits, bash commands)
 4. Post a session end message when complete
 
+## Interactive Features
+
+### Typing Indicator
+While Claude is thinking or working, you'll see the "is typing..." indicator in Mattermost.
+
+### Plan Mode Approval
+When Claude enters plan mode and is ready to implement:
+- Bot posts an approval message with 👍/👎 reactions
+- React with 👍 to approve and start building
+- React with 👎 to request changes
+- Once approved, subsequent plan exits auto-continue
+
+### Questions with Emoji Reactions
+When Claude needs to ask questions:
+- Questions are posted one at a time (sequential flow)
+- Each question shows numbered options: 1️⃣ 2️⃣ 3️⃣ 4️⃣
+- React with the corresponding emoji to answer
+- After all questions are answered, Claude continues
+
+### Task List Display
+When Claude creates a todo list (TodoWrite):
+- Tasks are shown with status icons: ⬜ pending, 🔄 in progress, ✅ completed
+- The task list updates in place as Claude works
+- In-progress tasks show the active description
+
+### Subagent Status
+When Claude spawns subagents (Task tool):
+- Shows subagent type and description
+- Updates to ✅ completed when done
+
+### Code Diffs and Previews
+- **Edit**: Shows actual diff with `-` old lines and `+` new lines
+- **Write**: Shows first 6 lines of content with line count
+- **Bash**: Shows the command being executed
+- **Read**: Shows the file path being read
+- **MCP tools**: Shows tool name and server (e.g., `🔌 get-library-docs *(context7)*`)
+
 ## Access Control
 
 - **ALLOWED_USERS**: Comma-separated list of Mattermost usernames that can trigger Claude Code
