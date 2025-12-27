@@ -179,7 +179,7 @@ export class SessionManager {
       : options.prompt;
 
     const msg = [
-      `### 🤖 Claude Code \`v${pkg.version}\``,
+      `### 🤖 mm-claude \`v${pkg.version}\``,
       ``,
       `| | |`,
       `|:--|:--|`,
