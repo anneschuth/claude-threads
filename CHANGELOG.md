@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.10] - 2025-12-28
+
+### Fixed
+- **Fixed `!permissions interactive` command** - Now actually enables interactive permissions
+  - Previously, the command set a flag but didn't restart Claude CLI, so permissions didn't change
+  - Now properly restarts Claude CLI with the MCP permission server enabled
+  - Permission prompts (👍 Allow | ✅ Allow all | 👎 Deny) now appear as expected
+  - Conversation context is preserved via `--resume` flag
+
 ## [0.10.9] - 2025-12-28
 
 ### Changed

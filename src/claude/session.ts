@@ -1649,14 +1649,62 @@ export class SessionManager {
       return;
     }
 
+    // Set the flag
     session.forceInteractivePermissions = true;
+
+    const shortId = threadId.substring(0, 8);
+    console.log(`  🔐 Session (${shortId}…) enabling interactive permissions`);
+
+    // Stop the current Claude CLI and restart with new permission setting
+    this.stopTyping(session);
+    session.isRestarting = true;  // Suppress exit message during restart
+    session.claude.kill();
+
+    // Flush any pending content
+    await this.flush(session);
+    session.currentPostId = null;
+    session.pendingContent = '';
+
+    // Create new CLI options with interactive permissions (skipPermissions: false)
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: session.workingDir,
+      threadId: threadId,
+      skipPermissions: false,  // Force interactive permissions
+      sessionId: session.claudeSessionId,
+      resume: true,  // Resume to keep conversation context
+      chrome: this.chromeEnabled,
+    };
+    session.claude = new ClaudeCli(cliOptions);
+
+    // Rebind event handlers
+    session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
+    session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
+
+    // Start the new Claude CLI
+    try {
+      session.claude.start();
+      // Note: isRestarting is reset in handleExit when the old process exit event fires
+    } catch (err) {
+      session.isRestarting = false;  // Reset flag on failure since exit won't fire
+      console.error('  ❌ Failed to restart Claude:', err);
+      await this.mattermost.createPost(`❌ Failed to enable interactive permissions: ${err}`, threadId);
+      return;
+    }
+
+    // Update session header with new permission status
+    await this.updateSessionHeader(session);
+
+    // Post confirmation
     await this.mattermost.createPost(
-      `🔐 Interactive permissions enabled for this session by @${username}`,
+      `🔐 **Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`,
       threadId
     );
     console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
-    await this.updateSessionHeader(session);
-    this.persistSession(session);  // Persist permission change
+
+    // Update activity and persist
+    session.lastActivityAt = new Date();
+    session.timeoutWarningPosted = false;
+    this.persistSession(session);
   }
 
   /** Check if a session should use interactive permissions */
