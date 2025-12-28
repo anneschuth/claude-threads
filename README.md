@@ -146,6 +146,16 @@ React 👍 to allow this message, ✅ to invite them to the session, 👎 to den
 
 Messages starting with `@someone-else` are ignored by the bot, allowing side conversations in the thread without triggering Claude.
 
+### Downgrade Permissions
+
+If the bot is running with `--skip-permissions` (auto mode), you can enable interactive permissions for a specific session:
+
+```
+/permissions interactive
+```
+
+This allows collaboration by requiring approval for Claude's actions. Note: you can only downgrade (auto → interactive), not upgrade - this ensures security.
+
 ## Interactive Features
 
 ### Permission Approval

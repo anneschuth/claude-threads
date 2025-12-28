@@ -70,6 +70,9 @@ interface Session {
   // Collaboration - per-session allowlist
   sessionAllowedUsers: Set<string>;
 
+  // Permission override - can only downgrade (skip → interactive), not upgrade
+  forceInteractivePermissions: boolean;
+
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
   tasksPostId: string | null;
@@ -230,6 +233,7 @@ export class SessionManager {
       pendingMessageApproval: null,
       planApproved: false,
       sessionAllowedUsers: new Set([username]), // Owner is always allowed
+      forceInteractivePermissions: false,  // Can be enabled via /permissions interactive
       sessionStartPostId: post.id,  // Track for updating participants
       tasksPostId: null,
       activeSubagents: new Map(),
@@ -1016,12 +1020,70 @@ export class SessionManager {
     }
   }
 
+  /**
+   * Enable interactive permissions for a session.
+   * Can only downgrade (skip → interactive), not upgrade.
+   */
+  async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or globally allowed users can change permissions
+    if (session.startedBy !== username && !this.mattermost.isUserAllowed(username)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can change permissions`,
+        threadId
+      );
+      return;
+    }
+
+    // Can only downgrade, not upgrade
+    if (!this.skipPermissions) {
+      await this.mattermost.createPost(
+        `ℹ️ Permissions are already interactive for this session`,
+        threadId
+      );
+      return;
+    }
+
+    // Already enabled for this session
+    if (session.forceInteractivePermissions) {
+      await this.mattermost.createPost(
+        `ℹ️ Interactive permissions already enabled for this session`,
+        threadId
+      );
+      return;
+    }
+
+    session.forceInteractivePermissions = true;
+    await this.mattermost.createPost(
+      `🔐 Interactive permissions enabled for this session by @${username}`,
+      threadId
+    );
+    console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
+    await this.updateSessionHeader(session);
+  }
+
+  /** Check if a session should use interactive permissions */
+  isSessionInteractive(threadId: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) return !this.skipPermissions;
+
+    // If global is interactive, always interactive
+    if (!this.skipPermissions) return true;
+
+    // If session has forced interactive, use that
+    return session.forceInteractivePermissions;
+  }
+
   /** Update the session header post with current participants */
   private async updateSessionHeader(session: Session): Promise<void> {
     if (!session.sessionStartPostId) return;
 
     const shortDir = this.workingDir.replace(process.env.HOME || '', '~');
-    const permMode = this.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
+    // Check session-level permission override
+    const isInteractive = !this.skipPermissions || session.forceInteractivePermissions;
+    const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';
 
     // Build participants list (excluding owner who is shown in "Started by")
     const otherParticipants = [...session.sessionAllowedUsers]

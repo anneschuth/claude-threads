@@ -120,6 +120,22 @@ async function main() {
         return;
       }
 
+      // Check for /permissions command
+      const permMatch = content.match(/^\/permissions?\s+(interactive|auto)/i);
+      if (permMatch) {
+        const mode = permMatch[1].toLowerCase();
+        if (mode === 'interactive') {
+          await session.enableInteractivePermissions(threadRoot, username);
+        } else {
+          // Can't upgrade to auto - that would be less secure
+          await mattermost.createPost(
+            `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
+            threadRoot
+          );
+        }
+        return;
+      }
+
       // Check if user is allowed in this session
       if (!session.isUserAllowedInSession(threadRoot, username)) {
         // Request approval for their message
