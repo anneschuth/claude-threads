@@ -1766,6 +1766,9 @@ export class SessionManager {
 
     rows.push(`| 🔢 **Session** | #${session.sessionNumber} of ${MAX_SESSIONS} max |`);
     rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
+    if (this.chromeEnabled) {
+      rows.push(`| 🌐 **Chrome** | Enabled |`);
+    }
 
     // Check for available updates
     const updateInfo = getUpdateInfo();
