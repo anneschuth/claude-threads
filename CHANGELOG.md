@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [0.10.0] - 2025-12-28
+
+### Added
+- **ASCII art logo** - Stylized "M" in Claude Code's block character style
+  - Shows on CLI startup with Mattermost blue and Claude orange colors
+  - Shows at the top of every Mattermost session thread
+  - Festive stars (✴) surround the logo
+- **`!kill` command** - Emergency shutdown that kills ALL sessions and exits the bot
+  - Only available to globally authorized users (ALLOWED_USERS)
+  - Unpersists all sessions (they won't resume on restart)
+  - Posts notification to all active session threads before exiting
+- **`!escape` / `!interrupt` commands** - Soft interrupt like pressing Escape in CLI
+  - Sends SIGINT to Claude CLI, stopping current task
+  - Session stays alive and user can continue the conversation
+  - Also available via ⏸️ reaction on any message in the session
+
+### Fixed
+- **Fix plan mode getting stuck after approval** - tool calls now get proper responses
+  - `ExitPlanMode` and `AskUserQuestion` now receive `tool_result` instead of user messages
+  - Claude was waiting for tool results that never came, causing sessions to hang
+  - Added `toolUseId` tracking to `PendingApproval` interface
+
 ## [0.9.3] - 2025-12-28
 
 ### Fixed
