@@ -31,6 +31,8 @@ program
   .option('--allowed-users <users>', 'Comma-separated allowed usernames')
   .option('--skip-permissions', 'Skip interactive permission prompts')
   .option('--no-skip-permissions', 'Enable interactive permission prompts (override env)')
+  .option('--chrome', 'Enable Claude in Chrome integration')
+  .option('--no-chrome', 'Disable Claude in Chrome integration')
   .option('--debug', 'Enable debug logging')
   .parse();
 
@@ -58,6 +60,7 @@ async function main() {
     botName: opts.botName,
     allowedUsers: opts.allowedUsers,
     skipPermissions: opts.skipPermissions,
+    chrome: opts.chrome,
   };
 
   // Check if we need onboarding
@@ -82,10 +85,13 @@ async function main() {
   } else {
     console.log(`  🔐 ${dim('Interactive permissions')}`);
   }
+  if (config.chrome) {
+    console.log(`  🌐 ${dim('Chrome integration enabled')}`);
+  }
   console.log('');
 
   const mattermost = new MattermostClient(config);
-  const session = new SessionManager(mattermost, workingDir, config.skipPermissions);
+  const session = new SessionManager(mattermost, workingDir, config.skipPermissions, config.chrome);
 
   mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
     try {
@@ -154,6 +160,9 @@ async function main() {
           `|:--------|:------------|\n` +
           `| \`!help\` | Show this help message |\n` +
           `| \`!release-notes\` | Show release notes for current version |\n` +
+          `| \`!context\` | Show context usage (tokens used/remaining) |\n` +
+          `| \`!cost\` | Show token usage and cost for this session |\n` +
+          `| \`!compact\` | Compress context to free up space |\n` +
           `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
           `| \`!invite @user\` | Invite a user to this session |\n` +
           `| \`!kick @user\` | Remove an invited user |\n` +
@@ -218,6 +227,17 @@ async function main() {
       const cdMatch = content.match(/^!cd\s+(.+)/i);
       if (cdMatch) {
         await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
+        return;
+      }
+
+      // Check for Claude Code slash commands (translate ! to /)
+      // These are sent directly to Claude Code as /commands
+      if (lowerContent === '!context' || lowerContent === '!cost' || lowerContent === '!compact') {
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          // Translate !command to /command for Claude Code
+          const claudeCommand = '/' + lowerContent.substring(1);
+          await session.sendFollowUp(threadRoot, claudeCommand);
+        }
         return;
       }
 

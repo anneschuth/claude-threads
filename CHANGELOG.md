@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.4] - 2025-12-28
+
+### Added
+- **`--chrome` flag** - Enable Claude in Chrome integration
+  - Pass `--chrome` CLI flag or set `CLAUDE_CHROME=true` environment variable
+  - Allows Claude to control your Chrome browser for web automation
+  - Use `--no-chrome` to explicitly disable
+- **Claude Code commands** - New session commands for context and cost management
+  - `!context` - Show context usage (tokens used/remaining)
+  - `!cost` - Show token usage and cost for this session
+  - `!compact` - Compress context to free up space (useful when running low on context)
+  - Commands are translated to Claude Code's `/context`, `/cost`, `/compact` slash commands
+
 ## [0.10.3] - 2025-12-28
 
 ### Changed

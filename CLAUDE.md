@@ -120,6 +120,7 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 | `MATTERMOST_BOT_NAME` | No | Bot username for @mentions (default: `claude-code`) |
 | `ALLOWED_USERS` | No | Comma-separated usernames who can use the bot |
 | `SKIP_PERMISSIONS` | No | Set `true` to skip permission prompts |
+| `CLAUDE_CHROME` | No | Set `true` to enable Chrome integration |
 | `MAX_SESSIONS` | No | Max concurrent sessions (default: `5`) |
 | `SESSION_TIMEOUT_MS` | No | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | No | Set `1` for debug logging |

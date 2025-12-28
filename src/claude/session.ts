@@ -137,6 +137,7 @@ export class SessionManager {
   private mattermost: MattermostClient;
   private workingDir: string;
   private skipPermissions: boolean;
+  private chromeEnabled: boolean;
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
   // Multi-session storage
@@ -152,10 +153,11 @@ export class SessionManager {
   // Shutdown flag to suppress exit messages during graceful shutdown
   private isShuttingDown = false;
 
-  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false) {
+  constructor(mattermost: MattermostClient, workingDir: string, skipPermissions = false, chromeEnabled = false) {
     this.mattermost = mattermost;
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
+    this.chromeEnabled = chromeEnabled;
 
     // Listen for reactions to answer questions
     this.mattermost.on('reaction', async (reaction, user) => {
@@ -240,6 +242,7 @@ export class SessionManager {
       skipPermissions: skipPerms,
       sessionId: state.claudeSessionId,
       resume: true,
+      chrome: this.chromeEnabled,
     };
     const claude = new ClaudeCli(cliOptions);
 
@@ -457,6 +460,7 @@ export class SessionManager {
       skipPermissions: this.skipPermissions,
       sessionId: claudeSessionId,
       resume: false,
+      chrome: this.chromeEnabled,
     };
     const claude = new ClaudeCli(cliOptions);
 
@@ -1570,6 +1574,7 @@ export class SessionManager {
       skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
       sessionId: session.claudeSessionId,
       resume: true,  // Resume to keep conversation context
+      chrome: this.chromeEnabled,
     };
     session.claude = new ClaudeCli(cliOptions);
 

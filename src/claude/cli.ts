@@ -31,6 +31,7 @@ export interface ClaudeCliOptions {
   skipPermissions?: boolean;  // If true, use --dangerously-skip-permissions
   sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
   resume?: boolean;    // If true, use --resume instead of --session-id
+  chrome?: boolean;    // If true, enable Chrome integration with --chrome
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -88,6 +89,11 @@ export class ClaudeCli extends EventEmitter {
       };
       args.push('--mcp-config', JSON.stringify(mcpConfig));
       args.push('--permission-prompt-tool', 'mcp__mm-claude-permissions__permission_prompt');
+    }
+
+    // Chrome integration
+    if (this.options.chrome) {
+      args.push('--chrome');
     }
 
     if (this.debug) {

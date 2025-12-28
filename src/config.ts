@@ -40,6 +40,7 @@ export interface CliArgs {
   botName?: string;
   allowedUsers?: string;
   skipPermissions?: boolean;
+  chrome?: boolean;
 }
 
 export interface Config {
@@ -51,6 +52,7 @@ export interface Config {
   };
   allowedUsers: string[];
   skipPermissions: boolean;
+  chrome: boolean;
 }
 
 function getRequired(cliValue: string | undefined, envName: string, name: string): string {
@@ -88,6 +90,14 @@ export function loadConfig(cliArgs?: CliArgs): Config {
       process.argv.includes('--dangerously-skip-permissions');
   }
 
+  // Chrome integration: CLI flag or env var
+  let chrome: boolean;
+  if (cliArgs?.chrome !== undefined) {
+    chrome = cliArgs.chrome;
+  } else {
+    chrome = process.env.CLAUDE_CHROME === 'true';
+  }
+
   return {
     mattermost: {
       url: url.replace(/\/$/, ''), // Remove trailing slash
@@ -97,5 +107,6 @@ export function loadConfig(cliArgs?: CliArgs): Config {
     },
     allowedUsers,
     skipPermissions,
+    chrome,
   };
 }
