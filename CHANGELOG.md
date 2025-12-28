@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.8] - 2025-12-28
+
+### Changed
+- **Improved Claude in Chrome tool display** - Chrome automation tools now display like the native CLI
+  - `🌐 **Chrome**[computer] \`screenshot\`` instead of `🔌 **computer** *(claude-in-chrome)*`
+  - Shows action details: `left_click at (608, 51)`, `type "search query"`, `scroll down`
+  - Consistent formatting across all Chrome tools (navigate, tabs, read_page, etc.)
+
 ## [0.10.7] - 2025-12-28
 
 ### Fixed
