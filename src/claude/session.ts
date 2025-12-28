@@ -208,7 +208,7 @@ export class SessionManager {
     console.log(`  📂 Found ${persisted.size} session(s) to resume...`);
 
     // Resume each session
-    for (const [threadId, state] of persisted) {
+    for (const [_threadId, state] of persisted) {
       await this.resumeSession(state);
     }
 
