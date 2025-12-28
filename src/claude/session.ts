@@ -1706,14 +1706,17 @@ export class SessionManager {
     // Update session working directory
     session.workingDir = absoluteDir;
 
-    // Generate new session ID for the restarted CLI (or keep using --resume with same ID)
-    // We use --resume to maintain conversation context
+    // Generate new session ID for fresh start in new directory
+    // (Claude CLI sessions are tied to working directory, can't resume across directories)
+    const newSessionId = randomUUID();
+    session.claudeSessionId = newSessionId;
+
     const cliOptions: ClaudeCliOptions = {
       workingDir: absoluteDir,
       threadId: threadId,
       skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
-      sessionId: session.claudeSessionId,
-      resume: true,  // Resume to keep conversation context
+      sessionId: newSessionId,
+      resume: false,  // Fresh start - can't resume across directories
       chrome: this.chromeEnabled,
     };
     session.claude = new ClaudeCli(cliOptions);
@@ -2175,13 +2178,18 @@ export class SessionManager {
         session.currentPostId = null;
         session.pendingContent = '';
 
+        // Generate new session ID for fresh start in new directory
+        // (Claude CLI sessions are tied to working directory, can't resume across directories)
+        const newSessionId = randomUUID();
+        session.claudeSessionId = newSessionId;
+
         // Create new CLI with new working directory
         const cliOptions: ClaudeCliOptions = {
           workingDir: worktreePath,
           threadId: threadId,
           skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
-          sessionId: session.claudeSessionId,
-          resume: true,
+          sessionId: newSessionId,
+          resume: false,  // Fresh start - can't resume across directories
           chrome: this.chromeEnabled,
         };
         session.claude = new ClaudeCli(cliOptions);

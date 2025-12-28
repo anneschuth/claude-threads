@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1] - 2025-12-28
+
+### Fixed
+- **Fix worktree and `!cd` crash** - Claude CLI sessions are tied to working directory
+  - Can't use `--resume` when switching directories (session ID is directory-specific)
+  - Now generates fresh session ID when changing to worktree or new directory
+  - Previously caused "[Exited: 1]" with "No conversation found with session ID"
+
 ## [0.11.0] - 2025-12-28
 
 ### Added
