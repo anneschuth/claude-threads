@@ -10,6 +10,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Version number now displays directly after "mm-claude" in the logo instead of on a separate line
 
+### Fixed
+- **Interrupt (⏸️) no longer kills session** - sessions now pause and can be resumed
+  - Previously SIGINT caused Claude CLI to exit and the session was lost
+  - Now session is preserved and user can send a new message to continue
+  - Works with both ⏸️ reaction and `!escape`/`!interrupt` commands
+- **Filter `<thinking>` tags from output** - Claude's internal thinking is no longer shown to users
+  - Previously `<thinking>...</thinking>` tags would appear literally in Mattermost messages
+
 ## [0.10.1] - 2025-12-28
 
 ### Fixed

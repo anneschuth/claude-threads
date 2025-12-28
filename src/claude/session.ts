@@ -101,6 +101,9 @@ interface Session {
 
   // Flag to track if this session was resumed after bot restart
   isResumed: boolean;
+
+  // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
+  wasInterrupted: boolean;
 }
 
 const REACTION_EMOJIS = ['one', 'two', 'three', 'four'];
@@ -260,6 +263,7 @@ export class SessionManager {
       timeoutWarningPosted: false,
       isRestarting: false,
       isResumed: true,
+      wasInterrupted: false,
     };
 
     // Register session
@@ -474,6 +478,7 @@ export class SessionManager {
       timeoutWarningPosted: false,
       isRestarting: false,
       isResumed: false,
+      wasInterrupted: false,
     };
 
     // Register session
@@ -951,7 +956,9 @@ export class SessionManager {
         const parts: string[] = [];
         for (const block of msg?.content || []) {
           if (block.type === 'text' && block.text) {
-            parts.push(block.text);
+            // Filter out <thinking> tags that may appear in text content
+            const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
+            if (text) parts.push(text);
           } else if (block.type === 'tool_use' && block.name) {
             const formatted = this.formatToolUse(block.name, block.input || {});
             if (formatted) parts.push(formatted);
@@ -1211,6 +1218,37 @@ export class SessionManager {
       return;
     }
 
+    // If session was interrupted (SIGINT sent), preserve for resume
+    // Claude CLI exits on SIGINT, but we want to allow resuming the session
+    if (session.wasInterrupted) {
+      console.log(`  [exit] Session ${shortId}... exited after interrupt, preserving for resume`);
+      this.stopTyping(session);
+      if (session.updateTimer) {
+        clearTimeout(session.updateTimer);
+        session.updateTimer = null;
+      }
+      // Update persistence with current state before cleanup
+      this.persistSession(session);
+      this.sessions.delete(threadId);
+      // Clean up post index
+      for (const [postId, tid] of this.postIndex.entries()) {
+        if (tid === threadId) {
+          this.postIndex.delete(postId);
+        }
+      }
+      // Notify user they can send a new message to resume
+      try {
+        await this.mattermost.createPost(
+          `ℹ️ Session paused. Send a new message to continue.`,
+          session.threadId
+        );
+      } catch {
+        // Ignore if we can't post
+      }
+      console.log(`  ⏸️ Session paused (${shortId}…) — ${this.sessions.size} active`);
+      return;
+    }
+
     // For resumed sessions that exit quickly (e.g., Claude --resume fails),
     // don't unpersist immediately - give it a chance to be retried
     if (session.isResumed && code !== 0) {
@@ -1353,12 +1391,15 @@ export class SessionManager {
     }
 
     const shortId = threadId.substring(0, 8);
+
+    // Set flag BEFORE interrupt - if Claude exits due to SIGINT, we won't unpersist
+    session.wasInterrupted = true;
     const interrupted = session.claude.interrupt();
 
     if (interrupted) {
       console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
       await this.mattermost.createPost(
-        `⏸️ **Interrupted** by @${username} — session still active, you can continue`,
+        `⏸️ **Interrupted** by @${username}`,
         threadId
       );
     }
