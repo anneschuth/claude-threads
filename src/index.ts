@@ -106,6 +106,25 @@ async function main() {
         return;
       }
 
+      // Check for /help command
+      if (lowerContent === '/help' || lowerContent === 'help') {
+        await mattermost.createPost(
+          `**Available commands:**\n\n` +
+          `| Command | Description |\n` +
+          `|:--------|:------------|\n` +
+          `| \`/help\` | Show this help message |\n` +
+          `| \`/invite @user\` | Invite a user to this session |\n` +
+          `| \`/kick @user\` | Remove an invited user |\n` +
+          `| \`/permissions interactive\` | Enable interactive permissions |\n` +
+          `| \`/stop\` | Stop this session |\n\n` +
+          `**Reactions:**\n` +
+          `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
+          `- ❌ or 🛑 on any message to stop session`,
+          threadRoot
+        );
+        return;
+      }
+
       // Check for /invite command
       const inviteMatch = content.match(/^\/invite\s+@?(\w+)/i);
       if (inviteMatch) {
