@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.5] - 2025-12-28
+
+### Changed
+- **Improved diff display** - Edit operations now show unified diffs with context
+  - Uses standard unified diff format (like `git diff`)
+  - Shows 3 lines of context around changes
+  - More compact: changed lines shown once, not duplicated
+  - Line numbers in `@@ -X,Y +X,Y @@` format
+
 ## [0.10.4] - 2025-12-28
 
 ### Added

@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
+import * as Diff from 'diff';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
@@ -1061,25 +1062,24 @@ export class SessionManager {
       case 'Read': return `📄 **Read** \`${short(input.file_path as string)}\``;
       case 'Edit': {
         const filePath = short(input.file_path as string);
-        const oldStr = (input.old_string as string || '').trim();
-        const newStr = (input.new_string as string || '').trim();
+        const oldStr = (input.old_string as string || '');
+        const newStr = (input.new_string as string || '');
 
-        // Show diff if we have old/new strings
+        // Show unified diff if we have old/new strings
         if (oldStr || newStr) {
-          const maxLines = 8;
-          const oldLines = oldStr.split('\n').slice(0, maxLines);
-          const newLines = newStr.split('\n').slice(0, maxLines);
+          // Generate unified diff with 3 lines of context
+          const patch = Diff.createPatch(filePath, oldStr, newStr, '', '', { context: 3 });
+
+          // Remove the header lines (first 4 lines: ---, +++, and two index lines)
+          const patchLines = patch.split('\n').slice(4);
+          const maxLines = 25;
 
           let diff = `✏️ **Edit** \`${filePath}\`\n\`\`\`diff\n`;
-          for (const line of oldLines) {
-            diff += `- ${line}\n`;
+          diff += patchLines.slice(0, maxLines).join('\n');
+          if (patchLines.length > maxLines) {
+            diff += `\n... (+${patchLines.length - maxLines} more lines)`;
           }
-          if (oldStr.split('\n').length > maxLines) diff += `- ... (${oldStr.split('\n').length - maxLines} more lines)\n`;
-          for (const line of newLines) {
-            diff += `+ ${line}\n`;
-          }
-          if (newStr.split('\n').length > maxLines) diff += `+ ... (${newStr.split('\n').length - maxLines} more lines)\n`;
-          diff += '```';
+          diff += '\n```';
           return diff;
         }
         return `✏️ **Edit** \`${filePath}\``;
