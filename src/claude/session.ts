@@ -147,8 +147,12 @@ export class SessionManager {
     this.skipPermissions = skipPermissions;
 
     // Listen for reactions to answer questions
-    this.mattermost.on('reaction', (reaction, user) => {
-      this.handleReaction(reaction.post_id, reaction.emoji_name, user?.username || 'unknown');
+    this.mattermost.on('reaction', async (reaction, user) => {
+      try {
+        await this.handleReaction(reaction.post_id, reaction.emoji_name, user?.username || 'unknown');
+      } catch (err) {
+        console.error('  ❌ Error handling reaction:', err);
+      }
     });
 
     // Start periodic cleanup of idle sessions
@@ -164,14 +168,24 @@ export class SessionManager {
    * Should be called before starting to listen for new messages.
    */
   async initialize(): Promise<void> {
-    // Clean up stale sessions first
-    const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS);
-    if (staleIds.length > 0) {
-      console.log(`  🧹 Cleaned ${staleIds.length} stale session(s)`);
+    // Load persisted sessions FIRST (before cleaning stale ones)
+    // This way we can resume sessions that were active when the bot stopped,
+    // even if the bot was down for longer than SESSION_TIMEOUT_MS
+    const persisted = this.sessionStore.load();
+
+    if (this.debug) {
+      console.log(`  [persist] Found ${persisted.size} persisted session(s)`);
+      for (const [threadId, state] of persisted) {
+        const age = Date.now() - new Date(state.lastActivityAt).getTime();
+        const ageMins = Math.round(age / 60000);
+        console.log(`  [persist] - ${threadId.substring(0, 8)}... by @${state.startedBy}, age: ${ageMins}m`);
+      }
     }
 
-    // Load persisted sessions
-    const persisted = this.sessionStore.load();
+    // Note: We intentionally do NOT clean stale sessions on startup anymore.
+    // Sessions are cleaned during normal operation by cleanupIdleSessions().
+    // This allows sessions to survive bot restarts even if the bot was down
+    // for longer than SESSION_TIMEOUT_MS.
     if (persisted.size === 0) {
       if (this.debug) console.log('  [resume] No sessions to resume');
       return;
@@ -307,12 +321,20 @@ export class SessionManager {
       planApproved: session.planApproved,
     };
     this.sessionStore.save(session.threadId, state);
+    if (this.debug) {
+      const shortId = session.threadId.substring(0, 8);
+      console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
+    }
   }
 
   /**
    * Remove a session from persistence
    */
   private unpersistSession(threadId: string): void {
+    if (this.debug) {
+      const shortId = threadId.substring(0, 8);
+      console.log(`  [persist] Removing session ${shortId}...`);
+    }
     this.sessionStore.remove(threadId);
   }
 
@@ -395,10 +417,17 @@ export class SessionManager {
     }
 
     // Post initial session message (will be updated by updateSessionHeader)
-    const post = await this.mattermost.createPost(
-      `### 🤖 mm-claude \`v${pkg.version}\`\n\n*Starting session...*`,
-      replyToPostId
-    );
+    let post;
+    try {
+      post = await this.mattermost.createPost(
+        `### 🤖 mm-claude \`v${pkg.version}\`\n\n*Starting session...*`,
+        replyToPostId
+      );
+    } catch (err) {
+      console.error(`  ❌ Failed to create session post:`, err);
+      // If we can't post to the thread, we can't start a session
+      return;
+    }
     const actualThreadId = replyToPostId || post.id;
 
     // Generate a unique session ID for this Claude session
@@ -1132,18 +1161,27 @@ export class SessionManager {
 
   private async handleExit(threadId: string, code: number): Promise<void> {
     const session = this.sessions.get(threadId);
-    if (!session) return;
+    const shortId = threadId.substring(0, 8);
+
+    if (!session) {
+      if (this.debug) console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
+      return;
+    }
 
     // If we're intentionally restarting (e.g., !cd), don't clean up or post exit message
     if (session.isRestarting) {
+      if (this.debug) console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
       session.isRestarting = false;  // Reset flag here, after the exit event fires
       return;
     }
 
     // If bot is shutting down, suppress exit messages (shutdown message already sent)
     if (this.isShuttingDown) {
+      if (this.debug) console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
       return;
     }
+
+    if (this.debug) console.log(`  [exit] Session ${shortId}... exited with code ${code}, cleaning up`);
 
     this.stopTyping(session);
     if (session.updateTimer) {
@@ -1168,7 +1206,6 @@ export class SessionManager {
     // Remove from persistence when session ends normally
     this.unpersistSession(threadId);
 
-    const shortId = threadId.substring(0, 8);
     console.log(`  ■ Session ended (${shortId}…) — ${this.sessions.size} active`);
   }
 

@@ -85,6 +85,7 @@ async function main() {
   const session = new SessionManager(mattermost, workingDir, config.skipPermissions);
 
   mattermost.on('message', async (post: MattermostPost, user: MattermostUser | null) => {
+    try {
     const username = user?.username || 'unknown';
     const message = post.message;
     const threadRoot = post.root_id || post.id;
@@ -216,6 +217,19 @@ async function main() {
     }
 
     await session.startSession({ prompt, files }, username, threadRoot);
+    } catch (err) {
+      console.error('  ❌ Error handling message:', err);
+      // Try to notify user if possible
+      try {
+        const threadRoot = post.root_id || post.id;
+        await mattermost.createPost(
+          `⚠️ An error occurred. Please try again.`,
+          threadRoot
+        );
+      } catch {
+        // Ignore if we can't post the error message
+      }
+    }
   });
 
   mattermost.on('connected', () => {});

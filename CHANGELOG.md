@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.2] - 2025-12-28
+
+### Fixed
+- **Fix session persistence** - sessions were being incorrectly cleaned as "stale" on startup
+  - The `cleanStale()` call was removing sessions older than 30 minutes before attempting to resume
+  - Now sessions survive bot restarts regardless of how long the bot was down
+  - Added debug logging (`DEBUG=1`) to trace persistence operations
+- **Fix crash on Mattermost API errors** - bot no longer crashes when posts fail
+  - Added try-catch around message handler to prevent unhandled exceptions
+  - Added try-catch around reaction handler
+  - Graceful error handling when session start post fails (e.g., deleted thread)
+
 ## [0.9.1] - 2025-12-28
 
 ### Changed
