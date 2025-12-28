@@ -53,6 +53,7 @@ interface Session {
   startedAt: Date;
   lastActivityAt: Date;
   promptPreview: string;  // For updating session header
+  sessionNumber: number;  // Session # when created
 
   // Claude process
   claude: ClaudeCli;
@@ -226,6 +227,7 @@ export class SessionManager {
       startedAt: new Date(),
       lastActivityAt: new Date(),
       promptPreview,
+      sessionNumber: this.sessions.size + 1,
       claude,
       currentPostId: null,
       pendingContent: '',
@@ -1042,6 +1044,7 @@ export class SessionManager {
       rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
     }
 
+    rows.push(`| 🔢 **Session** | #${session.sessionNumber} of ${MAX_SESSIONS} max |`);
     rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
 
     const msg = [
