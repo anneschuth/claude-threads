@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2025-12-28
+
+### Added
+- **Session collaboration** - invite users to specific sessions without global access
+- **`/invite @username`** - Temporarily allow a user to participate in the current session
+- **`/kick @username`** - Remove an invited user from the current session
+- **Message approval flow** - When unauthorized users send messages in a session thread, the session owner/allowed users can approve via reactions:
+  - 👍 Allow this single message
+  - ✅ Invite them to the session
+  - 👎 Deny the message
+- Per-session allowlist tracked via `sessionAllowedUsers` in each session
+- **Side conversation support** - Messages starting with `@someone-else` are ignored, allowing users to chat without triggering the bot
+
+### Changed
+- Session owner is automatically added to session allowlist
+- Authorization checks now use `isUserAllowedInSession()` for follow-ups
+- Globally allowed users can still access all sessions
+
 ## [0.4.0] - 2025-12-28
 
 ### Added

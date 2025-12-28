@@ -85,16 +85,44 @@ async function main() {
 
     // Follow-up in active thread
     if (session.isInSessionThread(threadRoot)) {
-      if (!mattermost.isUserAllowed(username)) return;
+      // If message starts with @mention to someone else, ignore it (side conversation)
+      const mentionMatch = message.trim().match(/^@(\w+)/);
+      if (mentionMatch && mentionMatch[1].toLowerCase() !== mattermost.getBotName().toLowerCase()) {
+        return; // Side conversation, don't interrupt
+      }
+
       const content = mattermost.isBotMentioned(message)
         ? mattermost.extractPrompt(message)
         : message.trim();
-
-      // Check for stop/cancel commands
       const lowerContent = content.toLowerCase();
+
+      // Check for stop/cancel commands (only from allowed users)
       if (lowerContent === '/stop' || lowerContent === 'stop' ||
           lowerContent === '/cancel' || lowerContent === 'cancel') {
-        await session.cancelSession(threadRoot, username);
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          await session.cancelSession(threadRoot, username);
+        }
+        return;
+      }
+
+      // Check for /invite command
+      const inviteMatch = content.match(/^\/invite\s+@?(\w+)/i);
+      if (inviteMatch) {
+        await session.inviteUser(threadRoot, inviteMatch[1], username);
+        return;
+      }
+
+      // Check for /kick command
+      const kickMatch = content.match(/^\/kick\s+@?(\w+)/i);
+      if (kickMatch) {
+        await session.kickUser(threadRoot, kickMatch[1], username);
+        return;
+      }
+
+      // Check if user is allowed in this session
+      if (!session.isUserAllowedInSession(threadRoot, username)) {
+        // Request approval for their message
+        if (content) await session.requestMessageApproval(threadRoot, username, content);
         return;
       }
 

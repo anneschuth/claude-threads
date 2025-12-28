@@ -34,6 +34,15 @@ interface PendingApproval {
 }
 
 /**
+ * Pending message from unauthorized user awaiting approval
+ */
+interface PendingMessageApproval {
+  postId: string;
+  originalMessage: string;
+  fromUser: string;
+}
+
+/**
  * Represents a single Claude Code session tied to a Mattermost thread.
  * Each session has its own Claude CLI process and state.
  */
@@ -54,7 +63,11 @@ interface Session {
   // Interactive state
   pendingApproval: PendingApproval | null;
   pendingQuestionSet: PendingQuestionSet | null;
+  pendingMessageApproval: PendingMessageApproval | null;
   planApproved: boolean;
+
+  // Collaboration - per-session allowlist
+  sessionAllowedUsers: Set<string>;
 
   // Display state
   tasksPostId: string | null;
@@ -142,6 +155,21 @@ export class SessionManager {
     return threadId ? this.sessions.get(threadId) : undefined;
   }
 
+  /**
+   * Check if a user is allowed in a specific session.
+   * Checks global allowlist first, then session-specific allowlist.
+   */
+  isUserAllowedInSession(threadId: string, username: string): boolean {
+    // Check global allowlist first
+    if (this.mattermost.isUserAllowed(username)) return true;
+
+    // Check session-specific allowlist
+    const session = this.sessions.get(threadId);
+    if (session?.sessionAllowedUsers.has(username)) return true;
+
+    return false;
+  }
+
   // ---------------------------------------------------------------------------
   // Session Lifecycle
   // ---------------------------------------------------------------------------
@@ -213,7 +241,9 @@ export class SessionManager {
       pendingContent: '',
       pendingApproval: null,
       pendingQuestionSet: null,
+      pendingMessageApproval: null,
       planApproved: false,
+      sessionAllowedUsers: new Set([username]), // Owner is always allowed
       tasksPostId: null,
       activeSubagents: new Map(),
       updateTimer: null,
@@ -535,6 +565,12 @@ export class SessionManager {
       await this.handleQuestionReaction(session, postId, emojiName, username);
       return;
     }
+
+    // Handle message approval reactions
+    if (session.pendingMessageApproval && session.pendingMessageApproval.postId === postId) {
+      await this.handleMessageApprovalReaction(session, emojiName, username);
+      return;
+    }
   }
 
   private async handleQuestionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
@@ -618,6 +654,48 @@ export class SessionManager {
       session.claude.sendMessage(response);
       this.startTyping(session);
     }
+  }
+
+  private async handleMessageApprovalReaction(session: Session, emoji: string, approver: string): Promise<void> {
+    const pending = session.pendingMessageApproval;
+    if (!pending) return;
+
+    // Only session owner or globally allowed users can approve
+    if (session.startedBy !== approver && !this.mattermost.isUserAllowed(approver)) {
+      return;
+    }
+
+    const isAllow = emoji === '+1' || emoji === 'thumbsup';
+    const isInvite = emoji === 'white_check_mark' || emoji === 'heavy_check_mark';
+    const isDeny = emoji === '-1' || emoji === 'thumbsdown';
+
+    if (!isAllow && !isInvite && !isDeny) return;
+
+    if (isAllow) {
+      // Allow this single message
+      await this.mattermost.updatePost(pending.postId,
+        `✅ Message from @${pending.fromUser} approved by @${approver}`);
+      session.claude.sendMessage(pending.originalMessage);
+      session.lastActivityAt = new Date();
+      this.startTyping(session);
+      console.log(`  ✅ Message from @${pending.fromUser} approved by @${approver}`);
+    } else if (isInvite) {
+      // Invite user to session
+      session.sessionAllowedUsers.add(pending.fromUser);
+      await this.mattermost.updatePost(pending.postId,
+        `✅ @${pending.fromUser} invited to session by @${approver}`);
+      session.claude.sendMessage(pending.originalMessage);
+      session.lastActivityAt = new Date();
+      this.startTyping(session);
+      console.log(`  👋 @${pending.fromUser} invited to session by @${approver}`);
+    } else if (isDeny) {
+      // Deny
+      await this.mattermost.updatePost(pending.postId,
+        `❌ Message from @${pending.fromUser} denied by @${approver}`);
+      console.log(`  ❌ Message from @${pending.fromUser} denied by @${approver}`);
+    }
+
+    session.pendingMessageApproval = null;
   }
 
   private formatEvent(session: Session, e: ClaudeEvent): string | null {
@@ -875,6 +953,110 @@ export class SessionManager {
     );
 
     this.killSession(threadId);
+  }
+
+  /** Invite a user to participate in a specific session */
+  async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or globally allowed users can invite
+    if (session.startedBy !== invitedBy && !this.mattermost.isUserAllowed(invitedBy)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can invite others`,
+        threadId
+      );
+      return;
+    }
+
+    session.sessionAllowedUsers.add(invitedUser);
+    await this.mattermost.createPost(
+      `✅ @${invitedUser} can now participate in this session (invited by @${invitedBy})`,
+      threadId
+    );
+    console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
+  }
+
+  /** Kick a user from a specific session */
+  async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // Only session owner or globally allowed users can kick
+    if (session.startedBy !== kickedBy && !this.mattermost.isUserAllowed(kickedBy)) {
+      await this.mattermost.createPost(
+        `⚠️ Only @${session.startedBy} or allowed users can kick others`,
+        threadId
+      );
+      return;
+    }
+
+    // Can't kick session owner
+    if (kickedUser === session.startedBy) {
+      await this.mattermost.createPost(
+        `⚠️ Cannot kick session owner @${session.startedBy}`,
+        threadId
+      );
+      return;
+    }
+
+    // Can't kick globally allowed users (they'll still have access)
+    if (this.mattermost.isUserAllowed(kickedUser)) {
+      await this.mattermost.createPost(
+        `⚠️ @${kickedUser} is globally allowed and cannot be kicked from individual sessions`,
+        threadId
+      );
+      return;
+    }
+
+    if (session.sessionAllowedUsers.delete(kickedUser)) {
+      await this.mattermost.createPost(
+        `🚫 @${kickedUser} removed from this session by @${kickedBy}`,
+        threadId
+      );
+      console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
+    } else {
+      await this.mattermost.createPost(
+        `⚠️ @${kickedUser} was not in this session`,
+        threadId
+      );
+    }
+  }
+
+  /** Request approval for a message from an unauthorized user */
+  async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+
+    // If there's already a pending message approval, ignore
+    if (session.pendingMessageApproval) {
+      return;
+    }
+
+    const preview = message.length > 100 ? message.substring(0, 100) + '…' : message;
+
+    const post = await this.mattermost.createPost(
+      `🔒 **@${username}** wants to send a message:\n> ${preview}\n\n` +
+      `React 👍 to allow this message, ✅ to invite them to the session, 👎 to deny`,
+      threadId
+    );
+
+    session.pendingMessageApproval = {
+      postId: post.id,
+      originalMessage: message,
+      fromUser: username,
+    };
+
+    this.registerPost(post.id, threadId);
+
+    // Add reaction options
+    try {
+      await this.mattermost.addReaction(post.id, '+1');
+      await this.mattermost.addReaction(post.id, 'white_check_mark');
+      await this.mattermost.addReaction(post.id, '-1');
+    } catch (err) {
+      console.error('[Session] Failed to add message approval reactions:', err);
+    }
   }
 
   /** Kill all active sessions (for graceful shutdown) */

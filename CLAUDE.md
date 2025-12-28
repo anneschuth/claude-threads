@@ -7,6 +7,8 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 **Key Features:**
 - Real-time streaming of Claude responses to Mattermost
 - **Multiple concurrent sessions** - one per Mattermost thread
+- **Session collaboration** - `/invite @user` to temporarily allow users in a session
+- **Message approval** - unauthorized users can request approval for their messages
 - Interactive permission approval via emoji reactions
 - Plan approval and question answering via reactions
 - Task list display with live updates
@@ -51,7 +53,8 @@ This is a Mattermost bot that lets users interact with Claude Code through Matte
 
 **Session contains:**
 - `claude: ClaudeCli` - the Claude CLI process
-- `pendingApproval`, `pendingQuestionSet` - interactive state
+- `pendingApproval`, `pendingQuestionSet`, `pendingMessageApproval` - interactive state
+- `sessionAllowedUsers: Set<string>` - per-session allowlist (includes session owner)
 - `updateTimer`, `typingTimer` - per-session timers
 - `activeSubagents: Map<toolUseId, postId>` - subagent tracking
 
@@ -234,6 +237,7 @@ Claude CLI emits JSON events. Key event types:
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
 - [x] Add `/cancel` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
+- [x] Session collaboration (`/invite`, `/kick`, message approval) - **Done in v0.5.0**
 - [ ] Persist session state for recovery after restart
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
