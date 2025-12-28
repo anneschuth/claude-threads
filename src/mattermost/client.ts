@@ -126,6 +126,23 @@ export class MattermostClient extends EventEmitter {
     });
   }
 
+  // Download a file attachment
+  async downloadFile(fileId: string): Promise<Buffer> {
+    const url = `${this.config.mattermost.url}/api/v4/files/${fileId}`;
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${this.config.mattermost.token}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download file ${fileId}: ${response.status}`);
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+
   // Connect to WebSocket
   async connect(): Promise<void> {
     // Get bot user first

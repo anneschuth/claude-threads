@@ -345,13 +345,10 @@ export class SessionManager {
   }
 
   private async handleExitPlanMode(session: Session): Promise<void> {
-    // If already approved in this session, auto-continue
+    // If already approved in this session, silently ignore subsequent ExitPlanMode calls
+    // (Don't send another message - that causes Claude to loop)
     if (session.planApproved) {
-      if (this.debug) console.log('  ↪ Plan already approved, auto-continuing');
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage('Continue with the implementation.');
-        this.startTyping(session);
-      }
+      if (this.debug) console.log('  ↪ Plan already approved, ignoring ExitPlanMode');
       return;
     }
 

@@ -10,6 +10,16 @@ export interface MattermostWebSocketEvent {
   seq: number;
 }
 
+export interface MattermostFile {
+  id: string;
+  name: string;
+  size: number;
+  mime_type: string;
+  extension: string;
+  width?: number;
+  height?: number;
+}
+
 export interface MattermostPost {
   id: string;
   create_at: number;
@@ -23,7 +33,7 @@ export interface MattermostPost {
   props: Record<string, unknown>;
   metadata?: {
     embeds?: unknown[];
-    files?: unknown[];
+    files?: MattermostFile[];
   };
 }
 
