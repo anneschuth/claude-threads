@@ -176,7 +176,10 @@ async function main() {
         return;
       }
 
-      if (content) await session.sendFollowUp(threadRoot, content);
+      // Get any attached files (images)
+      const files = post.metadata?.files;
+
+      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files);
       return;
     }
 
@@ -189,12 +192,14 @@ async function main() {
     }
 
     const prompt = mattermost.extractPrompt(message);
-    if (!prompt) {
+    const files = post.metadata?.files;
+
+    if (!prompt && !files?.length) {
       await mattermost.createPost(`Mention me with your request`, threadRoot);
       return;
     }
 
-    await session.startSession({ prompt }, username, threadRoot);
+    await session.startSession({ prompt, files }, username, threadRoot);
   });
 
   mattermost.on('connected', () => {});

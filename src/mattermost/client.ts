@@ -143,6 +143,11 @@ export class MattermostClient extends EventEmitter {
     return Buffer.from(arrayBuffer);
   }
 
+  // Get file info (metadata)
+  async getFileInfo(fileId: string): Promise<import('./types.js').MattermostFile> {
+    return this.api<import('./types.js').MattermostFile>('GET', `/files/${fileId}/info`);
+  }
+
   // Connect to WebSocket
   async connect(): Promise<void> {
     // Get bot user first

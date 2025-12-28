@@ -8,6 +8,23 @@ export interface ClaudeEvent {
   [key: string]: unknown;
 }
 
+// Content block types for messages with images
+export interface TextContentBlock {
+  type: 'text';
+  text: string;
+}
+
+export interface ImageContentBlock {
+  type: 'image';
+  source: {
+    type: 'base64';
+    media_type: string;
+    data: string;
+  };
+}
+
+export type ContentBlock = TextContentBlock | ImageContentBlock;
+
 export interface ClaudeCliOptions {
   workingDir: string;
   threadId?: string;  // Thread ID for permission requests
@@ -98,7 +115,8 @@ export class ClaudeCli extends EventEmitter {
   }
 
   // Send a user message via JSON stdin
-  sendMessage(content: string): void {
+  // content can be a string or an array of content blocks (for images)
+  sendMessage(content: string | ContentBlock[]): void {
     if (!this.process?.stdin) throw new Error('Not running');
 
     const msg = JSON.stringify({
@@ -106,7 +124,10 @@ export class ClaudeCli extends EventEmitter {
       message: { role: 'user', content }
     }) + '\n';
     if (this.debug) {
-      console.log(`  [claude] Sending: ${content.substring(0, 50)}...`);
+      const preview = typeof content === 'string'
+        ? content.substring(0, 50)
+        : `[${content.length} blocks]`;
+      console.log(`  [claude] Sending: ${preview}...`);
     }
     this.process.stdin.write(msg);
   }

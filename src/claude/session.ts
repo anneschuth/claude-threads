@@ -1,5 +1,6 @@
-import { ClaudeCli, ClaudeEvent, ClaudeCliOptions } from './cli.js';
+import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
 import { MattermostClient } from '../mattermost/client.js';
+import { MattermostFile } from '../mattermost/types.js';
 import { getUpdateInfo } from '../update-notifier.js';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -191,7 +192,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   async startSession(
-    options: { prompt: string },
+    options: { prompt: string; files?: MattermostFile[] },
     username: string,
     replyToPostId?: string
   ): Promise<void> {
@@ -201,7 +202,7 @@ export class SessionManager {
     const existingSession = this.sessions.get(threadId);
     if (existingSession && existingSession.claude.isRunning()) {
       // Send as follow-up instead
-      await this.sendFollowUp(threadId, options.prompt);
+      await this.sendFollowUp(threadId, options.prompt, options.files);
       return;
     }
 
@@ -281,8 +282,9 @@ export class SessionManager {
       return;
     }
 
-    // Send the message to Claude
-    claude.sendMessage(options.prompt);
+    // Send the message to Claude (with images if present)
+    const content = await this.buildMessageContent(options.prompt, options.files);
+    claude.sendMessage(content);
   }
 
   private handleEvent(threadId: string, event: ClaudeEvent): void {
@@ -846,6 +848,62 @@ export class SessionManager {
     }, 500);
   }
 
+  /**
+   * Build message content for Claude, including images if present.
+   * Returns either a string or an array of content blocks.
+   */
+  private async buildMessageContent(
+    text: string,
+    files?: MattermostFile[]
+  ): Promise<string | ContentBlock[]> {
+    // Filter to only image files
+    const imageFiles = files?.filter(f =>
+      f.mime_type.startsWith('image/') &&
+      ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(f.mime_type)
+    ) || [];
+
+    // If no images, return plain text
+    if (imageFiles.length === 0) {
+      return text;
+    }
+
+    // Build content blocks with images
+    const blocks: ContentBlock[] = [];
+
+    // Download and add each image
+    for (const file of imageFiles) {
+      try {
+        const buffer = await this.mattermost.downloadFile(file.id);
+        const base64 = buffer.toString('base64');
+
+        blocks.push({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: file.mime_type,
+            data: base64,
+          },
+        });
+
+        if (this.debug) {
+          console.log(`  📷 Attached image: ${file.name} (${file.mime_type}, ${Math.round(buffer.length / 1024)}KB)`);
+        }
+      } catch (err) {
+        console.error(`  ⚠️ Failed to download image ${file.name}:`, err);
+      }
+    }
+
+    // Add the text message
+    if (text) {
+      blocks.push({
+        type: 'text',
+        text,
+      });
+    }
+
+    return blocks;
+  }
+
   private startTyping(session: Session): void {
     if (session.typingTimer) return;
     // Send typing immediately, then every 3 seconds
@@ -926,10 +984,11 @@ export class SessionManager {
   }
 
   /** Send a follow-up message to an existing session */
-  async sendFollowUp(threadId: string, message: string): Promise<void> {
+  async sendFollowUp(threadId: string, message: string, files?: MattermostFile[]): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session || !session.claude.isRunning()) return;
-    session.claude.sendMessage(message);
+    const content = await this.buildMessageContent(message, files);
+    session.claude.sendMessage(content);
     session.lastActivityAt = new Date();
     this.startTyping(session);
   }
