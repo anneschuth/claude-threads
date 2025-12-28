@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2025-12-28
+
+### Added
+- **Git worktree support** - Isolate file changes between concurrent sessions
+  - Smart detection prompts for a branch when uncommitted changes or concurrent sessions exist
+  - Reply with a branch name to create a worktree, or react with ❌ to skip
+  - Inline syntax: `@bot on branch feature/x help me implement...`
+  - `!worktree <branch>` - Create and switch to a git worktree
+  - `!worktree list` - List all worktrees for the repo
+  - `!worktree switch <branch>` - Switch to an existing worktree
+  - `!worktree remove <branch>` - Remove a worktree
+  - `!worktree off` - Disable worktree prompts for this session
+  - Configure via `WORKTREE_MODE=off|prompt|require` (default: `prompt`)
+  - Worktrees persist after session ends (manual cleanup)
+  - Session header shows worktree info when active
+
 ## [0.10.11] - 2025-12-28
 
 ### Fixed
