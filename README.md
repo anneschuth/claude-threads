@@ -116,6 +116,8 @@ Type `!help` in any session thread to see available commands:
 | Command | Description |
 |:--------|:------------|
 | `!help` | Show available commands |
+| `!release-notes` | Show release notes for current version |
+| `!cd <path>` | Change working directory (restarts Claude) |
 | `!invite @user` | Invite a user to this session |
 | `!kick @user` | Remove an invited user |
 | `!permissions interactive` | Enable interactive permissions |

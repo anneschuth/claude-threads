@@ -2,6 +2,7 @@ import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js
 import { MattermostClient } from '../mattermost/client.js';
 import { MattermostFile } from '../mattermost/types.js';
 import { getUpdateInfo } from '../update-notifier.js';
+import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -1283,9 +1284,15 @@ export class SessionManager {
       ? `\n> ⚠️ **Update available:** v${updateInfo.current} → v${updateInfo.latest} - Run \`npm install -g mattermost-claude-code\`\n`
       : '';
 
+    // Get "What's new" from release notes
+    const releaseNotes = getReleaseNotes(pkg.version);
+    const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
+    const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
+
     const msg = [
       `### 🤖 mm-claude \`v${pkg.version}\``,
       updateNotice,
+      whatsNewLine,
       `| | |`,
       `|:--|:--|`,
       ...rows,

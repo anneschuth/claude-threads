@@ -9,6 +9,7 @@ import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 import { checkForUpdates } from './update-notifier.js';
+import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
@@ -119,6 +120,7 @@ async function main() {
           `| Command | Description |\n` +
           `|:--------|:------------|\n` +
           `| \`!help\` | Show this help message |\n` +
+          `| \`!release-notes\` | Show release notes for current version |\n` +
           `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
           `| \`!invite @user\` | Invite a user to this session |\n` +
           `| \`!kick @user\` | Remove an invited user |\n` +
@@ -129,6 +131,20 @@ async function main() {
           `- ❌ or 🛑 on any message to stop session`,
           threadRoot
         );
+        return;
+      }
+
+      // Check for !release-notes command
+      if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
+        const notes = getReleaseNotes(pkg.version);
+        if (notes) {
+          await mattermost.createPost(formatReleaseNotes(notes), threadRoot);
+        } else {
+          await mattermost.createPost(
+            `📋 **mm-claude v${pkg.version}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/mattermost-claude-code/releases).`,
+            threadRoot
+          );
+        }
         return;
       }
 
