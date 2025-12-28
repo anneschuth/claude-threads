@@ -12,6 +12,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Debug-only logging for internal session state changes (plan approval, question handling)
 - Consistent emoji formatting for all log messages
 
+## [0.6.0] - 2025-12-28
+
+### Added
+- **Auto-update notifications** - shows banner in session header when new version is available
+- Checks npm registry on startup for latest version
+- Update notice includes install command: `npm install -g mattermost-claude-code`
+
+## [0.5.9] - 2025-12-28
+
+### Fixed
+- Security fix: sanitize bot username in regex to prevent injection
+
 ## [0.5.8] - 2025-12-28
 
 ### Changed
