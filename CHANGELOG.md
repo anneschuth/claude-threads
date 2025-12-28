@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2025-12-28
+
+### Added
+- **Image attachment support** - Attach images to your messages and Claude Code will analyze them
+- Supports JPEG, PNG, GIF, and WebP formats
+- Images are downloaded from Mattermost and sent to Claude as base64-encoded content blocks
+- Works for both new sessions and follow-up messages
+- Debug logging shows attached image details (name, type, size)
+
 ## [0.7.3] - 2025-12-28
 
 ### Fixed
