@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-import { loadConfig } from './config.js';
+import { program } from 'commander';
+import { loadConfig, configExists, type CliArgs } from './config.js';
+import { runOnboarding } from './onboarding.js';
 import { MattermostClient } from './mattermost/client.js';
 import { SessionManager } from './claude/session.js';
 import type { MattermostPost, MattermostUser } from './mattermost/types.js';
@@ -14,21 +16,50 @@ const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
 const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 
+// Define CLI options
+program
+  .name('mm-claude')
+  .version(pkg.version)
+  .description('Share Claude Code sessions in Mattermost')
+  .option('--url <url>', 'Mattermost server URL')
+  .option('--token <token>', 'Mattermost bot token')
+  .option('--channel <id>', 'Mattermost channel ID')
+  .option('--bot-name <name>', 'Bot mention name (default: claude-code)')
+  .option('--allowed-users <users>', 'Comma-separated allowed usernames')
+  .option('--skip-permissions', 'Skip interactive permission prompts')
+  .option('--debug', 'Enable debug logging')
+  .parse();
+
+const opts = program.opts();
+
+// Check if required args are provided via CLI
+function hasRequiredCliArgs(args: typeof opts): boolean {
+  return !!(args.url && args.token && args.channel);
+}
+
 async function main() {
-  if (process.argv.includes('--version') || process.argv.includes('-v')) {
-    console.log(pkg.version);
-    process.exit(0);
+  // Set debug mode from CLI flag
+  if (opts.debug) {
+    process.env.DEBUG = '1';
   }
 
-  if (process.argv.includes('--help') || process.argv.includes('-h')) {
-    console.log(`mm-claude v${pkg.version} - Share Claude Code sessions in Mattermost
+  // Build CLI args object
+  const cliArgs: CliArgs = {
+    url: opts.url,
+    token: opts.token,
+    channel: opts.channel,
+    botName: opts.botName,
+    allowedUsers: opts.allowedUsers,
+    skipPermissions: opts.skipPermissions,
+  };
 
-Usage: cd /your/project && mm-claude`);
-    process.exit(0);
+  // Check if we need onboarding
+  if (!configExists() && !hasRequiredCliArgs(opts)) {
+    await runOnboarding();
   }
 
   const workingDir = process.cwd();
-  const config = loadConfig();
+  const config = loadConfig(cliArgs);
 
   // Nice startup banner
   console.log('');

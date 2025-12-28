@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-12-28
+
+### Added
+- **CLI arguments** to override all config options (`--url`, `--token`, `--channel`, etc.)
+- **Interactive onboarding** when no `.env` file exists - guided setup with help text
+- Full `--help` output with all available options
+- `--debug` flag to enable verbose logging
+
+### Changed
+- Switched from manual arg parsing to `commander` for better CLI experience
+- Config now supports: CLI args > environment variables > defaults
+
 ## [0.3.4] - 2025-12-27
 
 ### Added
