@@ -1048,6 +1048,18 @@ export class SessionManager {
       case 'system':
         if (e.subtype === 'error') return `❌ ${e.error}`;
         return null;
+      case 'user': {
+        // Handle local command output (e.g., /context, /cost responses)
+        const msg = e.message as { content?: string };
+        if (typeof msg?.content === 'string') {
+          // Extract content from <local-command-stdout> tags
+          const match = msg.content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
+          if (match) {
+            return match[1].trim();
+          }
+        }
+        return null;
+      }
       default:
         return null;
     }

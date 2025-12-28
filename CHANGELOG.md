@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.7] - 2025-12-28
+
+### Fixed
+- **Fixed `!context` and `!cost` commands** - These commands now properly display output
+  - Claude Code slash commands (`/context`, `/cost`) output via `user` events with `<local-command-stdout>` tags
+  - Added handling for these events so the output is displayed in Mattermost
+
 ## [0.10.6] - 2025-12-28
 
 ### Fixed
