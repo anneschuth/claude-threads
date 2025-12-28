@@ -336,14 +336,14 @@ export class SessionManager {
       );
       session.activeSubagents.delete(toolUseId);
     } catch (err) {
-      console.error('[Session] Failed to update subagent completion:', err);
+      console.error('  ⚠️ Failed to update subagent completion:', err);
     }
   }
 
   private async handleExitPlanMode(session: Session): Promise<void> {
     // If already approved in this session, auto-continue
     if (session.planApproved) {
-      console.log('[Session] Plan already approved, auto-continuing...');
+      if (this.debug) console.log('  ↪ Plan already approved, auto-continuing');
       if (session.claude.isRunning()) {
         session.claude.sendMessage('Continue with the implementation.');
         this.startTyping(session);
@@ -353,7 +353,7 @@ export class SessionManager {
 
     // If we already have a pending approval, don't post another one
     if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-      console.log('[Session] Plan approval already pending, waiting...');
+      if (this.debug) console.log('  ↪ Plan approval already pending, waiting');
       return;
     }
 
@@ -378,7 +378,7 @@ export class SessionManager {
       await this.mattermost.addReaction(post.id, '+1');
       await this.mattermost.addReaction(post.id, '-1');
     } catch (err) {
-      console.error('[Session] Failed to add approval reactions:', err);
+      console.error('  ⚠️ Failed to add approval reactions:', err);
     }
 
     // Track this for reaction handling
@@ -401,7 +401,7 @@ export class SessionManager {
         try {
           await this.mattermost.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
         } catch (err) {
-          console.error('[Session] Failed to update tasks:', err);
+          console.error('  ⚠️ Failed to update tasks:', err);
         }
       }
       return;
@@ -437,7 +437,7 @@ export class SessionManager {
         session.tasksPostId = post.id;
       }
     } catch (err) {
-      console.error('[Session] Failed to update tasks:', err);
+      console.error('  ⚠️ Failed to update tasks:', err);
     }
   }
 
@@ -454,14 +454,14 @@ export class SessionManager {
       const post = await this.mattermost.createPost(message, session.threadId);
       session.activeSubagents.set(toolUseId, post.id);
     } catch (err) {
-      console.error('[Session] Failed to post subagent status:', err);
+      console.error('  ⚠️ Failed to post subagent status:', err);
     }
   }
 
   private async handleAskUserQuestion(session: Session, toolUseId: string, input: Record<string, unknown>): Promise<void> {
     // If we already have pending questions, don't start another set
     if (session.pendingQuestionSet) {
-      console.log('[Session] Questions already pending, waiting...');
+      if (this.debug) console.log('  ↪ Questions already pending, waiting');
       return;
     }
 
@@ -532,7 +532,7 @@ export class SessionManager {
       try {
         await this.mattermost.addReaction(post.id, REACTION_EMOJIS[i]);
       } catch (err) {
-        console.error(`[Session] Failed to add reaction ${REACTION_EMOJIS[i]}:`, err);
+        console.error(`  ⚠️ Failed to add reaction ${REACTION_EMOJIS[i]}:`, err);
       }
     }
   }
@@ -586,13 +586,13 @@ export class SessionManager {
 
     const selectedOption = question.options[optionIndex];
     question.answer = selectedOption.label;
-    console.log(`[Session] User ${username} answered "${question.header}": ${selectedOption.label}`);
+    if (this.debug) console.log(`  💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
     // Update the post to show answer
     try {
       await this.mattermost.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
     } catch (err) {
-      console.error('[Session] Failed to update answered question:', err);
+      console.error('  ⚠️ Failed to update answered question:', err);
     }
 
     // Move to next question or finish
@@ -608,7 +608,7 @@ export class SessionManager {
         answersText += `- **${q.header}**: ${q.answer}\n`;
       }
 
-      console.log(`[Session] All questions answered, sending as message:`, answersText);
+      if (this.debug) console.log('  ✅ All questions answered');
 
       // Clear and send as regular message
       session.pendingQuestionSet = null;
@@ -629,7 +629,8 @@ export class SessionManager {
     if (!isApprove && !isReject) return;
 
     const postId = session.pendingApproval.postId;
-    console.log(`[Session] User ${username} ${isApprove ? 'approved' : 'rejected'} the plan`);
+    const shortId = session.threadId.substring(0, 8);
+    console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
     // Update the post to show the decision
     try {
@@ -638,7 +639,7 @@ export class SessionManager {
         : `❌ **Changes requested** by @${username}`;
       await this.mattermost.updatePost(postId, statusMessage);
     } catch (err) {
-      console.error('[Session] Failed to update approval post:', err);
+      console.error('  ⚠️ Failed to update approval post:', err);
     }
 
     // Clear pending approval and mark as approved
@@ -1127,7 +1128,7 @@ export class SessionManager {
     try {
       await this.mattermost.updatePost(session.sessionStartPostId, msg);
     } catch (err) {
-      console.error('[Session] Failed to update session header:', err);
+      console.error('  ⚠️ Failed to update session header:', err);
     }
   }
 
@@ -1163,7 +1164,7 @@ export class SessionManager {
       await this.mattermost.addReaction(post.id, 'white_check_mark');
       await this.mattermost.addReaction(post.id, '-1');
     } catch (err) {
-      console.error('[Session] Failed to add message approval reactions:', err);
+      console.error('  ⚠️ Failed to add message approval reactions:', err);
     }
   }
 
