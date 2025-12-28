@@ -27,6 +27,7 @@ program
   .option('--bot-name <name>', 'Bot mention name (default: claude-code)')
   .option('--allowed-users <users>', 'Comma-separated allowed usernames')
   .option('--skip-permissions', 'Skip interactive permission prompts')
+  .option('--no-skip-permissions', 'Enable interactive permission prompts (override env)')
   .option('--debug', 'Enable debug logging')
   .parse();
 

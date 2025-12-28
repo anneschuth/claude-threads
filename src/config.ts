@@ -77,10 +77,16 @@ export function loadConfig(cliArgs?: CliArgs): Config {
     .map(u => u.trim())
     .filter(u => u.length > 0);
 
-  // CLI --skip-permissions, env SKIP_PERMISSIONS=true, or legacy flag
-  const skipPermissions = cliArgs?.skipPermissions ||
-    process.env.SKIP_PERMISSIONS === 'true' ||
-    process.argv.includes('--dangerously-skip-permissions');
+  // CLI --skip-permissions or --no-skip-permissions takes priority
+  // Then env SKIP_PERMISSIONS, then legacy flag
+  let skipPermissions: boolean;
+  if (cliArgs?.skipPermissions !== undefined) {
+    // CLI explicitly set (--skip-permissions or --no-skip-permissions)
+    skipPermissions = cliArgs.skipPermissions;
+  } else {
+    skipPermissions = process.env.SKIP_PERMISSIONS === 'true' ||
+      process.argv.includes('--dangerously-skip-permissions');
+  }
 
   return {
     mattermost: {
