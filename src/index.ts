@@ -33,6 +33,8 @@ program
   .option('--no-skip-permissions', 'Enable interactive permission prompts (override env)')
   .option('--chrome', 'Enable Claude in Chrome integration')
   .option('--no-chrome', 'Disable Claude in Chrome integration')
+  .option('--worktree-mode <mode>', 'Git worktree mode: off, prompt, require (default: prompt)')
+  .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
   .parse();
 
@@ -61,11 +63,14 @@ async function main() {
     allowedUsers: opts.allowedUsers,
     skipPermissions: opts.skipPermissions,
     chrome: opts.chrome,
+    worktreeMode: opts.worktreeMode,
   };
 
   // Check if we need onboarding
-  if (!configExists() && !hasRequiredCliArgs(opts)) {
-    await runOnboarding();
+  if (opts.setup) {
+    await runOnboarding(true); // reconfigure mode
+  } else if (!configExists() && !hasRequiredCliArgs(opts)) {
+    await runOnboarding(false); // first-time mode
   }
 
   const workingDir = process.cwd();
@@ -81,7 +86,7 @@ async function main() {
   console.log(`  💬 ${cyan('@' + config.mattermost.botName)}`);
   console.log(`  🌐 ${dim(config.mattermost.url)}`);
   if (config.skipPermissions) {
-    console.log(`  ⚠️  ${dim('Permissions disabled')}`);
+    console.log(`  ⚠️ ${dim('Permissions disabled')}`);
   } else {
     console.log(`  🔐 ${dim('Interactive permissions')}`);
   }

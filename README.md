@@ -9,7 +9,9 @@
 [![npm version](https://img.shields.io/npm/v/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Share Claude Code sessions live in a Mattermost channel. Your colleagues can watch you work with Claude in real-time, collaborate on sessions, and even trigger their own sessions from Mattermost.
+**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost. Colleagues can watch, collaborate, and run their own sessions—all from chat.
+
+> 💡 *Think of it as screen-sharing for AI pair programming, but everyone can type.*
 
 ## Features
 
@@ -101,16 +103,20 @@ In Mattermost, mention the bot:
 claude-threads [options]
 
 Options:
-  --url <url>            Mattermost server URL
-  --token <token>        Bot token
-  --channel <id>         Channel ID
-  --bot-name <name>      Bot mention name (default: claude-code)
-  --allowed-users <list> Comma-separated allowed usernames
-  --skip-permissions     Skip permission prompts (auto-approve)
-  --no-skip-permissions  Enable permission prompts (override env)
-  --debug                Enable debug logging
-  --version              Show version
-  --help                 Show help
+  --url <url>              Mattermost server URL
+  --token <token>          Bot token
+  --channel <id>           Channel ID
+  --bot-name <name>        Bot mention name (default: claude-code)
+  --allowed-users <list>   Comma-separated allowed usernames
+  --skip-permissions       Skip permission prompts (auto-approve)
+  --no-skip-permissions    Enable permission prompts (override env)
+  --chrome                 Enable Chrome integration
+  --no-chrome              Disable Chrome integration
+  --worktree-mode <mode>   Git worktree mode: off, prompt, require
+  --setup                  Re-run setup wizard (reconfigure settings)
+  --debug                  Enable debug logging
+  --version                Show version
+  --help                   Show help
 ```
 
 CLI options override environment variables.
@@ -123,11 +129,17 @@ Type `!help` in any session thread to see available commands:
 |:--------|:------------|
 | `!help` | Show available commands |
 | `!release-notes` | Show release notes for current version |
+| `!context` | Show context usage (tokens used/remaining) |
+| `!cost` | Show token usage and cost for this session |
+| `!compact` | Compress context to free up space |
 | `!cd <path>` | Change working directory (restarts Claude) |
+| `!worktree <branch>` | Create and switch to a git worktree |
 | `!invite @user` | Invite a user to this session |
 | `!kick @user` | Remove an invited user |
 | `!permissions interactive` | Enable interactive permissions |
+| `!escape` | Interrupt current task (keeps session active) |
 | `!stop` | Stop this session |
+| `!kill` | Emergency shutdown (kills ALL sessions, exits bot) |
 
 > **Note:** Commands use `!` prefix instead of `/` to avoid conflicts with Mattermost's slash commands.
 
@@ -175,6 +187,47 @@ If the bot is running with `--skip-permissions` (auto mode), you can enable inte
 ```
 
 This allows collaboration by requiring approval for Claude's actions. Note: you can only downgrade (auto → interactive), not upgrade - this ensures security.
+
+## Git Worktrees
+
+When working on a task that requires code changes, Claude can work in an isolated git worktree. This keeps your main branch clean while Claude works on a feature branch in a separate directory.
+
+### Starting a Session with a Worktree
+
+Specify a branch when starting:
+
+```
+@claude-code on branch feature/add-auth implement user authentication
+```
+
+Or use the worktree command:
+
+```
+@claude-code !worktree feature/add-auth implement user authentication
+```
+
+### Worktree Commands
+
+| Command | Description |
+|:--------|:------------|
+| `!worktree <branch>` | Create worktree and switch to it |
+| `!worktree list` | List all worktrees for this repo |
+| `!worktree switch <branch>` | Switch to an existing worktree |
+| `!worktree remove <branch>` | Remove a worktree |
+| `!worktree off` | Disable worktree prompts for this session |
+
+### How It Works
+
+1. Creates a new worktree at `../<repo>-worktrees/<branch>/`
+2. Creates or checks out the specified branch
+3. Claude works in the worktree directory
+4. Your main working directory stays untouched
+
+### Environment Variable
+
+| Variable | Description |
+|----------|-------------|
+| `WORKTREE_MODE` | `prompt` (ask on new sessions), `require` (always require branch), `off` (disable) |
 
 ## Interactive Features
 
@@ -258,6 +311,8 @@ ALLOWED_USERS=alice,bob,carol
 | `MATTERMOST_BOT_NAME` | Mention name (default: `claude-code`) |
 | `ALLOWED_USERS` | Comma-separated usernames |
 | `SKIP_PERMISSIONS` | `true` to auto-approve actions |
+| `CLAUDE_CHROME` | `true` to enable Chrome integration |
+| `WORKTREE_MODE` | `off`, `prompt`, or `require` (default: `prompt`) |
 | `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
 | `SESSION_TIMEOUT_MS` | Idle timeout in ms (default: `1800000` = 30 min) |
 | `NO_UPDATE_NOTIFIER` | Set to `1` to disable update checks |
