@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2025-12-29
+
+### Changed
+- **Renamed project to `claude-threads`** - Complete rebrand from `mm-claude`
+  - npm package: `mattermost-claude-code` → `claude-threads`
+  - CLI command: `mm-claude` → `claude-threads`
+  - Config directory: `~/.config/mm-claude/` → `~/.config/claude-threads/`
+  - MCP server: `mm-claude-permissions` → `claude-threads-permissions`
+  - GitHub repository: `mattermost-claude-code` → `claude-threads`
+- **New CT logo** - Stylized "CT" block characters replace the old "M" logo
+  - Fresh visual identity matching the new name
+
 ## [0.11.2] - 2025-12-28
 
 ### Fixed
@@ -137,7 +149,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.10.2] - 2025-12-28
 
 ### Changed
-- Version number now displays directly after "mm-claude" in the logo instead of on a separate line
+- Version number now displays directly after "claude-threads" in the logo instead of on a separate line
 
 ### Fixed
 - **Interrupt (⏸️) no longer kills session** - sessions now pause and can be resumed
@@ -214,7 +226,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Session persistence** - Sessions now survive bot restarts!
-  - Active sessions are saved to `~/.config/mm-claude/sessions.json`
+  - Active sessions are saved to `~/.config/claude-threads/sessions.json`
   - On bot restart, sessions are automatically resumed using Claude's `--resume` flag
   - Users see "Bot shutting down - session will resume" when bot stops
   - Users see "Session resumed after bot restart" when session resumes
@@ -275,7 +287,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Auto-update notifications** - shows banner in session header when new version is available
 - Checks npm registry on startup for latest version
-- Update notice includes install command: `npm install -g mattermost-claude-code`
+- Update notice includes install command: `npm install -g claude-threads`
 
 ## [0.5.9] - 2025-12-28
 
@@ -377,12 +389,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ping every 30 seconds to keep connection alive
 
 ### Fixed
-- Connections no longer go "zombie" after laptop sleep - mm-claude now detects and reconnects
+- Connections no longer go "zombie" after laptop sleep - claude-threads now detects and reconnects
 
 ## [0.3.2] - 2025-12-27
 
 ### Fixed
-- Session card now correctly shows "mm-claude" instead of "Claude Code"
+- Session card now correctly shows "claude-threads" instead of "Claude Code"
 
 ## [0.3.1] - 2025-12-27
 
