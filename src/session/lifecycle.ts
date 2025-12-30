@@ -34,8 +34,9 @@ export interface LifecycleContext {
   sessionStore: SessionStore;
   isShuttingDown: boolean;
   getSessionId: (platformId: string, threadId: string) => string;
-  handleEvent: (threadId: string, event: ClaudeEvent) => void;
-  handleExit: (threadId: string, code: number) => Promise<void>;
+  findSessionByThreadId: (threadId: string) => Session | undefined;
+  handleEvent: (sessionId: string, event: ClaudeEvent) => void;
+  handleExit: (sessionId: string, code: number) => Promise<void>;
   registerPost: (postId: string, threadId: string) => void;
   startTyping: (session: Session) => void;
   stopTyping: (session: Session) => void;
@@ -46,6 +47,22 @@ export interface LifecycleContext {
   shouldPromptForWorktree: (session: Session) => Promise<string | null>;
   postWorktreePrompt: (session: Session, reason: string) => Promise<void>;
   buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
+}
+
+/**
+ * Helper to find a persisted session by raw threadId.
+ * Persisted sessions are keyed by composite sessionId, so we need to iterate.
+ */
+function findPersistedByThreadId(
+  persisted: Map<string, PersistedSession>,
+  threadId: string
+): PersistedSession | undefined {
+  for (const session of persisted.values()) {
+    if (session.threadId === threadId) {
+      return session;
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -163,9 +180,9 @@ export async function startSession(
   // Start typing indicator
   ctx.startTyping(session);
 
-  // Bind event handlers
-  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(actualThreadId, e));
-  claude.on('exit', (code: number) => ctx.handleExit(actualThreadId, code));
+  // Bind event handlers (use sessionId which is the composite key)
+  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
 
   try {
     claude.start();
@@ -286,9 +303,9 @@ export async function resumeSession(
     ctx.registerPost(state.sessionStartPostId, state.threadId);
   }
 
-  // Bind event handlers
-  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(state.threadId, e));
-  claude.on('exit', (code: number) => ctx.handleExit(state.threadId, code));
+  // Bind event handlers (use sessionId which is the composite key)
+  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
 
   try {
     claude.start();
@@ -351,8 +368,9 @@ export async function resumePausedSession(
   files: PlatformFile[] | undefined,
   ctx: LifecycleContext
 ): Promise<void> {
+  // Find persisted session by raw threadId
   const persisted = ctx.sessionStore.load();
-  const state = persisted.get(threadId);
+  const state = findPersistedByThreadId(persisted, threadId);
   if (!state) {
     console.log(`  [resume] No persisted session found for ${threadId.substring(0, 8)}...`);
     return;
@@ -365,7 +383,7 @@ export async function resumePausedSession(
   await resumeSession(state, ctx);
 
   // Wait a moment for the session to be ready, then send the message
-  const session = ctx.sessions.get(threadId);
+  const session = ctx.findSessionByThreadId(threadId);
   if (session && session.claude.isRunning()) {
     const content = await ctx.buildMessageContent(message, session.platform, files);
     session.claude.sendMessage(content);
@@ -384,12 +402,12 @@ export async function resumePausedSession(
  * Handle Claude CLI exit event.
  */
 export async function handleExit(
-  threadId: string,
+  sessionId: string,
   code: number,
   ctx: LifecycleContext
 ): Promise<void> {
-  const session = ctx.sessions.get(threadId);
-  const shortId = threadId.substring(0, 8);
+  const session = ctx.sessions.get(sessionId);
+  const shortId = sessionId.substring(0, 8);
 
   console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
 
@@ -429,7 +447,7 @@ export async function handleExit(
     ctx.sessions.delete(session.sessionId);
     // Clean up post index
     for (const [postId, tid] of ctx.postIndex.entries()) {
-      if (tid === threadId) {
+      if (tid === session.threadId) {
         ctx.postIndex.delete(postId);
       }
     }
@@ -483,14 +501,14 @@ export async function handleExit(
   // Clean up session from maps
   ctx.sessions.delete(session.sessionId);
   for (const [postId, tid] of ctx.postIndex.entries()) {
-    if (tid === threadId) {
+    if (tid === session.threadId) {
       ctx.postIndex.delete(postId);
     }
   }
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
-    ctx.unpersistSession(threadId);
+    ctx.unpersistSession(session.sessionId);
   } else {
     console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
   }

@@ -109,8 +109,9 @@ export class SessionManager {
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
       getSessionId: (pid, tid) => this.getSessionId(pid, tid),
-      handleEvent: (tid, e) => this.handleEvent(tid, e),
-      handleExit: (tid, code) => this.handleExit(tid, code),
+      findSessionByThreadId: (tid) => this.findSessionByThreadId(tid),
+      handleEvent: (sid, e) => this.handleEvent(sid, e),
+      handleExit: (sid, code) => this.handleExit(sid, code),
       registerPost: (pid, tid) => this.registerPost(pid, tid),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
@@ -175,7 +176,7 @@ export class SessionManager {
   private getSessionByPost(postId: string): Session | undefined {
     const threadId = this.postIndex.get(postId);
     if (!threadId) return undefined;
-    return this.sessions.get(threadId);
+    return this.findSessionByThreadId(threadId);
   }
 
   // ---------------------------------------------------------------------------
@@ -253,8 +254,8 @@ export class SessionManager {
   // Event Handling (delegates to events module)
   // ---------------------------------------------------------------------------
 
-  private handleEvent(threadId: string, event: ClaudeEvent): void {
-    const session = this.sessions.get(threadId);
+  private handleEvent(sessionId: string, event: ClaudeEvent): void {
+    const session = this.sessions.get(sessionId);
     if (!session) return;
     events.handleEvent(session, event, this.getEventContext());
   }
@@ -263,8 +264,8 @@ export class SessionManager {
   // Exit Handling (delegates to lifecycle module)
   // ---------------------------------------------------------------------------
 
-  private async handleExit(threadId: string, code: number): Promise<void> {
-    await lifecycle.handleExit(threadId, code, this.getLifecycleContext());
+  private async handleExit(sessionId: string, code: number): Promise<void> {
+    await lifecycle.handleExit(sessionId, code, this.getLifecycleContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -310,8 +311,9 @@ export class SessionManager {
   }
 
   private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
-    for (const [threadId, session] of this.sessions) {
-      if (threadId === excludeThreadId) continue;
+    for (const session of this.sessions.values()) {
+      // Skip the session we're checking from (compare raw threadIds)
+      if (session.threadId === excludeThreadId) continue;
       if (session.workingDir === repoRoot) return true;
       if (session.worktreeInfo?.repoRoot === repoRoot) return true;
     }
@@ -385,8 +387,29 @@ export class SessionManager {
     await lifecycle.startSession(options, username, replyToPostId, platformId, this.getLifecycleContext());
   }
 
+  // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
+  private findSessionByThreadId(threadId: string): Session | undefined {
+    for (const session of this.sessions.values()) {
+      if (session.threadId === threadId) {
+        return session;
+      }
+    }
+    return undefined;
+  }
+
+  // Helper to find persisted session by threadId (persisted sessions are keyed by composite sessionId)
+  private findPersistedByThreadId(threadId: string): PersistedSession | undefined {
+    const persisted = this.sessionStore.load();
+    for (const session of persisted.values()) {
+      if (session.threadId === threadId) {
+        return session;
+      }
+    }
+    return undefined;
+  }
+
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session || !session.claude.isRunning()) return;
     await lifecycle.sendFollowUp(session, message, files, this.getLifecycleContext());
   }
@@ -396,14 +419,13 @@ export class SessionManager {
   }
 
   isInSessionThread(threadRoot: string): boolean {
-    const session = this.sessions.get(threadRoot);
+    const session = this.findSessionByThreadId(threadRoot);
     return session !== undefined && session.claude.isRunning();
   }
 
   hasPausedSession(threadId: string): boolean {
-    if (this.sessions.has(threadId)) return false;
-    const persisted = this.sessionStore.load();
-    return persisted.has(threadId);
+    if (this.findSessionByThreadId(threadId)) return false;
+    return this.findPersistedByThreadId(threadId) !== undefined;
   }
 
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
@@ -411,12 +433,11 @@ export class SessionManager {
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {
-    const persisted = this.sessionStore.load();
-    return persisted.get(threadId);
+    return this.findPersistedByThreadId(threadId);
   }
 
   killSession(threadId: string, unpersist = true): void {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     lifecycle.killSession(session, unpersist, this.getLifecycleContext());
   }
@@ -427,57 +448,57 @@ export class SessionManager {
 
   // Commands
   async cancelSession(threadId: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.cancelSession(session, username, this.getCommandContext());
   }
 
   async interruptSession(threadId: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.interruptSession(session, username);
   }
 
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.changeDirectory(session, newDir, username, this.getCommandContext());
   }
 
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.inviteUser(session, invitedUser, invitedBy, this.getCommandContext());
   }
 
   async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.kickUser(session, kickedUser, kickedBy, this.getCommandContext());
   }
 
   async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.enableInteractivePermissions(session, username, this.getCommandContext());
   }
 
   isSessionInteractive(threadId: string): boolean {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return !this.skipPermissions;
     if (!this.skipPermissions) return true;
     return session.forceInteractivePermissions;
   }
 
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.requestMessageApproval(session, username, message, this.getCommandContext());
   }
 
   // Worktree commands
   async handleWorktreeBranchResponse(threadId: string, branchName: string, username: string): Promise<boolean> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return false;
     return worktreeModule.handleWorktreeBranchResponse(
       session,
@@ -488,7 +509,7 @@ export class SessionManager {
   }
 
   async handleWorktreeSkip(threadId: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.handleWorktreeSkip(
       session,
@@ -499,7 +520,7 @@ export class SessionManager {
   }
 
   async createAndSwitchToWorktree(threadId: string, branch: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.createAndSwitchToWorktree(session, branch, username, {
       skipPermissions: this.skipPermissions,
@@ -515,7 +536,7 @@ export class SessionManager {
   }
 
   async switchToWorktree(threadId: string, branchOrPath: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.switchToWorktree(
       session,
@@ -526,31 +547,32 @@ export class SessionManager {
   }
 
   async listWorktreesCommand(threadId: string, _username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.listWorktreesCommand(session);
   }
 
   async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.removeWorktreeCommand(session, branchOrPath, username);
   }
 
   async disableWorktreePrompt(threadId: string, username: string): Promise<void> {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.disableWorktreePrompt(session, username, (s) => this.persistSession(s));
   }
 
   hasPendingWorktreePrompt(threadId: string): boolean {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     return session?.pendingWorktreePrompt === true;
   }
 
   // Missing public methods needed by index.ts
   getActiveThreadIds(): string[] {
-    return [...this.sessions.keys()];
+    // Return raw threadIds (not composite sessionIds) for posting to chat
+    return [...this.sessions.values()].map(s => s.threadId);
   }
 
   killAllSessionsAndUnpersist(): void {
@@ -564,7 +586,7 @@ export class SessionManager {
   }
 
   isUserAllowedInSession(threadId: string, username: string): boolean {
-    const session = this.sessions.get(threadId);
+    const session = this.findSessionByThreadId(threadId);
     if (!session) {
       // Check persisted session
       const persisted = this.getPersistedSession(threadId);

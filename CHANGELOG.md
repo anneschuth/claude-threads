@@ -15,10 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Normalized types: `PlatformPost`, `PlatformUser`, `PlatformReaction`, `PlatformFile`
   - Mattermost implementation moved to `src/platform/mattermost/`
   - Slack support architecture ready (implementation pending)
-- **Multi-platform config system** - YAML-based configuration
-  - New config format: `~/.config/claude-threads/config.yaml`
+- **YAML-based configuration** - New config format
+  - Config file: `~/.config/claude-threads/config.yaml`
   - Support for multiple platform instances simultaneously
-  - Auto-migration from legacy `.env` files
+  - Interactive onboarding wizard creates YAML config
 
 ### Changed
 - **Modular session management** - Broke 2,500-line monolith into focused modules
@@ -34,6 +34,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cleaner logo exports** - Renamed to generic `getLogo()`, `LOGO`, `LOGO_INLINE`
 
 ### Removed
+- **Legacy `.env` configuration** - Now uses YAML only (`config.yaml`)
+- **`dotenv` dependency** - No longer needed
 - Deprecated Mattermost-specific exports (`getMattermostLogo`, `MATTERMOST_LOGO`)
 - Internal documentation files (moved to CLAUDE.md)
 

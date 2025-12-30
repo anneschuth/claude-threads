@@ -185,8 +185,8 @@ export async function createAndSwitchToWorktree(
   options: {
     skipPermissions: boolean;
     chromeEnabled: boolean;
-    handleEvent: (threadId: string, event: ClaudeEvent) => void;
-    handleExit: (threadId: string, code: number) => Promise<void>;
+    handleEvent: (sessionId: string, event: ClaudeEvent) => void;
+    handleExit: (sessionId: string, code: number) => Promise<void>;
     updateSessionHeader: (session: Session) => Promise<void>;
     flush: (session: Session) => Promise<void>;
     persistSession: (session: Session) => void;
@@ -291,9 +291,9 @@ export async function createAndSwitchToWorktree(
       };
       session.claude = new ClaudeCli(cliOptions);
 
-      // Rebind event handlers
-      session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.threadId, e));
-      session.claude.on('exit', (code: number) => options.handleExit(session.threadId, code));
+      // Rebind event handlers (use sessionId which is the composite key)
+      session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
+      session.claude.on('exit', (code: number) => options.handleExit(session.sessionId, code));
 
       // Start the new CLI
       session.claude.start();

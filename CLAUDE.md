@@ -101,14 +101,14 @@ platforms:
     type: mattermost
     displayName: Main Team
     url: https://chat.example.com
-    token: ${MM_TOKEN}
+    token: your-bot-token-here
     channelId: abc123
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
 ```
 
-Single-platform `.env` files are automatically migrated to multi-platform config with `platformId='default'`.
+Configuration is stored in YAML only - no `.env` file support.
 
 ## Source Files
 
@@ -116,8 +116,8 @@ Single-platform `.env` files are automatically migrated to multi-platform config
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | Entry point. CLI parsing, bot startup, message routing |
-| `src/config.ts` | Legacy config loader (backward compat) |
-| `src/config/migration.ts` | Multi-platform config with auto-migration from .env |
+| `src/config.ts` | Type exports for config (re-exports from migration.ts) |
+| `src/config/migration.ts` | YAML config loading (`config.yaml`) |
 | `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
 
 ### Session Management (Modular Architecture)
@@ -161,8 +161,10 @@ The session management is split into focused modules for maintainability:
 | `src/utils/emoji.ts` | Emoji constants and validators (platform-agnostic) |
 | `src/utils/tool-formatter.ts` | Format tool use for display |
 | `src/utils/logger.ts` | MCP-compatible logging |
-| `src/mcp/permission-server.ts` | MCP server for permission prompts |
-| `src/mattermost/api.ts` | Standalone Mattermost API helpers (used by MCP server) |
+| `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
+| `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
+| `src/platform/permission-api.ts` | PermissionApi interface |
+| `src/mattermost/api.ts` | Standalone Mattermost API helpers |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
 | `src/logo.ts` | ASCII art logo |
 
@@ -192,29 +194,20 @@ The session management is split into focused modules for maintainability:
 
 6. **Claude CLI** proceeds or aborts based on the response
 
-## Environment Variables
+## Configuration
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `MATTERMOST_URL` | Yes | Mattermost server URL (e.g., `https://chat.example.com`) |
-| `MATTERMOST_TOKEN` | Yes | Bot access token |
-| `MATTERMOST_CHANNEL_ID` | Yes | Channel ID where bot listens |
-| `MATTERMOST_BOT_NAME` | No | Bot username for @mentions (default: `claude-code`) |
-| `ALLOWED_USERS` | No | Comma-separated usernames who can use the bot |
-| `SKIP_PERMISSIONS` | No | Set `true` to skip permission prompts |
-| `CLAUDE_CHROME` | No | Set `true` to enable Chrome integration |
-| `MAX_SESSIONS` | No | Max concurrent sessions (default: `5`) |
-| `SESSION_TIMEOUT_MS` | No | Idle session timeout in ms (default: `1800000` = 30 min) |
-| `DEBUG` | No | Set `1` for debug logging |
-| `CLAUDE_PATH` | No | Custom path to claude binary (default: `claude`) |
+Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 
-**Config priority** (highest to lowest):
-1. CLI arguments (`--url`, `--token`, `--channel`, etc.)
-2. `./.env` (current directory)
-3. `~/.config/claude-threads/.env`
-4. `~/.claude-threads.env`
+**First run:** If no config exists, interactive onboarding guides you through setup.
 
-**First run:** If no config exists and no CLI args provided, interactive onboarding guides you through setup.
+### Environment Variables (Optional)
+
+| Variable | Description |
+|----------|-------------|
+| `MAX_SESSIONS` | Max concurrent sessions (default: `5`) |
+| `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
+| `DEBUG` | Set `1` for debug logging |
+| `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
 
 ## Development Commands
 
@@ -229,7 +222,7 @@ npm run lint         # Run ESLint
 
 ## Testing Locally
 
-1. Create config: `~/.config/claude-threads/.env`
+1. Create config: `~/.config/claude-threads/config.yaml` (or run `claude-threads` for interactive setup)
 2. Build: `npm run build`
 3. Run: `npm start` (or `DEBUG=1 npm start` for verbose output)
 4. In Mattermost, @mention the bot: `@botname write "hello" to test.txt`
@@ -338,6 +331,38 @@ When testing a specific fix:
 ### "TypeScript build errors"
 - Run `npm install` to ensure dependencies are up to date
 - Check for type mismatches in event handling
+
+## Debugging with Claude Code History
+
+Claude Code stores all conversation history on disk, which is invaluable for debugging:
+
+```
+~/.claude/
+├── history.jsonl          # Index of all sessions (metadata only)
+├── projects/              # Full conversation transcripts
+│   └── -Users-username-project/   # Encoded path (/ → -)
+│       ├── session-id-1.jsonl     # Full conversation
+│       └── session-id-2.jsonl
+├── todos/                 # Todo lists per session
+└── settings.json          # User settings
+```
+
+**Useful debugging commands:**
+```bash
+# List recent sessions
+tail -20 ~/.claude/history.jsonl | jq -r '.cwd + " " + .name'
+
+# Find sessions for this project
+ls ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/
+
+# View a specific session's conversation
+cat ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/SESSION_ID.jsonl | jq .
+```
+
+**Key points:**
+- Directory names are encoded: `/path/to/project/` → `-path-to-project`
+- Each session gets a JSONL file with full conversation history
+- Consider backing up `~/.claude/` regularly
 
 ## Key Implementation Details
 

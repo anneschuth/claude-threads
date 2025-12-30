@@ -80,15 +80,20 @@ export class SessionStore {
     try {
       const data = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as SessionStoreData;
 
-      // Migration: v1 → v2 (add platformId)
+      // Migration: v1 → v2 (add platformId and convert keys to composite format)
       if (data.version === 1) {
         console.log('  [persist] Migrating sessions from v1 to v2 (adding platformId)');
-        for (const session of Object.values(data.sessions)) {
+        const newSessions: Record<string, PersistedSession> = {};
+        for (const [_oldKey, session] of Object.entries(data.sessions)) {
           const v1Session = session as PersistedSessionV1;
           if (!v1Session.platformId) {
             v1Session.platformId = 'default';
           }
+          // Convert key from threadId to platformId:threadId
+          const newKey = `${v1Session.platformId}:${v1Session.threadId}`;
+          newSessions[newKey] = v1Session as PersistedSession;
         }
+        data.sessions = newSessions;
         data.version = 2;
         // Save migrated data
         this.writeAtomic(data);
