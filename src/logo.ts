@@ -26,10 +26,9 @@ ${colors.orange}✴${colors.reset}  ${colors.blue}█▀   █${colors.reset}   
 `;
 
 /**
- * ASCII logo for chat platforms (plain text, no ANSI codes)
- * Use getPlatformLogo(version) instead to include version
+ * ASCII logo for display in chat (plain text, no ANSI codes)
  */
-export const PLATFORM_LOGO = `\`\`\`
+export const LOGO = `\`\`\`
  ✴ ▄█▀ ███ ✴   claude-threads
 ✴  █▀   █   ✴  Chat × Claude Code
  ✴ ▀█▄  █  ✴
@@ -47,25 +46,9 @@ export function getLogo(version: string): string {
 }
 
 /**
- * @deprecated Use getLogo instead
- */
-export const getMattermostLogo = getLogo;
-export const getPlatformLogo = getLogo;
-
-/**
- * @deprecated Use PLATFORM_LOGO instead
- */
-export const MATTERMOST_LOGO = PLATFORM_LOGO;
-
-/**
  * Compact inline logo for chat platform headers
  */
-export const PLATFORM_LOGO_INLINE = '`▄█▀T` **claude-threads**';
-
-/**
- * @deprecated Use PLATFORM_LOGO_INLINE instead
- */
-export const MATTERMOST_LOGO_INLINE = PLATFORM_LOGO_INLINE;
+export const LOGO_INLINE = '`▄█▀T` **claude-threads**';
 
 /**
  * Very compact logo for space-constrained contexts

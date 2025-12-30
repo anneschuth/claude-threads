@@ -13,7 +13,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - **Multi-platform support** - connect to multiple Mattermost/Slack instances simultaneously
 - **Multiple concurrent sessions** - one per thread, across all platforms
 - **Session persistence** - sessions resume automatically after bot restart
-- **Session collaboration** - `/invite @user` to temporarily allow users in a session
+- **Session collaboration** - `!invite @user` to temporarily allow users in a session
 - **Message approval** - unauthorized users can request approval for their messages
 - Interactive permission approval via emoji reactions
 - Plan approval and question answering via reactions
@@ -26,20 +26,19 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         Mattermost                               │
+│                      Chat Platform                               │
 │  ┌──────────────┐                    ┌──────────────────────┐   │
-│  │ User message │ ───WebSocket───▶  │   MattermostClient   │   │
-│  │ + reactions  │ ◀───────────────  │   (main bot)         │   │
+│  │ User message │ ───WebSocket───▶  │   PlatformClient     │   │
+│  │ + reactions  │ ◀───────────────  │   (Mattermost/Slack) │   │
 │  └──────────────┘                    └──────────┬───────────┘   │
 └─────────────────────────────────────────────────┼───────────────┘
                                                   │
                       ┌───────────────────────────┴────────────────┐
                       │              SessionManager                 │
-                      │  - Manages MULTIPLE concurrent sessions     │
-                      │  - Each session tied to a Mattermost thread │
-                      │  - sessions: Map<threadId, Session>         │
+                      │  - Orchestrates session lifecycle           │
+                      │  - Delegates to specialized modules         │
+                      │  - sessions: Map<sessionId, Session>        │
                       │  - postIndex: Map<postId, threadId>         │
-                      │  - Periodic cleanup of idle sessions        │
                       └───────────────────────────┬────────────────┘
                                                   │
                               ┌───────────────────┼───────────────────┐
@@ -74,7 +73,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 ## Multi-Platform Support
 
-**Architecture**: claude-threads now supports connecting to multiple chat platforms simultaneously through a platform abstraction layer.
+**Architecture**: claude-threads supports connecting to multiple chat platforms simultaneously through a platform abstraction layer.
 
 **Currently Supported**:
 - ✅ Mattermost (fully implemented)
@@ -111,8 +110,6 @@ platforms:
 
 Single-platform `.env` files are automatically migrated to multi-platform config with `platformId='default'`.
 
-**See also**: [Multi-Platform Architecture Documentation](docs/MULTI_PLATFORM_ARCHITECTURE.md)
-
 ## Source Files
 
 ### Core
@@ -123,33 +120,51 @@ Single-platform `.env` files are automatically migrated to multi-platform config
 | `src/config/migration.ts` | Multi-platform config with auto-migration from .env |
 | `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
 
-### Session Management
+### Session Management (Modular Architecture)
+
+The session management is split into focused modules for maintainability:
+
+| File | Lines | Purpose |
+|------|-------|---------|
+| `src/session/manager.ts` | ~635 | **Orchestrator** - thin wrapper that delegates to modules |
+| `src/session/lifecycle.ts` | ~590 | Session start, resume, exit, cleanup |
+| `src/session/events.ts` | ~480 | Claude CLI event handling (assistant, tool_use, etc.) |
+| `src/session/commands.ts` | ~510 | User commands (!cd, !invite, !kick, !permissions) |
+| `src/session/reactions.ts` | ~210 | Emoji reaction handling (approvals, questions) |
+| `src/session/worktree.ts` | ~520 | Git worktree management |
+| `src/session/streaming.ts` | ~180 | Message batching and flushing to chat |
+| `src/session/types.ts` | ~130 | TypeScript types (Session, PendingApproval, etc.) |
+| `src/session/index.ts` | ~15 | Public exports |
+
+**Design Pattern**: SessionManager uses dependency injection via context objects to delegate to modules while maintaining a clean public API.
+
+### Claude CLI
 | File | Purpose |
 |------|---------|
 | `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
-| `src/claude/session.ts` | SessionManager: handles Claude events, manages multi-platform sessions |
 | `src/claude/types.ts` | TypeScript types for Claude stream-json events |
-| `src/persistence/session-store.ts` | Multi-platform session persistence (with v1→v2 migration) |
 
 ### Platform Layer
 | File | Purpose |
 |------|---------|
 | `src/platform/client.ts` | PlatformClient interface (abstraction for all platforms) |
-| `src/platform/types.ts` | Normalized types (PlatformPost, PlatformUser, etc.) |
+| `src/platform/types.ts` | Normalized types (PlatformPost, PlatformUser, PlatformReaction, etc.) |
 | `src/platform/formatter.ts` | PlatformFormatter interface (markdown dialects) |
+| `src/platform/index.ts` | Public exports |
 | `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
 | `src/platform/mattermost/types.ts` | Mattermost-specific types |
 | `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
-| `src/mattermost/*` | Backward compatibility wrappers |
 
 ### Utilities
 | File | Purpose |
 |------|---------|
-| `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
-| `src/mattermost/message-formatter.ts` | Formats Claude output (diffs, code, tasks) |
-| `src/mattermost/api.ts` | Shared Mattermost API helpers |
-| `src/mattermost/emoji.ts` | Emoji constants and validators |
-| `.github/workflows/publish.yml` | Automated npm publishing |
+| `src/utils/emoji.ts` | Emoji constants and validators (platform-agnostic) |
+| `src/utils/tool-formatter.ts` | Format tool use for display |
+| `src/utils/logger.ts` | MCP-compatible logging |
+| `src/mcp/permission-server.ts` | MCP server for permission prompts |
+| `src/mattermost/api.ts` | Standalone Mattermost API helpers (used by MCP server) |
+| `src/persistence/session-store.ts` | Multi-platform session persistence |
+| `src/logo.ts` | ASCII art logo |
 
 ## How the Permission System Works
 
@@ -164,9 +179,9 @@ Single-platform `.env` files are automatically migrated to multi-platform config
 
 3. **The MCP server** (running as a subprocess):
    - Receives the permission request via stdio
-   - Posts a message to the Mattermost thread: "⚠️ Permission requested: Write `file.txt`"
+   - Posts a message to the chat thread: "⚠️ Permission requested: Write `file.txt`"
    - Adds reaction options (👍 ✅ 👎) to the message
-   - Opens a WebSocket to Mattermost and waits for a reaction
+   - Opens a WebSocket to the platform and waits for a reaction
 
 4. **User reacts** with an emoji
 
@@ -208,7 +223,8 @@ npm install          # Install dependencies
 npm run build        # Compile TypeScript to dist/
 npm run dev          # Run from source with tsx watch
 npm start            # Run compiled version
-npm test             # (no tests yet)
+npm test             # Run tests (125 tests)
+npm run lint         # Run ESLint
 ```
 
 ## Testing Locally
@@ -325,36 +341,38 @@ When testing a specific fix:
 
 ## Key Implementation Details
 
-### Event Flow (session.ts)
+### Event Flow (src/session/events.ts)
 Claude CLI emits JSON events. Key event types:
 - `assistant` → Claude's text response (streamed in chunks)
 - `tool_use` → Claude wants to use a tool (Read, Write, Bash, etc.)
 - `tool_result` → Result of tool execution
 - `result` → Final result with cost info
 
-### Message Formatting (message-formatter.ts)
-- Diffs are formatted with syntax highlighting
-- Code blocks use language-specific fencing
-- Long content is truncated with "..." indicators
-- Task lists rendered as checkbox markdown
+### Message Streaming (src/session/streaming.ts)
+- Messages are batched and flushed periodically
+- Long content is split across multiple posts (16K limit)
+- Diffs and code blocks use syntax highlighting
 
-### Reaction Handling (session.ts + client.ts)
-- Main bot handles: plan approval, question answers
+### Reaction Handling (src/session/reactions.ts + MCP server)
+- Main bot handles: plan approval, question answers, message approval
 - MCP server handles: permission prompts
 - Both filter to only process allowed users' reactions
 
 ## Future Improvements to Consider
 
-- [ ] Add unit tests
+- [ ] Implement Slack platform support
+- [ ] Add rate limiting for API calls
+- [ ] Support file uploads via chat attachments
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
-- [x] Add `/cancel` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
+- [x] Add `!stop` command to abort running session - **Done in v0.3.4** (also ❌/🛑 reactions)
 - [x] CLI arguments and interactive onboarding - **Done in v0.4.0**
-- [x] Session collaboration (`/invite`, `/kick`, message approval) - **Done in v0.5.0**
+- [x] Session collaboration (`!invite`, `!kick`, message approval) - **Done in v0.5.0**
 - [x] Persist session state for recovery after restart - **Done in v0.9.0**
 - [x] Add `!escape` command to interrupt without killing session - **Done in v0.10.0** (also ⏸️ reaction)
 - [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
+- [x] Multi-platform architecture - **Done in v0.14.0**
+- [x] Modular session management - **Done in v0.14.0**
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
-- [ ] Support multiple platforms (Mattermost/Slack) in parallel
 - [ ] Keep task list at the bottommost message (always update to latest position)
 - [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
