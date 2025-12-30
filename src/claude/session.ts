@@ -558,9 +558,12 @@ export class SessionManager {
     return this.sessions.get(sessionId);
   }
 
-  /** Check if a session exists for this thread */
+  /**
+   * Check if a session exists for this thread
+   * NOTE: Searches by threadId for backward compatibility
+   */
   hasSession(threadId: string): boolean {
-    return this.sessions.has(threadId);
+    return this.getSession(threadId) !== undefined;
   }
 
   /** Get the number of active sessions */
@@ -568,9 +571,12 @@ export class SessionManager {
     return this.sessions.size;
   }
 
-  /** Get all active session thread IDs */
+  /**
+   * Get all active session thread IDs
+   * NOTE: Extracts threadId from each session for backward compatibility
+   */
   getActiveThreadIds(): string[] {
-    return [...this.sessions.keys()];
+    return [...this.sessions.values()].map(s => s.threadId);
   }
 
   /** Mark that we're shutting down (prevents cleanup of persisted sessions) */
@@ -579,15 +585,31 @@ export class SessionManager {
     this.isShuttingDown = true;
   }
 
-  /** Register a post for reaction routing */
+  /**
+   * Register a post for reaction routing
+   * NOTE: Still takes threadId for backward compat, but stores sessionId internally
+   */
   private registerPost(postId: string, threadId: string): void {
-    this.postIndex.set(postId, threadId);
+    // Need to find the session first to get its sessionId
+    const session = this.getSession(threadId);
+    if (session) {
+      const compositeKey = this.getPostIndexKey(session.platformId, postId);
+      this.postIndex.set(compositeKey, session.sessionId);
+    }
   }
 
-  /** Find session by post ID (for reaction routing) */
+  /**
+   * Find session by post ID (for reaction routing)
+   * NOTE: postId alone is not unique across platforms, so we search
+   */
   private getSessionByPost(postId: string): Session | undefined {
-    const threadId = this.postIndex.get(postId);
-    return threadId ? this.sessions.get(threadId) : undefined;
+    // Search through postIndex for any entry matching this postId
+    for (const [key, sessionId] of this.postIndex.entries()) {
+      if (key.endsWith(`:${postId}`)) {
+        return this.sessions.get(sessionId);
+      }
+    }
+    return undefined;
   }
 
   /**
@@ -598,8 +620,8 @@ export class SessionManager {
     // Check global allowlist first
     if (this.mattermost.isUserAllowed(username)) return true;
 
-    // Check session-specific allowlist
-    const session = this.sessions.get(threadId);
+    // Check session-specific allowlist (search by threadId)
+    const session = this.getSession(threadId);
     if (session?.sessionAllowedUsers.has(username)) return true;
 
     return false;
