@@ -1,5 +1,6 @@
-import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
+import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
+import * as streaming from './streaming.js';
 import {
   isApprovalEmoji,
   isDenialEmoji,
@@ -1389,11 +1390,7 @@ export class SessionManager {
   }
 
   private scheduleUpdate(session: Session): void {
-    if (session.updateTimer) return;
-    session.updateTimer = setTimeout(() => {
-      session.updateTimer = null;
-      this.flush(session);
-    }, 500);
+    streaming.scheduleUpdate(session, (s) => this.flush(s));
   }
 
   /**
@@ -1405,126 +1402,19 @@ export class SessionManager {
     platform: PlatformClient,
     files?: PlatformFile[]
   ): Promise<string | ContentBlock[]> {
-    // Filter to only image files
-    const imageFiles = files?.filter(f =>
-      f.mimeType.startsWith('image/') &&
-      ['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(f.mimeType)
-    ) || [];
-
-    // If no images, return plain text
-    if (imageFiles.length === 0) {
-      return text;
-    }
-
-    // Build content blocks with images
-    const blocks: ContentBlock[] = [];
-
-    // Download and add each image
-    for (const file of imageFiles) {
-      try {
-        if (!platform.downloadFile) {
-          console.warn(`  ⚠️ Platform does not support file downloads, skipping ${file.name}`);
-          continue;
-        }
-        const buffer = await platform.downloadFile(file.id);
-        const base64 = buffer.toString('base64');
-
-        blocks.push({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: file.mimeType,
-            data: base64,
-          },
-        });
-
-        if (this.debug) {
-          console.log(`  📷 Attached image: ${file.name} (${file.mimeType}, ${Math.round(buffer.length / 1024)}KB)`);
-        }
-      } catch (err) {
-        console.error(`  ⚠️ Failed to download image ${file.name}:`, err);
-      }
-    }
-
-    // Add the text message
-    if (text) {
-      blocks.push({
-        type: 'text',
-        text,
-      });
-    }
-
-    return blocks;
+    return streaming.buildMessageContent(text, platform, files, this.debug);
   }
 
   private startTyping(session: Session): void {
-    if (session.typingTimer) return;
-    // Send typing immediately, then every 3 seconds
-    session.platform.sendTyping(session.threadId);
-    session.typingTimer = setInterval(() => {
-      session.platform.sendTyping(session.threadId);
-    }, 3000);
+    streaming.startTyping(session);
   }
 
   private stopTyping(session: Session): void {
-    if (session.typingTimer) {
-      clearInterval(session.typingTimer);
-      session.typingTimer = null;
-    }
+    streaming.stopTyping(session);
   }
 
   private async flush(session: Session): Promise<void> {
-    if (!session.pendingContent.trim()) return;
-
-    let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
-
-    // Mattermost has a 16,383 character limit for posts
-    const MAX_POST_LENGTH = 16000;  // Leave some margin
-    const CONTINUATION_THRESHOLD = 14000;  // Start new message before we hit the limit
-
-    // Check if we need to start a new message due to length
-    if (session.currentPostId && content.length > CONTINUATION_THRESHOLD) {
-      // Finalize the current post with what we have up to the threshold
-      // Find a good break point (end of line) near the threshold
-      let breakPoint = content.lastIndexOf('\n', CONTINUATION_THRESHOLD);
-      if (breakPoint < CONTINUATION_THRESHOLD * 0.7) {
-        // If we can't find a good line break, just break at the threshold
-        breakPoint = CONTINUATION_THRESHOLD;
-      }
-
-      const firstPart = content.substring(0, breakPoint).trim() + '\n\n*... (continued below)*';
-      const remainder = content.substring(breakPoint).trim();
-
-      // Update the current post with the first part
-      await session.platform.updatePost(session.currentPostId, firstPart);
-
-      // Start a new post for the continuation
-      session.currentPostId = null;
-      session.pendingContent = remainder;
-
-      // Create the continuation post if there's content
-      if (remainder) {
-        const post = await session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId);
-        session.currentPostId = post.id;
-        this.registerPost(post.id, session.threadId);
-      }
-      return;
-    }
-
-    // Normal case: content fits in current post
-    if (content.length > MAX_POST_LENGTH) {
-      // Safety truncation if we somehow got content that's still too long
-      content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
-    }
-
-    if (session.currentPostId) {
-      await session.platform.updatePost(session.currentPostId, content);
-    } else {
-      const post = await session.platform.createPost(content, session.threadId);
-      session.currentPostId = post.id;
-      // Register post for reaction routing
-      this.registerPost(post.id, session.threadId);
-    }
+    return streaming.flush(session, (postId, threadId) => this.registerPost(postId, threadId));
   }
 
   private async handleExit(threadId: string, code: number): Promise<void> {

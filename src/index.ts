@@ -4,7 +4,7 @@ import { loadConfigWithMigration, configExists as checkConfigExists, type Matter
 import type { CliArgs } from './config.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient } from './platform/mattermost/client.js';
-import { SessionManager } from './claude/session.js';
+import { SessionManager } from './session/index.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { readFileSync } from 'fs';
 import { dirname, resolve } from 'path';
