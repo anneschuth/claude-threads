@@ -380,7 +380,7 @@ export class SessionManager {
     const post = await this.mattermost.getPost(state.threadId);
     if (!post) {
       console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
-      this.sessionStore.remove(state.threadId);
+      this.sessionStore.remove(`${state.platformId}:${state.threadId}`);
       return;
     }
 
@@ -478,7 +478,7 @@ export class SessionManager {
     } catch (err) {
       console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
       this.sessions.delete(state.threadId);
-      this.sessionStore.remove(state.threadId);
+      this.sessionStore.remove(`${state.platformId}:${state.threadId}`);
 
       // Try to notify user
       try {
@@ -496,9 +496,10 @@ export class SessionManager {
    * Persist a session to disk
    */
   private persistSession(session: Session): void {
-    const shortId = session.threadId.substring(0, 8);
+    const shortId = session.sessionId.substring(0, 20);
     console.log(`  [persist] Saving session ${shortId}...`);
     const state: PersistedSession = {
+      platformId: session.platformId,
       threadId: session.threadId,
       claudeSessionId: session.claudeSessionId,
       startedBy: session.startedBy,
@@ -517,26 +518,44 @@ export class SessionManager {
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
     };
-    this.sessionStore.save(session.threadId, state);
+    this.sessionStore.save(session.sessionId, state);
     console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
   }
 
   /**
    * Remove a session from persistence
+   * @param sessionId - Composite key "platformId:threadId"
    */
-  private unpersistSession(threadId: string): void {
-    const shortId = threadId.substring(0, 8);
+  private unpersistSession(sessionId: string): void {
+    const shortId = sessionId.substring(0, 20);
     console.log(`  [persist] REMOVING session ${shortId}... (this should NOT happen during shutdown!)`);
-    this.sessionStore.remove(threadId);
+    this.sessionStore.remove(sessionId);
   }
 
   // ---------------------------------------------------------------------------
   // Session Lookup Methods
   // ---------------------------------------------------------------------------
 
-  /** Get a session by thread ID */
+  /**
+   * Get a session by thread ID
+   * NOTE: This searches by threadId for backward compatibility
+   * Eventually should migrate to getSessionById(sessionId)
+   */
   getSession(threadId: string): Session | undefined {
-    return this.sessions.get(threadId);
+    // Search through all sessions to find one with matching threadId
+    for (const session of this.sessions.values()) {
+      if (session.threadId === threadId) {
+        return session;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Get a session by composite sessionId ("platformId:threadId")
+   */
+  getSessionById(sessionId: string): Session | undefined {
+    return this.sessions.get(sessionId);
   }
 
   /** Check if a session exists for this thread */
