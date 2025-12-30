@@ -288,3 +288,6 @@ Claude CLI emits JSON events. Key event types:
 - [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
 - [ ] Add rate limiting for API calls
 - [ ] Support file uploads via Mattermost attachments
+- [ ] Support multiple platforms (Mattermost/Slack) in parallel
+- [ ] Keep task list at the bottommost message (always update to latest position)
+- [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
