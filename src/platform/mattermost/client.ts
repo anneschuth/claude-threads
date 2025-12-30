@@ -153,8 +153,9 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Get user by ID (cached)
   async getUser(userId: string): Promise<PlatformUser | null> {
-    if (this.userCache.has(userId)) {
-      return this.normalizePlatformUser(this.userCache.get(userId)!);
+    const cached = this.userCache.get(userId);
+    if (cached) {
+      return this.normalizePlatformUser(cached);
     }
     try {
       const user = await this.api<MattermostUser>('GET', `/users/${userId}`);
@@ -277,13 +278,15 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       this.ws.on('open', () => {
         wsLogger.debug('WebSocket connected');
         // Authenticate
-        this.ws!.send(
-          JSON.stringify({
-            seq: 1,
-            action: 'authentication_challenge',
-            data: { token: this.config.mattermost.token },
-          })
-        );
+        if (this.ws) {
+          this.ws.send(
+            JSON.stringify({
+              seq: 1,
+              action: 'authentication_challenge',
+              data: { token: this.config.mattermost.token },
+            })
+          );
+        }
       });
 
       this.ws.on('message', (data) => {

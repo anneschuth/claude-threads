@@ -1,4 +1,4 @@
-import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock, PlatformMcpConfig } from './cli.js';
+import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import {
   isApprovalEmoji,
@@ -257,7 +257,7 @@ export class SessionManager {
    * Handle incoming message from a platform
    * TODO: Move message handling logic from index.ts here
    */
-  private async handleMessage(platformId: string, post: PlatformPost, user: PlatformUser | null): Promise<void> {
+  private async handleMessage(_platformId: string, _post: PlatformPost, _user: PlatformUser | null): Promise<void> {
     // For now, this is a stub. Message handling is still in index.ts
     // The actual implementation will be moved here in a later refactor
     throw new Error('handleMessage not yet implemented - message handling still in index.ts');

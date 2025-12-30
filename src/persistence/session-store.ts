@@ -35,6 +35,13 @@ export interface PersistedSession {
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
 }
 
+/**
+ * v1 session format (before platformId was added)
+ */
+type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
+  platformId?: string;
+}
+
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
@@ -77,8 +84,9 @@ export class SessionStore {
       if (data.version === 1) {
         console.log('  [persist] Migrating sessions from v1 to v2 (adding platformId)');
         for (const session of Object.values(data.sessions)) {
-          if (!(session as any).platformId) {
-            (session as any).platformId = 'default';
+          const v1Session = session as PersistedSessionV1;
+          if (!v1Session.platformId) {
+            v1Session.platformId = 'default';
           }
         }
         data.version = 2;

@@ -54,6 +54,6 @@ export class MattermostFormatter implements PlatformFormatter {
 
   escapeText(text: string): string {
     // Escape markdown special characters
-    return text.replace(/([*_`\[\]()#+\-.!])/g, '\\$1');
+    return text.replace(/([*_`[\]()#+\-.!])/g, '\\$1');
   }
 }
