@@ -1,4 +1,4 @@
-import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from './cli.js';
+import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock, PlatformMcpConfig } from './cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import {
   isApprovalEmoji,
@@ -390,18 +390,6 @@ export class SessionManager {
       return;
     }
 
-    // Create Claude CLI with resume flag
-    const skipPerms = this.skipPermissions && !state.forceInteractivePermissions;
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: state.workingDir,
-      threadId: state.threadId,
-      skipPermissions: skipPerms,
-      sessionId: state.claudeSessionId,
-      resume: true,
-      chrome: this.chromeEnabled,
-    };
-    const claude = new ClaudeCli(cliOptions);
-
     // MIGRATION NOTE: For now, use 'default' platformId for resumed sessions
     // This will be updated when persistence layer is migrated to store platformId
     const platformId = 'default';
@@ -410,6 +398,20 @@ export class SessionManager {
       throw new Error(`Platform '${platformId}' not found. Call addPlatform() before resuming sessions.`);
     }
     const sessionId = this.getSessionId(platformId, state.threadId);
+
+    // Create Claude CLI with resume flag
+    const skipPerms = this.skipPermissions && !state.forceInteractivePermissions;
+    const platformMcpConfig = platform.getMcpConfig?.() || undefined;
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: state.workingDir,
+      threadId: state.threadId,
+      skipPermissions: skipPerms,
+      sessionId: state.claudeSessionId,
+      resume: true,
+      chrome: this.chromeEnabled,
+      platformConfig: platformMcpConfig,
+    };
+    const claude = new ClaudeCli(cliOptions);
 
     // Rebuild Session object from persisted state
     const session: Session = {
@@ -669,20 +671,6 @@ export class SessionManager {
     }
     const actualThreadId = replyToPostId || post.id;
 
-    // Generate a unique session ID for this Claude session
-    const claudeSessionId = randomUUID();
-
-    // Create Claude CLI with options
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: this.workingDir,
-      threadId: actualThreadId,
-      skipPermissions: this.skipPermissions,
-      sessionId: claudeSessionId,
-      resume: false,
-      chrome: this.chromeEnabled,
-    };
-    const claude = new ClaudeCli(cliOptions);
-
     // MIGRATION NOTE: For now, use 'default' platformId for new sessions
     // This will be updated when message handling is moved into SessionManager
     const platformId = 'default';
@@ -691,6 +679,22 @@ export class SessionManager {
       throw new Error(`Platform '${platformId}' not found. Call addPlatform() before starting sessions.`);
     }
     const sessionId = this.getSessionId(platformId, actualThreadId);
+
+    // Generate a unique session ID for this Claude session
+    const claudeSessionId = randomUUID();
+
+    // Create Claude CLI with options
+    const platformMcpConfig = platform.getMcpConfig?.() || undefined;
+    const cliOptions: ClaudeCliOptions = {
+      workingDir: this.workingDir,
+      threadId: actualThreadId,
+      skipPermissions: this.skipPermissions,
+      sessionId: claudeSessionId,
+      resume: false,
+      chrome: this.chromeEnabled,
+      platformConfig: platformMcpConfig,
+    };
+    const claude = new ClaudeCli(cliOptions);
 
     // Create the session object
     const session: Session = {
@@ -1872,6 +1876,7 @@ export class SessionManager {
       sessionId: newSessionId,
       resume: false,  // Fresh start - can't resume across directories
       chrome: this.chromeEnabled,
+      platformConfig: session.platform.getMcpConfig?.() || undefined,
     };
     session.claude = new ClaudeCli(cliOptions);
 
@@ -2038,6 +2043,7 @@ export class SessionManager {
       sessionId: session.claudeSessionId,
       resume: true,  // Resume to keep conversation context
       chrome: this.chromeEnabled,
+      platformConfig: session.platform.getMcpConfig?.() || undefined,
     };
     session.claude = new ClaudeCli(cliOptions);
 
@@ -2345,6 +2351,7 @@ export class SessionManager {
           sessionId: newSessionId,
           resume: false,  // Fresh start - can't resume across directories
           chrome: this.chromeEnabled,
+          platformConfig: session.platform.getMcpConfig?.() || undefined,
         };
         session.claude = new ClaudeCli(cliOptions);
 

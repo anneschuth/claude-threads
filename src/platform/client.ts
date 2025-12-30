@@ -85,6 +85,12 @@ export interface PlatformClient extends EventEmitter {
    */
   getBotName(): string;
 
+  /**
+   * Get platform config for MCP permission server
+   * Returns null for platforms that don't support MCP permissions
+   */
+  getMcpConfig?(): { url: string; token: string; channelId: string; allowedUsers: string[] } | null;
+
   // ============================================================================
   // Messaging
   // ============================================================================

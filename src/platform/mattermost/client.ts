@@ -449,6 +449,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return this.config.mattermost.botName;
   }
 
+  // Get MCP config for permission server
+  getMcpConfig(): { url: string; token: string; channelId: string; allowedUsers: string[] } {
+    return {
+      url: this.config.mattermost.url,
+      token: this.config.mattermost.token,
+      channelId: this.config.mattermost.channelId,
+      allowedUsers: this.config.allowedUsers,
+    };
+  }
+
   // Send typing indicator via WebSocket
   sendTyping(parentId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
