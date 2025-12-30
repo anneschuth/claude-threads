@@ -132,7 +132,7 @@ export async function flush(
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
 
-  // Mattermost has a 16,383 character limit for posts
+  // Most chat platforms have post length limits (~16K for Mattermost/Slack)
   const MAX_POST_LENGTH = 16000;  // Leave some margin
   const CONTINUATION_THRESHOLD = 14000;  // Start new message before we hit the limit
 

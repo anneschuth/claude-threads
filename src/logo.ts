@@ -9,7 +9,7 @@ const colors = {
   reset: '\x1b[0m',
   bold: '\x1b[1m',
   dim: '\x1b[2m',
-  // Mattermost blue (#1C58D9)
+  // Claude blue
   blue: '\x1b[38;5;27m',
   // Claude orange/coral
   orange: '\x1b[38;5;209m',
@@ -21,35 +21,51 @@ const colors = {
  */
 export const CLI_LOGO = `
 ${colors.orange} ✴${colors.reset} ${colors.blue}▄█▀ ███${colors.reset} ${colors.orange}✴${colors.reset}   ${colors.bold}claude-threads${colors.reset}
-${colors.orange}✴${colors.reset}  ${colors.blue}█▀   █${colors.reset}   ${colors.orange}✴${colors.reset}  ${colors.dim}Mattermost × Claude Code${colors.reset}
+${colors.orange}✴${colors.reset}  ${colors.blue}█▀   █${colors.reset}   ${colors.orange}✴${colors.reset}  ${colors.dim}Chat × Claude Code${colors.reset}
  ${colors.orange}✴${colors.reset} ${colors.blue}▀█▄  █${colors.reset}  ${colors.orange}✴${colors.reset}
 `;
 
 /**
- * ASCII logo for Mattermost (plain text, no ANSI codes)
- * Use getMattermostLogo(version) instead to include version
+ * ASCII logo for chat platforms (plain text, no ANSI codes)
+ * Use getPlatformLogo(version) instead to include version
  */
-export const MATTERMOST_LOGO = `\`\`\`
+export const PLATFORM_LOGO = `\`\`\`
  ✴ ▄█▀ ███ ✴   claude-threads
-✴  █▀   █   ✴  Mattermost × Claude Code
+✴  █▀   █   ✴  Chat × Claude Code
  ✴ ▀█▄  █  ✴
 \`\`\``;
 
 /**
- * Get ASCII logo for Mattermost with version included
+ * Get ASCII logo for claude-threads with version included
  */
-export function getMattermostLogo(version: string): string {
+export function getLogo(version: string): string {
   return `\`\`\`
  ✴ ▄█▀ ███ ✴   claude-threads v${version}
-✴  █▀   █   ✴  Mattermost × Claude Code
+✴  █▀   █   ✴  Chat × Claude Code
  ✴ ▀█▄  █  ✴
 \`\`\``;
 }
 
 /**
- * Compact inline logo for Mattermost headers
+ * @deprecated Use getLogo instead
  */
-export const MATTERMOST_LOGO_INLINE = '`▄█▀T` **claude-threads**';
+export const getMattermostLogo = getLogo;
+export const getPlatformLogo = getLogo;
+
+/**
+ * @deprecated Use PLATFORM_LOGO instead
+ */
+export const MATTERMOST_LOGO = PLATFORM_LOGO;
+
+/**
+ * Compact inline logo for chat platform headers
+ */
+export const PLATFORM_LOGO_INLINE = '`▄█▀T` **claude-threads**';
+
+/**
+ * @deprecated Use PLATFORM_LOGO_INLINE instead
+ */
+export const MATTERMOST_LOGO_INLINE = PLATFORM_LOGO_INLINE;
 
 /**
  * Very compact logo for space-constrained contexts

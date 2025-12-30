@@ -120,7 +120,7 @@ async function main() {
   const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
 
   // Register platform (connects event handlers)
-  session.addPlatform(mattermost);
+  session.addPlatform(platformConfig.id, mattermost);
 
   mattermost.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
     try {

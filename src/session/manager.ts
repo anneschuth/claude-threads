@@ -1,1408 +1,289 @@
-import { ClaudeCli, ClaudeEvent, ClaudeCliOptions, ContentBlock } from '../claude/cli.js';
+/**
+ * SessionManager - Orchestrates Claude Code sessions across chat platforms
+ *
+ * This is the main coordinator that delegates to specialized modules:
+ * - lifecycle.ts: Session start, resume, exit
+ * - events.ts: Claude event handling
+ * - reactions.ts: User reaction handling
+ * - commands.ts: User commands (!cd, !invite, etc.)
+ * - worktree.ts: Git worktree management
+ * - streaming.ts: Message streaming and flushing
+ */
+
+import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
-import * as streaming from './streaming.js';
-import {
-  isApprovalEmoji,
-  isDenialEmoji,
-  isAllowAllEmoji,
-  isCancelEmoji,
-  isEscapeEmoji,
-  getNumberEmojiIndex,
-  NUMBER_EMOJIS,
-  APPROVAL_EMOJIS,
-  DENIAL_EMOJIS,
-  ALLOW_ALL_EMOJIS,
-} from '../mattermost/emoji.js';
-import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
-import { getUpdateInfo } from '../update-notifier.js';
-import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
-import { SessionStore, PersistedSession, WorktreeInfo } from '../persistence/session-store.js';
-import { getMattermostLogo } from '../logo.js';
+import { SessionStore, PersistedSession } from '../persistence/session-store.js';
 import { WorktreeMode } from '../config.js';
 import {
-  isGitRepository,
-  getRepositoryRoot,
-  hasUncommittedChanges,
-  listWorktrees,
-  createWorktree,
-  removeWorktree as removeGitWorktree,
-  getWorktreeDir,
-  findWorktreeByBranch,
-  isValidBranchName,
-} from '../git/worktree.js';
-import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
+  isCancelEmoji,
+  isEscapeEmoji,
+} from '../utils/emoji.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
+// Import extracted modules
+import * as streaming from './streaming.js';
+import * as events from './events.js';
+import * as reactions from './reactions.js';
+import * as commands from './commands.js';
+import * as lifecycle from './lifecycle.js';
+import * as worktreeModule from './worktree.js';
+import type { Session } from './types.js';
 
-// =============================================================================
-// Interfaces
-// =============================================================================
+// Re-export Session type for external use
+export type { Session } from './types.js';
 
-interface QuestionOption {
-  label: string;
-  description: string;
-}
-
-interface PendingQuestionSet {
-  toolUseId: string;
-  currentIndex: number;
-  currentPostId: string | null;
-  questions: Array<{
-    header: string;
-    question: string;
-    options: QuestionOption[];
-    answer: string | null;
-  }>;
-}
-
-interface PendingApproval {
-  postId: string;
-  type: 'plan' | 'action';
-  toolUseId: string;
-}
+// Constants
+export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
+export const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10);
+const SESSION_WARNING_MS = SESSION_TIMEOUT_MS - 5 * 60 * 1000; // 5 min before timeout
 
 /**
- * Pending message from unauthorized user awaiting approval
+ * SessionManager - Main orchestrator for Claude Code sessions
  */
-interface PendingMessageApproval {
-  postId: string;
-  originalMessage: string;
-  fromUser: string;
-}
-
-/**
- * Represents a single Claude Code session tied to a platform thread.
- * Each session has its own Claude CLI process and state.
- */
-interface Session {
-  // Identity
-  platformId: string;       // NEW: Which platform instance (e.g., 'mattermost-main')
-  threadId: string;         // Thread ID within that platform
-  sessionId: string;        // NEW: Composite key "platformId:threadId"
-  claudeSessionId: string;  // UUID for --session-id / --resume
-  startedBy: string;
-  startedAt: Date;
-  lastActivityAt: Date;
-  sessionNumber: number;  // Session # when created
-
-  // Platform reference
-  platform: PlatformClient;  // NEW: Reference to platform client
-
-  // Working directory (can be changed per-session)
-  workingDir: string;
-
-  // Claude process
-  claude: ClaudeCli;
-
-  // Post state for streaming updates
-  currentPostId: string | null;
-  pendingContent: string;
-
-  // Interactive state
-  pendingApproval: PendingApproval | null;
-  pendingQuestionSet: PendingQuestionSet | null;
-  pendingMessageApproval: PendingMessageApproval | null;
-  planApproved: boolean;
-
-  // Collaboration - per-session allowlist
-  sessionAllowedUsers: Set<string>;
-
-  // Permission override - can only downgrade (skip → interactive), not upgrade
-  forceInteractivePermissions: boolean;
-
-  // Display state
-  sessionStartPostId: string | null;  // The header post we update with participants
-  tasksPostId: string | null;
-  activeSubagents: Map<string, string>;  // toolUseId -> postId
-
-  // Timers (per-session)
-  updateTimer: ReturnType<typeof setTimeout> | null;
-  typingTimer: ReturnType<typeof setInterval> | null;
-
-  // Timeout warning state
-  timeoutWarningPosted: boolean;
-
-  // Flag to suppress exit message during intentional restart (e.g., !cd)
-  isRestarting: boolean;
-
-  // Flag to track if this session was resumed after bot restart
-  isResumed: boolean;
-
-  // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
-  wasInterrupted: boolean;
-
-  // Task timing - when the current in_progress task started
-  inProgressTaskStart: number | null;
-
-  // Tool timing - track when tools started for elapsed time display
-  activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
-
-  // Worktree support
-  worktreeInfo?: WorktreeInfo;              // Active worktree info
-  pendingWorktreePrompt?: boolean;          // Waiting for branch name response
-  worktreePromptDisabled?: boolean;         // User opted out with !worktree off
-  queuedPrompt?: string;                    // User's original message when waiting for worktree response
-  worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
-}
-
-
-// =============================================================================
-// Configuration
-// =============================================================================
-
-const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
-const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10); // 30 min
-const SESSION_WARNING_MS = 5 * 60 * 1000; // Warn 5 minutes before timeout
-
-// =============================================================================
-// SessionManager - Manages multiple concurrent Claude Code sessions
-// =============================================================================
-
 export class SessionManager {
-  // Shared state
-  private platforms: Map<string, PlatformClient> = new Map();  // NEW: platformId -> client
+  // Platform management
+  private platforms: Map<string, PlatformClient> = new Map();
   private workingDir: string;
   private skipPermissions: boolean;
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
   private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
 
-  // Multi-session storage
-  private sessions: Map<string, Session> = new Map();  // NEW: sessionId ("platformId:threadId") -> Session
-  private postIndex: Map<string, string> = new Map();  // NEW: "platformId:postId" -> sessionId
+  // Session state
+  private sessions: Map<string, Session> = new Map();
+  private postIndex: Map<string, string> = new Map();
 
   // Persistence
   private sessionStore: SessionStore = new SessionStore();
 
-  // Cleanup timer
+  // Cleanup
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
 
-  // Shutdown flag to suppress exit messages during graceful shutdown
+  // Shutdown flag
   private isShuttingDown = false;
 
-  constructor(workingDir: string, skipPermissions = false, chromeEnabled = false, worktreeMode: WorktreeMode = 'prompt') {
+  constructor(
+    workingDir: string,
+    skipPermissions = false,
+    chromeEnabled = false,
+    worktreeMode: WorktreeMode = 'prompt'
+  ) {
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
 
-    // Start periodic cleanup of idle sessions
-    this.cleanupTimer = setInterval(() => this.cleanupIdleSessions(), 60000);
+    // Start periodic cleanup
+    this.cleanupTimer = setInterval(() => {
+      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext());
+    }, 60000);
   }
 
-  /**
-   * Add a platform client to the manager
-   * This binds event listeners for messages and reactions
-   */
-  addPlatform(client: PlatformClient): void {
-    this.platforms.set(client.platformId, client);
+  // ---------------------------------------------------------------------------
+  // Platform Management
+  // ---------------------------------------------------------------------------
 
-    // Listen for messages
-    client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
-      try {
-        await this.handleMessage(client.platformId, post, user);
-      } catch (err) {
-        console.error(`  ❌ Error handling message from ${client.displayName}:`, err);
+  addPlatform(platformId: string, client: PlatformClient): void {
+    this.platforms.set(platformId, client);
+    client.on('message', (post, user) => this.handleMessage(platformId, post, user));
+    client.on('reaction', (reaction, user) => {
+      if (user) {
+        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username);
       }
     });
-
-    // Listen for reactions
-    client.on('reaction', async (reaction, user: PlatformUser | null) => {
-      try {
-        await this.handleReaction(client.platformId, reaction.postId, reaction.emojiName, user?.username || 'unknown');
-      } catch (err) {
-        console.error(`  ❌ Error handling reaction from ${client.displayName}:`, err);
-      }
-    });
+    console.log(`  📡 Platform "${platformId}" registered`);
   }
 
-  /**
-   * Get all registered platforms
-   */
-  getPlatforms(): Map<string, PlatformClient> {
-    return this.platforms;
+  removePlatform(platformId: string): void {
+    this.platforms.delete(platformId);
   }
 
-  /**
-   * BACKWARD COMPATIBILITY: Get first platform as "mattermost"
-  /**
-   * Helper: Create composite session ID
-   */
+  // ---------------------------------------------------------------------------
+  // Context Builders (for module delegation)
+  // ---------------------------------------------------------------------------
+
+  private getLifecycleContext(): lifecycle.LifecycleContext {
+    return {
+      workingDir: this.workingDir,
+      skipPermissions: this.skipPermissions,
+      chromeEnabled: this.chromeEnabled,
+      debug: this.debug,
+      maxSessions: MAX_SESSIONS,
+      sessions: this.sessions,
+      postIndex: this.postIndex,
+      platforms: this.platforms,
+      sessionStore: this.sessionStore,
+      isShuttingDown: this.isShuttingDown,
+      getSessionId: (pid, tid) => this.getSessionId(pid, tid),
+      handleEvent: (tid, e) => this.handleEvent(tid, e),
+      handleExit: (tid, code) => this.handleExit(tid, code),
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
+      startTyping: (s) => this.startTyping(s),
+      stopTyping: (s) => this.stopTyping(s),
+      flush: (s) => this.flush(s),
+      persistSession: (s) => this.persistSession(s),
+      unpersistSession: (sid) => this.unpersistSession(sid),
+      updateSessionHeader: (s) => this.updateSessionHeader(s),
+      shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
+      postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
+      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
+    };
+  }
+
+  private getEventContext(): events.EventContext {
+    return {
+      debug: this.debug,
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
+      flush: (s) => this.flush(s),
+      startTyping: (s) => this.startTyping(s),
+      stopTyping: (s) => this.stopTyping(s),
+      appendContent: (s, t) => this.appendContent(s, t),
+    };
+  }
+
+  private getReactionContext(): reactions.ReactionContext {
+    return {
+      debug: this.debug,
+      startTyping: (s) => this.startTyping(s),
+      stopTyping: (s) => this.stopTyping(s),
+      updateSessionHeader: (s) => this.updateSessionHeader(s),
+    };
+  }
+
+  private getCommandContext(): commands.CommandContext {
+    return {
+      skipPermissions: this.skipPermissions,
+      chromeEnabled: this.chromeEnabled,
+      maxSessions: MAX_SESSIONS,
+      handleEvent: (tid, e) => this.handleEvent(tid, e),
+      handleExit: (tid, code) => this.handleExit(tid, code),
+      flush: (s) => this.flush(s),
+      startTyping: (s) => this.startTyping(s),
+      stopTyping: (s) => this.stopTyping(s),
+      persistSession: (s) => this.persistSession(s),
+      killSession: (tid) => this.killSession(tid),
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
+    };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session ID and Post Index
+  // ---------------------------------------------------------------------------
+
   private getSessionId(platformId: string, threadId: string): string {
     return `${platformId}:${threadId}`;
   }
 
-  /**
-   * Helper: Create composite post index key
-   */
-  private getPostIndexKey(platformId: string, postId: string): string {
-    return `${platformId}:${postId}`;
-  }
-
-  /**
-   * Handle incoming message from a platform
-   * TODO: Move message handling logic from index.ts here
-   */
-  private async handleMessage(_platformId: string, _post: PlatformPost, _user: PlatformUser | null): Promise<void> {
-    // For now, this is a stub. Message handling is still in index.ts
-    // The actual implementation will be moved here in a later refactor
-    throw new Error('handleMessage not yet implemented - message handling still in index.ts');
-  }
-
-  /**
-   * Handle incoming reaction from a platform
-   */
-  private async handleReaction(platformId: string, postId: string, emojiName: string, username: string): Promise<void> {
-    // Check if user is allowed
-    const platform = this.platforms.get(platformId);
-    if (!platform) return;
-
-    if (!platform.isUserAllowed(username)) return;
-
-    // Find the session this post belongs to (use composite key)
-    const compositeKey = this.getPostIndexKey(platformId, postId);
-    const sessionId = this.postIndex.get(compositeKey);
-    if (!sessionId) return;
-
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-
-    // Delegate to existing reaction handlers
-    await this.handleSessionReaction(session, postId, emojiName, username);
-  }
-
-  /**
-   * Handle reaction for a specific session
-   * This is called by the new handleReaction after looking up the session
-   */
-  private async handleSessionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
-    // Handle ❌ on worktree prompt (skip worktree, continue in main repo)
-    // Must be checked BEFORE cancel reaction handler since ❌ is also a cancel emoji
-    if (session.worktreePromptPostId === postId && emojiName === 'x') {
-      await this.handleWorktreeSkip(session.threadId, username);
-      return;
-    }
-
-    // Handle cancel reactions (❌ or 🛑) on any post in the session
-    if (isCancelEmoji(emojiName)) {
-      await this.cancelSession(session.threadId, username);
-      return;
-    }
-
-    // Handle interrupt reactions (⏸️) on any post in the session
-    if (isEscapeEmoji(emojiName)) {
-      await this.interruptSession(session.threadId, username);
-      return;
-    }
-
-    // Handle approval reactions
-    if (session.pendingApproval && session.pendingApproval.postId === postId) {
-      await this.handleApprovalReaction(session, emojiName, username);
-      return;
-    }
-
-    // Handle question reactions
-    if (session.pendingQuestionSet && session.pendingQuestionSet.currentPostId === postId) {
-      await this.handleQuestionReaction(session, postId, emojiName, username);
-      return;
-    }
-
-    // Handle message approval reactions
-    if (session.pendingMessageApproval && session.pendingMessageApproval.postId === postId) {
-      await this.handleMessageApprovalReaction(session, emojiName, username);
-      return;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // Session Initialization (Resume)
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Initialize session manager by resuming any persisted sessions.
-   * Should be called before starting to listen for new messages.
-   */
-  async initialize(): Promise<void> {
-    // Load persisted sessions FIRST (before cleaning stale ones)
-    // This way we can resume sessions that were active when the bot stopped,
-    // even if the bot was down for longer than SESSION_TIMEOUT_MS
-    const persisted = this.sessionStore.load();
-
-    if (this.debug) {
-      console.log(`  [persist] Found ${persisted.size} persisted session(s)`);
-      for (const [threadId, state] of persisted) {
-        const age = Date.now() - new Date(state.lastActivityAt).getTime();
-        const ageMins = Math.round(age / 60000);
-        console.log(`  [persist] - ${threadId.substring(0, 8)}... by @${state.startedBy}, age: ${ageMins}m`);
-      }
-    }
-
-    // Note: We intentionally do NOT clean stale sessions on startup anymore.
-    // Sessions are cleaned during normal operation by cleanupIdleSessions().
-    // This allows sessions to survive bot restarts even if the bot was down
-    // for longer than SESSION_TIMEOUT_MS.
-    if (persisted.size === 0) {
-      if (this.debug) console.log('  [resume] No sessions to resume');
-      return;
-    }
-
-    console.log(`  📂 Found ${persisted.size} session(s) to resume...`);
-
-    // Resume each session
-    for (const [_threadId, state] of persisted) {
-      await this.resumeSession(state);
-    }
-
-    console.log(`  ✅ Resumed ${this.sessions.size} session(s)`);
-  }
-
-  /**
-   * Resume a single session from persisted state
-   */
-  private async resumeSession(state: PersistedSession): Promise<void> {
-    const shortId = state.threadId.substring(0, 8);
-
-    // Get platform for this session
-    const platform = this.platforms.get(state.platformId);
-    if (!platform) {
-      console.log(`  ⚠️ Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
-      return;
-    }
-
-    // Verify thread still exists
-    const post = await platform.getPost(state.threadId);
-    if (!post) {
-      console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
-      this.sessionStore.remove(`${state.platformId}:${state.threadId}`);
-      return;
-    }
-
-    // Check max sessions limit
-    if (this.sessions.size >= MAX_SESSIONS) {
-      console.log(`  ⚠️ Max sessions reached, skipping resume for ${shortId}...`);
-      return;
-    }
-
-    const platformId = state.platformId;
-    const sessionId = this.getSessionId(platformId, state.threadId);
-
-    // Create Claude CLI with resume flag
-    const skipPerms = this.skipPermissions && !state.forceInteractivePermissions;
-    const platformMcpConfig = platform.getMcpConfig?.() || undefined;
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: state.workingDir,
-      threadId: state.threadId,
-      skipPermissions: skipPerms,
-      sessionId: state.claudeSessionId,
-      resume: true,
-      chrome: this.chromeEnabled,
-      platformConfig: platformMcpConfig,
-    };
-    const claude = new ClaudeCli(cliOptions);
-
-    // Rebuild Session object from persisted state
-    const session: Session = {
-      platformId,
-      threadId: state.threadId,
-      sessionId,
-      platform,
-      claudeSessionId: state.claudeSessionId,
-      startedBy: state.startedBy,
-      startedAt: new Date(state.startedAt),
-      lastActivityAt: new Date(),
-      sessionNumber: state.sessionNumber,
-      workingDir: state.workingDir,
-      claude,
-      currentPostId: null,
-      pendingContent: '',
-      pendingApproval: null,
-      pendingQuestionSet: null,
-      pendingMessageApproval: null,
-      planApproved: state.planApproved,
-      sessionAllowedUsers: new Set(state.sessionAllowedUsers),
-      forceInteractivePermissions: state.forceInteractivePermissions,
-      sessionStartPostId: state.sessionStartPostId,
-      tasksPostId: state.tasksPostId,
-      activeSubagents: new Map(),
-      updateTimer: null,
-      typingTimer: null,
-      timeoutWarningPosted: false,
-      isRestarting: false,
-      isResumed: true,
-      wasInterrupted: false,
-      inProgressTaskStart: null,
-      activeToolStarts: new Map(),
-      // Worktree state from persistence
-      worktreeInfo: state.worktreeInfo,
-      pendingWorktreePrompt: state.pendingWorktreePrompt,
-      worktreePromptDisabled: state.worktreePromptDisabled,
-      queuedPrompt: state.queuedPrompt,
-    };
-
-    // Register session (use new composite sessionId)
-    this.sessions.set(sessionId, session);
-    if (state.sessionStartPostId) {
-      this.registerPost(state.sessionStartPostId, state.threadId);
-    }
-
-    // Bind event handlers
-    claude.on('event', (e: ClaudeEvent) => this.handleEvent(state.threadId, e));
-    claude.on('exit', (code: number) => this.handleExit(state.threadId, code));
-
-    try {
-      claude.start();
-      console.log(`  🔄 Resumed session ${shortId}... (@${state.startedBy})`);
-
-      // Post resume message
-      await session.platform.createPost(
-        `🔄 **Session resumed** after bot restart (v${pkg.version})\n*Reconnected to Claude session. You can continue where you left off.*`,
-        state.threadId
-      );
-
-      // Update session header
-      await this.updateSessionHeader(session);
-
-      // Update persistence with new activity time
-      this.persistSession(session);
-    } catch (err) {
-      console.error(`  ❌ Failed to resume session ${shortId}...:`, err);
-      this.sessions.delete(sessionId);
-      this.sessionStore.remove(sessionId);
-
-      // Try to notify user
-      try {
-        await session.platform.createPost(
-          `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
-          state.threadId
-        );
-      } catch {
-        // Ignore if we can't post
-      }
-    }
-  }
-
-  /**
-   * Persist a session to disk
-   */
-  private persistSession(session: Session): void {
-    const shortId = session.sessionId.substring(0, 20);
-    console.log(`  [persist] Saving session ${shortId}...`);
-    const state: PersistedSession = {
-      platformId: session.platformId,
-      threadId: session.threadId,
-      claudeSessionId: session.claudeSessionId,
-      startedBy: session.startedBy,
-      startedAt: session.startedAt.toISOString(),
-      sessionNumber: session.sessionNumber,
-      workingDir: session.workingDir,
-      sessionAllowedUsers: [...session.sessionAllowedUsers],
-      forceInteractivePermissions: session.forceInteractivePermissions,
-      sessionStartPostId: session.sessionStartPostId,
-      tasksPostId: session.tasksPostId,
-      lastActivityAt: session.lastActivityAt.toISOString(),
-      planApproved: session.planApproved,
-      // Worktree state
-      worktreeInfo: session.worktreeInfo,
-      pendingWorktreePrompt: session.pendingWorktreePrompt,
-      worktreePromptDisabled: session.worktreePromptDisabled,
-      queuedPrompt: session.queuedPrompt,
-    };
-    this.sessionStore.save(session.sessionId, state);
-    console.log(`  [persist] Saved session ${shortId}... (claudeId: ${session.claudeSessionId.substring(0, 8)}...)`);
-  }
-
-  /**
-   * Remove a session from persistence
-   * @param sessionId - Composite key "platformId:threadId"
-   */
-  private unpersistSession(sessionId: string): void {
-    const shortId = sessionId.substring(0, 20);
-    console.log(`  [persist] REMOVING session ${shortId}... (this should NOT happen during shutdown!)`);
-    this.sessionStore.remove(sessionId);
-  }
-
-  // ---------------------------------------------------------------------------
-  // Session Lookup Methods
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Get a session by thread ID
-   * NOTE: This searches by threadId for backward compatibility
-   * Eventually should migrate to getSessionById(sessionId)
-   */
-  getSession(threadId: string): Session | undefined {
-    // Search through all sessions to find one with matching threadId
-    for (const session of this.sessions.values()) {
-      if (session.threadId === threadId) {
-        return session;
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Get a session by composite sessionId ("platformId:threadId")
-   */
-  getSessionById(sessionId: string): Session | undefined {
-    return this.sessions.get(sessionId);
-  }
-
-  /**
-   * Check if a session exists for this thread
-   * NOTE: Searches by threadId for backward compatibility
-   */
-  hasSession(threadId: string): boolean {
-    return this.getSession(threadId) !== undefined;
-  }
-
-  /** Get the number of active sessions */
-  getSessionCount(): number {
-    return this.sessions.size;
-  }
-
-  /**
-   * Get all active session thread IDs
-   * NOTE: Extracts threadId from each session for backward compatibility
-   */
-  getActiveThreadIds(): string[] {
-    return [...this.sessions.values()].map(s => s.threadId);
-  }
-
-  /** Mark that we're shutting down (prevents cleanup of persisted sessions) */
-  setShuttingDown(): void {
-    console.log('  [shutdown] Setting isShuttingDown = true');
-    this.isShuttingDown = true;
-  }
-
-  /**
-   * Register a post for reaction routing
-   * NOTE: Still takes threadId for backward compat, but stores sessionId internally
-   */
   private registerPost(postId: string, threadId: string): void {
-    // Need to find the session first to get its sessionId
-    const session = this.getSession(threadId);
-    if (session) {
-      const compositeKey = this.getPostIndexKey(session.platformId, postId);
-      this.postIndex.set(compositeKey, session.sessionId);
-    }
+    this.postIndex.set(postId, threadId);
   }
 
-  /**
-   * Find session by post ID (for reaction routing)
-   * NOTE: postId alone is not unique across platforms, so we search
-   */
   private getSessionByPost(postId: string): Session | undefined {
-    // Search through postIndex for any entry matching this postId
-    for (const [key, sessionId] of this.postIndex.entries()) {
-      if (key.endsWith(`:${postId}`)) {
-        return this.sessions.get(sessionId);
-      }
-    }
-    return undefined;
-  }
-
-  /**
-   * Check if a user is allowed in a specific session.
-   * Checks global allowlist first, then session-specific allowlist.
-   */
-  isUserAllowedInSession(threadId: string, username: string): boolean {
-    // Get session first (search by threadId)
-    const session = this.getSession(threadId);
-    if (!session) return false;
-
-    // Check global allowlist (platform-specific)
-    if (session.platform.isUserAllowed(username)) return true;
-
-    // Check session-specific allowlist
-    if (session.sessionAllowedUsers.has(username)) return true;
-
-    return false;
+    const threadId = this.postIndex.get(postId);
+    if (!threadId) return undefined;
+    return this.sessions.get(threadId);
   }
 
   // ---------------------------------------------------------------------------
-  // Session Lifecycle
+  // Message Handling
   // ---------------------------------------------------------------------------
 
-  async startSession(
-    options: { prompt: string; files?: PlatformFile[] },
-    username: string,
-    replyToPostId?: string,
-    platformId: string = 'default'
-  ): Promise<void> {
-    const threadId = replyToPostId || '';
-
-    // Check if session already exists for this thread
-    const existingSession = this.sessions.get(threadId);
-    if (existingSession && existingSession.claude.isRunning()) {
-      // Send as follow-up instead
-      await this.sendFollowUp(threadId, options.prompt, options.files);
-      return;
-    }
-
-    const platform = this.platforms.get(platformId);
-    if (!platform) {
-      throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
-    }
-
-    // Check max sessions limit
-    if (this.sessions.size >= MAX_SESSIONS) {
-      await platform.createPost(
-        `⚠️ **Too busy** - ${this.sessions.size} sessions active. Please try again later.`,
-        replyToPostId
-      );
-      return;
-    }
-
-    // Post initial session message (will be updated by updateSessionHeader)
-    let post;
-    try {
-      post = await platform.createPost(
-        `${getMattermostLogo(pkg.version)}\n\n*Starting session...*`,
-        replyToPostId
-      );
-    } catch (err) {
-      console.error(`  ❌ Failed to create session post:`, err);
-      // If we can't post to the thread, we can't start a session
-      return;
-    }
-    const actualThreadId = replyToPostId || post.id;
-    const sessionId = this.getSessionId(platformId, actualThreadId);
-
-    // Generate a unique session ID for this Claude session
-    const claudeSessionId = randomUUID();
-
-    // Create Claude CLI with options
-    const platformMcpConfig = platform.getMcpConfig?.() || undefined;
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: this.workingDir,
-      threadId: actualThreadId,
-      skipPermissions: this.skipPermissions,
-      sessionId: claudeSessionId,
-      resume: false,
-      chrome: this.chromeEnabled,
-      platformConfig: platformMcpConfig,
-    };
-    const claude = new ClaudeCli(cliOptions);
-
-    // Create the session object
-    const session: Session = {
-      platformId,
-      threadId: actualThreadId,
-      sessionId,
-      platform,
-      claudeSessionId,
-      startedBy: username,
-      startedAt: new Date(),
-      lastActivityAt: new Date(),
-      sessionNumber: this.sessions.size + 1,
-      workingDir: this.workingDir,
-      claude,
-      currentPostId: null,
-      pendingContent: '',
-      pendingApproval: null,
-      pendingQuestionSet: null,
-      pendingMessageApproval: null,
-      planApproved: false,
-      sessionAllowedUsers: new Set([username]), // Owner is always allowed
-      forceInteractivePermissions: false,  // Can be enabled via /permissions interactive
-      sessionStartPostId: post.id,  // Track for updating participants
-      tasksPostId: null,
-      activeSubagents: new Map(),
-      updateTimer: null,
-      typingTimer: null,
-      timeoutWarningPosted: false,
-      isRestarting: false,
-      isResumed: false,
-      wasInterrupted: false,
-      inProgressTaskStart: null,
-      activeToolStarts: new Map(),
-    };
-
-    // Register session (use new composite sessionId)
-    this.sessions.set(sessionId, session);
-    this.registerPost(post.id, actualThreadId); // For cancel reactions on session start post
-    const shortId = actualThreadId.substring(0, 8);
-    console.log(`  ▶ Session #${this.sessions.size} started (${shortId}…) by @${username}`);
-
-    // Update the header with full session info
-    await this.updateSessionHeader(session);
-
-    // Start typing indicator immediately so user sees activity
-    this.startTyping(session);
-
-    // Bind event handlers with closure over threadId
-    claude.on('event', (e: ClaudeEvent) => this.handleEvent(actualThreadId, e));
-    claude.on('exit', (code: number) => this.handleExit(actualThreadId, code));
-
-    try {
-      claude.start();
-    } catch (err) {
-      console.error('  ❌ Failed to start Claude:', err);
-      this.stopTyping(session);
-      await session.platform.createPost(`❌ ${err}`, actualThreadId);
-      this.sessions.delete(session.sessionId);
-      return;
-    }
-
-    // Check if we should prompt for worktree
-    const shouldPrompt = await this.shouldPromptForWorktree(session);
-    if (shouldPrompt) {
-      // Queue the original message and prompt for branch name
-      session.queuedPrompt = options.prompt;
-      session.pendingWorktreePrompt = true;
-      await this.postWorktreePrompt(session, shouldPrompt);
-      // Persist session with pending state
-      this.persistSession(session);
-      return; // Don't send message to Claude yet
-    }
-
-    // Send the message to Claude (with images if present)
-    const content = await this.buildMessageContent(options.prompt, session.platform, options.files);
-    claude.sendMessage(content);
-
-    // Persist session for resume after restart
-    this.persistSession(session);
-  }
-
-  /**
-   * Start a session with an initial worktree specified.
-   * Used when user specifies "on branch X" or "!worktree X" in their initial message.
-   */
-  async startSessionWithWorktree(
-    options: { prompt: string; files?: PlatformFile[] },
-    branch: string,
-    username: string,
-    replyToPostId?: string
-  ): Promise<void> {
-    // Start the session normally first
-    await this.startSession(options, username, replyToPostId);
-
-    // Get the thread ID
-    const threadId = replyToPostId || '';
-    const session = this.sessions.get(threadId);
-    if (!session) return;
-
-    // If session has a pending worktree prompt (from startSession), skip it
-    if (session.pendingWorktreePrompt) {
-      session.pendingWorktreePrompt = false;
-      if (session.worktreePromptPostId) {
-        try {
-          await session.platform.updatePost(session.worktreePromptPostId,
-            `✅ Using branch \`${branch}\` (specified in message)`);
-        } catch (err) {
-          console.error('  ⚠️ Failed to update worktree prompt:', err);
-        }
-        session.worktreePromptPostId = undefined;
-      }
-    }
-
-    // Create the worktree
-    await this.createAndSwitchToWorktree(threadId, branch, username);
-  }
-
-  /**
-   * Check if we should prompt for a worktree before starting work.
-   * Returns the reason string if we should prompt, or null if not.
-   */
-  private async shouldPromptForWorktree(session: Session): Promise<string | null> {
-    // Skip if worktree mode is off
-    if (this.worktreeMode === 'off') return null;
-
-    // Skip if user disabled prompts for this session
-    if (session.worktreePromptDisabled) return null;
-
-    // Skip if already in a worktree
-    if (session.worktreeInfo) return null;
-
-    // Check if we're in a git repository
-    const isRepo = await isGitRepository(session.workingDir);
-    if (!isRepo) return null;
-
-    // For 'require' mode, always prompt
-    if (this.worktreeMode === 'require') {
-      return 'require';
-    }
-
-    // For 'prompt' mode, check conditions
-    // Condition 1: uncommitted changes
-    const hasChanges = await hasUncommittedChanges(session.workingDir);
-    if (hasChanges) return 'uncommitted';
-
-    // Condition 2: another session using the same repo
-    const repoRoot = await getRepositoryRoot(session.workingDir);
-    const hasConcurrent = this.hasOtherSessionInRepo(repoRoot, session.threadId);
-    if (hasConcurrent) return 'concurrent';
-
-    return null;
-  }
-
-  /**
-   * Check if another session is using the same repository
-   */
-  private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
-    for (const [threadId, session] of this.sessions) {
-      if (threadId === excludeThreadId) continue;
-      // Check if session's working directory is in the same repo
-      // (either the repo root or a worktree of the same repo)
-      if (session.workingDir === repoRoot) return true;
-      if (session.worktreeInfo?.repoRoot === repoRoot) return true;
-    }
-    return false;
-  }
-
-  /**
-   * Post the worktree prompt message
-   */
-  private async postWorktreePrompt(session: Session, reason: string): Promise<void> {
-    let message: string;
-    switch (reason) {
-      case 'uncommitted':
-        message = `🌿 **This repo has uncommitted changes.**\n` +
-          `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue in the main repo.`;
-        break;
-      case 'concurrent':
-        message = `⚠️ **Another session is already using this repo.**\n` +
-          `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue anyway.`;
-        break;
-      case 'require':
-        message = `🌿 **This deployment requires working in a worktree.**\n` +
-          `Please reply with a branch name to continue.`;
-        break;
-      default:
-        message = `🌿 **Would you like to work in an isolated worktree?**\n` +
-          `Reply with a branch name, or react with ❌ to continue in the main repo.`;
-    }
-
-    // Create post with ❌ reaction option (except for 'require' mode)
-    // Use 'x' emoji name, not Unicode ❌ character
-    const reactionOptions = reason === 'require' ? [] : ['x'];
-    const post = await session.platform.createInteractivePost(
-      message,
-      reactionOptions,
-      session.threadId
-    );
-
-    // Track the post for reaction handling
-    session.worktreePromptPostId = post.id;
-    this.registerPost(post.id, session.threadId);
-
-    // Stop typing while waiting for response
-    this.stopTyping(session);
-  }
-
-  private handleEvent(threadId: string, event: ClaudeEvent): void {
-    const session = this.sessions.get(threadId);
-    if (!session) return;
-
-    // Update last activity and reset timeout warning
-    session.lastActivityAt = new Date();
-    session.timeoutWarningPosted = false;
-
-    // Check for special tool uses that need custom handling
-    if (event.type === 'assistant') {
-      const msg = event.message as { content?: Array<{ type: string; name?: string; id?: string; input?: Record<string, unknown> }> };
-      let hasSpecialTool = false;
-      for (const block of msg?.content || []) {
-        if (block.type === 'tool_use') {
-          if (block.name === 'ExitPlanMode') {
-            this.handleExitPlanMode(session, block.id as string);
-            hasSpecialTool = true;
-          } else if (block.name === 'TodoWrite') {
-            this.handleTodoWrite(session, block.input as Record<string, unknown>);
-          } else if (block.name === 'Task') {
-            this.handleTaskStart(session, block.id as string, block.input as Record<string, unknown>);
-          } else if (block.name === 'AskUserQuestion') {
-            this.handleAskUserQuestion(session, block.id as string, block.input as Record<string, unknown>);
-            hasSpecialTool = true;
-          }
-        }
-      }
-      if (hasSpecialTool) return;
-    }
-
-    // Check for tool_result to update subagent status
-    if (event.type === 'user') {
-      const msg = event.message as { content?: Array<{ type: string; tool_use_id?: string; content?: string }> };
-      for (const block of msg?.content || []) {
-        if (block.type === 'tool_result' && block.tool_use_id) {
-          const postId = session.activeSubagents.get(block.tool_use_id);
-          if (postId) {
-            this.handleTaskComplete(session, block.tool_use_id, postId);
-          }
-        }
-      }
-    }
-
-    const formatted = this.formatEvent(session, event);
-    if (this.debug) {
-      console.log(`[DEBUG] handleEvent(${threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`);
-    }
-    if (formatted) this.appendContent(session, formatted);
-  }
-
-  private async handleTaskComplete(session: Session, toolUseId: string, postId: string): Promise<void> {
-    try {
-      await session.platform.updatePost(postId,
-        session.activeSubagents.has(toolUseId)
-          ? `🤖 **Subagent** ✅ *completed*`
-          : `🤖 **Subagent** ✅`
-      );
-      session.activeSubagents.delete(toolUseId);
-    } catch (err) {
-      console.error('  ⚠️ Failed to update subagent completion:', err);
-    }
-  }
-
-  private async handleExitPlanMode(session: Session, toolUseId: string): Promise<void> {
-    // If already approved in this session, send empty tool result to acknowledge
-    // (Claude needs a response to continue)
-    if (session.planApproved) {
-      if (this.debug) console.log('  ↪ Plan already approved, sending acknowledgment');
-      if (session.claude.isRunning()) {
-        session.claude.sendToolResult(toolUseId, 'Plan already approved. Proceeding.');
-      }
-      return;
-    }
-
-    // If we already have a pending approval, don't post another one
-    if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-      if (this.debug) console.log('  ↪ Plan approval already pending, waiting');
-      return;
-    }
-
-    // Flush any pending content first
-    await this.flush(session);
-    session.currentPostId = null;
-    session.pendingContent = '';
-
-    // Post approval message with reactions
-    const message = `✅ **Plan ready for approval**\n\n` +
-      `👍 Approve and start building\n` +
-      `👎 Request changes\n\n` +
-      `*React to respond*`;
-
-    const post = await session.platform.createInteractivePost(
-      message,
-      [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
-      session.threadId
-    );
-
-    // Register post for reaction routing
-    this.registerPost(post.id, session.threadId);
-
-    // Track this for reaction handling - include toolUseId for proper response
-    session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
-
-    // Stop typing while waiting
-    this.stopTyping(session);
-  }
-
-  private async handleTodoWrite(session: Session, input: Record<string, unknown>): Promise<void> {
-    const todos = input.todos as Array<{
-      content: string;
-      status: 'pending' | 'in_progress' | 'completed';
-      activeForm: string;
-    }>;
-
-    if (!todos || todos.length === 0) {
-      // Clear tasks display if empty
-      if (session.tasksPostId) {
-        try {
-          await session.platform.updatePost(session.tasksPostId, '📋 ~~Tasks~~ *(completed)*');
-        } catch (err) {
-          console.error('  ⚠️ Failed to update tasks:', err);
-        }
-      }
-      return;
-    }
-
-    // Count progress
-    const completed = todos.filter(t => t.status === 'completed').length;
-    const total = todos.length;
-    const pct = Math.round((completed / total) * 100);
-
-    // Check if there's an in_progress task and track timing
-    const hasInProgress = todos.some(t => t.status === 'in_progress');
-    if (hasInProgress && !session.inProgressTaskStart) {
-      session.inProgressTaskStart = Date.now();
-    } else if (!hasInProgress) {
-      session.inProgressTaskStart = null;
-    }
-
-    // Format tasks nicely with progress header
-    let message = `📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
-    for (const todo of todos) {
-      let icon: string;
-      let text: string;
-      switch (todo.status) {
-        case 'completed':
-          icon = '✅';
-          text = `~~${todo.content}~~`;
-          break;
-        case 'in_progress': {
-          icon = '🔄';
-          // Add elapsed time if we have a start time
-          let elapsed = '';
-          if (session.inProgressTaskStart) {
-            const secs = Math.round((Date.now() - session.inProgressTaskStart) / 1000);
-            if (secs >= 5) {  // Only show if >= 5 seconds
-              elapsed = ` (${secs}s)`;
-            }
-          }
-          text = `**${todo.activeForm}**${elapsed}`;
-          break;
-        }
-        default: // pending
-          icon = '○';
-          text = todo.content;
-      }
-      message += `${icon} ${text}\n`;
-    }
-
-    // Update or create tasks post
-    try {
-      if (session.tasksPostId) {
-        await session.platform.updatePost(session.tasksPostId, message);
-      } else {
-        const post = await session.platform.createPost(message, session.threadId);
-        session.tasksPostId = post.id;
-      }
-    } catch (err) {
-      console.error('  ⚠️ Failed to update tasks:', err);
-    }
-  }
-
-  private async handleTaskStart(session: Session, toolUseId: string, input: Record<string, unknown>): Promise<void> {
-    const description = input.description as string || 'Working...';
-    const subagentType = input.subagent_type as string || 'general';
-
-    // Post subagent status
-    const message = `🤖 **Subagent** *(${subagentType})*\n` +
-      `> ${description}\n` +
-      `⏳ Running...`;
-
-    try {
-      const post = await session.platform.createPost(message, session.threadId);
-      session.activeSubagents.set(toolUseId, post.id);
-    } catch (err) {
-      console.error('  ⚠️ Failed to post subagent status:', err);
-    }
-  }
-
-  private async handleAskUserQuestion(session: Session, toolUseId: string, input: Record<string, unknown>): Promise<void> {
-    // If we already have pending questions, don't start another set
-    if (session.pendingQuestionSet) {
-      if (this.debug) console.log('  ↪ Questions already pending, waiting');
-      return;
-    }
-
-    // Flush any pending content first
-    await this.flush(session);
-    session.currentPostId = null;
-    session.pendingContent = '';
-
-    const questions = input.questions as Array<{
-      question: string;
-      header: string;
-      options: Array<{ label: string; description: string }>;
-      multiSelect: boolean;
-    }>;
-
-    if (!questions || questions.length === 0) return;
-
-    // Create a new question set - we'll ask one at a time
-    session.pendingQuestionSet = {
-      toolUseId,
-      currentIndex: 0,
-      currentPostId: null,
-      questions: questions.map(q => ({
-        header: q.header,
-        question: q.question,
-        options: q.options,
-        answer: null,
-      })),
-    };
-
-    // Post the first question
-    await this.postCurrentQuestion(session);
-
-    // Stop typing while waiting for answer
-    this.stopTyping(session);
-  }
-
-  private async postCurrentQuestion(session: Session): Promise<void> {
-    if (!session.pendingQuestionSet) return;
-
-    const { currentIndex, questions } = session.pendingQuestionSet;
-    if (currentIndex >= questions.length) return;
-
-    const q = questions[currentIndex];
-    const total = questions.length;
-
-    // Format the question message
-    let message = `❓ **Question** *(${currentIndex + 1}/${total})*\n`;
-    message += `**${q.header}:** ${q.question}\n\n`;
-    for (let i = 0; i < q.options.length && i < 4; i++) {
-      const emoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'][i];
-      message += `${emoji} **${q.options[i].label}**`;
-      if (q.options[i].description) {
-        message += ` - ${q.options[i].description}`;
-      }
-      message += '\n';
-    }
-
-    // Post the question with reaction options
-    const reactionOptions = NUMBER_EMOJIS.slice(0, q.options.length);
-    const post = await session.platform.createInteractivePost(
-      message,
-      reactionOptions,
-      session.threadId
-    );
-    session.pendingQuestionSet.currentPostId = post.id;
-
-    // Register post for reaction routing
-    this.registerPost(post.id, session.threadId);
+  private async handleMessage(_platformId: string, _post: PlatformPost, _user: PlatformUser | null): Promise<void> {
+    // Message handling is done by the platform client routing to startSession/sendFollowUp
+    // This is just a placeholder for the event subscription
   }
 
   // ---------------------------------------------------------------------------
   // Reaction Handling
   // ---------------------------------------------------------------------------
-  // NOTE: Reaction handling now uses the new handleReaction method defined above
 
-  private async handleQuestionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
-    if (!session.pendingQuestionSet) return;
+  private async handleReaction(platformId: string, postId: string, emojiName: string, username: string): Promise<void> {
+    const session = this.getSessionByPost(postId);
+    if (!session) return;
 
-    const { currentIndex, questions } = session.pendingQuestionSet;
-    const question = questions[currentIndex];
-    if (!question) return;
+    // Verify this reaction is from the same platform
+    if (session.platformId !== platformId) return;
 
-    const optionIndex = getNumberEmojiIndex(emojiName);
-    if (optionIndex < 0 || optionIndex >= question.options.length) return;
-
-    const selectedOption = question.options[optionIndex];
-    question.answer = selectedOption.label;
-    if (this.debug) console.log(`  💬 @${username} answered "${question.header}": ${selectedOption.label}`);
-
-    // Update the post to show answer
-    try {
-      await session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
-    } catch (err) {
-      console.error('  ⚠️ Failed to update answered question:', err);
-    }
-
-    // Move to next question or finish
-    session.pendingQuestionSet.currentIndex++;
-
-    if (session.pendingQuestionSet.currentIndex < questions.length) {
-      // Post next question
-      await this.postCurrentQuestion(session);
-    } else {
-      // All questions answered - send tool result
-      let answersText = 'Here are my answers:\n';
-      for (const q of questions) {
-        answersText += `- **${q.header}**: ${q.answer}\n`;
-      }
-
-      if (this.debug) console.log('  ✅ All questions answered');
-
-      // Get the toolUseId before clearing
-      const toolUseId = session.pendingQuestionSet.toolUseId;
-
-      // Clear pending questions
-      session.pendingQuestionSet = null;
-
-      // Send tool result to Claude (AskUserQuestion expects a tool_result, not a user message)
-      if (session.claude.isRunning()) {
-        session.claude.sendToolResult(toolUseId, answersText);
-        this.startTyping(session);
-      }
-    }
-  }
-
-  private async handleApprovalReaction(session: Session, emojiName: string, username: string): Promise<void> {
-    if (!session.pendingApproval) return;
-
-    const isApprove = isApprovalEmoji(emojiName);
-    const isReject = isDenialEmoji(emojiName);
-
-    if (!isApprove && !isReject) return;
-
-    const { postId, toolUseId } = session.pendingApproval;
-    const shortId = session.threadId.substring(0, 8);
-    console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
-
-    // Update the post to show the decision
-    try {
-      const statusMessage = isApprove
-        ? `✅ **Plan approved** by @${username} - starting implementation...`
-        : `❌ **Changes requested** by @${username}`;
-      await session.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      console.error('  ⚠️ Failed to update approval post:', err);
-    }
-
-    // Clear pending approval and mark as approved
-    session.pendingApproval = null;
-    if (isApprove) {
-      session.planApproved = true;
-    }
-
-    // Send tool result to Claude (ExitPlanMode expects a tool_result, not a user message)
-    if (session.claude.isRunning()) {
-      const response = isApprove
-        ? 'Approved. Please proceed with the implementation.'
-        : 'Please revise the plan. I would like some changes.';
-      session.claude.sendToolResult(toolUseId, response);
-      this.startTyping(session);
-    }
-  }
-
-  private async handleMessageApprovalReaction(session: Session, emoji: string, approver: string): Promise<void> {
-    const pending = session.pendingMessageApproval;
-    if (!pending) return;
-
-    // Only session owner or globally allowed users can approve
-    if (session.startedBy !== approver && !session.platform.isUserAllowed(approver)) {
+    // Only process reactions from allowed users
+    if (!session.sessionAllowedUsers.has(username) && !session.platform.isUserAllowed(username)) {
       return;
     }
 
-    const isAllow = isApprovalEmoji(emoji);
-    const isInvite = isAllowAllEmoji(emoji);
-    const isDeny = isDenialEmoji(emoji);
-
-    if (!isAllow && !isInvite && !isDeny) return;
-
-    if (isAllow) {
-      // Allow this single message
-      await session.platform.updatePost(pending.postId,
-        `✅ Message from @${pending.fromUser} approved by @${approver}`);
-      session.claude.sendMessage(pending.originalMessage);
-      session.lastActivityAt = new Date();
-      this.startTyping(session);
-      console.log(`  ✅ Message from @${pending.fromUser} approved by @${approver}`);
-    } else if (isInvite) {
-      // Invite user to session
-      session.sessionAllowedUsers.add(pending.fromUser);
-      await session.platform.updatePost(pending.postId,
-        `✅ @${pending.fromUser} invited to session by @${approver}`);
-      await this.updateSessionHeader(session);
-      session.claude.sendMessage(pending.originalMessage);
-      session.lastActivityAt = new Date();
-      this.startTyping(session);
-      console.log(`  👋 @${pending.fromUser} invited to session by @${approver}`);
-    } else if (isDeny) {
-      // Deny
-      await session.platform.updatePost(pending.postId,
-        `❌ Message from @${pending.fromUser} denied by @${approver}`);
-      console.log(`  ❌ Message from @${pending.fromUser} denied by @${approver}`);
-    }
-
-    session.pendingMessageApproval = null;
+    await this.handleSessionReaction(session, postId, emojiName, username);
   }
 
-  private formatEvent(session: Session, e: ClaudeEvent): string | null {
-    switch (e.type) {
-      case 'assistant': {
-        const msg = e.message as { content?: Array<{ type: string; text?: string; thinking?: string; name?: string; input?: Record<string, unknown> }> };
-        const parts: string[] = [];
-        for (const block of msg?.content || []) {
-          if (block.type === 'text' && block.text) {
-            // Filter out <thinking> tags that may appear in text content
-            const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
-            if (text) parts.push(text);
-          } else if (block.type === 'tool_use' && block.name) {
-            const formatted = sharedFormatToolUse(block.name, block.input || {}, { detailed: true });
-            if (formatted) parts.push(formatted);
-          } else if (block.type === 'thinking' && block.thinking) {
-            // Extended thinking - show abbreviated version
-            const thinking = block.thinking as string;
-            const preview = thinking.length > 100 ? thinking.substring(0, 100) + '...' : thinking;
-            parts.push(`💭 *Thinking: ${preview}*`);
-          } else if (block.type === 'server_tool_use' && block.name) {
-            // Server-managed tools like web search
-            parts.push(`🌐 **${block.name}** ${block.input ? JSON.stringify(block.input).substring(0, 50) : ''}`);
-          }
-        }
-        return parts.length > 0 ? parts.join('\n') : null;
+  private async handleSessionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
+    // Handle ❌ on worktree prompt
+    if (session.worktreePromptPostId === postId && emojiName === 'x') {
+      await worktreeModule.handleWorktreeSkip(
+        session,
+        username,
+        (s) => this.persistSession(s),
+        (s) => this.startTyping(s)
+      );
+      return;
+    }
+
+    // Handle cancel/escape reactions on session start post
+    if (session.sessionStartPostId === postId) {
+      if (isCancelEmoji(emojiName)) {
+        await commands.cancelSession(session, username, this.getCommandContext());
+        return;
       }
-      case 'tool_use': {
-        const tool = e.tool_use as { id?: string; name: string; input?: Record<string, unknown> };
-        // Track tool start time for elapsed display
-        if (tool.id) {
-          session.activeToolStarts.set(tool.id, Date.now());
-        }
-        return sharedFormatToolUse(tool.name, tool.input || {}, { detailed: true }) || null;
+      if (isEscapeEmoji(emojiName)) {
+        await commands.interruptSession(session, username);
+        return;
       }
-      case 'tool_result': {
-        const result = e.tool_result as { tool_use_id?: string; is_error?: boolean };
-        // Calculate elapsed time
-        let elapsed = '';
-        if (result.tool_use_id) {
-          const startTime = session.activeToolStarts.get(result.tool_use_id);
-          if (startTime) {
-            const secs = Math.round((Date.now() - startTime) / 1000);
-            if (secs >= 3) {  // Only show if >= 3 seconds
-              elapsed = ` (${secs}s)`;
-            }
-            session.activeToolStarts.delete(result.tool_use_id);
-          }
-        }
-        if (result.is_error) return `  ↳ ❌ Error${elapsed}`;
-        if (elapsed) return `  ↳ ✓${elapsed}`;
-        return null;
-      }
-      case 'result': {
-        // Response complete - stop typing and start new post for next message
-        this.stopTyping(session);
-        this.flush(session);
-        session.currentPostId = null;
-        session.pendingContent = '';
-        return null;
-      }
-      case 'system':
-        if (e.subtype === 'error') return `❌ ${e.error}`;
-        return null;
-      case 'user': {
-        // Handle local command output (e.g., /context, /cost responses)
-        const msg = e.message as { content?: string };
-        if (typeof msg?.content === 'string') {
-          // Extract content from <local-command-stdout> tags
-          const match = msg.content.match(/<local-command-stdout>([\s\S]*?)<\/local-command-stdout>/);
-          if (match) {
-            return match[1].trim();
-          }
-        }
-        return null;
-      }
-      default:
-        return null;
+    }
+
+    // Handle question reactions
+    if (session.pendingQuestionSet?.currentPostId === postId) {
+      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getReactionContext());
+      return;
+    }
+
+    // Handle plan approval reactions
+    if (session.pendingApproval?.postId === postId) {
+      await reactions.handleApprovalReaction(session, emojiName, username, this.getReactionContext());
+      return;
+    }
+
+    // Handle message approval reactions
+    if (session.pendingMessageApproval?.postId === postId) {
+      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getReactionContext());
+      return;
     }
   }
+
+  // ---------------------------------------------------------------------------
+  // Event Handling (delegates to events module)
+  // ---------------------------------------------------------------------------
+
+  private handleEvent(threadId: string, event: ClaudeEvent): void {
+    const session = this.sessions.get(threadId);
+    if (!session) return;
+    events.handleEvent(session, event, this.getEventContext());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Exit Handling (delegates to lifecycle module)
+  // ---------------------------------------------------------------------------
+
+  private async handleExit(threadId: string, code: number): Promise<void> {
+    await lifecycle.handleExit(threadId, code, this.getLifecycleContext());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Streaming utilities (delegates to streaming module)
+  // ---------------------------------------------------------------------------
 
   private appendContent(session: Session, text: string): void {
     if (!text) return;
     session.pendingContent += text + '\n';
-    this.scheduleUpdate(session);
-  }
-
-  private scheduleUpdate(session: Session): void {
     streaming.scheduleUpdate(session, (s) => this.flush(s));
   }
 
-  /**
-   * Build message content for Claude, including images if present.
-   * Returns either a string or an array of content blocks.
-   */
-  private async buildMessageContent(
-    text: string,
-    platform: PlatformClient,
-    files?: PlatformFile[]
-  ): Promise<string | ContentBlock[]> {
-    return streaming.buildMessageContent(text, platform, files, this.debug);
+  private async flush(session: Session): Promise<void> {
+    await streaming.flush(session, (pid, tid) => this.registerPost(pid, tid));
   }
 
   private startTyping(session: Session): void {
@@ -1413,1154 +294,342 @@ export class SessionManager {
     streaming.stopTyping(session);
   }
 
-  private async flush(session: Session): Promise<void> {
-    return streaming.flush(session, (postId, threadId) => this.registerPost(postId, threadId));
+  private async buildMessageContent(
+    text: string,
+    platform: PlatformClient,
+    files?: PlatformFile[]
+  ): Promise<string | ContentBlock[]> {
+    return streaming.buildMessageContent(text, platform, files, this.debug);
   }
 
-  private async handleExit(threadId: string, code: number): Promise<void> {
-    const session = this.sessions.get(threadId);
-    const shortId = threadId.substring(0, 8);
+  // ---------------------------------------------------------------------------
+  // Worktree utilities
+  // ---------------------------------------------------------------------------
 
-    // Always log exit events to trace the flow
-    console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${this.isShuttingDown}`);
+  private async shouldPromptForWorktree(session: Session): Promise<string | null> {
+    return worktreeModule.shouldPromptForWorktree(
+      session,
+      this.worktreeMode,
+      (repoRoot, excludeId) => this.hasOtherSessionInRepo(repoRoot, excludeId)
+    );
+  }
 
-    if (!session) {
-      console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
-      return;
+  private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
+    for (const [threadId, session] of this.sessions) {
+      if (threadId === excludeThreadId) continue;
+      if (session.workingDir === repoRoot) return true;
+      if (session.worktreeInfo?.repoRoot === repoRoot) return true;
     }
+    return false;
+  }
 
-    // If we're intentionally restarting (e.g., !cd), don't clean up or post exit message
-    if (session.isRestarting) {
-      console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
-      session.isRestarting = false;  // Reset flag here, after the exit event fires
-      return;
-    }
-
-    // If bot is shutting down, suppress exit messages (shutdown message already sent)
-    // IMPORTANT: Check this flag FIRST before any cleanup. The session should remain
-    // persisted so it can be resumed after restart.
-    if (this.isShuttingDown) {
-      console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
-      // Still clean up from in-memory maps since we're shutting down anyway
-      this.stopTyping(session);
-      if (session.updateTimer) {
-        clearTimeout(session.updateTimer);
-        session.updateTimer = null;
-      }
-      this.sessions.delete(session.sessionId);
-      return;
-    }
-
-    // If session was interrupted (SIGINT sent), preserve for resume
-    // Claude CLI exits on SIGINT, but we want to allow resuming the session
-    if (session.wasInterrupted) {
-      console.log(`  [exit] Session ${shortId}... exited after interrupt, preserving for resume`);
-      this.stopTyping(session);
-      if (session.updateTimer) {
-        clearTimeout(session.updateTimer);
-        session.updateTimer = null;
-      }
-      // Update persistence with current state before cleanup
-      this.persistSession(session);
-      this.sessions.delete(session.sessionId);
-      // Clean up post index
-      for (const [postId, tid] of this.postIndex.entries()) {
-        if (tid === threadId) {
-          this.postIndex.delete(postId);
-        }
-      }
-      // Notify user they can send a new message to resume
-      try {
-        await session.platform.createPost(
-          `ℹ️ Session paused. Send a new message to continue.`,
-          session.threadId
-        );
-      } catch {
-        // Ignore if we can't post
-      }
-      console.log(`  ⏸️ Session paused (${shortId}…) — ${this.sessions.size} active`);
-      return;
-    }
-
-    // For resumed sessions that exit quickly (e.g., Claude --resume fails),
-    // don't unpersist immediately - give it a chance to be retried
-    if (session.isResumed && code !== 0) {
-      console.log(`  [exit] Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
-      this.stopTyping(session);
-      if (session.updateTimer) {
-        clearTimeout(session.updateTimer);
-        session.updateTimer = null;
-      }
-      this.sessions.delete(session.sessionId);
-      // Post error message but keep persistence
-      try {
-        await session.platform.createPost(
-          `⚠️ **Session resume failed** (exit code ${code}). The session data is preserved - try restarting the bot.`,
-          session.threadId
-        );
-      } catch {
-        // Ignore if we can't post
-      }
-      return;
-    }
-
-    console.log(`  [exit] Session ${shortId}... normal exit, cleaning up`);
-
+  private async postWorktreePrompt(session: Session, reason: string): Promise<void> {
+    await worktreeModule.postWorktreePrompt(session, reason, (pid, tid) => this.registerPost(pid, tid));
     this.stopTyping(session);
-    if (session.updateTimer) {
-      clearTimeout(session.updateTimer);
-      session.updateTimer = null;
-    }
-    await this.flush(session);
-
-    if (code !== 0 && code !== null) {
-      await session.platform.createPost(`**[Exited: ${code}]**`, session.threadId);
-    }
-
-    // Clean up session from maps
-    this.sessions.delete(session.sessionId);
-    // Clean up post index entries for this session
-    for (const [postId, tid] of this.postIndex.entries()) {
-      if (tid === threadId) {
-        this.postIndex.delete(postId);
-      }
-    }
-
-    // Only unpersist for normal exits (code 0 or null means graceful completion)
-    // Non-zero exits might be recoverable, so we keep the session persisted
-    if (code === 0 || code === null) {
-      this.unpersistSession(threadId);
-    } else {
-      console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
-    }
-
-    console.log(`  ■ Session ended (${shortId}…) — ${this.sessions.size} active`);
   }
 
   // ---------------------------------------------------------------------------
-  // Public Session API
+  // Persistence
   // ---------------------------------------------------------------------------
 
-  /** Check if any sessions are active */
+  private persistSession(session: Session): void {
+    const state: PersistedSession = {
+      platformId: session.platformId,
+      threadId: session.threadId,
+      claudeSessionId: session.claudeSessionId,
+      startedBy: session.startedBy,
+      startedAt: session.startedAt.toISOString(),
+      lastActivityAt: session.lastActivityAt.toISOString(),
+      sessionNumber: session.sessionNumber,
+      workingDir: session.workingDir,
+      planApproved: session.planApproved,
+      sessionAllowedUsers: [...session.sessionAllowedUsers],
+      forceInteractivePermissions: session.forceInteractivePermissions,
+      sessionStartPostId: session.sessionStartPostId,
+      tasksPostId: session.tasksPostId,
+      worktreeInfo: session.worktreeInfo,
+      pendingWorktreePrompt: session.pendingWorktreePrompt,
+      worktreePromptDisabled: session.worktreePromptDisabled,
+      queuedPrompt: session.queuedPrompt,
+    };
+    this.sessionStore.save(session.sessionId, state);
+  }
+
+  private unpersistSession(sessionId: string): void {
+    this.sessionStore.remove(sessionId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Session Header
+  // ---------------------------------------------------------------------------
+
+  private async updateSessionHeader(session: Session): Promise<void> {
+    await commands.updateSessionHeader(session, this.getCommandContext());
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
+
+  async initialize(): Promise<void> {
+    const persisted = this.sessionStore.load();
+    if (persisted.size === 0) return;
+
+    console.log(`  🔄 Found ${persisted.size} persisted session(s), attempting resume...`);
+    for (const state of persisted.values()) {
+      await lifecycle.resumeSession(state, this.getLifecycleContext());
+    }
+  }
+
+  async startSession(
+    options: { prompt: string; files?: PlatformFile[] },
+    username: string,
+    replyToPostId?: string,
+    platformId: string = 'default'
+  ): Promise<void> {
+    await lifecycle.startSession(options, username, replyToPostId, platformId, this.getLifecycleContext());
+  }
+
+  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
+    const session = this.sessions.get(threadId);
+    if (!session || !session.claude.isRunning()) return;
+    await lifecycle.sendFollowUp(session, message, files, this.getLifecycleContext());
+  }
+
   isSessionActive(): boolean {
     return this.sessions.size > 0;
   }
 
-  /** Check if a session exists for this thread */
   isInSessionThread(threadRoot: string): boolean {
     const session = this.sessions.get(threadRoot);
     return session !== undefined && session.claude.isRunning();
   }
 
-  /** Send a follow-up message to an existing session */
-  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    const session = this.sessions.get(threadId);
-    if (!session || !session.claude.isRunning()) return;
-    const content = await this.buildMessageContent(message, session.platform, files);
-    session.claude.sendMessage(content);
-    session.lastActivityAt = new Date();
-    this.startTyping(session);
-  }
-
-  /**
-   * Check if there's a paused (persisted but not active) session for this thread.
-   * This is used to detect when we should resume a session instead of ignoring the message.
-   */
   hasPausedSession(threadId: string): boolean {
-    // If there's an active session, it's not paused
     if (this.sessions.has(threadId)) return false;
-    // Check persistence
     const persisted = this.sessionStore.load();
     return persisted.has(threadId);
   }
 
-  /**
-   * Resume a paused session and send a message to it.
-   * Called when a user sends a message to a thread with a paused session.
-   */
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    const persisted = this.sessionStore.load();
-    const state = persisted.get(threadId);
-    if (!state) {
-      console.log(`  [resume] No persisted session found for ${threadId.substring(0, 8)}...`);
-      return;
-    }
-
-    const shortId = threadId.substring(0, 8);
-    console.log(`  🔄 Resuming paused session ${shortId}... for new message`);
-
-    // Resume the session (similar to initialize() but for a single session)
-    await this.resumeSession(state);
-
-    // Wait a moment for the session to be ready, then send the message
-    const session = this.sessions.get(threadId);
-    if (session && session.claude.isRunning()) {
-      const content = await this.buildMessageContent(message, session.platform, files);
-      session.claude.sendMessage(content);
-      session.lastActivityAt = new Date();
-      this.startTyping(session);
-    } else {
-      console.log(`  ⚠️ Failed to resume session ${shortId}..., could not send message`);
-    }
+    await lifecycle.resumePausedSession(threadId, message, files, this.getLifecycleContext());
   }
 
-  /**
-   * Get persisted session info for access control checks
-   */
   getPersistedSession(threadId: string): PersistedSession | undefined {
     const persisted = this.sessionStore.load();
     return persisted.get(threadId);
   }
 
-  /** Kill a specific session */
   killSession(threadId: string, unpersist = true): void {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    const shortId = threadId.substring(0, 8);
-
-    // Set restarting flag to prevent handleExit from also unpersisting
-    // (we'll do it explicitly here if requested)
-    if (!unpersist) {
-      session.isRestarting = true;  // Reuse this flag to skip cleanup in handleExit
-    }
-
-    this.stopTyping(session);
-    session.claude.kill();
-
-    // Clean up session from maps
-    this.sessions.delete(session.sessionId);
-    for (const [postId, tid] of this.postIndex.entries()) {
-      if (tid === threadId) {
-        this.postIndex.delete(postId);
-      }
-    }
-
-    // Explicitly unpersist if requested (e.g., for timeout, cancel, etc.)
-    if (unpersist) {
-      this.unpersistSession(threadId);
-    }
-
-    console.log(`  ✖ Session killed (${shortId}…) — ${this.sessions.size} active`);
+    lifecycle.killSession(session, unpersist, this.getLifecycleContext());
   }
 
-  /** Cancel a session with user feedback */
+  killAllSessions(): void {
+    lifecycle.killAllSessions(this.getLifecycleContext());
+  }
+
+  // Commands
   async cancelSession(threadId: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    const shortId = threadId.substring(0, 8);
-    console.log(`  🛑 Session (${shortId}…) cancelled by @${username}`);
-
-    await session.platform.createPost(
-      `🛑 **Session cancelled** by @${username}`,
-      threadId
-    );
-
-    this.killSession(threadId);
+    await commands.cancelSession(session, username, this.getCommandContext());
   }
 
-  /** Interrupt current processing but keep session alive (like Escape in CLI) */
   async interruptSession(threadId: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    if (!session.claude.isRunning()) {
-      await session.platform.createPost(
-        `ℹ️ Session is idle, nothing to interrupt`,
-        threadId
-      );
-      return;
-    }
-
-    const shortId = threadId.substring(0, 8);
-
-    // Set flag BEFORE interrupt - if Claude exits due to SIGINT, we won't unpersist
-    session.wasInterrupted = true;
-    const interrupted = session.claude.interrupt();
-
-    if (interrupted) {
-      console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
-      await session.platform.createPost(
-        `⏸️ **Interrupted** by @${username}`,
-        threadId
-      );
-    }
+    await commands.interruptSession(session, username);
   }
 
-  /** Change working directory for a session (restarts Claude CLI) */
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or globally allowed users can change directory
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can change the working directory`,
-        threadId
-      );
-      return;
-    }
-
-    // Expand ~ to home directory
-    const expandedDir = newDir.startsWith('~')
-      ? newDir.replace('~', process.env.HOME || '')
-      : newDir;
-
-    // Resolve to absolute path
-    const { resolve } = await import('path');
-    const absoluteDir = resolve(expandedDir);
-
-    // Check if directory exists
-    const { existsSync, statSync } = await import('fs');
-    if (!existsSync(absoluteDir)) {
-      await session.platform.createPost(
-        `❌ Directory does not exist: \`${newDir}\``,
-        threadId
-      );
-      return;
-    }
-
-    if (!statSync(absoluteDir).isDirectory()) {
-      await session.platform.createPost(
-        `❌ Not a directory: \`${newDir}\``,
-        threadId
-      );
-      return;
-    }
-
-    const shortId = threadId.substring(0, 8);
-    const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
-    console.log(`  📂 Session (${shortId}…) changing directory to ${shortDir}`);
-
-    // Stop the current Claude CLI
-    this.stopTyping(session);
-    session.isRestarting = true;  // Suppress exit message during restart
-    session.claude.kill();
-
-    // Flush any pending content
-    await this.flush(session);
-    session.currentPostId = null;
-    session.pendingContent = '';
-
-    // Update session working directory
-    session.workingDir = absoluteDir;
-
-    // Generate new session ID for fresh start in new directory
-    // (Claude CLI sessions are tied to working directory, can't resume across directories)
-    const newSessionId = randomUUID();
-    session.claudeSessionId = newSessionId;
-
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: absoluteDir,
-      threadId: threadId,
-      skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
-      sessionId: newSessionId,
-      resume: false,  // Fresh start - can't resume across directories
-      chrome: this.chromeEnabled,
-      platformConfig: session.platform.getMcpConfig?.() || undefined,
-    };
-    session.claude = new ClaudeCli(cliOptions);
-
-    // Rebind event handlers
-    session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
-    session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
-
-    // Start the new Claude CLI
-    try {
-      session.claude.start();
-      // Note: isRestarting is reset in handleExit when the old process exit event fires
-    } catch (err) {
-      session.isRestarting = false;  // Reset flag on failure since exit won't fire
-      console.error('  ❌ Failed to restart Claude:', err);
-      await session.platform.createPost(`❌ Failed to restart Claude: ${err}`, threadId);
-      return;
-    }
-
-    // Update session header with new directory
-    await this.updateSessionHeader(session);
-
-    // Post confirmation
-    await session.platform.createPost(
-      `📂 **Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`,
-      threadId
-    );
-
-    // Update activity
-    session.lastActivityAt = new Date();
-    session.timeoutWarningPosted = false;
-
-    // Persist the updated session state
-    this.persistSession(session);
+    await commands.changeDirectory(session, newDir, username, this.getCommandContext());
   }
 
-  /** Invite a user to participate in a specific session */
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or globally allowed users can invite
-    if (session.startedBy !== invitedBy && !session.platform.isUserAllowed(invitedBy)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can invite others`,
-        threadId
-      );
-      return;
-    }
-
-    session.sessionAllowedUsers.add(invitedUser);
-    await session.platform.createPost(
-      `✅ @${invitedUser} can now participate in this session (invited by @${invitedBy})`,
-      threadId
-    );
-    console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
-    await this.updateSessionHeader(session);
-    this.persistSession(session);  // Persist collaboration change
+    await commands.inviteUser(session, invitedUser, invitedBy, this.getCommandContext());
   }
 
-  /** Kick a user from a specific session */
   async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or globally allowed users can kick
-    if (session.startedBy !== kickedBy && !session.platform.isUserAllowed(kickedBy)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can kick others`,
-        threadId
-      );
-      return;
-    }
-
-    // Can't kick session owner
-    if (kickedUser === session.startedBy) {
-      await session.platform.createPost(
-        `⚠️ Cannot kick session owner @${session.startedBy}`,
-        threadId
-      );
-      return;
-    }
-
-    // Can't kick globally allowed users (they'll still have access)
-    if (session.platform.isUserAllowed(kickedUser)) {
-      await session.platform.createPost(
-        `⚠️ @${kickedUser} is globally allowed and cannot be kicked from individual sessions`,
-        threadId
-      );
-      return;
-    }
-
-    if (session.sessionAllowedUsers.delete(kickedUser)) {
-      await session.platform.createPost(
-        `🚫 @${kickedUser} removed from this session by @${kickedBy}`,
-        threadId
-      );
-      console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
-      await this.updateSessionHeader(session);
-      this.persistSession(session);  // Persist collaboration change
-    } else {
-      await session.platform.createPost(
-        `⚠️ @${kickedUser} was not in this session`,
-        threadId
-      );
-    }
+    await commands.kickUser(session, kickedUser, kickedBy, this.getCommandContext());
   }
 
-  /**
-   * Enable interactive permissions for a session.
-   * Can only downgrade (skip → interactive), not upgrade.
-   */
   async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or globally allowed users can change permissions
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can change permissions`,
-        threadId
-      );
-      return;
-    }
-
-    // Can only downgrade, not upgrade
-    if (!this.skipPermissions) {
-      await session.platform.createPost(
-        `ℹ️ Permissions are already interactive for this session`,
-        threadId
-      );
-      return;
-    }
-
-    // Already enabled for this session
-    if (session.forceInteractivePermissions) {
-      await session.platform.createPost(
-        `ℹ️ Interactive permissions already enabled for this session`,
-        threadId
-      );
-      return;
-    }
-
-    // Set the flag
-    session.forceInteractivePermissions = true;
-
-    const shortId = threadId.substring(0, 8);
-    console.log(`  🔐 Session (${shortId}…) enabling interactive permissions`);
-
-    // Stop the current Claude CLI and restart with new permission setting
-    this.stopTyping(session);
-    session.isRestarting = true;  // Suppress exit message during restart
-    session.claude.kill();
-
-    // Flush any pending content
-    await this.flush(session);
-    session.currentPostId = null;
-    session.pendingContent = '';
-
-    // Create new CLI options with interactive permissions (skipPermissions: false)
-    const cliOptions: ClaudeCliOptions = {
-      workingDir: session.workingDir,
-      threadId: threadId,
-      skipPermissions: false,  // Force interactive permissions
-      sessionId: session.claudeSessionId,
-      resume: true,  // Resume to keep conversation context
-      chrome: this.chromeEnabled,
-      platformConfig: session.platform.getMcpConfig?.() || undefined,
-    };
-    session.claude = new ClaudeCli(cliOptions);
-
-    // Rebind event handlers
-    session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
-    session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
-
-    // Start the new Claude CLI
-    try {
-      session.claude.start();
-      // Note: isRestarting is reset in handleExit when the old process exit event fires
-    } catch (err) {
-      session.isRestarting = false;  // Reset flag on failure since exit won't fire
-      console.error('  ❌ Failed to restart Claude:', err);
-      await session.platform.createPost(`❌ Failed to enable interactive permissions: ${err}`, threadId);
-      return;
-    }
-
-    // Update session header with new permission status
-    await this.updateSessionHeader(session);
-
-    // Post confirmation
-    await session.platform.createPost(
-      `🔐 **Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`,
-      threadId
-    );
-    console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
-
-    // Update activity and persist
-    session.lastActivityAt = new Date();
-    session.timeoutWarningPosted = false;
-    this.persistSession(session);
+    await commands.enableInteractivePermissions(session, username, this.getCommandContext());
   }
 
-  /** Check if a session should use interactive permissions */
   isSessionInteractive(threadId: string): boolean {
     const session = this.sessions.get(threadId);
     if (!session) return !this.skipPermissions;
-
-    // If global is interactive, always interactive
     if (!this.skipPermissions) return true;
-
-    // If session has forced interactive, use that
     return session.forceInteractivePermissions;
   }
 
-  /** Update the session header post with current participants */
-  private async updateSessionHeader(session: Session): Promise<void> {
-    if (!session.sessionStartPostId) return;
-
-    // Use session's working directory (can be changed via !cd)
-    const shortDir = session.workingDir.replace(process.env.HOME || '', '~');
-    // Check session-level permission override
-    const isInteractive = !this.skipPermissions || session.forceInteractivePermissions;
-    const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';
-
-    // Build participants list (excluding owner who is shown in "Started by")
-    const otherParticipants = [...session.sessionAllowedUsers]
-      .filter(u => u !== session.startedBy)
-      .map(u => `@${u}`)
-      .join(', ');
-
-    const rows = [
-      `| 📂 **Directory** | \`${shortDir}\` |`,
-      `| 👤 **Started by** | @${session.startedBy} |`,
-    ];
-
-    // Show worktree info if active
-    if (session.worktreeInfo) {
-      const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
-      rows.push(`| 🌿 **Worktree** | \`${session.worktreeInfo.branch}\` (from \`${shortRepoRoot}\`) |`);
-    }
-
-    if (otherParticipants) {
-      rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
-    }
-
-    rows.push(`| 🔢 **Session** | #${session.sessionNumber} of ${MAX_SESSIONS} max |`);
-    rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
-    if (this.chromeEnabled) {
-      rows.push(`| 🌐 **Chrome** | Enabled |`);
-    }
-
-    // Check for available updates
-    const updateInfo = getUpdateInfo();
-    const updateNotice = updateInfo
-      ? `\n> ⚠️ **Update available:** v${updateInfo.current} → v${updateInfo.latest} - Run \`npm install -g claude-threads\`\n`
-      : '';
-
-    // Get "What's new" from release notes
-    const releaseNotes = getReleaseNotes(pkg.version);
-    const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
-    const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
-
-    const msg = [
-      getMattermostLogo(pkg.version),
-      updateNotice,
-      whatsNewLine,
-      `| | |`,
-      `|:--|:--|`,
-      ...rows,
-    ].join('\n');
-
-    try {
-      await session.platform.updatePost(session.sessionStartPostId, msg);
-    } catch (err) {
-      console.error('  ⚠️ Failed to update session header:', err);
-    }
-  }
-
-  /** Request approval for a message from an unauthorized user */
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // If there's already a pending message approval, ignore
-    if (session.pendingMessageApproval) {
-      return;
-    }
-
-    const preview = message.length > 100 ? message.substring(0, 100) + '…' : message;
-
-    const post = await session.platform.createInteractivePost(
-      `🔒 **@${username}** wants to send a message:\n> ${preview}\n\n` +
-      `React 👍 to allow this message, ✅ to invite them to the session, 👎 to deny`,
-      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
-      threadId
-    );
-
-    session.pendingMessageApproval = {
-      postId: post.id,
-      originalMessage: message,
-      fromUser: username,
-    };
-
-    this.registerPost(post.id, threadId);
+    await commands.requestMessageApproval(session, username, message, this.getCommandContext());
   }
 
-  // ---------------------------------------------------------------------------
-  // Worktree Management
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Handle a worktree branch response from user.
-   * Called when user replies with a branch name to the worktree prompt.
-   */
+  // Worktree commands
   async handleWorktreeBranchResponse(threadId: string, branchName: string, username: string): Promise<boolean> {
     const session = this.sessions.get(threadId);
-    if (!session || !session.pendingWorktreePrompt) return false;
-
-    // Only session owner can respond
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      return false;
-    }
-
-    // Validate branch name
-    if (!isValidBranchName(branchName)) {
-      await session.platform.createPost(
-        `❌ Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`,
-        threadId
-      );
-      return true; // We handled it, but need another response
-    }
-
-    // Create and switch to worktree
-    await this.createAndSwitchToWorktree(threadId, branchName, username);
-    return true;
+    if (!session) return false;
+    return worktreeModule.handleWorktreeBranchResponse(
+      session,
+      branchName,
+      username,
+      (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
+    );
   }
 
-  /**
-   * Handle ❌ reaction on worktree prompt - skip worktree and continue in main repo.
-   */
   async handleWorktreeSkip(threadId: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
-    if (!session || !session.pendingWorktreePrompt) return;
-
-    // Only session owner can skip
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      return;
-    }
-
-    // Update the prompt post
-    if (session.worktreePromptPostId) {
-      try {
-        await session.platform.updatePost(session.worktreePromptPostId,
-          `✅ Continuing in main repo (skipped by @${username})`);
-      } catch (err) {
-        console.error('  ⚠️ Failed to update worktree prompt:', err);
-      }
-    }
-
-    // Clear pending state
-    session.pendingWorktreePrompt = false;
-    session.worktreePromptPostId = undefined;
-    const queuedPrompt = session.queuedPrompt;
-    session.queuedPrompt = undefined;
-
-    // Persist updated state
-    this.persistSession(session);
-
-    // Now send the queued message to Claude
-    if (queuedPrompt && session.claude.isRunning()) {
-      session.claude.sendMessage(queuedPrompt);
-      this.startTyping(session);
-    }
+    if (!session) return;
+    await worktreeModule.handleWorktreeSkip(
+      session,
+      username,
+      (s) => this.persistSession(s),
+      (s) => this.startTyping(s)
+    );
   }
 
-  /**
-   * Create a new worktree and switch the session to it.
-   */
   async createAndSwitchToWorktree(threadId: string, branch: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-        threadId
-      );
-      return;
-    }
-
-    // Check if we're in a git repo
-    const isRepo = await isGitRepository(session.workingDir);
-    if (!isRepo) {
-      await session.platform.createPost(
-        `❌ Current directory is not a git repository`,
-        threadId
-      );
-      return;
-    }
-
-    // Get repo root
-    const repoRoot = await getRepositoryRoot(session.workingDir);
-
-    // Check if worktree already exists for this branch
-    const existing = await findWorktreeByBranch(repoRoot, branch);
-    if (existing && !existing.isMain) {
-      await session.platform.createPost(
-        `⚠️ Worktree for branch \`${branch}\` already exists at \`${existing.path}\`. Use \`!worktree switch ${branch}\` to switch to it.`,
-        threadId
-      );
-      return;
-    }
-
-    const shortId = threadId.substring(0, 8);
-    console.log(`  🌿 Session (${shortId}…) creating worktree for branch ${branch}`);
-
-    // Generate worktree path
-    const worktreePath = getWorktreeDir(repoRoot, branch);
-
-    try {
-      // Create the worktree
-      await createWorktree(repoRoot, branch, worktreePath);
-
-      // Update the prompt post if it exists
-      if (session.worktreePromptPostId) {
-        try {
-          await session.platform.updatePost(session.worktreePromptPostId,
-            `✅ Created worktree for \`${branch}\``);
-        } catch (err) {
-          console.error('  ⚠️ Failed to update worktree prompt:', err);
-        }
-      }
-
-      // Clear pending state
-      const wasPending = session.pendingWorktreePrompt;
-      session.pendingWorktreePrompt = false;
-      session.worktreePromptPostId = undefined;
-      const queuedPrompt = session.queuedPrompt;
-      session.queuedPrompt = undefined;
-
-      // Store worktree info
-      session.worktreeInfo = {
-        repoRoot,
-        worktreePath,
-        branch,
-      };
-
-      // Update working directory
-      session.workingDir = worktreePath;
-
-      // If Claude is already running, restart it in the new directory
-      if (session.claude.isRunning()) {
-        this.stopTyping(session);
-        session.isRestarting = true;
-        session.claude.kill();
-
-        // Flush any pending content
-        await this.flush(session);
-        session.currentPostId = null;
-        session.pendingContent = '';
-
-        // Generate new session ID for fresh start in new directory
-        // (Claude CLI sessions are tied to working directory, can't resume across directories)
-        const newSessionId = randomUUID();
-        session.claudeSessionId = newSessionId;
-
-        // Create new CLI with new working directory
-        const cliOptions: ClaudeCliOptions = {
-          workingDir: worktreePath,
-          threadId: threadId,
-          skipPermissions: this.skipPermissions || !session.forceInteractivePermissions,
-          sessionId: newSessionId,
-          resume: false,  // Fresh start - can't resume across directories
-          chrome: this.chromeEnabled,
-          platformConfig: session.platform.getMcpConfig?.() || undefined,
-        };
-        session.claude = new ClaudeCli(cliOptions);
-
-        // Rebind event handlers
-        session.claude.on('event', (e: ClaudeEvent) => this.handleEvent(threadId, e));
-        session.claude.on('exit', (code: number) => this.handleExit(threadId, code));
-
-        // Start the new CLI
-        session.claude.start();
-      }
-
-      // Update session header
-      await this.updateSessionHeader(session);
-
-      // Post confirmation
-      const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
-      await session.platform.createPost(
-        `✅ **Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`,
-        threadId
-      );
-
-      // Update activity and persist
-      session.lastActivityAt = new Date();
-      session.timeoutWarningPosted = false;
-      this.persistSession(session);
-
-      // If there was a queued prompt (from initial session start), send it now
-      if (wasPending && queuedPrompt && session.claude.isRunning()) {
-        session.claude.sendMessage(queuedPrompt);
-        this.startTyping(session);
-      }
-
-      console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
-    } catch (err) {
-      console.error(`  ❌ Failed to create worktree:`, err);
-      await session.platform.createPost(
-        `❌ Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
-        threadId
-      );
-    }
+    await worktreeModule.createAndSwitchToWorktree(session, branch, username, {
+      skipPermissions: this.skipPermissions,
+      chromeEnabled: this.chromeEnabled,
+      handleEvent: (tid, e) => this.handleEvent(tid, e),
+      handleExit: (tid, code) => this.handleExit(tid, code),
+      updateSessionHeader: (s) => this.updateSessionHeader(s),
+      flush: (s) => this.flush(s),
+      persistSession: (s) => this.persistSession(s),
+      startTyping: (s) => this.startTyping(s),
+      stopTyping: (s) => this.stopTyping(s),
+    });
   }
 
-  /**
-   * Switch to an existing worktree.
-   */
   async switchToWorktree(threadId: string, branchOrPath: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-        threadId
-      );
-      return;
-    }
-
-    // Get current repo root
-    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
-
-    // Find the worktree
-    const worktrees = await listWorktrees(repoRoot);
-    const target = worktrees.find(wt =>
-      wt.branch === branchOrPath ||
-      wt.path === branchOrPath ||
-      wt.path.endsWith(branchOrPath)
+    await worktreeModule.switchToWorktree(
+      session,
+      branchOrPath,
+      username,
+      (tid, dir, user) => this.changeDirectory(tid, dir, user)
     );
-
-    if (!target) {
-      await session.platform.createPost(
-        `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
-        threadId
-      );
-      return;
-    }
-
-    // Use changeDirectory logic to switch
-    await this.changeDirectory(threadId, target.path, username);
-
-    // Update worktree info
-    session.worktreeInfo = {
-      repoRoot,
-      worktreePath: target.path,
-      branch: target.branch,
-    };
-
-    // Update session header
-    await this.updateSessionHeader(session);
-    this.persistSession(session);
   }
 
-  /**
-   * List all worktrees for the current repository.
-   */
   async listWorktreesCommand(threadId: string, _username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Check if we're in a git repo
-    const isRepo = await isGitRepository(session.workingDir);
-    if (!isRepo) {
-      await session.platform.createPost(
-        `❌ Current directory is not a git repository`,
-        threadId
-      );
-      return;
-    }
-
-    // Get repo root (either from worktree info or current dir)
-    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
-    const worktrees = await listWorktrees(repoRoot);
-
-    if (worktrees.length === 0) {
-      await session.platform.createPost(
-        `📋 No worktrees found for this repository`,
-        threadId
-      );
-      return;
-    }
-
-    const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
-    let message = `📋 **Worktrees for** \`${shortRepoRoot}\`:\n\n`;
-
-    for (const wt of worktrees) {
-      const shortPath = wt.path.replace(process.env.HOME || '', '~');
-      const isCurrent = session.workingDir === wt.path;
-      const marker = isCurrent ? ' ← current' : '';
-      const label = wt.isMain ? '(main repository)' : '';
-      message += `• \`${wt.branch}\` → \`${shortPath}\` ${label}${marker}\n`;
-    }
-
-    await session.platform.createPost(message, threadId);
+    await worktreeModule.listWorktreesCommand(session);
   }
 
-  /**
-   * Remove a worktree.
-   */
   async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-        threadId
-      );
-      return;
-    }
-
-    // Get current repo root
-    const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
-
-    // Find the worktree
-    const worktrees = await listWorktrees(repoRoot);
-    const target = worktrees.find(wt =>
-      wt.branch === branchOrPath ||
-      wt.path === branchOrPath ||
-      wt.path.endsWith(branchOrPath)
-    );
-
-    if (!target) {
-      await session.platform.createPost(
-        `❌ Worktree not found: \`${branchOrPath}\`. Use \`!worktree list\` to see available worktrees.`,
-        threadId
-      );
-      return;
-    }
-
-    // Can't remove the main repository
-    if (target.isMain) {
-      await session.platform.createPost(
-        `❌ Cannot remove the main repository. Use \`!worktree remove\` only for worktrees.`,
-        threadId
-      );
-      return;
-    }
-
-    // Can't remove the current working directory
-    if (session.workingDir === target.path) {
-      await session.platform.createPost(
-        `❌ Cannot remove the current working directory. Switch to another worktree first.`,
-        threadId
-      );
-      return;
-    }
-
-    try {
-      await removeGitWorktree(repoRoot, target.path);
-
-      const shortPath = target.path.replace(process.env.HOME || '', '~');
-      await session.platform.createPost(
-        `✅ Removed worktree \`${target.branch}\` at \`${shortPath}\``,
-        threadId
-      );
-
-      console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
-    } catch (err) {
-      console.error(`  ❌ Failed to remove worktree:`, err);
-      await session.platform.createPost(
-        `❌ Failed to remove worktree: ${err instanceof Error ? err.message : String(err)}`,
-        threadId
-      );
-    }
+    await worktreeModule.removeWorktreeCommand(session, branchOrPath, username);
   }
 
-  /**
-   * Disable worktree prompts for a session.
-   */
   async disableWorktreePrompt(threadId: string, username: string): Promise<void> {
     const session = this.sessions.get(threadId);
     if (!session) return;
-
-    // Only session owner or admins can manage worktrees
-    if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-      await session.platform.createPost(
-        `⚠️ Only @${session.startedBy} or allowed users can manage worktrees`,
-        threadId
-      );
-      return;
-    }
-
-    session.worktreePromptDisabled = true;
-    this.persistSession(session);
-
-    await session.platform.createPost(
-      `✅ Worktree prompts disabled for this session`,
-      threadId
-    );
+    await worktreeModule.disableWorktreePrompt(session, username, (s) => this.persistSession(s));
   }
 
-  /**
-   * Check if a session has a pending worktree prompt.
-   */
   hasPendingWorktreePrompt(threadId: string): boolean {
     const session = this.sessions.get(threadId);
     return session?.pendingWorktreePrompt === true;
   }
 
-  /**
-   * Get the worktree prompt post ID for a session.
-   */
-  getWorktreePromptPostId(threadId: string): string | undefined {
-    const session = this.sessions.get(threadId);
-    return session?.worktreePromptPostId;
+  // Missing public methods needed by index.ts
+  getActiveThreadIds(): string[] {
+    return [...this.sessions.keys()];
   }
 
-  /** Kill all active sessions (for graceful shutdown) */
-  killAllSessions(): void {
-    console.log(`  [shutdown] killAllSessions called, isShuttingDown already=${this.isShuttingDown}`);
-    // Set shutdown flag to suppress exit messages (should already be true from setShuttingDown)
-    this.isShuttingDown = true;
-
-    const count = this.sessions.size;
-    console.log(`  [shutdown] About to kill ${count} session(s) (preserving persistence for resume)`);
-
-    // Kill each session WITHOUT unpersisting - we want them to resume after restart
-    for (const [threadId] of this.sessions.entries()) {
-      this.killSession(threadId, false);  // false = don't unpersist
-    }
-
-    // Maps should already be cleared by killSession, but clear again to be safe
-    this.sessions.clear();
-    this.postIndex.clear();
-
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
-    if (count > 0) {
-      console.log(`  ✖ Killed ${count} session${count === 1 ? '' : 's'} (sessions preserved for resume)`);
-    }
-  }
-
-  /** Kill all sessions AND unpersist them (for emergency shutdown - no resume) */
   killAllSessionsAndUnpersist(): void {
-    this.isShuttingDown = true;
-    const count = this.sessions.size;
-
-    // Kill each session WITH unpersisting - emergency shutdown, no resume
-    for (const [threadId] of this.sessions.entries()) {
-      this.killSession(threadId, true);  // true = unpersist
+    for (const session of this.sessions.values()) {
+      this.stopTyping(session);
+      session.claude.kill();
+      this.unpersistSession(session.sessionId);
     }
-
     this.sessions.clear();
     this.postIndex.clear();
+  }
+
+  isUserAllowedInSession(threadId: string, username: string): boolean {
+    const session = this.sessions.get(threadId);
+    if (!session) {
+      // Check persisted session
+      const persisted = this.getPersistedSession(threadId);
+      if (persisted) {
+        return persisted.sessionAllowedUsers.includes(username) ||
+               this.platforms.get(persisted.platformId)?.isUserAllowed(username) || false;
+      }
+      return false;
+    }
+    return session.sessionAllowedUsers.has(username) || session.platform.isUserAllowed(username);
+  }
+
+  async startSessionWithWorktree(
+    options: { prompt: string; files?: PlatformFile[] },
+    branch: string,
+    username: string,
+    replyToPostId?: string,
+    platformId: string = 'default'
+  ): Promise<void> {
+    // Start normal session first
+    await this.startSession(options, username, replyToPostId, platformId);
+
+    // Then switch to worktree
+    const threadId = replyToPostId || '';
+    const session = this.sessions.get(this.getSessionId(platformId, threadId));
+    if (session) {
+      await this.createAndSwitchToWorktree(session.threadId, branch, username);
+    }
+  }
+
+  setShuttingDown(): void {
+    this.isShuttingDown = true;
+  }
+
+  // Shutdown
+  async shutdown(message?: string): Promise<void> {
+    this.isShuttingDown = true;
 
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
-    if (count > 0) {
-      console.log(`  🔴 Emergency killed ${count} session${count === 1 ? '' : 's'} (sessions NOT preserved)`);
-    }
-  }
 
-  /** Cleanup idle sessions that have exceeded timeout */
-  private cleanupIdleSessions(): void {
-    const now = Date.now();
-    const warningThreshold = SESSION_TIMEOUT_MS - SESSION_WARNING_MS;
-
-    for (const [threadId, session] of this.sessions.entries()) {
-      const idleTime = now - session.lastActivityAt.getTime();
-
-      // Check if we should time out
-      if (idleTime > SESSION_TIMEOUT_MS) {
-        const mins = Math.round(idleTime / 60000);
-        const shortId = threadId.substring(0, 8);
-        console.log(`  ⏰ Session (${shortId}…) timed out after ${mins}m idle`);
-        session.platform.createPost(
-          `⏰ **Session timed out** — no activity for ${mins} minutes`,
-          session.threadId
-        ).catch(() => {});
-        this.killSession(threadId);
-      }
-      // Check if we should show warning (only once)
-      else if (idleTime > warningThreshold && !session.timeoutWarningPosted) {
-        const remainingMins = Math.round((SESSION_TIMEOUT_MS - idleTime) / 60000);
-        const shortId = threadId.substring(0, 8);
-        console.log(`  ⚠️ Session (${shortId}…) warning: ${remainingMins}m until timeout`);
-        session.platform.createPost(
-          `⚠️ **Session idle** — will time out in ~${remainingMins} minutes. Send a message to keep it alive.`,
-          session.threadId
-        ).catch(() => {});
-        session.timeoutWarningPosted = true;
+    // Post shutdown message to all active sessions
+    if (message) {
+      for (const session of this.sessions.values()) {
+        try {
+          await session.platform.createPost(message, session.threadId);
+        } catch {
+          // Ignore
+        }
       }
     }
+
+    // Kill all sessions but preserve persistence
+    for (const session of this.sessions.values()) {
+      this.stopTyping(session);
+      session.claude.kill();
+    }
+    this.sessions.clear();
+    this.postIndex.clear();
   }
 }
