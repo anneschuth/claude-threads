@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2025-12-31
+
+### Fixed
+- CI: Skip lifecycle scripts during `bun publish` to avoid husky error
+
 ## [0.16.0] - 2025-12-31
 
 ### Changed
