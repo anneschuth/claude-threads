@@ -38,6 +38,7 @@ export interface PersistedSession {
   sessionStartPostId: string | null;
   tasksPostId: string | null;
   lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom
+  tasksCompleted?: boolean;      // True when all tasks done (stops sticky behavior)
   lastActivityAt: string;        // For stale cleanup
   planApproved: boolean;
   // Worktree support

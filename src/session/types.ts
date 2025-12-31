@@ -91,6 +91,7 @@ export interface Session {
   sessionStartPostId: string | null;  // The header post we update with participants
   tasksPostId: string | null;
   lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
+  tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
   activeSubagents: Map<string, string>;  // toolUseId -> postId
 
   // Timers (per-session)

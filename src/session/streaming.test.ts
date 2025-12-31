@@ -73,6 +73,7 @@ function createTestSession(platform: PlatformClient): Session {
     sessionStartPostId: 'start_post',
     tasksPostId: null,
     lastTasksContent: null,
+    tasksCompleted: false,
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
@@ -188,6 +189,19 @@ describe('bumpTasksToBottom', () => {
     expect(platform.createPost).not.toHaveBeenCalled();
   });
 
+  test('does nothing when task list is completed', async () => {
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
+    session.tasksCompleted = true;
+
+    await bumpTasksToBottom(session);
+
+    // Should not delete or create - completed tasks stay in place
+    expect(platform.deletePost).not.toHaveBeenCalled();
+    expect(platform.createPost).not.toHaveBeenCalled();
+    expect(session.tasksPostId).toBe('tasks_post');
+  });
+
   test('deletes old task post and creates new one at bottom', async () => {
     session.tasksPostId = 'old_tasks_post';
     session.lastTasksContent = '📋 **Tasks** (1/2)\n✅ Done\n○ Pending';
@@ -271,5 +285,78 @@ describe('flush with continuation (message splitting)', () => {
 
     // Should create new tasks post
     expect(platform.createPost).toHaveBeenCalledWith('📋 Tasks', 'thread1');
+  });
+
+  test('does not bump completed task list when creating continuation post', async () => {
+    // Set up completed task list
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
+    session.tasksCompleted = true;
+
+    // Create content that exceeds threshold
+    const longContent = 'C'.repeat(15000);
+    session.currentPostId = 'current_post';
+    session.pendingContent = longContent;
+
+    await flush(session, registerPost);
+
+    // Should update current post with first part
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('*... (continued below)*'));
+
+    // Should NOT repurpose tasks post - create new post instead
+    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('*(continued)*'), 'thread1');
+
+    // Tasks post should remain unchanged
+    expect(session.tasksPostId).toBe('tasks_post');
+  });
+});
+
+describe('flush with completed tasks', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let registerPost: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    registerPost = mock((_postId: string, _threadId: string) => {});
+  });
+
+  test('does not bump completed task list when creating new post', async () => {
+    // Set up completed task list
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
+    session.tasksCompleted = true;
+
+    // No current post, so flush will create one
+    session.currentPostId = null;
+    session.pendingContent = 'New response content';
+
+    await flush(session, registerPost);
+
+    // Should create a new post (not repurpose the tasks post)
+    expect(platform.createPost).toHaveBeenCalledWith('New response content', 'thread1');
+
+    // Tasks post should remain unchanged
+    expect(session.tasksPostId).toBe('tasks_post');
+  });
+
+  test('bumps active task list when creating new post', async () => {
+    // Set up active (non-completed) task list
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 **Tasks** (0/1)\n○ Pending task';
+    session.tasksCompleted = false;
+
+    // No current post, so flush will create one
+    session.currentPostId = null;
+    session.pendingContent = 'New response content';
+
+    await flush(session, registerPost);
+
+    // Should repurpose tasks post for new content
+    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', 'New response content');
+
+    // Should create new tasks post at bottom
+    expect(platform.createPost).toHaveBeenCalledWith('📋 **Tasks** (0/1)\n○ Pending task', 'thread1');
   });
 });

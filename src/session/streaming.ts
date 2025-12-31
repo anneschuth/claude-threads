@@ -165,6 +165,11 @@ export async function bumpTasksToBottom(session: Session): Promise<void> {
     return; // No task list to bump
   }
 
+  // Don't bump completed task lists - they can stay where they are
+  if (session.tasksCompleted) {
+    return;
+  }
+
   try {
     // Delete the old task post
     await session.platform.deletePost(session.tasksPostId);
@@ -223,8 +228,9 @@ export async function flush(
 
     // Create the continuation post if there's content
     if (remainder) {
-      // If we have a task list, reuse its post and bump it to the bottom
-      if (session.tasksPostId && session.lastTasksContent) {
+      // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
+      const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
+      if (hasActiveTasks) {
         const postId = await bumpTasksToBottomWithContent(session, '*(continued)*\n\n' + remainder, registerPost);
         session.currentPostId = postId;
       } else {
@@ -246,8 +252,9 @@ export async function flush(
     await session.platform.updatePost(session.currentPostId, content);
   } else {
     // Need to create a new post
-    // If we have a task list, reuse its post and bump it to the bottom
-    if (session.tasksPostId && session.lastTasksContent) {
+    // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
+    const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
+    if (hasActiveTasks) {
       const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
       session.currentPostId = postId;
     } else {
