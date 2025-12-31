@@ -14,15 +14,10 @@ jobs:
         with:
           bun-version: latest
 
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-          registry-url: 'https://registry.npmjs.org'
-
       - run: bun install
 
       - run: bun run build
 
-      - run: npm publish
+      - run: bun publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

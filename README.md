@@ -59,7 +59,7 @@ Runs entirely on your machine - only **outbound** connections to Mattermost. No 
 ### 1. Install
 
 ```bash
-npm install -g claude-threads
+bun install -g claude-threads
 ```
 
 ### 2. Run
@@ -394,7 +394,7 @@ claude-threads checks for updates every 30 minutes and notifies you when a new v
 To update:
 
 ```bash
-npm install -g claude-threads
+bun install -g claude-threads
 ```
 
 To disable update checks, set `NO_UPDATE_NOTIFIER=1`.
