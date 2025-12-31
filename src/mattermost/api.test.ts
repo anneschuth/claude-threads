@@ -19,16 +19,21 @@ const mockConfig: MattermostApiConfig = {
 // Save original fetch to restore after tests
 const originalFetch = globalThis.fetch;
 
+// Helper to create a mock fetch that satisfies TypeScript
+const createMockFetch = (impl: () => Promise<Partial<Response>>) => {
+  return mock(impl) as unknown as typeof fetch;
+};
+
 describe('mattermostApi', () => {
   afterEach(() => {
     globalThis.fetch = originalFetch;
   });
 
   it('adds authorization header', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ id: '123' }),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'GET', '/users/me');
@@ -44,10 +49,10 @@ describe('mattermostApi', () => {
   });
 
   it('includes Content-Type header', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'POST', '/posts', { message: 'test' });
@@ -63,10 +68,10 @@ describe('mattermostApi', () => {
   });
 
   it('stringifies body for POST requests', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await mattermostApi(mockConfig, 'POST', '/posts', { message: 'hello' });
@@ -80,11 +85,11 @@ describe('mattermostApi', () => {
   });
 
   it('throws on non-ok response', async () => {
-    globalThis.fetch = mock(() => Promise.resolve({
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
       ok: false,
       status: 401,
       text: () => Promise.resolve('Unauthorized'),
-    } as Response));
+    }));
 
     await expect(mattermostApi(mockConfig, 'GET', '/users/me')).rejects.toThrow(
       'Mattermost API error 401'
@@ -92,11 +97,11 @@ describe('mattermostApi', () => {
   });
 
   it('includes error details in thrown error', async () => {
-    globalThis.fetch = mock(() => Promise.resolve({
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
       ok: false,
       status: 403,
       text: () => Promise.resolve('Access denied'),
-    } as Response));
+    }));
 
     await expect(mattermostApi(mockConfig, 'GET', '/users/me')).rejects.toThrow(
       'Access denied'
@@ -111,10 +116,10 @@ describe('getMe', () => {
 
   it('returns the current user', async () => {
     const mockUser = { id: 'bot123', username: 'bot' };
-    globalThis.fetch = mock(() => Promise.resolve({
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockUser),
-    } as Response));
+    }));
 
     const result = await getMe(mockConfig);
 
@@ -129,10 +134,10 @@ describe('getUser', () => {
 
   it('returns user when found', async () => {
     const mockUser = { id: 'user123', username: 'testuser' };
-    globalThis.fetch = mock(() => Promise.resolve({
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockUser),
-    } as Response));
+    }));
 
     const result = await getUser(mockConfig, 'user123');
 
@@ -140,11 +145,11 @@ describe('getUser', () => {
   });
 
   it('returns null when user not found', async () => {
-    globalThis.fetch = mock(() => Promise.resolve({
+    globalThis.fetch = createMockFetch(() => Promise.resolve({
       ok: false,
       status: 404,
       text: () => Promise.resolve('Not found'),
-    } as Response));
+    }));
 
     const result = await getUser(mockConfig, 'nonexistent');
 
@@ -159,10 +164,10 @@ describe('createPost', () => {
 
   it('creates a post with correct parameters', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await createPost(mockConfig, 'channel1', 'Hello');
@@ -181,10 +186,10 @@ describe('createPost', () => {
   });
 
   it('includes root_id for thread replies', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await createPost(mockConfig, 'channel1', 'Reply', 'thread123');
@@ -208,10 +213,10 @@ describe('updatePost', () => {
   });
 
   it('updates a post with correct parameters', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({ id: 'post123', message: 'Updated' }),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await updatePost(mockConfig, 'post123', 'Updated');
@@ -235,10 +240,10 @@ describe('addReaction', () => {
   });
 
   it('adds a reaction with correct parameters', async () => {
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve({}),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await addReaction(mockConfig, 'post123', 'bot123', '+1');
@@ -289,10 +294,10 @@ describe('createInteractivePost', () => {
 
   it('creates a post and adds reactions', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
@@ -311,10 +316,10 @@ describe('createInteractivePost', () => {
 
   it('creates post in a thread when rootId is provided', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Reply' };
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await createInteractivePost(
@@ -365,7 +370,7 @@ describe('createInteractivePost', () => {
           json: () => Promise.resolve({}),
         } as Response);
       }
-    });
+    }) as unknown as typeof fetch;
     globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
@@ -390,10 +395,10 @@ describe('createInteractivePost', () => {
 
   it('returns the post even with no reactions', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     const result = await createInteractivePost(
@@ -412,10 +417,10 @@ describe('createInteractivePost', () => {
 
   it('adds reactions in the correct order', async () => {
     const mockPost = { id: 'post123', channel_id: 'channel1', message: 'Hello' };
-    const mockFetch = mock(() => Promise.resolve({
+    const mockFetch = createMockFetch(() => Promise.resolve({
       ok: true,
       json: () => Promise.resolve(mockPost),
-    } as Response));
+    }));
     globalThis.fetch = mockFetch;
 
     await createInteractivePost(
