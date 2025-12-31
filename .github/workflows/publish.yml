@@ -18,6 +18,6 @@ jobs:
 
       - run: bun run build
 
-      - run: bun publish
+      - run: bun publish --ignore-scripts
         env:
           BUN_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
