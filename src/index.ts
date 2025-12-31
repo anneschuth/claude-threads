@@ -6,15 +6,10 @@ import { runOnboarding } from './onboarding.js';
 import { MattermostClient } from './platform/mattermost/client.js';
 import { SessionManager } from './session/index.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
-import { readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
 import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { printLogo } from './logo.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8'));
+import { VERSION } from './version.js';
 
 const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
 const bold = (s: string) => `\x1b[1m${s}\x1b[0m`;
@@ -23,7 +18,7 @@ const cyan = (s: string) => `\x1b[36m${s}\x1b[0m`;
 // Define CLI options
 program
   .name('claude-threads')
-  .version(pkg.version)
+  .version(VERSION)
   .description('Share Claude Code sessions in Mattermost')
   .option('--url <url>', 'Mattermost server URL')
   .option('--token <token>', 'Mattermost bot token')
@@ -101,7 +96,7 @@ async function main() {
   printLogo();
 
   // Startup info
-  console.log(dim(`  v${pkg.version}`));
+  console.log(dim(`  v${VERSION}`));
   console.log('');
   console.log(`  📂 ${cyan(workingDir)}`);
   console.log(`  💬 ${cyan('@' + platformConfig.botName)}`);
@@ -215,12 +210,12 @@ async function main() {
 
       // Check for !release-notes command
       if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
-        const notes = getReleaseNotes(pkg.version);
+        const notes = getReleaseNotes(VERSION);
         if (notes) {
           await mattermost.createPost(formatReleaseNotes(notes), threadRoot);
         } else {
           await mattermost.createPost(
-            `📋 **claude-threads v${pkg.version}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/claude-threads/releases).`,
+            `📋 **claude-threads v${VERSION}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/claude-threads/releases).`,
             threadRoot
           );
         }

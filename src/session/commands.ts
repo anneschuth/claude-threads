@@ -13,17 +13,12 @@ import { existsSync, statSync } from 'fs';
 import { getUpdateInfo } from '../update-notifier.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
 import { getLogo } from '../logo.js';
-import { readFileSync } from 'fs';
-import { dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { VERSION } from '../version.js';
 import {
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
   ALLOW_ALL_EMOJIS,
 } from '../utils/emoji.js';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -487,12 +482,12 @@ export async function updateSessionHeader(
     : '';
 
   // Get "What's new" from release notes
-  const releaseNotes = getReleaseNotes(pkg.version);
+  const releaseNotes = getReleaseNotes(VERSION);
   const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
   const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
 
   const msg = [
-    getLogo(pkg.version),
+    getLogo(VERSION),
     updateNotice,
     whatsNewLine,
     `| | |`,

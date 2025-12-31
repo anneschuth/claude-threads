@@ -1,10 +1,6 @@
 import updateNotifier, { type UpdateInfo } from 'update-notifier';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
-import { fileURLToPath } from 'url';
 import semver from 'semver';
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+import { PKG } from './version.js';
 
 let cachedUpdateInfo: UpdateInfo | undefined;
 
@@ -12,12 +8,8 @@ export function checkForUpdates(): void {
   if (process.env.NO_UPDATE_NOTIFIER) return;
 
   try {
-    const pkg = JSON.parse(
-      readFileSync(resolve(__dirname, '..', 'package.json'), 'utf-8')
-    );
-
     const notifier = updateNotifier({
-      pkg,
+      pkg: PKG,
       updateCheckInterval: 1000 * 60 * 30, // Check every 30 minutes
     });
 

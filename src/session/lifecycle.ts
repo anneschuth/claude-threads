@@ -10,13 +10,8 @@ import type { ClaudeCliOptions, ClaudeEvent, ContentBlock } from '../claude/cli.
 import { ClaudeCli } from '../claude/cli.js';
 import type { PersistedSession, SessionStore } from '../persistence/session-store.js';
 import { getLogo } from '../logo.js';
+import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
-import { readFileSync } from 'fs';
-import { dirname, resolve } from 'path';
-import { fileURLToPath } from 'url';
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(resolve(__dirname, '..', '..', 'package.json'), 'utf-8'));
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -108,7 +103,7 @@ export async function startSession(
   let post;
   try {
     post = await platform.createPost(
-      `${getLogo(pkg.version)}\n\n*Starting session...*`,
+      `${getLogo(VERSION)}\n\n*Starting session...*`,
       replyToPostId
     );
   } catch (err) {
@@ -313,7 +308,7 @@ export async function resumeSession(
 
     // Post resume message
     await session.platform.createPost(
-      `🔄 **Session resumed** after bot restart (v${pkg.version})\n*Reconnected to Claude session. You can continue where you left off.*`,
+      `🔄 **Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`,
       state.threadId
     );
 
