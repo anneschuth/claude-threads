@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1] - 2025-12-31
+
+### Fixed
+- **Sticky task list optimization**: Completed task lists no longer move to the bottom
+  - Once all tasks are done, the "~~Tasks~~ *(completed)*" message stays in place
+  - Reduces unnecessary message deletions and recreations
+  - Added `tasksCompleted` flag to session state for explicit tracking
+
+### Changed
+- **Task list visual separator**: Added horizontal rule (`---`) above task list for better visibility
+
 ## [0.17.0] - 2025-12-31
 
 ### Added

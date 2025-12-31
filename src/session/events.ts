@@ -273,9 +273,10 @@ async function handleTodoWrite(
 
   if (!todos || todos.length === 0) {
     // Clear tasks display if empty
+    session.tasksCompleted = true;
     if (session.tasksPostId) {
       try {
-        const completedMsg = '📋 ~~Tasks~~ *(completed)*';
+        const completedMsg = '---\n📋 ~~Tasks~~ *(completed)*';
         await session.platform.updatePost(session.tasksPostId, completedMsg);
         session.lastTasksContent = completedMsg;
       } catch (err) {
@@ -284,6 +285,9 @@ async function handleTodoWrite(
     }
     return;
   }
+
+  // Tasks exist, so not completed
+  session.tasksCompleted = false;
 
   // Count progress
   const completed = todos.filter((t) => t.status === 'completed').length;
@@ -298,8 +302,8 @@ async function handleTodoWrite(
     session.inProgressTaskStart = null;
   }
 
-  // Format tasks nicely with progress header
-  let message = `📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
+  // Format tasks nicely with progress header and visual separator
+  let message = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
   for (const todo of todos) {
     let icon: string;
     let text: string;

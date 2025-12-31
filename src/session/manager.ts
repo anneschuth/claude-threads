@@ -500,6 +500,7 @@ export class SessionManager {
       sessionStartPostId: session.sessionStartPostId,
       tasksPostId: session.tasksPostId,
       lastTasksContent: session.lastTasksContent,
+      tasksCompleted: session.tasksCompleted,
       worktreeInfo: session.worktreeInfo,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
