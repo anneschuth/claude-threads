@@ -190,14 +190,14 @@ export async function updateStickyMessage(
   }
 
   // Create a new lock for this update
-  let releaseLock: () => void;
+  let releaseLock: (() => void) | undefined;
   const lock = new Promise<void>(resolve => { releaseLock = resolve; });
   updateLocks.set(platformId, lock);
 
   try {
     await updateStickyMessageImpl(platform, sessions);
   } finally {
-    releaseLock!();
+    if (releaseLock) releaseLock();
     updateLocks.delete(platformId);
   }
 }

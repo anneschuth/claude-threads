@@ -248,6 +248,10 @@ describe('bumpTasksToBottom', () => {
     session.tasksPostId = 'tasks_post';
     session.lastTasksContent = '📋 Tasks';
 
+    // Mock console.error to suppress expected error output
+    const originalConsoleError = console.error;
+    console.error = mock(() => {});
+
     // Make deletePost throw an error
     (platform.deletePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
       throw new Error('Network error');
@@ -258,6 +262,12 @@ describe('bumpTasksToBottom', () => {
 
     // tasksPostId should remain unchanged due to error
     expect(session.tasksPostId).toBe('tasks_post');
+
+    // Verify error was logged
+    expect(console.error).toHaveBeenCalled();
+
+    // Restore console.error
+    console.error = originalConsoleError;
   });
 });
 
