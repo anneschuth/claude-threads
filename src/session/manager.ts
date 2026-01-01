@@ -538,7 +538,7 @@ export class SessionManager {
   }
 
   private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session);
+    return streaming.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
   }
 
   // ---------------------------------------------------------------------------

@@ -380,6 +380,8 @@ async function bumpTasksToBottomWithContent(
   if (oldTasksContent) {
     const newTasksPost = await session.platform.createPost(oldTasksContent, session.threadId);
     session.tasksPostId = newTasksPost.id;
+    // Register the new task post so reaction clicks are routed to this session
+    registerPost(newTasksPost.id, session.threadId);
   } else {
     // No task content to re-post, clear the task post ID
     session.tasksPostId = null;
@@ -395,8 +397,12 @@ async function bumpTasksToBottomWithContent(
  * below user messages. Deletes the old task post and creates a new one.
  *
  * @param session - The session
+ * @param registerPost - Callback to register the new post for reaction routing
  */
-export async function bumpTasksToBottom(session: Session): Promise<void> {
+export async function bumpTasksToBottom(
+  session: Session,
+  registerPost?: (postId: string, threadId: string) => void
+): Promise<void> {
   if (!session.tasksPostId || !session.lastTasksContent) {
     return; // No task list to bump
   }
@@ -413,6 +419,10 @@ export async function bumpTasksToBottom(session: Session): Promise<void> {
     // Create a new task post at the bottom
     const newPost = await session.platform.createPost(session.lastTasksContent, session.threadId);
     session.tasksPostId = newPost.id;
+    // Register the task post so reaction clicks are routed to this session
+    if (registerPost) {
+      registerPost(newPost.id, session.threadId);
+    }
   } catch (err) {
     console.error('  ⚠️ Failed to bump tasks to bottom:', err);
   }
