@@ -1,15 +1,19 @@
-import { describe, expect, test, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
 import { KeepAliveManager } from './keep-alive.js';
 
 describe('KeepAliveManager', () => {
   let manager: KeepAliveManager;
+  let consoleLogSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
+    // Suppress console.log output during tests
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
     manager = new KeepAliveManager();
   });
 
   afterEach(() => {
     manager.forceStop();
+    consoleLogSpy.mockRestore();
   });
 
   test('starts with zero active sessions', () => {

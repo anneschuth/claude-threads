@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1] - 2026-01-01
+
+### Fixed
+- **Missing `diff` dependency** - Added missing `diff` package that was used in tool-formatter but not in package.json
+- **Test console output pollution** - Suppressed expected console output in tests (error handling, keep-alive messages)
+- **Lint warning in sticky-message** - Removed non-null assertion in favor of proper undefined check
+
 ## [0.22.0] - 2026-01-01
 
 ### Added
