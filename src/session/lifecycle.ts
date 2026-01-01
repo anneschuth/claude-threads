@@ -646,11 +646,11 @@ export function killAllSessions(ctx: LifecycleContext): void {
 /**
  * Clean up idle sessions that have timed out.
  */
-export function cleanupIdleSessions(
+export async function cleanupIdleSessions(
   timeoutMs: number,
   warningMs: number,
   ctx: LifecycleContext
-): void {
+): Promise<void> {
   const now = Date.now();
 
   for (const [_sessionId, session] of ctx.sessions) {
@@ -660,10 +660,22 @@ export function cleanupIdleSessions(
     // Check for timeout
     if (idleMs > timeoutMs) {
       console.log(`  ⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
-      session.platform.createPost(
-        `⏰ **Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity`,
-        session.threadId
-      ).catch(() => {});
+
+      // Post timeout message with resume hint and save the post ID
+      try {
+        const timeoutPost = await session.platform.createPost(
+          `⏰ **Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n` +
+          `💡 React with 🔄 to resume, or send a new message to continue.`,
+          session.threadId
+        );
+
+        // Store the timeout post ID for resume via reaction
+        session.timeoutPostId = timeoutPost.id;
+        ctx.persistSession(session);
+        ctx.registerPost(timeoutPost.id, session.threadId);
+      } catch {
+        // Ignore if we can't post
+      }
 
       // Kill without unpersisting to allow resume
       killSession(session, false, ctx);

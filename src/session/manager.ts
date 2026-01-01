@@ -17,6 +17,7 @@ import { WorktreeMode } from '../config.js';
 import {
   isCancelEmoji,
   isEscapeEmoji,
+  isResumeEmoji,
 } from '../utils/emoji.js';
 
 // Import extracted modules
@@ -70,7 +71,8 @@ export class SessionManager {
 
     // Start periodic cleanup
     this.cleanupTimer = setInterval(() => {
-      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext());
+      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext())
+        .catch(err => console.error('  [cleanup] Error during idle session cleanup:', err));
     }, 60000);
   }
 
@@ -198,6 +200,12 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async handleReaction(platformId: string, postId: string, emojiName: string, username: string): Promise<void> {
+    // First, check if this is a resume emoji for a timed-out session
+    if (isResumeEmoji(emojiName)) {
+      const resumed = await this.tryResumeFromReaction(platformId, postId, username);
+      if (resumed) return;
+    }
+
     const session = this.getSessionByPost(postId);
     if (!session) return;
 
@@ -210,6 +218,56 @@ export class SessionManager {
     }
 
     await this.handleSessionReaction(session, postId, emojiName, username);
+  }
+
+  /**
+   * Try to resume a timed-out session via emoji reaction on timeout post or session header.
+   * Returns true if a session was resumed, false otherwise.
+   */
+  private async tryResumeFromReaction(platformId: string, postId: string, username: string): Promise<boolean> {
+    // Find a persisted session by the post ID (timeout post or session header)
+    const persistedSession = this.sessionStore.findByPostId(platformId, postId);
+    if (!persistedSession) return false;
+
+    // Check if this session is already active
+    const sessionId = `${platformId}:${persistedSession.threadId}`;
+    if (this.sessions.has(sessionId)) {
+      if (this.debug) {
+        console.log(`  [resume] Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
+      }
+      return false;
+    }
+
+    // Check if user is allowed
+    const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+    const platform = this.platforms.get(platformId);
+    if (!allowedUsers.has(username) && !platform?.isUserAllowed(username)) {
+      if (platform) {
+        await platform.createPost(
+          `⚠️ @${username} is not authorized to resume this session`,
+          persistedSession.threadId
+        );
+      }
+      return false;
+    }
+
+    // Check max sessions limit
+    if (this.sessions.size >= MAX_SESSIONS) {
+      if (platform) {
+        await platform.createPost(
+          `⚠️ **Too busy** - ${this.sessions.size} sessions active. Please try again later.`,
+          persistedSession.threadId
+        );
+      }
+      return false;
+    }
+
+    const shortId = persistedSession.threadId.substring(0, 8);
+    console.log(`  🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
+
+    // Resume the session
+    await lifecycle.resumeSession(persistedSession, this.getLifecycleContext());
+    return true;
   }
 
   private async handleSessionReaction(session: Session, postId: string, emojiName: string, username: string): Promise<void> {
@@ -508,6 +566,7 @@ export class SessionManager {
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
+      timeoutPostId: session.timeoutPostId,
     };
     this.sessionStore.save(session.sessionId, state);
   }

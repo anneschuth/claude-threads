@@ -5,6 +5,7 @@ import {
   isAllowAllEmoji,
   isCancelEmoji,
   isEscapeEmoji,
+  isResumeEmoji,
   getNumberEmojiIndex,
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
@@ -12,6 +13,7 @@ import {
   NUMBER_EMOJIS,
   CANCEL_EMOJIS,
   ESCAPE_EMOJIS,
+  RESUME_EMOJIS,
 } from './emoji.js';
 
 describe('emoji helpers', () => {
@@ -123,6 +125,32 @@ describe('emoji helpers', () => {
     it('matches all ESCAPE_EMOJIS', () => {
       for (const emoji of ESCAPE_EMOJIS) {
         expect(isEscapeEmoji(emoji)).toBe(true);
+      }
+    });
+  });
+
+  describe('isResumeEmoji', () => {
+    it('returns true for arrows_counterclockwise', () => {
+      expect(isResumeEmoji('arrows_counterclockwise')).toBe(true);
+    });
+
+    it('returns true for arrow_forward', () => {
+      expect(isResumeEmoji('arrow_forward')).toBe(true);
+    });
+
+    it('returns true for repeat', () => {
+      expect(isResumeEmoji('repeat')).toBe(true);
+    });
+
+    it('returns false for other emojis', () => {
+      expect(isResumeEmoji('heart')).toBe(false);
+      expect(isResumeEmoji('x')).toBe(false);
+      expect(isResumeEmoji('+1')).toBe(false);
+    });
+
+    it('matches all RESUME_EMOJIS', () => {
+      for (const emoji of RESUME_EMOJIS) {
+        expect(isResumeEmoji(emoji)).toBe(true);
       }
     });
   });

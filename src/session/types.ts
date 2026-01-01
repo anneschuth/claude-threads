@@ -127,6 +127,9 @@ export interface Session {
   // Thread context prompt support
   pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
+
+  // Resume support
+  timeoutPostId?: string;  // Post ID of timeout message (for resume via reaction)
 }
 
 // =============================================================================
