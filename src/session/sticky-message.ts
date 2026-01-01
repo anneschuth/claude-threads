@@ -81,6 +81,11 @@ function formatTopicFromPrompt(prompt: string | undefined): string {
   // Remove @mentions at the start
   let cleaned = prompt.replace(/^@[\w-]+\s*/g, '').trim();
 
+  // Skip bot commands (e.g., !worktree switch, !cd) - these aren't meaningful topics
+  if (cleaned.startsWith('!')) {
+    return '_No topic_';
+  }
+
   // Remove newlines and collapse whitespace
   cleaned = cleaned.replace(/\s+/g, ' ');
 

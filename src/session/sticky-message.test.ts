@@ -200,4 +200,45 @@ describe('buildStickyMessage', () => {
 
     expect(result).toContain('No topic');
   });
+
+  it('shows "No topic" for bot commands like !worktree', () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      firstPrompt: '!worktree switch sticky-channel-message',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = buildStickyMessage(sessions, 'test-platform');
+
+    expect(result).toContain('No topic');
+    expect(result).not.toContain('!worktree');
+  });
+
+  it('shows "No topic" for !cd commands', () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      firstPrompt: '@botname !cd /some/path',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = buildStickyMessage(sessions, 'test-platform');
+
+    expect(result).toContain('No topic');
+    expect(result).not.toContain('!cd');
+  });
+
+  it('uses sessionTitle when available instead of firstPrompt', () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      firstPrompt: '!worktree switch sticky-channel-message',
+      sessionTitle: 'Improve sticky message feature',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = buildStickyMessage(sessions, 'test-platform');
+
+    expect(result).toContain('Improve sticky message feature');
+    expect(result).not.toContain('No topic');
+    expect(result).not.toContain('!worktree');
+  });
 });

@@ -66,6 +66,34 @@ function findPersistedByThreadId(
 }
 
 // ---------------------------------------------------------------------------
+// System prompt for chat platform context
+// ---------------------------------------------------------------------------
+
+/**
+ * System prompt that instructs Claude to generate session titles.
+ * Used for both new sessions and resumed sessions (if no title exists).
+ */
+const CHAT_PLATFORM_PROMPT = `
+You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
+
+SESSION TITLE: At the START of your first response, include a short title for this session in the format:
+[SESSION_TITLE: <title here>]
+
+The title should be:
+- 3-7 words maximum
+- Descriptive of the main task/topic
+- Written in imperative form (e.g., "Fix login bug", "Add dark mode", "Refactor API client")
+- Do NOT include quotes around the title
+
+You can update the title later if the session focus changes significantly by including the same format again.
+
+Example: If the user asks "help me debug why the tests are failing", respond with:
+[SESSION_TITLE: Debug failing tests]
+
+Then continue with your normal response.
+`.trim();
+
+// ---------------------------------------------------------------------------
 // Session creation
 // ---------------------------------------------------------------------------
 
@@ -124,27 +152,6 @@ export async function startSession(
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
 
-  // System prompt for chat platform context
-  const chatPlatformPrompt = `
-You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
-
-SESSION TITLE: At the START of your first response, include a short title for this session in the format:
-[SESSION_TITLE: <title here>]
-
-The title should be:
-- 3-7 words maximum
-- Descriptive of the main task/topic
-- Written in imperative form (e.g., "Fix login bug", "Add dark mode", "Refactor API client")
-- Do NOT include quotes around the title
-
-You can update the title later if the session focus changes significantly by including the same format again.
-
-Example: If the user asks "help me debug why the tests are failing", respond with:
-[SESSION_TITLE: Debug failing tests]
-
-Then continue with your normal response.
-`.trim();
-
   const cliOptions: ClaudeCliOptions = {
     workingDir: ctx.workingDir,
     threadId: actualThreadId,
@@ -153,7 +160,7 @@ Then continue with your normal response.
     resume: false,
     chrome: ctx.chromeEnabled,
     platformConfig: platformMcpConfig,
-    appendSystemPrompt: chatPlatformPrompt,
+    appendSystemPrompt: CHAT_PLATFORM_PROMPT,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -313,6 +320,11 @@ export async function resumeSession(
   // Create Claude CLI with resume flag
   const skipPerms = ctx.skipPermissions && !state.forceInteractivePermissions;
   const platformMcpConfig = platform.getMcpConfig();
+
+  // Include system prompt if session doesn't have a title yet
+  // This ensures Claude will generate a title on its next response
+  const needsTitlePrompt = !state.sessionTitle;
+
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
     threadId: state.threadId,
@@ -321,6 +333,7 @@ export async function resumeSession(
     resume: true,
     chrome: ctx.chromeEnabled,
     platformConfig: platformMcpConfig,
+    appendSystemPrompt: needsTitlePrompt ? CHAT_PLATFORM_PROMPT : undefined,
   };
   const claude = new ClaudeCli(cliOptions);
 
