@@ -446,6 +446,8 @@ async function handleTodoWrite(
         session.threadId
       );
       session.tasksPostId = post.id;
+      // Register the task post so reaction clicks are routed to this session
+      ctx.registerPost(post.id, session.threadId);
     }
     // Update sticky message with new task progress
     ctx.updateStickyMessage().catch(() => {});

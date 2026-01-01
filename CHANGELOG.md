@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - **Slimmer session header table** - Moved session slots, permissions, and Chrome status to the status bar, keeping only contextual info (topic, directory, participants, etc.) in the table
 
+### Fixed
+- **Task list collapse toggle not working** - Fixed a bug where clicking the 🔽 emoji to collapse/expand the task list had no effect. The task post ID was not being registered in the reaction routing index, causing all toggle reactions to be silently ignored. Now the task post is properly registered in all scenarios: initial creation, session resume, and after being bumped to the bottom of the thread.
+
 ## [0.21.1] - 2026-01-01
 
 ### Fixed

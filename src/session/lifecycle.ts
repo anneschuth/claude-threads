@@ -434,6 +434,10 @@ export async function resumeSession(
   if (state.sessionStartPostId) {
     ctx.registerPost(state.sessionStartPostId, state.threadId);
   }
+  // Register task post for reaction routing (task collapse toggle)
+  if (state.tasksPostId) {
+    ctx.registerPost(state.tasksPostId, state.threadId);
+  }
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
