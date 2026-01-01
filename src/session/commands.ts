@@ -19,6 +19,9 @@ import {
   DENIAL_EMOJIS,
   ALLOW_ALL_EMOJIS,
 } from '../utils/emoji.js';
+import { formatBatteryStatus } from '../utils/battery.js';
+import { formatUptime } from '../utils/uptime.js';
+import { keepAlive } from '../utils/keep-alive.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -457,6 +460,25 @@ export async function updateSessionHeader(
     .map((u) => `@${u}`)
     .join(', ');
 
+  // Build status bar items
+  const statusItems: string[] = [];
+  statusItems.push(`\`${session.sessionNumber}/${ctx.maxSessions}\``);
+  statusItems.push(`\`${permMode}\``);
+  if (ctx.chromeEnabled) {
+    statusItems.push('`🌐 Chrome`');
+  }
+  if (keepAlive.isActive()) {
+    statusItems.push('`💓 Keep-alive`');
+  }
+  const battery = await formatBatteryStatus();
+  if (battery) {
+    statusItems.push(`\`${battery}\``);
+  }
+  const uptime = formatUptime(session.startedAt);
+  statusItems.push(`\`⏱️ ${uptime}\``);
+
+  const statusBar = statusItems.join(' · ');
+
   const rows: string[] = [];
 
   // Add title and description if available
@@ -482,12 +504,7 @@ export async function updateSessionHeader(
     rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
   }
 
-  rows.push(`| 🔢 **Session** | #${session.sessionNumber} of ${ctx.maxSessions} max |`);
   rows.push(`| 🆔 **Session ID** | \`${session.claudeSessionId.substring(0, 8)}\` |`);
-  rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
-  if (ctx.chromeEnabled) {
-    rows.push(`| 🌐 **Chrome** | Enabled |`);
-  }
 
   // Check for available updates
   const updateInfo = getUpdateInfo();
@@ -504,6 +521,8 @@ export async function updateSessionHeader(
     getLogo(VERSION),
     updateNotice,
     whatsNewLine,
+    statusBar,
+    '',
     `| | |`,
     `|:--|:--|`,
     ...rows,
