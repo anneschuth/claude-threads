@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Code block continuations now preserve formatting** - When a message needs to split mid-way through a code block (diff, typescript, etc.), the code block is now properly closed in the first part and reopened in the continuation
+  - Prevents broken markdown when long diffs or code blocks exceed message length limits
+  - Adds `getCodeBlockState()` helper to detect when we're inside an unclosed code block
+  - `findLogicalBreakpoint()` now avoids breaking inside code blocks when possible
+  - When a break inside a code block is unavoidable, properly closes with ``` and reopens with ```language
+
 ## [0.21.0] - 2026-01-01
 
 ### Added
