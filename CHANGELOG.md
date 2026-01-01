@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-01-01
+
+### Fixed
+- **Task list collapse emoji now pre-added** - The 🔽 toggle emoji is now automatically added as a reaction when the task list is created, making it easy to click and collapse/expand the list (previously users had to manually add the emoji)
+
 ## [0.19.0] - 2026-01-01
 
 ### Added
