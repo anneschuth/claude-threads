@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.2] - 2026-01-01
+
+### Added
+- **Smart message breaking** - Breaks long responses into multiple messages at logical points
+  - Reduces "Show More" toggles in Mattermost by breaking messages before they get too long
+  - Breaks at logical points: after tool completions, before headings, after code blocks, at paragraph breaks
+  - Soft threshold at 2000 chars / 15 lines triggers search for breakpoints
+  - Hard threshold at 14K chars ensures messages stay within platform limits
+  - Adds `*... (continued below)*` marker when breaking messages
+
 ## [0.19.1] - 2026-01-01
 
 ### Fixed
