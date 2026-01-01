@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Session status bar** - Compact status line between logo and table showing at-a-glance info:
+  - Session slots (`1/5`)
+  - Permission mode (`🔐 Interactive` or `⚡ Auto`)
+  - Chrome status (`🌐 Chrome`) - only when enabled
+  - Keep-alive status (`💓 Keep-alive`) - only when active
+  - Battery level (`🔋 85%` or `🔌 AC`) - macOS and Linux
+  - Session uptime (`⏱️ 5m`, `1h23m`, etc.)
+
+### Changed
+- **Slimmer session header table** - Moved session slots, permissions, and Chrome status to the status bar, keeping only contextual info (topic, directory, participants, etc.) in the table
+
 ## [0.21.1] - 2026-01-01
 
 ### Fixed
