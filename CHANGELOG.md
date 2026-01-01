@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-01-01
+
 ### Added
 - **Session status bar** - Compact status line between logo and table showing at-a-glance info:
   - Session slots (`1/5`)
