@@ -77,12 +77,13 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const result = buildStickyMessage(sessions, 'test-platform');
 
-    expect(result).toContain('Claude Code Sessions');
+    expect(result).toContain('Active Claude Threads');
     expect(result).toContain('No active sessions');
-    expect(result).toContain('Start a session by mentioning me');
+    expect(result).toContain('Mention me to start a session');
+    expect(result).toContain('npm i -g claude-threads');
   });
 
-  it('shows active sessions in a table', () => {
+  it('shows active sessions in card-style list', () => {
     const sessions = new Map<string, Session>();
     const session = createMockSession({
       firstPrompt: '@botname Help me debug this function',
@@ -91,12 +92,12 @@ describe('buildStickyMessage', () => {
 
     const result = buildStickyMessage(sessions, 'test-platform');
 
-    expect(result).toContain('1 active');
-    expect(result).toContain('Topic');
-    expect(result).toContain('Started by');
-    expect(result).toContain('@testuser');
+    expect(result).toContain('Active Claude Threads');
+    expect(result).toContain('(1)');
+    expect(result).toContain('▸');
+    expect(result).toContain('testuser');
+    expect(result).not.toContain('@testuser'); // No @ prefix
     expect(result).toContain('Help me debug this function');
-    expect(result).toContain('myproject');
   });
 
   it('truncates long prompts', () => {
@@ -146,7 +147,7 @@ describe('buildStickyMessage', () => {
 
     const result = buildStickyMessage(sessions, 'test-platform');
 
-    expect(result).toContain('1 active');
+    expect(result).toContain('(1)');
     expect(result).toContain('Session 1');
     expect(result).not.toContain('Session 2');
   });
@@ -170,23 +171,36 @@ describe('buildStickyMessage', () => {
 
     const result = buildStickyMessage(sessions, 'test-platform');
 
-    expect(result).toContain('2 active');
-    // Newer session should appear first in the table
+    expect(result).toContain('(2)');
+    // Newer session should appear first in the list
     const newerIndex = result.indexOf('Newer session');
     const olderIndex = result.indexOf('Older session');
     expect(newerIndex).toBeLessThan(olderIndex);
   });
 
-  it('shortens long directory paths', () => {
+  it('shows task progress when available', () => {
     const sessions = new Map<string, Session>();
     const session = createMockSession({
-      workingDir: '/home/username/very/deep/nested/directory/structure/project',
+      lastTasksContent: '📋 **Tasks** (3/7 · 43%)\n✅ Done\n○ Pending',
     });
     sessions.set(session.sessionId, session);
 
     const result = buildStickyMessage(sessions, 'test-platform');
 
-    expect(result).toContain('…/structure/project');
+    expect(result).toContain('3/7');
+  });
+
+  it('does not show task progress when no tasks', () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: null,
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = buildStickyMessage(sessions, 'test-platform');
+
+    // Should not have double dots from missing progress
+    expect(result).not.toMatch(/· ·/);
   });
 
   it('handles session without firstPrompt', () => {

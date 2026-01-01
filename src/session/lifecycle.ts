@@ -70,25 +70,33 @@ function findPersistedByThreadId(
 // ---------------------------------------------------------------------------
 
 /**
- * System prompt that instructs Claude to generate session titles.
+ * System prompt that instructs Claude to generate session titles and descriptions.
  * Used for both new sessions and resumed sessions (if no title exists).
  */
 const CHAT_PLATFORM_PROMPT = `
 You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
 
-SESSION TITLE: At the START of your first response, include a short title for this session in the format:
-[SESSION_TITLE: <title here>]
+SESSION METADATA: At the START of your first response, include metadata about this session:
 
-The title should be:
+[SESSION_TITLE: <short title>]
+[SESSION_DESCRIPTION: <brief description>]
+
+Title requirements:
 - 3-7 words maximum
 - Descriptive of the main task/topic
-- Written in imperative form (e.g., "Fix login bug", "Add dark mode", "Refactor API client")
-- Do NOT include quotes around the title
+- Written in imperative form (e.g., "Fix login bug", "Add dark mode")
+- Do NOT include quotes
 
-You can update the title later if the session focus changes significantly by including the same format again.
+Description requirements:
+- 1-2 sentences explaining what you're helping with
+- Summarize the current work or goal
+- Keep it under 100 characters
+
+You can update both later if the session focus changes significantly.
 
 Example: If the user asks "help me debug why the tests are failing", respond with:
 [SESSION_TITLE: Debug failing tests]
+[SESSION_DESCRIPTION: Investigating test failures and fixing broken assertions in the test suite.]
 
 Then continue with your normal response.
 `.trim();
@@ -103,6 +111,7 @@ Then continue with your normal response.
 export async function startSession(
   options: { prompt: string; files?: PlatformFile[] },
   username: string,
+  displayName: string | undefined,
   replyToPostId: string | undefined,
   platformId: string,
   ctx: LifecycleContext
@@ -172,6 +181,7 @@ export async function startSession(
     platform,
     claudeSessionId,
     startedBy: username,
+    startedByDisplayName: displayName,
     startedAt: new Date(),
     lastActivityAt: new Date(),
     sessionNumber: ctx.sessions.size + 1,
@@ -199,6 +209,7 @@ export async function startSession(
     wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
+    firstPrompt: options.prompt,  // Set early so sticky message can use it
   };
 
   // Register session
@@ -230,11 +241,10 @@ export async function startSession(
     ctx.stopTyping(session);
     await session.platform.createPost(`❌ ${err}`, actualThreadId);
     ctx.sessions.delete(session.sessionId);
+    // Update sticky message after session failure
+    await ctx.updateStickyMessage();
     return;
   }
-
-  // Store the first prompt for potential replay after mid-session worktree creation
-  session.firstPrompt = options.prompt;
 
   // Check if we should prompt for worktree
   const shouldPrompt = await ctx.shouldPromptForWorktree(session);
@@ -345,6 +355,7 @@ export async function resumeSession(
     platform,
     claudeSessionId: state.claudeSessionId,
     startedBy: state.startedBy,
+    startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
     lastActivityAt: new Date(),
     sessionNumber: state.sessionNumber,
@@ -379,6 +390,7 @@ export async function resumeSession(
     firstPrompt: state.firstPrompt,
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
     sessionTitle: state.sessionTitle,
+    sessionDescription: state.sessionDescription,
   };
 
   // Register session
@@ -426,6 +438,9 @@ export async function resumeSession(
     } catch {
       // Ignore if we can't post
     }
+
+    // Update sticky message after session removal
+    await ctx.updateStickyMessage();
   }
 }
 
@@ -573,6 +588,8 @@ export async function handleExit(
       // Ignore
     }
     console.log(`  ⏸️ Session paused (${shortId}…) — ${ctx.sessions.size} active`);
+    // Update sticky channel message after session pause
+    await ctx.updateStickyMessage();
     return;
   }
 
@@ -595,6 +612,8 @@ export async function handleExit(
     } catch {
       // Ignore
     }
+    // Update sticky channel message after session failure
+    await ctx.updateStickyMessage();
     return;
   }
 
@@ -639,11 +658,11 @@ export async function handleExit(
 /**
  * Kill a specific session.
  */
-export function killSession(
+export async function killSession(
   session: Session,
   unpersist: boolean,
   ctx: LifecycleContext
-): void {
+): Promise<void> {
   const shortId = session.threadId.substring(0, 8);
 
   // Set restarting flag to prevent handleExit from also unpersisting
@@ -671,6 +690,9 @@ export function killSession(
   }
 
   console.log(`  ✖ Session killed (${shortId}…) — ${ctx.sessions.size} active`);
+
+  // Update sticky channel message after session kill
+  await ctx.updateStickyMessage();
 }
 
 /**
@@ -727,7 +749,7 @@ export async function cleanupIdleSessions(
       }
 
       // Kill without unpersisting to allow resume
-      killSession(session, false, ctx);
+      await killSession(session, false, ctx);
       continue;
     }
 

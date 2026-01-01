@@ -30,6 +30,7 @@ export interface PersistedSession {
   threadId: string;              // Thread ID within that platform
   claudeSessionId: string;       // UUID for --session-id / --resume
   startedBy: string;             // Username who started the session
+  startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date
   sessionNumber: number;
   workingDir: string;            // Can change via !cd
@@ -53,8 +54,9 @@ export interface PersistedSession {
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
   // Resume support
   timeoutPostId?: string;                        // Post ID of timeout message (for resume via reaction)
-  // Session title
+  // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
+  sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)
 }
 
 /**
