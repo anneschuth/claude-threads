@@ -26,6 +26,9 @@ export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button'] as const;
 /** Emojis for resuming a timed-out session */
 export const RESUME_EMOJIS = ['arrows_counterclockwise', 'arrow_forward', 'repeat'] as const;
 
+/** Emojis for toggling task list visibility (minimize/expand) */
+export const TASK_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_down'] as const;
+
 /**
  * Check if the emoji indicates approval (thumbs up)
  */
@@ -66,6 +69,13 @@ export function isEscapeEmoji(emoji: string): boolean {
  */
 export function isResumeEmoji(emoji: string): boolean {
   return (RESUME_EMOJIS as readonly string[]).includes(emoji);
+}
+
+/**
+ * Check if the emoji indicates task list toggle (minimize/expand)
+ */
+export function isTaskToggleEmoji(emoji: string): boolean {
+  return (TASK_TOGGLE_EMOJIS as readonly string[]).includes(emoji);
 }
 
 /** Unicode number emoji variants that also map to indices */

@@ -208,3 +208,54 @@ export async function handleMessageApprovalReaction(
 
   session.pendingMessageApproval = null;
 }
+
+// ---------------------------------------------------------------------------
+// Task list toggle reaction handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a reaction on the task list post to toggle minimize/expand.
+ * Returns true if the toggle was handled, false otherwise.
+ */
+export async function handleTaskToggleReaction(
+  session: Session,
+  ctx: ReactionContext
+): Promise<boolean> {
+  if (!session.tasksPostId || !session.lastTasksContent) {
+    return false;
+  }
+
+  // Toggle the minimized state
+  session.tasksMinimized = !session.tasksMinimized;
+
+  if (ctx.debug) {
+    console.log(`  🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
+  }
+
+  // Compute the display message
+  // Parse progress from lastTasksContent (format: "📋 **Tasks** (X/Y · Z%)")
+  const progressMatch = session.lastTasksContent.match(/\((\d+)\/(\d+) · (\d+)%\)/);
+  const completed = progressMatch ? parseInt(progressMatch[1], 10) : 0;
+  const total = progressMatch ? parseInt(progressMatch[2], 10) : 0;
+  const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
+
+  // Find current in-progress task from lastTasksContent
+  const inProgressMatch = session.lastTasksContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  let currentTaskText = '';
+  if (inProgressMatch) {
+    const taskName = inProgressMatch[1];
+    const elapsed = inProgressMatch[2] ? ` (${inProgressMatch[2]}s)` : '';
+    currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
+  }
+
+  const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
+
+  try {
+    await session.platform.updatePost(session.tasksPostId, displayMessage);
+  } catch (err) {
+    console.error('  ⚠️ Failed to toggle tasks display:', err);
+  }
+
+  return true;
+}

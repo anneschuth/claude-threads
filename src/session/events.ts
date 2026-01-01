@@ -303,8 +303,22 @@ async function handleTodoWrite(
     session.inProgressTaskStart = null;
   }
 
-  // Format tasks nicely with progress header and visual separator
-  let message = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
+  // Find the current in-progress task for minimized display
+  const inProgressTask = todos.find((t) => t.status === 'in_progress');
+  let currentTaskText = '';
+  if (inProgressTask) {
+    let elapsed = '';
+    if (session.inProgressTaskStart) {
+      const secs = Math.round((Date.now() - session.inProgressTaskStart) / 1000);
+      if (secs >= 5) {
+        elapsed = ` (${secs}s)`;
+      }
+    }
+    currentTaskText = ` · 🔄 ${inProgressTask.activeForm}${elapsed}`;
+  }
+
+  // Build full task list (always computed for lastTasksContent)
+  let fullMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
   for (const todo of todos) {
     let icon: string;
     let text: string;
@@ -332,18 +346,24 @@ async function handleTodoWrite(
         icon = '○';
         text = todo.content;
     }
-    message += `${icon} ${text}\n`;
+    fullMessage += `${icon} ${text}\n`;
   }
 
-  // Save content for sticky task list feature
-  session.lastTasksContent = message;
+  // Save full content for sticky task list feature and expansion
+  session.lastTasksContent = fullMessage;
+
+  // Choose display format based on minimized state
+  // Minimized: show only progress bar with current task
+  // Expanded: show full task list
+  const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const displayMessage = session.tasksMinimized ? minimizedMessage : fullMessage;
 
   // Update or create tasks post
   try {
     if (session.tasksPostId) {
-      await session.platform.updatePost(session.tasksPostId, message);
+      await session.platform.updatePost(session.tasksPostId, displayMessage);
     } else {
-      const post = await session.platform.createPost(message, session.threadId);
+      const post = await session.platform.createPost(displayMessage, session.threadId);
       session.tasksPostId = post.id;
     }
   } catch (err) {

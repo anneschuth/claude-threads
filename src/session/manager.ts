@@ -18,6 +18,7 @@ import {
   isCancelEmoji,
   isEscapeEmoji,
   isResumeEmoji,
+  isTaskToggleEmoji,
 } from '../utils/emoji.js';
 
 // Import extracted modules
@@ -317,6 +318,12 @@ export class SessionManager {
       await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getReactionContext());
       return;
     }
+
+    // Handle task list toggle reactions (minimize/expand)
+    if (session.tasksPostId === postId && isTaskToggleEmoji(emojiName)) {
+      await reactions.handleTaskToggleReaction(session, this.getReactionContext());
+      return;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -559,6 +566,7 @@ export class SessionManager {
       tasksPostId: session.tasksPostId,
       lastTasksContent: session.lastTasksContent,
       tasksCompleted: session.tasksCompleted,
+      tasksMinimized: session.tasksMinimized,
       worktreeInfo: session.worktreeInfo,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,

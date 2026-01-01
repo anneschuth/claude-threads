@@ -39,6 +39,7 @@ export interface PersistedSession {
   tasksPostId: string | null;
   lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom
   tasksCompleted?: boolean;      // True when all tasks done (stops sticky behavior)
+  tasksMinimized?: boolean;      // True when task list is minimized (show only progress)
   lastActivityAt: string;        // For stale cleanup
   planApproved: boolean;
   // Worktree support

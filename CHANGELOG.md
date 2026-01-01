@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Minimize/expand task list** - Toggle task list visibility with emoji reactions
+  - React with 🔽 (`arrow_down_small`) or 🔻 (`small_red_triangle_down`) on the task list to toggle
+  - Minimized view shows: `📋 **Tasks** (2/5 · 40%) · 🔄 Current task 🔽`
+  - Expanded view shows full task list with all items
+  - State persists across session restarts
+  - Similar to Ctrl-T in Claude Code CLI
+
 ### Changed
 - **Unified CLI output styling** - Consistent 2-space indented output with emoji prefixes
   - Created centralized `src/utils/output.ts` module with shared color helpers
