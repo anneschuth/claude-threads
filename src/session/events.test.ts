@@ -90,6 +90,7 @@ function createTestSession(platform: PlatformClient): Session {
     tasksPostId: null,
     lastTasksContent: null,
     tasksCompleted: false,
+    tasksMinimized: false,
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,

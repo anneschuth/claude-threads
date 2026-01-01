@@ -92,6 +92,7 @@ export interface Session {
   tasksPostId: string | null;
   lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
   tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
+  tasksMinimized: boolean;  // True when task list is minimized (show only progress)
   activeSubagents: Map<string, string>;  // toolUseId -> postId
 
   // Timers (per-session)
