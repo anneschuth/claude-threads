@@ -3,7 +3,16 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { flush, bumpTasksToBottom } from './streaming.js';
+import {
+  flush,
+  bumpTasksToBottom,
+  findLogicalBreakpoint,
+  shouldFlushEarly,
+  endsAtBreakpoint,
+  SOFT_BREAK_THRESHOLD,
+  MIN_BREAK_THRESHOLD,
+  MAX_LINES_BEFORE_BREAK,
+} from './streaming.js';
 import type { Session } from './types.js';
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
 
@@ -372,5 +381,204 @@ describe('flush with completed tasks', () => {
 
     // Should create new tasks post at bottom
     expect(platform.createPost).toHaveBeenCalledWith('📋 **Tasks** (0/1)\n○ Pending task', 'thread1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Logical breakpoint detection tests
+// ---------------------------------------------------------------------------
+
+describe('findLogicalBreakpoint', () => {
+  test('finds tool result marker as highest priority', () => {
+    const content = 'Some text\n  ↳ ✓\nMore text\n## Heading';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('tool_marker');
+    expect(result?.position).toBe(content.indexOf('  ↳ ✓') + '  ↳ ✓\n'.length);
+  });
+
+  test('finds tool error marker', () => {
+    const content = 'Some text\n  ↳ ❌ Error\nMore text';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('tool_marker');
+  });
+
+  test('finds heading as second priority', () => {
+    const content = 'Some text without tool markers\n## New Section\nContent';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('heading');
+    // Should break BEFORE the heading
+    expect(result?.position).toBe(content.indexOf('\n## New Section'));
+  });
+
+  test('finds h3 headings', () => {
+    const content = 'Some text\n### Subsection\nContent';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('heading');
+  });
+
+  test('finds code block end as third priority', () => {
+    const content = 'Some text\n```typescript\ncode\n```\nMore text';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('code_block_end');
+    expect(result?.position).toBe(content.indexOf('```\n') + 4);
+  });
+
+  test('finds paragraph break as fourth priority', () => {
+    const content = 'Some text without other markers.\n\nNew paragraph starts here.';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('paragraph');
+  });
+
+  test('falls back to line break', () => {
+    const content = 'First line\nSecond line continues without other markers';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('none');
+    expect(result?.position).toBe(content.indexOf('\n') + 1);
+  });
+
+  test('returns null for content without breaks', () => {
+    const content = 'Single line of content with no breaks at all';
+    const result = findLogicalBreakpoint(content, 0);
+    expect(result).toBeNull();
+  });
+
+  test('respects startPos parameter', () => {
+    const content = '  ↳ ✓\nEarly marker\n## Later heading';
+    // Start after the tool marker
+    const result = findLogicalBreakpoint(content, 15);
+    expect(result?.type).toBe('heading');
+  });
+
+  test('respects maxLookAhead parameter', () => {
+    const content = 'Short window\n' + 'X'.repeat(600) + '\n## Far heading';
+    // Only look 50 chars ahead - won't find the heading
+    const result = findLogicalBreakpoint(content, 0, 50);
+    expect(result?.type).toBe('none'); // Falls back to line break
+  });
+});
+
+describe('shouldFlushEarly', () => {
+  test('returns true when content exceeds soft threshold', () => {
+    const longContent = 'X'.repeat(SOFT_BREAK_THRESHOLD + 1);
+    expect(shouldFlushEarly(longContent)).toBe(true);
+  });
+
+  test('returns false when content is under threshold', () => {
+    const shortContent = 'Short content';
+    expect(shouldFlushEarly(shortContent)).toBe(false);
+  });
+
+  test('returns true when line count exceeds threshold', () => {
+    const manyLines = Array(MAX_LINES_BEFORE_BREAK + 1).fill('Line').join('\n');
+    expect(shouldFlushEarly(manyLines)).toBe(true);
+  });
+
+  test('returns false for few lines under character threshold', () => {
+    const fewLines = 'Line1\nLine2\nLine3';
+    expect(shouldFlushEarly(fewLines)).toBe(false);
+  });
+});
+
+describe('endsAtBreakpoint', () => {
+  test('detects tool marker at end', () => {
+    expect(endsAtBreakpoint('Some output\n  ↳ ✓')).toBe('tool_marker');
+    expect(endsAtBreakpoint('Some output\n  ↳ ✓  ')).toBe('tool_marker'); // with trailing whitespace
+  });
+
+  test('detects tool error at end', () => {
+    expect(endsAtBreakpoint('Output\n  ↳ ❌ Error occurred')).toBe('tool_marker');
+  });
+
+  test('detects code block end', () => {
+    expect(endsAtBreakpoint('```typescript\ncode\n```')).toBe('code_block_end');
+  });
+
+  test('detects paragraph break at end', () => {
+    expect(endsAtBreakpoint('Some text\n\n')).toBe('paragraph');
+  });
+
+  test('returns none for regular content', () => {
+    expect(endsAtBreakpoint('Just regular text')).toBe('none');
+    expect(endsAtBreakpoint('Text ending with newline\n')).toBe('none');
+  });
+});
+
+describe('flush with smart breaking', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let registerPost: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    registerPost = mock((_postId: string, _threadId: string) => {});
+  });
+
+  test('breaks at logical breakpoint when exceeding soft threshold', async () => {
+    // Create content that exceeds soft threshold with a logical breakpoint
+    const firstPart = 'X'.repeat(SOFT_BREAK_THRESHOLD);
+    const content = firstPart + '\n  ↳ ✓\nRemaining content after tool result';
+
+    session.currentPostId = 'existing_post';
+    session.pendingContent = content;
+
+    await flush(session, registerPost);
+
+    // Should have updated existing post with first part
+    expect(platform.updatePost).toHaveBeenCalled();
+
+    // Should have created continuation post
+    expect(platform.createPost).toHaveBeenCalled();
+  });
+
+  test('does not break when under minimum threshold', async () => {
+    // Short content - should not break even with breakpoints
+    const content = 'Short\n  ↳ ✓\nMore';
+
+    session.currentPostId = 'existing_post';
+    session.pendingContent = content;
+
+    await flush(session, registerPost);
+
+    // Should just update the existing post
+    expect(platform.updatePost).toHaveBeenCalledWith('existing_post', content);
+    expect(platform.createPost).not.toHaveBeenCalled();
+  });
+
+  test('adds continuation marker when breaking', async () => {
+    const longContent = 'X'.repeat(SOFT_BREAK_THRESHOLD) + '\n  ↳ ✓\nMore content';
+
+    session.currentPostId = 'existing_post';
+    session.pendingContent = longContent;
+
+    await flush(session, registerPost);
+
+    // First call to updatePost should include continuation marker
+    const firstCallArgs = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
+    expect(firstCallArgs[1]).toContain('*... (continued below)*');
+  });
+});
+
+describe('threshold constants', () => {
+  test('SOFT_BREAK_THRESHOLD is reasonable', () => {
+    expect(SOFT_BREAK_THRESHOLD).toBeGreaterThan(1000);
+    expect(SOFT_BREAK_THRESHOLD).toBeLessThan(5000);
+  });
+
+  test('MIN_BREAK_THRESHOLD is reasonable', () => {
+    expect(MIN_BREAK_THRESHOLD).toBeGreaterThan(100);
+    expect(MIN_BREAK_THRESHOLD).toBeLessThan(SOFT_BREAK_THRESHOLD);
+  });
+
+  test('MAX_LINES_BEFORE_BREAK is reasonable', () => {
+    expect(MAX_LINES_BEFORE_BREAK).toBeGreaterThan(5); // More than Mattermost's 5
+    expect(MAX_LINES_BEFORE_BREAK).toBeLessThan(50);
   });
 });

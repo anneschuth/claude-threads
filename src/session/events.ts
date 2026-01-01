@@ -14,6 +14,10 @@ import {
   DENIAL_EMOJIS,
   TASK_TOGGLE_EMOJIS,
 } from '../utils/emoji.js';
+import {
+  shouldFlushEarly,
+  MIN_BREAK_THRESHOLD,
+} from './streaming.js';
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -96,6 +100,19 @@ export function handleEvent(
     );
   }
   if (formatted) ctx.appendContent(session, formatted);
+
+  // After tool_result events, check if we should flush and start a new post
+  // This creates natural message breaks after tool completions
+  if (event.type === 'tool_result' &&
+      session.currentPostId &&
+      session.pendingContent.length > MIN_BREAK_THRESHOLD &&
+      shouldFlushEarly(session.pendingContent)) {
+    // Flush and clear to start a new post for subsequent content
+    ctx.flush(session).then(() => {
+      session.currentPostId = null;
+      session.pendingContent = '';
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------

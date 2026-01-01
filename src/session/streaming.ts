@@ -2,11 +2,154 @@
  * Message streaming and flushing utilities
  *
  * Handles buffering, formatting, and posting Claude responses to the platform.
+ * Implements logical message breaking to avoid "Show More" collapse in Mattermost.
  */
 
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
+
+// ---------------------------------------------------------------------------
+// Message breaking thresholds
+// ---------------------------------------------------------------------------
+
+/**
+ * Soft threshold: when content exceeds this, we look for logical breakpoints.
+ * This is much lower than the hard limit to avoid "Show More" in Mattermost.
+ * Mattermost collapses at ~300 chars or 5 line breaks.
+ */
+export const SOFT_BREAK_THRESHOLD = 2000;
+
+/**
+ * Minimum content size before we consider breaking.
+ * Prevents breaking very short messages unnecessarily.
+ */
+export const MIN_BREAK_THRESHOLD = 500;
+
+/**
+ * Maximum lines before we look for a break point.
+ * Mattermost collapses at 5 lines, so we break before reaching that.
+ */
+export const MAX_LINES_BEFORE_BREAK = 15;
+
+// ---------------------------------------------------------------------------
+// Logical breakpoint detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Types of logical breakpoints in content.
+ */
+export type BreakpointType =
+  | 'heading'        // Markdown heading (## or ###)
+  | 'code_block_end' // End of a code block
+  | 'paragraph'      // Empty line (paragraph break)
+  | 'tool_marker'    // Tool result marker (  ↳ ✓ or ❌)
+  | 'none';
+
+/**
+ * Find the best logical breakpoint in content near or after a position.
+ * Returns the position to break at, or -1 if no good breakpoint found.
+ *
+ * @param content - The full content string
+ * @param startPos - Position to start looking from
+ * @param maxLookAhead - How far ahead to look for a breakpoint (default 500 chars)
+ * @returns Object with break position and type, or null if not found
+ */
+export function findLogicalBreakpoint(
+  content: string,
+  startPos: number,
+  maxLookAhead: number = 500
+): { position: number; type: BreakpointType } | null {
+  const searchWindow = content.substring(startPos, startPos + maxLookAhead);
+
+  // Priority 1: Look for tool result markers (natural tool completion boundary)
+  // These look like "  ↳ ✓" or "  ↳ ❌ Error"
+  const toolMarkerMatch = searchWindow.match(/ {2}↳ [✓❌][^\n]*\n/);
+  if (toolMarkerMatch && toolMarkerMatch.index !== undefined) {
+    const pos = startPos + toolMarkerMatch.index + toolMarkerMatch[0].length;
+    return { position: pos, type: 'tool_marker' };
+  }
+
+  // Priority 2: Look for markdown headings (section boundaries)
+  const headingMatch = searchWindow.match(/\n(#{2,3} )/);
+  if (headingMatch && headingMatch.index !== undefined) {
+    // Break BEFORE the heading (at the newline)
+    return { position: startPos + headingMatch.index, type: 'heading' };
+  }
+
+  // Priority 3: Look for end of code blocks
+  const codeBlockEndMatch = searchWindow.match(/```\n/);
+  if (codeBlockEndMatch && codeBlockEndMatch.index !== undefined) {
+    const pos = startPos + codeBlockEndMatch.index + codeBlockEndMatch[0].length;
+    return { position: pos, type: 'code_block_end' };
+  }
+
+  // Priority 4: Look for paragraph breaks (double newlines)
+  const paragraphMatch = searchWindow.match(/\n\n/);
+  if (paragraphMatch && paragraphMatch.index !== undefined) {
+    const pos = startPos + paragraphMatch.index + paragraphMatch[0].length;
+    return { position: pos, type: 'paragraph' };
+  }
+
+  // Priority 5: Fallback to any line break
+  const lineBreakMatch = searchWindow.match(/\n/);
+  if (lineBreakMatch && lineBreakMatch.index !== undefined) {
+    const pos = startPos + lineBreakMatch.index + 1;
+    return { position: pos, type: 'none' };
+  }
+
+  return null;
+}
+
+/**
+ * Check if content should be flushed early based on logical breakpoints.
+ * Returns true if we should flush now to avoid "Show More" collapse.
+ *
+ * @param content - Current pending content
+ * @returns Whether to flush early
+ */
+export function shouldFlushEarly(content: string): boolean {
+  // Count lines
+  const lineCount = (content.match(/\n/g) || []).length;
+
+  // Check against thresholds
+  if (content.length >= SOFT_BREAK_THRESHOLD) return true;
+  if (lineCount >= MAX_LINES_BEFORE_BREAK) return true;
+
+  return false;
+}
+
+/**
+ * Check if content ends at a logical breakpoint.
+ * Used to detect when incoming content creates a natural break.
+ *
+ * @param content - Content to check
+ * @returns The type of breakpoint at the end, or 'none'
+ */
+export function endsAtBreakpoint(content: string): BreakpointType {
+  const trimmed = content.trimEnd();
+
+  // Check for tool result marker at end
+  if (/ {2}↳ [✓❌][^\n]*$/.test(trimmed)) {
+    return 'tool_marker';
+  }
+
+  // Check for end of code block
+  if (trimmed.endsWith('```')) {
+    return 'code_block_end';
+  }
+
+  // Check for paragraph break at end (double newline)
+  if (content.endsWith('\n\n')) {
+    return 'paragraph';
+  }
+
+  return 'none';
+}
+
+// ---------------------------------------------------------------------------
+// Scheduled updates
+// ---------------------------------------------------------------------------
 
 /**
  * Schedule a delayed flush of the session's pending content.
@@ -186,7 +329,9 @@ export async function bumpTasksToBottom(session: Session): Promise<void> {
  * Flush pending content to the platform.
  *
  * Handles:
- * - Message length limits (splits into multiple posts if needed)
+ * - Logical message breaking (headings, tool results, code blocks)
+ * - Soft threshold breaking to avoid "Show More" collapse
+ * - Hard message length limits (splits into multiple posts if needed)
  * - Creating vs updating posts
  * - Post registration for reaction routing
  * - Keeping task list at the bottom (sticky tasks)
@@ -203,24 +348,60 @@ export async function flush(
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
 
   // Most chat platforms have post length limits (~16K for Mattermost/Slack)
-  const MAX_POST_LENGTH = 16000;  // Leave some margin
-  const CONTINUATION_THRESHOLD = 14000;  // Start new message before we hit the limit
+  const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
+  const HARD_CONTINUATION_THRESHOLD = 14000;  // Absolute max before we force a break
 
-  // Check if we need to start a new message due to length
-  if (session.currentPostId && content.length > CONTINUATION_THRESHOLD) {
-    // Finalize the current post with what we have up to the threshold
-    // Find a good break point (end of line) near the threshold
-    let breakPoint = content.lastIndexOf('\n', CONTINUATION_THRESHOLD);
-    if (breakPoint < CONTINUATION_THRESHOLD * 0.7) {
-      // If we can't find a good line break, just break at the threshold
-      breakPoint = CONTINUATION_THRESHOLD;
+  // Check if we should break early based on logical breakpoints
+  // This helps avoid "Show More" collapse in Mattermost (triggers at ~300 chars or 5 lines)
+  const shouldBreakEarly = session.currentPostId &&
+    content.length > MIN_BREAK_THRESHOLD &&
+    shouldFlushEarly(content);
+
+  // Check if we need to start a new message due to length or logical breakpoint
+  if (session.currentPostId && (content.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
+    // Determine where to break
+    let breakPoint: number;
+
+    if (content.length > HARD_CONTINUATION_THRESHOLD) {
+      // Hard break: we're at the limit, must break now
+      // Try to find a logical breakpoint near the threshold
+      const breakInfo = findLogicalBreakpoint(
+        content,
+        Math.floor(HARD_CONTINUATION_THRESHOLD * 0.7),
+        Math.floor(HARD_CONTINUATION_THRESHOLD * 0.3)
+      );
+      if (breakInfo) {
+        breakPoint = breakInfo.position;
+      } else {
+        // Fallback: find any line break
+        breakPoint = content.lastIndexOf('\n', HARD_CONTINUATION_THRESHOLD);
+        if (breakPoint < HARD_CONTINUATION_THRESHOLD * 0.7) {
+          breakPoint = HARD_CONTINUATION_THRESHOLD;
+        }
+      }
+    } else {
+      // Soft break: we've exceeded soft threshold, find a good logical breakpoint
+      const breakInfo = findLogicalBreakpoint(content, SOFT_BREAK_THRESHOLD);
+      if (breakInfo && breakInfo.position < content.length) {
+        breakPoint = breakInfo.position;
+      } else {
+        // No good breakpoint found, just update the current post and wait
+        await session.platform.updatePost(session.currentPostId, content);
+        return;
+      }
     }
 
-    const firstPart = content.substring(0, breakPoint).trim() + '\n\n*... (continued below)*';
+    // Split at the breakpoint
+    const firstPart = content.substring(0, breakPoint).trim();
     const remainder = content.substring(breakPoint).trim();
 
+    // Only add continuation marker if we have more content
+    const firstPartWithMarker = remainder
+      ? firstPart + '\n\n*... (continued below)*'
+      : firstPart;
+
     // Update the current post with the first part
-    await session.platform.updatePost(session.currentPostId, firstPart);
+    await session.platform.updatePost(session.currentPostId, firstPartWithMarker);
 
     // Start a new post for the continuation
     session.currentPostId = null;
