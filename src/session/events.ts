@@ -131,10 +131,18 @@ function formatEvent(
           const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true });
           if (formatted) parts.push(formatted);
         } else if (block.type === 'thinking' && block.thinking) {
-          // Extended thinking - show abbreviated version
+          // Extended thinking - show abbreviated version in blockquote
           const thinking = block.thinking as string;
-          const preview = thinking.length > 100 ? thinking.substring(0, 100) + '...' : thinking;
-          parts.push(`💭 *Thinking: ${preview}*`);
+          const maxLength = 200;
+          let preview = thinking;
+          if (thinking.length > maxLength) {
+            // Cut at word boundary
+            const truncated = thinking.substring(0, maxLength);
+            const lastSpace = truncated.lastIndexOf(' ');
+            preview = (lastSpace > maxLength * 0.7 ? truncated.substring(0, lastSpace) : truncated) + '...';
+          }
+          // Use blockquote for better formatting
+          parts.push(`> 💭 *${preview}*`);
         } else if (block.type === 'server_tool_use' && block.name) {
           // Server-managed tools like web search
           parts.push(
