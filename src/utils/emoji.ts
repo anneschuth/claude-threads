@@ -23,6 +23,9 @@ export const CANCEL_EMOJIS = ['x', 'octagonal_sign', 'stop_sign'] as const;
 /** Emojis for escaping/pausing a session */
 export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button'] as const;
 
+/** Emojis for resuming a timed-out session */
+export const RESUME_EMOJIS = ['arrows_counterclockwise', 'arrow_forward', 'repeat'] as const;
+
 /**
  * Check if the emoji indicates approval (thumbs up)
  */
@@ -56,6 +59,13 @@ export function isCancelEmoji(emoji: string): boolean {
  */
 export function isEscapeEmoji(emoji: string): boolean {
   return (ESCAPE_EMOJIS as readonly string[]).includes(emoji);
+}
+
+/**
+ * Check if the emoji indicates session resume
+ */
+export function isResumeEmoji(emoji: string): boolean {
+  return (RESUME_EMOJIS as readonly string[]).includes(emoji);
 }
 
 /** Unicode number emoji variants that also map to indices */

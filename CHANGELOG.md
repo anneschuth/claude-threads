@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Cross-platform: macOS (`caffeinate`), Linux (`systemd-inhibit`), Windows (`SetThreadExecutionState`)
   - Enabled by default, disable with `--no-keep-alive` CLI flag or `keepAlive: false` in config
   - Shows `☕ Keep-alive enabled` in startup output
+- **Resume timed-out sessions via emoji reaction** - React with 🔄 to the timeout message or session header to resume a timed-out session
+  - Timeout message now shows resume hint: "💡 React with 🔄 to resume, or send a new message to continue."
+  - Resume also works by sending a new message in the thread (existing behavior)
+  - Session header now displays truncated session ID for reference
+  - Supports multiple resume emojis: 🔄 (arrows_counterclockwise), ▶️ (arrow_forward), 🔁 (repeat)
 
 ## [0.17.1] - 2025-12-31
 

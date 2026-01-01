@@ -475,6 +475,7 @@ export async function updateSessionHeader(
   }
 
   rows.push(`| 🔢 **Session** | #${session.sessionNumber} of ${ctx.maxSessions} max |`);
+  rows.push(`| 🆔 **Session ID** | \`${session.claudeSessionId.substring(0, 8)}\` |`);
   rows.push(`| ${permMode.split(' ')[0]} **Permissions** | ${permMode.split(' ')[1]} |`);
   if (ctx.chromeEnabled) {
     rows.push(`| 🌐 **Chrome** | Enabled |`);

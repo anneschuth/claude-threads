@@ -50,6 +50,8 @@ export interface PersistedSession {
   // Context prompt support
   pendingContextPrompt?: PersistedContextPrompt; // Waiting for context selection
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
+  // Resume support
+  timeoutPostId?: string;                        // Post ID of timeout message (for resume via reaction)
 }
 
 /**
@@ -204,6 +206,36 @@ export class SessionStore {
     if (this.debug) {
       console.log('  [persist] Cleared all sessions');
     }
+  }
+
+  /**
+   * Find a persisted session by platform and thread ID
+   * @param platformId - Platform instance ID
+   * @param threadId - Thread ID within the platform
+   * @returns Session data if found, undefined otherwise
+   */
+  findByThread(platformId: string, threadId: string): PersistedSession | undefined {
+    const sessionId = `${platformId}:${threadId}`;
+    const data = this.loadRaw();
+    return data.sessions[sessionId];
+  }
+
+  /**
+   * Find a persisted session by timeout post ID or session start post ID
+   * Used for resuming sessions via emoji reaction
+   * @param platformId - Platform instance ID
+   * @param postId - Post ID to search for
+   * @returns Session data if found, undefined otherwise
+   */
+  findByPostId(platformId: string, postId: string): PersistedSession | undefined {
+    const data = this.loadRaw();
+    for (const session of Object.values(data.sessions)) {
+      if (session.platformId !== platformId) continue;
+      if (session.timeoutPostId === postId || session.sessionStartPostId === postId) {
+        return session;
+      }
+    }
+    return undefined;
   }
 
   /**
