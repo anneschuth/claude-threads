@@ -24,6 +24,9 @@ import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser } from './post-helpers.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('commands');
 
 // ---------------------------------------------------------------------------
 // Helper functions
@@ -90,7 +93,7 @@ export async function cancelSession(
   ctx: CommandContext
 ): Promise<void> {
   const shortId = session.threadId.substring(0, 8);
-  console.log(`  🛑 Session (${shortId}…) cancelled by @${username}`);
+  log.info(`🛑 Session (${shortId}…) cancelled by @${username}`);
 
   await postCancelled(session, `**Session cancelled** by @${username}`);
 
@@ -116,7 +119,7 @@ export async function interruptSession(
   const interrupted = session.claude.interrupt();
 
   if (interrupted) {
-    console.log(`  ⏸️ Session (${shortId}…) interrupted by @${username}`);
+    log.info(`⏸️ Session (${shortId}…) interrupted by @${username}`);
     await postInterrupt(session, `**Interrupted** by @${username}`);
   }
 }
@@ -161,7 +164,7 @@ export async function changeDirectory(
 
   const shortId = session.threadId.substring(0, 8);
   const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
-  console.log(`  📂 Session (${shortId}…) changing directory to ${shortDir}`);
+  log.info(`📂 Session (${shortId}…) changing directory to ${shortDir}`);
 
   // Stop the current Claude CLI
   ctx.stopTyping(session);
@@ -243,7 +246,7 @@ export async function inviteUser(
 
   session.sessionAllowedUsers.add(invitedUser);
   await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
-  console.log(`  👋 @${invitedUser} invited to session by @${invitedBy}`);
+  log.info(`👋 @${invitedUser} invited to session by @${invitedBy}`);
   await updateSessionHeader(session, ctx);
   ctx.persistSession(session);
 }
@@ -277,7 +280,7 @@ export async function kickUser(
 
   if (session.sessionAllowedUsers.delete(kickedUser)) {
     await postUser(session, `@${kickedUser} removed from this session by @${kickedBy}`);
-    console.log(`  🚫 @${kickedUser} kicked from session by @${kickedBy}`);
+    log.info(`🚫 @${kickedUser} kicked from session by @${kickedBy}`);
     await updateSessionHeader(session, ctx);
     ctx.persistSession(session);
   } else {
@@ -319,7 +322,7 @@ export async function enableInteractivePermissions(
   session.forceInteractivePermissions = true;
 
   const shortId = session.threadId.substring(0, 8);
-  console.log(`  🔐 Session (${shortId}…) enabling interactive permissions`);
+  log.info(`🔐 Session (${shortId}…) enabling interactive permissions`);
 
   // Stop the current Claude CLI and restart with new permission setting
   ctx.stopTyping(session);
@@ -361,7 +364,7 @@ export async function enableInteractivePermissions(
 
   // Post confirmation
   await postSecure(session, `**Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`);
-  console.log(`  🔐 Interactive permissions enabled for session by @${username}`);
+  log.info(`🔐 Interactive permissions enabled for session by @${username}`);
 
   // Update activity and persist
   session.lastActivityAt = new Date();

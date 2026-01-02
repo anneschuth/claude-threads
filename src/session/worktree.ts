@@ -22,6 +22,9 @@ import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
 import { postWarning, postError, postSuccess, postInfo } from './post-helpers.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('worktree');
 
 /**
  * Check if we should prompt the user to create a worktree.
@@ -246,7 +249,7 @@ export async function createAndSwitchToWorktree(
   }
 
   const shortId = session.threadId.substring(0, 8);
-  console.log(`  🌿 Session (${shortId}…) creating worktree for branch ${branch}`);
+  log.info(`🌿 Session (${shortId}…) creating worktree for branch ${branch}`);
 
   // Generate worktree path
   const worktreePath = getWorktreeDir(repoRoot, branch);
@@ -351,7 +354,7 @@ export async function createAndSwitchToWorktree(
       session.worktreeResponsePostId = undefined;
     }
 
-    console.log(`  🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
+    log.info(`🌿 Session (${shortId}…) switched to worktree ${branch} at ${shortWorktreePath}`);
   } catch (err) {
     await logAndNotify(err, { action: 'Create worktree', session });
   }
@@ -481,7 +484,7 @@ export async function removeWorktreeCommand(
     const shortPath = target.path.replace(process.env.HOME || '', '~');
     await postSuccess(session, `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
 
-    console.log(`  🗑️ Removed worktree ${target.branch} at ${shortPath}`);
+    log.info(`🗑️ Removed worktree ${target.branch} at ${shortPath}`);
   } catch (err) {
     await logAndNotify(err, { action: 'Remove worktree', session });
   }

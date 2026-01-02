@@ -9,6 +9,9 @@ import type { Session } from './types.js';
 import type { ThreadMessage } from '../platform/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
 import { withErrorHandling } from './error-handler.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('context');
 
 // Context timeout in milliseconds (30 seconds)
 export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
@@ -326,7 +329,7 @@ export async function handleContextPromptReaction(
 
   if (ctx.debug) {
     const shortId = session.threadId.substring(0, 8);
-    console.log(`  🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
+    log.debug(`🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
   }
 
   return true;
@@ -369,7 +372,7 @@ export async function handleContextPromptTimeout(
 
   if (ctx.debug) {
     const shortId = session.threadId.substring(0, 8);
-    console.log(`  🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
+    log.debug(`🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
   }
 }
 
@@ -417,7 +420,7 @@ export async function offerContextPrompt(
 
     if (ctx.debug) {
       const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
+      log.debug(`🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
     }
 
     return false;
@@ -437,7 +440,7 @@ export async function offerContextPrompt(
 
   if (ctx.debug) {
     const shortId = session.threadId.substring(0, 8);
-    console.log(`  🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
+    log.debug(`🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
   }
 
   return true;

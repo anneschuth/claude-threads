@@ -273,8 +273,7 @@ export async function startSession(
   // Register session
   ctx.sessions.set(sessionId, session);
   ctx.registerPost(post.id, actualThreadId);
-  const shortId = actualThreadId.substring(0, 8);
-  console.log(`  ▶ Session #${ctx.sessions.size} started (${shortId}…) by @${username}`);
+  log.info(`▶ Session #${ctx.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -351,21 +350,21 @@ export async function resumeSession(
   // Get platform for this session
   const platform = ctx.platforms.get(state.platformId);
   if (!platform) {
-    console.log(`  ⚠️ Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
+    log.warn(`Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
     return;
   }
 
   // Verify thread still exists
   const post = await platform.getPost(state.threadId);
   if (!post) {
-    console.log(`  ⚠️ Thread ${shortId}... deleted, skipping resume`);
+    log.warn(`Thread ${shortId}... deleted, skipping resume`);
     ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
   }
 
   // Check max sessions limit
   if (ctx.sessions.size >= ctx.maxSessions) {
-    console.log(`  ⚠️ Max sessions reached, skipping resume for ${shortId}...`);
+    log.warn(`Max sessions reached, skipping resume for ${shortId}...`);
     return;
   }
 
@@ -564,12 +563,12 @@ export async function resumePausedSession(
   const persisted = ctx.sessionStore.load();
   const state = findPersistedByThreadId(persisted, threadId);
   if (!state) {
-    console.log(`  [resume] No persisted session found for ${threadId.substring(0, 8)}...`);
+    log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
     return;
   }
 
   const shortId = threadId.substring(0, 8);
-  console.log(`  🔄 Resuming paused session ${shortId}... for new message`);
+  log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session
   await resumeSession(state, ctx);
@@ -591,7 +590,7 @@ export async function resumePausedSession(
     session.lastActivityAt = new Date();
     ctx.startTyping(session);
   } else {
-    console.log(`  ⚠️ Failed to resume session ${shortId}..., could not send message`);
+    log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }
 }
 
@@ -610,23 +609,23 @@ export async function handleExit(
   const session = ctx.sessions.get(sessionId);
   const shortId = sessionId.substring(0, 8);
 
-  console.log(`  [exit] handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
+  log.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
 
   if (!session) {
-    console.log(`  [exit] Session ${shortId}... not found (already cleaned up)`);
+    log.debug(`Session ${shortId}... not found (already cleaned up)`);
     return;
   }
 
   // If we're intentionally restarting (e.g., !cd), don't clean up
   if (session.isRestarting) {
-    console.log(`  [exit] Session ${shortId}... restarting, skipping cleanup`);
+    log.debug(`Session ${shortId}... restarting, skipping cleanup`);
     session.isRestarting = false;
     return;
   }
 
   // If bot is shutting down, preserve persistence
   if (ctx.isShuttingDown) {
-    console.log(`  [exit] Session ${shortId}... bot shutting down, preserving persistence`);
+    log.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -644,7 +643,7 @@ export async function handleExit(
 
   // If session was interrupted, preserve for resume
   if (session.wasInterrupted) {
-    console.log(`  [exit] Session ${shortId}... exited after interrupt, preserving for resume`);
+    log.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -677,7 +676,7 @@ export async function handleExit(
 
   // For resumed sessions that exit with error, preserve for retry
   if (session.isResumed && code !== 0) {
-    console.log(`  [exit] Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
+    log.debug(`Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
     ctx.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
@@ -700,7 +699,7 @@ export async function handleExit(
   }
 
   // Normal exit cleanup
-  console.log(`  [exit] Session ${shortId}... normal exit, cleaning up`);
+  log.debug(`Session ${shortId}... normal exit, cleaning up`);
 
   ctx.stopTyping(session);
   if (session.updateTimer) {
@@ -732,10 +731,10 @@ export async function handleExit(
   if (code === 0 || code === null) {
     ctx.unpersistSession(session.sessionId);
   } else {
-    console.log(`  [exit] Session ${shortId}... non-zero exit, preserving for potential retry`);
+    log.debug(`Session ${shortId}... non-zero exit, preserving for potential retry`);
   }
 
-  console.log(`  ■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);
+  log.info(`■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);
 
   // Update sticky channel message after session end
   await ctx.updateStickyMessage();
@@ -775,7 +774,7 @@ export async function killSession(
     ctx.unpersistSession(session.threadId);
   }
 
-  console.log(`  ✖ Session killed (${shortId}…) — ${ctx.sessions.size} active`);
+  log.info(`✖ Session killed (${shortId}…) — ${ctx.sessions.size} active`);
 
   // Update sticky channel message after session kill
   await ctx.updateStickyMessage();
@@ -821,7 +820,7 @@ export async function cleanupIdleSessions(
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      console.log(`  ⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
+      log.info(`⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
 
       // Post timeout message with resume hint and save the post ID
       const timeoutPost = await withErrorHandling(
@@ -848,7 +847,7 @@ export async function cleanupIdleSessions(
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       postTimeout(session, `**Session idle** - will timeout in ~${remainingMins} minutes without activity`).catch(() => {});
       session.timeoutWarningPosted = true;
-      console.log(`  ⏰ Session (${shortId}…) idle warning posted`);
+      log.debug(`⏰ Session (${shortId}…) idle warning posted`);
     }
   }
 }

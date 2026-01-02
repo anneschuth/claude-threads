@@ -14,6 +14,9 @@ import {
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('reactions');
 
 // ---------------------------------------------------------------------------
 // Context types for dependency injection
@@ -52,7 +55,7 @@ export async function handleQuestionReaction(
 
   const selectedOption = question.options[optionIndex];
   question.answer = selectedOption.label;
-  if (ctx.debug) console.log(`  💬 @${username} answered "${question.header}": ${selectedOption.label}`);
+  if (ctx.debug) log.debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
   await withErrorHandling(
@@ -86,7 +89,7 @@ export async function handleQuestionReaction(
       answersText += `- **${q.header}**: ${q.answer}\n`;
     }
 
-    if (ctx.debug) console.log('  ✅ All questions answered');
+    if (ctx.debug) log.debug('✅ All questions answered');
 
     // Clear pending questions
     session.pendingQuestionSet = null;
@@ -122,7 +125,7 @@ export async function handleApprovalReaction(
   const { postId } = session.pendingApproval;
   // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
   const shortId = session.threadId.substring(0, 8);
-  console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
+  log.info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
   // Update the post to show the decision
   const statusMessage = isApprove
@@ -187,7 +190,7 @@ export async function handleMessageApprovalReaction(
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
     ctx.startTyping(session);
-    console.log(`  ✅ Message from @${pending.fromUser} approved by @${approver}`);
+    log.info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
   } else if (isInvite) {
     // Invite user to session
     session.sessionAllowedUsers.add(pending.fromUser);
@@ -199,14 +202,14 @@ export async function handleMessageApprovalReaction(
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
     ctx.startTyping(session);
-    console.log(`  👋 @${pending.fromUser} invited to session by @${approver}`);
+    log.info(`👋 @${pending.fromUser} invited to session by @${approver}`);
   } else if (isDeny) {
     // Deny
     await session.platform.updatePost(
       pending.postId,
       `❌ Message from @${pending.fromUser} denied by @${approver}`
     );
-    console.log(`  ❌ Message from @${pending.fromUser} denied by @${approver}`);
+    log.info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
   }
 
   session.pendingMessageApproval = null;
@@ -232,7 +235,7 @@ export async function handleTaskToggleReaction(
   session.tasksMinimized = !session.tasksMinimized;
 
   if (ctx.debug) {
-    console.log(`  🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
+    log.debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
   }
 
   // Compute the display message
@@ -315,7 +318,7 @@ export async function handleExistingWorktreeReaction(
     // Switch to the existing worktree
     await ctx.switchToWorktree(session.threadId, pending.worktreePath, pending.username);
 
-    console.log(`  🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
+    log.info(`🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
   } else {
     // Skip - continue in current directory
     await session.platform.updatePost(
@@ -327,7 +330,7 @@ export async function handleExistingWorktreeReaction(
     session.pendingExistingWorktreePrompt = undefined;
     ctx.persistSession(session);
 
-    console.log(`  ❌ @${username} skipped joining existing worktree ${pending.branch}`);
+    log.info(`❌ @${username} skipped joining existing worktree ${pending.branch}`);
   }
 
   return true;

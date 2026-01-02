@@ -32,6 +32,10 @@ import * as worktreeModule from './worktree.js';
 import * as contextPrompt from './context-prompt.js';
 import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
+import { postInfo } from './post-helpers.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('manager');
 
 // Import unified context and adapters
 import {
@@ -114,7 +118,7 @@ export class SessionManager {
       stickyMessage.markNeedsBump(platformId);
       this.updateStickyMessage();
     });
-    console.log(`  📡 Platform "${platformId}" registered`);
+    log.info(`📡 Platform "${platformId}" registered`);
   }
 
   removePlatform(platformId: string): void {
@@ -271,7 +275,7 @@ export class SessionManager {
     const sessionId = `${platformId}:${persistedSession.threadId}`;
     if (this.sessions.has(sessionId)) {
       if (this.debug) {
-        console.log(`  [resume] Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
+        log.debug(`Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
       }
       return false;
     }
@@ -301,7 +305,7 @@ export class SessionManager {
     }
 
     const shortId = persistedSession.threadId.substring(0, 8);
-    console.log(`  🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
+    log.info(`🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
 
     // Resume the session
     await lifecycle.resumeSession(persistedSession, this.getLifecycleContext());
@@ -593,14 +597,14 @@ export class SessionManager {
     // Use 2x timeout to be generous (bot might have been down for a while)
     const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
     if (staleIds.length > 0) {
-      console.log(`  🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
+      log.info(`🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
     }
 
     const persisted = this.sessionStore.load();
-    console.log(`  [persist] Loaded ${persisted.size} session(s)`);
+    log.info(`📂 Loaded ${persisted.size} session(s) from persistence`);
 
     if (persisted.size > 0) {
-      console.log(`  🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
+      log.info(`🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
       for (const state of persisted.values()) {
         await lifecycle.resumeSession(state, this.getLifecycleContext());
       }
@@ -873,7 +877,7 @@ export class SessionManager {
     if (message) {
       for (const session of this.sessions.values()) {
         try {
-          await session.platform.createPost(message, session.threadId);
+          await postInfo(session, message);
         } catch {
           // Ignore
         }
