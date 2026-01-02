@@ -1,0 +1,112 @@
+import { describe, it, expect } from 'bun:test';
+import { MattermostFormatter } from './formatter.js';
+
+describe('MattermostFormatter', () => {
+  const formatter = new MattermostFormatter();
+
+  describe('formatBold', () => {
+    it('wraps text in double asterisks', () => {
+      expect(formatter.formatBold('hello')).toBe('**hello**');
+    });
+
+    it('handles empty strings', () => {
+      expect(formatter.formatBold('')).toBe('****');
+    });
+  });
+
+  describe('formatItalic', () => {
+    it('wraps text in underscores', () => {
+      expect(formatter.formatItalic('hello')).toBe('_hello_');
+    });
+  });
+
+  describe('formatCode', () => {
+    it('wraps text in backticks', () => {
+      expect(formatter.formatCode('const x = 1')).toBe('`const x = 1`');
+    });
+  });
+
+  describe('formatCodeBlock', () => {
+    it('wraps code in triple backticks with language', () => {
+      const result = formatter.formatCodeBlock('const x = 1', 'javascript');
+      expect(result).toBe('```javascript\nconst x = 1\n```');
+    });
+
+    it('works without language', () => {
+      const result = formatter.formatCodeBlock('const x = 1');
+      expect(result).toBe('```\nconst x = 1\n```');
+    });
+  });
+
+  describe('formatUserMention', () => {
+    it('prefixes username with @', () => {
+      expect(formatter.formatUserMention('johndoe')).toBe('@johndoe');
+    });
+  });
+
+  describe('formatLink', () => {
+    it('creates markdown link', () => {
+      expect(formatter.formatLink('Click here', 'https://example.com'))
+        .toBe('[Click here](https://example.com)');
+    });
+  });
+
+  describe('formatListItem', () => {
+    it('prefixes with dash', () => {
+      expect(formatter.formatListItem('Item 1')).toBe('- Item 1');
+    });
+  });
+
+  describe('formatNumberedListItem', () => {
+    it('prefixes with number and period', () => {
+      expect(formatter.formatNumberedListItem(1, 'First item')).toBe('1. First item');
+      expect(formatter.formatNumberedListItem(10, 'Tenth item')).toBe('10. Tenth item');
+    });
+  });
+
+  describe('formatBlockquote', () => {
+    it('prefixes with >', () => {
+      expect(formatter.formatBlockquote('quoted text')).toBe('> quoted text');
+    });
+  });
+
+  describe('formatHorizontalRule', () => {
+    it('returns three dashes', () => {
+      expect(formatter.formatHorizontalRule()).toBe('---');
+    });
+  });
+
+  describe('formatHeading', () => {
+    it('creates headings with correct number of hashes', () => {
+      expect(formatter.formatHeading('Title', 1)).toBe('# Title');
+      expect(formatter.formatHeading('Subtitle', 2)).toBe('## Subtitle');
+      expect(formatter.formatHeading('Section', 3)).toBe('### Section');
+    });
+
+    it('clamps heading level between 1 and 6', () => {
+      expect(formatter.formatHeading('Title', 0)).toBe('# Title');
+      expect(formatter.formatHeading('Title', 7)).toBe('###### Title');
+    });
+  });
+
+  describe('escapeText', () => {
+    it('escapes markdown special characters', () => {
+      expect(formatter.escapeText('*bold* and _italic_'))
+        .toBe('\\*bold\\* and \\_italic\\_');
+    });
+
+    it('escapes code backticks', () => {
+      expect(formatter.escapeText('use `code` here'))
+        .toBe('use \\`code\\` here');
+    });
+
+    it('escapes brackets and parentheses', () => {
+      expect(formatter.escapeText('[link](url)'))
+        .toBe('\\[link\\]\\(url\\)');
+    });
+
+    it('preserves regular text', () => {
+      expect(formatter.escapeText('hello world')).toBe('hello world');
+    });
+  });
+});

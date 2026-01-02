@@ -224,7 +224,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run tests (414 tests)
+bun test             # Run tests (444 tests)
 bun run lint         # Run ESLint
 ```
 
