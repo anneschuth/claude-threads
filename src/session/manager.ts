@@ -33,6 +33,19 @@ import * as contextPrompt from './context-prompt.js';
 import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
 
+// Import unified context and adapters
+import {
+  type SessionContext,
+  type SessionConfig,
+  type SessionState,
+  type SessionOperations,
+  createSessionContext,
+  toLifecycleContext,
+  toEventContext,
+  toReactionContext,
+  toCommandContext,
+} from './context.js';
+
 // Import constants for internal use
 import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
 
@@ -109,81 +122,88 @@ export class SessionManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Context Builders (for module delegation)
+  // Unified Context Builder
   // ---------------------------------------------------------------------------
 
-  private getLifecycleContext(): lifecycle.LifecycleContext {
-    return {
+  /**
+   * Build the unified SessionContext that all modules receive.
+   * This replaces the previous 4 separate context builders.
+   */
+  private getContext(): SessionContext {
+    const config: SessionConfig = {
       workingDir: this.workingDir,
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
       maxSessions: MAX_SESSIONS,
+    };
+
+    const state: SessionState = {
       sessions: this.sessions,
       postIndex: this.postIndex,
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
+    };
+
+    const ops: SessionOperations = {
+      // Session lookup
       getSessionId: (pid, tid) => this.getSessionId(pid, tid),
       findSessionByThreadId: (tid) => this.findSessionByThreadId(tid),
-      handleEvent: (sid, e) => this.handleEvent(sid, e),
-      handleExit: (sid, code) => this.handleExit(sid, code),
+
+      // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
+
+      // Streaming & content
+      flush: (s) => this.flush(s),
+      appendContent: (s, t) => this.appendContent(s, t),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      flush: (s) => this.flush(s),
+      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
+      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+
+      // Persistence
       persistSession: (s) => this.persistSession(s),
       unpersistSession: (sid) => this.unpersistSession(sid),
+
+      // UI updates
       updateSessionHeader: (s) => this.updateSessionHeader(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
+
+      // Event handling
+      handleEvent: (sid, e) => this.handleEvent(sid, e),
+      handleExit: (sid, code) => this.handleExit(sid, code),
+
+      // Session lifecycle
+      killSession: (tid) => this.killSession(tid),
+
+      // Worktree
       shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
-      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
+
+      // Context prompt
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
-      updateStickyMessage: () => this.updateStickyMessage(),
     };
+
+    return createSessionContext(config, state, ops);
+  }
+
+  // Legacy context adapters (for gradual migration)
+  // These convert the unified context to the old interfaces
+  private getLifecycleContext(): lifecycle.LifecycleContext {
+    return toLifecycleContext(this.getContext());
   }
 
   private getEventContext(): events.EventContext {
-    return {
-      debug: this.debug,
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
-      flush: (s) => this.flush(s),
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      appendContent: (s, t) => this.appendContent(s, t),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
-      updateStickyMessage: () => this.updateStickyMessage(),
-      updateSessionHeader: (s) => this.updateSessionHeader(s),
-      persistSession: (s) => this.persistSession(s),
-    };
+    return toEventContext(this.getContext());
   }
 
   private getReactionContext(): reactions.ReactionContext {
-    return {
-      debug: this.debug,
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      updateSessionHeader: (s) => this.updateSessionHeader(s),
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
-    };
+    return toReactionContext(this.getContext());
   }
 
   private getCommandContext(): commands.CommandContext {
-    return {
-      skipPermissions: this.skipPermissions,
-      chromeEnabled: this.chromeEnabled,
-      maxSessions: MAX_SESSIONS,
-      handleEvent: (tid, e) => this.handleEvent(tid, e),
-      handleExit: (tid, code) => this.handleExit(tid, code),
-      flush: (s) => this.flush(s),
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      persistSession: (s) => this.persistSession(s),
-      killSession: (tid) => this.killSession(tid),
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
-      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
-    };
+    return toCommandContext(this.getContext());
   }
 
   // ---------------------------------------------------------------------------

@@ -1,0 +1,406 @@
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import {
+  SessionError,
+  handleError,
+  withErrorHandling,
+  withErrorHandlingSync,
+  logError,
+  logAndNotify,
+  tryOperation,
+  formatErrorForUser,
+  isErrorType,
+  errorContains,
+  type ErrorContext,
+} from './error-handler.js';
+import type { Session } from './types.js';
+
+// Mock session for testing
+function createMockSession(): Session {
+  return {
+    threadId: 'thread-123',
+    platform: {
+      createPost: mock(() => Promise.resolve({ id: 'post-1' })),
+    } as any,
+    claude: {} as any,
+    claudeSessionId: 'claude-session-1',
+    owner: 'testuser',
+    startedAt: new Date(),
+    buffer: '',
+    taskListPostId: null,
+    taskListBuffer: '',
+    sessionAllowedUsers: new Set(['testuser']),
+    workingDir: '/test',
+    activeSubagents: new Map(),
+    isResumed: false,
+  };
+}
+
+describe('SessionError', () => {
+  it('creates error with basic properties', () => {
+    const error = new SessionError('test action', 'test message');
+
+    expect(error.name).toBe('SessionError');
+    expect(error.action).toBe('test action');
+    expect(error.message).toBe('test message');
+    expect(error.severity).toBe('recoverable');
+    expect(error.sessionId).toBeUndefined();
+    expect(error.originalError).toBeUndefined();
+  });
+
+  it('includes session ID when provided', () => {
+    const session = createMockSession();
+    const error = new SessionError('test action', 'test message', { session });
+
+    expect(error.sessionId).toBe('thread-123');
+  });
+
+  it('includes custom severity', () => {
+    const error = new SessionError('test action', 'test message', {
+      severity: 'session-fatal'
+    });
+
+    expect(error.severity).toBe('session-fatal');
+  });
+
+  it('captures original error', () => {
+    const cause = new Error('original error');
+    const error = new SessionError('test action', 'test message', { cause });
+
+    expect(error.originalError).toBe(cause);
+    expect(error.stack).toContain('Caused by:');
+  });
+});
+
+describe('handleError', () => {
+  let originalConsoleWarn: typeof console.warn;
+  let originalConsoleError: typeof console.error;
+  let warnMock: ReturnType<typeof mock>;
+  let errorMock: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    originalConsoleWarn = console.warn;
+    originalConsoleError = console.error;
+    warnMock = mock(() => {});
+    errorMock = mock(() => {});
+    console.warn = warnMock;
+    console.error = errorMock;
+  });
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+    console.error = originalConsoleError;
+  });
+
+  it('logs recoverable errors as warnings', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test action' };
+
+    await handleError(error, context, 'recoverable');
+
+    expect(warnMock).toHaveBeenCalled();
+  });
+
+  it('logs fatal errors as errors', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test action' };
+
+    try {
+      await handleError(error, context, 'session-fatal');
+    } catch {
+      // Expected to throw
+    }
+
+    expect(errorMock).toHaveBeenCalled();
+  });
+
+  it('does not throw for recoverable errors', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test action' };
+
+    // Should not throw
+    await handleError(error, context, 'recoverable');
+  });
+
+  it('throws SessionError for session-fatal errors', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test action' };
+
+    await expect(handleError(error, context, 'session-fatal')).rejects.toBeInstanceOf(SessionError);
+  });
+
+  it('throws SessionError for system-fatal errors', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test action' };
+
+    await expect(handleError(error, context, 'system-fatal')).rejects.toBeInstanceOf(SessionError);
+  });
+
+  it('notifies user when notifyUser is true', async () => {
+    const session = createMockSession();
+    const error = new Error('test error');
+    const context: ErrorContext = {
+      action: 'Test action',
+      session,
+      notifyUser: true
+    };
+
+    await handleError(error, context, 'recoverable');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith(
+      expect.stringContaining('Error'),
+      'thread-123'
+    );
+  });
+
+  it('does not notify user when notifyUser is false', async () => {
+    const session = createMockSession();
+    const error = new Error('test error');
+    const context: ErrorContext = {
+      action: 'Test action',
+      session,
+      notifyUser: false
+    };
+
+    await handleError(error, context, 'recoverable');
+
+    expect(session.platform.createPost).not.toHaveBeenCalled();
+  });
+
+  it('handles string errors', async () => {
+    const context: ErrorContext = { action: 'Test action' };
+
+    await handleError('string error', context, 'recoverable');
+
+    expect(warnMock).toHaveBeenCalled();
+  });
+
+  it('re-throws existing SessionError without wrapping', async () => {
+    const sessionError = new SessionError('original', 'original message');
+    const context: ErrorContext = { action: 'Test action' };
+
+    try {
+      await handleError(sessionError, context, 'session-fatal');
+    } catch (err) {
+      expect(err).toBe(sessionError);
+    }
+  });
+});
+
+describe('withErrorHandling', () => {
+  it('returns result on success', async () => {
+    const operation = async () => 'success';
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = await withErrorHandling(operation, context);
+
+    expect(result).toBe('success');
+  });
+
+  it('returns undefined on recoverable error', async () => {
+    const operation = async () => {
+      throw new Error('test error');
+    };
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = await withErrorHandling(operation, context, 'recoverable');
+
+    expect(result).toBeUndefined();
+  });
+
+  it('throws on fatal error', async () => {
+    const operation = async () => {
+      throw new Error('test error');
+    };
+    const context: ErrorContext = { action: 'Test' };
+
+    await expect(
+      withErrorHandling(operation, context, 'session-fatal')
+    ).rejects.toThrow();
+  });
+});
+
+describe('withErrorHandlingSync', () => {
+  it('returns result on success', () => {
+    const operation = () => 'success';
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = withErrorHandlingSync(operation, context);
+
+    expect(result).toBe('success');
+  });
+
+  it('returns undefined on error', () => {
+    const operation = () => {
+      throw new Error('test error');
+    };
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = withErrorHandlingSync(operation, context, 'recoverable');
+
+    expect(result).toBeUndefined();
+  });
+});
+
+describe('logError', () => {
+  let originalConsoleWarn: typeof console.warn;
+
+  beforeEach(() => {
+    originalConsoleWarn = console.warn;
+    console.warn = mock(() => {});
+  });
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  it('logs error without throwing', async () => {
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test' };
+
+    // Should not throw
+    await logError(error, context);
+  });
+});
+
+describe('logAndNotify', () => {
+  let originalConsoleWarn: typeof console.warn;
+
+  beforeEach(() => {
+    originalConsoleWarn = console.warn;
+    console.warn = mock(() => {});
+  });
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  it('logs error and notifies user', async () => {
+    const session = createMockSession();
+    const error = new Error('test error');
+    const context: ErrorContext = { action: 'Test', session };
+
+    await logAndNotify(error, context);
+
+    expect(session.platform.createPost).toHaveBeenCalled();
+  });
+});
+
+describe('tryOperation', () => {
+  let originalConsoleWarn: typeof console.warn;
+
+  beforeEach(() => {
+    originalConsoleWarn = console.warn;
+    console.warn = mock(() => {});
+  });
+
+  afterEach(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  it('returns true on success', async () => {
+    const operation = async () => 'success';
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = await tryOperation(operation, context);
+
+    expect(result).toBe(true);
+  });
+
+  it('returns false on error', async () => {
+    const operation = async () => {
+      throw new Error('test error');
+    };
+    const context: ErrorContext = { action: 'Test' };
+
+    const result = await tryOperation(operation, context);
+
+    expect(result).toBe(false);
+  });
+});
+
+describe('formatErrorForUser', () => {
+  it('formats SessionError', () => {
+    const error = new SessionError('action', 'User-friendly message');
+
+    const result = formatErrorForUser(error, 'Action');
+
+    expect(result).toBe('Action: User-friendly message');
+  });
+
+  it('formats regular Error', () => {
+    const error = new Error('Something went wrong');
+
+    const result = formatErrorForUser(error);
+
+    expect(result).toBe('Something went wrong');
+  });
+
+  it('handles Error with multiline message', () => {
+    const error = new Error('First line\nSecond line\nThird line');
+
+    const result = formatErrorForUser(error);
+
+    expect(result).toBe('First line');
+  });
+
+  it('handles unknown error types', () => {
+    const result = formatErrorForUser('just a string');
+
+    expect(result).toBe('An unexpected error occurred');
+  });
+
+  it('includes action prefix when provided', () => {
+    const result = formatErrorForUser(null, 'Save file');
+
+    expect(result).toBe('Save file: An unexpected error occurred');
+  });
+});
+
+describe('isErrorType', () => {
+  it('returns true for matching error type', () => {
+    const error = new TypeError('test');
+
+    expect(isErrorType(error, 'TypeError')).toBe(true);
+  });
+
+  it('returns false for non-matching error type', () => {
+    const error = new Error('test');
+
+    expect(isErrorType(error, 'TypeError')).toBe(false);
+  });
+
+  it('returns false for non-Error types', () => {
+    expect(isErrorType('not an error', 'Error')).toBe(false);
+    expect(isErrorType(null, 'Error')).toBe(false);
+  });
+
+  it('works with SessionError', () => {
+    const error = new SessionError('action', 'message');
+
+    expect(isErrorType(error, 'SessionError')).toBe(true);
+  });
+});
+
+describe('errorContains', () => {
+  it('finds substring in Error message', () => {
+    const error = new Error('Connection timeout occurred');
+
+    expect(errorContains(error, 'timeout')).toBe(true);
+    expect(errorContains(error, 'TIMEOUT')).toBe(true); // case insensitive
+  });
+
+  it('returns false when substring not found', () => {
+    const error = new Error('Connection failed');
+
+    expect(errorContains(error, 'timeout')).toBe(false);
+  });
+
+  it('handles string errors', () => {
+    expect(errorContains('Connection timeout', 'timeout')).toBe(true);
+  });
+
+  it('handles other types', () => {
+    expect(errorContains(123, '123')).toBe(true);
+    expect(errorContains(null, 'null')).toBe(true);
+  });
+});
