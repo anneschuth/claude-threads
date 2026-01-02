@@ -21,6 +21,54 @@ import type { SessionContext } from './context.js';
 
 const log = createLogger('lifecycle');
 
+// ---------------------------------------------------------------------------
+// Internal helpers for DRY code
+// ---------------------------------------------------------------------------
+
+/**
+ * Get sessions map with correct mutable type.
+ * Reduces type casting noise throughout the module.
+ */
+function mutableSessions(ctx: SessionContext): Map<string, Session> {
+  return ctx.state.sessions as Map<string, Session>;
+}
+
+/**
+ * Get postIndex map with correct mutable type.
+ * Reduces type casting noise throughout the module.
+ */
+function mutablePostIndex(ctx: SessionContext): Map<string, string> {
+  return ctx.state.postIndex as Map<string, string>;
+}
+
+/**
+ * Clean up session timers (updateTimer and statusBarTimer).
+ * Call this before removing a session from the map.
+ */
+function cleanupSessionTimers(session: Session): void {
+  if (session.updateTimer) {
+    clearTimeout(session.updateTimer);
+    session.updateTimer = null;
+  }
+  if (session.statusBarTimer) {
+    clearInterval(session.statusBarTimer);
+    session.statusBarTimer = null;
+  }
+}
+
+/**
+ * Remove all postIndex entries for a given threadId.
+ * Call this when cleaning up a session.
+ */
+function cleanupPostIndex(ctx: SessionContext, threadId: string): void {
+  const postIndex = mutablePostIndex(ctx);
+  for (const [postId, tid] of postIndex.entries()) {
+    if (tid === threadId) {
+      postIndex.delete(postId);
+    }
+  }
+}
+
 /**
  * Helper to find a persisted session by raw threadId.
  * Persisted sessions are keyed by composite sessionId, so we need to iterate.
@@ -145,14 +193,15 @@ export async function startSession(
 
   // Check if session already exists for this thread
   const existingSessionId = ctx.ops.getSessionId(platformId, threadId);
-  const existingSession = (ctx.state.sessions as Map<string, Session>).get(existingSessionId);
+  const existingSession = mutableSessions(ctx).get(existingSessionId);
   if (existingSession && existingSession.claude.isRunning()) {
     // Send as follow-up instead
     await sendFollowUp(existingSession, options.prompt, options.files, ctx);
     return;
   }
 
-  const platform = (ctx.state.platforms as Map<string, PlatformClient>).get(platformId);
+  const platforms = ctx.state.platforms as Map<string, PlatformClient>;
+  const platform = platforms.get(platformId);
   if (!platform) {
     throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
   }
@@ -238,7 +287,7 @@ export async function startSession(
   };
 
   // Register session
-  (ctx.state.sessions as Map<string, Session>).set(sessionId, session);
+  mutableSessions(ctx).set(sessionId, session);
   ctx.ops.registerPost(post.id, actualThreadId);
   log.info(`▶ Session #${ctx.state.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
 
@@ -263,7 +312,7 @@ export async function startSession(
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
     ctx.ops.stopTyping(session);
-    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+    mutableSessions(ctx).delete(session.sessionId);
     await ctx.ops.updateStickyMessage();
     return;
   }
@@ -315,7 +364,8 @@ export async function resumeSession(
   const shortId = state.threadId.substring(0, 8);
 
   // Get platform for this session
-  const platform = (ctx.state.platforms as Map<string, PlatformClient>).get(state.platformId);
+  const platforms = ctx.state.platforms as Map<string, PlatformClient>;
+  const platform = platforms.get(state.platformId);
   if (!platform) {
     log.warn(`Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
     return;
@@ -421,7 +471,7 @@ export async function resumeSession(
   };
 
   // Register session
-  (ctx.state.sessions as Map<string, Session>).set(sessionId, session);
+  mutableSessions(ctx).set(sessionId, session);
   if (state.sessionStartPostId) {
     ctx.ops.registerPost(state.sessionStartPostId, state.threadId);
   }
@@ -454,7 +504,7 @@ export async function resumeSession(
     ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
-    (ctx.state.sessions as Map<string, Session>).delete(sessionId);
+    mutableSessions(ctx).delete(sessionId);
     ctx.state.sessionStore.remove(sessionId);
 
     // Try to notify user
@@ -573,7 +623,7 @@ export async function handleExit(
   code: number,
   ctx: SessionContext
 ): Promise<void> {
-  const session = (ctx.state.sessions as Map<string, Session>).get(sessionId);
+  const session = mutableSessions(ctx).get(sessionId);
   const shortId = sessionId.substring(0, 8);
 
   log.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.state.isShuttingDown}`);
@@ -594,15 +644,8 @@ export async function handleExit(
   if (ctx.state.isShuttingDown) {
     log.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
     ctx.ops.stopTyping(session);
-    if (session.updateTimer) {
-      clearTimeout(session.updateTimer);
-      session.updateTimer = null;
-    }
-    if (session.statusBarTimer) {
-      clearInterval(session.statusBarTimer);
-      session.statusBarTimer = null;
-    }
-    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+    cleanupSessionTimers(session);
+    mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     return;
@@ -612,22 +655,10 @@ export async function handleExit(
   if (session.wasInterrupted) {
     log.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
-    if (session.updateTimer) {
-      clearTimeout(session.updateTimer);
-      session.updateTimer = null;
-    }
-    if (session.statusBarTimer) {
-      clearInterval(session.statusBarTimer);
-      session.statusBarTimer = null;
-    }
+    cleanupSessionTimers(session);
     ctx.ops.persistSession(session);
-    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
-    // Clean up post index
-    for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
-      if (tid === session.threadId) {
-        (ctx.state.postIndex as Map<string, string>).delete(postId);
-      }
-    }
+    mutableSessions(ctx).delete(session.sessionId);
+    cleanupPostIndex(ctx, session.threadId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     // Notify user
@@ -645,15 +676,8 @@ export async function handleExit(
   if (session.isResumed && code !== 0) {
     log.debug(`Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
     ctx.ops.stopTyping(session);
-    if (session.updateTimer) {
-      clearTimeout(session.updateTimer);
-      session.updateTimer = null;
-    }
-    if (session.statusBarTimer) {
-      clearInterval(session.statusBarTimer);
-      session.statusBarTimer = null;
-    }
-    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+    cleanupSessionTimers(session);
+    mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     await withErrorHandling(
@@ -669,14 +693,7 @@ export async function handleExit(
   log.debug(`Session ${shortId}... normal exit, cleaning up`);
 
   ctx.ops.stopTyping(session);
-  if (session.updateTimer) {
-    clearTimeout(session.updateTimer);
-    session.updateTimer = null;
-  }
-  if (session.statusBarTimer) {
-    clearInterval(session.statusBarTimer);
-    session.statusBarTimer = null;
-  }
+  cleanupSessionTimers(session);
   await ctx.ops.flush(session);
 
   if (code !== 0 && code !== null) {
@@ -684,12 +701,8 @@ export async function handleExit(
   }
 
   // Clean up session from maps
-  (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
-  for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
-    if (tid === session.threadId) {
-      (ctx.state.postIndex as Map<string, string>).delete(postId);
-    }
-  }
+  mutableSessions(ctx).delete(session.sessionId);
+  cleanupPostIndex(ctx, session.threadId);
 
   // Notify keep-alive that a session ended
   keepAlive.sessionEnded();
@@ -726,12 +739,8 @@ export async function killSession(
   session.claude.kill();
 
   // Clean up session from maps
-  (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
-  for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
-    if (tid === session.threadId) {
-      (ctx.state.postIndex as Map<string, string>).delete(postId);
-    }
-  }
+  mutableSessions(ctx).delete(session.sessionId);
+  cleanupPostIndex(ctx, session.threadId);
 
   // Notify keep-alive that a session ended
   keepAlive.sessionEnded();
@@ -760,8 +769,8 @@ export function killAllSessions(ctx: SessionContext): void {
     }
     session.claude.kill();
   }
-  (ctx.state.sessions as Map<string, Session>).clear();
-  (ctx.state.postIndex as Map<string, string>).clear();
+  mutableSessions(ctx).clear();
+  mutablePostIndex(ctx).clear();
 
   // Force stop keep-alive
   keepAlive.forceStop();
