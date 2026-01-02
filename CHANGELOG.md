@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.0] - 2026-01-02
+
+### Added
+- **Version in system prompt** - Claude Code now knows which version of Claude Threads it's running under, enabling version-specific behavior and self-reporting
+
 ### Fixed
 - **Sticky message status bar layout** - Moved status bar above the "Active Claude Threads" header for better visual hierarchy
 - **Shorter status bar** - Removed hostname from status bar to reduce clutter
