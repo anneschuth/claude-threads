@@ -198,6 +198,7 @@ export async function createAndSwitchToWorktree(
     offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
     appendSystemPrompt?: string;
     registerPost: (postId: string, threadId: string) => void;
+    updateStickyMessage: () => Promise<void>;
   }
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
@@ -245,8 +246,9 @@ export async function createAndSwitchToWorktree(
     // Register the post for reaction routing
     options.registerPost(post.id, session.threadId);
 
-    // Persist the session state
+    // Persist the session state and update sticky message
     options.persistSession(session);
+    await options.updateStickyMessage();
     return;
   }
 
