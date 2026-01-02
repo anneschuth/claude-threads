@@ -182,7 +182,7 @@ export class SessionManager {
       persistSession: (s) => this.persistSession(s),
       killSession: (tid) => this.killSession(tid),
       registerPost: (pid, tid) => this.registerPost(pid, tid),
-      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
+      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
     };
   }
 
@@ -474,6 +474,34 @@ export class SessionManager {
         session.claude.sendMessage(messageToSend);
         this.startTyping(session);
       }
+      return false;
+    }
+
+    if (messageCount === 1) {
+      // Only one message (the thread starter) - auto-include without asking
+      const messages = await contextPrompt.getThreadMessagesForContext(session, 1, excludePostId);
+      let messageToSend = queuedPrompt;
+      if (messages.length > 0) {
+        const contextPrefix = contextPrompt.formatContextForClaude(messages);
+        messageToSend = contextPrefix + queuedPrompt;
+      }
+
+      // Increment message counter
+      session.messageCount++;
+
+      // Inject metadata reminder periodically
+      messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
+
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(messageToSend);
+        this.startTyping(session);
+      }
+
+      if (this.debug) {
+        const shortId = session.threadId.substring(0, 8);
+        console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
+      }
+
       return false;
     }
 
@@ -820,13 +848,14 @@ export class SessionManager {
   }
 
   // Worktree commands
-  async handleWorktreeBranchResponse(threadId: string, branchName: string, username: string): Promise<boolean> {
+  async handleWorktreeBranchResponse(threadId: string, branchName: string, username: string, responsePostId: string): Promise<boolean> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return false;
     return worktreeModule.handleWorktreeBranchResponse(
       session,
       branchName,
       username,
+      responsePostId,
       (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
     );
   }
@@ -855,7 +884,7 @@ export class SessionManager {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q) => this.offerContextPrompt(s, q),
+      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
     });
