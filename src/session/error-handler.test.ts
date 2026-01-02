@@ -14,25 +14,73 @@ import {
 } from './error-handler.js';
 import type { Session } from './types.js';
 
-// Mock session for testing
+// Mock session for testing - returns a minimal mock that satisfies the Session interface
+// for error handler testing purposes
 function createMockSession(): Session {
   return {
+    // Identity
+    platformId: 'test-platform',
     threadId: 'thread-123',
+    sessionId: 'test-platform:thread-123',
+    claudeSessionId: 'claude-session-1',
+    startedBy: 'testuser',
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    sessionNumber: 1,
+
+    // Platform reference
     platform: {
       createPost: mock(() => Promise.resolve({ id: 'post-1' })),
     } as any,
-    claude: {} as any,
-    claudeSessionId: 'claude-session-1',
-    owner: 'testuser',
-    startedAt: new Date(),
-    buffer: '',
-    taskListPostId: null,
-    taskListBuffer: '',
-    sessionAllowedUsers: new Set(['testuser']),
+
+    // Working directory
     workingDir: '/test',
+
+    // Claude process
+    claude: {} as any,
+
+    // Post state
+    currentPostId: null,
+    pendingContent: '',
+
+    // Interactive state
+    pendingApproval: null,
+    pendingQuestionSet: null,
+    pendingMessageApproval: null,
+    planApproved: false,
+
+    // Collaboration
+    sessionAllowedUsers: new Set(['testuser']),
+    forceInteractivePermissions: false,
+
+    // Display state
+    sessionStartPostId: null,
+    tasksPostId: null,
+    lastTasksContent: null,
+    tasksCompleted: false,
+    tasksMinimized: false,
     activeSubagents: new Map(),
+
+    // Timers
+    updateTimer: null,
+    typingTimer: null,
+
+    // Flags
+    timeoutWarningPosted: false,
+    isRestarting: false,
     isResumed: false,
-  };
+    wasInterrupted: false,
+
+    // Task timing
+    inProgressTaskStart: null,
+    activeToolStarts: new Map(),
+
+    // Message counter
+    messageCount: 0,
+
+    // Status bar timer
+    statusBarTimer: null,
+  } as Session;
 }
 
 describe('SessionError', () => {

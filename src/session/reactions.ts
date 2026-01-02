@@ -256,9 +256,10 @@ export async function handleTaskToggleReaction(
 
   const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
+  const tasksPostId = session.tasksPostId;
 
   await withErrorHandling(
-    () => session.platform.updatePost(session.tasksPostId, displayMessage),
+    () => session.platform.updatePost(tasksPostId, displayMessage),
     { action: 'Toggle tasks display', session }
   );
 

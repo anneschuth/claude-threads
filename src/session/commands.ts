@@ -520,8 +520,9 @@ export async function updateSessionHeader(
     ...rows,
   ].join('\n');
 
+  const postId = session.sessionStartPostId;
   await withErrorHandling(
-    () => session.platform.updatePost(session.sessionStartPostId, msg),
+    () => session.platform.updatePost(postId, msg),
     { action: 'Update session header', session }
   );
 }
