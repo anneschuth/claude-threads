@@ -1,5 +1,5 @@
 import { describe, it, expect, mock } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig } from './sticky-message.js';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 
@@ -391,5 +391,277 @@ describe('buildStickyMessage', () => {
     expect(result).toContain('Improve sticky message feature');
     expect(result).not.toContain('No topic');
     expect(result).not.toContain('!worktree');
+  });
+
+  it('shows pending plan approval', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('📋 Plan approval');
+  });
+
+  it('shows pending question with progress', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingQuestionSet: {
+        toolUseId: 'tool1',
+        currentIndex: 1,
+        currentPostId: 'post1',
+        questions: [
+          { header: 'Q1', question: 'Question 1', options: [], answer: 'yes' },
+          { header: 'Q2', question: 'Question 2', options: [], answer: null },
+          { header: 'Q3', question: 'Question 3', options: [], answer: null },
+        ],
+      },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('❓ Question 2/3');
+  });
+
+  it('shows pending message approval', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingMessageApproval: { postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('💬 Message approval');
+  });
+
+  it('shows pending worktree prompt', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingWorktreePrompt: true,
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('🌿 Branch name');
+  });
+
+  it('shows pending existing worktree prompt', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingExistingWorktreePrompt: {
+        postId: 'post1',
+        branch: 'feature-branch',
+        worktreePath: '/path/to/worktree',
+        username: 'alice',
+      },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('🌿 Join worktree');
+  });
+
+  it('shows pending context prompt', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingContextPrompt: {
+        postId: 'post1',
+        queuedPrompt: 'Help me',
+        threadMessageCount: 10,
+        createdAt: Date.now(),
+        availableOptions: [3, 5, 10],
+      },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('📝 Context selection');
+  });
+
+  it('shows multiple pending prompts', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('⏳');
+    expect(result).toContain('📋 Plan approval');
+    expect(result).toContain('💬 Message approval');
+    expect(result).toContain('·'); // Multiple prompts separated by ·
+  });
+
+  it('hides active task when pending prompts are shown', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    // Should show pending prompt
+    expect(result).toContain('📋 Plan approval');
+    // Should NOT show active task (pending prompts take priority)
+    expect(result).not.toContain('🔄 _Running tests_');
+  });
+
+  it('shows active task when no pending prompts', async () => {
+    const sessions = new Map<string, Session>();
+    const session = createMockSession({
+      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)',
+    });
+    sessions.set(session.sessionId, session);
+
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+
+    expect(result).toContain('🔄 _Running tests_');
+    expect(result).not.toContain('⏳');
+  });
+});
+
+describe('getPendingPrompts', () => {
+  it('returns empty array when no pending prompts', () => {
+    const session = createMockSession();
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toEqual([]);
+  });
+
+  it('returns plan approval prompt', () => {
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'plan', label: 'Plan approval', emoji: '📋' });
+  });
+
+  it('ignores action type approval (only plan)', () => {
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'action', toolUseId: 'tool1' },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toEqual([]);
+  });
+
+  it('returns question prompt with progress', () => {
+    const session = createMockSession({
+      pendingQuestionSet: {
+        toolUseId: 'tool1',
+        currentIndex: 2,
+        currentPostId: 'post1',
+        questions: [
+          { header: 'Q1', question: 'Q1', options: [], answer: 'yes' },
+          { header: 'Q2', question: 'Q2', options: [], answer: 'no' },
+          { header: 'Q3', question: 'Q3', options: [], answer: null },
+          { header: 'Q4', question: 'Q4', options: [], answer: null },
+        ],
+      },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'question', label: 'Question 3/4', emoji: '❓' });
+  });
+
+  it('returns message approval prompt', () => {
+    const session = createMockSession({
+      pendingMessageApproval: { postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'message_approval', label: 'Message approval', emoji: '💬' });
+  });
+
+  it('returns worktree prompt', () => {
+    const session = createMockSession({
+      pendingWorktreePrompt: true,
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'worktree', label: 'Branch name', emoji: '🌿' });
+  });
+
+  it('returns existing worktree prompt', () => {
+    const session = createMockSession({
+      pendingExistingWorktreePrompt: {
+        postId: 'post1',
+        branch: 'feature-branch',
+        worktreePath: '/path/to/worktree',
+        username: 'alice',
+      },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'existing_worktree', label: 'Join worktree', emoji: '🌿' });
+  });
+
+  it('returns context prompt', () => {
+    const session = createMockSession({
+      pendingContextPrompt: {
+        postId: 'post1',
+        queuedPrompt: 'Help me',
+        threadMessageCount: 10,
+        createdAt: Date.now(),
+        availableOptions: [3, 5, 10],
+      },
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toEqual({ type: 'context', label: 'Context selection', emoji: '📝' });
+  });
+
+  it('returns multiple prompts in order', () => {
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
+      pendingWorktreePrompt: true,
+    });
+    const prompts = getPendingPrompts(session);
+    expect(prompts).toHaveLength(3);
+    expect(prompts[0].type).toBe('plan');
+    expect(prompts[1].type).toBe('message_approval');
+    expect(prompts[2].type).toBe('worktree');
+  });
+});
+
+describe('formatPendingPrompts', () => {
+  it('returns null when no pending prompts', () => {
+    const session = createMockSession();
+    const result = formatPendingPrompts(session);
+    expect(result).toBeNull();
+  });
+
+  it('formats single prompt', () => {
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+    });
+    const result = formatPendingPrompts(session);
+    expect(result).toBe('⏳ 📋 Plan approval');
+  });
+
+  it('formats multiple prompts with separator', () => {
+    const session = createMockSession({
+      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
+    });
+    const result = formatPendingPrompts(session);
+    expect(result).toBe('⏳ 📋 Plan approval · 💬 Message approval');
   });
 });

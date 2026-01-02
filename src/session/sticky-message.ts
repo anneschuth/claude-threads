@@ -17,6 +17,107 @@ import { VERSION } from '../version.js';
 // Bot start time for uptime tracking
 const botStartedAt = new Date();
 
+// =============================================================================
+// Pending Prompts
+// =============================================================================
+
+/**
+ * Represents a pending prompt awaiting user response.
+ * Used for displaying pending states in the thread list.
+ */
+export interface PendingPrompt {
+  /** Type of prompt */
+  type: 'plan' | 'question' | 'message_approval' | 'worktree' | 'existing_worktree' | 'context';
+  /** Short label for display (e.g., "Plan approval", "Question 2/5") */
+  label: string;
+  /** Emoji indicator */
+  emoji: string;
+}
+
+/**
+ * Extract all pending prompts from a session.
+ * Returns an array of pending prompts that are awaiting user response.
+ *
+ * This is a reusable function that can be used anywhere pending state
+ * needs to be displayed (sticky message, session header, etc.)
+ */
+export function getPendingPrompts(session: Session): PendingPrompt[] {
+  const prompts: PendingPrompt[] = [];
+
+  // Plan approval
+  if (session.pendingApproval?.type === 'plan') {
+    prompts.push({
+      type: 'plan',
+      label: 'Plan approval',
+      emoji: '📋',
+    });
+  }
+
+  // Question set (multi-step questions)
+  if (session.pendingQuestionSet) {
+    const current = session.pendingQuestionSet.currentIndex + 1;
+    const total = session.pendingQuestionSet.questions.length;
+    prompts.push({
+      type: 'question',
+      label: `Question ${current}/${total}`,
+      emoji: '❓',
+    });
+  }
+
+  // Message approval (unauthorized user message)
+  if (session.pendingMessageApproval) {
+    prompts.push({
+      type: 'message_approval',
+      label: 'Message approval',
+      emoji: '💬',
+    });
+  }
+
+  // Worktree prompt (waiting for branch name)
+  if (session.pendingWorktreePrompt) {
+    prompts.push({
+      type: 'worktree',
+      label: 'Branch name',
+      emoji: '🌿',
+    });
+  }
+
+  // Existing worktree prompt (join existing?)
+  if (session.pendingExistingWorktreePrompt) {
+    prompts.push({
+      type: 'existing_worktree',
+      label: 'Join worktree',
+      emoji: '🌿',
+    });
+  }
+
+  // Context prompt (include previous messages?)
+  if (session.pendingContextPrompt) {
+    prompts.push({
+      type: 'context',
+      label: 'Context selection',
+      emoji: '📝',
+    });
+  }
+
+  return prompts;
+}
+
+/**
+ * Format pending prompts for display in a single line.
+ * Returns a formatted string or null if no pending prompts.
+ *
+ * Example output: "⏳ 📋 Plan approval"
+ * Example output: "⏳ ❓ Question 2/5 · 💬 Message approval"
+ */
+export function formatPendingPrompts(session: Session): string | null {
+  const prompts = getPendingPrompts(session);
+  if (prompts.length === 0) return null;
+
+  const formatted = prompts.map(p => `${p.emoji} ${p.label}`).join(' · ');
+  return `⏳ ${formatted}`;
+}
+
 /**
  * Configuration for sticky message status bar
  */
@@ -261,9 +362,15 @@ export async function buildStickyMessage(
       lines.push(`   _${session.sessionDescription}_`);
     }
 
-    // Add active task below description if available
+    // Add pending prompts if any (awaiting user input)
+    const pendingPromptsStr = formatPendingPrompts(session);
+    if (pendingPromptsStr) {
+      lines.push(`   ${pendingPromptsStr}`);
+    }
+
+    // Add active task below description if available (only if no pending prompts)
     const activeTask = getActiveTask(session);
-    if (activeTask) {
+    if (activeTask && !pendingPromptsStr) {
       lines.push(`   🔄 _${activeTask}_`);
     }
   }

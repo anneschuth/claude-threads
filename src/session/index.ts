@@ -10,5 +10,10 @@ export type {
   PendingApproval,
   PendingQuestionSet,
   PendingMessageApproval,
+  PendingExistingWorktreePrompt,
 } from './types.js';
 export type { PendingContextPrompt } from './context-prompt.js';
+
+// Pending prompts utilities (reusable for displaying pending states)
+export type { PendingPrompt } from './sticky-message.js';
+export { getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
