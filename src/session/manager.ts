@@ -37,17 +37,13 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('manager');
 
-// Import unified context and adapters
+// Import unified context
 import {
   type SessionContext,
   type SessionConfig,
   type SessionState,
   type SessionOperations,
   createSessionContext,
-  toLifecycleContext,
-  toEventContext,
-  toReactionContext,
-  toCommandContext,
 } from './context.js';
 
 // Import constants for internal use
@@ -91,7 +87,7 @@ export class SessionManager {
 
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
-      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext())
+      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getContext())
         .catch(err => console.error('  [cleanup] Error during idle session cleanup:', err));
       // Refresh sticky message to keep relative times current (only if there are active sessions)
       if (this.sessions.size > 0) {
@@ -192,24 +188,6 @@ export class SessionManager {
     return createSessionContext(config, state, ops);
   }
 
-  // Legacy context adapters (for gradual migration)
-  // These convert the unified context to the old interfaces
-  private getLifecycleContext(): lifecycle.LifecycleContext {
-    return toLifecycleContext(this.getContext());
-  }
-
-  private getEventContext(): events.EventContext {
-    return toEventContext(this.getContext());
-  }
-
-  private getReactionContext(): reactions.ReactionContext {
-    return toReactionContext(this.getContext());
-  }
-
-  private getCommandContext(): commands.CommandContext {
-    return toCommandContext(this.getContext());
-  }
-
   // ---------------------------------------------------------------------------
   // Session ID and Post Index
   // ---------------------------------------------------------------------------
@@ -308,7 +286,7 @@ export class SessionManager {
     log.info(`🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
 
     // Resume the session
-    await lifecycle.resumeSession(persistedSession, this.getLifecycleContext());
+    await lifecycle.resumeSession(persistedSession, this.getContext());
     return true;
   }
 
@@ -331,11 +309,8 @@ export class SessionManager {
         postId,
         emojiName,
         username,
-        {
-          ...this.getReactionContext(),
-          switchToWorktree: (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user),
-          persistSession: (s) => this.persistSession(s),
-        }
+        this.getContext(),
+        (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
       );
       if (handled) return;
     }
@@ -349,7 +324,7 @@ export class SessionManager {
     // Handle cancel/escape reactions on session start post
     if (session.sessionStartPostId === postId) {
       if (isCancelEmoji(emojiName)) {
-        await commands.cancelSession(session, username, this.getCommandContext());
+        await commands.cancelSession(session, username, this.getContext());
         return;
       }
       if (isEscapeEmoji(emojiName)) {
@@ -360,25 +335,25 @@ export class SessionManager {
 
     // Handle question reactions
     if (session.pendingQuestionSet?.currentPostId === postId) {
-      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getReactionContext());
+      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
       return;
     }
 
     // Handle plan approval reactions
     if (session.pendingApproval?.postId === postId) {
-      await reactions.handleApprovalReaction(session, emojiName, username, this.getReactionContext());
+      await reactions.handleApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
     // Handle message approval reactions
     if (session.pendingMessageApproval?.postId === postId) {
-      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getReactionContext());
+      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
     // Handle task list toggle reactions (minimize/expand)
     if (session.tasksPostId === postId && isTaskToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, this.getReactionContext());
+      await reactions.handleTaskToggleReaction(session, this.getContext());
       return;
     }
   }
@@ -426,7 +401,7 @@ export class SessionManager {
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    events.handleEvent(session, event, this.getEventContext());
+    events.handleEvent(session, event, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -434,7 +409,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async handleExit(sessionId: string, code: number): Promise<void> {
-    await lifecycle.handleExit(sessionId, code, this.getLifecycleContext());
+    await lifecycle.handleExit(sessionId, code, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -557,7 +532,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async updateSessionHeader(session: Session): Promise<void> {
-    await commands.updateSessionHeader(session, this.getCommandContext());
+    await commands.updateSessionHeader(session, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -606,7 +581,7 @@ export class SessionManager {
     if (persisted.size > 0) {
       log.info(`🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
       for (const state of persisted.values()) {
-        await lifecycle.resumeSession(state, this.getLifecycleContext());
+        await lifecycle.resumeSession(state, this.getContext());
       }
     }
 
@@ -621,7 +596,7 @@ export class SessionManager {
     platformId: string = 'default',
     displayName?: string
   ): Promise<void> {
-    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getLifecycleContext());
+    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext());
   }
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
@@ -648,7 +623,7 @@ export class SessionManager {
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session || !session.claude.isRunning()) return;
-    await lifecycle.sendFollowUp(session, message, files, this.getLifecycleContext());
+    await lifecycle.sendFollowUp(session, message, files, this.getContext());
   }
 
   isSessionActive(): boolean {
@@ -666,7 +641,7 @@ export class SessionManager {
   }
 
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    await lifecycle.resumePausedSession(threadId, message, files, this.getLifecycleContext());
+    await lifecycle.resumePausedSession(threadId, message, files, this.getContext());
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {
@@ -676,18 +651,18 @@ export class SessionManager {
   async killSession(threadId: string, unpersist = true): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await lifecycle.killSession(session, unpersist, this.getLifecycleContext());
+    await lifecycle.killSession(session, unpersist, this.getContext());
   }
 
   killAllSessions(): void {
-    lifecycle.killAllSessions(this.getLifecycleContext());
+    lifecycle.killAllSessions(this.getContext());
   }
 
   // Commands
   async cancelSession(threadId: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.cancelSession(session, username, this.getCommandContext());
+    await commands.cancelSession(session, username, this.getContext());
   }
 
   async interruptSession(threadId: string, username: string): Promise<void> {
@@ -699,25 +674,25 @@ export class SessionManager {
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.changeDirectory(session, newDir, username, this.getCommandContext());
+    await commands.changeDirectory(session, newDir, username, this.getContext());
   }
 
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.inviteUser(session, invitedUser, invitedBy, this.getCommandContext());
+    await commands.inviteUser(session, invitedUser, invitedBy, this.getContext());
   }
 
   async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.kickUser(session, kickedUser, kickedBy, this.getCommandContext());
+    await commands.kickUser(session, kickedUser, kickedBy, this.getContext());
   }
 
   async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.enableInteractivePermissions(session, username, this.getCommandContext());
+    await commands.enableInteractivePermissions(session, username, this.getContext());
   }
 
   isSessionInteractive(threadId: string): boolean {
@@ -730,7 +705,7 @@ export class SessionManager {
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.requestMessageApproval(session, username, message, this.getCommandContext());
+    await commands.requestMessageApproval(session, username, message, this.getContext());
   }
 
   // Worktree commands

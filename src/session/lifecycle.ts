@@ -6,9 +6,9 @@
 
 import type { Session } from './types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
-import type { ClaudeCliOptions, ClaudeEvent, ContentBlock } from '../claude/cli.js';
+import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
-import type { PersistedSession, SessionStore } from '../persistence/session-store.js';
+import type { PersistedSession } from '../persistence/session-store.js';
 import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
@@ -17,42 +17,9 @@ import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
+import type { SessionContext } from './context.js';
 
 const log = createLogger('lifecycle');
-
-// ---------------------------------------------------------------------------
-// Context types for dependency injection
-// ---------------------------------------------------------------------------
-
-export interface LifecycleContext {
-  workingDir: string;
-  skipPermissions: boolean;
-  chromeEnabled: boolean;
-  debug: boolean;
-  maxSessions: number;
-  sessions: Map<string, Session>;
-  postIndex: Map<string, string>;
-  platforms: Map<string, PlatformClient>;
-  sessionStore: SessionStore;
-  isShuttingDown: boolean;
-  getSessionId: (platformId: string, threadId: string) => string;
-  findSessionByThreadId: (threadId: string) => Session | undefined;
-  handleEvent: (sessionId: string, event: ClaudeEvent) => void;
-  handleExit: (sessionId: string, code: number) => Promise<void>;
-  registerPost: (postId: string, threadId: string) => void;
-  startTyping: (session: Session) => void;
-  stopTyping: (session: Session) => void;
-  flush: (session: Session) => Promise<void>;
-  persistSession: (session: Session) => void;
-  unpersistSession: (sessionId: string) => void;
-  updateSessionHeader: (session: Session) => Promise<void>;
-  shouldPromptForWorktree: (session: Session) => Promise<string | null>;
-  postWorktreePrompt: (session: Session, reason: string) => Promise<void>;
-  buildMessageContent: (text: string, platform: PlatformClient, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
-  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
-  bumpTasksToBottom: (session: Session) => Promise<void>;
-  updateStickyMessage: () => Promise<void>;
-}
 
 /**
  * Helper to find a persisted session by raw threadId.
@@ -172,28 +139,28 @@ export async function startSession(
   displayName: string | undefined,
   replyToPostId: string | undefined,
   platformId: string,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   const threadId = replyToPostId || '';
 
   // Check if session already exists for this thread
-  const existingSessionId = ctx.getSessionId(platformId, threadId);
-  const existingSession = ctx.sessions.get(existingSessionId);
+  const existingSessionId = ctx.ops.getSessionId(platformId, threadId);
+  const existingSession = (ctx.state.sessions as Map<string, Session>).get(existingSessionId);
   if (existingSession && existingSession.claude.isRunning()) {
     // Send as follow-up instead
     await sendFollowUp(existingSession, options.prompt, options.files, ctx);
     return;
   }
 
-  const platform = ctx.platforms.get(platformId);
+  const platform = (ctx.state.platforms as Map<string, PlatformClient>).get(platformId);
   if (!platform) {
     throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
   }
 
   // Check max sessions limit
-  if (ctx.sessions.size >= ctx.maxSessions) {
+  if (ctx.state.sessions.size >= ctx.config.maxSessions) {
     await platform.createPost(
-      `⚠️ **Too busy** - ${ctx.sessions.size} sessions active. Please try again later.`,
+      `⚠️ **Too busy** - ${ctx.state.sessions.size} sessions active. Please try again later.`,
       replyToPostId
     );
     return;
@@ -209,7 +176,7 @@ export async function startSession(
   );
   if (!post) return;
   const actualThreadId = replyToPostId || post.id;
-  const sessionId = ctx.getSessionId(platformId, actualThreadId);
+  const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
@@ -218,12 +185,12 @@ export async function startSession(
   const platformMcpConfig = platform.getMcpConfig();
 
   const cliOptions: ClaudeCliOptions = {
-    workingDir: ctx.workingDir,
+    workingDir: ctx.config.workingDir,
     threadId: actualThreadId,
-    skipPermissions: ctx.skipPermissions,
+    skipPermissions: ctx.config.skipPermissions,
     sessionId: claudeSessionId,
     resume: false,
-    chrome: ctx.chromeEnabled,
+    chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: CHAT_PLATFORM_PROMPT,
   };
@@ -240,8 +207,8 @@ export async function startSession(
     startedByDisplayName: displayName,
     startedAt: new Date(),
     lastActivityAt: new Date(),
-    sessionNumber: ctx.sessions.size + 1,
-    workingDir: ctx.workingDir,
+    sessionNumber: ctx.state.sessions.size + 1,
+    workingDir: ctx.config.workingDir,
     claude,
     currentPostId: null,
     pendingContent: '',
@@ -271,56 +238,56 @@ export async function startSession(
   };
 
   // Register session
-  ctx.sessions.set(sessionId, session);
-  ctx.registerPost(post.id, actualThreadId);
-  log.info(`▶ Session #${ctx.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
+  (ctx.state.sessions as Map<string, Session>).set(sessionId, session);
+  ctx.ops.registerPost(post.id, actualThreadId);
+  log.info(`▶ Session #${ctx.state.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
 
   // Update the header with full session info
-  await ctx.updateSessionHeader(session);
+  await ctx.ops.updateSessionHeader(session);
 
   // Update sticky channel message with new session
-  await ctx.updateStickyMessage();
+  await ctx.ops.updateStickyMessage();
 
   // Start typing indicator
-  ctx.startTyping(session);
+  ctx.ops.startTyping(session);
 
   // Bind event handlers (use sessionId which is the composite key)
-  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
-  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
+  claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code));
 
   try {
     claude.start();
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
-    ctx.stopTyping(session);
-    ctx.sessions.delete(session.sessionId);
-    await ctx.updateStickyMessage();
+    ctx.ops.stopTyping(session);
+    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+    await ctx.ops.updateStickyMessage();
     return;
   }
 
   // Check if we should prompt for worktree
-  const shouldPrompt = await ctx.shouldPromptForWorktree(session);
+  const shouldPrompt = await ctx.ops.shouldPromptForWorktree(session);
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
     session.pendingWorktreePrompt = true;
-    await ctx.postWorktreePrompt(session, shouldPrompt);
-    ctx.persistSession(session);
-    await ctx.updateStickyMessage();
+    await ctx.ops.postWorktreePrompt(session, shouldPrompt);
+    ctx.ops.persistSession(session);
+    await ctx.ops.updateStickyMessage();
     return;
   }
 
   // Build message content
-  const content = await ctx.buildMessageContent(options.prompt, session.platform, options.files);
+  const content = await ctx.ops.buildMessageContent(options.prompt, session.platform, options.files);
   const messageText = typeof content === 'string' ? content : options.prompt;
 
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
   // Offer context prompt if there are previous messages in the thread
   // Pass replyToPostId to exclude the triggering message from the count
   if (replyToPostId) {
-    const contextOffered = await ctx.offerContextPrompt(session, messageText, replyToPostId);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, replyToPostId);
     if (contextOffered) {
       // Context prompt was posted, message is queued
       // Don't persist yet - offerContextPrompt handles that
@@ -335,7 +302,7 @@ export async function startSession(
   claude.sendMessage(content);
 
   // Persist session for resume after restart
-  ctx.persistSession(session);
+  ctx.ops.persistSession(session);
 }
 
 /**
@@ -343,12 +310,12 @@ export async function startSession(
  */
 export async function resumeSession(
   state: PersistedSession,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   const shortId = state.threadId.substring(0, 8);
 
   // Get platform for this session
-  const platform = ctx.platforms.get(state.platformId);
+  const platform = (ctx.state.platforms as Map<string, PlatformClient>).get(state.platformId);
   if (!platform) {
     log.warn(`Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
     return;
@@ -358,12 +325,12 @@ export async function resumeSession(
   const post = await platform.getPost(state.threadId);
   if (!post) {
     log.warn(`Thread ${shortId}... deleted, skipping resume`);
-    ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+    ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
   }
 
   // Check max sessions limit
-  if (ctx.sessions.size >= ctx.maxSessions) {
+  if (ctx.state.sessions.size >= ctx.config.maxSessions) {
     log.warn(`Max sessions reached, skipping resume for ${shortId}...`);
     return;
   }
@@ -371,7 +338,7 @@ export async function resumeSession(
   // Verify working directory exists
   if (!existsSync(state.workingDir)) {
     log.warn(`Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
-    ctx.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+    ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     await withErrorHandling(
       () => platform.createPost(
         `⚠️ **Cannot resume session** - working directory no longer exists:\n\`${state.workingDir}\`\n\nPlease start a new session.`,
@@ -383,10 +350,10 @@ export async function resumeSession(
   }
 
   const platformId = state.platformId;
-  const sessionId = ctx.getSessionId(platformId, state.threadId);
+  const sessionId = ctx.ops.getSessionId(platformId, state.threadId);
 
   // Create Claude CLI with resume flag
-  const skipPerms = ctx.skipPermissions && !state.forceInteractivePermissions;
+  const skipPerms = ctx.config.skipPermissions && !state.forceInteractivePermissions;
   const platformMcpConfig = platform.getMcpConfig();
 
   // Include system prompt if session doesn't have a title yet
@@ -399,7 +366,7 @@ export async function resumeSession(
     skipPermissions: skipPerms,
     sessionId: state.claudeSessionId,
     resume: true,
-    chrome: ctx.chromeEnabled,
+    chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
     appendSystemPrompt: needsTitlePrompt ? CHAT_PLATFORM_PROMPT : undefined,
   };
@@ -454,21 +421,21 @@ export async function resumeSession(
   };
 
   // Register session
-  ctx.sessions.set(sessionId, session);
+  (ctx.state.sessions as Map<string, Session>).set(sessionId, session);
   if (state.sessionStartPostId) {
-    ctx.registerPost(state.sessionStartPostId, state.threadId);
+    ctx.ops.registerPost(state.sessionStartPostId, state.threadId);
   }
   // Register task post for reaction routing (task collapse toggle)
   if (state.tasksPostId) {
-    ctx.registerPost(state.tasksPostId, state.threadId);
+    ctx.ops.registerPost(state.tasksPostId, state.threadId);
   }
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
 
   // Bind event handlers (use sessionId which is the composite key)
-  claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(sessionId, e));
-  claude.on('exit', (code: number) => ctx.handleExit(sessionId, code));
+  claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(sessionId, e));
+  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code));
 
   try {
     claude.start();
@@ -478,17 +445,17 @@ export async function resumeSession(
     await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
 
     // Update session header
-    await ctx.updateSessionHeader(session);
+    await ctx.ops.updateSessionHeader(session);
 
     // Update sticky channel message with resumed session
-    await ctx.updateStickyMessage();
+    await ctx.ops.updateStickyMessage();
 
     // Update persistence with new activity time
-    ctx.persistSession(session);
+    ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
-    ctx.sessions.delete(sessionId);
-    ctx.sessionStore.remove(sessionId);
+    (ctx.state.sessions as Map<string, Session>).delete(sessionId);
+    ctx.state.sessionStore.remove(sessionId);
 
     // Try to notify user
     await withErrorHandling(
@@ -500,7 +467,7 @@ export async function resumeSession(
     );
 
     // Update sticky message after session removal
-    await ctx.updateStickyMessage();
+    await ctx.ops.updateStickyMessage();
   }
 }
 
@@ -515,20 +482,20 @@ export async function sendFollowUp(
   session: Session,
   message: string,
   files: PlatformFile[] | undefined,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
 
   // Bump task list below the user's message
-  await ctx.bumpTasksToBottom(session);
+  await ctx.ops.bumpTasksToBottom(session);
 
-  const content = await ctx.buildMessageContent(message, session.platform, files);
+  const content = await ctx.ops.buildMessageContent(message, session.platform, files);
   const messageText = typeof content === 'string' ? content : message;
 
   // Check if we need to offer context prompt (e.g., after !cd)
   if (session.needsContextPromptOnNextMessage) {
     session.needsContextPromptOnNextMessage = false;
-    const contextOffered = await ctx.offerContextPrompt(session, messageText);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
       session.lastActivityAt = new Date();
@@ -547,7 +514,7 @@ export async function sendFollowUp(
 
   session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();
-  ctx.startTyping(session);
+  ctx.ops.startTyping(session);
 }
 
 /**
@@ -557,10 +524,10 @@ export async function resumePausedSession(
   threadId: string,
   message: string,
   files: PlatformFile[] | undefined,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   // Find persisted session by raw threadId
-  const persisted = ctx.sessionStore.load();
+  const persisted = ctx.state.sessionStore.load();
   const state = findPersistedByThreadId(persisted, threadId);
   if (!state) {
     log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
@@ -574,12 +541,12 @@ export async function resumePausedSession(
   await resumeSession(state, ctx);
 
   // Wait a moment for the session to be ready, then send the message
-  const session = ctx.findSessionByThreadId(threadId);
+  const session = ctx.ops.findSessionByThreadId(threadId);
   if (session && session.claude.isRunning()) {
     // Increment message counter
     session.messageCount++;
 
-    const content = await ctx.buildMessageContent(message, session.platform, files);
+    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
 
     // Inject metadata reminder periodically
     const messageToSend = typeof content === 'string'
@@ -588,7 +555,7 @@ export async function resumePausedSession(
 
     session.claude.sendMessage(messageToSend);
     session.lastActivityAt = new Date();
-    ctx.startTyping(session);
+    ctx.ops.startTyping(session);
   } else {
     log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }
@@ -604,12 +571,12 @@ export async function resumePausedSession(
 export async function handleExit(
   sessionId: string,
   code: number,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
-  const session = ctx.sessions.get(sessionId);
+  const session = (ctx.state.sessions as Map<string, Session>).get(sessionId);
   const shortId = sessionId.substring(0, 8);
 
-  log.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.isShuttingDown}`);
+  log.debug(`handleExit called for ${shortId}... code=${code} isShuttingDown=${ctx.state.isShuttingDown}`);
 
   if (!session) {
     log.debug(`Session ${shortId}... not found (already cleaned up)`);
@@ -624,9 +591,9 @@ export async function handleExit(
   }
 
   // If bot is shutting down, preserve persistence
-  if (ctx.isShuttingDown) {
+  if (ctx.state.isShuttingDown) {
     log.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
-    ctx.stopTyping(session);
+    ctx.ops.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
@@ -635,7 +602,7 @@ export async function handleExit(
       clearInterval(session.statusBarTimer);
       session.statusBarTimer = null;
     }
-    ctx.sessions.delete(session.sessionId);
+    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     return;
@@ -644,7 +611,7 @@ export async function handleExit(
   // If session was interrupted, preserve for resume
   if (session.wasInterrupted) {
     log.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
-    ctx.stopTyping(session);
+    ctx.ops.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
@@ -653,12 +620,12 @@ export async function handleExit(
       clearInterval(session.statusBarTimer);
       session.statusBarTimer = null;
     }
-    ctx.persistSession(session);
-    ctx.sessions.delete(session.sessionId);
+    ctx.ops.persistSession(session);
+    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
     // Clean up post index
-    for (const [postId, tid] of ctx.postIndex.entries()) {
+    for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
       if (tid === session.threadId) {
-        ctx.postIndex.delete(postId);
+        (ctx.state.postIndex as Map<string, string>).delete(postId);
       }
     }
     // Notify keep-alive that a session ended
@@ -668,16 +635,16 @@ export async function handleExit(
       () => postInfo(session, `ℹ️ Session paused. Send a new message to continue.`),
       { action: 'Post session pause notification', session }
     );
-    log.info(`Session paused (${shortId}…) — ${ctx.sessions.size} active`);
+    log.info(`Session paused (${shortId}…) — ${ctx.state.sessions.size} active`);
     // Update sticky channel message after session pause
-    await ctx.updateStickyMessage();
+    await ctx.ops.updateStickyMessage();
     return;
   }
 
   // For resumed sessions that exit with error, preserve for retry
   if (session.isResumed && code !== 0) {
     log.debug(`Resumed session ${shortId}... failed with code ${code}, preserving for retry`);
-    ctx.stopTyping(session);
+    ctx.ops.stopTyping(session);
     if (session.updateTimer) {
       clearTimeout(session.updateTimer);
       session.updateTimer = null;
@@ -686,7 +653,7 @@ export async function handleExit(
       clearInterval(session.statusBarTimer);
       session.statusBarTimer = null;
     }
-    ctx.sessions.delete(session.sessionId);
+    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     await withErrorHandling(
@@ -694,14 +661,14 @@ export async function handleExit(
       { action: 'Post session resume failure', session }
     );
     // Update sticky channel message after session failure
-    await ctx.updateStickyMessage();
+    await ctx.ops.updateStickyMessage();
     return;
   }
 
   // Normal exit cleanup
   log.debug(`Session ${shortId}... normal exit, cleaning up`);
 
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
   if (session.updateTimer) {
     clearTimeout(session.updateTimer);
     session.updateTimer = null;
@@ -710,17 +677,17 @@ export async function handleExit(
     clearInterval(session.statusBarTimer);
     session.statusBarTimer = null;
   }
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
 
   if (code !== 0 && code !== null) {
     await postInfo(session, `**[Exited: ${code}]**`);
   }
 
   // Clean up session from maps
-  ctx.sessions.delete(session.sessionId);
-  for (const [postId, tid] of ctx.postIndex.entries()) {
+  (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+  for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
     if (tid === session.threadId) {
-      ctx.postIndex.delete(postId);
+      (ctx.state.postIndex as Map<string, string>).delete(postId);
     }
   }
 
@@ -729,15 +696,15 @@ export async function handleExit(
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
-    ctx.unpersistSession(session.sessionId);
+    ctx.ops.unpersistSession(session.sessionId);
   } else {
     log.debug(`Session ${shortId}... non-zero exit, preserving for potential retry`);
   }
 
-  log.info(`■ Session ended (${shortId}…) — ${ctx.sessions.size} active`);
+  log.info(`■ Session ended (${shortId}…) — ${ctx.state.sessions.size} active`);
 
   // Update sticky channel message after session end
-  await ctx.updateStickyMessage();
+  await ctx.ops.updateStickyMessage();
 }
 
 /**
@@ -746,7 +713,7 @@ export async function handleExit(
 export async function killSession(
   session: Session,
   unpersist: boolean,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   const shortId = session.threadId.substring(0, 8);
 
@@ -755,14 +722,14 @@ export async function killSession(
     session.isRestarting = true;
   }
 
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
   session.claude.kill();
 
   // Clean up session from maps
-  ctx.sessions.delete(session.sessionId);
-  for (const [postId, tid] of ctx.postIndex.entries()) {
+  (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+  for (const [postId, tid] of (ctx.state.postIndex as Map<string, string>).entries()) {
     if (tid === session.threadId) {
-      ctx.postIndex.delete(postId);
+      (ctx.state.postIndex as Map<string, string>).delete(postId);
     }
   }
 
@@ -771,30 +738,30 @@ export async function killSession(
 
   // Explicitly unpersist if requested
   if (unpersist) {
-    ctx.unpersistSession(session.threadId);
+    ctx.ops.unpersistSession(session.threadId);
   }
 
-  log.info(`✖ Session killed (${shortId}…) — ${ctx.sessions.size} active`);
+  log.info(`✖ Session killed (${shortId}…) — ${ctx.state.sessions.size} active`);
 
   // Update sticky channel message after session kill
-  await ctx.updateStickyMessage();
+  await ctx.ops.updateStickyMessage();
 }
 
 /**
  * Kill all active sessions.
  * If isShuttingDown is true, persists sessions before killing so they can resume on restart.
  */
-export function killAllSessions(ctx: LifecycleContext): void {
-  for (const session of ctx.sessions.values()) {
-    ctx.stopTyping(session);
+export function killAllSessions(ctx: SessionContext): void {
+  for (const session of ctx.state.sessions.values()) {
+    ctx.ops.stopTyping(session);
     // Persist session state before killing if we're shutting down gracefully
-    if (ctx.isShuttingDown) {
-      ctx.persistSession(session);
+    if (ctx.state.isShuttingDown) {
+      ctx.ops.persistSession(session);
     }
     session.claude.kill();
   }
-  ctx.sessions.clear();
-  ctx.postIndex.clear();
+  (ctx.state.sessions as Map<string, Session>).clear();
+  (ctx.state.postIndex as Map<string, string>).clear();
 
   // Force stop keep-alive
   keepAlive.forceStop();
@@ -810,11 +777,11 @@ export function killAllSessions(ctx: LifecycleContext): void {
 export async function cleanupIdleSessions(
   timeoutMs: number,
   warningMs: number,
-  ctx: LifecycleContext
+  ctx: SessionContext
 ): Promise<void> {
   const now = Date.now();
 
-  for (const [_sessionId, session] of ctx.sessions) {
+  for (const [_sessionId, session] of ctx.state.sessions) {
     const idleMs = now - session.lastActivityAt.getTime();
     const shortId = session.threadId.substring(0, 8);
 
@@ -830,8 +797,8 @@ export async function cleanupIdleSessions(
       if (timeoutPost) {
         // Store the timeout post ID for resume via reaction
         session.timeoutPostId = timeoutPost.id;
-        ctx.persistSession(session);
-        ctx.registerPost(timeoutPost.id, session.threadId);
+        ctx.ops.persistSession(session);
+        ctx.ops.registerPost(timeoutPost.id, session.threadId);
       }
 
       // Kill without unpersisting to allow resume

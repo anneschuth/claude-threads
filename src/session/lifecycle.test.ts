@@ -1,5 +1,6 @@
 import { describe, it, expect, mock } from 'bun:test';
 import * as lifecycle from './lifecycle.js';
+import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 
@@ -79,45 +80,55 @@ function createMockSession(overrides?: Partial<Session>): Session {
 }
 
 /**
- * Create a mock lifecycle context
+ * Create a mock session context
  */
-function createMockLifecycleContext(sessions: Map<string, Session> = new Map()): lifecycle.LifecycleContext {
+function createMockSessionContext(sessions: Map<string, Session> = new Map()): SessionContext {
   return {
-    workingDir: '/test',
-    skipPermissions: true,
-    chromeEnabled: false,
-    debug: false,
-    maxSessions: 5,
-    sessions,
-    postIndex: new Map(),
-    platforms: new Map([['test-platform', createMockPlatform()]]),
-    sessionStore: {
-      save: mock(() => {}),
-      remove: mock(() => {}),
-      getAll: mock(() => []),
-      get: mock(() => null),
-      cleanStale: mock(() => []),
-      saveStickyPostId: mock(() => {}),
-      getStickyPostId: mock(() => null),
-    } as any,
-    isShuttingDown: false,
-    getSessionId: mock((platformId, threadId) => `${platformId}:${threadId}`),
-    findSessionByThreadId: mock((threadId) => sessions.get(`test-platform:${threadId}`)),
-    registerPost: mock(() => {}),
-    handleEvent: mock(() => {}),
-    handleExit: mock(() => Promise.resolve()),
-    startTyping: mock(() => {}),
-    stopTyping: mock(() => {}),
-    flush: mock(() => Promise.resolve()),
-    updateStickyMessage: mock(() => Promise.resolve()),
-    updateSessionHeader: mock(() => Promise.resolve()),
-    persistSession: mock(() => {}),
-    unpersistSession: mock(() => {}),
-    shouldPromptForWorktree: mock(() => Promise.resolve(null)),
-    postWorktreePrompt: mock(() => Promise.resolve()),
-    buildMessageContent: mock((prompt) => Promise.resolve(prompt)),
-    offerContextPrompt: mock(() => Promise.resolve(false)),
-    bumpTasksToBottom: mock(() => Promise.resolve()),
+    config: {
+      workingDir: '/test',
+      skipPermissions: true,
+      chromeEnabled: false,
+      debug: false,
+      maxSessions: 5,
+    },
+    state: {
+      sessions,
+      postIndex: new Map(),
+      platforms: new Map([['test-platform', createMockPlatform()]]),
+      sessionStore: {
+        save: mock(() => {}),
+        remove: mock(() => {}),
+        getAll: mock(() => []),
+        get: mock(() => null),
+        cleanStale: mock(() => []),
+        saveStickyPostId: mock(() => {}),
+        getStickyPostId: mock(() => null),
+        load: mock(() => new Map()),
+        findByPostId: mock(() => undefined),
+      } as any,
+      isShuttingDown: false,
+    },
+    ops: {
+      getSessionId: mock((platformId, threadId) => `${platformId}:${threadId}`),
+      findSessionByThreadId: mock((threadId) => sessions.get(`test-platform:${threadId}`)),
+      registerPost: mock(() => {}),
+      handleEvent: mock(() => {}),
+      handleExit: mock(() => Promise.resolve()),
+      startTyping: mock(() => {}),
+      stopTyping: mock(() => {}),
+      flush: mock(() => Promise.resolve()),
+      appendContent: mock(() => {}),
+      updateStickyMessage: mock(() => Promise.resolve()),
+      updateSessionHeader: mock(() => Promise.resolve()),
+      persistSession: mock(() => {}),
+      unpersistSession: mock(() => {}),
+      shouldPromptForWorktree: mock(() => Promise.resolve(null)),
+      postWorktreePrompt: mock(() => Promise.resolve()),
+      buildMessageContent: mock((prompt) => Promise.resolve(prompt)),
+      offerContextPrompt: mock(() => Promise.resolve(false)),
+      bumpTasksToBottom: mock(() => Promise.resolve()),
+      killSession: mock(() => Promise.resolve()),
+    },
   };
 }
 
@@ -130,7 +141,7 @@ describe('Lifecycle Module', () => {
     it('kills the Claude CLI and removes session', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.killSession(session, true, ctx);
 
@@ -141,41 +152,41 @@ describe('Lifecycle Module', () => {
     it('unpersists when requested', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.killSession(session, true, ctx);
 
-      expect(ctx.unpersistSession).toHaveBeenCalledWith('thread-123');
+      expect(ctx.ops.unpersistSession).toHaveBeenCalledWith('thread-123');
     });
 
     it('preserves persistence when not unpersisting', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.killSession(session, false, ctx);
 
-      expect(ctx.unpersistSession).not.toHaveBeenCalled();
+      expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
     });
 
     it('updates sticky message after killing', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.killSession(session, true, ctx);
 
-      expect(ctx.updateStickyMessage).toHaveBeenCalled();
+      expect(ctx.ops.updateStickyMessage).toHaveBeenCalled();
     });
 
     it('stops typing indicator', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.killSession(session, true, ctx);
 
-      expect(ctx.stopTyping).toHaveBeenCalledWith(session);
+      expect(ctx.ops.stopTyping).toHaveBeenCalledWith(session);
     });
   });
 
@@ -187,7 +198,7 @@ describe('Lifecycle Module', () => {
         ['p:t1', session1],
         ['p:t2', session2],
       ]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       lifecycle.killAllSessions(ctx);
 
@@ -199,12 +210,12 @@ describe('Lifecycle Module', () => {
     it('preserves sessions in store for resume', () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       lifecycle.killAllSessions(ctx);
 
       // killAllSessions preserves state for resume, so remove should NOT be called
-      expect(ctx.sessionStore.remove).not.toHaveBeenCalled();
+      expect(ctx.state.sessionStore.remove).not.toHaveBeenCalled();
     });
   });
 
@@ -214,7 +225,7 @@ describe('Lifecycle Module', () => {
         lastActivityAt: new Date(), // Just now
       });
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.cleanupIdleSessions(
         30 * 60 * 1000, // 30 min timeout
@@ -232,7 +243,7 @@ describe('Lifecycle Module', () => {
         timeoutWarningPosted: false,
       });
       const sessions = new Map([['test-platform:thread-123', session]]);
-      const ctx = createMockLifecycleContext(sessions);
+      const ctx = createMockSessionContext(sessions);
 
       await lifecycle.cleanupIdleSessions(
         30 * 60 * 1000, // 30 min timeout

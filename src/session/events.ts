@@ -19,23 +19,7 @@ import {
   MIN_BREAK_THRESHOLD,
 } from './streaming.js';
 import { withErrorHandling } from './error-handler.js';
-
-// ---------------------------------------------------------------------------
-// Context types for dependency injection
-// ---------------------------------------------------------------------------
-
-export interface EventContext {
-  debug: boolean;
-  registerPost: (postId: string, threadId: string) => void;
-  flush: (session: Session) => Promise<void>;
-  startTyping: (session: Session) => void;
-  stopTyping: (session: Session) => void;
-  appendContent: (session: Session, text: string) => void;
-  bumpTasksToBottom: (session: Session) => Promise<void>;
-  updateStickyMessage: () => Promise<void>;
-  updateSessionHeader: (session: Session) => Promise<void>;
-  persistSession: (session: Session) => void;
-}
+import type { SessionContext } from './context.js';
 
 // ---------------------------------------------------------------------------
 // Main event handler
@@ -48,7 +32,7 @@ export interface EventContext {
 export function handleEvent(
   session: Session,
   event: ClaudeEvent,
-  ctx: EventContext
+  ctx: SessionContext
 ): void {
   // Update last activity and reset timeout warning
   session.lastActivityAt = new Date();
@@ -99,12 +83,12 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
-  if (ctx.debug) {
+  if (ctx.config.debug) {
     console.log(
       `[DEBUG] handleEvent(${session.threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`
     );
   }
-  if (formatted) ctx.appendContent(session, formatted);
+  if (formatted) ctx.ops.appendContent(session, formatted);
 
   // After tool_result events, check if we should flush and start a new post
   // This creates natural message breaks after tool completions
@@ -113,7 +97,7 @@ export function handleEvent(
       session.pendingContent.length > MIN_BREAK_THRESHOLD &&
       shouldFlushEarly(session.pendingContent)) {
     // Flush and clear to start a new post for subsequent content
-    ctx.flush(session).then(() => {
+    ctx.ops.flush(session).then(() => {
       session.currentPostId = null;
       session.pendingContent = '';
     });
@@ -130,7 +114,7 @@ export function handleEvent(
 function formatEvent(
   session: Session,
   e: ClaudeEvent,
-  ctx: EventContext
+  ctx: SessionContext
 ): string | null {
   switch (e.type) {
     case 'assistant': {
@@ -163,10 +147,10 @@ function formatEvent(
             if (isValidTitle && newTitle !== session.sessionTitle) {
               session.sessionTitle = newTitle;
               // Persist the updated title
-              ctx.persistSession(session);
+              ctx.ops.persistSession(session);
               // Update sticky message and session header with new title (async, don't wait)
-              ctx.updateStickyMessage().catch(() => {});
-              ctx.updateSessionHeader(session).catch(() => {});
+              ctx.ops.updateStickyMessage().catch(() => {});
+              ctx.ops.updateSessionHeader(session).catch(() => {});
             }
           }
           // Always remove the title marker from displayed text (even if validation failed)
@@ -186,10 +170,10 @@ function formatEvent(
             if (isValidDesc && newDesc !== session.sessionDescription) {
               session.sessionDescription = newDesc;
               // Persist the updated description
-              ctx.persistSession(session);
+              ctx.ops.persistSession(session);
               // Update sticky message and session header with new description (async, don't wait)
-              ctx.updateStickyMessage().catch(() => {});
-              ctx.updateSessionHeader(session).catch(() => {});
+              ctx.ops.updateStickyMessage().catch(() => {});
+              ctx.ops.updateSessionHeader(session).catch(() => {});
             }
           }
           // Always remove the description marker from displayed text (even if validation failed)
@@ -250,8 +234,8 @@ function formatEvent(
     }
     case 'result': {
       // Response complete - stop typing and start new post for next message
-      ctx.stopTyping(session);
-      ctx.flush(session);
+      ctx.ops.stopTyping(session);
+      ctx.ops.flush(session);
       session.currentPostId = null;
       session.pendingContent = '';
 
@@ -290,24 +274,24 @@ function formatEvent(
 async function handleExitPlanMode(
   session: Session,
   toolUseId: string,
-  ctx: EventContext
+  ctx: SessionContext
 ): Promise<void> {
   // If already approved in this session, do nothing
   // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
   // so we can't send another tool_result - just let the CLI handle it
   if (session.planApproved) {
-    if (ctx.debug) console.log('  ↪ Plan already approved, letting CLI handle it');
+    if (ctx.config.debug) console.log('  ↪ Plan already approved, letting CLI handle it');
     return;
   }
 
   // If we already have a pending approval, don't post another one
   if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-    if (ctx.debug) console.log('  ↪ Plan approval already pending, waiting');
+    if (ctx.config.debug) console.log('  ↪ Plan approval already pending, waiting');
     return;
   }
 
   // Flush any pending content first
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
   session.currentPostId = null;
   session.pendingContent = '';
 
@@ -325,7 +309,7 @@ async function handleExitPlanMode(
   );
 
   // Register post for reaction routing
-  ctx.registerPost(post.id, session.threadId);
+  ctx.ops.registerPost(post.id, session.threadId);
 
   // Track this for reaction handling
   // Note: toolUseId is stored but not used - Claude Code CLI handles ExitPlanMode internally,
@@ -333,7 +317,7 @@ async function handleExitPlanMode(
   session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
 
   // Stop typing while waiting
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
 }
 
 // ---------------------------------------------------------------------------
@@ -346,7 +330,7 @@ async function handleExitPlanMode(
 async function handleTodoWrite(
   session: Session,
   input: Record<string, unknown>,
-  ctx: EventContext
+  ctx: SessionContext
 ): Promise<void> {
   const todos = input.todos as Array<{
     content: string;
@@ -461,11 +445,11 @@ async function handleTodoWrite(
     if (post) {
       session.tasksPostId = post.id;
       // Register the task post so reaction clicks are routed to this session
-      ctx.registerPost(post.id, session.threadId);
+      ctx.ops.registerPost(post.id, session.threadId);
     }
   }
   // Update sticky message with new task progress
-  ctx.updateStickyMessage().catch(() => {});
+  ctx.ops.updateStickyMessage().catch(() => {});
 }
 
 /**
@@ -475,13 +459,13 @@ async function handleTaskStart(
   session: Session,
   toolUseId: string,
   input: Record<string, unknown>,
-  ctx: EventContext
+  ctx: SessionContext
 ): Promise<void> {
   const description = (input.description as string) || 'Working...';
   const subagentType = (input.subagent_type as string) || 'general';
 
   // Flush any pending content first to avoid empty continuation messages
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
   session.currentPostId = null;
   session.pendingContent = '';
 
@@ -495,7 +479,7 @@ async function handleTaskStart(
   if (post) {
     session.activeSubagents.set(toolUseId, post.id);
     // Bump task list to stay below subagent messages
-    await ctx.bumpTasksToBottom(session);
+    await ctx.ops.bumpTasksToBottom(session);
   }
 }
 
@@ -528,16 +512,16 @@ async function handleAskUserQuestion(
   session: Session,
   toolUseId: string,
   input: Record<string, unknown>,
-  ctx: EventContext
+  ctx: SessionContext
 ): Promise<void> {
   // If we already have pending questions, don't start another set
   if (session.pendingQuestionSet) {
-    if (ctx.debug) console.log('  ↪ Questions already pending, waiting');
+    if (ctx.config.debug) console.log('  ↪ Questions already pending, waiting');
     return;
   }
 
   // Flush any pending content first
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
   session.currentPostId = null;
   session.pendingContent = '';
 
@@ -567,7 +551,7 @@ async function handleAskUserQuestion(
   await postCurrentQuestion(session, ctx);
 
   // Stop typing while waiting for answer
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
 }
 
 /**
@@ -575,7 +559,7 @@ async function handleAskUserQuestion(
  */
 export async function postCurrentQuestion(
   session: Session,
-  ctx: EventContext
+  ctx: SessionContext
 ): Promise<void> {
   if (!session.pendingQuestionSet) return;
 
@@ -607,7 +591,7 @@ export async function postCurrentQuestion(
   session.pendingQuestionSet.currentPostId = post.id;
 
   // Register post for reaction routing
-  ctx.registerPost(post.id, session.threadId);
+  ctx.ops.registerPost(post.id, session.threadId);
 }
 
 // ---------------------------------------------------------------------------
@@ -656,7 +640,7 @@ function getModelDisplayName(modelId: string): string {
 function updateUsageStats(
   session: Session,
   event: ClaudeEvent,
-  ctx: EventContext
+  ctx: SessionContext
 ): void {
   const result = event as ResultEvent;
 
@@ -709,7 +693,7 @@ function updateUsageStats(
 
   session.usageStats = usageStats;
 
-  if (ctx.debug) {
+  if (ctx.config.debug) {
     console.log(
       `[DEBUG] Updated usage stats: ${usageStats.modelDisplayName}, ` +
       `${usageStats.totalTokensUsed}/${usageStats.contextWindowSize} tokens, ` +
@@ -723,11 +707,11 @@ function updateUsageStats(
     session.statusBarTimer = setInterval(() => {
       // Only update if session is still active
       if (session.claude.isRunning()) {
-        ctx.updateSessionHeader(session).catch(() => {});
+        ctx.ops.updateSessionHeader(session).catch(() => {});
       }
     }, STATUS_BAR_UPDATE_INTERVAL);
   }
 
   // Update status bar with new usage info
-  ctx.updateSessionHeader(session).catch(() => {});
+  ctx.ops.updateSessionHeader(session).catch(() => {});
 }

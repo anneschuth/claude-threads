@@ -5,6 +5,7 @@
  */
 
 import type { Session } from './types.js';
+import type { SessionContext } from './context.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
@@ -62,25 +63,6 @@ function formatContextBar(percent: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Context types for dependency injection
-// ---------------------------------------------------------------------------
-
-export interface CommandContext {
-  skipPermissions: boolean;
-  chromeEnabled: boolean;
-  maxSessions: number;
-  handleEvent: (sessionId: string, event: ClaudeEvent) => void;
-  handleExit: (sessionId: string, code: number) => Promise<void>;
-  flush: (session: Session) => Promise<void>;
-  startTyping: (session: Session) => void;
-  stopTyping: (session: Session) => void;
-  persistSession: (session: Session) => void;
-  killSession: (threadId: string) => Promise<void>;
-  registerPost: (postId: string, threadId: string) => void;
-  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
-}
-
-// ---------------------------------------------------------------------------
 // Session control commands
 // ---------------------------------------------------------------------------
 
@@ -90,14 +72,14 @@ export interface CommandContext {
 export async function cancelSession(
   session: Session,
   username: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   const shortId = session.threadId.substring(0, 8);
   log.info(`🛑 Session (${shortId}…) cancelled by @${username}`);
 
   await postCancelled(session, `**Session cancelled** by @${username}`);
 
-  await ctx.killSession(session.threadId);
+  await ctx.ops.killSession(session.threadId);
 }
 
 /**
@@ -135,7 +117,7 @@ export async function changeDirectory(
   session: Session,
   newDir: string,
   username: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can change directory
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
@@ -167,12 +149,12 @@ export async function changeDirectory(
   log.info(`📂 Session (${shortId}…) changing directory to ${shortDir}`);
 
   // Stop the current Claude CLI
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
   session.isRestarting = true; // Suppress exit message during restart
   session.claude.kill();
 
   // Flush any pending content
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
   session.currentPostId = null;
   session.pendingContent = '';
 
@@ -186,17 +168,17 @@ export async function changeDirectory(
   const cliOptions: ClaudeCliOptions = {
     workingDir: absoluteDir,
     threadId: session.threadId,
-    skipPermissions: ctx.skipPermissions || !session.forceInteractivePermissions,
+    skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions,
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
-    chrome: ctx.chromeEnabled,
+    chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
   };
   session.claude = new ClaudeCli(cliOptions);
 
   // Rebind event handlers (use sessionId which is the composite key)
-  session.claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(session.sessionId, e));
-  session.claude.on('exit', (code: number) => ctx.handleExit(session.sessionId, code));
+  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
+  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
 
   // Start the new Claude CLI
   try {
@@ -222,7 +204,7 @@ export async function changeDirectory(
   session.needsContextPromptOnNextMessage = true;
 
   // Persist the updated session state
-  ctx.persistSession(session);
+  ctx.ops.persistSession(session);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,7 +218,7 @@ export async function inviteUser(
   session: Session,
   invitedUser: string,
   invitedBy: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can invite
   if (session.startedBy !== invitedBy && !session.platform.isUserAllowed(invitedBy)) {
@@ -248,7 +230,7 @@ export async function inviteUser(
   await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
   log.info(`👋 @${invitedUser} invited to session by @${invitedBy}`);
   await updateSessionHeader(session, ctx);
-  ctx.persistSession(session);
+  ctx.ops.persistSession(session);
 }
 
 /**
@@ -258,7 +240,7 @@ export async function kickUser(
   session: Session,
   kickedUser: string,
   kickedBy: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can kick
   if (session.startedBy !== kickedBy && !session.platform.isUserAllowed(kickedBy)) {
@@ -282,7 +264,7 @@ export async function kickUser(
     await postUser(session, `@${kickedUser} removed from this session by @${kickedBy}`);
     log.info(`🚫 @${kickedUser} kicked from session by @${kickedBy}`);
     await updateSessionHeader(session, ctx);
-    ctx.persistSession(session);
+    ctx.ops.persistSession(session);
   } else {
     await postWarning(session, `@${kickedUser} was not in this session`);
   }
@@ -298,7 +280,7 @@ export async function kickUser(
 export async function enableInteractivePermissions(
   session: Session,
   username: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can change permissions
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
@@ -307,7 +289,7 @@ export async function enableInteractivePermissions(
   }
 
   // Can only downgrade, not upgrade
-  if (!ctx.skipPermissions) {
+  if (!ctx.config.skipPermissions) {
     await postInfo(session, `Permissions are already interactive for this session`);
     return;
   }
@@ -325,12 +307,12 @@ export async function enableInteractivePermissions(
   log.info(`🔐 Session (${shortId}…) enabling interactive permissions`);
 
   // Stop the current Claude CLI and restart with new permission setting
-  ctx.stopTyping(session);
+  ctx.ops.stopTyping(session);
   session.isRestarting = true;
   session.claude.kill();
 
   // Flush any pending content
-  await ctx.flush(session);
+  await ctx.ops.flush(session);
   session.currentPostId = null;
   session.pendingContent = '';
 
@@ -341,14 +323,14 @@ export async function enableInteractivePermissions(
     skipPermissions: false, // Force interactive permissions
     sessionId: session.claudeSessionId,
     resume: true, // Resume to keep conversation context
-    chrome: ctx.chromeEnabled,
+    chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
   };
   session.claude = new ClaudeCli(cliOptions);
 
   // Rebind event handlers (use sessionId which is the composite key)
-  session.claude.on('event', (e: ClaudeEvent) => ctx.handleEvent(session.sessionId, e));
-  session.claude.on('exit', (code: number) => ctx.handleExit(session.sessionId, code));
+  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
+  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
 
   // Start the new Claude CLI
   try {
@@ -369,7 +351,7 @@ export async function enableInteractivePermissions(
   // Update activity and persist
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
-  ctx.persistSession(session);
+  ctx.ops.persistSession(session);
 }
 
 // ---------------------------------------------------------------------------
@@ -383,7 +365,7 @@ export async function requestMessageApproval(
   session: Session,
   username: string,
   message: string,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   // If there's already a pending message approval, ignore
   if (session.pendingMessageApproval) {
@@ -411,7 +393,7 @@ export async function requestMessageApproval(
   };
 
   // Register post for reaction routing
-  ctx.registerPost(post.id, session.threadId);
+  ctx.ops.registerPost(post.id, session.threadId);
 }
 
 // ---------------------------------------------------------------------------
@@ -423,14 +405,14 @@ export async function requestMessageApproval(
  */
 export async function updateSessionHeader(
   session: Session,
-  ctx: CommandContext
+  ctx: SessionContext
 ): Promise<void> {
   if (!session.sessionStartPostId) return;
 
   // Use session's working directory
   const shortDir = session.workingDir.replace(process.env.HOME || '', '~');
   // Check session-level permission override
-  const isInteractive = !ctx.skipPermissions || session.forceInteractivePermissions;
+  const isInteractive = !ctx.config.skipPermissions || session.forceInteractivePermissions;
   const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';
 
   // Build participants list (excluding owner)
@@ -454,9 +436,9 @@ export async function updateSessionHeader(
     statusItems.push(`\`💰 $${stats.totalCostUSD.toFixed(2)}\``);
   }
 
-  statusItems.push(`\`${session.sessionNumber}/${ctx.maxSessions}\``);
+  statusItems.push(`\`${session.sessionNumber}/${ctx.config.maxSessions}\``);
   statusItems.push(`\`${permMode}\``);
-  if (ctx.chromeEnabled) {
+  if (ctx.config.chromeEnabled) {
     statusItems.push('`🌐 Chrome`');
   }
   if (keepAlive.isActive()) {
