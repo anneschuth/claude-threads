@@ -139,10 +139,10 @@ describe('buildStickyMessage', () => {
 
   it('shows worktree mode when not default prompt', async () => {
     const sessions = new Map<string, Session>();
-    const alwaysConfig = { ...testConfig, worktreeMode: 'always' as const };
-    const result = await buildStickyMessage(sessions, 'test-platform', alwaysConfig);
+    const requireConfig = { ...testConfig, worktreeMode: 'require' as const };
+    const result = await buildStickyMessage(sessions, 'test-platform', requireConfig);
 
-    expect(result).toContain('`🌿 Worktree: always`');
+    expect(result).toContain('`🌿 Worktree: require`');
   });
 
   it('hides worktree mode when set to prompt (default)', async () => {

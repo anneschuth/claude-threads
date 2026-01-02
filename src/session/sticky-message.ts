@@ -10,6 +10,7 @@ import { hostname } from 'os';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { SessionStore } from '../persistence/session-store.js';
+import type { WorktreeMode } from '../config.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { VERSION } from '../version.js';
@@ -24,7 +25,7 @@ export interface StickyMessageConfig {
   maxSessions: number;
   chromeEnabled: boolean;
   skipPermissions: boolean;
-  worktreeMode: 'prompt' | 'always' | 'never';
+  worktreeMode: WorktreeMode;
   workingDir: string;
   debug: boolean;
 }
@@ -125,10 +126,10 @@ async function buildStatusBar(
   items.push(`\`${permMode}\``);
 
   // Worktree mode (only show if not default 'prompt')
-  if (config.worktreeMode === 'always') {
-    items.push('`🌿 Worktree: always`');
-  } else if (config.worktreeMode === 'never') {
-    items.push('`🌿 Worktree: never`');
+  if (config.worktreeMode === 'require') {
+    items.push('`🌿 Worktree: require`');
+  } else if (config.worktreeMode === 'off') {
+    items.push('`🌿 Worktree: off`');
   }
 
   // Chrome status
