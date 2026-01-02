@@ -22,6 +22,74 @@ import { withErrorHandling } from './error-handler.js';
 import type { SessionContext } from './context.js';
 
 // ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Metadata extraction configuration
+ */
+interface MetadataConfig {
+  marker: string;       // e.g., 'SESSION_TITLE'
+  minLength: number;
+  maxLength: number;
+  placeholder: string;  // e.g., '<short title>'
+}
+
+/**
+ * Extract and validate session metadata (title or description) from text.
+ * Updates session if valid and different from current value.
+ * Returns the text with the marker removed.
+ */
+function extractAndUpdateMetadata(
+  text: string,
+  session: Session,
+  config: MetadataConfig,
+  sessionField: 'sessionTitle' | 'sessionDescription',
+  ctx: SessionContext
+): string {
+  const regex = new RegExp(`\\[${config.marker}:\\s*([^\\]]+)\\]`);
+  const match = text.match(regex);
+
+  if (match) {
+    const newValue = match[1].trim();
+    // Validate: reject placeholders, too short/long, dots-only
+    const isValid = newValue.length >= config.minLength &&
+      newValue.length <= config.maxLength &&
+      !/^\.+$/.test(newValue) &&
+      !/^…+$/.test(newValue) &&
+      newValue !== config.placeholder &&
+      !newValue.startsWith('...');
+
+    if (isValid && newValue !== session[sessionField]) {
+      session[sessionField] = newValue;
+      // Persist and update UI (async, don't wait)
+      ctx.ops.persistSession(session);
+      ctx.ops.updateStickyMessage().catch(() => {});
+      ctx.ops.updateSessionHeader(session).catch(() => {});
+    }
+  }
+
+  // Always remove the marker from displayed text (even if validation failed)
+  const removeRegex = new RegExp(`\\[${config.marker}:\\s*[^\\]]+\\]\\s*`, 'g');
+  return text.replace(removeRegex, '').trim();
+}
+
+// Metadata configs for title and description
+const TITLE_CONFIG: MetadataConfig = {
+  marker: 'SESSION_TITLE',
+  minLength: 3,
+  maxLength: 50,
+  placeholder: '<short title>',
+};
+
+const DESCRIPTION_CONFIG: MetadataConfig = {
+  marker: 'SESSION_DESCRIPTION',
+  minLength: 5,
+  maxLength: 100,
+  placeholder: '<brief description>',
+};
+
+// ---------------------------------------------------------------------------
 // Main event handler
 // ---------------------------------------------------------------------------
 
@@ -133,51 +201,11 @@ function formatEvent(
           // Filter out <thinking> tags that may appear in text content
           let text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
 
-          // Extract session title if present: [SESSION_TITLE: ...]
-          const titleMatch = text.match(/\[SESSION_TITLE:\s*([^\]]+)\]/);
-          if (titleMatch) {
-            const newTitle = titleMatch[1].trim();
-            // Validate title: reject placeholders, too short, or too long (50 chars ~7 words)
-            const isValidTitle = newTitle.length >= 3 &&
-              newTitle.length <= 50 &&
-              !/^\.+$/.test(newTitle) &&
-              !/^…+$/.test(newTitle) &&
-              newTitle !== '<short title>' &&
-              !newTitle.startsWith('...');
-            if (isValidTitle && newTitle !== session.sessionTitle) {
-              session.sessionTitle = newTitle;
-              // Persist the updated title
-              ctx.ops.persistSession(session);
-              // Update sticky message and session header with new title (async, don't wait)
-              ctx.ops.updateStickyMessage().catch(() => {});
-              ctx.ops.updateSessionHeader(session).catch(() => {});
-            }
-          }
-          // Always remove the title marker from displayed text (even if validation failed)
-          text = text.replace(/\[SESSION_TITLE:\s*[^\]]+\]\s*/g, '').trim();
+          // Extract and update session title if present
+          text = extractAndUpdateMetadata(text, session, TITLE_CONFIG, 'sessionTitle', ctx);
 
-          // Extract session description if present: [SESSION_DESCRIPTION: ...]
-          const descMatch = text.match(/\[SESSION_DESCRIPTION:\s*([^\]]+)\]/);
-          if (descMatch) {
-            const newDesc = descMatch[1].trim();
-            // Validate description: reject placeholders, too short, or too long (100 chars)
-            const isValidDesc = newDesc.length >= 5 &&
-              newDesc.length <= 100 &&
-              !/^\.+$/.test(newDesc) &&
-              !/^…+$/.test(newDesc) &&
-              newDesc !== '<brief description>' &&
-              !newDesc.startsWith('...');
-            if (isValidDesc && newDesc !== session.sessionDescription) {
-              session.sessionDescription = newDesc;
-              // Persist the updated description
-              ctx.ops.persistSession(session);
-              // Update sticky message and session header with new description (async, don't wait)
-              ctx.ops.updateStickyMessage().catch(() => {});
-              ctx.ops.updateSessionHeader(session).catch(() => {});
-            }
-          }
-          // Always remove the description marker from displayed text (even if validation failed)
-          text = text.replace(/\[SESSION_DESCRIPTION:\s*[^\]]+\]\s*/g, '').trim();
+          // Extract and update session description if present
+          text = extractAndUpdateMetadata(text, session, DESCRIPTION_CONFIG, 'sessionDescription', ctx);
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {

@@ -30,7 +30,67 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('commands');
 
 // ---------------------------------------------------------------------------
-// Helper functions
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Restart Claude CLI with new options.
+ * Handles the common pattern of kill -> flush -> create new CLI -> rebind -> start.
+ * Returns true on success, false if start failed.
+ */
+async function restartClaudeSession(
+  session: Session,
+  cliOptions: ClaudeCliOptions,
+  ctx: SessionContext,
+  actionName: string
+): Promise<boolean> {
+  // Stop the current Claude CLI
+  ctx.ops.stopTyping(session);
+  session.isRestarting = true;
+  session.claude.kill();
+
+  // Flush any pending content
+  await ctx.ops.flush(session);
+  session.currentPostId = null;
+  session.pendingContent = '';
+
+  // Create new Claude CLI
+  session.claude = new ClaudeCli(cliOptions);
+
+  // Rebind event handlers (use sessionId which is the composite key)
+  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
+  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
+
+  // Start the new Claude CLI
+  try {
+    session.claude.start();
+    return true;
+  } catch (err) {
+    session.isRestarting = false;
+    await logAndNotify(err, { action: actionName, session });
+    return false;
+  }
+}
+
+/**
+ * Check if user is session owner or globally allowed.
+ * Posts warning message if not authorized.
+ * Returns true if authorized, false otherwise.
+ */
+async function requireSessionOwner(
+  session: Session,
+  username: string,
+  action: string
+): Promise<boolean> {
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    await postWarning(session, `Only @${session.startedBy} or allowed users can ${action}`);
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Formatting helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -120,8 +180,7 @@ export async function changeDirectory(
   ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can change directory
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can change the working directory`);
+  if (!await requireSessionOwner(session, username, 'change the working directory')) {
     return;
   }
 
@@ -148,16 +207,6 @@ export async function changeDirectory(
   const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
   log.info(`📂 Session (${shortId}…) changing directory to ${shortDir}`);
 
-  // Stop the current Claude CLI
-  ctx.ops.stopTyping(session);
-  session.isRestarting = true; // Suppress exit message during restart
-  session.claude.kill();
-
-  // Flush any pending content
-  await ctx.ops.flush(session);
-  session.currentPostId = null;
-  session.pendingContent = '';
-
   // Update session working directory
   session.workingDir = absoluteDir;
 
@@ -174,20 +223,10 @@ export async function changeDirectory(
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
   };
-  session.claude = new ClaudeCli(cliOptions);
 
-  // Rebind event handlers (use sessionId which is the composite key)
-  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
-  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
-
-  // Start the new Claude CLI
-  try {
-    session.claude.start();
-  } catch (err) {
-    session.isRestarting = false;
-    await logAndNotify(err, { action: 'Restart Claude for directory change', session });
-    return;
-  }
+  // Restart Claude with new options
+  const success = await restartClaudeSession(session, cliOptions, ctx, 'Restart Claude for directory change');
+  if (!success) return;
 
   // Update session header with new directory
   await updateSessionHeader(session, ctx);
@@ -221,8 +260,7 @@ export async function inviteUser(
   ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can invite
-  if (session.startedBy !== invitedBy && !session.platform.isUserAllowed(invitedBy)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can invite others`);
+  if (!await requireSessionOwner(session, invitedBy, 'invite others')) {
     return;
   }
 
@@ -243,8 +281,7 @@ export async function kickUser(
   ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can kick
-  if (session.startedBy !== kickedBy && !session.platform.isUserAllowed(kickedBy)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can kick others`);
+  if (!await requireSessionOwner(session, kickedBy, 'kick others')) {
     return;
   }
 
@@ -283,8 +320,7 @@ export async function enableInteractivePermissions(
   ctx: SessionContext
 ): Promise<void> {
   // Only session owner or globally allowed users can change permissions
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can change permissions`);
+  if (!await requireSessionOwner(session, username, 'change permissions')) {
     return;
   }
 
@@ -306,16 +342,6 @@ export async function enableInteractivePermissions(
   const shortId = session.threadId.substring(0, 8);
   log.info(`🔐 Session (${shortId}…) enabling interactive permissions`);
 
-  // Stop the current Claude CLI and restart with new permission setting
-  ctx.ops.stopTyping(session);
-  session.isRestarting = true;
-  session.claude.kill();
-
-  // Flush any pending content
-  await ctx.ops.flush(session);
-  session.currentPostId = null;
-  session.pendingContent = '';
-
   // Create new CLI options with interactive permissions
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
@@ -326,20 +352,10 @@ export async function enableInteractivePermissions(
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
   };
-  session.claude = new ClaudeCli(cliOptions);
 
-  // Rebind event handlers (use sessionId which is the composite key)
-  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
-  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
-
-  // Start the new Claude CLI
-  try {
-    session.claude.start();
-  } catch (err) {
-    session.isRestarting = false;
-    await logAndNotify(err, { action: 'Enable interactive permissions', session });
-    return;
-  }
+  // Restart Claude with new options
+  const success = await restartClaudeSession(session, cliOptions, ctx, 'Enable interactive permissions');
+  if (!success) return;
 
   // Update session header with new permission status
   await updateSessionHeader(session, ctx);
