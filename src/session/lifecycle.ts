@@ -308,6 +308,7 @@ export async function startSession(
     session.pendingWorktreePrompt = true;
     await ctx.postWorktreePrompt(session, shouldPrompt);
     ctx.persistSession(session);
+    await ctx.updateStickyMessage();
     return;
   }
 

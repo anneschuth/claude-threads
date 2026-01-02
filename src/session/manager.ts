@@ -887,6 +887,7 @@ export class SessionManager {
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
+      updateStickyMessage: () => this.updateStickyMessage(),
     });
   }
 
