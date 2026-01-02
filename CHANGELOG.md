@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.27.1] - 2026-01-02
+
+### Fixed
+- **Context bar crash when tokens exceed context window** - Fixed crash when usage tokens exceeded the context window limit, causing negative remaining tokens and percentage values over 100%
+- **Wait for shutdown message before exiting** - Bot now waits for the "session ended" message to be posted before shutting down, ensuring users see the final status
+
 ## [0.27.0] - 2026-01-02
 
 ### Added
