@@ -6,6 +6,7 @@
  */
 
 import type { Session } from './types.js';
+import type { SessionContext } from './context.js';
 import {
   isApprovalEmoji,
   isDenialEmoji,
@@ -13,18 +14,10 @@ import {
   getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
+import { withErrorHandling } from './error-handler.js';
+import { createLogger } from '../utils/logger.js';
 
-// ---------------------------------------------------------------------------
-// Context types for dependency injection
-// ---------------------------------------------------------------------------
-
-export interface ReactionContext {
-  debug: boolean;
-  startTyping: (session: Session) => void;
-  stopTyping: (session: Session) => void;
-  updateSessionHeader: (session: Session) => Promise<void>;
-  registerPost: (postId: string, threadId: string) => void;
-}
+const log = createLogger('reactions');
 
 // ---------------------------------------------------------------------------
 // Question reaction handling
@@ -38,7 +31,7 @@ export async function handleQuestionReaction(
   postId: string,
   emojiName: string,
   username: string,
-  ctx: ReactionContext
+  ctx: SessionContext
 ): Promise<void> {
   if (!session.pendingQuestionSet) return;
 
@@ -51,32 +44,20 @@ export async function handleQuestionReaction(
 
   const selectedOption = question.options[optionIndex];
   question.answer = selectedOption.label;
-  if (ctx.debug) console.log(`  💬 @${username} answered "${question.header}": ${selectedOption.label}`);
+  if (ctx.config.debug) log.debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
-  try {
-    await session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update answered question:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`),
+    { action: 'Update answered question', session }
+  );
 
   // Move to next question or finish
   session.pendingQuestionSet.currentIndex++;
 
   if (session.pendingQuestionSet.currentIndex < questions.length) {
     // Post next question - must register post for reaction routing
-    await postCurrentQuestion(session, {
-      debug: ctx.debug,
-      registerPost: ctx.registerPost,
-      flush: async () => {},
-      startTyping: ctx.startTyping,
-      stopTyping: ctx.stopTyping,
-      appendContent: () => {},
-      bumpTasksToBottom: async () => {},
-      updateStickyMessage: async () => {},
-      persistSession: () => {},
-      updateSessionHeader: async () => {},
-    });
+    await postCurrentQuestion(session, ctx);
   } else {
     // All questions answered - send user message (NOT tool_result)
     // Claude Code CLI handles AskUserQuestion internally (generating its own tool_result),
@@ -86,7 +67,7 @@ export async function handleQuestionReaction(
       answersText += `- **${q.header}**: ${q.answer}\n`;
     }
 
-    if (ctx.debug) console.log('  ✅ All questions answered');
+    if (ctx.config.debug) log.debug('✅ All questions answered');
 
     // Clear pending questions
     session.pendingQuestionSet = null;
@@ -94,7 +75,7 @@ export async function handleQuestionReaction(
     // Send user message to Claude with the answers
     if (session.claude.isRunning()) {
       session.claude.sendMessage(answersText);
-      ctx.startTyping(session);
+      ctx.ops.startTyping(session);
     }
   }
 }
@@ -110,7 +91,7 @@ export async function handleApprovalReaction(
   session: Session,
   emojiName: string,
   username: string,
-  ctx: ReactionContext
+  ctx: SessionContext
 ): Promise<void> {
   if (!session.pendingApproval) return;
 
@@ -122,17 +103,16 @@ export async function handleApprovalReaction(
   const { postId } = session.pendingApproval;
   // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
   const shortId = session.threadId.substring(0, 8);
-  console.log(`  ${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
+  log.info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} (${shortId}…) by @${username}`);
 
   // Update the post to show the decision
-  try {
-    const statusMessage = isApprove
-      ? `✅ **Plan approved** by @${username} - starting implementation...`
-      : `❌ **Changes requested** by @${username}`;
-    await session.platform.updatePost(postId, statusMessage);
-  } catch (err) {
-    console.error('  ⚠️ Failed to update approval post:', err);
-  }
+  const statusMessage = isApprove
+    ? `✅ **Plan approved** by @${username} - starting implementation...`
+    : `❌ **Changes requested** by @${username}`;
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, statusMessage),
+    { action: 'Update approval post', session }
+  );
 
   // Clear pending approval and mark as approved
   session.pendingApproval = null;
@@ -148,7 +128,7 @@ export async function handleApprovalReaction(
       ? 'Plan approved! Please proceed with the implementation.'
       : 'Please revise the plan. I would like some changes.';
     session.claude.sendMessage(message);
-    ctx.startTyping(session);
+    ctx.ops.startTyping(session);
   }
 }
 
@@ -163,7 +143,7 @@ export async function handleMessageApprovalReaction(
   session: Session,
   emoji: string,
   approver: string,
-  ctx: ReactionContext
+  ctx: SessionContext
 ): Promise<void> {
   const pending = session.pendingMessageApproval;
   if (!pending) return;
@@ -187,8 +167,8 @@ export async function handleMessageApprovalReaction(
     );
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
-    ctx.startTyping(session);
-    console.log(`  ✅ Message from @${pending.fromUser} approved by @${approver}`);
+    ctx.ops.startTyping(session);
+    log.info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
   } else if (isInvite) {
     // Invite user to session
     session.sessionAllowedUsers.add(pending.fromUser);
@@ -196,18 +176,18 @@ export async function handleMessageApprovalReaction(
       pending.postId,
       `✅ @${pending.fromUser} invited to session by @${approver}`
     );
-    await ctx.updateSessionHeader(session);
+    await ctx.ops.updateSessionHeader(session);
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
-    ctx.startTyping(session);
-    console.log(`  👋 @${pending.fromUser} invited to session by @${approver}`);
+    ctx.ops.startTyping(session);
+    log.info(`👋 @${pending.fromUser} invited to session by @${approver}`);
   } else if (isDeny) {
     // Deny
     await session.platform.updatePost(
       pending.postId,
       `❌ Message from @${pending.fromUser} denied by @${approver}`
     );
-    console.log(`  ❌ Message from @${pending.fromUser} denied by @${approver}`);
+    log.info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
   }
 
   session.pendingMessageApproval = null;
@@ -223,7 +203,7 @@ export async function handleMessageApprovalReaction(
  */
 export async function handleTaskToggleReaction(
   session: Session,
-  ctx: ReactionContext
+  ctx: SessionContext
 ): Promise<boolean> {
   if (!session.tasksPostId || !session.lastTasksContent) {
     return false;
@@ -232,8 +212,8 @@ export async function handleTaskToggleReaction(
   // Toggle the minimized state
   session.tasksMinimized = !session.tasksMinimized;
 
-  if (ctx.debug) {
-    console.log(`  🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
+  if (ctx.config.debug) {
+    log.debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'}`);
   }
 
   // Compute the display message
@@ -254,12 +234,12 @@ export async function handleTaskToggleReaction(
 
   const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
+  const tasksPostId = session.tasksPostId;
 
-  try {
-    await session.platform.updatePost(session.tasksPostId, displayMessage);
-  } catch (err) {
-    console.error('  ⚠️ Failed to toggle tasks display:', err);
-  }
+  await withErrorHandling(
+    () => session.platform.updatePost(tasksPostId, displayMessage),
+    { action: 'Toggle tasks display', session }
+  );
 
   return true;
 }
@@ -268,21 +248,20 @@ export async function handleTaskToggleReaction(
 // Existing worktree join prompt reaction handling
 // ---------------------------------------------------------------------------
 
-export interface ExistingWorktreeReactionContext extends ReactionContext {
-  switchToWorktree: (threadId: string, branchOrPath: string, username: string) => Promise<void>;
-  persistSession: (session: Session) => void;
-}
-
 /**
  * Handle a reaction on an existing worktree prompt (join or skip).
  * Returns true if the reaction was handled, false otherwise.
+ *
+ * @param switchToWorktree - Callback to switch session to existing worktree
+ *                           (not part of SessionOperations as it's specific to this use case)
  */
 export async function handleExistingWorktreeReaction(
   session: Session,
   postId: string,
   emojiName: string,
   username: string,
-  ctx: ExistingWorktreeReactionContext
+  ctx: SessionContext,
+  switchToWorktree: (threadId: string, branchOrPath: string, username: string) => Promise<void>
 ): Promise<boolean> {
   const pending = session.pendingExistingWorktreePrompt;
   if (!pending || pending.postId !== postId) {
@@ -312,12 +291,12 @@ export async function handleExistingWorktreeReaction(
 
     // Clear the pending prompt before switching
     session.pendingExistingWorktreePrompt = undefined;
-    ctx.persistSession(session);
+    ctx.ops.persistSession(session);
 
     // Switch to the existing worktree
-    await ctx.switchToWorktree(session.threadId, pending.worktreePath, pending.username);
+    await switchToWorktree(session.threadId, pending.worktreePath, pending.username);
 
-    console.log(`  🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
+    log.info(`🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
   } else {
     // Skip - continue in current directory
     await session.platform.updatePost(
@@ -327,9 +306,9 @@ export async function handleExistingWorktreeReaction(
 
     // Clear the pending prompt
     session.pendingExistingWorktreePrompt = undefined;
-    ctx.persistSession(session);
+    ctx.ops.persistSession(session);
 
-    console.log(`  ❌ @${username} skipped joining existing worktree ${pending.branch}`);
+    log.info(`❌ @${username} skipped joining existing worktree ${pending.branch}`);
   }
 
   return true;

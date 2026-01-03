@@ -125,20 +125,23 @@ Configuration is stored in YAML only - no `.env` file support.
 
 The session management is split into focused modules for maintainability:
 
-| File | Lines | Purpose |
-|------|-------|---------|
-| `src/session/manager.ts` | ~700 | **Orchestrator** - thin wrapper that delegates to modules |
-| `src/session/lifecycle.ts` | ~610 | Session start, resume, exit, cleanup |
-| `src/session/events.ts` | ~480 | Claude CLI event handling (assistant, tool_use, etc.) |
-| `src/session/commands.ts` | ~510 | User commands (!cd, !invite, !kick, !permissions) |
-| `src/session/reactions.ts` | ~210 | Emoji reaction handling (approvals, questions) |
-| `src/session/worktree.ts` | ~520 | Git worktree management |
-| `src/session/streaming.ts` | ~180 | Message batching and flushing to chat |
-| `src/session/context-prompt.ts` | ~190 | Thread context prompt for mid-thread session starts |
-| `src/session/types.ts` | ~135 | TypeScript types (Session, PendingApproval, etc.) |
-| `src/session/index.ts` | ~15 | Public exports |
+| File | Purpose |
+|------|---------|
+| `src/session/manager.ts` | **Orchestrator** - delegates to modules via unified SessionContext |
+| `src/session/context.ts` | **Unified context** - single interface for all module dependencies |
+| `src/session/lifecycle.ts` | Session start, resume, exit, cleanup |
+| `src/session/events.ts` | Claude CLI event handling (assistant, tool_use, etc.) |
+| `src/session/commands.ts` | User commands (!cd, !invite, !kick, !permissions) |
+| `src/session/reactions.ts` | Emoji reaction handling (approvals, questions) |
+| `src/session/worktree.ts` | Git worktree management |
+| `src/session/streaming.ts` | Message batching and flushing to chat |
+| `src/session/context-prompt.ts` | Thread context prompt for mid-thread session starts |
+| `src/session/post-helpers.ts` | **NEW** - DRY utilities for posting messages (postInfo, postError, etc.) |
+| `src/session/error-handler.ts` | **NEW** - Centralized error handling with consistent patterns |
+| `src/session/types.ts` | TypeScript types (Session, PendingApproval, etc.) |
+| `src/session/index.ts` | Public exports |
 
-**Design Pattern**: SessionManager uses dependency injection via context objects to delegate to modules while maintaining a clean public API.
+**Design Pattern**: SessionManager uses a unified `SessionContext` interface to delegate to modules. This replaces the previous 4 separate context interfaces (LifecycleContext, EventContext, ReactionContext, CommandContext) with a single source of truth.
 
 ### Claude CLI
 | File | Purpose |
@@ -152,6 +155,8 @@ The session management is split into focused modules for maintainability:
 | `src/platform/client.ts` | PlatformClient interface (abstraction for all platforms) |
 | `src/platform/types.ts` | Normalized types (PlatformPost, PlatformUser, PlatformReaction, etc.) |
 | `src/platform/formatter.ts` | PlatformFormatter interface (markdown dialects) |
+| `src/platform/utils.ts` | **NEW** - Platform-agnostic utilities (message splitting, emoji normalization, retry logic) |
+| `src/platform/IMPLEMENTATION_GUIDE.md` | **NEW** - Guide for implementing new platform support |
 | `src/platform/index.ts` | Public exports |
 | `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
 | `src/platform/mattermost/types.ts` | Mattermost-specific types |
@@ -162,7 +167,8 @@ The session management is split into focused modules for maintainability:
 |------|---------|
 | `src/utils/emoji.ts` | Emoji constants and validators (platform-agnostic) |
 | `src/utils/tool-formatter.ts` | Format tool use for display |
-| `src/utils/logger.ts` | MCP-compatible logging |
+| `src/utils/logger.ts` | **Enhanced** - Component-based logging with pre-configured loggers |
+| `src/utils/format.ts` | **NEW** - ID formatting, session logging, time/number formatting |
 | `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
 | `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
 | `src/platform/permission-api.ts` | PermissionApi interface |
@@ -218,7 +224,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run tests (125 tests)
+bun test             # Run tests (444 tests)
 bun run lint         # Run ESLint
 ```
 

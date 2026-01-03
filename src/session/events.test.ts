@@ -3,7 +3,8 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { handleEvent, EventContext } from './events.js';
+import { handleEvent } from './events.js';
+import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
 import type { PlatformClient, PlatformPost, PlatformFormatter } from '../platform/index.js';
 
@@ -118,30 +119,55 @@ function createTestSession(platform: PlatformClient): Session {
   };
 }
 
-function createEventContext(): EventContext {
+function createSessionContext(): SessionContext {
   return {
-    debug: false,
-    registerPost: mock((_postId: string, _threadId: string) => {}),
-    flush: mock(async (_session: Session) => {}),
-    startTyping: mock((_session: Session) => {}),
-    stopTyping: mock((_session: Session) => {}),
-    appendContent: mock((_session: Session, _text: string) => {}),
-    bumpTasksToBottom: mock(async (_session: Session) => {}),
-    updateStickyMessage: mock(async () => {}),
-    persistSession: mock((_session: Session) => {}),
-    updateSessionHeader: mock(async (_session: Session) => {}),
+    config: {
+      debug: false,
+      workingDir: '/test',
+      skipPermissions: true,
+      chromeEnabled: false,
+      maxSessions: 5,
+    },
+    state: {
+      sessions: new Map(),
+      postIndex: new Map(),
+      platforms: new Map(),
+      sessionStore: { save: () => {}, remove: () => {}, load: () => new Map(), findByPostId: () => undefined, cleanStale: () => [] } as any,
+      isShuttingDown: false,
+    },
+    ops: {
+      getSessionId: (_p, t) => t,
+      findSessionByThreadId: () => undefined,
+      registerPost: mock((_postId: string, _threadId: string) => {}),
+      flush: mock(async (_session: Session) => {}),
+      startTyping: mock((_session: Session) => {}),
+      stopTyping: mock((_session: Session) => {}),
+      appendContent: mock((_session: Session, _text: string) => {}),
+      bumpTasksToBottom: mock(async (_session: Session) => {}),
+      updateStickyMessage: mock(async () => {}),
+      persistSession: mock((_session: Session) => {}),
+      updateSessionHeader: mock(async (_session: Session) => {}),
+      unpersistSession: mock((_sessionId: string) => {}),
+      buildMessageContent: mock(async (text: string) => text),
+      handleEvent: mock((_sessionId: string, _event: any) => {}),
+      handleExit: mock(async (_sessionId: string, _code: number) => {}),
+      killSession: mock(async (_threadId: string) => {}),
+      shouldPromptForWorktree: mock(async (_session: Session) => null),
+      postWorktreePrompt: mock(async (_session: Session, _reason: string) => {}),
+      offerContextPrompt: mock(async (_session: Session, _queuedPrompt: string) => false),
+    },
   };
 }
 
 describe('handleEvent with TodoWrite', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;
-  let ctx: EventContext;
+  let ctx: SessionContext;
 
   beforeEach(() => {
     platform = createMockPlatform();
     session = createTestSession(platform);
-    ctx = createEventContext();
+    ctx = createSessionContext();
   });
 
   test('sets tasksCompleted=false when tasks have pending items', () => {
@@ -285,12 +311,12 @@ describe('handleEvent with TodoWrite', () => {
 describe('handleEvent with result event (usage stats)', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;
-  let ctx: EventContext;
+  let ctx: SessionContext;
 
   beforeEach(() => {
     platform = createMockPlatform();
     session = createTestSession(platform);
-    ctx = createEventContext();
+    ctx = createSessionContext();
   });
 
   test('extracts usage stats from result event with modelUsage', () => {
@@ -422,7 +448,7 @@ describe('handleEvent with result event (usage stats)', () => {
 
     handleEvent(session, event, ctx);
 
-    expect(ctx.updateSessionHeader).toHaveBeenCalled();
+    expect(ctx.ops.updateSessionHeader).toHaveBeenCalled();
 
     // Clean up
     if (session.statusBarTimer) {

@@ -32,6 +32,19 @@ import * as worktreeModule from './worktree.js';
 import * as contextPrompt from './context-prompt.js';
 import * as stickyMessage from './sticky-message.js';
 import type { Session } from './types.js';
+import { postInfo } from './post-helpers.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('manager');
+
+// Import unified context
+import {
+  type SessionContext,
+  type SessionConfig,
+  type SessionState,
+  type SessionOperations,
+  createSessionContext,
+} from './context.js';
 
 // Import constants for internal use
 import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
@@ -74,12 +87,12 @@ export class SessionManager {
 
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
-      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getLifecycleContext())
-        .catch(err => console.error('  [cleanup] Error during idle session cleanup:', err));
+      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getContext())
+        .catch(err => log.error(`Error during idle session cleanup: ${err}`));
       // Refresh sticky message to keep relative times current (only if there are active sessions)
       if (this.sessions.size > 0) {
         this.updateStickyMessage()
-          .catch(err => console.error('  [sticky] Error during periodic refresh:', err));
+          .catch(err => log.error(`Error during periodic refresh: ${err}`));
       }
     }, 60000);
   }
@@ -101,7 +114,7 @@ export class SessionManager {
       stickyMessage.markNeedsBump(platformId);
       this.updateStickyMessage();
     });
-    console.log(`  📡 Platform "${platformId}" registered`);
+    log.info(`📡 Platform "${platformId}" registered`);
   }
 
   removePlatform(platformId: string): void {
@@ -109,81 +122,70 @@ export class SessionManager {
   }
 
   // ---------------------------------------------------------------------------
-  // Context Builders (for module delegation)
+  // Unified Context Builder
   // ---------------------------------------------------------------------------
 
-  private getLifecycleContext(): lifecycle.LifecycleContext {
-    return {
+  /**
+   * Build the unified SessionContext that all modules receive.
+   * This replaces the previous 4 separate context builders.
+   */
+  private getContext(): SessionContext {
+    const config: SessionConfig = {
       workingDir: this.workingDir,
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
       maxSessions: MAX_SESSIONS,
+    };
+
+    const state: SessionState = {
       sessions: this.sessions,
       postIndex: this.postIndex,
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
+    };
+
+    const ops: SessionOperations = {
+      // Session lookup
       getSessionId: (pid, tid) => this.getSessionId(pid, tid),
       findSessionByThreadId: (tid) => this.findSessionByThreadId(tid),
-      handleEvent: (sid, e) => this.handleEvent(sid, e),
-      handleExit: (sid, code) => this.handleExit(sid, code),
+
+      // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
+
+      // Streaming & content
+      flush: (s) => this.flush(s),
+      appendContent: (s, t) => this.appendContent(s, t),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      flush: (s) => this.flush(s),
+      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
+      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+
+      // Persistence
       persistSession: (s) => this.persistSession(s),
       unpersistSession: (sid) => this.unpersistSession(sid),
+
+      // UI updates
       updateSessionHeader: (s) => this.updateSessionHeader(s),
+      updateStickyMessage: () => this.updateStickyMessage(),
+
+      // Event handling
+      handleEvent: (sid, e) => this.handleEvent(sid, e),
+      handleExit: (sid, code) => this.handleExit(sid, code),
+
+      // Session lifecycle
+      killSession: (tid) => this.killSession(tid),
+
+      // Worktree
       shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
-      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
-      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
-      updateStickyMessage: () => this.updateStickyMessage(),
-    };
-  }
 
-  private getEventContext(): events.EventContext {
-    return {
-      debug: this.debug,
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
-      flush: (s) => this.flush(s),
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      appendContent: (s, t) => this.appendContent(s, t),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
-      updateStickyMessage: () => this.updateStickyMessage(),
-      updateSessionHeader: (s) => this.updateSessionHeader(s),
-      persistSession: (s) => this.persistSession(s),
-    };
-  }
-
-  private getReactionContext(): reactions.ReactionContext {
-    return {
-      debug: this.debug,
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      updateSessionHeader: (s) => this.updateSessionHeader(s),
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
-    };
-  }
-
-  private getCommandContext(): commands.CommandContext {
-    return {
-      skipPermissions: this.skipPermissions,
-      chromeEnabled: this.chromeEnabled,
-      maxSessions: MAX_SESSIONS,
-      handleEvent: (tid, e) => this.handleEvent(tid, e),
-      handleExit: (tid, code) => this.handleExit(tid, code),
-      flush: (s) => this.flush(s),
-      startTyping: (s) => this.startTyping(s),
-      stopTyping: (s) => this.stopTyping(s),
-      persistSession: (s) => this.persistSession(s),
-      killSession: (tid) => this.killSession(tid),
-      registerPost: (pid, tid) => this.registerPost(pid, tid),
+      // Context prompt
       offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
     };
+
+    return createSessionContext(config, state, ops);
   }
 
   // ---------------------------------------------------------------------------
@@ -251,7 +253,7 @@ export class SessionManager {
     const sessionId = `${platformId}:${persistedSession.threadId}`;
     if (this.sessions.has(sessionId)) {
       if (this.debug) {
-        console.log(`  [resume] Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
+        log.debug(`Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
       }
       return false;
     }
@@ -281,10 +283,10 @@ export class SessionManager {
     }
 
     const shortId = persistedSession.threadId.substring(0, 8);
-    console.log(`  🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
+    log.info(`🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
 
     // Resume the session
-    await lifecycle.resumeSession(persistedSession, this.getLifecycleContext());
+    await lifecycle.resumeSession(persistedSession, this.getContext());
     return true;
   }
 
@@ -307,11 +309,8 @@ export class SessionManager {
         postId,
         emojiName,
         username,
-        {
-          ...this.getReactionContext(),
-          switchToWorktree: (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user),
-          persistSession: (s) => this.persistSession(s),
-        }
+        this.getContext(),
+        (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
       );
       if (handled) return;
     }
@@ -325,7 +324,7 @@ export class SessionManager {
     // Handle cancel/escape reactions on session start post
     if (session.sessionStartPostId === postId) {
       if (isCancelEmoji(emojiName)) {
-        await commands.cancelSession(session, username, this.getCommandContext());
+        await commands.cancelSession(session, username, this.getContext());
         return;
       }
       if (isEscapeEmoji(emojiName)) {
@@ -336,25 +335,25 @@ export class SessionManager {
 
     // Handle question reactions
     if (session.pendingQuestionSet?.currentPostId === postId) {
-      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getReactionContext());
+      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
       return;
     }
 
     // Handle plan approval reactions
     if (session.pendingApproval?.postId === postId) {
-      await reactions.handleApprovalReaction(session, emojiName, username, this.getReactionContext());
+      await reactions.handleApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
     // Handle message approval reactions
     if (session.pendingMessageApproval?.postId === postId) {
-      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getReactionContext());
+      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }
 
     // Handle task list toggle reactions (minimize/expand)
     if (session.tasksPostId === postId && isTaskToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, this.getReactionContext());
+      await reactions.handleTaskToggleReaction(session, this.getContext());
       return;
     }
   }
@@ -363,93 +362,18 @@ export class SessionManager {
   // Context Prompt Handling
   // ---------------------------------------------------------------------------
 
-  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
-    if (!session.pendingContextPrompt) return;
-
-    const selection = contextPrompt.getContextSelectionFromReaction(
-      emojiName,
-      session.pendingContextPrompt.availableOptions
-    );
-    if (selection === null) return; // Not a valid context selection reaction
-
-    const pending = session.pendingContextPrompt;
-
-    // Clear the timeout
-    contextPrompt.clearContextPromptTimeout(pending);
-
-    // Update the post to show selection
-    await contextPrompt.updateContextPromptPost(session, pending.postId, selection, username);
-
-    // Get the queued prompt
-    const queuedPrompt = pending.queuedPrompt;
-
-    // Clear pending context prompt
-    session.pendingContextPrompt = undefined;
-
-    // Build message with or without context
-    let messageToSend = queuedPrompt;
-    if (selection > 0) {
-      const messages = await contextPrompt.getThreadMessagesForContext(session, selection, pending.postId);
-      if (messages.length > 0) {
-        const contextPrefix = contextPrompt.formatContextForClaude(messages);
-        messageToSend = contextPrefix + queuedPrompt;
-      }
-    }
-
-    // Increment message counter
-    session.messageCount++;
-
-    // Inject metadata reminder periodically
-    messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
-
-    // Send the message to Claude
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
-      this.startTyping(session);
-    }
-
-    // Persist updated state
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
-    }
+  private getContextPromptHandler(): contextPrompt.ContextPromptHandler {
+    return {
+      registerPost: (pid, tid) => this.registerPost(pid, tid),
+      startTyping: (s) => this.startTyping(s),
+      persistSession: (s) => this.persistSession(s),
+      injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
+      debug: this.debug,
+    };
   }
 
-  private async handleContextPromptTimeout(session: Session): Promise<void> {
-    if (!session.pendingContextPrompt) return;
-
-    const pending = session.pendingContextPrompt;
-
-    // Update the post to show timeout
-    await contextPrompt.updateContextPromptPost(session, pending.postId, 'timeout');
-
-    // Get the queued prompt
-    const queuedPrompt = pending.queuedPrompt;
-
-    // Clear pending context prompt
-    session.pendingContextPrompt = undefined;
-
-    // Increment message counter
-    session.messageCount++;
-
-    // Inject metadata reminder periodically
-    const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
-
-    // Send the message without context
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
-      this.startTyping(session);
-    }
-
-    // Persist updated state
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context prompt timed out, continuing without context`);
-    }
+  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
+    await contextPrompt.handleContextPromptReaction(session, emojiName, username, this.getContextPromptHandler());
   }
 
   /**
@@ -459,70 +383,7 @@ export class SessionManager {
    * Returns true if context prompt was posted, false if message was sent directly.
    */
   async offerContextPrompt(session: Session, queuedPrompt: string, excludePostId?: string): Promise<boolean> {
-    // Get thread history count (exclude bot messages and the triggering message)
-    const messageCount = await contextPrompt.getThreadContextCount(session, excludePostId);
-
-    if (messageCount === 0) {
-      // No previous messages, send directly
-      // Increment message counter
-      session.messageCount++;
-
-      // Inject metadata reminder periodically
-      const messageToSend = lifecycle.maybeInjectMetadataReminder(queuedPrompt, session);
-
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage(messageToSend);
-        this.startTyping(session);
-      }
-      return false;
-    }
-
-    if (messageCount === 1) {
-      // Only one message (the thread starter) - auto-include without asking
-      const messages = await contextPrompt.getThreadMessagesForContext(session, 1, excludePostId);
-      let messageToSend = queuedPrompt;
-      if (messages.length > 0) {
-        const contextPrefix = contextPrompt.formatContextForClaude(messages);
-        messageToSend = contextPrefix + queuedPrompt;
-      }
-
-      // Increment message counter
-      session.messageCount++;
-
-      // Inject metadata reminder periodically
-      messageToSend = lifecycle.maybeInjectMetadataReminder(messageToSend, session);
-
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage(messageToSend);
-        this.startTyping(session);
-      }
-
-      if (this.debug) {
-        const shortId = session.threadId.substring(0, 8);
-        console.log(`  🧵 Session (${shortId}…) auto-included 1 message as context (thread starter)`);
-      }
-
-      return false;
-    }
-
-    // Post context prompt
-    const pending = await contextPrompt.postContextPrompt(
-      session,
-      queuedPrompt,
-      messageCount,
-      (pid, tid) => this.registerPost(pid, tid),
-      () => this.handleContextPromptTimeout(session)
-    );
-
-    session.pendingContextPrompt = pending;
-    this.persistSession(session);
-
-    if (this.debug) {
-      const shortId = session.threadId.substring(0, 8);
-      console.log(`  🧵 Session (${shortId}…) context prompt posted (${messageCount} messages available)`);
-    }
-
-    return true;
+    return contextPrompt.offerContextPrompt(session, queuedPrompt, this.getContextPromptHandler(), excludePostId);
   }
 
   /**
@@ -540,7 +401,7 @@ export class SessionManager {
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
     const session = this.sessions.get(sessionId);
     if (!session) return;
-    events.handleEvent(session, event, this.getEventContext());
+    events.handleEvent(session, event, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -548,7 +409,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async handleExit(sessionId: string, code: number): Promise<void> {
-    await lifecycle.handleExit(sessionId, code, this.getLifecycleContext());
+    await lifecycle.handleExit(sessionId, code, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -671,7 +532,7 @@ export class SessionManager {
   // ---------------------------------------------------------------------------
 
   private async updateSessionHeader(session: Session): Promise<void> {
-    await commands.updateSessionHeader(session, this.getCommandContext());
+    await commands.updateSessionHeader(session, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -703,7 +564,7 @@ export class SessionManager {
         const botUser = await platform.getBotUser();
         await stickyMessage.cleanupOldStickyMessages(platform, botUser.id);
       } catch (err) {
-        console.error(`  ⚠️ Failed to cleanup old sticky messages for ${platform.platformId}:`, err);
+        log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
       }
     }
 
@@ -711,16 +572,16 @@ export class SessionManager {
     // Use 2x timeout to be generous (bot might have been down for a while)
     const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
     if (staleIds.length > 0) {
-      console.log(`  🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
+      log.info(`🧹 Cleaned ${staleIds.length} stale session(s) from persistence`);
     }
 
     const persisted = this.sessionStore.load();
-    console.log(`  [persist] Loaded ${persisted.size} session(s)`);
+    log.info(`📂 Loaded ${persisted.size} session(s) from persistence`);
 
     if (persisted.size > 0) {
-      console.log(`  🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
+      log.info(`🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
       for (const state of persisted.values()) {
-        await lifecycle.resumeSession(state, this.getLifecycleContext());
+        await lifecycle.resumeSession(state, this.getContext());
       }
     }
 
@@ -735,7 +596,7 @@ export class SessionManager {
     platformId: string = 'default',
     displayName?: string
   ): Promise<void> {
-    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getLifecycleContext());
+    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext());
   }
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
@@ -762,7 +623,7 @@ export class SessionManager {
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session || !session.claude.isRunning()) return;
-    await lifecycle.sendFollowUp(session, message, files, this.getLifecycleContext());
+    await lifecycle.sendFollowUp(session, message, files, this.getContext());
   }
 
   isSessionActive(): boolean {
@@ -780,7 +641,7 @@ export class SessionManager {
   }
 
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    await lifecycle.resumePausedSession(threadId, message, files, this.getLifecycleContext());
+    await lifecycle.resumePausedSession(threadId, message, files, this.getContext());
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {
@@ -790,18 +651,18 @@ export class SessionManager {
   async killSession(threadId: string, unpersist = true): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await lifecycle.killSession(session, unpersist, this.getLifecycleContext());
+    await lifecycle.killSession(session, unpersist, this.getContext());
   }
 
   killAllSessions(): void {
-    lifecycle.killAllSessions(this.getLifecycleContext());
+    lifecycle.killAllSessions(this.getContext());
   }
 
   // Commands
   async cancelSession(threadId: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.cancelSession(session, username, this.getCommandContext());
+    await commands.cancelSession(session, username, this.getContext());
   }
 
   async interruptSession(threadId: string, username: string): Promise<void> {
@@ -813,25 +674,25 @@ export class SessionManager {
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.changeDirectory(session, newDir, username, this.getCommandContext());
+    await commands.changeDirectory(session, newDir, username, this.getContext());
   }
 
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.inviteUser(session, invitedUser, invitedBy, this.getCommandContext());
+    await commands.inviteUser(session, invitedUser, invitedBy, this.getContext());
   }
 
   async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.kickUser(session, kickedUser, kickedBy, this.getCommandContext());
+    await commands.kickUser(session, kickedUser, kickedBy, this.getContext());
   }
 
   async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.enableInteractivePermissions(session, username, this.getCommandContext());
+    await commands.enableInteractivePermissions(session, username, this.getContext());
   }
 
   isSessionInteractive(threadId: string): boolean {
@@ -844,7 +705,7 @@ export class SessionManager {
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.requestMessageApproval(session, username, message, this.getCommandContext());
+    await commands.requestMessageApproval(session, username, message, this.getContext());
   }
 
   // Worktree commands
@@ -991,7 +852,7 @@ export class SessionManager {
     if (message) {
       for (const session of this.sessions.values()) {
         try {
-          await session.platform.createPost(message, session.threadId);
+          await postInfo(session, message);
         } catch {
           // Ignore
         }
