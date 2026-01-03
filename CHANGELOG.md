@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.32.0] - 2026-01-03
+
+### Added
+- **Claude CLI version check** - Validates Claude CLI version at startup and exits if incompatible (bypass with `--skip-version-check`). Compatible versions: `>=2.0.74 <=2.0.76`. Version is displayed in terminal startup output, sticky channel message, and session headers.
+
 ## [0.31.3] - 2026-01-03
 
 ### Fixed
