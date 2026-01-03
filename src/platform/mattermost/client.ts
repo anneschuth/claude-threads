@@ -172,6 +172,17 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
+  // Get user by username
+  async getUserByUsername(username: string): Promise<PlatformUser | null> {
+    try {
+      const user = await this.api<MattermostUser>('GET', `/users/username/${username}`);
+      this.userCache.set(user.id, user);
+      return this.normalizePlatformUser(user);
+    } catch {
+      return null;
+    }
+  }
+
   // Post a message
   async createPost(
     message: string,

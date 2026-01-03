@@ -80,6 +80,13 @@ export interface PlatformClient extends EventEmitter {
   getUser(userId: string): Promise<PlatformUser | null>;
 
   /**
+   * Get a user by their username
+   * @param username - Username to look up (without @ prefix)
+   * @returns The user, or null if not found
+   */
+  getUserByUsername(username: string): Promise<PlatformUser | null>;
+
+  /**
    * Check if a username is in the allowed users list
    */
   isUserAllowed(username: string): boolean;

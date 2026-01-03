@@ -264,6 +264,13 @@ export async function inviteUser(
     return;
   }
 
+  // Validate that the user exists on the platform
+  const user = await session.platform.getUserByUsername(invitedUser);
+  if (!user) {
+    await postWarning(session, `User @${invitedUser} does not exist on this platform`);
+    return;
+  }
+
   session.sessionAllowedUsers.add(invitedUser);
   await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
   log.info(`👋 @${invitedUser} invited to session by @${invitedBy}`);
@@ -282,6 +289,13 @@ export async function kickUser(
 ): Promise<void> {
   // Only session owner or globally allowed users can kick
   if (!await requireSessionOwner(session, kickedBy, 'kick others')) {
+    return;
+  }
+
+  // Validate that the user exists on the platform
+  const user = await session.platform.getUserByUsername(kickedUser);
+  if (!user) {
+    await postWarning(session, `User @${kickedUser} does not exist on this platform`);
     return;
   }
 
