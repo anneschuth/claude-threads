@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.30.0] - 2026-01-03
+
+### Added
+- **Pull request link detection** - When a session is working in a git worktree with an associated PR, the session header and sticky message now display a clickable link to the PR. Automatically detects PRs from GitHub URLs in branch names or upstream tracking.
+- **User existence validation for invite/kick** - The `!invite` and `!kick` commands now validate that the user exists on the platform before attempting the action, providing helpful error messages for non-existent users.
+
+### Fixed
+- **Accurate context window usage** - Now uses per-request usage data from Claude's result events instead of cumulative billing tokens, providing accurate context window percentage display.
+- **Cancelled sessions no longer resume** - Fixed bug where cancelled sessions (killed by user) would incorrectly resume on bot restart by using the correct composite session key for unpersisting.
+
 ## [0.29.0] - 2026-01-03
 
 ### Changed
