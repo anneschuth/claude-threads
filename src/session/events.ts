@@ -787,6 +787,8 @@ function updateUsageStats(
     session.statusBarTimer = setInterval(() => {
       // Only update if session is still active
       if (session.claude.isRunning()) {
+        // Try to get more accurate context data from status line
+        updateUsageFromStatusLine(session);
         ctx.ops.updateSessionHeader(session).catch(() => {});
       }
     }, STATUS_BAR_UPDATE_INTERVAL);
@@ -794,4 +796,46 @@ function updateUsageStats(
 
   // Update status bar with new usage info
   ctx.ops.updateSessionHeader(session).catch(() => {});
+}
+
+/**
+ * Update usage stats from the status line file if available.
+ * This provides more accurate context window usage than result events.
+ */
+function updateUsageFromStatusLine(session: Session): void {
+  const statusData = session.claude.getStatusData();
+  if (!statusData || !statusData.current_usage) return;
+
+  // Only update if we have existing usage stats
+  if (!session.usageStats) return;
+
+  // Calculate context tokens from status line current_usage
+  const contextTokens = statusData.current_usage.input_tokens +
+    statusData.current_usage.cache_creation_input_tokens +
+    statusData.current_usage.cache_read_input_tokens;
+
+  // Update context tokens if the status line data is newer
+  if (statusData.timestamp > session.usageStats.lastUpdated.getTime()) {
+    session.usageStats.contextTokens = contextTokens;
+    session.usageStats.contextWindowSize = statusData.context_window_size;
+    session.usageStats.lastUpdated = new Date(statusData.timestamp);
+
+    // Update model info if available
+    if (statusData.model) {
+      session.usageStats.primaryModel = statusData.model.id;
+      session.usageStats.modelDisplayName = statusData.model.display_name;
+    }
+
+    // Update cost if available
+    if (statusData.cost) {
+      session.usageStats.totalCostUSD = statusData.cost.total_cost_usd;
+    }
+
+    const contextPct = session.usageStats.contextWindowSize > 0
+      ? Math.round((contextTokens / session.usageStats.contextWindowSize) * 100)
+      : 0;
+    log.debug(
+      `Updated from status line: context ${contextTokens}/${session.usageStats.contextWindowSize} (${contextPct}%)`
+    );
+  }
 }
