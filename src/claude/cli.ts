@@ -2,10 +2,47 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync } from 'fs';
+import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync, readdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('claude');
+
+/**
+ * Clean up stale Claude browser bridge socket files.
+ *
+ * Claude CLI creates socket files named `claude-mcp-browser-bridge-{username}` in the temp directory.
+ * If these socket files exist when Claude starts, it tries to fs.watch() them which fails with
+ * EOPNOTSUPP because you can't watch socket files. This is a Claude CLI bug.
+ *
+ * Workaround: Remove any stale browser bridge socket files before starting Claude.
+ */
+function cleanupBrowserBridgeSockets(): void {
+  try {
+    const tempDir = tmpdir();
+    const files = readdirSync(tempDir);
+
+    for (const file of files) {
+      if (file.startsWith('claude-mcp-browser-bridge-')) {
+        const filePath = join(tempDir, file);
+        try {
+          const stats = statSync(filePath);
+          // Check if it's a socket file (mode & 0xF000 === 0xC000 for sockets)
+          if (stats.isSocket()) {
+            unlinkSync(filePath);
+            log.debug(`Removed stale browser bridge socket: ${file}`);
+          }
+        } catch {
+          // Ignore errors for individual files
+        }
+      }
+    }
+  } catch (err) {
+    // Don't fail startup if cleanup fails
+    log.debug(`Browser bridge cleanup failed: ${err}`);
+  }
+}
 
 /**
  * Context window usage data from status line
@@ -152,6 +189,9 @@ export class ClaudeCli extends EventEmitter {
 
     // Clear stderr buffer from any previous run
     this.stderrBuffer = '';
+
+    // Clean up stale browser bridge sockets (workaround for Claude CLI bug)
+    cleanupBrowserBridgeSockets();
 
     const claudePath = process.env.CLAUDE_PATH || 'claude';
     const args = [

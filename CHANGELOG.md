@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.3] - 2026-01-03
+
+### Fixed
+- **Clean up stale browser bridge sockets** - Removes stale `claude-mcp-browser-bridge-*` socket files from temp directory before starting Claude CLI. This works around a Claude CLI bug where it tries to `fs.watch()` existing socket files, which fails with `EOPNOTSUPP`. The socket files are left over from previous Chrome integration sessions.
+
 ## [0.31.2] - 2026-01-03
 
 ### Fixed
