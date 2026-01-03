@@ -2,9 +2,33 @@ import { spawn, ChildProcess } from 'child_process';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync } from 'fs';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('claude');
+
+/**
+ * Context window usage data from status line
+ */
+export interface StatusLineData {
+  context_window_size: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  current_usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  } | null;
+  model: {
+    id: string;
+    display_name: string;
+  } | null;
+  cost: {
+    total_cost_usd: number;
+  } | null;
+  timestamp: number;
+}
 
 export interface ClaudeEvent {
   type: string;
@@ -52,10 +76,74 @@ export class ClaudeCli extends EventEmitter {
   private options: ClaudeCliOptions;
   private buffer = '';
   public debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
+  private statusFilePath: string | null = null;
+  private lastStatusData: StatusLineData | null = null;
 
   constructor(options: ClaudeCliOptions) {
     super();
     this.options = options;
+  }
+
+  /**
+   * Get the path to the status line data file for this session.
+   */
+  getStatusFilePath(): string | null {
+    return this.statusFilePath;
+  }
+
+  /**
+   * Get the latest status line data (context usage, model, cost).
+   * Returns null if no data has been received yet.
+   */
+  getStatusData(): StatusLineData | null {
+    if (!this.statusFilePath) return null;
+
+    try {
+      if (existsSync(this.statusFilePath)) {
+        const data = readFileSync(this.statusFilePath, 'utf8');
+        this.lastStatusData = JSON.parse(data) as StatusLineData;
+      }
+    } catch {
+      // Ignore read errors
+    }
+
+    return this.lastStatusData;
+  }
+
+  /**
+   * Start watching the status file for changes.
+   * Emits 'status' event when new data is available.
+   */
+  startStatusWatch(): void {
+    if (!this.statusFilePath) return;
+
+    const checkStatus = () => {
+      const data = this.getStatusData();
+      if (data && data.timestamp !== this.lastStatusData?.timestamp) {
+        this.lastStatusData = data;
+        this.emit('status', data);
+      }
+    };
+
+    // Watch for file changes
+    watchFile(this.statusFilePath, { interval: 1000 }, checkStatus);
+  }
+
+  /**
+   * Stop watching the status file and clean up.
+   */
+  stopStatusWatch(): void {
+    if (this.statusFilePath) {
+      unwatchFile(this.statusFilePath);
+      // Clean up temp file
+      try {
+        if (existsSync(this.statusFilePath)) {
+          unlinkSync(this.statusFilePath);
+        }
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
   }
 
   start(): void {
@@ -122,6 +210,21 @@ export class ClaudeCli extends EventEmitter {
     // Append system prompt for context
     if (this.options.appendSystemPrompt) {
       args.push('--append-system-prompt', this.options.appendSystemPrompt);
+    }
+
+    // Configure status line to write context data to a temp file
+    // This gives us accurate context window usage information
+    if (this.options.sessionId) {
+      this.statusFilePath = `/tmp/claude-threads-status-${this.options.sessionId}.json`;
+      const statusLineWriterPath = this.getStatusLineWriterPath();
+      const statusLineSettings = {
+        statusLine: {
+          type: 'command',
+          command: `node ${statusLineWriterPath} ${this.options.sessionId}`,
+          padding: 0,
+        },
+      };
+      args.push('--settings', JSON.stringify(statusLineSettings));
     }
 
     log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
@@ -212,6 +315,7 @@ export class ClaudeCli extends EventEmitter {
   }
 
   kill(): void {
+    this.stopStatusWatch();
     this.process?.kill('SIGTERM');
     this.process = null;
   }
@@ -230,5 +334,12 @@ export class ClaudeCli extends EventEmitter {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
     return resolve(__dirname, '..', 'mcp', 'permission-server.js');
+  }
+
+  private getStatusLineWriterPath(): string {
+    // Get the path to the status line writer script
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    return resolve(__dirname, '..', 'statusline', 'writer.js');
   }
 }
