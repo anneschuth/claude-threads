@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.0] - 2026-01-03
+
+### Added
+- **Session history retention** - Sessions are now soft-deleted instead of permanently removed when they complete. Session history is kept for display in the sticky message (up to 5 recent sessions). Old history is permanently cleaned up after 3 days.
+- **Git branch in session header** - Display the current git branch in the session header table when working in a git repository, providing visibility into which branch the session is operating on.
+
+### Fixed
+- **Accurate context usage via status line** - Uses Claude Code's status line feature to get accurate context window usage percentage instead of cumulative billing tokens. Adds a status line writer script that receives accurate per-request token data.
+
 ## [0.30.0] - 2026-01-03
 
 ### Added
