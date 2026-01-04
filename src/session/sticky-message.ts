@@ -7,6 +7,7 @@
  */
 
 import type { Session } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
 import type { WorktreeMode } from '../config.js';
@@ -201,6 +202,28 @@ function getActiveTask(session: Session): string | null {
     return match[1].trim();
   }
   return null;
+}
+
+/**
+ * Get status indicator emoji for a session.
+ * Used in sticky message to show session state at a glance.
+ */
+function getStatusIndicator(session: Session): string {
+  const status = getSessionStatus(session);
+  switch (status) {
+    case 'starting':
+      return '🟡'; // Yellow - starting up
+    case 'active':
+      return '🟢'; // Green - actively working
+    case 'idle':
+      return '⚪'; // White - idle/waiting
+    case 'stopping':
+      return '🟠'; // Orange - stopping
+    case 'paused':
+      return '⏸️'; // Paused - timed out
+    default:
+      return '⚪';
+  }
 }
 
 /**
@@ -415,6 +438,9 @@ export async function buildStickyMessage(
     const displayName = session.startedByDisplayName || session.startedBy;
     const time = formatRelativeTimeShort(session.startedAt);
 
+    // Status indicator (🟢 active, ⚪ idle, 🟡 starting, etc.)
+    const statusIcon = getStatusIndicator(session);
+
     // Build task progress if available (e.g., "3/7")
     const taskProgress = getTaskProgress(session);
     const progressStr = taskProgress ? ` · ${taskProgress}` : '';
@@ -422,7 +448,7 @@ export async function buildStickyMessage(
     // Build PR link if available (compact format on same line)
     const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
 
-    lines.push(`▸ ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time}`);
+    lines.push(`${statusIcon} ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {
