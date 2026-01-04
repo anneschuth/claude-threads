@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.8] - 2026-01-04
+
+### Fixed
+- **Session resume broken after v0.33.7** - Fixed migration issue where sessions persisted with the old `timeoutPostId` field name couldn't be resumed after upgrading to v0.33.7. The `timeoutPostId` → `lifecyclePostId` rename now includes a proper migration that converts existing sessions on first load.
+
 ## [0.33.7] - 2026-01-04
 
 ### Changed
