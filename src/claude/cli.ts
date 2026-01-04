@@ -358,10 +358,9 @@ export class ClaudeCli extends EventEmitter {
 
       try {
         const event = JSON.parse(trimmed) as ClaudeEvent;
-        this.log.debug(`Event: ${event.type} ${JSON.stringify(event).substring(0, 200)}`);
         this.emit('event', event);
       } catch {
-        this.log.debug(`Raw: ${trimmed.substring(0, 200)}`);
+        // Ignore unparseable lines (usually partial JSON from streaming)
       }
     }
   }
