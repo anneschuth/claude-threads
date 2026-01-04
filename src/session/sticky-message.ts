@@ -601,7 +601,7 @@ async function updateStickyMessageImpl(
 
     log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
   } catch (err) {
-    log.error(`⚠️ Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
+    log.error(`Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
   }
 }
 
@@ -701,6 +701,6 @@ export async function cleanupOldStickyMessages(
       }
     }
   } catch (err) {
-    log.error(`⚠️ Failed to cleanup old sticky messages`, err instanceof Error ? err : undefined);
+    log.error(`Failed to cleanup old sticky messages`, err instanceof Error ? err : undefined);
   }
 }

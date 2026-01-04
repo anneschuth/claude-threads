@@ -121,7 +121,7 @@ class KeepAliveManager {
         this.startWindowsKeepAlive();
         break;
       default:
-        log.info(`Keep-alive not supported on ${this.platform}`);
+        log.warn(`Keep-alive not supported on ${this.platform}`);
     }
   }
 
@@ -234,7 +234,7 @@ class KeepAliveManager {
       );
 
       this.keepAliveProcess.on('error', (err) => {
-        log.info(`Linux keep-alive fallback not available: ${err.message}`);
+        log.warn(`Linux keep-alive fallback not available: ${err.message}`);
         this.keepAliveProcess = null;
       });
 
@@ -244,7 +244,7 @@ class KeepAliveManager {
 
       log.info('Sleep prevention active (xdg-screensaver)');
     } catch (err) {
-      log.info(`Linux keep-alive not available: ${err}`);
+      log.warn(`Linux keep-alive not available: ${err}`);
     }
   }
 
@@ -283,7 +283,7 @@ class KeepAliveManager {
       );
 
       this.keepAliveProcess.on('error', (err) => {
-        log.info(`Windows keep-alive not available: ${err.message}`);
+        log.warn(`Windows keep-alive not available: ${err.message}`);
         this.keepAliveProcess = null;
       });
 
@@ -296,7 +296,7 @@ class KeepAliveManager {
 
       log.info('Sleep prevention active (SetThreadExecutionState)');
     } catch (err) {
-      log.info(`Windows keep-alive not available: ${err}`);
+      log.warn(`Windows keep-alive not available: ${err}`);
     }
   }
 }

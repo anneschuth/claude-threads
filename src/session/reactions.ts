@@ -45,7 +45,7 @@ export async function handleQuestionReaction(
 
   const selectedOption = question.options[optionIndex];
   question.answer = selectedOption.label;
-  if (ctx.config.debug) log.debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
+  log.debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
   await withErrorHandling(
@@ -68,7 +68,7 @@ export async function handleQuestionReaction(
       answersText += `- **${q.header}**: ${q.answer}\n`;
     }
 
-    if (ctx.config.debug) log.debug('✅ All questions answered');
+    log.debug('✅ All questions answered');
 
     // Clear pending questions
     session.pendingQuestionSet = null;
