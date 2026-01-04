@@ -205,24 +205,23 @@ function getActiveTask(session: Session): string | null {
 }
 
 /**
- * Get status indicator emoji for a session.
- * Used in sticky message to show session state at a glance.
+ * Get status indicator for a session.
+ * Uses small, subtle text symbols at end of line.
  */
 function getStatusIndicator(session: Session): string {
   const status = getSessionStatus(session);
   switch (status) {
     case 'starting':
-      return '🟡'; // Yellow - starting up
     case 'active':
-      return '🟢'; // Green - actively working
+      return '●'; // Filled circle - working
     case 'idle':
-      return '⚪'; // White - idle/waiting
+      return '○'; // Empty circle - idle/waiting
     case 'stopping':
-      return '🟠'; // Orange - stopping
+      return '◌'; // Dotted circle - stopping
     case 'paused':
-      return '⏸️'; // Paused - timed out
+      return '⏸'; // Paused
     default:
-      return '⚪';
+      return '○';
   }
 }
 
@@ -438,9 +437,6 @@ export async function buildStickyMessage(
     const displayName = session.startedByDisplayName || session.startedBy;
     const time = formatRelativeTimeShort(session.startedAt);
 
-    // Status indicator (🟢 active, ⚪ idle, 🟡 starting, etc.)
-    const statusIcon = getStatusIndicator(session);
-
     // Build task progress if available (e.g., "3/7")
     const taskProgress = getTaskProgress(session);
     const progressStr = taskProgress ? ` · ${taskProgress}` : '';
@@ -448,7 +444,10 @@ export async function buildStickyMessage(
     // Build PR link if available (compact format on same line)
     const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
 
-    lines.push(`${statusIcon} ${threadLink} · **${displayName}**${progressStr}${prStr} · ${time}`);
+    // Status indicator at end (● active, ○ idle)
+    const statusIcon = getStatusIndicator(session);
+
+    lines.push(`${threadLink} · **${displayName}**${progressStr}${prStr} · ${time} ${statusIcon}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {

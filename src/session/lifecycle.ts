@@ -22,6 +22,17 @@ import type { SessionContext } from './context.js';
 
 const log = createLogger('lifecycle');
 
+/**
+ * Get a session-scoped logger for session events.
+ * Uses session ID if available, otherwise falls back to global logger.
+ */
+function sessionLog(session: Session | null | undefined) {
+  if (session?.sessionId) {
+    return log.forSession(session.sessionId);
+  }
+  return log;
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers for DRY code
 // ---------------------------------------------------------------------------
@@ -294,7 +305,7 @@ export async function startSession(
   mutableSessions(ctx).set(sessionId, session);
   ctx.ops.registerPost(post.id, actualThreadId);
   ctx.ops.emitSessionAdd(session);
-  log.info(`▶ Session #${ctx.state.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
+  sessionLog(session).info(`▶ Session started by @${username}`);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -516,7 +527,7 @@ export async function resumeSession(
 
   try {
     claude.start();
-    log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
+    sessionLog(session).info(`🔄 Session resumed (@${state.startedBy})`);
 
     // Post or update resume message
     // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
