@@ -12,6 +12,7 @@ import type { SessionStore, PersistedSession } from '../persistence/session-stor
 import type { WorktreeMode } from '../config.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
+import { formatRelativeTimeShort } from '../utils/format.js';
 import { VERSION } from '../version.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
@@ -165,20 +166,6 @@ export function initialize(store: SessionStore): void {
   }
 }
 
-/**
- * Format a date as relative time (e.g., "5m ago", "2h ago")
- */
-function formatRelativeTime(date: Date): string {
-  const now = Date.now();
-  const diff = now - date.getTime();
-  const minutes = Math.floor(diff / 60000);
-  const hours = Math.floor(minutes / 60);
-
-  if (minutes < 1) return 'just now';
-  if (minutes < 60) return `${minutes}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.floor(hours / 24)}d ago`;
-}
 
 
 /**
@@ -248,8 +235,9 @@ function formatHistoryEntry(session: PersistedSession): string[] {
   const topic = getHistorySessionTopic(session);
   const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
   const displayName = session.startedByDisplayName || session.startedBy;
-  const cleanedAt = session.cleanedAt ? new Date(session.cleanedAt) : new Date(session.lastActivityAt);
-  const time = formatRelativeTime(cleanedAt);
+  // Show when the user last worked on it, not when it was cleaned up
+  const lastActivity = new Date(session.lastActivityAt);
+  const time = formatRelativeTimeShort(lastActivity);
 
   // Build PR link if available
   const prStr = session.pullRequestUrl ? ` · ${formatPullRequestLink(session.pullRequestUrl)}` : '';
@@ -408,7 +396,7 @@ export async function buildStickyMessage(
     const topic = getSessionTopic(session);
     const threadLink = `[${topic}](/_redirect/pl/${session.threadId})`;
     const displayName = session.startedByDisplayName || session.startedBy;
-    const time = formatRelativeTime(session.startedAt);
+    const time = formatRelativeTimeShort(session.startedAt);
 
     // Build task progress if available (e.g., "3/7")
     const taskProgress = getTaskProgress(session);
