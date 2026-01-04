@@ -19,6 +19,7 @@ import {
   MIN_BREAK_THRESHOLD,
 } from './streaming.js';
 import { withErrorHandling } from './error-handler.js';
+import { resetSessionActivity } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
@@ -133,9 +134,10 @@ export function handleEvent(
   event: ClaudeEvent,
   ctx: SessionContext
 ): void {
-  // Update last activity and reset timeout warning
-  session.lastActivityAt = new Date();
-  session.timeoutWarningPosted = false;
+  // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
+  // Note: compactionPostId is NOT cleared here because compaction events come in sequence
+  // and we need to preserve the ID between start and completion events
+  resetSessionActivity(session);
 
   // On first meaningful response from Claude, mark session as safe to resume and persist
   // This ensures we don't persist sessions where Claude dies before saving its conversation
@@ -185,6 +187,19 @@ export function handleEvent(
           handleTaskComplete(session, block.tool_use_id, postId);
         }
       }
+    }
+  }
+
+  // Handle compaction events specially - repurpose the "Compacting..." post
+  if (event.type === 'system') {
+    const e = event as ClaudeEvent & { subtype?: string; status?: string; compact_metadata?: unknown };
+    if (e.subtype === 'status' && e.status === 'compacting') {
+      handleCompactionStart(session, ctx);
+      return; // Don't process further - we've handled this event
+    }
+    if (e.subtype === 'compact_boundary') {
+      handleCompactionComplete(session, e.compact_metadata, ctx);
+      return; // Don't process further - we've handled this event
     }
   }
 
@@ -313,24 +328,8 @@ function formatEvent(
     }
     case 'system': {
       if (e.subtype === 'error') return `❌ ${e.error}`;
-
-      // Handle compaction status events
-      if (e.subtype === 'status' && e.status === 'compacting') {
-        return `🗜️ **Compacting context...** *(freeing up memory)*`;
-      }
-
-      // Handle compact_boundary event - marks when compaction is complete
-      if (e.subtype === 'compact_boundary') {
-        const metadata = e.compact_metadata as { trigger?: string; pre_tokens?: number } | undefined;
-        const trigger = metadata?.trigger || 'auto';
-        const preTokens = metadata?.pre_tokens;
-        let info = trigger === 'manual' ? 'manual' : 'auto';
-        if (preTokens && preTokens > 0) {
-          info += `, ${Math.round(preTokens / 1000)}k tokens`;
-        }
-        return `✅ **Context compacted** *(${info})*`;
-      }
-
+      // Note: Compaction events (status: 'compacting' and compact_boundary) are handled
+      // specially in handleEvent to support post repurposing - they never reach here.
       return null;
     }
     case 'user': {
@@ -585,6 +584,68 @@ async function handleTaskComplete(
     { action: 'Update subagent completion', session }
   );
   session.activeSubagents.delete(toolUseId);
+}
+
+// ---------------------------------------------------------------------------
+// Compaction handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle compaction start - create a dedicated post that we can update later.
+ */
+async function handleCompactionStart(
+  session: Session,
+  ctx: SessionContext
+): Promise<void> {
+  // Flush any pending content first to avoid mixing with compaction message
+  await ctx.ops.flush(session);
+  session.currentPostId = null;
+  session.pendingContent = '';
+
+  // Create the compaction status post
+  const message = '🗜️ **Compacting context...** *(freeing up memory)*';
+  const post = await withErrorHandling(
+    () => session.platform.createPost(message, session.threadId),
+    { action: 'Post compaction start', session }
+  );
+
+  if (post) {
+    session.compactionPostId = post.id;
+  }
+}
+
+/**
+ * Handle compaction complete - update the existing compaction post.
+ */
+async function handleCompactionComplete(
+  session: Session,
+  compactMetadata: unknown,
+  _ctx: SessionContext
+): Promise<void> {
+  // Build the completion message with metadata
+  const metadata = compactMetadata as { trigger?: string; pre_tokens?: number } | undefined;
+  const trigger = metadata?.trigger || 'auto';
+  const preTokens = metadata?.pre_tokens;
+  let info = trigger === 'manual' ? 'manual' : 'auto';
+  if (preTokens && preTokens > 0) {
+    info += `, ${Math.round(preTokens / 1000)}k tokens`;
+  }
+  const completionMessage = `✅ **Context compacted** *(${info})*`;
+
+  if (session.compactionPostId) {
+    // Update the existing compaction post
+    await withErrorHandling(
+      () => session.platform.updatePost(session.compactionPostId!, completionMessage),
+      { action: 'Update compaction complete', session }
+    );
+    session.compactionPostId = undefined;
+  } else {
+    // Fallback: create a new post if we don't have the original
+    await withErrorHandling(
+      () => session.platform.createPost(completionMessage, session.threadId),
+      { action: 'Post compaction complete', session }
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

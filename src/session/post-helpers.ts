@@ -242,6 +242,18 @@ export async function postWithReactionsAndRegister(
   return post;
 }
 
+/**
+ * Reset session activity state and clear duo-post tracking.
+ * Call this when activity occurs to prevent updating stale posts in long threads.
+ *
+ * @param session - The session to reset activity for
+ */
+export function resetSessionActivity(session: Session): void {
+  session.lastActivityAt = new Date();
+  session.timeoutWarningPosted = false;
+  session.timeoutPostId = undefined;
+}
+
 // =============================================================================
 // Bold/Formatted Message Helpers
 // =============================================================================

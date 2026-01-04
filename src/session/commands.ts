@@ -24,7 +24,7 @@ import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
-import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser } from './post-helpers.js';
+import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser, resetSessionActivity } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
@@ -237,9 +237,8 @@ export async function changeDirectory(
   // Post confirmation
   await postCommand(session, `**Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`);
 
-  // Update activity
-  session.lastActivityAt = new Date();
-  session.timeoutWarningPosted = false;
+  // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
+  resetSessionActivity(session);
 
   // Mark session to offer context prompt on next message
   // This allows the user to include thread history after directory change
@@ -381,9 +380,8 @@ export async function enableInteractivePermissions(
   await postSecure(session, `**Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`);
   log.info(`🔐 Interactive permissions enabled for session by @${username}`);
 
-  // Update activity and persist
-  session.lastActivityAt = new Date();
-  session.timeoutWarningPosted = false;
+  // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
+  resetSessionActivity(session);
   ctx.ops.persistSession(session);
 }
 

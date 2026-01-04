@@ -547,7 +547,7 @@ describe('handleEvent with compaction events', () => {
     });
   });
 
-  test('displays compacting status when compaction starts', () => {
+  test('creates post when compaction starts and stores post ID', async () => {
     const event = {
       type: 'system' as const,
       subtype: 'status',
@@ -557,12 +557,27 @@ describe('handleEvent with compaction events', () => {
 
     handleEvent(session, event, ctx);
 
-    expect(appendedContent).toHaveLength(1);
-    expect(appendedContent[0]).toContain('🗜️');
-    expect(appendedContent[0]).toContain('Compacting context');
+    // Wait for async post creation
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have created a post (not appended content)
+    expect(appendedContent).toHaveLength(0);
+    expect(platform.createPost).toHaveBeenCalled();
+
+    // Get the post content from the mock
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[0]).toContain('🗜️');
+    expect(lastCall[0]).toContain('Compacting context');
+
+    // Should have stored the post ID
+    expect(session.compactionPostId).toBeDefined();
   });
 
-  test('displays compact_boundary when compaction completes (manual)', () => {
+  test('updates existing post when compaction completes (manual)', async () => {
+    // First, simulate compaction start
+    session.compactionPostId = 'compaction-post-123';
+
     const event = {
       type: 'system' as const,
       subtype: 'compact_boundary',
@@ -575,13 +590,31 @@ describe('handleEvent with compaction events', () => {
 
     handleEvent(session, event, ctx);
 
-    expect(appendedContent).toHaveLength(1);
-    expect(appendedContent[0]).toContain('✅');
-    expect(appendedContent[0]).toContain('Context compacted');
-    expect(appendedContent[0]).toContain('manual');
+    // Wait for async post update
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have updated the existing post (not appended content)
+    expect(appendedContent).toHaveLength(0);
+    expect(platform.updatePost).toHaveBeenCalledWith(
+      'compaction-post-123',
+      expect.stringContaining('✅')
+    );
+    expect(platform.updatePost).toHaveBeenCalledWith(
+      'compaction-post-123',
+      expect.stringContaining('Context compacted')
+    );
+    expect(platform.updatePost).toHaveBeenCalledWith(
+      'compaction-post-123',
+      expect.stringContaining('manual')
+    );
+
+    // Should have cleared the post ID
+    expect(session.compactionPostId).toBeUndefined();
   });
 
-  test('displays compact_boundary when compaction completes (auto)', () => {
+  test('updates existing post when compaction completes (auto)', async () => {
+    session.compactionPostId = 'compaction-post-456';
+
     const event = {
       type: 'system' as const,
       subtype: 'compact_boundary',
@@ -594,14 +627,22 @@ describe('handleEvent with compaction events', () => {
 
     handleEvent(session, event, ctx);
 
-    expect(appendedContent).toHaveLength(1);
-    expect(appendedContent[0]).toContain('✅');
-    expect(appendedContent[0]).toContain('Context compacted');
-    expect(appendedContent[0]).toContain('auto');
-    expect(appendedContent[0]).toContain('150k tokens');
+    // Wait for async post update
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(appendedContent).toHaveLength(0);
+    expect(platform.updatePost).toHaveBeenCalledWith(
+      'compaction-post-456',
+      expect.stringContaining('auto')
+    );
+    expect(platform.updatePost).toHaveBeenCalledWith(
+      'compaction-post-456',
+      expect.stringContaining('150k tokens')
+    );
   });
 
-  test('handles compact_boundary without metadata', () => {
+  test('creates new post for compact_boundary if no compaction post ID exists', async () => {
+    // No compactionPostId set - fallback behavior
     const event = {
       type: 'system' as const,
       subtype: 'compact_boundary',
@@ -610,10 +651,16 @@ describe('handleEvent with compaction events', () => {
 
     handleEvent(session, event, ctx);
 
-    expect(appendedContent).toHaveLength(1);
-    expect(appendedContent[0]).toContain('✅');
-    expect(appendedContent[0]).toContain('Context compacted');
-    expect(appendedContent[0]).toContain('auto'); // Default to 'auto' when no trigger specified
+    // Wait for async post creation
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should create a new post as fallback
+    expect(appendedContent).toHaveLength(0);
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const lastCall = calls[calls.length - 1];
+    expect(lastCall[0]).toContain('✅');
+    expect(lastCall[0]).toContain('Context compacted');
+    expect(lastCall[0]).toContain('auto'); // Default when no trigger specified
   });
 
   test('does not display anything for status=null event', () => {
