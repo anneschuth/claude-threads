@@ -535,7 +535,6 @@ async function updateStickyMessageImpl(
   const shouldBump = needsBump.get(platform.platformId) ?? false;
 
   log.debug(`existingPostId: ${existingPostId || '(none)'}, needsBump: ${shouldBump}`);
-  log.debug(`content preview: ${content.substring(0, 100).replace(/\n/g, '\\n')}...`);
 
   try {
     // If we have an existing post and no bump is needed, just update in place
