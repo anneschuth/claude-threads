@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.4] - 2026-01-04
+
+### Fixed
+- **Graceful shutdown now actually waits** - Fixed issue where Ctrl-C would exit immediately instead of waiting for Claude CLI processes to exit gracefully. The `kill()` method now returns a Promise that resolves when the process exits, and shutdown waits for all sessions to complete (up to 2 seconds per session).
+- **Signal handlers now work correctly** - Fixed conflict with `when-exit` package (transitive dependency via `update-notifier`) that was intercepting SIGINT before our handlers could run. Now removes conflicting handlers before registering our own.
+- **No more reconnection attempts during shutdown** - WebSocket client now tracks intentional disconnects and skips reconnection attempts when shutting down gracefully.
+
 ## [0.33.3] - 2026-01-04
 
 ### Fixed

@@ -48,7 +48,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     platform: createMockPlatform(),
     claude: {
       isRunning: mock(() => true),
-      kill: mock(() => {}),
+      kill: mock(() => Promise.resolve()),
       start: mock(() => {}),
       sendMessage: mock(() => {}),
       on: mock(() => {}),
@@ -191,7 +191,7 @@ describe('Lifecycle Module', () => {
   });
 
   describe('killAllSessions', () => {
-    it('kills all active sessions', () => {
+    it('kills all active sessions', async () => {
       const session1 = createMockSession({ sessionId: 'p:t1', threadId: 't1' });
       const session2 = createMockSession({ sessionId: 'p:t2', threadId: 't2' });
       const sessions = new Map([
@@ -200,19 +200,19 @@ describe('Lifecycle Module', () => {
       ]);
       const ctx = createMockSessionContext(sessions);
 
-      lifecycle.killAllSessions(ctx);
+      await lifecycle.killAllSessions(ctx);
 
       expect(session1.claude.kill).toHaveBeenCalled();
       expect(session2.claude.kill).toHaveBeenCalled();
       expect(sessions.size).toBe(0);
     });
 
-    it('preserves sessions in store for resume', () => {
+    it('preserves sessions in store for resume', async () => {
       const session = createMockSession();
       const sessions = new Map([['test-platform:thread-123', session]]);
       const ctx = createMockSessionContext(sessions);
 
-      lifecycle.killAllSessions(ctx);
+      await lifecycle.killAllSessions(ctx);
 
       // killAllSessions preserves state for resume, so remove should NOT be called
       expect(ctx.state.sessionStore.remove).not.toHaveBeenCalled();

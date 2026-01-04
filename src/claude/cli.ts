@@ -415,39 +415,43 @@ export class ClaudeCli extends EventEmitter {
    * Kill the Claude CLI process.
    * Sends two SIGINTs (like Ctrl+C twice in interactive mode) to allow graceful shutdown,
    * then SIGTERM after a timeout if it doesn't exit.
+   * Returns a Promise that resolves when the process has exited.
    */
-  kill(): void {
+  kill(): Promise<void> {
     this.stopStatusWatch();
-    if (!this.process) return;
+    if (!this.process) return Promise.resolve();
 
     const proc = this.process;
     this.process = null;
 
-    // Send first SIGINT (interrupts current operation)
-    proc.kill('SIGINT');
+    return new Promise<void>((resolve) => {
+      // Send first SIGINT (interrupts current operation)
+      proc.kill('SIGINT');
 
-    // Send second SIGINT after brief delay (triggers exit in interactive mode)
-    const secondSigint = setTimeout(() => {
-      try {
-        proc.kill('SIGINT');
-      } catch {
-        // Process may have already exited
-      }
-    }, 100);
+      // Send second SIGINT after brief delay (triggers exit in interactive mode)
+      const secondSigint = setTimeout(() => {
+        try {
+          proc.kill('SIGINT');
+        } catch {
+          // Process may have already exited
+        }
+      }, 100);
 
-    // Force kill with SIGTERM if still running after grace period
-    const forceKillTimeout = setTimeout(() => {
-      try {
-        proc.kill('SIGTERM');
-      } catch {
-        // Process may have already exited
-      }
-    }, 2000); // 2 second grace period for Claude to save conversation
+      // Force kill with SIGTERM if still running after grace period
+      const forceKillTimeout = setTimeout(() => {
+        try {
+          proc.kill('SIGTERM');
+        } catch {
+          // Process may have already exited
+        }
+      }, 2000); // 2 second grace period for Claude to save conversation
 
-    // Clear timeouts if process exits cleanly
-    proc.once('exit', () => {
-      clearTimeout(secondSigint);
-      clearTimeout(forceKillTimeout);
+      // Resolve when process exits
+      proc.once('exit', () => {
+        clearTimeout(secondSigint);
+        clearTimeout(forceKillTimeout);
+        resolve();
+      });
     });
   }
 

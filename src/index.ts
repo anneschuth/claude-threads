@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+
 import { program } from 'commander';
 import { loadConfigWithMigration, configExists as checkConfigExists, type MattermostPlatformConfig } from './config/migration.js';
 import type { CliArgs } from './config.js';
@@ -477,14 +478,21 @@ async function main() {
       }
     }
 
-    session.killAllSessions();
+    await session.killAllSessions();
     mattermost.disconnect();
     // Don't call process.exit() here - let the signal handler do it after we resolve
   };
+  // Remove any existing signal handlers (e.g., from 'when-exit' package)
+  // and register our own to ensure graceful shutdown
+  process.removeAllListeners('SIGINT');
+  process.removeAllListeners('SIGTERM');
+
   process.on('SIGINT', () => {
+    console.log('\n  👋 Shutting down (SIGINT)...');
     shutdown().finally(() => process.exit(0));
   });
   process.on('SIGTERM', () => {
+    console.log('\n  👋 Shutting down (SIGTERM)...');
     shutdown().finally(() => process.exit(0));
   });
 }

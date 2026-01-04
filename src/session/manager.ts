@@ -683,8 +683,8 @@ export class SessionManager {
     await lifecycle.killSession(session, unpersist, this.getContext());
   }
 
-  killAllSessions(): void {
-    lifecycle.killAllSessions(this.getContext());
+  async killAllSessions(): Promise<void> {
+    await lifecycle.killAllSessions(this.getContext());
   }
 
   // Commands

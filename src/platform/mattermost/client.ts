@@ -59,6 +59,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   // Track last processed post for message recovery after disconnection
   private lastProcessedPostId: string | null = null;
   private isReconnecting = false;
+  private isIntentionalDisconnect = false;
 
   constructor(platformConfig: MattermostPlatformConfig) {
     super();
@@ -458,7 +459,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         wsLogger.debug('WebSocket disconnected');
         this.stopHeartbeat();
         this.emit('disconnected');
-        this.scheduleReconnect();
+        // Only reconnect if this wasn't an intentional disconnect
+        if (!this.isIntentionalDisconnect) {
+          this.scheduleReconnect();
+        }
       };
 
       this.ws.onerror = (event) => {
@@ -689,6 +693,8 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   disconnect(): void {
+    this.isIntentionalDisconnect = true;
+    this.stopHeartbeat();
     if (this.ws) {
       this.ws.close();
       this.ws = null;

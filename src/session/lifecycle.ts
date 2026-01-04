@@ -823,16 +823,23 @@ export async function killSession(
 /**
  * Kill all active sessions.
  * If isShuttingDown is true, persists sessions before killing so they can resume on restart.
+ * Returns a Promise that resolves when all processes have exited.
  */
-export function killAllSessions(ctx: SessionContext): void {
+export async function killAllSessions(ctx: SessionContext): Promise<void> {
+  const killPromises: Promise<void>[] = [];
+
   for (const session of ctx.state.sessions.values()) {
     ctx.ops.stopTyping(session);
     // Persist session state before killing if we're shutting down gracefully
     if (ctx.state.isShuttingDown) {
       ctx.ops.persistSession(session);
     }
-    session.claude.kill();
+    killPromises.push(session.claude.kill());
   }
+
+  // Wait for all processes to exit
+  await Promise.all(killPromises);
+
   mutableSessions(ctx).clear();
   mutablePostIndex(ctx).clear();
 
