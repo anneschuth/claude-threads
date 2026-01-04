@@ -504,7 +504,7 @@ export async function resumeSession(
     sessionDescription: state.sessionDescription,
     pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
-    isProcessing: true,  // Starts as true since we're resuming with a message
+    isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
   };
