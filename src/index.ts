@@ -9,11 +9,11 @@ import { SessionManager } from './session/index.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
-import { printLogo } from './logo.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
-import { dim, bold, cyan, yellow, red } from './utils/output.js';
+import { dim, red } from './utils/output.js';
 import { validateClaudeCli } from './claude/version-check.js';
+import { startUI, type UIInstance } from './ui/index.js';
 
 // Define CLI options
 program
@@ -103,42 +103,8 @@ async function main() {
 
   const config = newConfig;
 
-  // Print ASCII logo
-  printLogo();
-
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
-
-  // Startup info
-  console.log(dim(`  v${VERSION}`));
-  console.log('');
-  console.log(`  📂 ${cyan(workingDir)}`);
-  console.log(`  💬 ${cyan('@' + platformConfig.botName)}`);
-  console.log(`  🌐 ${dim(platformConfig.url)}`);
-
-  // Display Claude CLI version
-  if (claudeValidation.installed) {
-    if (claudeValidation.compatible) {
-      console.log(`  🤖 ${dim(`Claude CLI ${claudeValidation.version}`)}`);
-    } else {
-      console.log(`  🤖 ${yellow(`Claude CLI ${claudeValidation.version} (incompatible)`)}`);
-    }
-  } else {
-    console.log(`  🤖 ${red('Claude CLI not found')}`);
-  }
-
-  if (platformConfig.skipPermissions) {
-    console.log(`  ⚠️ ${dim('Permissions disabled')}`);
-  } else {
-    console.log(`  🔐 ${dim('Interactive permissions')}`);
-  }
-  if (config.chrome) {
-    console.log(`  🌐 ${dim('Chrome integration enabled')}`);
-  }
-  if (keepAliveEnabled) {
-    console.log(`  ☕ ${dim('Keep-alive enabled')}`);
-  }
-  console.log('');
 
   // Fail on incompatible version unless --skip-version-check is set
   if (!claudeValidation.compatible && !opts.skipVersionCheck) {
@@ -148,6 +114,19 @@ async function main() {
     console.error('');
     process.exit(1);
   }
+
+  // Start the Ink UI
+  const ui: UIInstance = await startUI({
+    version: VERSION,
+    workingDir,
+    botName: platformConfig.botName,
+    url: platformConfig.url,
+    claudeVersion: claudeValidation.version || 'unknown',
+    claudeCompatible: claudeValidation.compatible,
+    skipPermissions: platformConfig.skipPermissions,
+    chromeEnabled: config.chrome ?? false,
+    keepAliveEnabled,
+  });
 
   const mattermost = new MattermostClient(platformConfig);
   const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
@@ -440,16 +419,21 @@ async function main() {
     }
   });
 
-  mattermost.on('connected', () => {});
-  mattermost.on('error', (e) => console.error('  ❌ Error:', e));
+  // Wire up platform events to UI
+  mattermost.on('connected', () => {
+    ui.setPlatformStatus(platformConfig.id, { connected: true, reconnecting: false });
+  });
+  mattermost.on('error', (e) => {
+    ui.addLog({ level: 'error', component: 'mattermost', message: String(e) });
+  });
 
   await mattermost.connect();
 
   // Resume any persisted sessions from before restart
   await session.initialize();
 
-  console.log(`  ✅ ${bold('Ready!')} Waiting for @${platformConfig.botName} mentions...`);
-  console.log('');
+  // Mark UI as ready
+  ui.setReady();
 
   let isShuttingDown = false;
   const shutdown = async () => {

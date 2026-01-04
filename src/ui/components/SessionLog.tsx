@@ -1,0 +1,47 @@
+/**
+ * SessionLog component - displays log entries for a session
+ */
+import { Box, Text } from 'ink';
+import type { LogEntry } from '../types.js';
+
+interface SessionLogProps {
+  logs: LogEntry[];
+  maxLines?: number;
+}
+
+function getColorForLevel(level: LogEntry['level']): string | undefined {
+  switch (level) {
+    case 'error': return 'red';
+    case 'warn': return 'yellow';
+    case 'debug': return 'gray';
+    default: return undefined;
+  }
+}
+
+export function SessionLog({ logs, maxLines = 20 }: SessionLogProps) {
+  // Show last N log entries
+  const displayLogs = logs.slice(-maxLines);
+
+  if (displayLogs.length === 0) {
+    return (
+      <Box paddingLeft={2}>
+        <Text dimColor>No activity yet...</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box flexDirection="column" paddingLeft={2}>
+      {displayLogs.map((log) => (
+        <Box key={log.id} gap={1}>
+          <Text color={getColorForLevel(log.level)}>
+            [{log.component}]
+          </Text>
+          <Text color={getColorForLevel(log.level)}>
+            {log.message}
+          </Text>
+        </Box>
+      ))}
+    </Box>
+  );
+}
