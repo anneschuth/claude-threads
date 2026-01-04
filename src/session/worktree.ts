@@ -21,7 +21,7 @@ import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
-import { postWarning, postError, postSuccess, postInfo } from './post-helpers.js';
+import { postWarning, postError, postSuccess, postInfo, resetSessionActivity } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('worktree');
@@ -333,9 +333,8 @@ export async function createAndSwitchToWorktree(
     const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
     await postSuccess(session, `**Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`);
 
-    // Update activity and persist
-    session.lastActivityAt = new Date();
-    session.timeoutWarningPosted = false;
+    // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
+    resetSessionActivity(session);
     options.persistSession(session);
 
     // Send the initial prompt to the new Claude CLI

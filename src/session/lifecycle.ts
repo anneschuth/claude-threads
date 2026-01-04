@@ -498,8 +498,19 @@ export async function resumeSession(
     claude.start();
     log.info(`Resumed session ${shortId}... (@${state.startedBy})`);
 
-    // Post resume message
-    await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
+    // Post or update resume message
+    // If we have a timeoutPostId, this was a timeout resume - update that post
+    // Otherwise (bot restart), create a new post
+    if (state.timeoutPostId) {
+      await withErrorHandling(
+        () => session.platform.updatePost(state.timeoutPostId!, `🔄 **Session resumed** by @${state.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
+        { action: 'Update timeout post for resume', session }
+      );
+      // Clear the timeoutPostId since we're no longer in timeout state
+      session.timeoutPostId = undefined;
+    } else {
+      await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
+    }
 
     // Update session header
     await ctx.ops.updateSessionHeader(session);
@@ -869,17 +880,27 @@ export async function cleanupIdleSessions(
     if (idleMs > timeoutMs) {
       log.info(`⏰ Session (${shortId}…) timed out after ${Math.round(idleMs / 60000)}min idle`);
 
-      // Post timeout message with resume hint and save the post ID
-      const timeoutPost = await withErrorHandling(
-        () => postTimeout(session, `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`),
-        { action: 'Post session timeout', session }
-      );
-      if (timeoutPost) {
-        // Store the timeout post ID for resume via reaction
-        session.timeoutPostId = timeoutPost.id;
-        ctx.ops.persistSession(session);
-        ctx.ops.registerPost(timeoutPost.id, session.threadId);
+      const timeoutMessage = `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
+
+      // Update existing warning post or create a new one
+      if (session.timeoutPostId) {
+        // Update the existing warning post to show timeout
+        await withErrorHandling(
+          () => session.platform.updatePost(session.timeoutPostId!, `⏱️ ${timeoutMessage}`),
+          { action: 'Update timeout post', session }
+        );
+      } else {
+        // Create new timeout post (no warning was posted)
+        const timeoutPost = await withErrorHandling(
+          () => postTimeout(session, timeoutMessage),
+          { action: 'Post session timeout', session }
+        );
+        if (timeoutPost) {
+          session.timeoutPostId = timeoutPost.id;
+          ctx.ops.registerPost(timeoutPost.id, session.threadId);
+        }
       }
+      ctx.ops.persistSession(session);
 
       // Kill without unpersisting to allow resume
       await killSession(session, false, ctx);
@@ -892,7 +913,17 @@ export async function cleanupIdleSessions(
     const warningThresholdMs = timeoutMs - warningMs;
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
-      postTimeout(session, `**Session idle** - will timeout in ~${remainingMins} minutes without activity`).catch(() => {});
+      const warningMessage = `**Session idle** - will timeout in ~${remainingMins} minutes without activity`;
+
+      // Create the warning post and store its ID for later updates
+      const warningPost = await withErrorHandling(
+        () => postTimeout(session, warningMessage),
+        { action: 'Post timeout warning', session }
+      );
+      if (warningPost) {
+        session.timeoutPostId = warningPost.id;
+        ctx.ops.registerPost(warningPost.id, session.threadId);
+      }
       session.timeoutWarningPosted = true;
       log.debug(`⏰ Session (${shortId}…) idle warning posted`);
     }
