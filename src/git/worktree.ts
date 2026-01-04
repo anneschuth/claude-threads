@@ -2,6 +2,9 @@ import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('git-worktree');
 
 export interface WorktreeInfo {
   path: string;
@@ -15,6 +18,9 @@ export interface WorktreeInfo {
  * Execute a git command and return stdout
  */
 async function execGit(args: string[], cwd: string): Promise<string> {
+  const cmd = `git ${args.join(' ')}`;
+  log.debug(`Executing: ${cmd}`);
+
   return new Promise((resolve, reject) => {
     const proc = spawn('git', args, { cwd });
     let stdout = '';
@@ -30,13 +36,16 @@ async function execGit(args: string[], cwd: string): Promise<string> {
 
     proc.on('close', (code) => {
       if (code === 0) {
+        log.debug(`${cmd} → success`);
         resolve(stdout.trim());
       } else {
+        log.debug(`${cmd} → failed (code=${code}): ${stderr.substring(0, 100) || stdout.substring(0, 100)}`);
         reject(new Error(`git ${args.join(' ')} failed: ${stderr || stdout}`));
       }
     });
 
     proc.on('error', (err) => {
+      log.warn(`${cmd} → error: ${err}`);
       reject(err);
     });
   });
@@ -49,7 +58,8 @@ export async function isGitRepository(dir: string): Promise<boolean> {
   try {
     await execGit(['rev-parse', '--git-dir'], dir);
     return true;
-  } catch {
+  } catch (err) {
+    log.debug(`Not a git repository: ${dir} (${err})`);
     return false;
   }
 }
@@ -192,8 +202,11 @@ export async function createWorktree(
   branch: string,
   targetDir: string
 ): Promise<string> {
+  log.info(`Creating worktree for branch '${branch}' at ${targetDir}`);
+
   // Ensure the parent directory exists
   const parentDir = path.dirname(targetDir);
+  log.debug(`Creating parent directory: ${parentDir}`);
   await fs.mkdir(parentDir, { recursive: true });
 
   // Check if branch exists
@@ -201,12 +214,15 @@ export async function createWorktree(
 
   if (exists) {
     // Use existing branch
+    log.debug(`Branch '${branch}' exists, adding worktree`);
     await execGit(['worktree', 'add', targetDir, branch], repoRoot);
   } else {
     // Create new branch from HEAD
+    log.debug(`Branch '${branch}' does not exist, creating with worktree`);
     await execGit(['worktree', 'add', '-b', branch, targetDir], repoRoot);
   }
 
+  log.info(`Worktree created successfully: ${targetDir}`);
   return targetDir;
 }
 
@@ -214,16 +230,22 @@ export async function createWorktree(
  * Remove a worktree
  */
 export async function removeWorktree(repoRoot: string, worktreePath: string): Promise<void> {
+  log.info(`Removing worktree: ${worktreePath}`);
+
   // First try to remove cleanly
   try {
     await execGit(['worktree', 'remove', worktreePath], repoRoot);
-  } catch {
+    log.debug('Worktree removed cleanly');
+  } catch (err) {
     // If that fails, try force remove
+    log.debug(`Clean remove failed (${err}), trying force remove`);
     await execGit(['worktree', 'remove', '--force', worktreePath], repoRoot);
   }
 
   // Prune any stale worktree references
+  log.debug('Pruning stale worktree references');
   await execGit(['worktree', 'prune'], repoRoot);
+  log.info('Worktree removed and pruned successfully');
 }
 
 /**

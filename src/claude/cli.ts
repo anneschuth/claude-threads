@@ -147,8 +147,8 @@ export class ClaudeCli extends EventEmitter {
         const data = readFileSync(this.statusFilePath, 'utf8');
         this.lastStatusData = JSON.parse(data) as StatusLineData;
       }
-    } catch {
-      // Ignore read errors
+    } catch (err) {
+      this.log.debug(`Failed to read status file: ${err}`);
     }
 
     return this.lastStatusData;
@@ -159,7 +159,12 @@ export class ClaudeCli extends EventEmitter {
    * Emits 'status' event when new data is available.
    */
   startStatusWatch(): void {
-    if (!this.statusFilePath) return;
+    if (!this.statusFilePath) {
+      this.log.debug('No status file path, skipping status watch');
+      return;
+    }
+
+    this.log.debug(`Starting status watch: ${this.statusFilePath}`);
 
     const checkStatus = () => {
       const data = this.getStatusData();
@@ -284,6 +289,8 @@ export class ClaudeCli extends EventEmitter {
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],
     });
+
+    this.log.debug(`Claude process spawned: pid=${this.process.pid}`);
 
     this.process.stdout?.on('data', (chunk: Buffer) => {
       this.parseOutput(chunk.toString());
@@ -425,18 +432,26 @@ export class ClaudeCli extends EventEmitter {
    */
   kill(): Promise<void> {
     this.stopStatusWatch();
-    if (!this.process) return Promise.resolve();
+    if (!this.process) {
+      this.log.debug('Kill called but process not running');
+      return Promise.resolve();
+    }
 
     const proc = this.process;
+    const pid = proc.pid;
     this.process = null;
+
+    this.log.debug(`Killing Claude process (pid=${pid})`);
 
     return new Promise<void>((resolve) => {
       // Send first SIGINT (interrupts current operation)
+      this.log.debug('Sending first SIGINT');
       proc.kill('SIGINT');
 
       // Send second SIGINT after brief delay (triggers exit in interactive mode)
       const secondSigint = setTimeout(() => {
         try {
+          this.log.debug('Sending second SIGINT');
           proc.kill('SIGINT');
         } catch {
           // Process may have already exited
@@ -446,6 +461,7 @@ export class ClaudeCli extends EventEmitter {
       // Force kill with SIGTERM if still running after grace period
       const forceKillTimeout = setTimeout(() => {
         try {
+          this.log.debug('Sending SIGTERM (force kill)');
           proc.kill('SIGTERM');
         } catch {
           // Process may have already exited
@@ -453,7 +469,8 @@ export class ClaudeCli extends EventEmitter {
       }, 2000); // 2 second grace period for Claude to save conversation
 
       // Resolve when process exits
-      proc.once('exit', () => {
+      proc.once('exit', (code) => {
+        this.log.debug(`Claude process exited (code=${code})`);
         clearTimeout(secondSigint);
         clearTimeout(forceKillTimeout);
         resolve();
@@ -463,7 +480,11 @@ export class ClaudeCli extends EventEmitter {
 
   /** Interrupt current processing (like Escape in CLI) - keeps process alive */
   interrupt(): boolean {
-    if (!this.process) return false;
+    if (!this.process) {
+      this.log.debug('Interrupt called but process not running');
+      return false;
+    }
+    this.log.debug(`Interrupting Claude process (pid=${this.process.pid})`);
     this.process.kill('SIGINT');
     return true;
   }

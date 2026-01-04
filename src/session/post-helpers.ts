@@ -14,6 +14,15 @@
 
 import type { Session } from './types.js';
 import type { PlatformPost } from '../platform/index.js';
+import { createLogger } from '../utils/logger.js';
+import { withErrorHandling } from './error-handler.js';
+
+const log = createLogger('post-helpers');
+
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
 
 // =============================================================================
 // Core Post Functions
@@ -168,8 +177,13 @@ export async function postWithReactions(
   reactions: string[]
 ): Promise<PlatformPost> {
   const post = await session.platform.createPost(message, session.threadId);
+  sessionLog(session).debug(`Posted with ${reactions.length} reactions: ${post.id.substring(0, 8)}`);
   for (const emoji of reactions) {
-    await session.platform.addReaction(post.id, emoji);
+    try {
+      await session.platform.addReaction(post.id, emoji);
+    } catch (err) {
+      sessionLog(session).warn(`Failed to add reaction :${emoji}:: ${err}`);
+    }
   }
   return post;
 }
@@ -216,9 +230,15 @@ export async function postAndRegister(
   session: Session,
   message: string,
   registerPost: (postId: string, threadId: string) => void
-): Promise<PlatformPost> {
-  const post = await session.platform.createPost(message, session.threadId);
-  registerPost(post.id, session.threadId);
+): Promise<PlatformPost | null> {
+  const post = await withErrorHandling(
+    () => session.platform.createPost(message, session.threadId),
+    { action: 'Create post', session }
+  );
+  if (post) {
+    sessionLog(session).debug(`Posted and registered: ${post.id.substring(0, 8)}`);
+    registerPost(post.id, session.threadId);
+  }
   return post;
 }
 

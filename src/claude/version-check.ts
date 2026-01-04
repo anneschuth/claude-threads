@@ -1,5 +1,8 @@
 import { execSync } from 'child_process';
 import { satisfies, coerce } from 'semver';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('version-check');
 
 /**
  * Known compatible Claude CLI version range.
@@ -17,6 +20,8 @@ export const CLAUDE_CLI_VERSION_RANGE = '>=2.0.74 <=2.0.76';
 export function getClaudeCliVersion(): string | null {
   const claudePath = process.env.CLAUDE_PATH || 'claude';
 
+  log.debug(`Checking Claude CLI version: ${claudePath}`);
+
   try {
     const output = execSync(`${claudePath} --version`, {
       encoding: 'utf8',
@@ -26,8 +31,11 @@ export function getClaudeCliVersion(): string | null {
 
     // Output format: "2.0.76 (Claude Code)" or just "2.0.76"
     const match = output.match(/^([\d.]+)/);
-    return match ? match[1] : null;
-  } catch {
+    const version = match ? match[1] : null;
+    log.debug(`Claude CLI version: ${version || 'unknown'}`);
+    return version;
+  } catch (err) {
+    log.debug(`Failed to get Claude CLI version: ${err}`);
     return null;
   }
 }
@@ -52,9 +60,11 @@ export function validateClaudeCli(): {
   compatible: boolean;
   message: string;
 } {
+  log.debug('Validating Claude CLI installation');
   const version = getClaudeCliVersion();
 
   if (!version) {
+    log.warn('Claude CLI not found');
     return {
       installed: false,
       version: null,
@@ -66,6 +76,7 @@ export function validateClaudeCli(): {
   const compatible = isVersionCompatible(version);
 
   if (!compatible) {
+    log.warn(`Claude CLI version ${version} is not compatible (required: ${CLAUDE_CLI_VERSION_RANGE})`);
     return {
       installed: true,
       version,
@@ -75,6 +86,7 @@ export function validateClaudeCli(): {
     };
   }
 
+  log.debug(`Claude CLI validation passed: version ${version}`);
   return {
     installed: true,
     version,

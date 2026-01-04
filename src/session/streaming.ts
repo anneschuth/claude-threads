@@ -10,8 +10,14 @@ import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
 import { createLogger } from '../utils/logger.js';
+import { withErrorHandling } from './error-handler.js';
 
 const log = createLogger('streaming');
+
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
 
 // ---------------------------------------------------------------------------
 // Task display helpers
@@ -416,15 +422,20 @@ async function bumpTasksToBottomWithContent(
   const oldTasksPostId = session.tasksPostId!;
   const oldTasksContent = session.lastTasksContent;
 
+  sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
+
   // Remove the toggle emoji from the old task post before repurposing it
   try {
     await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
-  } catch {
-    // Ignore errors - emoji may not exist
+  } catch (err) {
+    sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
   }
 
   // Repurpose the task list post for the new content
-  await session.platform.updatePost(oldTasksPostId, newContent);
+  await withErrorHandling(
+    () => session.platform.updatePost(oldTasksPostId, newContent),
+    { action: 'Repurpose task post', session }
+  );
   registerPost(oldTasksPostId, session.threadId);
 
   // Create a new task list post at the bottom (if we have content to show)
@@ -439,6 +450,7 @@ async function bumpTasksToBottomWithContent(
       session.threadId
     );
     session.tasksPostId = newTasksPost.id;
+    sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
     // Register the new task post so reaction clicks are routed to this session
     registerPost(newTasksPost.id, session.threadId);
   } else {
@@ -463,13 +475,18 @@ export async function bumpTasksToBottom(
   registerPost?: (postId: string, threadId: string) => void
 ): Promise<void> {
   if (!session.tasksPostId || !session.lastTasksContent) {
+    sessionLog(session).debug('No task list to bump');
     return; // No task list to bump
   }
 
   // Don't bump completed task lists - they can stay where they are
   if (session.tasksCompleted) {
+    sessionLog(session).debug('Tasks completed, not bumping');
     return;
   }
+
+  const oldPostId = session.tasksPostId;
+  sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
 
   try {
     // Delete the old task post
@@ -485,12 +502,13 @@ export async function bumpTasksToBottom(
       session.threadId
     );
     session.tasksPostId = newPost.id;
+    sessionLog(session).debug(`Created new task post ${newPost.id.substring(0, 8)}`);
     // Register the task post so reaction clicks are routed to this session
     if (registerPost) {
       registerPost(newPost.id, session.threadId);
     }
   } catch (err) {
-    log.error(`Failed to bump tasks to bottom: ${err}`);
+    sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
   }
 }
 
@@ -512,9 +530,13 @@ export async function flush(
   session: Session,
   registerPost: (postId: string, threadId: string) => void
 ): Promise<void> {
-  if (!session.pendingContent.trim()) return;
+  if (!session.pendingContent.trim()) {
+    sessionLog(session).debug('No pending content to flush');
+    return;
+  }
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
+  sessionLog(session).debug(`Flushing ${content.length} chars`);
 
   // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
@@ -579,7 +601,10 @@ export async function flush(
         breakPoint = breakInfo.position;
       } else {
         // No good breakpoint found, just update the current post and wait
-        await session.platform.updatePost(session.currentPostId, content);
+        await withErrorHandling(
+          () => session.platform.updatePost(session.currentPostId!, content),
+          { action: 'Update post (no breakpoint)', session }
+        );
         return;
       }
     }
@@ -602,7 +627,10 @@ export async function flush(
       : firstPart;
 
     // Update the current post with the first part
-    await session.platform.updatePost(session.currentPostId, firstPartWithMarker);
+    await withErrorHandling(
+      () => session.platform.updatePost(session.currentPostId!, firstPartWithMarker),
+      { action: 'Update post with first part', session }
+    );
 
     // Start a new post for the continuation
     session.currentPostId = null;
@@ -616,9 +644,14 @@ export async function flush(
         const postId = await bumpTasksToBottomWithContent(session, '*(continued)*\n\n' + remainder, registerPost);
         session.currentPostId = postId;
       } else {
-        const post = await session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId);
-        session.currentPostId = post.id;
-        registerPost(post.id, session.threadId);
+        const post = await withErrorHandling(
+          () => session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId),
+          { action: 'Create continuation post', session }
+        );
+        if (post) {
+          session.currentPostId = post.id;
+          registerPost(post.id, session.threadId);
+        }
       }
     }
     return;
@@ -627,11 +660,15 @@ export async function flush(
   // Normal case: content fits in current post
   if (content.length > MAX_POST_LENGTH) {
     // Safety truncation if we somehow got content that's still too long
+    sessionLog(session).warn(`Content too long (${content.length}), truncating to ${MAX_POST_LENGTH - 50}`);
     content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
   }
 
   if (session.currentPostId) {
-    await session.platform.updatePost(session.currentPostId, content);
+    await withErrorHandling(
+      () => session.platform.updatePost(session.currentPostId!, content),
+      { action: 'Update current post', session }
+    );
   } else {
     // Need to create a new post
     // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
@@ -640,10 +677,16 @@ export async function flush(
       const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
       session.currentPostId = postId;
     } else {
-      const post = await session.platform.createPost(content, session.threadId);
-      session.currentPostId = post.id;
-      // Register post for reaction routing
-      registerPost(post.id, session.threadId);
+      const post = await withErrorHandling(
+        () => session.platform.createPost(content, session.threadId),
+        { action: 'Create new post', session }
+      );
+      if (post) {
+        session.currentPostId = post.id;
+        sessionLog(session).debug(`Created post ${post.id.substring(0, 8)}`);
+        // Register post for reaction routing
+        registerPost(post.id, session.threadId);
+      }
     }
   }
 }

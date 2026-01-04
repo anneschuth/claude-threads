@@ -30,12 +30,9 @@ function getStatusIndicator(status: SessionInfo['status']): { icon: string; colo
   }
 }
 
-export function CollapsibleSession({
-  session,
-  logs,
-  expanded,
-  sessionNumber,
-}: CollapsibleSessionProps) {
+export function CollapsibleSession(props: CollapsibleSessionProps) {
+  const { session, logs, expanded } = props;
+  // Note: sessionNumber is available in props if needed in the future
   const { icon, color } = getStatusIndicator(session.status);
   const arrow = expanded ? '▼' : '▶';
   const shortId = formatShortId(session.id);
