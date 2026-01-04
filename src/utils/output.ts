@@ -3,6 +3,9 @@
  *
  * Provides consistent styling and formatting for all CLI output.
  * All messages use 2-space indentation with emoji prefixes.
+ *
+ * When a log handler is set (via setOutputHandler), all output
+ * is routed through that handler instead of console.log.
  */
 
 // ANSI color codes
@@ -27,12 +30,29 @@ export const green = (s: string): string => `${colors.green}${s}${colors.reset}`
 export const red = (s: string): string => `${colors.red}${s}${colors.reset}`;
 export const yellow = (s: string): string => `${colors.yellow}${s}${colors.reset}`;
 
+// Output handler for UI integration
+type OutputLevel = 'debug' | 'info' | 'warn' | 'error';
+type OutputHandler = (level: OutputLevel, emoji: string, message: string) => void;
+let outputHandler: OutputHandler | null = null;
+
+/**
+ * Set a handler for all output messages.
+ * When set, messages go through this handler instead of console.
+ */
+export function setOutputHandler(handler: OutputHandler | null): void {
+  outputHandler = handler;
+}
+
 /**
  * Log an info message with emoji prefix (always shown)
  * Format: "  {emoji} {message}"
  */
 export function log(emoji: string, message: string): void {
-  console.log(`  ${emoji} ${message}`);
+  if (outputHandler) {
+    outputHandler('info', emoji, message);
+  } else {
+    console.log(`  ${emoji} ${message}`);
+  }
 }
 
 /**
@@ -41,7 +61,11 @@ export function log(emoji: string, message: string): void {
  */
 export function debug(emoji: string, message: string): void {
   if (process.env.DEBUG === '1') {
-    console.log(`  ${emoji} ${dim(message)}`);
+    if (outputHandler) {
+      outputHandler('debug', emoji, message);
+    } else {
+      console.log(`  ${emoji} ${dim(message)}`);
+    }
   }
 }
 
@@ -50,7 +74,11 @@ export function debug(emoji: string, message: string): void {
  * Format: "  {emoji} {message}"
  */
 export function error(emoji: string, message: string): void {
-  console.error(`  ${emoji} ${message}`);
+  if (outputHandler) {
+    outputHandler('error', emoji, message);
+  } else {
+    console.error(`  ${emoji} ${message}`);
+  }
 }
 
 /**
@@ -58,7 +86,11 @@ export function error(emoji: string, message: string): void {
  * Format: "  {emoji} {message}"
  */
 export function warn(emoji: string, message: string): void {
-  console.log(`  ${emoji} ${message}`);
+  if (outputHandler) {
+    outputHandler('warn', emoji, message);
+  } else {
+    console.log(`  ${emoji} ${message}`);
+  }
 }
 
 /**
@@ -66,12 +98,19 @@ export function warn(emoji: string, message: string): void {
  * Format: "  {message}"
  */
 export function logPlain(message: string): void {
-  console.log(`  ${message}`);
+  if (outputHandler) {
+    outputHandler('info', '', message);
+  } else {
+    console.log(`  ${message}`);
+  }
 }
 
 /**
  * Log an empty line
  */
 export function logEmpty(): void {
-  console.log('');
+  if (!outputHandler) {
+    console.log('');
+  }
+  // When outputHandler is set, skip empty lines (UI handles spacing)
 }

@@ -10,7 +10,16 @@ interface UseKeyboardOptions {
 }
 
 export function useKeyboard({ sessionIds, onToggle, onQuit }: UseKeyboardOptions) {
-  useInput((input, _key) => {
+  useInput((input, key) => {
+    // Ctrl+C to quit - handle explicitly since Ink captures it in raw mode
+    // Ctrl+C can appear as '\x03' (raw) or 'c' with key.ctrl
+    if (input === '\x03' || (input === 'c' && key.ctrl)) {
+      if (onQuit) {
+        onQuit();
+      }
+      return;
+    }
+
     // Number keys 1-9 to toggle sessions
     const num = parseInt(input, 10);
     if (num >= 1 && num <= 9) {
@@ -24,7 +33,5 @@ export function useKeyboard({ sessionIds, onToggle, onQuit }: UseKeyboardOptions
     if (input === 'q' && onQuit) {
       onQuit();
     }
-
-    // Ctrl+C is handled by Ink automatically
   });
 }

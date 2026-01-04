@@ -71,6 +71,11 @@ function extractAndUpdateMetadata(
       ctx.ops.persistSession(session);
       ctx.ops.updateStickyMessage().catch(() => {});
       ctx.ops.updateSessionHeader(session).catch(() => {});
+      // Update CLI UI with new title/description
+      const updates: Record<string, string> = {};
+      if (sessionField === 'sessionTitle') updates.title = newValue;
+      if (sessionField === 'sessionDescription') updates.description = newValue;
+      ctx.ops.emitSessionUpdate(session.sessionId, updates);
     }
   }
 
@@ -204,7 +209,8 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
-  log.debug(
+  const sessionLog = log.forSession(session.sessionId);
+  sessionLog.debug(
     `handleEvent(${session.threadId}): ${event.type} -> ${formatted ? formatted.substring(0, 100) : '(null)'}`
   );
   if (formatted) ctx.ops.appendContent(session, formatted);
@@ -862,7 +868,7 @@ function updateUsageStats(
   const contextPct = contextWindowSize > 0
     ? Math.round((contextTokens / contextWindowSize) * 100)
     : 0;
-  log.debug(
+  log.forSession(session.sessionId).info(
     `Updated usage stats: ${usageStats.modelDisplayName}, ` +
     `context ${contextTokens}/${contextWindowSize} (${contextPct}%), ` +
     `$${usageStats.totalCostUSD.toFixed(4)}`

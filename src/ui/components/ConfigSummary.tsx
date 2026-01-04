@@ -11,16 +11,14 @@ interface ConfigSummaryProps {
 export function ConfigSummary({ config }: ConfigSummaryProps) {
   return (
     <Box flexDirection="column" marginTop={1}>
+      {/* Line 1: Working directory */}
       <Box gap={1}>
-        <Text>  📂</Text>
+        <Text>📂</Text>
         <Text color="cyan">{config.workingDir}</Text>
       </Box>
+
+      {/* Line 2: Claude version and settings */}
       <Box gap={2}>
-        <Box gap={1}>
-          <Text>  💬</Text>
-          <Text color="cyan">@{config.botName}</Text>
-        </Box>
-        <Text dimColor>│</Text>
         <Box gap={1}>
           <Text>🤖</Text>
           <Text dimColor>Claude {config.claudeVersion}</Text>
@@ -30,26 +28,22 @@ export function ConfigSummary({ config }: ConfigSummaryProps) {
             <Text color="yellow">⚠</Text>
           )}
         </Box>
-        {config.keepAliveEnabled && (
-          <>
-            <Text dimColor>│</Text>
-            <Box gap={1}>
-              <Text>☕</Text>
-              <Text dimColor>Keep-alive</Text>
-            </Box>
-          </>
-        )}
-      </Box>
-      <Box gap={2} marginTop={0}>
+        <Text dimColor>│</Text>
         {config.skipPermissions ? (
-          <Text dimColor>  ⚠️ Permissions disabled</Text>
+          <Text color="yellow">⚠️ Perms off</Text>
         ) : (
-          <Text dimColor>  🔐 Interactive permissions</Text>
+          <Text dimColor>🔐 Perms</Text>
         )}
         {config.chromeEnabled && (
           <>
             <Text dimColor>│</Text>
             <Text dimColor>🌐 Chrome</Text>
+          </>
+        )}
+        {config.keepAliveEnabled && (
+          <>
+            <Text dimColor>│</Text>
+            <Text dimColor>☕ Awake</Text>
           </>
         )}
       </Box>

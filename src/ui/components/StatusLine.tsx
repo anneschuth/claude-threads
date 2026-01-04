@@ -1,45 +1,55 @@
 /**
- * StatusLine component - ready message and keyboard hints
+ * StatusLine component - bot status bar at the bottom
+ *
+ * Shows the overall bot status, not session-specific info.
+ * Visually separated from sessions with a line.
  */
 import { Box, Text } from 'ink';
 
 interface StatusLineProps {
   ready: boolean;
-  botName: string;
+  shuttingDown?: boolean;
   sessionCount: number;
-  reconnecting?: boolean;
-  reconnectAttempts?: number;
 }
 
 export function StatusLine({
   ready,
-  botName,
+  shuttingDown,
   sessionCount,
-  reconnecting,
-  reconnectAttempts,
 }: StatusLineProps) {
   return (
     <Box flexDirection="column" marginTop={1}>
-      {reconnecting && (
-        <Box gap={1}>
-          <Text color="yellow">  ⟳</Text>
-          <Text dimColor>Reconnecting... (attempt {reconnectAttempts})</Text>
-        </Box>
-      )}
+      {/* Separator line */}
+      <Text dimColor>{'─'.repeat(50)}</Text>
 
-      {ready && !reconnecting && (
-        <Box gap={1}>
-          <Text color="green">  ✓</Text>
-          <Text bold>Ready!</Text>
-          <Text dimColor>Waiting for @{botName} mentions...</Text>
-        </Box>
-      )}
+      {/* Status row - all on one line */}
+      <Box gap={2}>
+        {shuttingDown ? (
+          <Box gap={1}>
+            <Text color="yellow">⏻</Text>
+            <Text color="yellow">Shutting down...</Text>
+          </Box>
+        ) : ready ? (
+          <Box gap={1}>
+            <Text color="green">✓</Text>
+            <Text dimColor>Ready</Text>
+          </Box>
+        ) : (
+          <Box gap={1}>
+            <Text color="yellow">○</Text>
+            <Text dimColor>Starting...</Text>
+          </Box>
+        )}
 
-      {sessionCount > 0 && (
-        <Box marginTop={0}>
-          <Text dimColor>  Press 1-{Math.min(sessionCount, 9)} to toggle sessions</Text>
-        </Box>
-      )}
+        {sessionCount > 0 && !shuttingDown && (
+          <>
+            <Text dimColor>│</Text>
+            <Text dimColor>Press</Text>
+            <Text bold>1-{Math.min(sessionCount, 9)}</Text>
+            <Text dimColor>to toggle sessions</Text>
+          </>
+        )}
+      </Box>
     </Box>
   );
 }

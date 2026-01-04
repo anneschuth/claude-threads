@@ -8,7 +8,14 @@ import type { AppConfig, UIInstance, SessionInfo, LogEntry, PlatformStatus } fro
 
 export type { UIInstance, AppConfig, SessionInfo, LogEntry, PlatformStatus };
 
-export async function startUI(config: AppConfig): Promise<UIInstance> {
+interface StartUIOptions {
+  config: AppConfig;
+  onQuit?: () => void;
+}
+
+export async function startUI(options: StartUIOptions): Promise<UIInstance> {
+  const { config, onQuit } = options;
+
   // Check for TTY - fail fast if not interactive
   if (!process.stdout.isTTY) {
     throw new Error('claude-threads requires an interactive terminal (TTY)');
@@ -20,13 +27,40 @@ export async function startUI(config: AppConfig): Promise<UIInstance> {
     resolveHandlers = resolve;
   });
 
-  // Render the app
+  // Track resize handler from App component
+  let onResize: (() => void) | null = null;
+
+  // Render the app (hide cursor since we don't have text input)
   const { waitUntilExit } = render(
     React.createElement(App, {
       config,
       onStateReady: (handlers: AppHandlers) => resolveHandlers(handlers),
-    })
+      onResizeReady: (handler: () => void) => { onResize = handler; },
+      onQuit,
+    }),
+    {
+      // Hide the cursor - we only use keyboard shortcuts, not text input
+      patchConsole: false,
+      // Disable default Ctrl+C handling so we can show "Shutting down..." first
+      exitOnCtrlC: false,
+    }
   );
+
+  // Hide cursor explicitly
+  process.stdout.write('\x1b[?25l');
+
+  // Restore cursor on exit
+  const restoreCursor = () => process.stdout.write('\x1b[?25h');
+  process.on('exit', restoreCursor);
+
+  // Handle terminal resize - clear screen and trigger re-render
+  const handleResize = () => {
+    // Clear the screen to remove artifacts
+    process.stdout.write('\x1b[2J\x1b[H');
+    // Trigger state update in App to force re-render
+    if (onResize) onResize();
+  };
+  process.on('SIGWINCH', handleResize);
 
   // Wait for handlers to be ready
   const handlers = await handlersPromise;
@@ -34,6 +68,7 @@ export async function startUI(config: AppConfig): Promise<UIInstance> {
   // Return the UI instance
   return {
     setReady: handlers.setReady,
+    setShuttingDown: handlers.setShuttingDown,
     addSession: handlers.addSession,
     updateSession: handlers.updateSession,
     removeSession: handlers.removeSession,

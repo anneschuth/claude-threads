@@ -291,6 +291,7 @@ export async function startSession(
   // Register session
   mutableSessions(ctx).set(sessionId, session);
   ctx.ops.registerPost(post.id, actualThreadId);
+  ctx.ops.emitSessionAdd(session);
   log.info(`▶ Session #${ctx.state.sessions.size} started (${actualThreadId.substring(0, 8)}…) by @${username}`);
 
   // Notify keep-alive that a session started
@@ -314,6 +315,7 @@ export async function startSession(
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
     ctx.ops.stopTyping(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     await ctx.ops.updateStickyMessage();
     return;
@@ -500,6 +502,7 @@ export async function resumeSession(
   if (state.tasksPostId) {
     ctx.ops.registerPost(state.tasksPostId, state.threadId);
   }
+  ctx.ops.emitSessionAdd(session);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -537,6 +540,7 @@ export async function resumeSession(
     ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
+    ctx.ops.emitSessionRemove(sessionId);
     mutableSessions(ctx).delete(sessionId);
     ctx.state.sessionStore.remove(sessionId);
 
@@ -678,6 +682,7 @@ export async function handleExit(
     log.debug(`Session ${shortId}... bot shutting down, preserving persistence`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
@@ -693,6 +698,7 @@ export async function handleExit(
     if (session.hasClaudeResponded) {
       ctx.ops.persistSession(session);
     }
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
     // Notify keep-alive that a session ended
@@ -716,6 +722,7 @@ export async function handleExit(
     log.debug(`Session ${shortId}... exited before Claude responded, not persisting`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
     keepAlive.sessionEnded();
@@ -741,6 +748,7 @@ export async function handleExit(
     log.debug(`Resumed session ${shortId}... failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
@@ -791,6 +799,7 @@ export async function handleExit(
   }
 
   // Clean up session from maps
+  ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
 
@@ -829,6 +838,7 @@ export async function killSession(
   session.claude.kill();
 
   // Clean up session from maps
+  ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
 

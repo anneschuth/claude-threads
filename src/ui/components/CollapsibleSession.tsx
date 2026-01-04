@@ -5,6 +5,7 @@ import { Box, Text } from 'ink';
 import type { SessionInfo, LogEntry } from '../types.js';
 import { SessionLog } from './SessionLog.js';
 import { Spinner } from './Spinner.js';
+import { formatShortId, formatRelativeTimeShort } from '../../utils/format.js';
 
 interface CollapsibleSessionProps {
   session: SessionInfo;
@@ -37,32 +38,48 @@ export function CollapsibleSession({
 }: CollapsibleSessionProps) {
   const { icon, color } = getStatusIndicator(session.status);
   const arrow = expanded ? '▼' : '▶';
-  const shortId = session.id.slice(0, 8);
+  const shortId = formatShortId(session.id);
+  const timeAgo = session.lastActivity ? formatRelativeTimeShort(session.lastActivity) : '';
+
+  // Use title if available, otherwise fall back to short ID
+  const displayTitle = session.title || `Session ${shortId}`;
 
   return (
-    <Box flexDirection="column" marginTop={1}>
-      {/* Header line */}
+    <Box flexDirection="column" marginTop={0}>
+      {/* Header line: arrow + title + user + status + branch */}
       <Box gap={1}>
         <Text dimColor>{arrow}</Text>
-        <Text bold>Session {shortId}</Text>
-        <Text dimColor>(@{session.startedBy})</Text>
+        <Text color={session.title ? 'cyan' : 'white'} bold>{displayTitle}</Text>
+        <Text dimColor>·</Text>
+        <Text color="yellow">{session.startedBy}</Text>
+        {timeAgo && (
+          <>
+            <Text dimColor>·</Text>
+            <Text dimColor>{timeAgo}</Text>
+          </>
+        )}
         <Text color={color}>{icon}</Text>
-        <Text dimColor>{session.status}</Text>
         {session.worktreeBranch && (
           <>
             <Text dimColor>│</Text>
             <Text color="magenta">{session.worktreeBranch}</Text>
           </>
         )}
-        <Text dimColor>{'─'.repeat(Math.max(0, 40 - shortId.length - session.startedBy.length))}</Text>
       </Box>
+
+      {/* Description line (if available, shown when collapsed too) */}
+      {session.description && (
+        <Box paddingLeft={2}>
+          <Text dimColor italic>{session.description}</Text>
+        </Box>
+      )}
 
       {/* Expanded content */}
       {expanded && (
-        <Box flexDirection="column">
+        <Box flexDirection="column" paddingLeft={2}>
           <SessionLog logs={logs} />
           {(session.status === 'active' || session.status === 'starting') && (
-            <Box paddingLeft={2} marginTop={0}>
+            <Box marginTop={0}>
               <Spinner label="Thinking..." />
             </Box>
           )}

@@ -8,36 +8,43 @@ interface HeaderProps {
 }
 
 export function Header({ version }: HeaderProps) {
+  // Match the original logo from src/logo.ts exactly:
+  //  ✴ ▄█▀ ███ ✴   claude-threads
+  // ✴  █▀   █   ✴  Chat × Claude Code
+  //  ✴ ▀█▄  █  ✴
   return (
     <Box
       borderStyle="round"
       paddingX={1}
       flexDirection="column"
     >
-      <Box>
-        <Text color="yellow"> </Text>
+      <Text>
+        <Text color="yellow"> ✴</Text>
+        <Text> </Text>
         <Text color="blue">▄█▀ ███</Text>
-        <Text color="yellow"> </Text>
+        <Text> </Text>
+        <Text color="yellow">✴</Text>
         <Text>   </Text>
         <Text bold>claude-threads</Text>
         <Text dimColor>  v{version}</Text>
-      </Box>
-      <Box>
-        <Text color="yellow"></Text>
-        <Text color="blue">  █▀   █</Text>
+      </Text>
+      <Text>
+        <Text color="yellow">✴</Text>
+        <Text>  </Text>
+        <Text color="blue">█▀   █</Text>
         <Text>   </Text>
-        <Text color="yellow"></Text>
+        <Text color="yellow">✴</Text>
         <Text>  </Text>
         <Text dimColor>Chat × Claude Code</Text>
-      </Box>
-      <Box>
+      </Text>
+      <Text>
         <Text> </Text>
-        <Text color="yellow"></Text>
+        <Text color="yellow">✴</Text>
         <Text> </Text>
         <Text color="blue">▀█▄  █</Text>
         <Text>  </Text>
-        <Text color="yellow"></Text>
-      </Box>
+        <Text color="yellow">✴</Text>
+      </Text>
     </Box>
   );
 }

@@ -14,10 +14,15 @@ export function useAppState(initialConfig: AppConfig) {
     logs: [],
     expandedSessions: new Set(),
     ready: false,
+    shuttingDown: false,
   });
 
   const setReady = useCallback(() => {
     setState((prev) => ({ ...prev, ready: true }));
+  }, []);
+
+  const setShuttingDown = useCallback(() => {
+    setState((prev) => ({ ...prev, shuttingDown: true }));
   }, []);
 
   const addSession = useCallback((session: SessionInfo) => {
@@ -85,6 +90,8 @@ export function useAppState(initialConfig: AppConfig) {
       const current = platforms.get(platformId) || {
         id: platformId,
         displayName: platformId,
+        botName: 'bot',
+        url: '',
         connected: false,
         reconnecting: false,
         reconnectAttempts: 0,
@@ -95,12 +102,17 @@ export function useAppState(initialConfig: AppConfig) {
   }, []);
 
   const getLogsForSession = useCallback((sessionId: string): LogEntry[] => {
-    return state.logs.filter((log) => log.sessionId === sessionId || !log.sessionId);
+    return state.logs.filter((log) => log.sessionId === sessionId);
+  }, [state.logs]);
+
+  const getGlobalLogs = useCallback((): LogEntry[] => {
+    return state.logs.filter((log) => !log.sessionId);
   }, [state.logs]);
 
   return {
     state,
     setReady,
+    setShuttingDown,
     addSession,
     updateSession,
     removeSession,
@@ -108,5 +120,6 @@ export function useAppState(initialConfig: AppConfig) {
     toggleSession,
     setPlatformStatus,
     getLogsForSession,
+    getGlobalLogs,
   };
 }

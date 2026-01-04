@@ -11,6 +11,10 @@ export interface SessionInfo {
   workingDir: string;
   sessionNumber: number;
   worktreeBranch?: string;
+  // Rich session metadata
+  title?: string;
+  description?: string;
+  lastActivity?: Date;
 }
 
 export interface LogEntry {
@@ -25,6 +29,8 @@ export interface LogEntry {
 export interface PlatformStatus {
   id: string;
   displayName: string;
+  botName: string;
+  url: string;
   connected: boolean;
   reconnecting: boolean;
   reconnectAttempts: number;
@@ -33,8 +39,6 @@ export interface PlatformStatus {
 export interface AppConfig {
   version: string;
   workingDir: string;
-  botName: string;
-  url: string;
   claudeVersion: string;
   claudeCompatible: boolean;
   skipPermissions: boolean;
@@ -49,10 +53,12 @@ export interface AppState {
   logs: LogEntry[];
   expandedSessions: Set<string>;
   ready: boolean;
+  shuttingDown: boolean;
 }
 
 export interface UIInstance {
   setReady: () => void;
+  setShuttingDown: () => void;
   addSession: (session: SessionInfo) => void;
   updateSession: (sessionId: string, updates: Partial<SessionInfo>) => void;
   removeSession: (sessionId: string) => void;

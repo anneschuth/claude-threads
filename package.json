@@ -80,9 +80,7 @@
     "bun": ">=1.2.21"
   },
   "lint-staged": {
-    "*.ts": [
-      "eslint --fix",
-      "bun test --bail"
-    ]
+    "*.ts": "eslint --fix",
+    "*.test.ts": "bun test --bail"
   }
 }

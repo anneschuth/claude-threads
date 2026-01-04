@@ -22,16 +22,13 @@ export function SessionLog({ logs, maxLines = 20 }: SessionLogProps) {
   // Show last N log entries
   const displayLogs = logs.slice(-maxLines);
 
+  // Return nothing if no logs (session description handles empty state)
   if (displayLogs.length === 0) {
-    return (
-      <Box paddingLeft={2}>
-        <Text dimColor>No activity yet...</Text>
-      </Box>
-    );
+    return null;
   }
 
   return (
-    <Box flexDirection="column" paddingLeft={2}>
+    <Box flexDirection="column">
       {displayLogs.map((log) => (
         <Box key={log.id} gap={1}>
           <Text color={getColorForLevel(log.level)}>
