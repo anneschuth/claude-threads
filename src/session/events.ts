@@ -27,6 +27,11 @@ import { extractPullRequestUrl } from '../utils/pr-detector.js';
 
 const log = createLogger('events');
 
+/** Get session-scoped logger for routing to correct UI panel */
+function sessionLog(session: Session) {
+  return log.forSession(session.sessionId);
+}
+
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -118,7 +123,7 @@ function extractAndUpdatePullRequest(
   const prUrl = extractPullRequestUrl(text);
   if (prUrl) {
     session.pullRequestUrl = prUrl;
-    log.info(`🔗 Detected PR URL: ${prUrl}`);
+    sessionLog(session).info(`🔗 Detected PR URL: ${prUrl}`);
 
     // Persist and update UI
     ctx.ops.persistSession(session);
@@ -212,8 +217,7 @@ export function handleEvent(
   }
 
   const formatted = formatEvent(session, event, ctx);
-  const sessionLog = log.forSession(session.sessionId);
-  sessionLog.debugJson(`handleEvent: ${event.type}`, event);
+  sessionLog(session).debugJson(`handleEvent: ${event.type}`, event);
   if (formatted) ctx.ops.appendContent(session, formatted);
 
   // After tool_result events, check if we should flush and start a new post
@@ -376,13 +380,13 @@ async function handleExitPlanMode(
   // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
   // so we can't send another tool_result - just let the CLI handle it
   if (session.planApproved) {
-    log.debug('Plan already approved, letting CLI handle it');
+    sessionLog(session).debug('Plan already approved, letting CLI handle it');
     return;
   }
 
   // If we already have a pending approval, don't post another one
   if (session.pendingApproval && session.pendingApproval.type === 'plan') {
-    log.debug('Plan approval already pending, waiting');
+    sessionLog(session).debug('Plan approval already pending, waiting');
     return;
   }
 
@@ -674,7 +678,7 @@ async function handleAskUserQuestion(
 ): Promise<void> {
   // If we already have pending questions, don't start another set
   if (session.pendingQuestionSet) {
-    log.debug('Questions already pending, waiting');
+    sessionLog(session).debug('Questions already pending, waiting');
     return;
   }
 
@@ -873,7 +877,7 @@ function updateUsageStats(
   const contextPct = contextWindowSize > 0
     ? Math.round((contextTokens / contextWindowSize) * 100)
     : 0;
-  log.forSession(session.sessionId).info(
+  sessionLog(session).info(
     `Updated usage stats: ${usageStats.modelDisplayName}, ` +
     `context ${contextTokens}/${contextWindowSize} (${contextPct}%), ` +
     `$${usageStats.totalCostUSD.toFixed(4)}`
@@ -931,7 +935,7 @@ function updateUsageFromStatusLine(session: Session): void {
     const contextPct = session.usageStats.contextWindowSize > 0
       ? Math.round((contextTokens / session.usageStats.contextWindowSize) * 100)
       : 0;
-    log.debug(
+    sessionLog(session).debug(
       `Updated from status line: context ${contextTokens}/${session.usageStats.contextWindowSize} (${contextPct}%)`
     );
   }

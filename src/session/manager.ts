@@ -448,7 +448,6 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
-      debug: this.debug,
     };
   }
 
