@@ -4,17 +4,18 @@
 import React from 'react';
 import { render } from 'ink';
 import { App, type AppHandlers } from './App.js';
-import type { AppConfig, UIInstance, SessionInfo, LogEntry, PlatformStatus } from './types.js';
+import type { AppConfig, UIInstance, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks } from './types.js';
 
-export type { UIInstance, AppConfig, SessionInfo, LogEntry, PlatformStatus };
+export type { UIInstance, AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks };
 
 interface StartUIOptions {
   config: AppConfig;
   onQuit?: () => void;
+  toggleCallbacks?: ToggleCallbacks;
 }
 
 export async function startUI(options: StartUIOptions): Promise<UIInstance> {
-  const { config, onQuit } = options;
+  const { config, onQuit, toggleCallbacks } = options;
 
   // Check for TTY - fail fast if not interactive
   if (!process.stdout.isTTY) {
@@ -37,6 +38,7 @@ export async function startUI(options: StartUIOptions): Promise<UIInstance> {
       onStateReady: (handlers: AppHandlers) => resolveHandlers(handlers),
       onResizeReady: (handler: () => void) => { onResize = handler; },
       onQuit,
+      toggleCallbacks,
     }),
     {
       // Hide the cursor - we only use keyboard shortcuts, not text input
@@ -75,5 +77,6 @@ export async function startUI(options: StartUIOptions): Promise<UIInstance> {
     addLog: handlers.addLog,
     setPlatformStatus: handlers.setPlatformStatus,
     waitUntilExit,
+    getToggles: handlers.getToggles,
   };
 }

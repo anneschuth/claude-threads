@@ -1,5 +1,8 @@
 /**
  * Configuration summary component - compact display of startup info
+ *
+ * Note: This component shows static config from startup (Claude version, working dir).
+ * Runtime toggles are shown in the bottom StatusLine component.
  */
 import { Box, Text } from 'ink';
 import type { AppConfig } from '../types.js';
@@ -17,7 +20,7 @@ export function ConfigSummary({ config }: ConfigSummaryProps) {
         <Text color="cyan">{config.workingDir}</Text>
       </Box>
 
-      {/* Line 2: Claude version and settings */}
+      {/* Line 2: Claude version (static info only - runtime toggles are in StatusLine) */}
       <Box gap={2}>
         <Box gap={1}>
           <Text>🤖</Text>
@@ -28,24 +31,6 @@ export function ConfigSummary({ config }: ConfigSummaryProps) {
             <Text color="yellow">⚠</Text>
           )}
         </Box>
-        <Text dimColor>│</Text>
-        {config.skipPermissions ? (
-          <Text color="yellow">⚠️ Perms off</Text>
-        ) : (
-          <Text dimColor>🔐 Perms</Text>
-        )}
-        {config.chromeEnabled && (
-          <>
-            <Text dimColor>│</Text>
-            <Text dimColor>🌐 Chrome</Text>
-          </>
-        )}
-        {config.keepAliveEnabled && (
-          <>
-            <Text dimColor>│</Text>
-            <Text dimColor>☕ Awake</Text>
-          </>
-        )}
       </Box>
     </Box>
   );

@@ -6,13 +6,14 @@ import { Box, Static, Text } from 'ink';
 import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel } from './components/index.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
-import type { AppConfig, SessionInfo, LogEntry, PlatformStatus } from './types.js';
+import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks } from './types.js';
 
 interface AppProps {
   config: AppConfig;
   onStateReady: (handlers: AppHandlers) => void;
   onResizeReady?: (handler: () => void) => void;
   onQuit?: () => void;
+  toggleCallbacks?: ToggleCallbacks;
 }
 
 export interface AppHandlers {
@@ -23,9 +24,10 @@ export interface AppHandlers {
   removeSession: (sessionId: string) => void;
   addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
+  getToggles: () => ToggleState;
 }
 
-export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
+export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbacks }: AppProps) {
   const {
     state,
     setReady,
@@ -43,6 +45,52 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
   // Resize counter to force re-render on terminal resize
   const [resizeCount, setResizeCount] = React.useState(0);
 
+  // Runtime toggle state - initialized from config
+  const [toggles, setToggles] = React.useState<ToggleState>({
+    debugMode: process.env.DEBUG === '1',
+    skipPermissions: config.skipPermissions,
+    chromeEnabled: config.chromeEnabled,
+    keepAliveEnabled: config.keepAliveEnabled,
+  });
+
+  // Toggle handlers - update state and call callbacks
+  const handleDebugToggle = React.useCallback(() => {
+    setToggles(prev => {
+      const newValue = !prev.debugMode;
+      // Update process.env.DEBUG
+      process.env.DEBUG = newValue ? '1' : '';
+      toggleCallbacks?.onDebugToggle?.(newValue);
+      return { ...prev, debugMode: newValue };
+    });
+  }, [toggleCallbacks]);
+
+  const handlePermissionsToggle = React.useCallback(() => {
+    setToggles(prev => {
+      const newValue = !prev.skipPermissions;
+      toggleCallbacks?.onPermissionsToggle?.(newValue);
+      return { ...prev, skipPermissions: newValue };
+    });
+  }, [toggleCallbacks]);
+
+  const handleChromeToggle = React.useCallback(() => {
+    setToggles(prev => {
+      const newValue = !prev.chromeEnabled;
+      toggleCallbacks?.onChromeToggle?.(newValue);
+      return { ...prev, chromeEnabled: newValue };
+    });
+  }, [toggleCallbacks]);
+
+  const handleKeepAliveToggle = React.useCallback(() => {
+    setToggles(prev => {
+      const newValue = !prev.keepAliveEnabled;
+      toggleCallbacks?.onKeepAliveToggle?.(newValue);
+      return { ...prev, keepAliveEnabled: newValue };
+    });
+  }, [toggleCallbacks]);
+
+  // Getter for external access to toggle state
+  const getToggles = React.useCallback(() => toggles, [toggles]);
+
   // Expose handlers to the outside world
   // This runs once when the component mounts
   React.useEffect(() => {
@@ -54,8 +102,9 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
       removeSession,
       addLog,
       setPlatformStatus,
+      getToggles,
     });
-  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus]);
+  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus, getToggles]);
 
   // Register resize handler
   React.useEffect(() => {
@@ -72,6 +121,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
     sessionIds,
     onToggle: toggleSession,
     onQuit,
+    onDebugToggle: handleDebugToggle,
+    onPermissionsToggle: handlePermissionsToggle,
+    onChromeToggle: handleChromeToggle,
+    onKeepAliveToggle: handleKeepAliveToggle,
   });
 
 
@@ -132,6 +185,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit }: AppProps) {
         ready={state.ready}
         shuttingDown={state.shuttingDown}
         sessionCount={state.sessions.size}
+        toggles={toggles}
       />
     </Box>
   );

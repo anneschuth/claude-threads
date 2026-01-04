@@ -48,6 +48,26 @@ export interface AppConfig {
   keepAliveEnabled: boolean;
 }
 
+/**
+ * Runtime toggle state - can be changed via keyboard shortcuts
+ */
+export interface ToggleState {
+  debugMode: boolean;
+  skipPermissions: boolean;  // Default for new sessions
+  chromeEnabled: boolean;    // Default for new sessions
+  keepAliveEnabled: boolean;
+}
+
+/**
+ * Callbacks for when toggles change (to propagate to main logic)
+ */
+export interface ToggleCallbacks {
+  onDebugToggle?: (enabled: boolean) => void;
+  onPermissionsToggle?: (skipPermissions: boolean) => void;
+  onChromeToggle?: (enabled: boolean) => void;
+  onKeepAliveToggle?: (enabled: boolean) => void;
+}
+
 export interface AppState {
   config: AppConfig;
   platforms: Map<string, PlatformStatus>;
@@ -67,4 +87,6 @@ export interface UIInstance {
   addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
   waitUntilExit: () => Promise<void>;
+  // Toggle state getters (for main logic to read current values)
+  getToggles: () => ToggleState;
 }

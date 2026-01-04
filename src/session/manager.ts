@@ -66,7 +66,10 @@ export class SessionManager extends EventEmitter {
   private skipPermissions: boolean;
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
-  private debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
+  // Debug is a getter so it reads current process.env.DEBUG (can be toggled at runtime)
+  private get debug(): boolean {
+    return process.env.DEBUG === '1' || process.argv.includes('--debug');
+  }
 
   // Session state
   private sessions: Map<string, Session> = new Map();
@@ -640,6 +643,14 @@ export class SessionManager extends EventEmitter {
       workingDir: this.workingDir,
       debug: this.debug,
     });
+  }
+
+  /**
+   * Public method to trigger sticky message update.
+   * Called when runtime settings change via keyboard toggles.
+   */
+  async updateAllStickyMessages(): Promise<void> {
+    await this.updateStickyMessage();
   }
 
   // ---------------------------------------------------------------------------

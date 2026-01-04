@@ -119,6 +119,17 @@ async function main() {
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
 
+  // Mutable runtime config (can be changed via keyboard toggles)
+  // These affect new sessions and sticky message display
+  const runtimeConfig = {
+    skipPermissions: platformConfig.skipPermissions,
+    chromeEnabled: config.chrome ?? false,
+    keepAliveEnabled,
+  };
+
+  // Session manager reference (set after UI is ready)
+  let sessionManager: SessionManager | null = null;
+
   // Start the Ink UI
   const ui: UIInstance = await startUI({
     config: {
@@ -126,12 +137,39 @@ async function main() {
       workingDir,
       claudeVersion: claudeValidation.version || 'unknown',
       claudeCompatible: claudeValidation.compatible,
-      skipPermissions: platformConfig.skipPermissions,
-      chromeEnabled: config.chrome ?? false,
-      keepAliveEnabled,
+      skipPermissions: runtimeConfig.skipPermissions,
+      chromeEnabled: runtimeConfig.chromeEnabled,
+      keepAliveEnabled: runtimeConfig.keepAliveEnabled,
     },
     onQuit: () => {
       if (triggerShutdown) triggerShutdown();
+    },
+    toggleCallbacks: {
+      onDebugToggle: (enabled) => {
+        // process.env.DEBUG is already updated in App.tsx
+        ui.addLog({ level: 'info', component: 'toggle', message: `Debug mode ${enabled ? 'enabled' : 'disabled'}` });
+        // Trigger sticky message update to reflect debug state
+        sessionManager?.updateAllStickyMessages();
+      },
+      onPermissionsToggle: (skipPermissions) => {
+        runtimeConfig.skipPermissions = skipPermissions;
+        // Update the platform config so new sessions use this setting
+        platformConfig.skipPermissions = skipPermissions;
+        ui.addLog({ level: 'info', component: 'toggle', message: `Permissions ${skipPermissions ? 'auto (skip prompts)' : 'interactive'}` });
+        sessionManager?.updateAllStickyMessages();
+      },
+      onChromeToggle: (enabled) => {
+        runtimeConfig.chromeEnabled = enabled;
+        config.chrome = enabled;
+        ui.addLog({ level: 'info', component: 'toggle', message: `Chrome integration ${enabled ? 'enabled' : 'disabled'} for new sessions` });
+        sessionManager?.updateAllStickyMessages();
+      },
+      onKeepAliveToggle: (enabled) => {
+        runtimeConfig.keepAliveEnabled = enabled;
+        keepAlive.setEnabled(enabled);
+        ui.addLog({ level: 'info', component: 'toggle', message: `Keep-alive ${enabled ? 'enabled' : 'disabled'}` });
+        sessionManager?.updateAllStickyMessages();
+      },
     },
   });
 
@@ -158,6 +196,9 @@ async function main() {
 
   const mattermost = new MattermostClient(platformConfig);
   const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
+
+  // Set reference for toggle callbacks
+  sessionManager = session;
 
   // Register platform (connects event handlers)
   session.addPlatform(platformConfig.id, mattermost);
