@@ -458,6 +458,7 @@ async function main() {
     ui.setPlatformStatus(platformConfig.id, { reconnecting: true, reconnectAttempts: attempt });
   });
   mattermost.on('error', (e) => {
+    // TODO: Refactor index.ts to support multiple platforms generically
     ui.addLog({ level: 'error', component: 'mattermost', message: String(e) });
   });
 
