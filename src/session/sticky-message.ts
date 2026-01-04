@@ -17,6 +17,7 @@ import { VERSION } from '../version.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
+import { keepAlive } from '../utils/keep-alive.js';
 
 const log = createLogger('sticky');
 
@@ -296,6 +297,11 @@ async function buildStatusBar(
   // Debug mode
   if (config.debug) {
     items.push('`🐛 Debug`');
+  }
+
+  // Keep-alive status
+  if (keepAlive.isActive()) {
+    items.push('`💓 Keep-alive`');
   }
 
   // Battery status (if available)

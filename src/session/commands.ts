@@ -469,7 +469,6 @@ export async function updateSessionHeader(
     statusItems.push(`\`💰 $${stats.totalCostUSD.toFixed(2)}\``);
   }
 
-  statusItems.push(`\`${session.sessionNumber}/${ctx.config.maxSessions}\``);
   statusItems.push(`\`${permMode}\``);
   if (ctx.config.chromeEnabled) {
     statusItems.push('`🌐 Chrome`');
