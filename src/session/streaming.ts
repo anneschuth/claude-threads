@@ -434,6 +434,9 @@ async function bumpTasksToBottomWithContent(
     sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
   }
 
+  // Unpin the old task post before repurposing it
+  await session.platform.unpinPost(oldTasksPostId).catch(() => {});
+
   // Repurpose the task list post for the new content
   await withErrorHandling(
     () => session.platform.updatePost(oldTasksPostId, newContent),
@@ -456,6 +459,8 @@ async function bumpTasksToBottomWithContent(
     sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
     // Register the new task post so reaction clicks are routed to this session
     registerPost(newTasksPost.id, session.threadId);
+    // Pin the new task post
+    await session.platform.pinPost(newTasksPost.id).catch(() => {});
   } else {
     // No task content to re-post, clear the task post ID
     session.tasksPostId = null;
@@ -492,6 +497,9 @@ export async function bumpTasksToBottom(
   sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
 
   try {
+    // Unpin the old task post before deleting
+    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+
     // Delete the old task post
     await session.platform.deletePost(session.tasksPostId);
 
@@ -510,6 +518,8 @@ export async function bumpTasksToBottom(
     if (registerPost) {
       registerPost(newPost.id, session.threadId);
     }
+    // Pin the new task post
+    await session.platform.pinPost(newPost.id).catch(() => {});
   } catch (err) {
     sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
   }

@@ -56,6 +56,8 @@ function createMockPlatform() {
         createAt: Date.now(),
       };
     }),
+    pinPost: mock(async (_postId: string): Promise<void> => {}),
+    unpinPost: mock(async (_postId: string): Promise<void> => {}),
     sendTyping: mock(() => {}),
     getFormatter: () => createMockFormatter(),
     posts,
@@ -290,6 +292,9 @@ describe('handleEvent with TodoWrite', () => {
     };
 
     handleEvent(session, event, ctx);
+
+    // Wait for async operations to complete
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     // tasksCompleted should be true
     expect(session.tasksCompleted).toBe(true);
