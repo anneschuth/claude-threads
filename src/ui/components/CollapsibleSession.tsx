@@ -78,9 +78,14 @@ export function CollapsibleSession({
       {expanded && (
         <Box flexDirection="column" paddingLeft={2}>
           <SessionLog logs={logs} />
-          {(session.status === 'active' || session.status === 'starting') && (
+          {session.status === 'starting' && (
             <Box marginTop={0}>
-              <Spinner label="Thinking..." />
+              <Spinner label="Starting..." />
+            </Box>
+          )}
+          {session.isTyping && session.status !== 'starting' && (
+            <Box marginTop={0}>
+              <Spinner label="Typing..." />
             </Box>
           )}
         </Box>

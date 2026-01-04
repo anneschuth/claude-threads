@@ -15,6 +15,8 @@ export interface SessionInfo {
   title?: string;
   description?: string;
   lastActivity?: Date;
+  // Typing indicator state (for spinner display)
+  isTyping?: boolean;
 }
 
 export interface LogEntry {

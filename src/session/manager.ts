@@ -235,6 +235,8 @@ export class SessionManager extends EventEmitter {
       title: session.sessionTitle,
       description: session.sessionDescription,
       lastActivity: session.lastActivity,
+      // Typing indicator state
+      isTyping: session.typingTimer !== null,
     };
   }
 
@@ -505,11 +507,21 @@ export class SessionManager extends EventEmitter {
   }
 
   private startTyping(session: Session): void {
+    const wasTyping = session.typingTimer !== null;
     streaming.startTyping(session);
+    // Emit UI update if typing state changed
+    if (!wasTyping && session.typingTimer !== null) {
+      this.emitSessionUpdate(session.sessionId, { isTyping: true });
+    }
   }
 
   private stopTyping(session: Session): void {
+    const wasTyping = session.typingTimer !== null;
     streaming.stopTyping(session);
+    // Emit UI update if typing state changed
+    if (wasTyping && session.typingTimer === null) {
+      this.emitSessionUpdate(session.sessionId, { isTyping: false });
+    }
   }
 
   private async buildMessageContent(
