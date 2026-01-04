@@ -1,5 +1,6 @@
 /**
  * LogPanel component - displays global log messages
+ * Only shows info/warn/error level (filters out debug noise)
  */
 import { Box, Text } from 'ink';
 import type { LogEntry } from '../types.js';
@@ -22,9 +23,17 @@ function getLevelColor(level: LogEntry['level']): string {
   }
 }
 
+// Pad component name to fixed width for alignment
+const COMPONENT_WIDTH = 9;
+function padComponent(name: string): string {
+  return name.padEnd(COMPONENT_WIDTH);
+}
+
 export function LogPanel({ logs, maxLines = 10 }: LogPanelProps) {
-  // Show only the last N logs
-  const displayLogs = logs.slice(-maxLines);
+  // Filter out debug logs and show only the last N
+  const displayLogs = logs
+    .filter(log => log.level !== 'debug')
+    .slice(-maxLines);
 
   if (displayLogs.length === 0) {
     return null;
@@ -33,9 +42,9 @@ export function LogPanel({ logs, maxLines = 10 }: LogPanelProps) {
   return (
     <Box flexDirection="column" marginTop={1}>
       {displayLogs.map((log) => (
-        <Box key={log.id} gap={1}>
-          <Text dimColor>[{log.component}]</Text>
-          <Text color={getLevelColor(log.level)}>{log.message}</Text>
+        <Box key={log.id}>
+          <Text dimColor>[{padComponent(log.component)}]</Text>
+          <Text color={getLevelColor(log.level)}> {log.message}</Text>
         </Box>
       ))}
     </Box>
