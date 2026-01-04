@@ -531,12 +531,10 @@ export async function flush(
   registerPost: (postId: string, threadId: string) => void
 ): Promise<void> {
   if (!session.pendingContent.trim()) {
-    sessionLog(session).debug('No pending content to flush');
-    return;
+    return;  // No content to flush - silent return
   }
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
-  sessionLog(session).debug(`Flushing ${content.length} chars`);
 
   // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
