@@ -49,7 +49,7 @@ import {
 } from './context.js';
 
 // Import constants for internal use
-import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS } from './types.js';
+import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS, getSessionStatus } from './types.js';
 
 /**
  * SessionManager - Main orchestrator for Claude Code sessions
@@ -222,21 +222,12 @@ export class SessionManager extends EventEmitter {
    * Convert internal Session to SessionInfo for UI.
    */
   private toSessionInfo(session: Session): SessionInfo {
-    // Compute status from session state
-    let status: SessionInfo['status'];
-    if (session.isProcessing) {
-      // Starting = processing but no response yet
-      status = session.hasClaudeResponded ? 'active' : 'starting';
-    } else {
-      status = 'idle';
-    }
-
     return {
       id: session.sessionId,
       threadId: session.threadId,
       startedBy: session.startedBy,
       displayName: session.displayName,
-      status,
+      status: getSessionStatus(session),
       workingDir: session.workingDir,
       sessionNumber: session.sessionNumber,
       worktreeBranch: session.worktreeInfo?.branch,

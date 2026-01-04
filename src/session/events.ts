@@ -6,6 +6,7 @@
  */
 
 import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
 import {
@@ -150,7 +151,7 @@ export function handleEvent(
     session.hasClaudeResponded = true;
     ctx.ops.persistSession(session);
     // Update UI status from 'starting' to 'active'
-    ctx.ops.emitSessionUpdate(session.sessionId, { status: 'active' });
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
   }
 
   // Check for special tool uses that need custom handling
@@ -331,7 +332,7 @@ function formatEvent(
 
       // Mark as no longer processing and update UI
       session.isProcessing = false;
-      ctx.ops.emitSessionUpdate(session.sessionId, { status: 'idle' });
+      ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
 
       // Extract usage stats from result event
       updateUsageStats(session, e, ctx);

@@ -5,6 +5,7 @@
  */
 
 import type { Session } from './types.js';
+import { getSessionStatus } from './types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -601,10 +602,9 @@ export async function sendFollowUp(
     ? maybeInjectMetadataReminder(content, session)
     : content;
 
-  // Mark as processing and update UI (status depends on hasClaudeResponded)
+  // Mark as processing and update UI
   session.isProcessing = true;
-  const status = session.hasClaudeResponded ? 'active' : 'starting';
-  ctx.ops.emitSessionUpdate(session.sessionId, { status });
+  ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
 
   session.claude.sendMessage(messageToSend);
   session.lastActivityAt = new Date();
