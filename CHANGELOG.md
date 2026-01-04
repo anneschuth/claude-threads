@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.6] - 2026-01-04
+
+### Changed
+- **Duo post repurposing** - Reduced thread noise by updating posts instead of creating new ones for paired events:
+  - Compaction: "🗜️ Compacting..." updates to "✅ Context compacted" (single post)
+  - Timeout lifecycle: Warning → Timeout → Resume all update the same post
+- **DRY refactor** - Added `resetSessionActivity()` helper to clear duo-post IDs on activity, preventing stale post updates in long threads.
+
 ## [0.33.5] - 2026-01-04
 
 ### Fixed
