@@ -11,7 +11,7 @@ import { checkForUpdates } from './update-notifier.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
-import { dim, red, setOutputHandler } from './utils/output.js';
+import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIInstance } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
@@ -145,12 +145,6 @@ async function main() {
   // Route all logger output through the UI
   setLogHandler((level, component, message, sessionId) => {
     ui.addLog({ level, component, message, sessionId });
-  });
-
-  // Route output.ts logging through the UI
-  setOutputHandler((level, emoji, message) => {
-    // Use emoji as component for output-style logs
-    ui.addLog({ level, component: emoji || 'system', message });
   });
 
   // Route session-specific logs through the UI
