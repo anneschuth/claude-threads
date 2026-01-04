@@ -384,7 +384,11 @@ export class ClaudeCli extends EventEmitter {
       return true;
     }
 
-    // Add more permanent failure patterns here as we discover them
+    // Session no longer exists in Claude's conversation history
+    // This happens when ~/.claude/projects/* is cleared or session was from a different machine
+    if (stderr.includes('No conversation found with session ID')) {
+      return true;
+    }
 
     return false;
   }
@@ -400,13 +404,42 @@ export class ClaudeCli extends EventEmitter {
       return 'Claude browser bridge state from a previous session is no longer accessible. This typically happens when a session with Chrome integration is resumed after a restart.';
     }
 
+    if (stderr.includes('No conversation found with session ID')) {
+      return 'The conversation history for this session no longer exists. This can happen if Claude\'s history was cleared or if the session was created on a different machine.';
+    }
+
     return null;
   }
 
+  /**
+   * Kill the Claude CLI process.
+   * First sends SIGINT to allow graceful shutdown (saving conversation),
+   * then SIGTERM after a timeout if it doesn't exit.
+   */
   kill(): void {
     this.stopStatusWatch();
-    this.process?.kill('SIGTERM');
+    if (!this.process) return;
+
+    const proc = this.process;
     this.process = null;
+
+    // Send SIGINT first to allow graceful shutdown (like pressing Escape)
+    // This gives Claude a chance to save the conversation
+    proc.kill('SIGINT');
+
+    // Wait briefly for graceful exit, then force kill
+    const forceKillTimeout = setTimeout(() => {
+      try {
+        proc.kill('SIGTERM');
+      } catch {
+        // Process may have already exited
+      }
+    }, 2000); // 2 second grace period for Claude to save conversation
+
+    // Clear the timeout if process exits cleanly
+    proc.once('exit', () => {
+      clearTimeout(forceKillTimeout);
+    });
   }
 
   /** Interrupt current processing (like Escape in CLI) - keeps process alive */

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.33.2] - 2026-01-04
+
+### Fixed
+- **Session resume "No conversation found" errors** - Fixed issue where cancelled sessions would fail to resume with "No conversation found with session ID" error. Root cause: sessions were persisted before Claude had a chance to save the conversation.
+- **Graceful session termination** - When killing a session (cancel, !stop, etc.), Claude now gets 2 seconds to save the conversation (SIGINT then SIGTERM) instead of being killed immediately.
+- **Detect invalid session IDs immediately** - Sessions with "No conversation found" errors are now recognized as permanent failures and removed from persistence immediately, instead of retrying 3 times.
+- **User notification for early exits** - When a session ends before Claude responds, the user is now notified: "Session ended before Claude could respond. Please start a new session."
+
+### Changed
+- **Delayed session persistence** - Sessions are only persisted after Claude has actually responded (first `assistant` or `tool_use` event), preventing dangling session records that can't be resumed.
+
 ## [0.33.1] - 2026-01-04
 
 ### Fixed

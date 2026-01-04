@@ -163,6 +163,9 @@ export interface Session {
   // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
   wasInterrupted: boolean;
 
+  // Flag to track if Claude has responded at least once (safe to persist for resume)
+  hasClaudeResponded: boolean;
+
   // Task timing - when the current in_progress task started
   inProgressTaskStart: number | null;
 

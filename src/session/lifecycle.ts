@@ -280,6 +280,7 @@ export async function startSession(
     isResumed: false,
     resumeFailCount: 0,
     wasInterrupted: false,
+    hasClaudeResponded: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
@@ -351,8 +352,10 @@ export async function startSession(
   // Send the message to Claude (no context prompt, or no previous messages)
   claude.sendMessage(content);
 
-  // Persist session for resume after restart
-  ctx.ops.persistSession(session);
+  // NOTE: We don't persist here. We wait for Claude to actually respond before persisting.
+  // This prevents persisting sessions where Claude dies before saving its conversation,
+  // which would result in "No conversation found" errors on resume.
+  // Persistence happens in events.ts when we receive the first response from Claude.
 }
 
 /**
@@ -458,6 +461,7 @@ export async function resumeSession(
     isResumed: true,
     resumeFailCount: state.resumeFailCount || 0,
     wasInterrupted: false,
+    hasClaudeResponded: true,  // Resumed sessions have already had responses
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     worktreeInfo: state.worktreeInfo,
@@ -654,23 +658,47 @@ export async function handleExit(
     return;
   }
 
-  // If session was interrupted, preserve for resume
+  // If session was interrupted, preserve for resume (only if Claude has responded)
   if (session.wasInterrupted) {
     log.debug(`Session ${shortId}... exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
-    ctx.ops.persistSession(session);
+    // Only persist if Claude actually responded (otherwise there's nothing to resume)
+    if (session.hasClaudeResponded) {
+      ctx.ops.persistSession(session);
+    }
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
     // Notify user
+    const message = session.hasClaudeResponded
+      ? `ℹ️ Session paused. Send a new message to continue.`
+      : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
     await withErrorHandling(
-      () => postInfo(session, `ℹ️ Session paused. Send a new message to continue.`),
+      () => postInfo(session, message),
       { action: 'Post session pause notification', session }
     );
     log.info(`Session paused (${shortId}…) — ${ctx.state.sessions.size} active`);
     // Update sticky channel message after session pause
+    await ctx.ops.updateStickyMessage();
+    return;
+  }
+
+  // If session exits before Claude responded, notify user (no point trying to resume)
+  if (!session.hasClaudeResponded && !session.isResumed) {
+    log.debug(`Session ${shortId}... exited before Claude responded, not persisting`);
+    ctx.ops.stopTyping(session);
+    cleanupSessionTimers(session);
+    mutableSessions(ctx).delete(session.sessionId);
+    cleanupPostIndex(ctx, session.threadId);
+    keepAlive.sessionEnded();
+    // Notify user
+    await withErrorHandling(
+      () => postWarning(session, `**Session ended** before Claude could respond (exit code ${code}). Please start a new session.`),
+      { action: 'Post early exit notification', session }
+    );
+    log.info(`Session ended early (${shortId}…) — ${ctx.state.sessions.size} active`);
     await ctx.ops.updateStickyMessage();
     return;
   }

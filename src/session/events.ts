@@ -137,6 +137,13 @@ export function handleEvent(
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
 
+  // On first meaningful response from Claude, mark session as safe to resume and persist
+  // This ensures we don't persist sessions where Claude dies before saving its conversation
+  if (!session.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
+    session.hasClaudeResponded = true;
+    ctx.ops.persistSession(session);
+  }
+
   // Check for special tool uses that need custom handling
   if (event.type === 'assistant') {
     const msg = event.message as {
