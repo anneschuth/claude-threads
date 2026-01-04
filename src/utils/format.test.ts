@@ -4,6 +4,7 @@ import {
   formatSessionId,
   formatDuration,
   formatRelativeTime,
+  formatRelativeTimeShort,
   formatNumber,
   formatPercent,
   formatBytes,
@@ -79,6 +80,28 @@ describe('formatRelativeTime', () => {
   it('formats days ago', () => {
     const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
     expect(formatRelativeTime(threeDaysAgo)).toBe('3 days ago');
+  });
+});
+
+describe('formatRelativeTimeShort', () => {
+  it('formats less than a minute as <1m ago', () => {
+    const now = new Date();
+    expect(formatRelativeTimeShort(now)).toBe('<1m ago');
+  });
+
+  it('formats minutes ago', () => {
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    expect(formatRelativeTimeShort(fiveMinutesAgo)).toBe('5m ago');
+  });
+
+  it('formats hours ago', () => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    expect(formatRelativeTimeShort(twoHoursAgo)).toBe('2h ago');
+  });
+
+  it('formats days ago', () => {
+    const threeDaysAgo = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    expect(formatRelativeTimeShort(threeDaysAgo)).toBe('3d ago');
   });
 });
 
