@@ -266,25 +266,31 @@ describe.skipIf(SKIP)('Session Commands', () => {
       const rootPost = await startSession(ctx, 'User1 session', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Verify session is active before user2's attempt
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
       // Create API for user2
       const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
 
-      // User2 tries to stop
+      // User2 tries to stop (should be ignored since user2 is not session owner)
       await user2Api.createPost({
         channel_id: ctx.channelId,
         message: '!stop',
         root_id: rootPost.id,
       });
 
-      // Wait for at least 3 posts (root + bot response + user2 message)
-      const allPosts = await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
+      // Wait for the message to be processed
+      await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
 
-      // Session should still be active (user2 is not authorized)
-      // Note: This depends on whether user2 is in allowedUsers
-      // If user2 IS allowed, they can stop; if not, session stays active
-      expect(allPosts.length).toBeGreaterThanOrEqual(3);
+      // Give the bot time to process the command (if it would)
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Session should STILL be active - user2 is not authorized to stop
+      // This is the actual authorization check!
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
     });
   });
 
@@ -414,7 +420,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
 
-      // User2 tries to change permissions
+      // User2 tries to change permissions (should be rejected - only owner can change)
       const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
 
       await user2Api.createPost({
@@ -423,12 +429,24 @@ describe.skipIf(SKIP)('Session Commands', () => {
         root_id: rootPost.id,
       });
 
-      // Wait for at least 3 posts (root + bot response + user2 message)
-      const allPosts = await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
+      // Wait for the message to be processed
+      await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
 
-      // User2 shouldn't be able to enable interactive permissions
-      // (depends on whether user2 is invited/allowed)
-      expect(allPosts.length).toBeGreaterThanOrEqual(3);
+      // Give the bot time to process and potentially show error
+      await new Promise((r) => setTimeout(r, 500));
+
+      // Check for rejection message - bot should post "only session owner can change permissions"
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
+
+      // Look for rejection/error message from bot
+      const hasRejectionMessage = botPosts.some((p) =>
+        /only.*owner|not authorized|cannot change/i.test(p.message)
+      );
+
+      // Either there's a rejection message OR the session stayed active without change
+      // (the key is that user2's command didn't work)
+      expect(hasRejectionMessage || bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
     });
   });
 });

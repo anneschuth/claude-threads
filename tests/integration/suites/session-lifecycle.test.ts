@@ -88,40 +88,53 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
     it('should reject unauthorized users', async () => {
       // Create a second API client for unauthorized user
-      // Note: We'll use testuser2 who should NOT be in allowed users initially
+      // Note: We'll use testuser2 who should NOT be in allowed users
       const user2Token = config.mattermost.testUsers[1]?.token;
       if (!user2Token) {
         console.log('Skipping unauthorized user test - no second test user');
         return;
       }
 
-      // For this test, we need to restart the bot with only testuser1 allowed
+      // For this test, we need to restart the bot with ONLY testuser1 allowed
+      // This explicitly excludes testuser2 from the allowed list
+      const user1Username = config.mattermost.testUsers[0]?.username;
       await bot.stop();
       bot = await startTestBot({
         scenario: 'simple-response',
         skipPermissions: true,
-        extraAllowedUsers: [], // Only default test users
+        allowedUsersOverride: user1Username ? [user1Username] : [], // Only user1 allowed
       });
 
       // Create API client for testuser2
       const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
 
-      // testuser2 tries to start a session (should be rejected if not in allowed list)
+      // testuser2 tries to start a session (should be rejected since not in allowed list)
       const rootPost = await user2Api.createPost({
         channel_id: ctx.channelId,
         message: `@${config.mattermost.bot.username} hello`,
       });
       testThreadIds.push(rootPost.id);
 
-      // Wait for response (either authorization error or actual response)
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for bot to respond with authorization error
+      const botResponse = await waitForBotResponse(ctx, rootPost.id, {
+        timeout: 10000,
+        minResponses: 1,
+      });
 
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      // Bot should post an authorization error message (not start a session)
+      expect(botResponse.length).toBeGreaterThanOrEqual(1);
+      const responseText = botResponse[0].message.toLowerCase();
 
-      // If unauthorized, bot should post an error message
-      // If authorized (testuser2 is in allowed list), bot should start session
-      // Either way, we should get some response
-      expect(allPosts.length).toBeGreaterThanOrEqual(1);
+      // The bot should indicate the user is not authorized
+      expect(
+        responseText.includes('not authorized') ||
+        responseText.includes('not allowed') ||
+        responseText.includes('permission') ||
+        responseText.includes('allowed users')
+      ).toBe(true);
+
+      // Session should NOT be active for this unauthorized user
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
 
     it('should require a prompt with the mention', async () => {
@@ -147,10 +160,10 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
   describe('Follow-up Messages', () => {
     it('should handle follow-up messages in a session', async () => {
-      // Restart bot with multi-turn scenario
+      // Restart bot with multi-turn scenario (persistent so we can send follow-ups)
       await bot.stop();
       bot = await startTestBot({
-        scenario: 'multi-turn',
+        scenario: 'persistent-session',
         skipPermissions: true,
       });
 
@@ -159,23 +172,26 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for initial response
-      await waitForBotResponse(ctx, rootPost.id, {
+      const initialResponses = await waitForBotResponse(ctx, rootPost.id, {
         timeout: 30000,
         minResponses: 1,
       });
 
-      // Send a follow-up
+      // Record initial bot post count
+      const initialBotPostCount = initialResponses.length;
+      expect(initialBotPostCount).toBeGreaterThanOrEqual(1);
+
+      // Send a follow-up message
       await sendFollowUp(ctx, rootPost.id, 'This is a follow-up message');
 
-      // Wait for follow-up response
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for follow-up response (should get at least one more bot post)
+      const followUpResponses = await waitForBotResponse(ctx, rootPost.id, {
+        timeout: 30000,
+        minResponses: initialBotPostCount + 1, // Expect at least one more response
+      });
 
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
-
-      // Should have at least 2 bot responses (initial + follow-up)
-      // Note: Actual count depends on how mock responds
-      expect(botPosts.length).toBeGreaterThanOrEqual(1);
+      // Bot should have responded to the follow-up
+      expect(followUpResponses.length).toBeGreaterThan(initialBotPostCount);
     });
 
     it('should ignore side conversations (@other_user)', async () => {
@@ -241,10 +257,13 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       });
 
       // Session should complete (mock sends result event)
-      // Give it time to process
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for the session to end
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
-      // The key is that the bot responded and processed the result
+      // Session should no longer be active
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
+
+      // Verify bot did respond
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
       expect(botPosts.length).toBeGreaterThanOrEqual(1);

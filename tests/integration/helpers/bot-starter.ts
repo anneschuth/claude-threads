@@ -62,6 +62,8 @@ export interface StartBotOptions {
   allowedUsersOverride?: string[];
   /** Explicit sessions file path (for restart scenarios, to reuse the same file) */
   sessionsPath?: string;
+  /** Git worktree mode: 'off' (default for tests), 'prompt', or 'require' */
+  worktreeMode?: 'off' | 'prompt' | 'require';
 }
 
 /**
@@ -80,6 +82,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     clearPersistedSessions = true,
     allowedUsersOverride,
     sessionsPath: explicitSessionsPath,
+    worktreeMode = 'off',
   } = options;
 
   // Load test config
@@ -141,13 +144,13 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Create the Mattermost client
   const mattermostClient = new MattermostClient(platformConfig);
 
-  // Create the session manager (no UI, no chrome, no worktrees for tests)
+  // Create the session manager (no UI, no chrome for tests)
   // Pass explicit sessionsPath for test isolation
   const sessionManager = new SessionManager(
     workingDir,
     skipPermissions,
     false, // chrome disabled
-    'off', // worktree mode off
+    worktreeMode,
     sessionsPath, // isolated session storage
   );
 

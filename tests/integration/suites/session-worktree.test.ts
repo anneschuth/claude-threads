@@ -15,6 +15,7 @@ import {
   waitForSessionActive,
   addReaction,
   sendFollowUp,
+  getThreadPosts,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
@@ -115,6 +116,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
         debug: process.env.DEBUG === '1',
         workingDir: testRepoPath,
         clearPersistedSessions: true,
+        worktreeMode: 'prompt', // Enable worktree prompts
       });
 
       // Start a session
@@ -140,6 +142,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
         debug: process.env.DEBUG === '1',
         workingDir: testRepoPath,
         clearPersistedSessions: true,
+        worktreeMode: 'prompt', // Enable worktree prompts
       });
 
       // Start a session
@@ -173,6 +176,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
         debug: process.env.DEBUG === '1',
         workingDir: testRepoPath,
         clearPersistedSessions: true,
+        worktreeMode: 'prompt', // Enable worktree prompts
       });
 
       // Start a session
@@ -191,15 +195,17 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
       await sendFollowUp(ctx, rootPost.id, branchName);
 
       // Wait for worktree creation confirmation or session to become active
-      // Either we get a success message or the session starts
-      await new Promise((r) => setTimeout(r, 2000));
+      // The bot should either create the worktree and start, or post an error
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
-      // Session should eventually become active (after worktree creation)
-      const isActive = bot.sessionManager.isInSessionThread(rootPost.id);
+      // Session should be active after providing branch name
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // At minimum, the bot should have processed the branch name
-      // (actual worktree creation depends on git state)
-      expect(isActive || worktreePrompt).toBeTruthy();
+      // Optionally verify worktree was created by checking for confirmation message
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
+      // Should have worktree prompt + possibly confirmation/session header
+      expect(botPosts.length).toBeGreaterThanOrEqual(1);
     });
   });
 
@@ -209,33 +215,35 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
       addUncommittedChanges(testRepoPath);
 
       // Start bot with worktree mode off
-      // Note: worktree mode is controlled at SessionManager level
-      // For this test, we use skipPermissions which implies simpler behavior
       bot = await startTestBot({
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
         workingDir: testRepoPath,
         clearPersistedSessions: true,
+        worktreeMode: 'off', // Explicitly disable worktree prompts
       });
 
-      // Since worktree mode defaults to 'prompt' in SessionManager,
-      // and our test repo has uncommitted changes, we expect the prompt.
-      // To test 'off' mode would require modifying how bot-starter creates SessionManager.
-
-      // For now, just verify the session starts
+      // Start a session
       const rootPost = await startSession(ctx, 'Simple request', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      // Wait a bit and check if we got a worktree prompt
-      await new Promise((r) => setTimeout(r, 2000));
+      // With worktree mode off, session should start without worktree prompt
+      // Wait for session to become active
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
-      // With default prompt mode, we should see a worktree prompt
-      // This test documents current behavior
-      const isActive = bot.sessionManager.isInSessionThread(rootPost.id);
+      // Verify session is active (not blocked by worktree prompt)
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // Session should exist (either active or pending worktree)
-      expect(isActive || true).toBe(true); // Permissive - documents behavior
+      // Verify no worktree prompt was posted
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
+      const worktreePromptPosts = botPosts.filter((p) =>
+        /uncommitted changes|create a worktree|branch name/i.test(p.message)
+      );
+
+      // Should NOT have worktree prompt when mode is off
+      expect(worktreePromptPosts.length).toBe(0);
     });
   });
 });

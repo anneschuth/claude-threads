@@ -196,6 +196,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 10000 });
 
       const postsBeforeUser2 = await getThreadPosts(ctx, rootPost.id);
+      const botPostsBeforeUser2 = postsBeforeUser2.filter((p) => p.user_id === ctx.botUserId);
 
       // User2 tries to send message after being kicked
       await user2Api.createPost({
@@ -204,14 +205,32 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for potential bot response
+      await new Promise((r) => setTimeout(r, 500));
 
       const postsAfterUser2 = await getThreadPosts(ctx, rootPost.id);
+      const botPostsAfterUser2 = postsAfterUser2.filter((p) => p.user_id === ctx.botUserId);
 
-      // Bot should either block or request approval for user2's message
-      // Either way, it should NOT process it as a normal message
-      // Either approval request or no new bot response
-      expect(postsAfterUser2.length).toBeGreaterThanOrEqual(postsBeforeUser2.length);
+      // Bot should NOT process user2's message as a normal Claude input
+      // It should either:
+      // 1. Post an approval request message (contains "needs approval")
+      // 2. Simply not respond to user2's message at all
+
+      // Check for approval request message
+      const approvalRequests = botPostsAfterUser2.filter((p) =>
+        /needs approval|not authorized/i.test(p.message)
+      );
+
+      // The message was either blocked (no new non-approval bot posts) or flagged for approval
+      const normalBotResponses = botPostsAfterUser2.filter((p) =>
+        !approvalRequests.includes(p)
+      );
+
+      // User2's message should NOT have triggered a normal Claude response
+      // Either we got an approval request, or the bot count stayed the same
+      expect(
+        approvalRequests.length > 0 || normalBotResponses.length === botPostsBeforeUser2.length
+      ).toBe(true);
     });
   });
 
