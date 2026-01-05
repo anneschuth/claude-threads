@@ -96,7 +96,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
   if (clearPersistedSessions) {
-    const store = new SessionStore(); // Will use CLAUDE_THREADS_SESSIONS_PATH
+    const store = new SessionStore(sessionsPath); // Use explicit path for isolation
     store.clear();
   }
 
@@ -142,11 +142,13 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   const mattermostClient = new MattermostClient(platformConfig);
 
   // Create the session manager (no UI, no chrome, no worktrees for tests)
+  // Pass explicit sessionsPath for test isolation
   const sessionManager = new SessionManager(
     workingDir,
     skipPermissions,
     false, // chrome disabled
     'off', // worktree mode off
+    sessionsPath, // isolated session storage
   );
 
   // Register platform (this wires up reaction handlers)

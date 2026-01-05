@@ -76,7 +76,7 @@ export class SessionManager extends EventEmitter {
   private postIndex: Map<string, string> = new Map();
 
   // Persistence
-  private sessionStore: SessionStore = new SessionStore();
+  private sessionStore: SessionStore;
 
   // Cleanup
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,13 +88,15 @@ export class SessionManager extends EventEmitter {
     workingDir: string,
     skipPermissions = false,
     chromeEnabled = false,
-    worktreeMode: WorktreeMode = 'prompt'
+    worktreeMode: WorktreeMode = 'prompt',
+    sessionsPath?: string
   ) {
     super();
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
+    this.sessionStore = new SessionStore(sessionsPath);
 
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {

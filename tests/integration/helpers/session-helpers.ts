@@ -466,14 +466,14 @@ export async function startSessionMidThread(
  * Wait for a session to be persisted to disk
  *
  * @param threadId - The thread ID to wait for
- * @param options - Timeout options
+ * @param options - Timeout options and sessionsPath for test isolation
  */
 export async function waitForSessionPersisted(
   threadId: string,
-  options: { timeout?: number } = {},
+  options: { timeout?: number; sessionsPath?: string } = {},
 ): Promise<void> {
-  const { timeout = 5000 } = options;
-  const sessionStore = new SessionStore();
+  const { timeout = 5000, sessionsPath } = options;
+  const sessionStore = new SessionStore(sessionsPath);
 
   await waitFor(
     async () => {
