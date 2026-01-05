@@ -81,6 +81,7 @@
   },
   "lint-staged": {
     "*.ts": "eslint --fix",
-    "*.test.ts": "bun test --bail"
+    "*.test.ts": "bun test --bail",
+    "*.{ts,tsx}": "bun run typecheck"
   }
 }
