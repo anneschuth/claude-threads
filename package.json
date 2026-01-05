@@ -12,9 +12,14 @@
     "dev": "bun --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun && bun build src/mcp/permission-server.ts --outdir dist/mcp --target bun && bun build src/statusline/writer.ts --outdir dist/statusline --target bun",
     "start": "bun dist/index.js",
-    "test": "bun test",
-    "test:watch": "bun test --watch",
-    "test:coverage": "bun test --coverage",
+    "test": "bun test src/",
+    "test:watch": "bun test src/ --watch",
+    "test:coverage": "bun test src/ --coverage",
+    "test:integration:setup": "docker compose -f tests/integration/docker/docker-compose.yml up -d && bun run tests/integration/setup/wait-for-mattermost.ts && bun run tests/integration/setup/setup-mattermost.ts",
+    "test:integration:run": "INTEGRATION_TEST=1 bun test tests/integration/suites --timeout 60000",
+    "test:integration": "bun run test:integration:setup && bun run test:integration:run",
+    "test:integration:teardown": "docker compose -f tests/integration/docker/docker-compose.yml down -v",
+    "test:integration:clean": "bun run tests/integration/setup/teardown.ts",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",
@@ -82,6 +87,6 @@
   "lint-staged": {
     "*.ts": "eslint --fix",
     "*.test.ts": "bun test --bail",
-    "*.{ts,tsx}": "bun run typecheck"
+    "src/**/*.{ts,tsx}": "bun run typecheck"
   }
 }

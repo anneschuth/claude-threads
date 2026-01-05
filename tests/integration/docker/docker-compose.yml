@@ -1,0 +1,86 @@
+# Docker Compose configuration for local Mattermost integration testing
+# Usage:
+#   Start:    docker compose -f tests/integration/docker/docker-compose.yml up -d
+#   Stop:     docker compose -f tests/integration/docker/docker-compose.yml down
+#   Teardown: docker compose -f tests/integration/docker/docker-compose.yml down -v
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: claude-threads-test-postgres
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mmuser_password
+      POSTGRES_DB: mattermost
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "mmuser"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - claude-threads-test
+    # Use tmpfs for faster tests (data not persisted)
+    tmpfs:
+      - /var/lib/postgresql/data
+
+  mattermost:
+    # Use ARM64 native image on Apple Silicon, AMD64 image elsewhere
+    # ARM64: ghcr.io/supersunho/docker-mattermost/mattermost:v11.0.4-team-arm64
+    # AMD64: mattermost/mattermost-enterprise-edition:9.11
+    image: ${MATTERMOST_IMAGE:-ghcr.io/supersunho/docker-mattermost/mattermost:v11.0.4-team-arm64}
+    container_name: claude-threads-test-mattermost
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # Database configuration
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: postgres://mmuser:mmuser_password@postgres:5432/mattermost?sslmode=disable
+
+      # Server configuration
+      MM_SERVICESETTINGS_SITEURL: http://localhost:8065
+      MM_SERVICESETTINGS_LISTENADDRESS: ":8065"
+
+      # Enable bot accounts and access tokens (required for testing)
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "true"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "true"
+      MM_SERVICESETTINGS_ENABLEOAUTHSERVICEPROVIDER: "true"
+
+      # Team settings - allow open server for easy testing
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "true"
+      MM_TEAMSETTINGS_MAXUSERSPERTEAM: 50
+
+      # Disable email (not needed for testing)
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "false"
+
+      # Reduce logging noise
+      MM_LOGSETTINGS_CONSOLELEVEL: ERROR
+      MM_LOGSETTINGS_FILELEVEL: ERROR
+
+      # Plugin settings
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "true"
+
+      # Rate limiting - disabled for testing
+      MM_RATELIMITSETTINGS_ENABLE: "false"
+
+      # File settings
+      MM_FILESETTINGS_MAXFILESIZE: 52428800
+    ports:
+      - "8065:8065"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8065/api/v4/system/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    networks:
+      - claude-threads-test
+    # Use tmpfs for logs and data for faster tests
+    tmpfs:
+      - /mattermost/logs
+      - /mattermost/data
+
+networks:
+  claude-threads-test:
+    driver: bridge

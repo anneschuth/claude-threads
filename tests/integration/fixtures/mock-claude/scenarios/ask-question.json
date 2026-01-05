@@ -1,0 +1,43 @@
+{
+  "name": "ask-question",
+  "description": "Response with AskUserQuestion tool use",
+  "initialEvents": [],
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I have a question about how to proceed."
+          },
+          {
+            "type": "tool_use",
+            "id": "tool_ask_1",
+            "name": "AskUserQuestion",
+            "input": {
+              "questions": [
+                {
+                  "question": "Which approach would you prefer?",
+                  "header": "Approach",
+                  "options": [
+                    {
+                      "label": "Option A",
+                      "description": "First approach"
+                    },
+                    {
+                      "label": "Option B",
+                      "description": "Second approach"
+                    }
+                  ],
+                  "multiSelect": false
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

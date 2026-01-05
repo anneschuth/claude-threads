@@ -1,0 +1,62 @@
+{
+  "name": "permission-request",
+  "description": "Response that triggers a permission request for file write",
+  "initialEvents": [],
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll write that to a file for you."
+          },
+          {
+            "type": "tool_use",
+            "id": "tool_write_1",
+            "name": "Write",
+            "input": {
+              "file_path": "/tmp/test-output.txt",
+              "content": "Test content for integration testing"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 500,
+      "tool_result": {
+        "tool_use_id": "tool_write_1",
+        "content": "File written successfully",
+        "is_error": false
+      }
+    },
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Done! I've written the content to /tmp/test-output.txt"
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "delay": 50,
+      "subtype": "success",
+      "cost_usd": 0.002,
+      "duration_ms": 750,
+      "duration_api_ms": 400,
+      "is_error": false,
+      "num_turns": 2,
+      "result": "",
+      "session_id": "mock-session-permission",
+      "total_cost_usd": 0.002
+    }
+  ]
+}

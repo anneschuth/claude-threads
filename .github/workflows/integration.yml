@@ -1,0 +1,101 @@
+# Integration Tests workflow
+# Runs integration tests with a local Mattermost instance
+
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mmuser
+          POSTGRES_PASSWORD: mmuser_password
+          POSTGRES_DB: mattermost
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+        ports:
+          - 5432:5432
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Start Mattermost
+        run: |
+          # Use official AMD64 image for CI (GitHub Actions runners are AMD64)
+          docker run -d \
+            --name mattermost \
+            --network host \
+            -e MM_SQLSETTINGS_DRIVERNAME=postgres \
+            -e MM_SQLSETTINGS_DATASOURCE="postgres://mmuser:mmuser_password@localhost:5432/mattermost?sslmode=disable" \
+            -e MM_SERVICESETTINGS_SITEURL=http://localhost:8065 \
+            -e MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION=true \
+            -e MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS=true \
+            -e MM_TEAMSETTINGS_ENABLEOPENSERVER=true \
+            -e MM_LOGSETTINGS_CONSOLELEVEL=ERROR \
+            -e MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false \
+            -e MM_RATELIMITSETTINGS_ENABLE=false \
+            mattermost/mattermost-enterprise-edition:9.11
+
+      - name: Wait for Mattermost to be ready
+        run: |
+          echo "Waiting for Mattermost to start..."
+          timeout 180 bash -c '
+            until curl -sf http://localhost:8065/api/v4/system/ping; do
+              echo "Waiting..."
+              sleep 5
+            done
+          '
+          echo "Mattermost is ready!"
+
+      - name: Setup Mattermost (create users, channels, bot)
+        run: bun run tests/integration/setup/setup-mattermost.ts
+        env:
+          MATTERMOST_URL: http://localhost:8065
+
+      - name: Run integration tests
+        run: bun test tests/integration/suites --timeout 60000
+        env:
+          MATTERMOST_URL: http://localhost:8065
+          INTEGRATION_TEST: "1"
+
+      - name: Collect Mattermost logs on failure
+        if: failure()
+        run: docker logs mattermost > mattermost.log 2>&1
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-logs
+          path: |
+            mattermost.log
+          retention-days: 5
+
+      - name: Stop Mattermost
+        if: always()
+        run: |
+          docker stop mattermost || true
+          docker rm mattermost || true
