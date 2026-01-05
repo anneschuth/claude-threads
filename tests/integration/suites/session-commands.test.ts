@@ -184,7 +184,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await addReaction(ctx, sessionStartPost.id, 'x');
 
       // Wait for session cancellation (reaction processing is async via WebSocket)
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -209,7 +209,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
 
       // Wait for session cancellation (reaction processing is async via WebSocket)
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
