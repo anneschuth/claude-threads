@@ -361,6 +361,37 @@ export class MattermostTestApi {
   }
 
   // ============================================================================
+  // Pinned Posts
+  // ============================================================================
+
+  /**
+   * Get pinned posts in a channel
+   */
+  async getPinnedPosts(channelId: string): Promise<MattermostPost[]> {
+    const result = await this.api<{
+      order: string[];
+      posts: Record<string, MattermostPost>;
+    }>('GET', `/channels/${channelId}/pinned`);
+
+    // Return posts in order
+    return result.order.map((id) => result.posts[id]);
+  }
+
+  /**
+   * Pin a post
+   */
+  async pinPost(postId: string): Promise<void> {
+    await this.api('POST', `/posts/${postId}/pin`);
+  }
+
+  /**
+   * Unpin a post
+   */
+  async unpinPost(postId: string): Promise<void> {
+    await this.api('POST', `/posts/${postId}/unpin`);
+  }
+
+  // ============================================================================
   // Reactions
   // ============================================================================
 

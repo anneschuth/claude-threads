@@ -8,7 +8,6 @@ import { MattermostClient } from './platform/mattermost/client.js';
 import { SessionManager } from './session/index.js';
 import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { checkForUpdates } from './update-notifier.js';
-import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
 import { dim, red } from './utils/colors.js';
@@ -16,6 +15,7 @@ import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIInstance } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
+import { handleMessage } from './message-handler.js';
 
 // Define CLI options
 program
@@ -208,288 +208,16 @@ async function main() {
   session.addPlatform(platformConfig.id, mattermost);
 
   mattermost.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
-    try {
-    const username = user?.username || 'unknown';
-    const message = post.message;
-    const threadRoot = post.rootId || post.id;
-
-    // Check for !kill command FIRST - works anywhere, even as the first message
-    const lowerMessage = message.trim().toLowerCase();
-    if (lowerMessage === '!kill' || (mattermost.isBotMentioned(message) && mattermost.extractPrompt(message).toLowerCase() === '!kill')) {
-      if (!mattermost.isUserAllowed(username)) {
-        await mattermost.createPost('⛔ Only authorized users can use `!kill`', threadRoot);
-        return;
-      }
-      // Notify all active sessions before killing
-      for (const tid of session.getActiveThreadIds()) {
-        try {
-          await mattermost.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
-        } catch { /* ignore */ }
-      }
-      ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
-      session.killAllSessionsAndUnpersist();
-      mattermost.disconnect();
-      process.exit(1);
-    }
-
-    // Follow-up in active thread
-    if (session.isInSessionThread(threadRoot)) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
-      // Note: Mattermost usernames can contain letters, numbers, hyphens, periods, and underscores
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== mattermost.getBotName().toLowerCase()) {
-        return; // Side conversation, don't interrupt
-      }
-
-      const content = mattermost.isBotMentioned(message)
-        ? mattermost.extractPrompt(message)
-        : message.trim();
-      const lowerContent = content.toLowerCase();
-
-      // Check for stop/cancel commands (only from allowed users)
-      // Note: Using ! prefix instead of / to avoid Mattermost slash command interception
-      if (lowerContent === '!stop' || lowerContent === 'stop' ||
-          lowerContent === '!cancel' || lowerContent === 'cancel') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          await session.cancelSession(threadRoot, username);
-        }
-        return;
-      }
-
-      // Check for !escape/!interrupt commands (soft interrupt, keeps session alive)
-      if (lowerContent === '!escape' || lowerContent === '!interrupt') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          await session.interruptSession(threadRoot, username);
-        }
-        return;
-      }
-
-      // Note: !kill is handled at the top level, before session thread check
-
-      // Check for !help command
-      if (lowerContent === '!help' || lowerContent === 'help') {
-        await mattermost.createPost(
-          `**Available commands:**\n\n` +
-          `| Command | Description |\n` +
-          `|:--------|:------------|\n` +
-          `| \`!help\` | Show this help message |\n` +
-          `| \`!release-notes\` | Show release notes for current version |\n` +
-          `| \`!context\` | Show context usage (tokens used/remaining) |\n` +
-          `| \`!cost\` | Show token usage and cost for this session |\n` +
-          `| \`!compact\` | Compress context to free up space |\n` +
-          `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
-          `| \`!worktree <branch>\` | Create and switch to a git worktree |\n` +
-          `| \`!worktree list\` | List all worktrees for the repo |\n` +
-          `| \`!worktree switch <branch>\` | Switch to an existing worktree |\n` +
-          `| \`!worktree remove <branch>\` | Remove a worktree |\n` +
-          `| \`!worktree off\` | Disable worktree prompts for this session |\n` +
-          `| \`!invite @user\` | Invite a user to this session |\n` +
-          `| \`!kick @user\` | Remove an invited user |\n` +
-          `| \`!permissions interactive\` | Enable interactive permissions |\n` +
-          `| \`!escape\` | Interrupt current task (session stays active) |\n` +
-          `| \`!stop\` | Stop this session |\n` +
-          `| \`!kill\` | Emergency shutdown (kills ALL sessions, exits bot) |\n\n` +
-          `**Reactions:**\n` +
-          `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
-          `- ⏸️ Interrupt current task (session stays active)\n` +
-          `- ❌ or 🛑 Stop session`,
-          threadRoot
-        );
-        return;
-      }
-
-      // Check for !release-notes command
-      if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
-        const notes = getReleaseNotes(VERSION);
-        if (notes) {
-          await mattermost.createPost(formatReleaseNotes(notes), threadRoot);
-        } else {
-          await mattermost.createPost(
-            `📋 **claude-threads v${VERSION}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/claude-threads/releases).`,
-            threadRoot
-          );
-        }
-        return;
-      }
-
-      // Check for !invite command
-      const inviteMatch = content.match(/^!invite\s+@?([\w.-]+)/i);
-      if (inviteMatch) {
-        await session.inviteUser(threadRoot, inviteMatch[1], username);
-        return;
-      }
-
-      // Check for !kick command
-      const kickMatch = content.match(/^!kick\s+@?([\w.-]+)/i);
-      if (kickMatch) {
-        await session.kickUser(threadRoot, kickMatch[1], username);
-        return;
-      }
-
-      // Check for !permissions command
-      const permMatch = content.match(/^!permissions?\s+(interactive|auto)/i);
-      if (permMatch) {
-        const mode = permMatch[1].toLowerCase();
-        if (mode === 'interactive') {
-          await session.enableInteractivePermissions(threadRoot, username);
-        } else {
-          // Can't upgrade to auto - that would be less secure
-          await mattermost.createPost(
-            `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
-            threadRoot
-          );
-        }
-        return;
-      }
-
-      // Check for !cd command
-      const cdMatch = content.match(/^!cd\s+(.+)/i);
-      if (cdMatch) {
-        await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
-        return;
-      }
-
-      // Check for !worktree command
-      const worktreeMatch = content.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
-      if (worktreeMatch) {
-        const subcommand = worktreeMatch[1].toLowerCase();
-        const args = worktreeMatch[2]?.trim();
-
-        switch (subcommand) {
-          case 'list':
-            await session.listWorktreesCommand(threadRoot, username);
-            break;
-          case 'switch':
-            if (!args) {
-              await mattermost.createPost('❌ Usage: `!worktree switch <branch>`', threadRoot);
-            } else {
-              await session.switchToWorktree(threadRoot, args, username);
-            }
-            break;
-          case 'remove':
-            if (!args) {
-              await mattermost.createPost('❌ Usage: `!worktree remove <branch>`', threadRoot);
-            } else {
-              await session.removeWorktreeCommand(threadRoot, args, username);
-            }
-            break;
-          case 'off':
-            await session.disableWorktreePrompt(threadRoot, username);
-            break;
-          default:
-            // Treat as branch name: !worktree feature/foo
-            await session.createAndSwitchToWorktree(threadRoot, subcommand, username);
-        }
-        return;
-      }
-
-      // Check for pending worktree prompt - treat message as branch name response
-      if (session.hasPendingWorktreePrompt(threadRoot)) {
-        // Only session owner can respond
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          const handled = await session.handleWorktreeBranchResponse(threadRoot, content, username, post.id);
-          if (handled) return;
-        }
-      }
-
-      // Check for Claude Code slash commands (translate ! to /)
-      // These are sent directly to Claude Code as /commands
-      if (lowerContent === '!context' || lowerContent === '!cost' || lowerContent === '!compact') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          // Translate !command to /command for Claude Code
-          const claudeCommand = '/' + lowerContent.substring(1);
-          await session.sendFollowUp(threadRoot, claudeCommand);
-        }
-        return;
-      }
-
-      // Check if user is allowed in this session
-      if (!session.isUserAllowedInSession(threadRoot, username)) {
-        // Request approval for their message
-        if (content) await session.requestMessageApproval(threadRoot, username, content);
-        return;
-      }
-
-      // Get any attached files (images)
-      const files = post.metadata?.files;
-
-      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files);
-      return;
-    }
-
-    // Check for paused session that can be resumed
-    if (session.hasPausedSession(threadRoot)) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== mattermost.getBotName().toLowerCase()) {
-        return; // Side conversation, don't interrupt
-      }
-
-      const content = mattermost.isBotMentioned(message)
-        ? mattermost.extractPrompt(message)
-        : message.trim();
-
-      // Check if user is allowed in the paused session
-      const persistedSession = session.getPersistedSession(threadRoot);
-      if (persistedSession) {
-        // Defensive: handle missing sessionAllowedUsers (old persisted data)
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
-        if (!allowedUsers.has(username) && !mattermost.isUserAllowed(username)) {
-          // Not allowed - could request approval but that would require the session to be active
-          await mattermost.createPost(`⚠️ @${username} is not authorized to resume this session`, threadRoot);
-          return;
-        }
-      }
-
-      // Get any attached files (images)
-      const files = post.metadata?.files;
-
-      if (content || files?.length) {
-        await session.resumePausedSession(threadRoot, content, files);
-      }
-      return;
-    }
-
-    // New session requires @mention
-    if (!mattermost.isBotMentioned(message)) return;
-
-    if (!mattermost.isUserAllowed(username)) {
-      await mattermost.createPost(`⚠️ @${username} is not authorized`, threadRoot);
-      return;
-    }
-
-    const prompt = mattermost.extractPrompt(message);
-    const files = post.metadata?.files;
-
-    if (!prompt && !files?.length) {
-      await mattermost.createPost(`Mention me with your request`, threadRoot);
-      return;
-    }
-
-    // Check for inline branch syntax: "on branch X" or "!worktree X"
-    const branchMatch = prompt.match(/(?:on branch|!worktree)\s+(\S+)/i);
-    if (branchMatch) {
-      const branch = branchMatch[1];
-      // Remove the branch specification from the prompt
-      const cleanedPrompt = prompt.replace(/(?:on branch|!worktree)\s+\S+/i, '').trim();
-      await session.startSessionWithWorktree({ prompt: cleanedPrompt || prompt, files }, branch, username, threadRoot, platformConfig.id, user?.displayName);
-      return;
-    }
-
-    await session.startSession({ prompt, files }, username, threadRoot, platformConfig.id, user?.displayName);
-    } catch (err) {
-      ui.addLog({ level: 'error', component: '❌', message: `Error handling message: ${err}` });
-      // Try to notify user if possible
-      try {
-        const threadRoot = post.rootId || post.id;
-        await mattermost.createPost(
-          `⚠️ An error occurred. Please try again.`,
-          threadRoot
-        );
-      } catch {
-        // Ignore if we can't post the error message
-      }
-    }
+    await handleMessage(mattermost, session, post, user, {
+      platformId: platformConfig.id,
+      logger: {
+        error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
+      },
+      onKill: (username) => {
+        ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
+        process.exit(1);
+      },
+    });
   });
 
   // Wire up platform events to UI

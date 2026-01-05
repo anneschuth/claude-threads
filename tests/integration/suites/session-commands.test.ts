@@ -274,4 +274,72 @@ describe.skipIf(SKIP)('Session Commands', () => {
       expect(allPosts.length).toBeGreaterThanOrEqual(2);
     });
   });
+
+  describe('!cd Command', () => {
+    it('should change working directory', async () => {
+      const rootPost = await startSession(ctx, 'Test cd command', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      // Wait for session to start
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Change to /tmp directory
+      await sendCommand(ctx, rootPost.id, '!cd /tmp');
+
+      // Wait for cd confirmation
+      await waitForPostMatching(ctx, rootPost.id, /changed|directory|\/tmp/i, { timeout: 5000 });
+
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const cdPost = allPosts.find((p) =>
+        p.user_id === ctx.botUserId && /changed|directory|\/tmp/i.test(p.message)
+      );
+
+      expect(cdPost).toBeDefined();
+    });
+
+    it('should restart Claude CLI after directory change', async () => {
+      const rootPost = await startSession(ctx, 'Test cd restart', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Change directory
+      await sendCommand(ctx, rootPost.id, '!cd /tmp');
+
+      // Wait for confirmation that mentions "Working directory changed" and "restarted"
+      await waitForPostMatching(ctx, rootPost.id, /Working directory changed|restarted/i, { timeout: 5000 });
+
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const confirmPost = allPosts.find((p) =>
+        p.user_id === ctx.botUserId && /Working directory changed|restarted/i.test(p.message)
+      );
+
+      expect(confirmPost).toBeDefined();
+      // Session should still be tracked (it restarts, doesn't end)
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
+    });
+
+    it('should reject invalid directory', async () => {
+      const rootPost = await startSession(ctx, 'Test invalid cd', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Try to cd to non-existent directory
+      await sendCommand(ctx, rootPost.id, '!cd /nonexistent/path/12345');
+
+      // Wait for error message
+      await new Promise((r) => setTimeout(r, 150));
+
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      const errorPost = allPosts.find((p) =>
+        p.user_id === ctx.botUserId && /error|not.*exist|invalid|not.*found/i.test(p.message)
+      );
+
+      expect(errorPost).toBeDefined();
+    });
+  });
 });
