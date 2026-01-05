@@ -16,6 +16,7 @@ import {
   waitForPostMatching,
   waitForPostCount,
   addReaction,
+  waitForReaction,
   waitForSessionActive,
   waitForSessionEnded,
   type TestSessionContext,
@@ -182,10 +183,15 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add X reaction to session start post
       await addReaction(ctx, sessionStartPost.id, 'x');
+      // Wait for reaction to be recorded (confirms Mattermost received it)
+      await waitForReaction(ctx, sessionStartPost.id, 'x', { timeout: 5000 });
 
       // Wait for cancellation message (concrete observable event)
       const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
       expect(cancelPost).toBeDefined();
+
+      // Wait for session to be fully cleaned up
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -208,10 +214,15 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add octagonal_sign (stop sign) reaction
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
+      // Wait for reaction to be recorded (confirms Mattermost received it)
+      await waitForReaction(ctx, sessionStartPost.id, 'octagonal_sign', { timeout: 5000 });
 
       // Wait for cancellation message (concrete observable event)
       const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
       expect(cancelPost).toBeDefined();
+
+      // Wait for session to be fully cleaned up
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -232,6 +243,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add pause button reaction
       await addReaction(ctx, sessionStartPost.id, 'double_vertical_bar');
+      // Wait for reaction to be recorded (confirms Mattermost received it)
+      await waitForReaction(ctx, sessionStartPost.id, 'double_vertical_bar', { timeout: 5000 });
 
       // Wait for interrupt message or session end
       try {

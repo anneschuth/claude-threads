@@ -16,6 +16,7 @@ import {
   waitForSessionActive,
   waitForSessionEnded,
   addReaction,
+  waitForReaction,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
@@ -92,6 +93,8 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
       // React with 🔄 to resume
       await addReaction(ctx, sessionHeaderPost.id, 'arrows_counterclockwise');
+      // Wait for reaction to be recorded (confirms Mattermost received it)
+      await waitForReaction(ctx, sessionHeaderPost.id, 'arrows_counterclockwise', { timeout: 5000 });
 
       // Wait for session to become active again
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
@@ -123,6 +126,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
       // React with arrow_forward
       await addReaction(ctx, sessionHeaderPost.id, 'arrow_forward');
+      await waitForReaction(ctx, sessionHeaderPost.id, 'arrow_forward', { timeout: 5000 });
 
       // Wait for session to become active
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
@@ -153,6 +157,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
       // React with repeat
       await addReaction(ctx, sessionHeaderPost.id, 'repeat');
+      await waitForReaction(ctx, sessionHeaderPost.id, 'repeat', { timeout: 5000 });
 
       // Wait for session to become active
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });

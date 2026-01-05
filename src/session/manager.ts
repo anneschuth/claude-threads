@@ -118,22 +118,29 @@ export class SessionManager extends EventEmitter {
     this.platforms.set(platformId, client);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', async (reaction, user) => {
-      // If user lookup failed initially, retry once (CI can have transient failures)
+      // If user lookup failed initially, retry with exponential backoff (CI can have transient failures)
       let effectiveUser = user;
       if (!effectiveUser) {
-        log.debug(`User lookup failed for reaction, retrying for userId ${reaction.userId}`);
-        effectiveUser = await client.getUser(reaction.userId);
+        for (let attempt = 1; attempt <= 3 && !effectiveUser; attempt++) {
+          const delay = 100 * attempt; // 100ms, 200ms, 300ms
+          log.debug(`User lookup failed for reaction (attempt ${attempt}), retrying in ${delay}ms for userId ${reaction.userId}`);
+          await new Promise(r => setTimeout(r, delay));
+          effectiveUser = await client.getUser(reaction.userId);
+        }
       }
       if (effectiveUser) {
         this.handleReaction(platformId, reaction.postId, reaction.emojiName, effectiveUser.username, 'added');
       } else {
-        log.warn(`Cannot process reaction: user lookup failed for userId ${reaction.userId}`);
+        log.warn(`Cannot process reaction: user lookup failed after 3 retries for userId ${reaction.userId}`);
       }
     });
     client.on('reaction_removed', async (reaction, user) => {
       let effectiveUser = user;
       if (!effectiveUser) {
-        effectiveUser = await client.getUser(reaction.userId);
+        for (let attempt = 1; attempt <= 2 && !effectiveUser; attempt++) {
+          await new Promise(r => setTimeout(r, 100 * attempt));
+          effectiveUser = await client.getUser(reaction.userId);
+        }
       }
       if (effectiveUser) {
         this.handleReaction(platformId, reaction.postId, reaction.emojiName, effectiveUser.username, 'removed');
@@ -308,8 +315,11 @@ export class SessionManager extends EventEmitter {
     username: string,
     action: 'added' | 'removed'
   ): Promise<void> {
+    log.debug(`handleReaction: ${action} :${emojiName}: on ${postId.substring(0, 8)}... by @${username}`);
+
     // First, check if this is a resume emoji for a timed-out session (only on add)
     if (action === 'added' && isResumeEmoji(emojiName)) {
+      log.debug(`handleReaction: ${emojiName} is a resume emoji, trying resume...`);
       const resumed = await this.tryResumeFromReaction(platformId, postId, username);
       if (resumed) return;
     }
@@ -333,9 +343,16 @@ export class SessionManager extends EventEmitter {
    * Returns true if a session was resumed, false otherwise.
    */
   private async tryResumeFromReaction(platformId: string, postId: string, username: string): Promise<boolean> {
+    const shortPostId = postId.substring(0, 8);
+    log.debug(`tryResumeFromReaction: checking post ${shortPostId}... for @${username}`);
+
     // Find a persisted session by the post ID (timeout post or session header)
     const persistedSession = this.sessionStore.findByPostId(platformId, postId);
-    if (!persistedSession) return false;
+    if (!persistedSession) {
+      log.debug(`tryResumeFromReaction: no persisted session found for post ${shortPostId}...`);
+      return false;
+    }
+    log.debug(`tryResumeFromReaction: found session ${persistedSession.threadId.substring(0, 8)}... (sessionStartPostId=${persistedSession.sessionStartPostId?.substring(0, 8)}...)`);
 
     // Check if this session is already active
     const sessionId = `${platformId}:${persistedSession.threadId}`;
