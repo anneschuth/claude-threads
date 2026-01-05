@@ -58,7 +58,7 @@ describe('Messaging', () => {
       });
 
       expect(post.message).toBe(message);
-      expect(post.user_id).toBe(config.mattermost.testUsers[0].userId);
+      expect(post.user_id).toBe(config.mattermost.testUsers[0].userId!);
       testPostIds.push(post.id);
     });
 
@@ -158,7 +158,7 @@ describe('Messaging', () => {
       });
 
       expect(botReply.root_id).toBe(rootPostId);
-      expect(botReply.user_id).toBe(config.mattermost.bot.userId);
+      expect(botReply.user_id).toBe(config.mattermost.bot.userId!);
       testPostIds.push(botReply.id);
     });
   });

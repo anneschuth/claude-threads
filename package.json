@@ -87,6 +87,6 @@
   "lint-staged": {
     "*.ts": "eslint --fix",
     "*.test.ts": "bun test --bail",
-    "src/**/*.{ts,tsx}": "bun run typecheck"
+    "*.{ts,tsx}": "bash -c 'tsc --noEmit'"
   }
 }
