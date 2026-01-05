@@ -69,7 +69,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
   });
 
   afterEach(async () => {
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 25));
   });
 
   describe('!invite Command', () => {
@@ -90,7 +90,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
 
       // Wait for invite message
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const invitePost = allPosts.find((p) =>
@@ -114,7 +114,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       // User2 sends a message
       await user2Api.createPost({
@@ -123,7 +123,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       // Bot should process user2's message (not block it)
       const allPosts = await getThreadPosts(ctx, rootPost.id);
@@ -183,9 +183,9 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
 
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
       await sendCommand(ctx, rootPost.id, `!kick @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const postsBeforeUser2 = await getThreadPosts(ctx, rootPost.id);
 
@@ -196,7 +196,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const postsAfterUser2 = await getThreadPosts(ctx, rootPost.id);
 
@@ -227,7 +227,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -253,7 +253,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -265,7 +265,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       if (approvalPost) {
         // Owner approves
         await addReaction(ctx, approvalPost.id, '+1');
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 25));
 
         // Message should be processed
         const updatedPosts = await getThreadPosts(ctx, rootPost.id);
@@ -291,7 +291,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -302,7 +302,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       if (approvalPost) {
         // Owner denies
         await addReaction(ctx, approvalPost.id, '-1');
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 25));
 
         // Should have denial message or approval post updated
         const updatedPosts = await getThreadPosts(ctx, rootPost.id);

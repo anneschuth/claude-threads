@@ -51,7 +51,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
     if (bot) {
       await bot.stop();
     }
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setTimeout(r, 25));
   });
 
   describe('Multiple Choice Questions', () => {
@@ -67,7 +67,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for question to appear
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -96,7 +96,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
       const rootPost = await startSession(ctx, 'Help me choose', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -111,7 +111,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         // Common emoji names: one, 1️⃣, etc.
         await addReaction(ctx, questionPost.id, 'one');
 
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 25));
 
         // Check for continuation after answer
         const updatedPosts = await getThreadPosts(ctx, rootPost.id);
@@ -130,7 +130,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
       const rootPost = await startSession(ctx, 'Complex task with questions', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 50));
+      await new Promise((r) => setTimeout(r, 25));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       expect(allPosts.length).toBeGreaterThanOrEqual(2); // At least user message + bot response
@@ -178,7 +178,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
       if (planPost) {
         // Approve plan
         await addReaction(ctx, planPost.id, '+1');
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, 25));
 
         // Verify reaction was processed
         const reactions = await ctx.api.getReactions(planPost.id);
