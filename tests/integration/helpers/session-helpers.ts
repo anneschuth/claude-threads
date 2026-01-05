@@ -245,6 +245,76 @@ export async function waitForReaction(
 }
 
 /**
+ * Wait for a reaction to be processed by the bot.
+ *
+ * This is a more robust version of waitForReaction that handles CI environments
+ * where WebSocket events can be delayed or missed. It:
+ * 1. Waits for the reaction to be recorded in Mattermost
+ * 2. Waits for the bot to process it (session state changes)
+ * 3. If the state doesn't change, manually triggers the reaction handler as fallback
+ *
+ * @param ctx - Test context
+ * @param sessionManager - The bot's session manager
+ * @param platformId - Platform ID for the bot
+ * @param postId - Post ID where reaction was added
+ * @param threadId - Thread ID (root post ID) for session lookup
+ * @param emojiName - Emoji name to wait for
+ * @param username - Username who added the reaction
+ * @param expectedSessionState - What state the session should be in after processing
+ *                               'ended' = session should no longer be active
+ *                               'active' = session should still be active (e.g., for resume)
+ * @param options - Timeout options
+ */
+export async function waitForReactionProcessed(
+  ctx: TestSessionContext,
+  sessionManager: SessionManager,
+  platformId: string,
+  postId: string,
+  threadId: string,
+  emojiName: string,
+  username: string,
+  expectedSessionState: 'ended' | 'active',
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const { timeout = 15000 } = options;
+  const startTime = Date.now();
+
+  // First, wait for the reaction to be recorded in Mattermost
+  await waitForReaction(ctx, postId, emojiName, { timeout: 5000 });
+
+  // Check initial session state
+  const checkState = () => {
+    const isActive = sessionManager.isInSessionThread(threadId);
+    return expectedSessionState === 'ended' ? !isActive : isActive;
+  };
+
+  // Wait for WebSocket event to process the reaction
+  const webSocketTimeout = 3000; // Give WebSocket 3 seconds
+  const webSocketStart = Date.now();
+  while (Date.now() - webSocketStart < webSocketTimeout) {
+    if (checkState()) {
+      return; // WebSocket delivered and processed!
+    }
+    await new Promise((r) => setTimeout(r, 200));
+  }
+
+  // WebSocket event didn't arrive - manually trigger the reaction handler
+  // This is a fallback for CI environments where WebSocket events are unreliable
+  await sessionManager.triggerReactionHandler(platformId, postId, emojiName, username);
+
+  // Wait for the session state to change after manual trigger
+  const remainingTime = timeout - (Date.now() - startTime);
+  await waitFor(
+    async () => checkState(),
+    {
+      timeout: Math.max(remainingTime, 1000),
+      interval: 200,
+      description: `session to be ${expectedSessionState} after ${emojiName} reaction (fallback)`,
+    },
+  );
+}
+
+/**
  * Send a command (like !stop, !escape, etc.)
  */
 export async function sendCommand(

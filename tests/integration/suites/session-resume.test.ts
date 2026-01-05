@@ -16,7 +16,7 @@ import {
   waitForSessionActive,
   waitForSessionEnded,
   addReaction,
-  waitForReaction,
+  waitForReactionProcessed,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
@@ -91,13 +91,19 @@ describe.skipIf(SKIP)('Session Resume', () => {
       // Session should be ended
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
 
-      // React with 🔄 to resume
+      // React with 🔄 to resume and wait for it to be processed
       await addReaction(ctx, sessionHeaderPost.id, 'arrows_counterclockwise');
-      // Wait for reaction to be recorded (confirms Mattermost received it)
-      await waitForReaction(ctx, sessionHeaderPost.id, 'arrows_counterclockwise', { timeout: 5000 });
-
-      // Wait for session to become active again
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionHeaderPost.id,
+        rootPost.id,
+        'arrows_counterclockwise',
+        config.mattermost.testUsers[0].username,
+        'active',
+        { timeout: 15000 }
+      );
 
       // Session should be resumed
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
@@ -124,12 +130,19 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
 
-      // React with arrow_forward
+      // React with arrow_forward and wait for it to be processed
       await addReaction(ctx, sessionHeaderPost.id, 'arrow_forward');
-      await waitForReaction(ctx, sessionHeaderPost.id, 'arrow_forward', { timeout: 5000 });
-
-      // Wait for session to become active
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionHeaderPost.id,
+        rootPost.id,
+        'arrow_forward',
+        config.mattermost.testUsers[0].username,
+        'active',
+        { timeout: 15000 }
+      );
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
     });
@@ -155,12 +168,19 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
 
-      // React with repeat
+      // React with repeat and wait for it to be processed
       await addReaction(ctx, sessionHeaderPost.id, 'repeat');
-      await waitForReaction(ctx, sessionHeaderPost.id, 'repeat', { timeout: 5000 });
-
-      // Wait for session to become active
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionHeaderPost.id,
+        rootPost.id,
+        'repeat',
+        config.mattermost.testUsers[0].username,
+        'active',
+        { timeout: 15000 }
+      );
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
     });

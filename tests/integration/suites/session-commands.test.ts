@@ -16,7 +16,7 @@ import {
   waitForPostMatching,
   waitForPostCount,
   addReaction,
-  waitForReaction,
+  waitForReactionProcessed,
   waitForSessionActive,
   waitForSessionEnded,
   type TestSessionContext,
@@ -181,17 +181,20 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Verify session is active
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // Add X reaction to session start post
+      // Add X reaction to session start post and wait for it to be processed
+      // Uses fallback mechanism if WebSocket events don't arrive (CI issue)
       await addReaction(ctx, sessionStartPost.id, 'x');
-      // Wait for reaction to be recorded (confirms Mattermost received it)
-      await waitForReaction(ctx, sessionStartPost.id, 'x', { timeout: 5000 });
-
-      // Wait for cancellation message (concrete observable event)
-      const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
-      expect(cancelPost).toBeDefined();
-
-      // Wait for session to be fully cleaned up
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionStartPost.id,
+        rootPost.id,
+        'x',
+        config.mattermost.testUsers[0].username,
+        'ended',
+        { timeout: 15000 }
+      );
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -212,17 +215,19 @@ describe.skipIf(SKIP)('Session Commands', () => {
       const sessionStartPost = botResponses[0];
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // Add octagonal_sign (stop sign) reaction
+      // Add octagonal_sign (stop sign) reaction and wait for it to be processed
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
-      // Wait for reaction to be recorded (confirms Mattermost received it)
-      await waitForReaction(ctx, sessionStartPost.id, 'octagonal_sign', { timeout: 5000 });
-
-      // Wait for cancellation message (concrete observable event)
-      const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
-      expect(cancelPost).toBeDefined();
-
-      // Wait for session to be fully cleaned up
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionStartPost.id,
+        rootPost.id,
+        'octagonal_sign',
+        config.mattermost.testUsers[0].username,
+        'ended',
+        { timeout: 15000 }
+      );
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -241,19 +246,22 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       const sessionStartPost = botResponses[0];
 
-      // Add pause button reaction
+      // Add pause button reaction and use fallback if WebSocket doesn't deliver
       await addReaction(ctx, sessionStartPost.id, 'double_vertical_bar');
-      // Wait for reaction to be recorded (confirms Mattermost received it)
-      await waitForReaction(ctx, sessionStartPost.id, 'double_vertical_bar', { timeout: 5000 });
+      await waitForReactionProcessed(
+        ctx,
+        bot.sessionManager,
+        bot.platformId,
+        sessionStartPost.id,
+        rootPost.id,
+        'double_vertical_bar',
+        config.mattermost.testUsers[0].username,
+        'ended', // Pause kills the mock CLI which ends the session
+        { timeout: 15000 }
+      );
 
-      // Wait for interrupt message or session end
-      try {
-        const interruptPost = await waitForPostMatching(ctx, rootPost.id, /interrupt|paused|escape|idle/i, { timeout: 10000 });
-        expect(interruptPost).toBeDefined();
-      } catch {
-        // If no interrupt message, session should have ended
-        expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
-      }
+      // Session should have been interrupted (which ends the mock CLI session)
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
   });
 

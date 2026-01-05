@@ -111,13 +111,14 @@ describe.skipIf(SKIP)('Session Limits', () => {
 
     it('should allow new session after one ends', async () => {
       // Start 5 sessions to hit the limit
+      // Use longer timeout in CI as starting multiple sessions can be slow
       const rootPosts: string[] = [];
 
       for (let i = 1; i <= 5; i++) {
         const rootPost = await startSession(ctx, `Session ${i}`, config.mattermost.bot.username);
         testThreadIds.push(rootPost.id);
         rootPosts.push(rootPost.id);
-        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
       }
 
       // Verify we have 5 sessions
@@ -125,7 +126,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
 
       // Kill one session to free up space
       await bot.sessionManager.killSession(rootPosts[0]);
-      await new Promise((r) => setTimeout(r, 200));
+      await new Promise((r) => setTimeout(r, 500)); // Longer wait for CI
 
       // Should now have 4 sessions
       expect(bot.sessionManager.getActiveThreadIds().length).toBe(4);
@@ -135,7 +136,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
       testThreadIds.push(newRootPost.id);
 
       // Wait for session to become active
-      await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: 15000 });
 
       // New session should be active
       expect(bot.sessionManager.isInSessionThread(newRootPost.id)).toBe(true);

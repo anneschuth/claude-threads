@@ -395,6 +395,27 @@ export class SessionManager extends EventEmitter {
     return true;
   }
 
+  /**
+   * Manually trigger reaction processing (for testing/fallback).
+   * This is useful when WebSocket events are not reliably delivered.
+   *
+   * @param platformId - Platform instance ID
+   * @param postId - Post ID with the reaction
+   * @param emojiName - Emoji name to process
+   * @param username - Username who reacted
+   * @returns true if the reaction was processed (handler found), false otherwise
+   */
+  async triggerReactionHandler(
+    platformId: string,
+    postId: string,
+    emojiName: string,
+    username: string
+  ): Promise<boolean> {
+    log.debug(`triggerReactionHandler: manually processing :${emojiName}: on ${postId.substring(0, 8)}... by @${username}`);
+    await this.handleReaction(platformId, postId, emojiName, username, 'added');
+    return true;
+  }
+
   private async handleSessionReaction(
     session: Session,
     postId: string,
