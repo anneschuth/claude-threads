@@ -31,7 +31,7 @@ import { z } from 'zod';
 import { isApprovalEmoji, isAllowAllEmoji, APPROVAL_EMOJIS, ALLOW_ALL_EMOJIS, DENIAL_EMOJIS } from '../utils/emoji.js';
 import { formatToolForPermission } from '../utils/tool-formatter.js';
 import { mcpLogger } from '../utils/logger.js';
-import type { PermissionApi, PermissionApiConfig } from '../platform/permission-api.js';
+import type { PermissionApi, LegacyPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
 import { createPermissionApi } from '../platform/permission-api-factory.js';
 
 // =============================================================================
@@ -53,14 +53,25 @@ const PERMISSION_TIMEOUT_MS = 120000; // 2 minutes
 // =============================================================================
 // Permission API Instance
 // =============================================================================
-const apiConfig: PermissionApiConfig = {
-  url: PLATFORM_URL,
-  token: PLATFORM_TOKEN,
-  channelId: PLATFORM_CHANNEL_ID,
-  threadId: PLATFORM_THREAD_ID || undefined,
-  allowedUsers: ALLOWED_USERS,
-  debug: process.env.DEBUG === '1',
-};
+const apiConfig: LegacyPermissionApiConfig | SlackPermissionApiConfig =
+  PLATFORM_TYPE === 'slack'
+    ? {
+        platformType: 'slack',
+        botToken: PLATFORM_TOKEN,
+        appToken: process.env.PLATFORM_APP_TOKEN || '',
+        channelId: PLATFORM_CHANNEL_ID,
+        threadTs: PLATFORM_THREAD_ID || undefined,
+        allowedUsers: ALLOWED_USERS,
+        debug: process.env.DEBUG === '1',
+      }
+    : {
+        url: PLATFORM_URL,
+        token: PLATFORM_TOKEN,
+        channelId: PLATFORM_CHANNEL_ID,
+        threadId: PLATFORM_THREAD_ID || undefined,
+        allowedUsers: ALLOWED_USERS,
+        debug: process.env.DEBUG === '1',
+      };
 
 let permissionApi: PermissionApi | null = null;
 

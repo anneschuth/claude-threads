@@ -12,6 +12,25 @@ import { fileURLToPath } from 'url';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
+ * Slack test configuration
+ */
+export interface SlackTestConfig {
+  /** Port for the mock Slack server */
+  mockServerPort: number;
+  /** Bot OAuth token (xoxb-...) */
+  botToken: string;
+  /** App-level token for Socket Mode (xapp-...) */
+  appToken: string;
+  /** Channel ID for testing */
+  channelId: string;
+  /** Test users for multi-user scenarios */
+  testUsers: Array<{
+    username: string;
+    userId: string;
+  }>;
+}
+
+/**
  * Mattermost test configuration
  */
 export interface MattermostTestConfig {
@@ -59,6 +78,8 @@ export interface MattermostTestConfig {
  */
 export interface IntegrationTestConfig {
   mattermost: MattermostTestConfig;
+  /** Optional Slack configuration for Slack platform tests */
+  slack?: SlackTestConfig;
   /** Working directory for Claude sessions */
   workingDir: string;
   /** Path to mock Claude CLI */
@@ -66,6 +87,27 @@ export interface IntegrationTestConfig {
   /** Debug mode */
   debug: boolean;
 }
+
+/**
+ * Default Slack configuration for mock server testing
+ * These values match the SlackMockServer defaults
+ */
+export const DEFAULT_SLACK_CONFIG: SlackTestConfig = {
+  mockServerPort: 3457,
+  botToken: 'xoxb-test-bot-token',
+  appToken: 'xapp-test-app-token',
+  channelId: 'C_TEST_CHANNEL',
+  testUsers: [
+    {
+      username: 'testuser1',
+      userId: 'U_TEST_USER1',
+    },
+    {
+      username: 'testuser2',
+      userId: 'U_TEST_USER2',
+    },
+  ],
+};
 
 /**
  * Default configuration for local testing
@@ -103,6 +145,8 @@ export const DEFAULT_CONFIG: IntegrationTestConfig = {
       },
     ],
   },
+  // Slack config is optional - only included when running Slack tests
+  slack: undefined,
   workingDir: process.cwd(),
   mockClaudePath: join(__dirname, '../fixtures/mock-claude/runner.ts'),
   debug: process.env.DEBUG === '1',
@@ -118,6 +162,12 @@ export const ENV_TEST_PATH = join(__dirname, '../.env.test');
  */
 export function loadConfig(): IntegrationTestConfig {
   const config = { ...DEFAULT_CONFIG };
+
+  // Auto-enable Slack config when running Slack tests or SLACK_MOCK_URL is set
+  const testPlatforms = process.env.TEST_PLATFORMS || '';
+  if (testPlatforms.includes('slack') || process.env.SLACK_MOCK_URL) {
+    config.slack = { ...DEFAULT_SLACK_CONFIG };
+  }
 
   if (existsSync(ENV_TEST_PATH)) {
     const envContent = readFileSync(ENV_TEST_PATH, 'utf-8');
@@ -148,6 +198,27 @@ export function loadConfig(): IntegrationTestConfig {
       const userIdKey = `TEST_USER_${i + 1}_ID`;
       if (env[tokenKey]) config.mattermost.testUsers[i].token = env[tokenKey];
       if (env[userIdKey]) config.mattermost.testUsers[i].userId = env[userIdKey];
+    }
+
+    // Load Slack config if present
+    if (env.SLACK_ENABLED === '1' || env.SLACK_BOT_TOKEN) {
+      config.slack = {
+        mockServerPort: env.SLACK_MOCK_SERVER_PORT
+          ? parseInt(env.SLACK_MOCK_SERVER_PORT, 10)
+          : DEFAULT_SLACK_CONFIG.mockServerPort,
+        botToken: env.SLACK_BOT_TOKEN || DEFAULT_SLACK_CONFIG.botToken,
+        appToken: env.SLACK_APP_TOKEN || DEFAULT_SLACK_CONFIG.appToken,
+        channelId: env.SLACK_CHANNEL_ID || DEFAULT_SLACK_CONFIG.channelId,
+        testUsers: [...DEFAULT_SLACK_CONFIG.testUsers],
+      };
+
+      // Load Slack test users if present
+      for (let i = 0; i < config.slack.testUsers.length; i++) {
+        const usernameKey = `SLACK_TEST_USER_${i + 1}_USERNAME`;
+        const userIdKey = `SLACK_TEST_USER_${i + 1}_ID`;
+        if (env[usernameKey]) config.slack.testUsers[i].username = env[usernameKey];
+        if (env[userIdKey]) config.slack.testUsers[i].userId = env[userIdKey];
+      }
     }
   }
 
@@ -186,6 +257,26 @@ export function saveConfig(config: IntegrationTestConfig): void {
     lines.push(`TEST_USER_${i + 1}_TOKEN=${user.token || ''}`);
     lines.push(`TEST_USER_${i + 1}_ID=${user.userId || ''}`);
     lines.push('');
+  }
+
+  // Add Slack configuration if present
+  if (config.slack) {
+    lines.push('# Slack configuration');
+    lines.push('SLACK_ENABLED=1');
+    lines.push(`SLACK_MOCK_SERVER_PORT=${config.slack.mockServerPort}`);
+    lines.push(`SLACK_BOT_TOKEN=${config.slack.botToken}`);
+    lines.push(`SLACK_APP_TOKEN=${config.slack.appToken}`);
+    lines.push(`SLACK_CHANNEL_ID=${config.slack.channelId}`);
+    lines.push('');
+
+    // Add Slack test users
+    for (let i = 0; i < config.slack.testUsers.length; i++) {
+      const user = config.slack.testUsers[i];
+      lines.push(`# Slack test user ${i + 1}`);
+      lines.push(`SLACK_TEST_USER_${i + 1}_USERNAME=${user.username}`);
+      lines.push(`SLACK_TEST_USER_${i + 1}_ID=${user.userId}`);
+      lines.push('');
+    }
   }
 
   writeFileSync(ENV_TEST_PATH, lines.join('\n'));

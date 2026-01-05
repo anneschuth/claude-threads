@@ -74,9 +74,41 @@ export interface PermissionApi {
 }
 
 /**
- * Configuration for permission API
+ * Configuration for Mattermost permission API
  */
-export interface PermissionApiConfig {
+export interface MattermostPermissionApiConfig {
+  platformType: 'mattermost';
+  url: string;
+  token: string;
+  channelId: string;
+  threadId?: string;
+  allowedUsers: string[];
+  debug?: boolean;
+}
+
+/**
+ * Configuration for Slack permission API
+ */
+export interface SlackPermissionApiConfig {
+  platformType: 'slack';
+  botToken: string;    // xoxb-... for Web API
+  appToken: string;    // xapp-... for Socket Mode
+  channelId: string;
+  threadTs?: string;   // Thread timestamp
+  allowedUsers: string[];
+  debug?: boolean;
+}
+
+/**
+ * Union type for permission API config
+ */
+export type PermissionApiConfig = MattermostPermissionApiConfig | SlackPermissionApiConfig;
+
+/**
+ * Legacy config for backward compatibility
+ * @deprecated Use MattermostPermissionApiConfig or SlackPermissionApiConfig
+ */
+export interface LegacyPermissionApiConfig {
   url: string;
   token: string;
   channelId: string;

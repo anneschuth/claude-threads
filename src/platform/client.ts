@@ -14,6 +14,7 @@ import type { PlatformFormatter } from './formatter.js';
 export interface PlatformClientEvents {
   connected: () => void;
   disconnected: () => void;
+  reconnecting: (attempt: number) => void;
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
   /** Emitted when a reaction is added */

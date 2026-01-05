@@ -1,0 +1,82 @@
+import type { PlatformFormatter } from '../formatter.js';
+
+/**
+ * Slack mrkdwn formatter
+ *
+ * Slack uses its own "mrkdwn" syntax which differs from standard markdown:
+ * - Bold: *text* (single asterisks)
+ * - Italic: _text_
+ * - Code: `code`
+ * - Code blocks: ```code``` (language hints not well supported)
+ * - User mentions: <@USER_ID>
+ * - Links: <url|text>
+ * - Special characters &, <, > must be escaped
+ *
+ * @see https://api.slack.com/reference/surfaces/formatting
+ */
+export class SlackFormatter implements PlatformFormatter {
+  formatBold(text: string): string {
+    return `*${text}*`;
+  }
+
+  formatItalic(text: string): string {
+    return `_${text}_`;
+  }
+
+  formatCode(text: string): string {
+    return `\`${text}\``;
+  }
+
+  formatCodeBlock(code: string, _language?: string): string {
+    // Slack doesn't support language hints in code blocks well,
+    // so we omit the language identifier
+    return `\`\`\`\n${code}\n\`\`\``;
+  }
+
+  formatUserMention(username: string, userId?: string): string {
+    // Slack strongly prefers user ID format for mentions
+    if (userId) {
+      return `<@${userId}>`;
+    }
+    // Fallback to @username if no ID available (won't create a real mention)
+    return `@${username}`;
+  }
+
+  formatLink(text: string, url: string): string {
+    return `<${url}|${text}>`;
+  }
+
+  formatListItem(text: string): string {
+    return `- ${text}`;
+  }
+
+  formatNumberedListItem(number: number, text: string): string {
+    return `${number}. ${text}`;
+  }
+
+  formatBlockquote(text: string): string {
+    return `> ${text}`;
+  }
+
+  formatHorizontalRule(): string {
+    return '---';
+  }
+
+  formatHeading(text: string, _level: number): string {
+    // Slack doesn't have real headings, so we use bold text
+    // The level parameter is ignored since all "headings" are rendered the same
+    return `*${text}*`;
+  }
+
+  escapeText(text: string): string {
+    // Slack requires escaping &, <, and > characters
+    // These have special meaning in Slack mrkdwn:
+    // & - used for special sequences like &amp;
+    // < - used for links, mentions, and special formatting
+    // > - used for blockquotes
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+  }
+}

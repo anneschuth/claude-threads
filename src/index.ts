@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
 
 import { program } from 'commander';
-import { loadConfigWithMigration, configExists as checkConfigExists, type MattermostPlatformConfig } from './config/migration.js';
+import {
+  loadConfigWithMigration,
+  configExists as checkConfigExists,
+  type MattermostPlatformConfig,
+  type SlackPlatformConfig,
+  type PlatformInstanceConfig,
+} from './config/migration.js';
 import type { CliArgs } from './config.js';
 import { runOnboarding } from './onboarding.js';
-import { MattermostClient } from './platform/mattermost/client.js';
+import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
-import type { PlatformPost, PlatformUser } from './platform/index.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
@@ -16,6 +21,66 @@ import { startUI, type UIInstance } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
+
+// =============================================================================
+// Platform Factory and Event Wiring
+// =============================================================================
+
+/**
+ * Create a platform client based on the config type.
+ */
+function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
+  switch (config.type) {
+    case 'mattermost':
+      return new MattermostClient(config as MattermostPlatformConfig);
+    case 'slack':
+      return new SlackClient(config as SlackPlatformConfig);
+    default:
+      throw new Error(`Unsupported platform type: ${(config as PlatformInstanceConfig).type}`);
+  }
+}
+
+/**
+ * Wire up platform events to session manager and UI.
+ */
+function wirePlatformEvents(
+  platformId: string,
+  client: PlatformClient,
+  session: SessionManager,
+  ui: UIInstance
+): void {
+  // Handle incoming messages
+  client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+    await handleMessage(client, session, post, user, {
+      platformId,
+      logger: {
+        error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
+      },
+      onKill: (username) => {
+        ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
+        process.exit(1);
+      },
+    });
+  });
+
+  // Wire up connection status events to UI
+  client.on('connected', () => {
+    ui.setPlatformStatus(platformId, { connected: true, reconnecting: false, reconnectAttempts: 0 });
+  });
+  client.on('disconnected', () => {
+    ui.setPlatformStatus(platformId, { connected: false, reconnecting: true });
+  });
+  client.on('reconnecting', (attempt: number) => {
+    ui.setPlatformStatus(platformId, { reconnecting: true, reconnectAttempts: attempt });
+  });
+  client.on('error', (e) => {
+    ui.addLog({ level: 'error', component: platformId, message: String(e) });
+  });
+}
+
+// =============================================================================
+// CLI Options
+// =============================================================================
 
 // Define CLI options
 program
@@ -96,13 +161,17 @@ async function main() {
   // Determine keep-alive setting (actual setup happens after UI is ready)
   const keepAliveEnabled = newConfig.keepAlive !== false;
 
-  // Get first Mattermost platform
-  const platformConfig = newConfig.platforms.find(p => p.type === 'mattermost') as MattermostPlatformConfig;
-  if (!platformConfig) {
-    throw new Error('No Mattermost platform configured.');
+  // Validate we have at least one platform configured
+  if (!newConfig.platforms || newConfig.platforms.length === 0) {
+    throw new Error('No platforms configured. Run with --setup to configure.');
   }
 
   const config = newConfig;
+
+  // Get the first platform's skipPermissions setting as the default
+  // (for backwards compatibility with single-platform setups)
+  const firstPlatformConfig = config.platforms[0] as MattermostPlatformConfig | SlackPlatformConfig;
+  const initialSkipPermissions = firstPlatformConfig.skipPermissions ?? false;
 
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
@@ -122,7 +191,7 @@ async function main() {
   // Mutable runtime config (can be changed via keyboard toggles)
   // These affect new sessions and sticky message display
   const runtimeConfig = {
-    skipPermissions: platformConfig.skipPermissions,
+    skipPermissions: initialSkipPermissions,
     chromeEnabled: config.chrome ?? false,
     keepAliveEnabled,
   };
@@ -153,8 +222,10 @@ async function main() {
       },
       onPermissionsToggle: (skipPermissions) => {
         runtimeConfig.skipPermissions = skipPermissions;
-        // Update the platform config so new sessions use this setting
-        platformConfig.skipPermissions = skipPermissions;
+        // Update ALL platform configs so new sessions use this setting
+        for (const platformConfig of config.platforms) {
+          (platformConfig as MattermostPlatformConfig | SlackPlatformConfig).skipPermissions = skipPermissions;
+        }
         // Update SessionManager's internal state for sticky message
         sessionManager?.setSkipPermissions(skipPermissions);
         ui.addLog({ level: 'info', component: 'toggle', message: `Permissions ${skipPermissions ? 'auto (skip prompts)' : 'interactive'}` });
@@ -177,13 +248,6 @@ async function main() {
     },
   });
 
-  // Register platform with UI
-  ui.setPlatformStatus(platformConfig.id, {
-    displayName: platformConfig.displayName || platformConfig.id,
-    botName: platformConfig.botName,
-    url: platformConfig.url,
-  });
-
   // Route all logger output through the UI
   setLogHandler((level, component, message, sessionId) => {
     ui.addLog({ level, component, message, sessionId });
@@ -198,44 +262,13 @@ async function main() {
   // Now that output handler is set, enable keep-alive (will route logs through UI)
   keepAlive.setEnabled(keepAliveEnabled);
 
-  const mattermost = new MattermostClient(platformConfig);
-  const session = new SessionManager(workingDir, platformConfig.skipPermissions, config.chrome, config.worktreeMode);
+  // Create session manager (shared across all platforms)
+  const session = new SessionManager(workingDir, initialSkipPermissions, config.chrome, config.worktreeMode);
 
   // Set reference for toggle callbacks
   sessionManager = session;
 
-  // Register platform (connects event handlers)
-  session.addPlatform(platformConfig.id, mattermost);
-
-  mattermost.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
-    await handleMessage(mattermost, session, post, user, {
-      platformId: platformConfig.id,
-      logger: {
-        error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }),
-      },
-      onKill: (username) => {
-        ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
-        process.exit(1);
-      },
-    });
-  });
-
-  // Wire up platform events to UI
-  mattermost.on('connected', () => {
-    ui.setPlatformStatus(platformConfig.id, { connected: true, reconnecting: false, reconnectAttempts: 0 });
-  });
-  mattermost.on('disconnected', () => {
-    ui.setPlatformStatus(platformConfig.id, { connected: false, reconnecting: true });
-  });
-  mattermost.on('reconnecting', (attempt: number) => {
-    ui.setPlatformStatus(platformConfig.id, { reconnecting: true, reconnectAttempts: attempt });
-  });
-  mattermost.on('error', (e) => {
-    // TODO: Refactor index.ts to support multiple platforms generically
-    ui.addLog({ level: 'error', component: 'mattermost', message: String(e) });
-  });
-
-  // Wire up session events to UI
+  // Wire up session events to UI (shared across all platforms)
   session.on('session:add', (info) => {
     ui.addSession(info);
   });
@@ -246,7 +279,35 @@ async function main() {
     ui.removeSession(sessionId);
   });
 
-  await mattermost.connect();
+  // Store all platform clients for shutdown
+  const platforms = new Map<string, PlatformClient>();
+
+  // Initialize all configured platforms
+  for (const platformConfig of config.platforms) {
+    const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
+
+    // Register platform with UI
+    ui.setPlatformStatus(platformConfig.id, {
+      displayName: platformConfig.displayName || platformConfig.id,
+      botName: typedConfig.botName,
+      url: typedConfig.type === 'mattermost' ? (typedConfig as MattermostPlatformConfig).url : 'slack.com',
+    });
+
+    // Create platform client using factory
+    const client = createPlatformClient(platformConfig);
+    platforms.set(platformConfig.id, client);
+
+    // Register with session manager
+    session.addPlatform(platformConfig.id, client);
+
+    // Wire up platform events
+    wirePlatformEvents(platformConfig.id, client, session, ui);
+  }
+
+  // Connect all platforms
+  await Promise.all(
+    Array.from(platforms.values()).map((client) => client.connect())
+  );
 
   // Resume any persisted sessions from before restart
   await session.initialize();
@@ -277,7 +338,11 @@ async function main() {
     }
 
     await session.killAllSessions();
-    mattermost.disconnect();
+
+    // Disconnect all platforms
+    for (const client of platforms.values()) {
+      client.disconnect();
+    }
     // Don't call process.exit() here - let the signal handler do it after we resolve
   };
 

@@ -12,6 +12,9 @@ export type { PlatformFormatter } from './formatter.js';
 export type {
   PermissionApi,
   PermissionApiConfig,
+  MattermostPermissionApiConfig,
+  SlackPermissionApiConfig,
+  LegacyPermissionApiConfig,
   ReactionEvent,
   PostedMessage,
 } from './permission-api.js';
@@ -27,3 +30,10 @@ export type {
   AddReactionRequest,
   ThreadMessage,
 } from './types.js';
+
+// Platform implementations
+export { MattermostClient } from './mattermost/client.js';
+export { SlackClient } from './slack/client.js';
+
+// Permission API factory
+export { createPermissionApi } from './permission-api-factory.js';
