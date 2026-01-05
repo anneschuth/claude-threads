@@ -116,7 +116,8 @@ Configuration is stored in YAML only - no `.env` file support.
 ### Core
 | File | Purpose |
 |------|---------|
-| `src/index.ts` | Entry point. CLI parsing, bot startup, message routing |
+| `src/index.ts` | Entry point. CLI parsing, bot startup, UI rendering |
+| `src/message-handler.ts` | Message routing logic (extracted for testability) |
 | `src/config.ts` | Type exports for config (re-exports from migration.ts) |
 | `src/config/migration.ts` | YAML config loading (`config.yaml`) |
 | `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
@@ -247,9 +248,35 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run tests (444 tests)
+bun test             # Run unit tests (444 tests)
 bun run lint         # Run ESLint
 ```
+
+### Integration Tests
+
+Integration tests run the actual bot against a real Mattermost instance with a mock Claude CLI.
+
+```bash
+# Run locally (requires Docker)
+bun run test:integration:setup    # Start Mattermost in Docker + create users/channels
+bun run test:integration:run      # Run 111 integration tests
+bun run test:integration:teardown # Stop Mattermost
+
+# Or run all at once (CI style)
+bun run test:integration
+```
+
+**What's tested:**
+- Session lifecycle (start, response, end, timeout)
+- Commands (!stop, !escape, !help, !cd, !kill, !permissions)
+- Reaction-based controls (❌ cancel, ⏸️ interrupt)
+- Multi-user collaboration (!invite, !kick, message approval)
+- Session persistence and resume
+- Plan approval, question flows, context prompts
+- Git worktree integration
+- Error handling, MAX_SESSIONS limits
+
+**CI:** Integration tests run automatically on PRs via `.github/workflows/integration.yml`
 
 ## Testing Locally
 
