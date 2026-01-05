@@ -117,14 +117,26 @@ export class SessionManager extends EventEmitter {
   addPlatform(platformId: string, client: PlatformClient): void {
     this.platforms.set(platformId, client);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
-    client.on('reaction', (reaction, user) => {
-      if (user) {
-        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'added');
+    client.on('reaction', async (reaction, user) => {
+      // If user lookup failed initially, retry once (CI can have transient failures)
+      let effectiveUser = user;
+      if (!effectiveUser) {
+        log.debug(`User lookup failed for reaction, retrying for userId ${reaction.userId}`);
+        effectiveUser = await client.getUser(reaction.userId);
+      }
+      if (effectiveUser) {
+        this.handleReaction(platformId, reaction.postId, reaction.emojiName, effectiveUser.username, 'added');
+      } else {
+        log.warn(`Cannot process reaction: user lookup failed for userId ${reaction.userId}`);
       }
     });
-    client.on('reaction_removed', (reaction, user) => {
-      if (user) {
-        this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'removed');
+    client.on('reaction_removed', async (reaction, user) => {
+      let effectiveUser = user;
+      if (!effectiveUser) {
+        effectiveUser = await client.getUser(reaction.userId);
+      }
+      if (effectiveUser) {
+        this.handleReaction(platformId, reaction.postId, reaction.emojiName, effectiveUser.username, 'removed');
       }
     });
     // Bump sticky message to bottom when someone posts in the channel
