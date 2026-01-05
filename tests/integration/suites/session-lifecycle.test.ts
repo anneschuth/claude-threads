@@ -61,7 +61,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
   afterEach(async () => {
     // Small delay between tests to let sessions clean up
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
   });
 
   describe('Session Start', () => {
@@ -111,7 +111,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for response (either authorization error or actual response)
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -130,7 +130,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for bot response
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -165,7 +165,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       await sendFollowUp(ctx, rootPost.id, 'This is a follow-up message');
 
       // Wait for follow-up response
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -187,7 +187,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       });
 
       // Wait extra time for session to fully stabilize (header + response + any updates)
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 300));
 
       const initialPosts = await getThreadPosts(ctx, rootPost.id);
       const initialBotPostCount = initialPosts.filter((p) => p.user_id === ctx.botUserId).length;
@@ -196,7 +196,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       await sendFollowUp(ctx, rootPost.id, '@some_other_user what do you think?');
 
       // Wait a bit for any potential (unwanted) response
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const afterPosts = await getThreadPosts(ctx, rootPost.id);
       const afterBotPostCount = afterPosts.filter((p) => p.user_id === ctx.botUserId).length;
@@ -226,7 +226,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
       // Session should complete (mock sends result event)
       // Give it time to process
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 300));
 
       // The key is that the bot responded and processed the result
       const allPosts = await getThreadPosts(ctx, rootPost.id);

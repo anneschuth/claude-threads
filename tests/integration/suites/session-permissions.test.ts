@@ -10,6 +10,7 @@ import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 import {
   initTestContext,
   startSession,
+  waitForBotResponse,
   getThreadPosts,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
@@ -50,7 +51,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     if (bot) {
       await bot.stop();
     }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
   });
 
   describe('Permission Approval Flow', () => {
@@ -67,7 +68,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
       // Wait for permission prompt
       // The mock scenario should trigger a tool_use event
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -103,8 +104,9 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Create a test file', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      // Wait for bot to process the tool_use and tool_result
-      await new Promise((r) => setTimeout(r, 1500));
+      // Wait for bot responses (scenario has ~750ms of delays total)
+      // Need minResponses: 2 because first post is session header, second is actual response
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 2 });
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -113,7 +115,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       // - Session header
       // - "I'll write that to a file for you" + tool_use info
       // - "Done! I've written the content..."
-      expect(botPosts.length).toBeGreaterThanOrEqual(1);
+      expect(botPosts.length).toBeGreaterThanOrEqual(2);
 
       // Verify tool use was mentioned in some post
       const hasToolContent = botPosts.some((p) =>
@@ -134,7 +136,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Delete some files', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -155,7 +157,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Do multiple operations', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -177,7 +179,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for completion (no prompts)
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);

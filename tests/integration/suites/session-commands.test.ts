@@ -58,7 +58,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
   });
 
   afterEach(async () => {
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
   });
 
   describe('!stop Command', () => {
@@ -83,7 +83,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await sendCommand(ctx, rootPost.id, '!stop');
 
       // Wait for cancellation
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -100,7 +100,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Send !cancel
       await sendCommand(ctx, rootPost.id, '!cancel');
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -121,7 +121,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Send !escape
       await sendCommand(ctx, rootPost.id, '!escape');
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       // Session may still be tracked (paused state)
       // The key is that interrupt message was posted
@@ -182,7 +182,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await addReaction(ctx, sessionStartPost.id, 'x');
 
       // Wait for cancellation
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -205,7 +205,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add octagonal_sign (stop sign) reaction
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -226,7 +226,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add pause button reaction
       await addReaction(ctx, sessionStartPost.id, 'double_vertical_bar');
-      await new Promise((r) => setTimeout(r, 1500));
+      await new Promise((r) => setTimeout(r, 300));
 
       // Session should be interrupted (may still be tracked but paused)
       const allPosts = await getThreadPosts(ctx, rootPost.id);
@@ -265,7 +265,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 1000));
+      await new Promise((r) => setTimeout(r, 300));
 
       // Session should still be active (user2 is not authorized)
       // Note: This depends on whether user2 is in allowedUsers
