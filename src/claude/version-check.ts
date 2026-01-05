@@ -1,8 +1,5 @@
 import { execSync } from 'child_process';
 import { satisfies, coerce } from 'semver';
-import { createLogger } from '../utils/logger.js';
-
-const log = createLogger('version-check');
 
 /**
  * Known compatible Claude CLI version range.
@@ -16,11 +13,12 @@ export const CLAUDE_CLI_VERSION_RANGE = '>=2.0.74 <=2.0.76';
 /**
  * Get the installed Claude CLI version.
  * Returns null if claude is not installed or version can't be determined.
+ *
+ * Note: No logging here - this runs before UI starts.
+ * Version info is displayed in the UI's ConfigSummary component.
  */
 export function getClaudeCliVersion(): string | null {
   const claudePath = process.env.CLAUDE_PATH || 'claude';
-
-  log.debug(`Checking Claude CLI version: ${claudePath}`);
 
   try {
     const output = execSync(`${claudePath} --version`, {
@@ -31,11 +29,8 @@ export function getClaudeCliVersion(): string | null {
 
     // Output format: "2.0.76 (Claude Code)" or just "2.0.76"
     const match = output.match(/^([\d.]+)/);
-    const version = match ? match[1] : null;
-    log.debug(`Claude CLI version: ${version || 'unknown'}`);
-    return version;
-  } catch (err) {
-    log.debug(`Failed to get Claude CLI version: ${err}`);
+    return match ? match[1] : null;
+  } catch {
     return null;
   }
 }
@@ -53,6 +48,9 @@ export function isVersionCompatible(version: string): boolean {
 /**
  * Validate Claude CLI installation and version.
  * Returns an object with status and details.
+ *
+ * Note: No logging here - this runs before UI starts.
+ * Errors are shown via console.error in main() if incompatible.
  */
 export function validateClaudeCli(): {
   installed: boolean;
@@ -60,11 +58,9 @@ export function validateClaudeCli(): {
   compatible: boolean;
   message: string;
 } {
-  log.debug('Validating Claude CLI installation');
   const version = getClaudeCliVersion();
 
   if (!version) {
-    log.warn('Claude CLI not found');
     return {
       installed: false,
       version: null,
@@ -76,7 +72,6 @@ export function validateClaudeCli(): {
   const compatible = isVersionCompatible(version);
 
   if (!compatible) {
-    log.warn(`Claude CLI version ${version} is not compatible (required: ${CLAUDE_CLI_VERSION_RANGE})`);
     return {
       installed: true,
       version,
@@ -86,7 +81,6 @@ export function validateClaudeCli(): {
     };
   }
 
-  log.debug(`Claude CLI validation passed: version ${version}`);
   return {
     installed: true,
     version,
