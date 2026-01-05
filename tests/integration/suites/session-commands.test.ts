@@ -11,6 +11,7 @@ import {
   initTestContext,
   startSession,
   waitForBotResponse,
+  waitForSessionHeader,
   sendCommand,
   getThreadPosts,
   waitForPostMatching,
@@ -169,26 +170,20 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Wait for session to be registered
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
-      // Wait for session header (first bot post)
-      const botResponses = await waitForBotResponse(ctx, rootPost.id, {
-        timeout: 30000,
-        minResponses: 1,
-      });
-
-      // Find the session start post (usually first bot post)
-      const sessionStartPost = botResponses[0];
+      // Wait for session header (the post with logo/version, NOT assistant response)
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
 
       // Verify session is active
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // Add X reaction to session start post and wait for it to be processed
+      // Add X reaction to session header post and wait for it to be processed
       // Uses fallback mechanism if WebSocket events don't arrive (CI issue)
-      await addReaction(ctx, sessionStartPost.id, 'x');
+      await addReaction(ctx, sessionHeaderPost.id, 'x');
       await waitForReactionProcessed(
         ctx,
         bot.sessionManager,
         bot.platformId,
-        sessionStartPost.id,
+        sessionHeaderPost.id,
         rootPost.id,
         'x',
         config.mattermost.testUsers[0].username,
@@ -207,21 +202,17 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Wait for session to be registered
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
-      const botResponses = await waitForBotResponse(ctx, rootPost.id, {
-        timeout: 30000,
-        minResponses: 1,
-      });
-
-      const sessionStartPost = botResponses[0];
+      // Wait for session header (the post with logo/version)
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
       // Add octagonal_sign (stop sign) reaction and wait for it to be processed
-      await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
+      await addReaction(ctx, sessionHeaderPost.id, 'octagonal_sign');
       await waitForReactionProcessed(
         ctx,
         bot.sessionManager,
         bot.platformId,
-        sessionStartPost.id,
+        sessionHeaderPost.id,
         rootPost.id,
         'octagonal_sign',
         config.mattermost.testUsers[0].username,
@@ -239,20 +230,16 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Wait for session to be registered
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
-      const botResponses = await waitForBotResponse(ctx, rootPost.id, {
-        timeout: 30000,
-        minResponses: 1,
-      });
-
-      const sessionStartPost = botResponses[0];
+      // Wait for session header (the post with logo/version)
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
 
       // Add pause button reaction and use fallback if WebSocket doesn't deliver
-      await addReaction(ctx, sessionStartPost.id, 'double_vertical_bar');
+      await addReaction(ctx, sessionHeaderPost.id, 'double_vertical_bar');
       await waitForReactionProcessed(
         ctx,
         bot.sessionManager,
         bot.platformId,
-        sessionStartPost.id,
+        sessionHeaderPost.id,
         rootPost.id,
         'double_vertical_bar',
         config.mattermost.testUsers[0].username,

@@ -138,6 +138,45 @@ export async function waitForBotResponse(
 }
 
 /**
+ * Wait for the session header post (the first bot post with version/logo info).
+ * This is specifically the post created when a session starts, NOT subsequent
+ * assistant response posts.
+ *
+ * The session header contains the logo box (╭───────) or version info (vX.X.X).
+ * This is important because reactions for cancel/resume should be added to
+ * the session header, not to assistant response posts.
+ */
+export async function waitForSessionHeader(
+  ctx: TestSessionContext,
+  threadId: string,
+  options: { timeout?: number } = {},
+): Promise<MattermostPost> {
+  const { timeout = 30000 } = options;
+
+  // Session header contains the logo box or version pattern
+  const sessionHeaderPattern = /╭───────|v\d+\.\d+\.\d+|Starting session/;
+
+  return waitFor(
+    async () => {
+      const { posts } = await ctx.api.getThreadPosts(threadId);
+      const threadPosts = Object.values(posts).sort((a, b) => a.create_at - b.create_at);
+
+      // Filter to bot posts only
+      const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
+
+      // Find the session header post
+      const headerPost = botPosts.find((p) => sessionHeaderPattern.test(p.message));
+      return headerPost || null;
+    },
+    {
+      timeout,
+      interval: 500,
+      description: `session header post in thread ${threadId.substring(0, 8)}...`,
+    },
+  );
+}
+
+/**
  * Wait for a specific post pattern in a thread
  */
 export async function waitForPostMatching(
