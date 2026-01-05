@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-01-05
+
+### Added
+- **Ink/React CLI UI** - Complete rewrite of the terminal interface using Ink (React for CLI). Features include:
+  - Collapsible session panels with real-time log streaming
+  - Header with logo, version, and working directory
+  - Platform status indicators (connected/reconnecting)
+  - Per-session and global log panels with color-coded levels
+  - Spinner animations for typing/starting states
+- **Keyboard toggles** - Runtime settings can be changed without restart:
+  - `[d]` Debug mode - toggle verbose logging
+  - `[p]` Permissions - toggle interactive/auto mode for new sessions
+  - `[c]` Chrome - toggle Chrome integration for new sessions
+  - `[k]` Keep-alive - toggle system sleep prevention
+  - `[1-9]` Toggle session panel expansion
+  - `[q]` Quit
+- **Comprehensive logging** - Added debug logging throughout the codebase for better observability:
+  - Platform layer (API calls, WebSocket events, user lookups)
+  - Session layer (streaming, reactions, commands, lifecycle)
+  - CLI layer (process spawn, kill, interrupt)
+  - Git worktree operations
+
+### Changed
+- **Session status tracking** - New `isProcessing` and `hasClaudeResponded` flags for accurate status display (starting → active → idle)
+- **Pre-commit hooks** - Added `typecheck` to lint-staged to match CI checks
+
+### Fixed
+- **Duplicate log entries** - Removed redundant logging that caused duplicate entries in UI
+- **Pre-UI logging** - Version check no longer logs before UI starts (was cluttering terminal)
+
 ## [0.33.8] - 2026-01-04
 
 ### Fixed
