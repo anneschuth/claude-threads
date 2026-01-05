@@ -374,6 +374,39 @@ export async function waitForSessionEnded(
 }
 
 /**
+ * Wait for bot post count to stabilize (no new posts for a period)
+ * Useful for ensuring all buffered content has been flushed
+ */
+export async function waitForStableBotPostCount(
+  ctx: TestSessionContext,
+  threadId: string,
+  options: { timeout?: number; stableFor?: number } = {},
+): Promise<number> {
+  const { timeout = 5000, stableFor = 500 } = options;
+  const startTime = Date.now();
+  let lastCount = -1;
+  let stableSince = Date.now();
+
+  while (Date.now() - startTime < timeout) {
+    const posts = await getThreadPosts(ctx, threadId);
+    const botPostCount = posts.filter((p) => p.user_id === ctx.botUserId).length;
+
+    if (botPostCount !== lastCount) {
+      lastCount = botPostCount;
+      stableSince = Date.now();
+    } else if (Date.now() - stableSince >= stableFor) {
+      // Count has been stable for the required period
+      return lastCount;
+    }
+
+    await new Promise((r) => setTimeout(r, 100));
+  }
+
+  // Return last count even if not fully stable (timeout reached)
+  return lastCount;
+}
+
+/**
  * Create a thread with pre-existing user messages (for testing mid-thread session starts)
  *
  * @param ctx - Test session context

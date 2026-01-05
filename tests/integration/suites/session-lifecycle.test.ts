@@ -15,6 +15,7 @@ import {
   sendFollowUp,
   getThreadPosts,
   waitForSessionEnded,
+  waitForStableBotPostCount,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, stopSharedBot, type TestBot } from '../helpers/bot-starter.js';
@@ -198,23 +199,21 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       // Wait for session to end (result event processed)
       await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
-      // Wait a bit for any buffered content to be flushed
-      await new Promise((r) => setTimeout(r, 300));
-
-      const initialPosts = await getThreadPosts(ctx, rootPost.id);
-      const initialBotPosts = initialPosts.filter((p) => p.user_id === ctx.botUserId);
-      const initialBotPostCount = initialBotPosts.length;
+      // Wait for bot post count to stabilize (ensures all buffered content is flushed)
+      const initialBotPostCount = await waitForStableBotPostCount(ctx, rootPost.id, {
+        timeout: 5000,
+        stableFor: 500,
+      });
 
       // Send a message to someone else in the thread (not @mentioning the bot)
       // Using a message that clearly does NOT mention the bot
       await sendFollowUp(ctx, rootPost.id, 'Hey team, what do you think about this?');
 
-      // Wait a bit for any unwanted response
-      await new Promise((r) => setTimeout(r, 500));
-
-      const afterPosts = await getThreadPosts(ctx, rootPost.id);
-      const afterBotPosts = afterPosts.filter((p) => p.user_id === ctx.botUserId);
-      const afterBotPostCount = afterBotPosts.length;
+      // Wait for bot post count to stabilize again (check for unwanted responses)
+      const afterBotPostCount = await waitForStableBotPostCount(ctx, rootPost.id, {
+        timeout: 2000,
+        stableFor: 500,
+      });
 
       // Bot should not have started a new session or responded to non-mention
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
