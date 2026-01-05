@@ -67,7 +67,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
       // Wait for permission prompt
       // The mock scenario should trigger a tool_use event
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 1500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -104,7 +104,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for bot to process the tool_use and tool_result
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 1500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -134,7 +134,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Delete some files', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 1500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -155,7 +155,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Do multiple operations', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 1500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -177,7 +177,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for completion (no prompts)
-      await new Promise((r) => setTimeout(r, 5000));
+      await new Promise((r) => setTimeout(r, 1500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
