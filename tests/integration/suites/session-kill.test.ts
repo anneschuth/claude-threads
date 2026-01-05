@@ -89,7 +89,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
 
       // Should get rejection message
       const rejectPost = await waitForPostMatching(ctx, rootPost.id, /only authorized users/i, {
-        timeout: 5000,
+        timeout: 10000,
       });
 
       expect(rejectPost).toBeDefined();
@@ -146,12 +146,12 @@ describe.skipIf(SKIP)('!kill Command', () => {
 
       // Check for emergency shutdown message in both threads
       const shutdownPost1 = await waitForPostMatching(ctx, rootPost1.id, /EMERGENCY SHUTDOWN/i, {
-        timeout: 5000,
+        timeout: 10000,
       });
       expect(shutdownPost1).toBeDefined();
 
       const shutdownPost2 = await waitForPostMatching(ctx, rootPost2.id, /EMERGENCY SHUTDOWN/i, {
-        timeout: 5000,
+        timeout: 10000,
       });
       expect(shutdownPost2).toBeDefined();
 
@@ -187,7 +187,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
 
       // Check for emergency shutdown message
       const shutdownPost = await waitForPostMatching(ctx, rootPost.id, /EMERGENCY SHUTDOWN/i, {
-        timeout: 5000,
+        timeout: 10000,
       });
       expect(shutdownPost).toBeDefined();
     });

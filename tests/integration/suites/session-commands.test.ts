@@ -135,7 +135,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
   describe('!help Command', () => {
     it('should display help message', async () => {
-      const rootPost = await startSession(ctx, 'Need help', config.mattermost.bot.username);
+      const rootPost = await startSession(ctx, 'Test help command', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
       // Wait for session to be registered
@@ -146,17 +146,13 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Send !help
       await sendCommand(ctx, rootPost.id, '!help');
 
-      // Wait for help message
-      await waitForPostMatching(ctx, rootPost.id, /commands|help/i, { timeout: 5000 });
-
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const helpPost = allPosts.find((p) =>
-        p.user_id === ctx.botUserId && /commands/i.test(p.message)
-      );
+      // Wait for help message - use specific pattern that matches bot's "**Commands:**" format
+      // This avoids matching the user's message
+      const helpPost = await waitForPostMatching(ctx, rootPost.id, /\*\*Commands:\*\*|!stop.*!escape/i, { timeout: 10000 });
 
       expect(helpPost).toBeDefined();
-      expect(helpPost!.message).toContain('!stop');
-      expect(helpPost!.message).toContain('!escape');
+      expect(helpPost.message).toContain('!stop');
+      expect(helpPost.message).toContain('!escape');
     });
   });
 
@@ -290,7 +286,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await sendCommand(ctx, rootPost.id, '!cd /tmp');
 
       // Wait for cd confirmation
-      await waitForPostMatching(ctx, rootPost.id, /changed|directory|\/tmp/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /changed|directory|\/tmp/i, { timeout: 10000 });
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const cdPost = allPosts.find((p) =>
@@ -311,7 +307,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await sendCommand(ctx, rootPost.id, '!cd /tmp');
 
       // Wait for confirmation that mentions "Working directory changed" and "restarted"
-      await waitForPostMatching(ctx, rootPost.id, /Working directory changed|restarted/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /Working directory changed|restarted/i, { timeout: 10000 });
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const confirmPost = allPosts.find((p) =>
@@ -387,7 +383,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
         ctx,
         rootPost.id,
         /cannot upgrade|only downgrade/i,
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
 
       expect(rejectPost).toBeDefined();

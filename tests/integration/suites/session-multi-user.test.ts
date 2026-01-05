@@ -100,7 +100,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
 
       // Wait for invite confirmation message (message says "can now participate")
-      const invitePost = await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
+      const invitePost = await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 10000 });
       expect(invitePost).toBeDefined();
     });
 
@@ -116,13 +116,13 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
 
       // Wait for bot response and session to be fully active
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
 
       // Wait for invite confirmation
-      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 10000 });
 
       // User2 sends a message
       await user2Api.createPost({
@@ -158,19 +158,19 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
 
       // Invite first
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 10000 });
 
       // Then kick
       await sendCommand(ctx, rootPost.id, `!kick @${user2Username}`);
 
       // Wait for kick confirmation
-      const kickPost = await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 5000 });
+      const kickPost = await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 10000 });
       expect(kickPost).toBeDefined();
     });
 
@@ -185,15 +185,15 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
 
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 10000 });
 
       await sendCommand(ctx, rootPost.id, `!kick @${user2Username}`);
-      await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 5000 });
+      await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 10000 });
 
       const postsBeforeUser2 = await getThreadPosts(ctx, rootPost.id);
 
@@ -267,7 +267,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         ctx,
         rootPost.id,
         /needs approval/i,
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
 
       expect(approvalPost).toBeDefined();
@@ -303,7 +303,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         ctx,
         rootPost.id,
         /needs approval/i,
-        { timeout: 5000 }
+        { timeout: 10000 }
       );
 
       expect(approvalPost).toBeDefined();

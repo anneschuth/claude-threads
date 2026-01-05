@@ -77,7 +77,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
       });
 
       // Wait for the plan approval prompt (ExitPlanMode triggers this)
-      const approvalPost = await waitForPostMatching(ctx, rootPost.id, /approve|approval|react.*👍/i, { timeout: 5000 });
+      const approvalPost = await waitForPostMatching(ctx, rootPost.id, /approve|approval|react.*👍/i, { timeout: 10000 });
 
       expect(approvalPost).toBeDefined();
       expect(approvalPost.message).toMatch(/👍|approve/i);

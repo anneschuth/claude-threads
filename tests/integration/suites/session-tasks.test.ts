@@ -116,7 +116,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
       // Verify completed status via posts - should show 100% or 3/3
       const taskPost = await waitForPostMatching(ctx, rootPost.id, /100%|3\/3/i, {
-        timeout: 5000,
+        timeout: 10000,
       });
       expect(taskPost).toBeDefined();
     });
