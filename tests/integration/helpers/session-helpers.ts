@@ -359,7 +359,9 @@ export async function waitForReactionProcessed(
 
   // WebSocket event didn't arrive - manually trigger the reaction handler
   // This is a fallback for CI environments where WebSocket events are unreliable
-  await sessionManager.triggerReactionHandler(platformId, postId, emojiName, username);
+  // We access the private handleReaction method via `any` cast to keep prod code clean
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (sessionManager as any).handleReaction(platformId, postId, emojiName, username, 'added');
 
   // Wait for the session state to change after manual trigger
   const remainingTime = timeout - (Date.now() - startTime);
