@@ -155,12 +155,16 @@ async function main() {
         runtimeConfig.skipPermissions = skipPermissions;
         // Update the platform config so new sessions use this setting
         platformConfig.skipPermissions = skipPermissions;
+        // Update SessionManager's internal state for sticky message
+        sessionManager?.setSkipPermissions(skipPermissions);
         ui.addLog({ level: 'info', component: 'toggle', message: `Permissions ${skipPermissions ? 'auto (skip prompts)' : 'interactive'}` });
         sessionManager?.updateAllStickyMessages();
       },
       onChromeToggle: (enabled) => {
         runtimeConfig.chromeEnabled = enabled;
         config.chrome = enabled;
+        // Update SessionManager's internal state for sticky message
+        sessionManager?.setChromeEnabled(enabled);
         ui.addLog({ level: 'info', component: 'toggle', message: `Chrome integration ${enabled ? 'enabled' : 'disabled'} for new sessions` });
         sessionManager?.updateAllStickyMessages();
       },

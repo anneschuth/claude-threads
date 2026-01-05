@@ -653,6 +653,18 @@ export class SessionManager extends EventEmitter {
     await this.updateStickyMessage();
   }
 
+  /**
+   * Update runtime settings (called from keyboard toggles).
+   * These affect new sessions and sticky message display.
+   */
+  setSkipPermissions(value: boolean): void {
+    this.skipPermissions = value;
+  }
+
+  setChromeEnabled(value: boolean): void {
+    this.chromeEnabled = value;
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
