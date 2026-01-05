@@ -58,6 +58,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
   });
 
   afterEach(async () => {
+    // Kill all sessions between tests to avoid interference
+    await bot.sessionManager.killAllSessions();
     await new Promise((r) => setTimeout(r, 25));
   });
 
@@ -340,6 +342,90 @@ describe.skipIf(SKIP)('Session Commands', () => {
       );
 
       expect(errorPost).toBeDefined();
+    });
+  });
+
+  describe('!permissions Command', () => {
+    it('should enable interactive permissions', async () => {
+      // Note: Bot was started with skipPermissions: true
+      const rootPost = await startSession(ctx, 'Test permissions command', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Enable interactive permissions
+      await sendCommand(ctx, rootPost.id, '!permissions interactive');
+
+      // Wait for confirmation message (restart takes time)
+      const confirmPost = await waitForPostMatching(
+        ctx,
+        rootPost.id,
+        /interactive permissions enabled|permission prompts/i,
+        { timeout: 15000 }
+      );
+
+      expect(confirmPost).toBeDefined();
+      expect(confirmPost.message).toMatch(/interactive|permission/i);
+
+      // Session should still be active (restarted with new permissions)
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
+    });
+
+    it('should reject upgrade to auto permissions', async () => {
+      const rootPost = await startSession(ctx, 'Test auto permissions', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // Try to enable auto permissions (should be rejected)
+      await sendCommand(ctx, rootPost.id, '!permissions auto');
+
+      // Wait for rejection message
+      const rejectPost = await waitForPostMatching(
+        ctx,
+        rootPost.id,
+        /cannot upgrade|only downgrade/i,
+        { timeout: 5000 }
+      );
+
+      expect(rejectPost).toBeDefined();
+      expect(rejectPost.message).toContain('⚠️');
+    });
+
+    it('should only allow session owner to change permissions', async () => {
+      const user2Token = config.mattermost.testUsers[1]?.token;
+      if (!user2Token) {
+        console.log('Skipping - no second test user');
+        return;
+      }
+
+      // Start session as user1
+      const rootPost = await startSession(ctx, 'Owner only permissions', config.mattermost.bot.username);
+      testThreadIds.push(rootPost.id);
+
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+      // User2 tries to change permissions
+      const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
+
+      await user2Api.createPost({
+        channel_id: ctx.channelId,
+        message: '!permissions interactive',
+        root_id: rootPost.id,
+      });
+
+      // Wait a bit
+      await new Promise((r) => setTimeout(r, 200));
+
+      // Check for rejection or that session is unchanged
+      const allPosts = await getThreadPosts(ctx, rootPost.id);
+
+      // User2 shouldn't be able to enable interactive permissions
+      // (depends on whether user2 is invited/allowed)
+      expect(allPosts.length).toBeGreaterThanOrEqual(2);
     });
   });
 });

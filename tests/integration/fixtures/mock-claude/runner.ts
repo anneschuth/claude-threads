@@ -139,6 +139,12 @@ async function processEvents(events: MockEvent[]): Promise<void> {
       await sleep(delay);
     }
     emit(event);
+
+    // Exit after result event (like real Claude CLI)
+    if (event.type === 'result') {
+      log('Result event sent, exiting');
+      process.exit(0);
+    }
   }
 }
 
