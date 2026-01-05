@@ -14,6 +14,7 @@ import {
   sendCommand,
   getThreadPosts,
   waitForPostMatching,
+  waitForPostCount,
   addReaction,
   waitForSessionActive,
   waitForSessionEnded,
@@ -85,8 +86,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Send !stop command
       await sendCommand(ctx, rootPost.id, '!stop');
 
-      // Wait for cancellation
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for session cancellation
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -103,7 +104,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Send !cancel
       await sendCommand(ctx, rootPost.id, '!cancel');
-      await new Promise((r) => setTimeout(r, 200));
+
+      // Wait for session cancellation
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -124,13 +127,13 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Send !escape
       await sendCommand(ctx, rootPost.id, '!escape');
-      await new Promise((r) => setTimeout(r, 200));
+
+      // Wait for interrupt message
+      const interruptPost = await waitForPostMatching(ctx, rootPost.id, /interrupt|escape|paused/i, { timeout: 5000 });
 
       // Session may still be tracked (paused state)
       // The key is that interrupt message was posted
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
-      expect(botPosts.length).toBeGreaterThanOrEqual(1);
+      expect(interruptPost).toBeDefined();
     });
   });
 
@@ -180,8 +183,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Add X reaction to session start post
       await addReaction(ctx, sessionStartPost.id, 'x');
 
-      // Wait for cancellation
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for session cancellation (reaction processing is async via WebSocket)
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -227,17 +230,15 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add pause button reaction
       await addReaction(ctx, sessionStartPost.id, 'double_vertical_bar');
-      await new Promise((r) => setTimeout(r, 200));
 
-      // Session should be interrupted (may still be tracked but paused)
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const interruptPost = allPosts.find((p) =>
-        p.user_id === ctx.botUserId && /interrupt|paused|escape/i.test(p.message)
-      );
-
-      // Either session is gone or interrupt message was posted
-      const isActive = bot.sessionManager.isInSessionThread(rootPost.id);
-      expect(isActive || interruptPost !== undefined).toBe(true);
+      // Wait for interrupt message or session end
+      try {
+        const interruptPost = await waitForPostMatching(ctx, rootPost.id, /interrupt|paused|escape/i, { timeout: 3000 });
+        expect(interruptPost).toBeDefined();
+      } catch {
+        // If no interrupt message, session should have ended
+        expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
+      }
     });
   });
 
@@ -266,13 +267,13 @@ describe.skipIf(SKIP)('Session Commands', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 200));
+      // Wait for at least 3 posts (root + bot response + user2 message)
+      const allPosts = await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
 
       // Session should still be active (user2 is not authorized)
       // Note: This depends on whether user2 is in allowedUsers
       // If user2 IS allowed, they can stop; if not, session stays active
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      expect(allPosts.length).toBeGreaterThanOrEqual(2);
+      expect(allPosts.length).toBeGreaterThanOrEqual(3);
     });
   });
 
@@ -333,12 +334,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await sendCommand(ctx, rootPost.id, '!cd /nonexistent/path/12345');
 
       // Wait for error message
-      await new Promise((r) => setTimeout(r, 150));
-
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const errorPost = allPosts.find((p) =>
-        p.user_id === ctx.botUserId && /error|not.*exist|invalid|not.*found/i.test(p.message)
-      );
+      const errorPost = await waitForPostMatching(ctx, rootPost.id, /error|not.*exist|invalid|not.*found/i, { timeout: 5000 });
 
       expect(errorPost).toBeDefined();
     });
@@ -416,15 +412,12 @@ describe.skipIf(SKIP)('Session Commands', () => {
         root_id: rootPost.id,
       });
 
-      // Wait a bit
-      await new Promise((r) => setTimeout(r, 200));
-
-      // Check for rejection or that session is unchanged
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
+      // Wait for at least 3 posts (root + bot response + user2 message)
+      const allPosts = await waitForPostCount(ctx, rootPost.id, 3, { timeout: 5000 });
 
       // User2 shouldn't be able to enable interactive permissions
       // (depends on whether user2 is invited/allowed)
-      expect(allPosts.length).toBeGreaterThanOrEqual(2);
+      expect(allPosts.length).toBeGreaterThanOrEqual(3);
     });
   });
 });
