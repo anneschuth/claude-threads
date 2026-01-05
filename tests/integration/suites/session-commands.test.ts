@@ -254,13 +254,27 @@ describe.skipIf(SKIP)('Session Commands', () => {
   });
 
   describe('Command Authorization', () => {
-    it('should only allow session owner to use !stop', async () => {
+    it('should only allow session-allowed users to use !stop', async () => {
       // This test requires two different users
+      // Note: The bot allows ANY globally allowed user to !stop, not just the session owner.
+      // To test authorization, we need user2 to NOT be globally allowed.
       const user2Token = config.mattermost.testUsers[1]?.token;
       if (!user2Token) {
         console.log('Skipping - no second test user');
         return;
       }
+
+      // Stop the default bot and restart with only user1 globally allowed
+      await bot.sessionManager.killAllSessions();
+      await bot.stop();
+
+      const user1Username = config.mattermost.testUsers[0]?.username || 'testuser1';
+      bot = await startTestBot({
+        scenario: 'persistent-session',
+        skipPermissions: true,
+        allowedUsersOverride: [user1Username], // Only user1 is globally allowed
+        debug: process.env.DEBUG === '1',
+      });
 
       // Start session as user1
       const rootPost = await startSession(ctx, 'User1 session', config.mattermost.bot.username);
@@ -272,10 +286,10 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Verify session is active before user2's attempt
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
-      // Create API for user2
+      // Create API for user2 (who is NOT globally allowed)
       const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
 
-      // User2 tries to stop (should be ignored since user2 is not session owner)
+      // User2 tries to stop (should be ignored since user2 is not in session and not globally allowed)
       await user2Api.createPost({
         channel_id: ctx.channelId,
         message: '!stop',
@@ -288,8 +302,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Give the bot time to process the command (if it would)
       await new Promise((r) => setTimeout(r, 500));
 
-      // Session should STILL be active - user2 is not authorized to stop
-      // This is the actual authorization check!
+      // Session should STILL be active - user2 is not authorized (not in session, not globally allowed)
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
     });
   });
@@ -406,12 +419,26 @@ describe.skipIf(SKIP)('Session Commands', () => {
       expect(rejectPost.message).toContain('⚠️');
     });
 
-    it('should only allow session owner to change permissions', async () => {
+    it('should only allow session-allowed users to change permissions', async () => {
+      // Note: The bot allows session owner OR globally allowed users to change permissions.
+      // To test authorization, we need user2 to NOT be globally allowed.
       const user2Token = config.mattermost.testUsers[1]?.token;
       if (!user2Token) {
         console.log('Skipping - no second test user');
         return;
       }
+
+      // Stop the default bot and restart with only user1 globally allowed
+      await bot.sessionManager.killAllSessions();
+      await bot.stop();
+
+      const user1Username = config.mattermost.testUsers[0]?.username || 'testuser1';
+      bot = await startTestBot({
+        scenario: 'persistent-session',
+        skipPermissions: true, // Start with skip so we can test enabling interactive
+        allowedUsersOverride: [user1Username], // Only user1 is globally allowed
+        debug: process.env.DEBUG === '1',
+      });
 
       // Start session as user1
       const rootPost = await startSession(ctx, 'Owner only permissions', config.mattermost.bot.username);
@@ -420,7 +447,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
 
-      // User2 tries to change permissions (should be rejected - only owner can change)
+      // User2 tries to change permissions (should be rejected - not globally allowed, not session owner)
       const user2Api = new MattermostTestApi(config.mattermost.url, user2Token);
 
       await user2Api.createPost({
@@ -435,18 +462,17 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Give the bot time to process and potentially show error
       await new Promise((r) => setTimeout(r, 500));
 
-      // Check for rejection message - bot should post "only session owner can change permissions"
+      // Check for rejection message - bot should post "only @user1 or allowed users can change permissions"
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
 
       // Look for rejection/error message from bot
       const hasRejectionMessage = botPosts.some((p) =>
-        /only.*owner|not authorized|cannot change/i.test(p.message)
+        /only.*can change|not authorized|cannot change/i.test(p.message)
       );
 
-      // Either there's a rejection message OR the session stayed active without change
-      // (the key is that user2's command didn't work)
-      expect(hasRejectionMessage || bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
+      // User2's command should have been rejected
+      expect(hasRejectionMessage).toBe(true);
     });
   });
 });
