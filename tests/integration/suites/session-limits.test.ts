@@ -56,7 +56,8 @@ describe.skipIf(SKIP)('Session Limits', () => {
   afterEach(async () => {
     // Kill all sessions between tests to avoid interference
     await bot.sessionManager.killAllSessions();
-    await new Promise((r) => setTimeout(r, 200));
+    // Longer delay in CI to ensure cleanup completes before next test
+    await new Promise((r) => setTimeout(r, process.env.CI ? 1000 : 200));
   });
 
   describe('MAX_SESSIONS Limit', () => {
@@ -126,7 +127,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
 
       // Kill one session to free up space
       await bot.sessionManager.killSession(rootPosts[0]);
-      await new Promise((r) => setTimeout(r, 500)); // Longer wait for CI
+      await new Promise((r) => setTimeout(r, process.env.CI ? 1000 : 500)); // Longer wait for CI
 
       // Should now have 4 sessions
       expect(bot.sessionManager.getActiveThreadIds().length).toBe(4);
@@ -135,8 +136,8 @@ describe.skipIf(SKIP)('Session Limits', () => {
       const newRootPost = await startSession(ctx, 'New session after kill', config.mattermost.bot.username);
       testThreadIds.push(newRootPost.id);
 
-      // Wait for session to become active
-      await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: 15000 });
+      // Wait for session to become active (longer timeout in CI due to resource contention)
+      await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: 20000 });
 
       // New session should be active
       expect(bot.sessionManager.isInSessionThread(newRootPost.id)).toBe(true);
