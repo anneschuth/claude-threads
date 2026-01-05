@@ -325,3 +325,59 @@ export async function waitForSessionActive(
     },
   );
 }
+
+/**
+ * Create a thread with pre-existing user messages (for testing mid-thread session starts)
+ *
+ * @param ctx - Test session context
+ * @param messages - Array of messages to post (creates thread from first message)
+ * @returns The root post ID
+ */
+export async function createThreadWithMessages(
+  ctx: TestSessionContext,
+  messages: string[],
+): Promise<{ rootId: string; messageIds: string[] }> {
+  if (messages.length === 0) {
+    throw new Error('Need at least one message to create a thread');
+  }
+
+  // Create the root post
+  const rootPost = await ctx.api.createPost({
+    channel_id: ctx.channelId,
+    message: messages[0],
+  });
+
+  const messageIds = [rootPost.id];
+
+  // Add follow-up messages
+  for (let i = 1; i < messages.length; i++) {
+    const reply = await ctx.api.createPost({
+      channel_id: ctx.channelId,
+      message: messages[i],
+      root_id: rootPost.id,
+    });
+    messageIds.push(reply.id);
+    // Small delay to ensure ordering
+    await new Promise((r) => setTimeout(r, 50));
+  }
+
+  return { rootId: rootPost.id, messageIds };
+}
+
+/**
+ * Start a session mid-thread by @mentioning the bot in an existing thread
+ */
+export async function startSessionMidThread(
+  ctx: TestSessionContext,
+  threadId: string,
+  message: string,
+  botUsername: string = 'claude-test-bot',
+): Promise<MattermostPost> {
+  const fullMessage = `@${botUsername} ${message}`;
+
+  return ctx.api.createPost({
+    channel_id: ctx.channelId,
+    message: fullMessage,
+    root_id: threadId,
+  });
+}
