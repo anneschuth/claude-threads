@@ -989,6 +989,22 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
+   * Get the session start post ID for a thread (the post where reactions are tracked).
+   * Checks both active sessions and persisted sessions.
+   * For testing purposes - allows tests to find the correct post to react to.
+   */
+  getSessionStartPostId(threadId: string): string | undefined {
+    // First check active sessions
+    const session = this.findSessionByThreadId(threadId);
+    if (session?.sessionStartPostId) {
+      return session.sessionStartPostId;
+    }
+    // Then check persisted sessions (for resume scenarios)
+    const persisted = this.findPersistedByThreadId(threadId);
+    return persisted?.sessionStartPostId ?? undefined;
+  }
+
+  /**
    * Post shutdown messages to all active sessions and persist the post IDs.
    * This allows the resume to update the same post instead of creating a new one.
    */

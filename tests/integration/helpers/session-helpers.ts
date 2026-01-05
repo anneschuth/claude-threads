@@ -138,21 +138,56 @@ export async function waitForBotResponse(
 }
 
 /**
- * Wait for the session header post (the first bot post with version/logo info).
- * This is specifically the post created when a session starts, NOT subsequent
- * assistant response posts.
+ * Get the session header post ID directly from the session manager.
+ * This is more reliable than pattern matching because it uses the actual
+ * post ID that was registered when the session was created.
  *
- * The session header contains the logo (✴ ▄█▀) and version (claude-threads vX.X.X).
- * This is important because reactions for cancel/resume should be added to
- * the session header, not to assistant response posts.
+ * @param sessionManager - The bot's session manager
+ * @param threadId - The thread ID to look up
+ * @param options - Timeout options
+ * @returns The session header post as a MattermostPost object
  */
 export async function waitForSessionHeader(
   ctx: TestSessionContext,
   threadId: string,
-  options: { timeout?: number } = {},
+  options: { timeout?: number; sessionManager?: SessionManager } = {},
 ): Promise<MattermostPost> {
-  const { timeout = 30000 } = options;
+  const { timeout = 30000, sessionManager } = options;
 
+  // If we have access to sessionManager, use the authoritative post ID
+  if (sessionManager) {
+    return waitFor(
+      async () => {
+        const postId = sessionManager.getSessionStartPostId(threadId);
+        if (!postId) {
+          if (process.env.CI) {
+            console.log(`[waitForSessionHeader] no sessionStartPostId yet for thread ${threadId.substring(0, 8)}...`);
+          }
+          return null;
+        }
+        // Fetch the actual post from Mattermost
+        try {
+          const post = await ctx.api.getPost(postId);
+          if (process.env.CI) {
+            console.log(`[waitForSessionHeader] got post ${postId.substring(0, 8)}... from sessionManager`);
+          }
+          return post;
+        } catch {
+          if (process.env.CI) {
+            console.log(`[waitForSessionHeader] failed to fetch post ${postId.substring(0, 8)}...`);
+          }
+          return null;
+        }
+      },
+      {
+        timeout,
+        interval: 500,
+        description: `session header post via sessionManager for thread ${threadId.substring(0, 8)}...`,
+      },
+    );
+  }
+
+  // Fallback: pattern matching (less reliable due to API race conditions)
   // Session header contains the logo pattern or "claude-threads v" version text
   // Logo format: ✴ ▄█▀ ███ ✴   claude-threads v0.33.8
   const sessionHeaderPattern = /claude-threads v\d+\.\d+\.\d+|✴ ▄█▀|Starting session/;
@@ -168,7 +203,7 @@ export async function waitForSessionHeader(
       // Debug: log thread structure in CI
       if (process.env.CI) {
         const shortThreadId = threadId.substring(0, 8);
-        console.log(`[waitForSessionHeader] thread=${shortThreadId}... total=${threadPosts.length} botPosts=${botPosts.length}`);
+        console.log(`[waitForSessionHeader] thread=${shortThreadId}... total=${threadPosts.length} botPosts=${botPosts.length} (pattern matching fallback)`);
         for (const p of botPosts) {
           const shortId = p.id.substring(0, 8);
           const shortRootId = p.root_id?.substring(0, 8) || 'none';

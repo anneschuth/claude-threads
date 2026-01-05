@@ -171,7 +171,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Wait for session header (the post with logo/version, NOT assistant response)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Verify session is active
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
@@ -203,7 +203,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Wait for session header (the post with logo/version)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
       // Add octagonal_sign (stop sign) reaction and wait for it to be processed
@@ -231,7 +231,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Wait for session header (the post with logo/version)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Add pause button reaction and use fallback if WebSocket doesn't deliver
       await addReaction(ctx, sessionHeaderPost.id, 'double_vertical_bar');

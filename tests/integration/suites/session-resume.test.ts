@@ -74,7 +74,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Get the session header post (the one with logo/version, NOT assistant response)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Small delay to ensure session is persisted before we kill it
       // (persistence happens asynchronously after first response)
@@ -113,7 +113,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Get the session header post (the one with logo/version)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Small delay to ensure session is persisted
       await new Promise((r) => setTimeout(r, 200));
@@ -148,7 +148,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Get the session header post (the one with logo/version)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Small delay to ensure session is persisted
       await new Promise((r) => setTimeout(r, 200));
@@ -183,7 +183,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Get the session header post (the one with logo/version)
-      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000 });
+      const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
 
       // Session is active
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
