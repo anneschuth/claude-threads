@@ -9,6 +9,7 @@ import {
 } from '../fixtures/mattermost/api-helpers.js';
 import { waitFor } from './wait-for.js';
 import type { SessionManager } from '../../../src/session/index.js';
+import { SessionStore } from '../../../src/persistence/session-store.js';
 
 /**
  * Test session context
@@ -169,6 +170,32 @@ export async function getThreadPosts(
 ): Promise<MattermostPost[]> {
   const { posts } = await ctx.api.getThreadPosts(threadId);
   return Object.values(posts).sort((a, b) => a.create_at - b.create_at);
+}
+
+/**
+ * Wait for thread to have at least N posts
+ */
+export async function waitForPostCount(
+  ctx: TestSessionContext,
+  threadId: string,
+  minCount: number,
+  options: { timeout?: number } = {},
+): Promise<MattermostPost[]> {
+  const { timeout = 5000 } = options;
+
+  let posts: MattermostPost[] = [];
+  await waitFor(
+    async () => {
+      posts = await getThreadPosts(ctx, threadId);
+      return posts.length >= minCount;
+    },
+    {
+      timeout,
+      interval: 200,
+      description: `thread ${threadId} to have at least ${minCount} posts`,
+    },
+  );
+  return posts;
 }
 
 /**
@@ -380,4 +407,35 @@ export async function startSessionMidThread(
     message: fullMessage,
     root_id: threadId,
   });
+}
+
+/**
+ * Wait for a session to be persisted to disk
+ *
+ * @param threadId - The thread ID to wait for
+ * @param options - Timeout options
+ */
+export async function waitForSessionPersisted(
+  threadId: string,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const { timeout = 5000 } = options;
+  const sessionStore = new SessionStore();
+
+  await waitFor(
+    async () => {
+      const persisted = sessionStore.load();
+      for (const session of persisted.values()) {
+        if (session.threadId === threadId) {
+          return true;
+        }
+      }
+      return false;
+    },
+    {
+      timeout,
+      interval: 100,
+      description: `session to be persisted for thread ${threadId}`,
+    },
+  );
 }

@@ -17,6 +17,7 @@ import {
   waitForPostMatching,
   addReaction,
   waitForSessionActive,
+  waitForSessionPersisted,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, stopSharedBot, type TestBot } from '../helpers/bot-starter.js';
@@ -92,8 +93,8 @@ describe.skipIf(SKIP)('Session Resume', () => {
         minResponses: 1,
       });
 
-      // Give persistence time to write to disk
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for session to be persisted
+      await waitForSessionPersisted(rootPost.id);
 
       // Check that session was persisted
       const persisted = sessionStore.load();
@@ -130,8 +131,8 @@ describe.skipIf(SKIP)('Session Resume', () => {
         minResponses: 1,
       });
 
-      // Give persistence time to write to disk
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for session to be persisted
+      await waitForSessionPersisted(rootPost.id);
 
       // Verify persisted state
       const persisted = sessionStore.load();
@@ -172,8 +173,8 @@ describe.skipIf(SKIP)('Session Resume', () => {
         minResponses: 1,
       });
 
-      // Give persistence time to write to disk
-      await new Promise((r) => setTimeout(r, 500));
+      // Wait for session to be persisted
+      await waitForSessionPersisted(rootPost.id);
 
       // Verify session is persisted
       const persisted = sessionStore.load();
