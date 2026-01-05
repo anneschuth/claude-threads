@@ -43,6 +43,8 @@ export interface StartBotOptions {
   debug?: boolean;
   /** Clear persisted sessions before starting (default: true for tests) */
   clearPersistedSessions?: boolean;
+  /** Override allowed users completely (ignores testUsers from config) */
+  allowedUsersOverride?: string[];
 }
 
 /**
@@ -59,6 +61,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     extraAllowedUsers = [],
     debug = process.env.DEBUG === '1',
     clearPersistedSessions = true,
+    allowedUsersOverride,
   } = options;
 
   // Load test config
@@ -84,7 +87,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   // Build platform config
   const platformId = 'test-mattermost';
-  const allowedUsers = [
+  const allowedUsers = allowedUsersOverride ?? [
     ...testConfig.mattermost.testUsers.map(u => u.username),
     ...extraAllowedUsers,
   ];

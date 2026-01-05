@@ -11,6 +11,8 @@ import {
   initTestContext,
   startSession,
   waitForBotResponse,
+  waitForPostMatching,
+  waitForSessionActive,
   sendCommand,
   getThreadPosts,
   addReaction,
@@ -46,10 +48,13 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
     }
 
     // Start bot with just user1 as allowed (for invite/kick tests)
+    // This uses allowedUsersOverride to exclude user2 from global allowed list
+    // Use persistent-session so sessions stay active for commands
+    const user1Username = config.mattermost.testUsers[0]?.username || 'testuser1';
     bot = await startTestBot({
-      scenario: 'simple-response',
+      scenario: 'persistent-session',
       skipPermissions: true,
-      extraAllowedUsers: [], // Only default users
+      allowedUsersOverride: [user1Username], // Only user1 globally allowed
       debug: process.env.DEBUG === '1',
     });
   });
@@ -69,6 +74,10 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
   });
 
   afterEach(async () => {
+    // Kill all sessions to avoid MAX_SESSIONS limit
+    if (bot?.sessionManager) {
+      await bot.sessionManager.killAllSessions();
+    }
     await new Promise((r) => setTimeout(r, 25));
   });
 
@@ -84,19 +93,14 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // Invite user2
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
 
-      // Wait for invite message
-      await new Promise((r) => setTimeout(r, 25));
-
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const invitePost = allPosts.find((p) =>
-        p.user_id === ctx.botUserId && /invited|added/i.test(p.message)
-      );
-
+      // Wait for invite confirmation message (message says "can now participate")
+      const invitePost = await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
       expect(invitePost).toBeDefined();
     });
 
@@ -110,11 +114,15 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       const rootPost = await startSession(ctx, 'Collaborative session', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
+      // Wait for bot response and session to be fully active
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 25));
+
+      // Wait for invite confirmation
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
 
       // User2 sends a message
       await user2Api.createPost({
@@ -123,7 +131,8 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 25));
+      // Wait a bit for the message to appear
+      await new Promise((r) => setTimeout(r, 100));
 
       // Bot should process user2's message (not block it)
       const allPosts = await getThreadPosts(ctx, rootPost.id);
@@ -149,22 +158,19 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
 
       // Invite first
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 150));
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
 
       // Then kick
       await sendCommand(ctx, rootPost.id, `!kick @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 150));
 
-      const allPosts = await getThreadPosts(ctx, rootPost.id);
-      const kickPost = allPosts.find((p) =>
-        p.user_id === ctx.botUserId && /kicked|removed/i.test(p.message)
-      );
-
+      // Wait for kick confirmation
+      const kickPost = await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 5000 });
       expect(kickPost).toBeDefined();
     });
 
@@ -179,13 +185,15 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
       const user2Username = config.mattermost.testUsers[1]?.username || 'testuser2';
 
       await sendCommand(ctx, rootPost.id, `!invite @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 25));
+      await waitForPostMatching(ctx, rootPost.id, /can now participate|invited/i, { timeout: 5000 });
+
       await sendCommand(ctx, rootPost.id, `!kick @${user2Username}`);
-      await new Promise((r) => setTimeout(r, 25));
+      await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 5000 });
 
       const postsBeforeUser2 = await getThreadPosts(ctx, rootPost.id);
 
@@ -196,7 +204,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 200));
 
       const postsAfterUser2 = await getThreadPosts(ctx, rootPost.id);
 
@@ -219,6 +227,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // User2 tries to send message (not invited)
       await user2Api.createPost({
@@ -227,7 +236,8 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 25));
+      // Wait for potential approval request or bot response
+      await new Promise((r) => setTimeout(r, 500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -245,6 +255,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // User2 sends unauthorized message
       await user2Api.createPost({
@@ -253,7 +264,8 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 25));
+      // Wait for potential approval request
+      await new Promise((r) => setTimeout(r, 500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -265,11 +277,15 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       if (approvalPost) {
         // Owner approves
         await addReaction(ctx, approvalPost.id, '+1');
-        await new Promise((r) => setTimeout(r, 25));
 
-        // Message should be processed
-        const updatedPosts = await getThreadPosts(ctx, rootPost.id);
-        expect(updatedPosts.length).toBeGreaterThan(allPosts.length);
+        // Wait for approval confirmation message
+        const approvalConfirmation = await waitForPostMatching(
+          ctx,
+          rootPost.id,
+          /approved|processing|allowed/i,
+          { timeout: 5000 }
+        );
+        expect(approvalConfirmation).toBeDefined();
       }
     });
 
@@ -283,6 +299,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       testThreadIds.push(rootPost.id);
 
       await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
       // User2 sends unauthorized message
       await user2Api.createPost({
@@ -291,7 +308,8 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         root_id: rootPost.id,
       });
 
-      await new Promise((r) => setTimeout(r, 25));
+      // Wait for potential approval request
+      await new Promise((r) => setTimeout(r, 500));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
 
@@ -302,7 +320,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
       if (approvalPost) {
         // Owner denies
         await addReaction(ctx, approvalPost.id, '-1');
-        await new Promise((r) => setTimeout(r, 25));
+        await new Promise((r) => setTimeout(r, 500));
 
         // Should have denial message or approval post updated
         const updatedPosts = await getThreadPosts(ctx, rootPost.id);
