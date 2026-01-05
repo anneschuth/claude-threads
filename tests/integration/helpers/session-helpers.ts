@@ -142,7 +142,7 @@ export async function waitForBotResponse(
  * This is specifically the post created when a session starts, NOT subsequent
  * assistant response posts.
  *
- * The session header contains the logo box (╭───────) or version info (vX.X.X).
+ * The session header contains the logo (✴ ▄█▀) and version (claude-threads vX.X.X).
  * This is important because reactions for cancel/resume should be added to
  * the session header, not to assistant response posts.
  */
@@ -153,8 +153,9 @@ export async function waitForSessionHeader(
 ): Promise<MattermostPost> {
   const { timeout = 30000 } = options;
 
-  // Session header contains the logo box or version pattern
-  const sessionHeaderPattern = /╭───────|v\d+\.\d+\.\d+|Starting session/;
+  // Session header contains the logo pattern or "claude-threads v" version text
+  // Logo format: ✴ ▄█▀ ███ ✴   claude-threads v0.33.8
+  const sessionHeaderPattern = /claude-threads v\d+\.\d+\.\d+|✴ ▄█▀|Starting session/;
 
   return waitFor(
     async () => {
@@ -163,6 +164,16 @@ export async function waitForSessionHeader(
 
       // Filter to bot posts only
       const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
+
+      // Debug: log all bot posts in CI
+      if (process.env.CI) {
+        for (const p of botPosts) {
+          const shortId = p.id.substring(0, 8);
+          const matches = sessionHeaderPattern.test(p.message);
+          const preview = p.message.substring(0, 60).replace(/\n/g, '\\n');
+          console.log(`[waitForSessionHeader] post ${shortId}... matches=${matches} preview="${preview}"`);
+        }
+      }
 
       // Find the session header post
       const headerPost = botPosts.find((p) => sessionHeaderPattern.test(p.message));
