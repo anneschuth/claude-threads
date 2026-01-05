@@ -159,23 +159,12 @@ export async function waitForSessionHeader(
     return waitFor(
       async () => {
         const postId = sessionManager.getSessionStartPostId(threadId);
-        if (!postId) {
-          if (process.env.CI) {
-            console.log(`[waitForSessionHeader] no sessionStartPostId yet for thread ${threadId.substring(0, 8)}...`);
-          }
-          return null;
-        }
+        if (!postId) return null;
+
         // Fetch the actual post from Mattermost
         try {
-          const post = await ctx.api.getPost(postId);
-          if (process.env.CI) {
-            console.log(`[waitForSessionHeader] got post ${postId.substring(0, 8)}... from sessionManager`);
-          }
-          return post;
+          return await ctx.api.getPost(postId);
         } catch {
-          if (process.env.CI) {
-            console.log(`[waitForSessionHeader] failed to fetch post ${postId.substring(0, 8)}...`);
-          }
           return null;
         }
       },
@@ -196,29 +185,8 @@ export async function waitForSessionHeader(
     async () => {
       const { posts } = await ctx.api.getThreadPosts(threadId);
       const threadPosts = Object.values(posts).sort((a, b) => a.create_at - b.create_at);
-
-      // Filter to bot posts only
       const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
-
-      // Debug: log thread structure in CI
-      if (process.env.CI) {
-        const shortThreadId = threadId.substring(0, 8);
-        console.log(`[waitForSessionHeader] thread=${shortThreadId}... total=${threadPosts.length} botPosts=${botPosts.length} (pattern matching fallback)`);
-        for (const p of botPosts) {
-          const shortId = p.id.substring(0, 8);
-          const shortRootId = p.root_id?.substring(0, 8) || 'none';
-          const matches = sessionHeaderPattern.test(p.message);
-          const preview = p.message.substring(0, 60).replace(/\n/g, '\\n');
-          console.log(`[waitForSessionHeader]   post ${shortId}... root=${shortRootId} matches=${matches} preview="${preview}"`);
-        }
-      }
-
-      // Find the session header post
-      const headerPost = botPosts.find((p) => sessionHeaderPattern.test(p.message));
-      if (process.env.CI && headerPost) {
-        console.log(`[waitForSessionHeader] SELECTED: ${headerPost.id.substring(0, 8)}...`);
-      }
-      return headerPost || null;
+      return botPosts.find((p) => sessionHeaderPattern.test(p.message)) || null;
     },
     {
       timeout,
