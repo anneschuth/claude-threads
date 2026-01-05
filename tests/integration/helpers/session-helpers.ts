@@ -165,18 +165,24 @@ export async function waitForSessionHeader(
       // Filter to bot posts only
       const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
 
-      // Debug: log all bot posts in CI
+      // Debug: log thread structure in CI
       if (process.env.CI) {
+        const shortThreadId = threadId.substring(0, 8);
+        console.log(`[waitForSessionHeader] thread=${shortThreadId}... total=${threadPosts.length} botPosts=${botPosts.length}`);
         for (const p of botPosts) {
           const shortId = p.id.substring(0, 8);
+          const shortRootId = p.root_id?.substring(0, 8) || 'none';
           const matches = sessionHeaderPattern.test(p.message);
           const preview = p.message.substring(0, 60).replace(/\n/g, '\\n');
-          console.log(`[waitForSessionHeader] post ${shortId}... matches=${matches} preview="${preview}"`);
+          console.log(`[waitForSessionHeader]   post ${shortId}... root=${shortRootId} matches=${matches} preview="${preview}"`);
         }
       }
 
       // Find the session header post
       const headerPost = botPosts.find((p) => sessionHeaderPattern.test(p.message));
+      if (process.env.CI && headerPost) {
+        console.log(`[waitForSessionHeader] SELECTED: ${headerPost.id.substring(0, 8)}...`);
+      }
       return headerPost || null;
     },
     {
