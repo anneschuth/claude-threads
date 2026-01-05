@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { mkdirSync } from 'fs';
 import { MattermostClient } from '../../../src/platform/mattermost/client.js';
 import { SessionManager } from '../../../src/session/index.js';
+import { SessionStore } from '../../../src/persistence/session-store.js';
 import type { PlatformPost, PlatformUser } from '../../../src/platform/types.js';
 import { loadConfig } from '../setup/config.js';
 import { handleMessage } from '../../../src/message-handler.js';
@@ -37,6 +38,8 @@ export interface StartBotOptions {
   extraAllowedUsers?: string[];
   /** Enable debug logging */
   debug?: boolean;
+  /** Clear persisted sessions before starting (default: true for tests) */
+  clearPersistedSessions?: boolean;
 }
 
 /**
@@ -52,6 +55,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     workingDir = '/tmp/claude-threads-test',
     extraAllowedUsers = [],
     debug = process.env.DEBUG === '1',
+    clearPersistedSessions = true,
   } = options;
 
   // Load test config
@@ -59,6 +63,12 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   // Ensure working directory exists (spawn fails with ENOENT if cwd doesn't exist)
   mkdirSync(workingDir, { recursive: true });
+
+  // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
+  if (clearPersistedSessions) {
+    const store = new SessionStore();
+    store.clear();
+  }
 
   // Set environment variables for mock Claude CLI
   // Use the wrapper script since spawn() can't handle "bun runner.ts" as a single command
