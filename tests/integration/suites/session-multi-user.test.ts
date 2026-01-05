@@ -78,7 +78,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
     if (bot?.sessionManager) {
       await bot.sessionManager.killAllSessions();
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 200));
   });
 
   describe('!invite Command', () => {

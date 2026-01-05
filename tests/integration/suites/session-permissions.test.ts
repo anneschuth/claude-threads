@@ -51,7 +51,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     if (bot) {
       await bot.stop();
     }
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 200));
   });
 
   describe('Permission Approval Flow', () => {
@@ -68,7 +68,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
       // Wait for permission prompt
       // The mock scenario should trigger a tool_use event
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 200));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -136,7 +136,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Delete some files', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 200));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -157,7 +157,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       const rootPost = await startSession(ctx, 'Do multiple operations', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 200));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);
@@ -179,7 +179,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for completion (no prompts)
-      await new Promise((r) => setTimeout(r, 25));
+      await new Promise((r) => setTimeout(r, 200));
 
       const allPosts = await getThreadPosts(ctx, rootPost.id);
       const botPosts = allPosts.filter((p) => p.user_id === ctx.botUserId);

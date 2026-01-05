@@ -57,7 +57,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
   });
 
   afterEach(async () => {
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 200));
   });
 
   describe('Mid-Thread Session Start', () => {

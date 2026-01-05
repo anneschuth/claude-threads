@@ -58,7 +58,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
   });
 
   afterEach(async () => {
-    await new Promise((r) => setTimeout(r, 25));
+    await new Promise((r) => setTimeout(r, 200));
   });
 
   describe('Session Persistence', () => {

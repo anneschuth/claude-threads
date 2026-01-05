@@ -1,159 +1,154 @@
 {
   "name": "task-list",
   "description": "Scenario with task list creation and updates",
-  "conversations": [
+  "initialEvents": [],
+  "responseEvents": [
     {
-      "id": "initial",
-      "triggerPatterns": ["task list", "plan", "steps"],
-      "events": [
-        {
-          "type": "assistant",
-          "delay": 100,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "tool_use",
-                "id": "todo_1",
-                "name": "TodoWrite",
-                "input": {
-                  "todos": [
-                    { "content": "Analyze requirements", "status": "in_progress", "activeForm": "Analyzing requirements" },
-                    { "content": "Create implementation plan", "status": "pending", "activeForm": "Creating implementation plan" },
-                    { "content": "Execute plan", "status": "pending", "activeForm": "Executing plan" }
-                  ]
-                }
-              }
-            ]
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "todo_1",
+            "name": "TodoWrite",
+            "input": {
+              "todos": [
+                { "content": "Analyze requirements", "status": "in_progress", "activeForm": "Analyzing requirements" },
+                { "content": "Create implementation plan", "status": "pending", "activeForm": "Creating implementation plan" },
+                { "content": "Execute plan", "status": "pending", "activeForm": "Executing plan" }
+              ]
+            }
           }
-        },
-        {
-          "type": "tool_result",
-          "delay": 50,
-          "tool_use_id": "todo_1"
-        },
-        {
-          "type": "assistant",
-          "delay": 100,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "text",
-                "text": "I'll help you with that. Let me work through these tasks."
-              }
-            ]
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 50,
+      "tool_use_id": "todo_1"
+    },
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll help you with that. Let me work through these tasks."
           }
-        },
-        {
-          "type": "assistant",
-          "delay": 200,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "tool_use",
-                "id": "todo_2",
-                "name": "TodoWrite",
-                "input": {
-                  "todos": [
-                    { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
-                    { "content": "Create implementation plan", "status": "in_progress", "activeForm": "Creating implementation plan" },
-                    { "content": "Execute plan", "status": "pending", "activeForm": "Executing plan" }
-                  ]
-                }
-              }
-            ]
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "delay": 200,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "todo_2",
+            "name": "TodoWrite",
+            "input": {
+              "todos": [
+                { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
+                { "content": "Create implementation plan", "status": "in_progress", "activeForm": "Creating implementation plan" },
+                { "content": "Execute plan", "status": "pending", "activeForm": "Executing plan" }
+              ]
+            }
           }
-        },
-        {
-          "type": "tool_result",
-          "delay": 50,
-          "tool_use_id": "todo_2"
-        },
-        {
-          "type": "assistant",
-          "delay": 200,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "tool_use",
-                "id": "todo_3",
-                "name": "TodoWrite",
-                "input": {
-                  "todos": [
-                    { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
-                    { "content": "Create implementation plan", "status": "completed", "activeForm": "Creating implementation plan" },
-                    { "content": "Execute plan", "status": "in_progress", "activeForm": "Executing plan" }
-                  ]
-                }
-              }
-            ]
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 50,
+      "tool_use_id": "todo_2"
+    },
+    {
+      "type": "assistant",
+      "delay": 200,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "todo_3",
+            "name": "TodoWrite",
+            "input": {
+              "todos": [
+                { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
+                { "content": "Create implementation plan", "status": "completed", "activeForm": "Creating implementation plan" },
+                { "content": "Execute plan", "status": "in_progress", "activeForm": "Executing plan" }
+              ]
+            }
           }
-        },
-        {
-          "type": "tool_result",
-          "delay": 50,
-          "tool_use_id": "todo_3"
-        },
-        {
-          "type": "assistant",
-          "delay": 200,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "tool_use",
-                "id": "todo_4",
-                "name": "TodoWrite",
-                "input": {
-                  "todos": [
-                    { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
-                    { "content": "Create implementation plan", "status": "completed", "activeForm": "Creating implementation plan" },
-                    { "content": "Execute plan", "status": "completed", "activeForm": "Executing plan" }
-                  ]
-                }
-              }
-            ]
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 50,
+      "tool_use_id": "todo_3"
+    },
+    {
+      "type": "assistant",
+      "delay": 200,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "todo_4",
+            "name": "TodoWrite",
+            "input": {
+              "todos": [
+                { "content": "Analyze requirements", "status": "completed", "activeForm": "Analyzing requirements" },
+                { "content": "Create implementation plan", "status": "completed", "activeForm": "Creating implementation plan" },
+                { "content": "Execute plan", "status": "completed", "activeForm": "Executing plan" }
+              ]
+            }
           }
-        },
-        {
-          "type": "tool_result",
-          "delay": 50,
-          "tool_use_id": "todo_4"
-        },
-        {
-          "type": "assistant",
-          "delay": 100,
-          "message": {
-            "role": "assistant",
-            "content": [
-              {
-                "type": "text",
-                "text": "All tasks are complete!"
-              }
-            ]
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 50,
+      "tool_use_id": "todo_4"
+    },
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "All tasks are complete!"
           }
-        },
-        {
-          "type": "result",
-          "delay": 50,
-          "is_error": false,
-          "duration_ms": 5000,
-          "duration_api_ms": 4500,
-          "num_turns": 1,
-          "result": "All tasks completed successfully.",
-          "session_id": "mock-task-list-session",
-          "cost_usd": 0.015,
-          "usage": {
-            "input_tokens": 1000,
-            "output_tokens": 300,
-            "cache_creation_input_tokens": 0,
-            "cache_read_input_tokens": 0
-          }
-        }
-      ]
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "delay": 50,
+      "is_error": false,
+      "duration_ms": 5000,
+      "duration_api_ms": 4500,
+      "num_turns": 1,
+      "result": "All tasks completed successfully.",
+      "session_id": "mock-task-list-session",
+      "cost_usd": 0.015,
+      "usage": {
+        "input_tokens": 1000,
+        "output_tokens": 300,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      }
     }
   ]
 }
