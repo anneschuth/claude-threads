@@ -1,0 +1,61 @@
+{
+  "name": "tool-use",
+  "description": "Response with tool use (Read file)",
+  "initialEvents": [],
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll read that file for you."
+          },
+          {
+            "type": "tool_use",
+            "id": "tool_read_1",
+            "name": "Read",
+            "input": {
+              "file_path": "/tmp/test-file.txt"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "tool_result",
+      "delay": 200,
+      "tool_result": {
+        "tool_use_id": "tool_read_1",
+        "content": "File contents: Hello, World!",
+        "is_error": false
+      }
+    },
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "The file contains: \"Hello, World!\""
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "delay": 50,
+      "subtype": "success",
+      "cost_usd": 0.002,
+      "duration_ms": 450,
+      "duration_api_ms": 300,
+      "is_error": false,
+      "num_turns": 2,
+      "result": "",
+      "session_id": "mock-session-tool-use",
+      "total_cost_usd": 0.002
+    }
+  ]
+}

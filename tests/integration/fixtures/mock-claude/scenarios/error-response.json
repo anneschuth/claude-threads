@@ -1,0 +1,26 @@
+{
+  "name": "error-response",
+  "description": "Simulates an error condition during Claude CLI execution",
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Let me try to help with that..."
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "delay": 200,
+      "subtype": "error",
+      "is_error": true,
+      "error": "Mock error: Something went wrong during processing",
+      "session_id": "mock-error-session"
+    }
+  ]
+}

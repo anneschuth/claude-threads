@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.34.1] - 2026-01-05
+
+### Added
+- **Integration test suite** - Comprehensive end-to-end tests that spawn the actual bot against a real Mattermost instance with a mock Claude CLI. 111 tests covering:
+  - Session lifecycle (start, response, end, timeout)
+  - Commands (!stop, !escape, !help, !cd, !kill, !permissions)
+  - Reaction-based controls (❌ cancel, ⏸️ interrupt)
+  - Multi-user collaboration (!invite, !kick, message approval)
+  - Session persistence and resume after restart
+  - Plan approval and question flows
+  - Context prompts for mid-thread starts
+  - Git worktree integration
+  - Error handling and recovery
+  - MAX_SESSIONS limits
+  - Task list display
+- **CI workflow** - GitHub Actions workflow (`integration.yml`) that:
+  - Spins up Mattermost in Docker
+  - Creates test users, channels, and bot
+  - Runs full integration test suite
+  - Collects logs on failure for debugging
+
+### Changed
+- **Cleaner production code** - Removed test-specific `triggerReactionHandler()` method from SessionManager. Tests now access private methods via TypeScript cast when needed as a WebSocket fallback.
+
 ## [0.34.0] - 2026-01-05
 
 ### Added

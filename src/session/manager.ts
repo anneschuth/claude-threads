@@ -76,7 +76,7 @@ export class SessionManager extends EventEmitter {
   private postIndex: Map<string, string> = new Map();
 
   // Persistence
-  private sessionStore: SessionStore = new SessionStore();
+  private sessionStore: SessionStore;
 
   // Cleanup
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
@@ -88,13 +88,15 @@ export class SessionManager extends EventEmitter {
     workingDir: string,
     skipPermissions = false,
     chromeEnabled = false,
-    worktreeMode: WorktreeMode = 'prompt'
+    worktreeMode: WorktreeMode = 'prompt',
+    sessionsPath?: string
   ) {
     super();
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
+    this.sessionStore = new SessionStore(sessionsPath);
 
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
@@ -325,12 +327,7 @@ export class SessionManager extends EventEmitter {
 
     // Check if this session is already active
     const sessionId = `${platformId}:${persistedSession.threadId}`;
-    if (this.sessions.has(sessionId)) {
-      if (this.debug) {
-        log.debug(`Session already active for ${persistedSession.threadId.substring(0, 8)}...`);
-      }
-      return false;
-    }
+    if (this.sessions.has(sessionId)) return false;
 
     // Check if user is allowed (defensive: handle missing sessionAllowedUsers)
     const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
@@ -911,6 +908,29 @@ export class SessionManager extends EventEmitter {
   getActiveThreadIds(): string[] {
     // Return raw threadIds (not composite sessionIds) for posting to chat
     return [...this.sessions.values()].map(s => s.threadId);
+  }
+
+  /**
+   * Get the session start post ID for a thread.
+   *
+   * This is the post where:
+   * - The bot's initial response was posted (containing the session header)
+   * - Reactions are tracked for session control (cancel, interrupt, etc.)
+   *
+   * Checks both active sessions and persisted sessions.
+   *
+   * @param threadId - The thread ID to look up
+   * @returns The post ID where the session started, or undefined if not found
+   */
+  getSessionStartPostId(threadId: string): string | undefined {
+    // First check active sessions
+    const session = this.findSessionByThreadId(threadId);
+    if (session?.sessionStartPostId) {
+      return session.sessionStartPostId;
+    }
+    // Then check persisted sessions (for resume scenarios)
+    const persisted = this.findPersistedByThreadId(threadId);
+    return persisted?.sessionStartPostId ?? undefined;
   }
 
   /**

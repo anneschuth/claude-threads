@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Mock Claude CLI wrapper for integration tests
+# Runs the mock runner with bun
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bun run "$SCRIPT_DIR/runner.ts" "$@"

@@ -1,0 +1,32 @@
+{
+  "name": "multi-turn",
+  "description": "Multi-turn conversation with follow-up responses",
+  "initialEvents": [],
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I understand. What else would you like me to help with?"
+          }
+        ]
+      }
+    },
+    {
+      "type": "result",
+      "delay": 50,
+      "subtype": "success",
+      "cost_usd": 0.001,
+      "duration_ms": 150,
+      "duration_api_ms": 100,
+      "is_error": false,
+      "num_turns": 1,
+      "result": "",
+      "session_id": "mock-session-multi",
+      "total_cost_usd": 0.001
+    }
+  ]
+}
