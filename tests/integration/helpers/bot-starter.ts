@@ -37,6 +37,8 @@ export interface TestBot {
   sessionManager: SessionManager;
   mattermostClient: MattermostClient;
   platformId: string;
+  /** The isolated sessions file path for this test bot */
+  sessionsPath: string;
   /** Stop the bot and unpersist all sessions (normal cleanup) */
   stop(): Promise<void>;
   /** Stop the bot but preserve persisted sessions (for restart testing) */
@@ -58,6 +60,8 @@ export interface StartBotOptions {
   clearPersistedSessions?: boolean;
   /** Override allowed users completely (ignores testUsers from config) */
   allowedUsersOverride?: string[];
+  /** Explicit sessions file path (for restart scenarios, to reuse the same file) */
+  sessionsPath?: string;
 }
 
 /**
@@ -75,6 +79,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     debug = process.env.DEBUG === '1',
     clearPersistedSessions = true,
     allowedUsersOverride,
+    sessionsPath: explicitSessionsPath,
   } = options;
 
   // Load test config
@@ -85,11 +90,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   // Set up isolated session storage for this test bot instance
   // This prevents session state from leaking between test files
-  // If clearPersistedSessions is false and we already have a path set, reuse it (for resume tests)
-  const existingPath = process.env.CLAUDE_THREADS_SESSIONS_PATH;
-  const sessionsPath = (!clearPersistedSessions && existingPath)
-    ? existingPath
-    : generateTestSessionsPath();
+  // Priority: explicit path > generate new path
+  const sessionsPath = explicitSessionsPath ?? generateTestSessionsPath();
   process.env.CLAUDE_THREADS_SESSIONS_PATH = sessionsPath;
 
   // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
@@ -182,6 +184,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     sessionManager,
     mattermostClient,
     platformId,
+    sessionsPath,
     async stop() {
       if (debug) {
         console.log('[test-bot] Stopping...');

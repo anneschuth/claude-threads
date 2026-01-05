@@ -203,6 +203,9 @@ describe.skipIf(SKIP)('Session Resume', () => {
       // Verify session is active
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
 
+      // Save the sessions path before stopping (needed for restart)
+      const savedSessionsPath = bot.sessionsPath;
+
       // Stop the bot but preserve sessions
       await bot.stopAndPreserveSessions();
 
@@ -210,11 +213,13 @@ describe.skipIf(SKIP)('Session Resume', () => {
       await new Promise((r) => setTimeout(r, 200));
 
       // Restart the bot without clearing persisted sessions
+      // Pass the same sessionsPath to find the persisted session
       bot = await startTestBot({
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
         clearPersistedSessions: false, // Keep persisted sessions
+        sessionsPath: savedSessionsPath, // Reuse same sessions file
       });
 
       // Wait for initialization and auto-resume
