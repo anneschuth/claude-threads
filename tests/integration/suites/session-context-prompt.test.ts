@@ -57,6 +57,8 @@ describe.skipIf(SKIP)('Context Prompt', () => {
   });
 
   afterEach(async () => {
+    // Kill all sessions between tests to avoid interference
+    await bot.sessionManager.killAllSessions();
     await new Promise((r) => setTimeout(r, 200));
   });
 

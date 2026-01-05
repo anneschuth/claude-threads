@@ -62,7 +62,8 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
   });
 
   afterEach(async () => {
-    // Small delay between tests to let sessions clean up
+    // Kill all sessions between tests to avoid interference
+    await bot.sessionManager.killAllSessions();
     await new Promise((r) => setTimeout(r, 200));
   });
 

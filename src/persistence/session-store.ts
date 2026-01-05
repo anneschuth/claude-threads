@@ -92,19 +92,38 @@ interface SessionStoreData {
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
-const CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
-const SESSIONS_FILE = join(CONFIG_DIR, 'sessions.json');
+const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
+const DEFAULT_SESSIONS_FILE = join(DEFAULT_CONFIG_DIR, 'sessions.json');
 
 /**
  * SessionStore - Persistence layer for session state
  * Stores session data as JSON file for resume after restart
  */
 export class SessionStore {
+  private readonly sessionsFile: string;
+  private readonly configDir: string;
 
-  constructor() {
+  /**
+   * Create a SessionStore instance
+   * @param sessionsPath - Custom path for sessions.json (default: ~/.config/claude-threads/sessions.json)
+   *                       Can also be set via CLAUDE_THREADS_SESSIONS_PATH environment variable.
+   *                       Useful for testing to isolate session state between test files.
+   */
+  constructor(sessionsPath?: string) {
+    const envPath = process.env.CLAUDE_THREADS_SESSIONS_PATH;
+    const effectivePath = sessionsPath ?? envPath;
+
+    if (effectivePath) {
+      this.sessionsFile = effectivePath;
+      this.configDir = join(effectivePath, '..');
+    } else {
+      this.sessionsFile = DEFAULT_SESSIONS_FILE;
+      this.configDir = DEFAULT_CONFIG_DIR;
+    }
+
     // Ensure config directory exists
-    if (!existsSync(CONFIG_DIR)) {
-      mkdirSync(CONFIG_DIR, { recursive: true });
+    if (!existsSync(this.configDir)) {
+      mkdirSync(this.configDir, { recursive: true });
     }
   }
 
@@ -115,13 +134,13 @@ export class SessionStore {
   load(): Map<string, PersistedSession> {
     const sessions = new Map<string, PersistedSession>();
 
-    if (!existsSync(SESSIONS_FILE)) {
+    if (!existsSync(this.sessionsFile)) {
       log.debug('No sessions file found');
       return sessions;
     }
 
     try {
-      const data = JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as SessionStoreData;
+      const data = JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
 
       // Migration: v1 → v2 (add platformId and convert keys to composite format)
       if (data.version === 1) {
@@ -408,12 +427,12 @@ export class SessionStore {
    * Load raw data from file
    */
   private loadRaw(): SessionStoreData {
-    if (!existsSync(SESSIONS_FILE)) {
+    if (!existsSync(this.sessionsFile)) {
       return { version: STORE_VERSION, sessions: {} };
     }
 
     try {
-      return JSON.parse(readFileSync(SESSIONS_FILE, 'utf-8')) as SessionStoreData;
+      return JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
     } catch {
       return { version: STORE_VERSION, sessions: {} };
     }
@@ -423,8 +442,8 @@ export class SessionStore {
    * Write data atomically (write to temp file, then rename)
    */
   private writeAtomic(data: SessionStoreData): void {
-    const tempFile = `${SESSIONS_FILE}.tmp`;
+    const tempFile = `${this.sessionsFile}.tmp`;
     writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-    renameSync(tempFile, SESSIONS_FILE);
+    renameSync(tempFile, this.sessionsFile);
   }
 }

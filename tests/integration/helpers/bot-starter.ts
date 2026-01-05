@@ -11,6 +11,8 @@
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { mkdirSync, existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { randomBytes } from 'crypto';
 import { MattermostClient } from '../../../src/platform/mattermost/client.js';
 import { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
@@ -19,6 +21,17 @@ import { loadConfig } from '../setup/config.js';
 import { handleMessage } from '../../../src/message-handler.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Generate a unique sessions path for test isolation
+ * Each test bot instance gets its own sessions.json file
+ */
+function generateTestSessionsPath(): string {
+  const testRunId = randomBytes(4).toString('hex');
+  const sessionsDir = join(tmpdir(), 'claude-threads-test');
+  mkdirSync(sessionsDir, { recursive: true });
+  return join(sessionsDir, `sessions-${testRunId}.json`);
+}
 
 export interface TestBot {
   sessionManager: SessionManager;
@@ -70,9 +83,18 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Ensure working directory exists (spawn fails with ENOENT if cwd doesn't exist)
   mkdirSync(workingDir, { recursive: true });
 
+  // Set up isolated session storage for this test bot instance
+  // This prevents session state from leaking between test files
+  // If clearPersistedSessions is false and we already have a path set, reuse it (for resume tests)
+  const existingPath = process.env.CLAUDE_THREADS_SESSIONS_PATH;
+  const sessionsPath = (!clearPersistedSessions && existingPath)
+    ? existingPath
+    : generateTestSessionsPath();
+  process.env.CLAUDE_THREADS_SESSIONS_PATH = sessionsPath;
+
   // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
   if (clearPersistedSessions) {
-    const store = new SessionStore();
+    const store = new SessionStore(); // Will use CLAUDE_THREADS_SESSIONS_PATH
     store.clear();
   }
 
@@ -173,6 +195,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       // Clear environment AFTER processes are terminated
       delete process.env.CLAUDE_PATH;
       delete process.env.CLAUDE_SCENARIO;
+      delete process.env.CLAUDE_THREADS_SESSIONS_PATH;
       if (debug) {
         console.log('[test-bot] Stopped');
       }
@@ -190,6 +213,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       // Wait a bit for processes to terminate fully
       await new Promise((r) => setTimeout(r, 100));
       // Clear environment AFTER processes are terminated
+      // NOTE: Keep CLAUDE_THREADS_SESSIONS_PATH so the next bot instance uses the same file
       delete process.env.CLAUDE_PATH;
       delete process.env.CLAUDE_SCENARIO;
       if (debug) {
