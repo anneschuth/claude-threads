@@ -117,6 +117,8 @@ function createTestSession(platform: PlatformClient): Session {
     activeToolStarts: new Map(),
     messageCount: 0,
     statusBarTimer: null,
+    hasClaudeResponded: false,
+    isProcessing: false,
   };
 }
 
@@ -156,6 +158,9 @@ function createSessionContext(): SessionContext {
       shouldPromptForWorktree: mock(async (_session: Session) => null),
       postWorktreePrompt: mock(async (_session: Session, _reason: string) => {}),
       offerContextPrompt: mock(async (_session: Session, _queuedPrompt: string) => false),
+      emitSessionAdd: mock(() => {}),
+      emitSessionUpdate: mock(() => {}),
+      emitSessionRemove: mock(() => {}),
     },
   };
 }

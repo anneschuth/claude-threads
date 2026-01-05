@@ -40,17 +40,27 @@ class MattermostPermissionApi implements PermissionApi {
   }
 
   async getBotUserId(): Promise<string> {
-    if (this.botUserIdCache) return this.botUserIdCache;
+    if (this.botUserIdCache) {
+      mcpLogger.debug(`Bot user ID from cache: ${this.botUserIdCache}`);
+      return this.botUserIdCache;
+    }
+    mcpLogger.debug('Fetching bot user ID...');
     const me = await getMe(this.apiConfig);
     this.botUserIdCache = me.id;
+    mcpLogger.debug(`Bot user ID: ${me.id}`);
     return me.id;
   }
 
   async getUsername(userId: string): Promise<string | null> {
     try {
+      mcpLogger.debug(`Looking up username for user ${userId}`);
       const user = await getUser(this.apiConfig, userId);
+      if (user?.username) {
+        mcpLogger.debug(`User ${userId} is @${user.username}`);
+      }
       return user?.username ?? null;
-    } catch {
+    } catch (err) {
+      mcpLogger.warn(`Failed to get username for ${userId}: ${err}`);
       return null;
     }
   }
@@ -64,6 +74,7 @@ class MattermostPermissionApi implements PermissionApi {
     reactions: string[],
     threadId?: string
   ): Promise<PostedMessage> {
+    mcpLogger.debug(`Creating interactive post with ${reactions.length} reaction options`);
     const botUserId = await this.getBotUserId();
     const post = await createInteractivePost(
       this.apiConfig,
@@ -73,10 +84,12 @@ class MattermostPermissionApi implements PermissionApi {
       threadId,
       botUserId
     );
+    mcpLogger.debug(`Created post ${post.id.substring(0, 8)}`);
     return { id: post.id };
   }
 
   async updatePost(postId: string, message: string): Promise<void> {
+    mcpLogger.debug(`Updating post ${postId.substring(0, 8)}`);
     await updatePost(this.apiConfig, postId, message);
   }
 
@@ -101,6 +114,7 @@ class MattermostPermissionApi implements PermissionApi {
 
       const timeout = setTimeout(() => {
         if (!resolved) {
+          mcpLogger.debug(`Reaction wait timed out after ${timeoutMs}ms`);
           resolved = true;
           cleanup();
           resolve(null);

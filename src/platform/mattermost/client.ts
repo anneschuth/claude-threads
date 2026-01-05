@@ -138,6 +138,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     body?: unknown
   ): Promise<T> {
     const url = `${this.url}/api/v4${path}`;
+    log.debug(`API ${method} ${path}`);
     const response = await fetch(url, {
       method,
       headers: {
@@ -149,9 +150,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
     if (!response.ok) {
       const text = await response.text();
+      log.warn(`API ${method} ${path} failed: ${response.status} ${text.substring(0, 100)}`);
       throw new Error(`Mattermost API error ${response.status}: ${text}`);
     }
 
+    log.debug(`API ${method} ${path} → ${response.status}`);
     return response.json() as Promise<T>;
   }
 
@@ -166,13 +169,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   async getUser(userId: string): Promise<PlatformUser | null> {
     const cached = this.userCache.get(userId);
     if (cached) {
+      log.debug(`User ${userId} found in cache: @${cached.username}`);
       return this.normalizePlatformUser(cached);
     }
     try {
       const user = await this.api<MattermostUser>('GET', `/users/${userId}`);
       this.userCache.set(userId, user);
+      log.debug(`User ${userId} fetched: @${user.username}`);
       return this.normalizePlatformUser(user);
-    } catch {
+    } catch (err) {
+      log.warn(`Failed to get user ${userId}: ${err}`);
       return null;
     }
   }
@@ -180,10 +186,13 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   // Get user by username
   async getUserByUsername(username: string): Promise<PlatformUser | null> {
     try {
+      log.debug(`Looking up user by username: @${username}`);
       const user = await this.api<MattermostUser>('GET', `/users/username/${username}`);
       this.userCache.set(user.id, user);
+      log.debug(`User @${username} found: ${user.id}`);
       return this.normalizePlatformUser(user);
-    } catch {
+    } catch (err) {
+      log.warn(`User @${username} not found: ${err}`);
       return null;
     }
   }
@@ -214,6 +223,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Add a reaction to a post
   async addReaction(postId: string, emojiName: string): Promise<void> {
+    log.debug(`Adding reaction :${emojiName}: to post ${postId.substring(0, 8)}`);
     await this.api('POST', '/reactions', {
       user_id: this.botUserId,
       post_id: postId,
@@ -223,6 +233,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Remove a reaction from a post
   async removeReaction(postId: string, emojiName: string): Promise<void> {
+    log.debug(`Removing reaction :${emojiName}: from post ${postId.substring(0, 8)}`);
     await this.api('DELETE', `/users/${this.botUserId}/posts/${postId}/reactions/${emojiName}`);
   }
 
@@ -258,6 +269,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Download a file attachment
   async downloadFile(fileId: string): Promise<Buffer> {
+    log.debug(`Downloading file ${fileId}`);
     const url = `${this.url}/api/v4/files/${fileId}`;
     const response = await fetch(url, {
       headers: {
@@ -266,10 +278,12 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     });
 
     if (!response.ok) {
+      log.warn(`Failed to download file ${fileId}: ${response.status}`);
       throw new Error(`Failed to download file ${fileId}: ${response.status}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();
+    log.debug(`Downloaded file ${fileId}: ${arrayBuffer.byteLength} bytes`);
     return Buffer.from(arrayBuffer);
   }
 
@@ -282,25 +296,30 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   // Get a post by ID (used to verify thread still exists on resume)
   async getPost(postId: string): Promise<PlatformPost | null> {
     try {
+      log.debug(`Fetching post ${postId.substring(0, 8)}`);
       const post = await this.api<MattermostPost>('GET', `/posts/${postId}`);
       return this.normalizePlatformPost(post);
-    } catch {
+    } catch (err) {
+      log.debug(`Post ${postId.substring(0, 8)} not found: ${err}`);
       return null; // Post doesn't exist or was deleted
     }
   }
 
   // Delete a post
   async deletePost(postId: string): Promise<void> {
+    log.debug(`Deleting post ${postId.substring(0, 8)}`);
     await this.api('DELETE', `/posts/${postId}`);
   }
 
   // Pin a post to the channel
   async pinPost(postId: string): Promise<void> {
+    log.debug(`Pinning post ${postId.substring(0, 8)}`);
     await this.api('POST', `/posts/${postId}/pin`);
   }
 
   // Unpin a post from the channel
   async unpinPost(postId: string): Promise<void> {
+    log.debug(`Unpinning post ${postId.substring(0, 8)}`);
     await this.api('POST', `/posts/${postId}/unpin`);
   }
 
@@ -414,7 +433,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
-        wsLogger.debug('WebSocket connected');
+        wsLogger.info('WebSocket connected, sending auth challenge');
         // Authenticate
         if (this.ws) {
           this.ws.send(
@@ -424,6 +443,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
               data: { token: this.token },
             })
           );
+          wsLogger.debug('Auth challenge sent');
         }
       };
 
@@ -451,22 +471,25 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             resolve();
           }
         } catch (err) {
-          wsLogger.debug(`Failed to parse message: ${err}`);
+          wsLogger.warn(`Failed to parse message: ${err}`);
         }
       };
 
-      this.ws.onclose = () => {
-        wsLogger.debug('WebSocket disconnected');
+      this.ws.onclose = (event) => {
+        wsLogger.info(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean})`);
         this.stopHeartbeat();
         this.emit('disconnected');
         // Only reconnect if this wasn't an intentional disconnect
         if (!this.isIntentionalDisconnect) {
+          wsLogger.debug('Scheduling reconnect...');
           this.scheduleReconnect();
+        } else {
+          wsLogger.debug('Intentional disconnect, not reconnecting');
         }
       };
 
       this.ws.onerror = (event) => {
-        wsLogger.debug(`WebSocket error: ${event}`);
+        wsLogger.warn(`WebSocket error: ${event}`);
         this.emit('error', event);
         reject(event);
       };
@@ -502,7 +525,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           }
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse post: ${err}`);
+        wsLogger.warn(`Failed to parse post: ${err}`);
       }
       return;
     }
@@ -523,7 +546,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           this.emit('reaction', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse reaction: ${err}`);
+        wsLogger.warn(`Failed to parse reaction: ${err}`);
       }
     }
 
@@ -543,7 +566,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
           this.emit('reaction_removed', this.normalizePlatformReaction(reaction), user);
         });
       } catch (err) {
-        wsLogger.debug(`Failed to parse reaction: ${err}`);
+        wsLogger.warn(`Failed to parse reaction: ${err}`);
       }
     }
   }
@@ -560,6 +583,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    this.emit('reconnecting', this.reconnectAttempts);
 
     setTimeout(() => {
       this.connect().catch((err) => {
@@ -680,7 +704,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
   // Send typing indicator via WebSocket
   sendTyping(parentId?: string): void {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      wsLogger.debug('Cannot send typing: WebSocket not open');
+      return;
+    }
 
     this.ws.send(JSON.stringify({
       action: 'user_typing',
@@ -693,6 +720,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   disconnect(): void {
+    wsLogger.info('Disconnecting WebSocket (intentional)');
     this.isIntentionalDisconnect = true;
     this.stopHeartbeat();
     if (this.ws) {

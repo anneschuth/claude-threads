@@ -51,6 +51,7 @@ export async function mattermostApi<T>(
   body?: unknown
 ): Promise<T> {
   const url = `${config.url}/api/v4${path}`;
+  log.debug(`API ${method} ${path}`);
   const response = await fetch(url, {
     method,
     headers: {
@@ -62,9 +63,11 @@ export async function mattermostApi<T>(
 
   if (!response.ok) {
     const text = await response.text();
+    log.warn(`API ${method} ${path} failed: ${response.status} ${text.substring(0, 100)}`);
     throw new Error(`Mattermost API error ${response.status}: ${text}`);
   }
 
+  log.debug(`API ${method} ${path} → ${response.status}`);
   return response.json() as Promise<T>;
 }
 
@@ -84,7 +87,8 @@ export async function getUser(
 ): Promise<MattermostApiUser | null> {
   try {
     return await mattermostApi<MattermostApiUser>(config, 'GET', `/users/${userId}`);
-  } catch {
+  } catch (err) {
+    log.debug(`Failed to get user ${userId}: ${err}`);
     return null;
   }
 }

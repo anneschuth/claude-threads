@@ -1,0 +1,87 @@
+/**
+ * StatusLine component - bot status bar at the bottom
+ *
+ * Shows the overall bot status, runtime toggles, and keyboard hints.
+ * Visually separated from sessions with a line.
+ */
+import { Box, Text } from 'ink';
+import type { ToggleState } from '../types.js';
+
+interface StatusLineProps {
+  ready: boolean;
+  shuttingDown?: boolean;
+  sessionCount: number;
+  toggles: ToggleState;
+}
+
+/**
+ * Render a toggle key hint with current state
+ */
+function ToggleKey({ keyChar, label, enabled }: { keyChar: string; label: string; enabled: boolean }) {
+  return (
+    <Box gap={0}>
+      <Text dimColor>[</Text>
+      <Text color={enabled ? 'green' : 'gray'} bold>{keyChar}</Text>
+      <Text dimColor>]</Text>
+      <Text color={enabled ? 'green' : 'gray'}>{label}</Text>
+    </Box>
+  );
+}
+
+export function StatusLine({
+  ready,
+  shuttingDown,
+  sessionCount,
+  toggles,
+}: StatusLineProps) {
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      {/* Separator line */}
+      <Text dimColor>{'─'.repeat(80)}</Text>
+
+      {/* Status row */}
+      <Box gap={2}>
+        {/* Bot status */}
+        {shuttingDown ? (
+          <Box gap={1}>
+            <Text color="yellow">⏻</Text>
+            <Text color="yellow">Shutting down...</Text>
+          </Box>
+        ) : ready ? (
+          <Box gap={1}>
+            <Text color="green">✓</Text>
+            <Text dimColor>Ready</Text>
+          </Box>
+        ) : (
+          <Box gap={1}>
+            <Text color="yellow">○</Text>
+            <Text dimColor>Starting...</Text>
+          </Box>
+        )}
+
+        {!shuttingDown && (
+          <>
+            <Text dimColor>│</Text>
+
+            {/* Runtime toggles with key hints */}
+            <ToggleKey keyChar="d" label="ebug" enabled={toggles.debugMode} />
+            <ToggleKey keyChar="p" label="erms" enabled={!toggles.skipPermissions} />
+            <ToggleKey keyChar="c" label="hrome" enabled={toggles.chromeEnabled} />
+            <ToggleKey keyChar="k" label="eep-alive" enabled={toggles.keepAliveEnabled} />
+
+            {/* Session toggle hint */}
+            {sessionCount > 0 && (
+              <>
+                <Text dimColor>│</Text>
+                <Text dimColor>1-{Math.min(sessionCount, 9)} sessions</Text>
+              </>
+            )}
+
+            <Text dimColor>│</Text>
+            <Text dimColor>[q]uit</Text>
+          </>
+        )}
+      </Box>
+    </Box>
+  );
+}
