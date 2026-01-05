@@ -412,6 +412,29 @@ export class SessionManager extends EventEmitter {
     username: string
   ): Promise<boolean> {
     log.debug(`triggerReactionHandler: manually processing :${emojiName}: on ${postId.substring(0, 8)}... by @${username}`);
+
+    // Debug output for CI troubleshooting
+    const threadId = this.postIndex.get(postId);
+    const shortPostId = postId.substring(0, 8);
+    if (!threadId) {
+      log.warn(`triggerReactionHandler: post ${shortPostId}... NOT in postIndex (${this.postIndex.size} entries)`);
+      // Log what IS in the postIndex for this session
+      for (const [pid, tid] of this.postIndex.entries()) {
+        log.warn(`  postIndex: ${pid.substring(0, 8)}... → ${tid.substring(0, 8)}...`);
+      }
+    } else {
+      const sessionId = `${platformId}:${threadId}`;
+      const session = this.sessions.get(sessionId);
+      if (!session) {
+        log.warn(`triggerReactionHandler: session ${sessionId} NOT found (${this.sessions.size} sessions)`);
+        for (const sid of this.sessions.keys()) {
+          log.warn(`  session: ${sid}`);
+        }
+      } else {
+        log.info(`triggerReactionHandler: found session ${sessionId}, processing reaction`);
+      }
+    }
+
     await this.handleReaction(platformId, postId, emojiName, username, 'added');
     return true;
   }
