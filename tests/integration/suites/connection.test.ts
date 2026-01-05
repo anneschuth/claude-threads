@@ -9,7 +9,10 @@ import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 
-describe('Mattermost Connection', () => {
+// Skip if not running integration tests
+const SKIP = !process.env.INTEGRATION_TEST;
+
+describe.skipIf(SKIP)('Mattermost Connection', () => {
   let adminApi: MattermostTestApi;
   let userApi: MattermostTestApi;
   let config: ReturnType<typeof loadConfig>;

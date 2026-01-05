@@ -9,7 +9,10 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 
-describe('Reactions', () => {
+// Skip if not running integration tests
+const SKIP = !process.env.INTEGRATION_TEST;
+
+describe.skipIf(SKIP)('Reactions', () => {
   let adminApi: MattermostTestApi;
   let userApi: MattermostTestApi;
   let user2Api: MattermostTestApi;

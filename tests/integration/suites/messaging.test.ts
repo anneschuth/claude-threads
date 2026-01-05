@@ -8,7 +8,10 @@ import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 
-describe('Messaging', () => {
+// Skip if not running integration tests
+const SKIP = !process.env.INTEGRATION_TEST;
+
+describe.skipIf(SKIP)('Messaging', () => {
   let adminApi: MattermostTestApi;
   let userApi: MattermostTestApi;
   let botApi: MattermostTestApi;
