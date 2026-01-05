@@ -12,6 +12,7 @@ import {
   startSession,
   waitForBotResponse,
   waitForSessionActive,
+  waitForSessionEnded,
   getThreadPosts,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
@@ -74,16 +75,9 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
       // Should have at least the assistant response
       expect(botPosts.length).toBeGreaterThanOrEqual(1);
 
-      // Wait for session to end after error result (with polling)
-      let sessionEnded = false;
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-        if (!bot.sessionManager.isInSessionThread(rootPost.id)) {
-          sessionEnded = true;
-          break;
-        }
-      }
-      expect(sessionEnded).toBe(true);
+      // Wait for session to end after error result
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
 
     it('should display error message to user', async () => {
@@ -177,13 +171,12 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
       await waitForBotResponse(ctx, rootPost1.id, { timeout: 30000, minResponses: 1 });
 
-      // Wait for session to be cleaned up after error (with polling)
-      // We poll but don't assert - the important part is that a new session can start
-      for (let i = 0; i < 20; i++) {
-        await new Promise((r) => setTimeout(r, 100));
-        if (!bot.sessionManager.isInSessionThread(rootPost1.id)) {
-          break;
-        }
+      // Wait for session to be cleaned up after error
+      // We use try/catch since the important part is that a new session can start
+      try {
+        await waitForSessionEnded(bot.sessionManager, rootPost1.id, { timeout: 2000 });
+      } catch {
+        // Session might already be ended, that's fine
       }
 
       // Stop and restart with different scenario

@@ -16,6 +16,7 @@ import {
   waitForPostMatching,
   addReaction,
   waitForSessionActive,
+  waitForSessionEnded,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
@@ -203,7 +204,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Add octagonal_sign (stop sign) reaction
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
-      await new Promise((r) => setTimeout(r, 200));
+
+      // Wait for session cancellation (reaction processing is async via WebSocket)
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 2000 });
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });

@@ -354,6 +354,26 @@ export async function waitForSessionActive(
 }
 
 /**
+ * Wait for a session to end (no longer active in session manager)
+ */
+export async function waitForSessionEnded(
+  sessionManager: SessionManager,
+  threadId: string,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const { timeout = 5000 } = options;
+
+  await waitFor(
+    async () => !sessionManager.isInSessionThread(threadId),
+    {
+      timeout,
+      interval: 100,
+      description: `session to end for thread ${threadId}`,
+    },
+  );
+}
+
+/**
  * Create a thread with pre-existing user messages (for testing mid-thread session starts)
  *
  * @param ctx - Test session context

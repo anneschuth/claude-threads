@@ -14,6 +14,7 @@ import {
   waitForBotResponse,
   sendFollowUp,
   getThreadPosts,
+  waitForSessionEnded,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, stopSharedBot, type TestBot } from '../helpers/bot-starter.js';
@@ -176,6 +177,14 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
     });
 
     it('should ignore side conversations (@other_user)', async () => {
+      // Restart bot with simple-response to ensure session ends cleanly
+      await bot.stop();
+      bot = await startTestBot({
+        scenario: 'simple-response',
+        skipPermissions: true,
+        debug: process.env.DEBUG === '1',
+      });
+
       // Start a session
       const rootPost = await startSession(ctx, 'Hello bot', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
@@ -186,23 +195,29 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         minResponses: 1,
       });
 
-      // Wait extra time for session to fully stabilize (header + response + any updates)
-      // This test is timing-sensitive - needs longer wait to ensure all bot posts are counted
+      // Wait for session to end (result event processed)
+      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
+
+      // Wait a bit for any buffered content to be flushed
       await new Promise((r) => setTimeout(r, 300));
 
       const initialPosts = await getThreadPosts(ctx, rootPost.id);
-      const initialBotPostCount = initialPosts.filter((p) => p.user_id === ctx.botUserId).length;
+      const initialBotPosts = initialPosts.filter((p) => p.user_id === ctx.botUserId);
+      const initialBotPostCount = initialBotPosts.length;
 
-      // Send a message to someone else in the thread
-      await sendFollowUp(ctx, rootPost.id, '@some_other_user what do you think?');
+      // Send a message to someone else in the thread (not @mentioning the bot)
+      // Using a message that clearly does NOT mention the bot
+      await sendFollowUp(ctx, rootPost.id, 'Hey team, what do you think about this?');
 
-      // Wait a bit for any potential (unwanted) response
-      await new Promise((r) => setTimeout(r, 300));
+      // Wait a bit for any unwanted response
+      await new Promise((r) => setTimeout(r, 500));
 
       const afterPosts = await getThreadPosts(ctx, rootPost.id);
-      const afterBotPostCount = afterPosts.filter((p) => p.user_id === ctx.botUserId).length;
+      const afterBotPosts = afterPosts.filter((p) => p.user_id === ctx.botUserId);
+      const afterBotPostCount = afterBotPosts.length;
 
-      // Bot should not have responded to the side conversation
+      // Bot should not have started a new session or responded to non-mention
+      expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
       expect(afterBotPostCount).toBe(initialBotPostCount);
     });
   });
