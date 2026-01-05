@@ -911,9 +911,16 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Get the session start post ID for a thread (the post where reactions are tracked).
+   * Get the session start post ID for a thread.
+   *
+   * This is the post where:
+   * - The bot's initial response was posted (containing the session header)
+   * - Reactions are tracked for session control (cancel, interrupt, etc.)
+   *
    * Checks both active sessions and persisted sessions.
-   * For testing purposes - allows tests to find the correct post to react to.
+   *
+   * @param threadId - The thread ID to look up
+   * @returns The post ID where the session started, or undefined if not found
    */
   getSessionStartPostId(threadId: string): string | undefined {
     // First check active sessions
