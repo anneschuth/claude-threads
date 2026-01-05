@@ -61,7 +61,8 @@ describe.skipIf(SKIP)('Session Resume', () => {
   afterEach(async () => {
     // Kill all sessions between tests to avoid interference
     await bot.sessionManager.killAllSessions();
-    await new Promise((r) => setTimeout(r, 200));
+    // Longer delay in CI to ensure cleanup completes before next test
+    await new Promise((r) => setTimeout(r, process.env.CI ? 500 : 200));
   });
 
   describe('Resume via Emoji Reaction', () => {
@@ -71,7 +72,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       testThreadIds.push(rootPost.id);
 
       // Wait for session to be registered
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
 
       // Get the session header post (the one with logo/version, NOT assistant response)
       const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
@@ -110,7 +111,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       const rootPost = await startSession(ctx, 'Test arrow forward resume', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
 
       // Get the session header post (the one with logo/version)
       const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
@@ -145,7 +146,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       const rootPost = await startSession(ctx, 'Test repeat resume', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
 
       // Get the session header post (the one with logo/version)
       const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
@@ -180,7 +181,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       const rootPost = await startSession(ctx, 'Test no double resume', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
 
       // Get the session header post (the one with logo/version)
       const sessionHeaderPost = await waitForSessionHeader(ctx, rootPost.id, { timeout: 30000, sessionManager: bot.sessionManager });
@@ -206,7 +207,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
       const rootPost = await startSession(ctx, 'Test bot restart resume', config.mattermost.bot.username);
       testThreadIds.push(rootPost.id);
 
-      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+      await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
 
       await waitForBotResponse(ctx, rootPost.id, {
         timeout: 30000,

@@ -64,7 +64,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
   afterEach(async () => {
     // Kill all sessions between tests to avoid interference
     await bot.sessionManager.killAllSessions();
-    await new Promise((r) => setTimeout(r, 200));
+    // Longer delay in CI to ensure cleanup completes before next test
+    await new Promise((r) => setTimeout(r, process.env.CI ? 500 : 200));
   });
 
   describe('!stop Command', () => {
