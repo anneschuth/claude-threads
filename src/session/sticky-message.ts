@@ -324,8 +324,8 @@ async function buildStatusBar(
     items.push('`🐛 Debug`');
   }
 
-  // Keep-alive status
-  if (keepAlive.isActive()) {
+  // Keep-alive status (show enabled state, not just active state)
+  if (keepAlive.isEnabled()) {
     items.push('`💓 Keep-alive`');
   }
 
