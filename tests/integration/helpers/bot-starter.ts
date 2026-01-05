@@ -24,7 +24,10 @@ export interface TestBot {
   sessionManager: SessionManager;
   mattermostClient: MattermostClient;
   platformId: string;
+  /** Stop the bot and unpersist all sessions (normal cleanup) */
   stop(): Promise<void>;
+  /** Stop the bot but preserve persisted sessions (for restart testing) */
+  stopAndPreserveSessions(): Promise<void>;
 }
 
 export interface StartBotOptions {
@@ -145,8 +148,22 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       if (debug) {
         console.log('[test-bot] Stopping...');
       }
-      // Kill all sessions
+      // Kill all sessions and unpersist
       sessionManager.killAllSessionsAndUnpersist();
+      // Disconnect from Mattermost
+      mattermostClient.disconnect();
+      // Clear environment
+      delete process.env.CLAUDE_PATH;
+      delete process.env.CLAUDE_SCENARIO;
+    },
+    async stopAndPreserveSessions() {
+      if (debug) {
+        console.log('[test-bot] Stopping (preserving sessions)...');
+      }
+      // Set shutting down flag so killAllSessions preserves persistence
+      sessionManager.setShuttingDown();
+      // Kill sessions but keep persistence (simulates graceful shutdown)
+      await sessionManager.killAllSessions();
       // Disconnect from Mattermost
       mattermostClient.disconnect();
       // Clear environment
