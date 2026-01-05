@@ -101,6 +101,14 @@ describe.skipIf(SKIP)('!kill Command', () => {
   });
 
   describe('Emergency Shutdown', () => {
+    // Note: !kill disconnects the bot itself, but we need cleanup in case test fails early
+    afterEach(async () => {
+      // Ensure env vars are cleared even if test failed before !kill ran
+      delete process.env.CLAUDE_PATH;
+      delete process.env.CLAUDE_SCENARIO;
+      await new Promise((r) => setTimeout(r, 100));
+    });
+
     it('should kill all sessions and notify them', async () => {
       // Start bot
       const bot = await startTestBot({

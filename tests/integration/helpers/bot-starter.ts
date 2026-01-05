@@ -10,7 +10,7 @@
 
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { mkdirSync } from 'fs';
+import { mkdirSync, existsSync } from 'fs';
 import { MattermostClient } from '../../../src/platform/mattermost/client.js';
 import { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
@@ -79,6 +79,16 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Set environment variables for mock Claude CLI
   // Use the wrapper script since spawn() can't handle "bun runner.ts" as a single command
   const mockClaudePath = join(__dirname, '../fixtures/mock-claude/mock-claude');
+
+  // Verify the mock exists (helps debug CI issues)
+  if (!existsSync(mockClaudePath)) {
+    throw new Error(`Mock Claude CLI not found at: ${mockClaudePath}`);
+  }
+
+  if (debug) {
+    console.log(`[test-bot] Mock Claude CLI path: ${mockClaudePath}`);
+  }
+
   process.env.CLAUDE_PATH = mockClaudePath;
   process.env.CLAUDE_SCENARIO = scenario;
   if (debug) {
@@ -129,6 +139,9 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
         // In tests, just disconnect without exiting the process
         sessionManager.killAllSessionsAndUnpersist();
         mattermostClient.disconnect();
+        // Clear environment (same as stop())
+        delete process.env.CLAUDE_PATH;
+        delete process.env.CLAUDE_SCENARIO;
       },
     });
   });
@@ -155,9 +168,14 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       sessionManager.killAllSessionsAndUnpersist();
       // Disconnect from Mattermost
       mattermostClient.disconnect();
-      // Clear environment
+      // Wait a bit for processes to terminate fully
+      await new Promise((r) => setTimeout(r, 100));
+      // Clear environment AFTER processes are terminated
       delete process.env.CLAUDE_PATH;
       delete process.env.CLAUDE_SCENARIO;
+      if (debug) {
+        console.log('[test-bot] Stopped');
+      }
     },
     async stopAndPreserveSessions() {
       if (debug) {
@@ -169,9 +187,14 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       await sessionManager.killAllSessions();
       // Disconnect from Mattermost
       mattermostClient.disconnect();
-      // Clear environment
+      // Wait a bit for processes to terminate fully
+      await new Promise((r) => setTimeout(r, 100));
+      // Clear environment AFTER processes are terminated
       delete process.env.CLAUDE_PATH;
       delete process.env.CLAUDE_SCENARIO;
+      if (debug) {
+        console.log('[test-bot] Stopped (sessions preserved)');
+      }
     },
   };
 }
