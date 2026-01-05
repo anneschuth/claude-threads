@@ -8,6 +8,7 @@ import {
   type MattermostPost,
 } from '../fixtures/mattermost/api-helpers.js';
 import { waitFor } from './wait-for.js';
+import type { SessionManager } from '../../../src/session/index.js';
 
 /**
  * Test session context
@@ -303,4 +304,24 @@ export async function startSessionAndWait(
   });
 
   return { rootPost, botResponses };
+}
+
+/**
+ * Wait for a session to be registered in the session manager
+ */
+export async function waitForSessionActive(
+  sessionManager: SessionManager,
+  threadId: string,
+  options: { timeout?: number } = {},
+): Promise<void> {
+  const { timeout = 10000 } = options;
+
+  await waitFor(
+    async () => sessionManager.isInSessionThread(threadId),
+    {
+      timeout,
+      interval: 200,
+      description: `session to be active for thread ${threadId}`,
+    },
+  );
 }

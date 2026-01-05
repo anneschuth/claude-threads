@@ -1,0 +1,32 @@
+{
+  "name": "plan-approval",
+  "description": "Response that shows a plan requiring user approval before execution",
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 200,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I'll help you with that. Here's my plan:\n\n## Plan\n\n1. First, I'll create a new file\n2. Then, I'll write the initial content\n3. Finally, I'll format the code\n\nDoes this plan look good? React with 👍 to approve or 👎 to request changes."
+          }
+        ]
+      }
+    },
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "plan_001",
+            "name": "ExitPlanMode",
+            "input": {}
+          }
+        ]
+      }
+    }
+  ]
+}

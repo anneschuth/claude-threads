@@ -1,0 +1,19 @@
+{
+  "name": "persistent-session",
+  "description": "Response that keeps the session alive (no result event) for testing commands",
+  "initialEvents": [],
+  "responseEvents": [
+    {
+      "type": "assistant",
+      "delay": 100,
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "I'm ready to help! This session will stay active for testing commands."
+          }
+        ]
+      }
+    }
+  ]
+}
