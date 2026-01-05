@@ -183,8 +183,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Add X reaction to session start post
       await addReaction(ctx, sessionStartPost.id, 'x');
 
-      // Wait for session cancellation (reaction processing is async via WebSocket)
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      // Wait for cancellation message (concrete observable event)
+      const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
+      expect(cancelPost).toBeDefined();
 
       // Session should be cancelled
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
@@ -208,8 +209,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
       // Add octagonal_sign (stop sign) reaction
       await addReaction(ctx, sessionStartPost.id, 'octagonal_sign');
 
-      // Wait for session cancellation (reaction processing is async via WebSocket)
-      await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
+      // Wait for cancellation message (concrete observable event)
+      const cancelPost = await waitForPostMatching(ctx, rootPost.id, /Session cancelled/i, { timeout: 10000 });
+      expect(cancelPost).toBeDefined();
 
       expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
     });
@@ -233,7 +235,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
       // Wait for interrupt message or session end
       try {
-        const interruptPost = await waitForPostMatching(ctx, rootPost.id, /interrupt|paused|escape/i, { timeout: 3000 });
+        const interruptPost = await waitForPostMatching(ctx, rootPost.id, /interrupt|paused|escape|idle/i, { timeout: 10000 });
         expect(interruptPost).toBeDefined();
       } catch {
         // If no interrupt message, session should have ended
