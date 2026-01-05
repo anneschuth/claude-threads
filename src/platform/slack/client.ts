@@ -58,6 +58,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private botName: string;
   private allowedUsers: string[];
   private skipPermissions: boolean;
+  private apiUrl: string;
 
   // Reconnection handling
   private reconnectAttempts = 0;
@@ -97,6 +98,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.skipPermissions = platformConfig.skipPermissions;
+    this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
   }
 
   // ============================================================================
@@ -173,7 +175,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       this.rateLimitDelay = 0;
     }
 
-    const url = `https://slack.com/api/${endpoint}`;
+    const url = `${this.apiUrl}/${endpoint}`;
     log.debug(`API ${method} ${endpoint}`);
 
     const headers: Record<string, string> = {
@@ -224,7 +226,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     endpoint: string,
     body?: Record<string, unknown>
   ): Promise<T> {
-    const url = `https://slack.com/api/${endpoint}`;
+    const url = `${this.apiUrl}/${endpoint}`;
     log.debug(`App API ${method} ${endpoint}`);
 
     const headers: Record<string, string> = {

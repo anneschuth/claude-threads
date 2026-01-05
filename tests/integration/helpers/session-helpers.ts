@@ -1,21 +1,28 @@
 /**
  * Session lifecycle helpers for integration tests
+ *
+ * Platform-agnostic: Works with both Mattermost and Slack
  */
 
-import { loadConfig } from '../setup/config.js';
+import { loadConfig, DEFAULT_SLACK_CONFIG } from '../setup/config.js';
+import type { StartBotOptions } from './bot-starter.js';
 import {
+  createPlatformTestApi,
+  type PlatformTestApi,
+  type PlatformTestPost,
+  type PlatformType,
   MattermostTestApi,
-  type MattermostPost,
-} from '../fixtures/mattermost/api-helpers.js';
+} from '../fixtures/platform-test-api.js';
 import { waitFor } from './wait-for.js';
 import type { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
 
 /**
- * Test session context
+ * Test session context - platform agnostic
  */
 export interface TestSessionContext {
-  api: MattermostTestApi;
+  api: PlatformTestApi;
+  platformType: PlatformType;
   botUserId: string;
   channelId: string;
   testUserId: string;
@@ -24,10 +31,33 @@ export interface TestSessionContext {
 
 /**
  * Initialize test session context from config
+ *
+ * @param platformType - Which platform to use ('mattermost' or 'slack')
  */
-export function initTestContext(): TestSessionContext {
+export function initTestContext(platformType: PlatformType = 'mattermost'): TestSessionContext {
   const config = loadConfig();
 
+  if (platformType === 'slack') {
+    // Use Slack config (defaults from mock server if not configured)
+    const slackConfig = config.slack || DEFAULT_SLACK_CONFIG;
+
+    const api = createPlatformTestApi('slack', {
+      baseUrl: process.env.SLACK_MOCK_URL || `http://localhost:${slackConfig.mockServerPort}/api`,
+      token: slackConfig.botToken,
+      channelId: slackConfig.channelId,
+    });
+
+    return {
+      api,
+      platformType: 'slack',
+      botUserId: 'U_BOT_USER', // Mock server default
+      channelId: slackConfig.channelId,
+      testUserId: slackConfig.testUsers[0]?.userId || 'U_TEST_USER1',
+      testUserToken: slackConfig.botToken, // Slack uses bot token for all operations
+    };
+  }
+
+  // Mattermost (default)
   if (!config.mattermost.bot.token || !config.mattermost.bot.userId) {
     throw new Error('Bot credentials not found. Run setup-mattermost.ts first.');
   }
@@ -41,10 +71,14 @@ export function initTestContext(): TestSessionContext {
   }
 
   // Use test user token for API calls (simulating user actions)
-  const api = new MattermostTestApi(config.mattermost.url, config.mattermost.testUsers[0].token);
+  const api = createPlatformTestApi('mattermost', {
+    baseUrl: config.mattermost.url,
+    token: config.mattermost.testUsers[0].token,
+  });
 
   return {
     api,
+    platformType: 'mattermost',
     botUserId: config.mattermost.bot.userId,
     channelId: config.mattermost.channel.id,
     testUserId: config.mattermost.testUsers[0].userId,
@@ -53,7 +87,7 @@ export function initTestContext(): TestSessionContext {
 }
 
 /**
- * Create API client with admin privileges
+ * Create API client with admin privileges (Mattermost only)
  */
 export function initAdminApi(): MattermostTestApi {
   const config = loadConfig();
@@ -74,12 +108,13 @@ export async function startSession(
   ctx: TestSessionContext,
   message: string,
   botUsername: string = 'claude-test-bot',
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   const fullMessage = `@${botUsername} ${message}`;
 
   const post = await ctx.api.createPost({
-    channel_id: ctx.channelId,
+    channelId: ctx.channelId,
     message: fullMessage,
+    userId: ctx.testUserId, // Pass user ID for Slack mock server
   });
 
   return post;
@@ -92,11 +127,12 @@ export async function sendFollowUp(
   ctx: TestSessionContext,
   threadId: string,
   message: string,
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   return ctx.api.createPost({
-    channel_id: ctx.channelId,
+    channelId: ctx.channelId,
     message,
-    root_id: threadId,
+    rootId: threadId,
+    userId: ctx.testUserId, // Pass user ID for Slack mock server
   });
 }
 
@@ -111,16 +147,16 @@ export async function waitForBotResponse(
     minResponses?: number;
     pattern?: RegExp;
   } = {},
-): Promise<MattermostPost[]> {
+): Promise<PlatformTestPost[]> {
   const { timeout = 30000, minResponses = 1, pattern } = options;
 
   return waitFor(
     async () => {
-      const { posts } = await ctx.api.getThreadPosts(threadId);
-      const threadPosts = Object.values(posts).sort((a, b) => a.create_at - b.create_at);
+      const threadPosts = await ctx.api.getThreadPosts(threadId);
+      // Posts are already sorted by createAt from the adapter
 
       // Filter to bot posts only
-      const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
+      const botPosts = threadPosts.filter((p) => p.userId === ctx.botUserId);
 
       // Apply pattern filter if provided
       const matchingPosts = pattern
@@ -145,13 +181,13 @@ export async function waitForBotResponse(
  * @param sessionManager - The bot's session manager
  * @param threadId - The thread ID to look up
  * @param options - Timeout options
- * @returns The session header post as a MattermostPost object
+ * @returns The session header post
  */
 export async function waitForSessionHeader(
   ctx: TestSessionContext,
   threadId: string,
   options: { timeout?: number; sessionManager?: SessionManager } = {},
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   const { timeout = 30000, sessionManager } = options;
 
   // If we have access to sessionManager, use the authoritative post ID
@@ -161,7 +197,7 @@ export async function waitForSessionHeader(
         const postId = sessionManager.getSessionStartPostId(threadId);
         if (!postId) return null;
 
-        // Fetch the actual post from Mattermost
+        // Fetch the actual post
         try {
           return await ctx.api.getPost(postId);
         } catch {
@@ -183,9 +219,8 @@ export async function waitForSessionHeader(
 
   return waitFor(
     async () => {
-      const { posts } = await ctx.api.getThreadPosts(threadId);
-      const threadPosts = Object.values(posts).sort((a, b) => a.create_at - b.create_at);
-      const botPosts = threadPosts.filter((p) => p.user_id === ctx.botUserId);
+      const threadPosts = await ctx.api.getThreadPosts(threadId);
+      const botPosts = threadPosts.filter((p) => p.userId === ctx.botUserId);
       return botPosts.find((p) => sessionHeaderPattern.test(p.message)) || null;
     },
     {
@@ -204,13 +239,13 @@ export async function waitForPostMatching(
   threadId: string,
   pattern: RegExp,
   options: { timeout?: number } = {},
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   const { timeout = 30000 } = options;
 
   return waitFor(
     async () => {
-      const { posts } = await ctx.api.getThreadPosts(threadId);
-      return Object.values(posts).find((p) => pattern.test(p.message)) || null;
+      const threadPosts = await ctx.api.getThreadPosts(threadId);
+      return threadPosts.find((p) => pattern.test(p.message)) || null;
     },
     {
       timeout,
@@ -226,9 +261,9 @@ export async function waitForPostMatching(
 export async function getThreadPosts(
   ctx: TestSessionContext,
   threadId: string,
-): Promise<MattermostPost[]> {
-  const { posts } = await ctx.api.getThreadPosts(threadId);
-  return Object.values(posts).sort((a, b) => a.create_at - b.create_at);
+): Promise<PlatformTestPost[]> {
+  // PlatformTestApi.getThreadPosts already returns sorted posts
+  return ctx.api.getThreadPosts(threadId);
 }
 
 /**
@@ -239,10 +274,10 @@ export async function waitForPostCount(
   threadId: string,
   minCount: number,
   options: { timeout?: number } = {},
-): Promise<MattermostPost[]> {
+): Promise<PlatformTestPost[]> {
   const { timeout = 5000 } = options;
 
-  let posts: MattermostPost[] = [];
+  let posts: PlatformTestPost[] = [];
   await waitFor(
     async () => {
       posts = await getThreadPosts(ctx, threadId);
@@ -293,7 +328,7 @@ export async function waitForReaction(
   await waitFor(
     async () => {
       const reactions = await ctx.api.getReactions(postId);
-      return reactions.some((r) => r.emoji_name === emojiName);
+      return reactions.some((r) => r.emojiName === emojiName);
     },
     {
       timeout,
@@ -308,7 +343,7 @@ export async function waitForReaction(
  *
  * This is a more robust version of waitForReaction that handles CI environments
  * where WebSocket events can be delayed or missed. It:
- * 1. Waits for the reaction to be recorded in Mattermost
+ * 1. Waits for the reaction to be recorded
  * 2. Waits for the bot to process it (session state changes)
  * 3. If the state doesn't change, manually triggers the reaction handler as fallback
  *
@@ -338,7 +373,7 @@ export async function waitForReactionProcessed(
   const { timeout = 15000 } = options;
   const startTime = Date.now();
 
-  // First, wait for the reaction to be recorded in Mattermost
+  // First, wait for the reaction to be recorded
   await waitForReaction(ctx, postId, emojiName, { timeout: 5000 });
 
   // Check initial session state
@@ -382,21 +417,21 @@ export async function sendCommand(
   ctx: TestSessionContext,
   threadId: string,
   command: string,
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   return sendFollowUp(ctx, threadId, command);
 }
 
 /**
- * Clean up a thread by deleting all posts
+ * Clean up a thread by deleting all posts (Mattermost only, uses admin API)
  */
 export async function cleanupThread(
   adminApi: MattermostTestApi,
   threadId: string,
 ): Promise<number> {
-  const { posts } = await adminApi.getThreadPosts(threadId);
+  const result = await adminApi.getThreadPosts(threadId);
   let count = 0;
 
-  for (const postId of Object.keys(posts)) {
+  for (const postId of result.order) {
     try {
       await adminApi.deletePost(postId);
       count++;
@@ -409,7 +444,7 @@ export async function cleanupThread(
 }
 
 /**
- * Create a unique channel for test isolation
+ * Create a unique channel for test isolation (Mattermost only)
  */
 export async function createIsolatedChannel(
   adminApi: MattermostTestApi,
@@ -450,8 +485,8 @@ export async function startSessionAndWait(
   message: string,
   botUsername: string = 'claude-test-bot',
 ): Promise<{
-  rootPost: MattermostPost;
-  botResponses: MattermostPost[];
+  rootPost: PlatformTestPost;
+  botResponses: PlatformTestPost[];
 }> {
   const rootPost = await startSession(ctx, message, botUsername);
 
@@ -520,7 +555,7 @@ export async function waitForStableBotPostCount(
 
   while (Date.now() - startTime < timeout) {
     const posts = await getThreadPosts(ctx, threadId);
-    const botPostCount = posts.filter((p) => p.user_id === ctx.botUserId).length;
+    const botPostCount = posts.filter((p) => p.userId === ctx.botUserId).length;
 
     if (botPostCount !== lastCount) {
       lastCount = botPostCount;
@@ -554,8 +589,9 @@ export async function createThreadWithMessages(
 
   // Create the root post
   const rootPost = await ctx.api.createPost({
-    channel_id: ctx.channelId,
+    channelId: ctx.channelId,
     message: messages[0],
+    userId: ctx.testUserId, // Pass user ID for Slack mock server
   });
 
   const messageIds = [rootPost.id];
@@ -563,9 +599,10 @@ export async function createThreadWithMessages(
   // Add follow-up messages
   for (let i = 1; i < messages.length; i++) {
     const reply = await ctx.api.createPost({
-      channel_id: ctx.channelId,
+      channelId: ctx.channelId,
       message: messages[i],
-      root_id: rootPost.id,
+      rootId: rootPost.id,
+      userId: ctx.testUserId, // Pass user ID for Slack mock server
     });
     messageIds.push(reply.id);
     // Small delay to ensure ordering
@@ -583,13 +620,14 @@ export async function startSessionMidThread(
   threadId: string,
   message: string,
   botUsername: string = 'claude-test-bot',
-): Promise<MattermostPost> {
+): Promise<PlatformTestPost> {
   const fullMessage = `@${botUsername} ${message}`;
 
   return ctx.api.createPost({
-    channel_id: ctx.channelId,
+    channelId: ctx.channelId,
     message: fullMessage,
-    root_id: threadId,
+    rootId: threadId,
+    userId: ctx.testUserId, // Pass user ID for Slack mock server
   });
 }
 
@@ -622,4 +660,49 @@ export async function waitForSessionPersisted(
       description: `session to be persisted for thread ${threadId}`,
     },
   );
+}
+
+/**
+ * Get platform-specific bot options for startTestBot
+ *
+ * This helper creates the correct options for starting a test bot based on platform type.
+ * For Slack, it automatically adds the required mock server configuration from environment.
+ *
+ * @param platformType - The platform to configure for ('mattermost' or 'slack')
+ * @param baseOptions - Base options to merge with platform-specific options
+ * @returns Complete options for startTestBot
+ *
+ * @example
+ * ```typescript
+ * const bot = await startTestBot(getPlatformBotOptions(platformType, {
+ *   scenario: 'simple-response',
+ *   skipPermissions: true,
+ * }));
+ * ```
+ */
+export function getPlatformBotOptions(
+  platformType: PlatformType,
+  baseOptions: Omit<StartBotOptions, 'platform' | 'slackMockPort' | 'slackBotToken' | 'slackAppToken' | 'slackChannelId' | 'slackBotName'> = {},
+): StartBotOptions {
+  if (platformType === 'slack') {
+    const config = loadConfig();
+    const slackConfig = config.slack || DEFAULT_SLACK_CONFIG;
+    const mockPort = parseInt(process.env.SLACK_MOCK_PORT || String(slackConfig.mockServerPort), 10);
+
+    return {
+      ...baseOptions,
+      platform: 'slack',
+      slackMockPort: mockPort,
+      slackBotToken: slackConfig.botToken,
+      slackAppToken: slackConfig.appToken,
+      slackChannelId: slackConfig.channelId,
+      slackBotName: slackConfig.botUsername,
+    };
+  }
+
+  // Mattermost - just pass through base options (default platform)
+  return {
+    ...baseOptions,
+    platform: 'mattermost',
+  };
 }

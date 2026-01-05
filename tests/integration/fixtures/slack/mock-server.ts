@@ -9,7 +9,7 @@
  * - Methods to inject test data and trigger events
  *
  * Usage:
- *   const server = new SlackMockServer({ port: 3456 });
+ *   const server = new SlackMockServer({ port: 3457 });
  *   await server.start();
  *   // ... run tests ...
  *   await server.stop();
@@ -220,7 +220,7 @@ export class SlackMockServer extends EventEmitter {
 
   constructor(options: SlackMockServerOptions = {}) {
     super();
-    this.port = options.port ?? 3456;
+    this.port = options.port ?? 3457;
     this.debug = options.debug ?? false;
 
     const defaultData = createDefaultTestData();
@@ -539,15 +539,20 @@ export class SlackMockServer extends EventEmitter {
       return new Response();
     }
 
-    // Auth check for API endpoints
-    if (path.startsWith('/api/')) {
+    // Auth check for API endpoints (except api.test which doesn't require auth)
+    if (path.startsWith('/api/') && path !== '/api/api.test') {
       const authHeader = req.headers.get('Authorization');
       if (!authHeader?.startsWith('Bearer ')) {
         return this.jsonResponse({ ok: false, error: 'not_authed' }, 401);
       }
 
       const token = authHeader.substring(7);
-      if (token !== this.state.botToken) {
+      // apps.connections.open uses app token (xapp-...), other endpoints use bot token (xoxb-...)
+      const validToken = path === '/api/apps.connections.open'
+        ? token === this.state.appToken
+        : token === this.state.botToken;
+
+      if (!validToken) {
         return this.jsonResponse({ ok: false, error: 'invalid_auth' }, 401);
       }
     }
@@ -557,6 +562,10 @@ export class SlackMockServer extends EventEmitter {
       const body = req.method === 'POST' ? await this.parseBody(req) : {};
 
       switch (path) {
+        // Test
+        case '/api/api.test':
+          return this.jsonResponse({ ok: true });
+
         // Auth
         case '/api/apps.connections.open':
           return this.handleAppsConnectionsOpen();
@@ -615,7 +624,16 @@ export class SlackMockServer extends EventEmitter {
     const contentType = req.headers.get('Content-Type') || '';
 
     if (contentType.includes('application/json')) {
-      return (await req.json()) as Record<string, unknown>;
+      // Handle empty body
+      const text = await req.text();
+      if (!text || text.trim() === '') {
+        return {};
+      }
+      try {
+        return JSON.parse(text) as Record<string, unknown>;
+      } catch {
+        return {};
+      }
     }
 
     if (contentType.includes('application/x-www-form-urlencoded')) {
@@ -667,6 +685,10 @@ export class SlackMockServer extends EventEmitter {
     const text = body.text as string;
     const threadTs = body.thread_ts as string | undefined;
     const blocks = body.blocks as unknown[] | undefined;
+    // Test-only: allow specifying user for test posts (not part of real Slack API)
+    const asUser = body._test_user_id as string | undefined;
+    // Test-only: emit Socket Mode event for this message (for bot to receive)
+    const emitEvent = body._test_emit_event as boolean | undefined;
 
     if (!channel || !text) {
       return this.jsonResponse({ ok: false, error: 'invalid_arguments' }, 400);
@@ -677,13 +699,28 @@ export class SlackMockServer extends EventEmitter {
       type: 'message',
       ts,
       channel,
-      user: this.state.botUser.id,
+      user: asUser || this.state.botUser.id,
       text,
       thread_ts: threadTs,
       blocks,
     };
 
     this.state.messages.set(`${channel}:${ts}`, message);
+
+    // Emit Socket Mode event if requested (for test user messages)
+    // This allows tests to create posts that the bot will receive
+    if (emitEvent && asUser && asUser !== this.state.botUser.id) {
+      this.sendSocketModeEvent({
+        type: 'events_api',
+        accepts_response_payload: false,
+        payload: {
+          type: 'event_callback',
+          event: {
+            ...message,
+          },
+        },
+      });
+    }
 
     return this.jsonResponse({
       ok: true,
@@ -772,16 +809,31 @@ export class SlackMockServer extends EventEmitter {
   ): Response {
     const channel = (params.get('channel') || body.channel) as string;
     const limit = parseInt((params.get('limit') || body.limit || '100') as string, 10);
+    const latest = (params.get('latest') || body.latest) as string | undefined;
+    const oldest = (params.get('oldest') || body.oldest) as string | undefined;
+    const inclusive = (params.get('inclusive') || body.inclusive) === 'true';
 
     if (!channel) {
       return this.jsonResponse({ ok: false, error: 'invalid_arguments' }, 400);
     }
 
-    // Get top-level messages only (no thread_ts or thread_ts === ts)
-    const messages = this.getChannelMessages(channel)
-      .filter((m) => !m.thread_ts || m.thread_ts === m.ts)
-      .slice(-limit)
-      .reverse(); // Most recent first
+    // Get all messages in channel
+    let messages = this.getChannelMessages(channel);
+
+    // Filter by timestamp range if specified
+    if (oldest || latest) {
+      messages = messages.filter((m) => {
+        // Use string comparison for timestamps to preserve precision
+        if (oldest && inclusive && m.ts < oldest) return false;
+        if (oldest && !inclusive && m.ts <= oldest) return false;
+        if (latest && inclusive && m.ts > latest) return false;
+        if (latest && !inclusive && m.ts >= latest) return false;
+        return true;
+      });
+    }
+
+    // Apply limit and reverse (most recent first)
+    messages = messages.slice(-limit).reverse();
 
     return this.jsonResponse({
       ok: true,
@@ -815,6 +867,11 @@ export class SlackMockServer extends EventEmitter {
     const channel = body.channel as string;
     const timestamp = body.timestamp as string;
     const name = body.name as string;
+    // Test-only: allow specifying user for test reactions (not part of real Slack API)
+    const asUser = body._test_user_id as string | undefined;
+    // Test-only: emit Socket Mode event for this reaction (for bot to receive)
+    const emitEvent = body._test_emit_event as boolean | undefined;
+    const userId = asUser || this.state.botUser.id;
 
     if (!channel || !timestamp || !name) {
       return this.jsonResponse({ ok: false, error: 'invalid_arguments' }, 400);
@@ -831,15 +888,38 @@ export class SlackMockServer extends EventEmitter {
     const existing = message.reactions.find((r) => r.name === name);
 
     if (existing) {
-      if (!existing.users.includes(this.state.botUser.id)) {
-        existing.users.push(this.state.botUser.id);
+      if (!existing.users.includes(userId)) {
+        existing.users.push(userId);
         existing.count++;
       }
     } else {
       message.reactions.push({
         name,
         count: 1,
-        users: [this.state.botUser.id],
+        users: [userId],
+      });
+    }
+
+    // Emit Socket Mode event if requested (for test user reactions)
+    // This allows tests to trigger reaction events that the bot will receive
+    if (emitEvent && userId !== this.state.botUser.id) {
+      this.sendSocketModeEvent({
+        type: 'events_api',
+        accepts_response_payload: false,
+        payload: {
+          type: 'event_callback',
+          event: {
+            type: 'reaction_added',
+            user: userId,
+            reaction: name,
+            item: {
+              type: 'message',
+              channel,
+              ts: timestamp,
+            },
+            event_ts: generateTs(),
+          },
+        },
       });
     }
 
@@ -850,6 +930,10 @@ export class SlackMockServer extends EventEmitter {
     const channel = body.channel as string;
     const timestamp = body.timestamp as string;
     const name = body.name as string;
+    // Test-only: allow specifying user for test reactions (not part of real Slack API)
+    const asUser = body._test_user_id as string | undefined;
+    const emitEvent = body._test_emit_event as boolean | undefined;
+    const userId = asUser || this.state.botUser.id;
 
     if (!channel || !timestamp || !name) {
       return this.jsonResponse({ ok: false, error: 'invalid_arguments' }, 400);
@@ -867,11 +951,33 @@ export class SlackMockServer extends EventEmitter {
       return this.jsonResponse({ ok: false, error: 'no_reaction' }, 404);
     }
 
-    existing.users = existing.users.filter((u) => u !== this.state.botUser.id);
+    existing.users = existing.users.filter((u) => u !== userId);
     existing.count = existing.users.length;
 
     if (existing.count === 0) {
       message.reactions = message.reactions.filter((r) => r.name !== name);
+    }
+
+    // Emit Socket Mode event if requested (for test user reactions)
+    if (emitEvent && userId !== this.state.botUser.id) {
+      this.sendSocketModeEvent({
+        type: 'events_api',
+        accepts_response_payload: false,
+        payload: {
+          type: 'event_callback',
+          event: {
+            type: 'reaction_removed',
+            user: userId,
+            reaction: name,
+            item: {
+              type: 'message',
+              channel,
+              ts: timestamp,
+            },
+            event_ts: generateTs(),
+          },
+        },
+      });
     }
 
     return this.jsonResponse({ ok: true });
@@ -1120,4 +1226,51 @@ export async function waitForSocketModeConnection(
   }
 
   throw new Error('Timeout waiting for Socket Mode connection');
+}
+
+// ============================================================================
+// CLI Entry Point
+// ============================================================================
+
+/**
+ * Run the mock server as a standalone process
+ * Usage: bun run mock-server.ts
+ * Environment: SLACK_MOCK_PORT (default: 3457), DEBUG (set to 1 for logging)
+ */
+async function main() {
+  const port = parseInt(process.env.SLACK_MOCK_PORT || '3457', 10);
+  const debug = process.env.DEBUG === '1';
+
+  const server = new SlackMockServer({ port, debug });
+  await server.start();
+
+  console.log(`Slack mock server started on port ${port}`);
+  console.log(`  API URL: http://localhost:${port}`);
+  console.log(`  WebSocket URL: ws://localhost:${port}/socket-mode`);
+  console.log(`  Bot Token: ${server.getBotToken()}`);
+  console.log(`  App Token: ${server.getAppToken()}`);
+  console.log(`  Channel ID: ${server.getChannelId()}`);
+  console.log('');
+  console.log('Press Ctrl+C to stop the server...');
+
+  // Handle graceful shutdown
+  process.on('SIGINT', async () => {
+    console.log('Shutting down Slack mock server...');
+    await server.stop();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', async () => {
+    console.log('Shutting down Slack mock server...');
+    await server.stop();
+    process.exit(0);
+  });
+}
+
+// Run if this is the main module
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error('Failed to start mock server:', err);
+    process.exit(1);
+  });
 }

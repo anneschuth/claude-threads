@@ -386,17 +386,24 @@ export class SlackTestApi {
   /**
    * Create a post (message)
    *
-   * @param channelId - Channel to post to
-   * @param text - Message text
-   * @param threadTs - Thread timestamp (for replies)
+   * @param params.channel - Channel to post to
+   * @param params.text - Message text
+   * @param params.thread_ts - Thread timestamp (for replies)
+   * @param params._test_user_id - Test-only: User ID to attribute the post to (mock server only)
    * @returns The created post with its timestamp (ts)
    */
   async createPost(params: {
     channel: string;
     text: string;
     thread_ts?: string;
+    /** Test-only: User ID for mock server attribution (not part of real Slack API) */
+    _test_user_id?: string;
   }): Promise<SlackTestPost> {
-    const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', params);
+    // If a test user ID is provided, also emit Socket Mode event so bot receives it
+    const apiParams = params._test_user_id
+      ? { ...params, _test_emit_event: true }
+      : params;
+    const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', apiParams);
     return response.message;
   }
 
@@ -554,28 +561,36 @@ export class SlackTestApi {
    *
    * Note: In Slack, reaction names don't include colons.
    * e.g., use "thumbsup" not ":thumbsup:"
+   * @param userId - Test-only: User ID for mock server attribution
    */
-  async addReaction(channelId: string, ts: string, name: string): Promise<void> {
+  async addReaction(channelId: string, ts: string, name: string, userId?: string): Promise<void> {
     // Remove colons if present (for consistency with Mattermost API)
     const cleanName = name.replace(/^:|:$/g, '');
 
+    // If a test user ID is provided, also emit Socket Mode event so bot receives it
     await this.api('POST', 'reactions.add', {
       channel: channelId,
       timestamp: ts,
       name: cleanName,
+      _test_user_id: userId,
+      _test_emit_event: userId ? true : undefined,
     });
   }
 
   /**
    * Remove a reaction from a post
+   * @param userId - Test-only: User ID for mock server attribution
    */
-  async removeReaction(channelId: string, ts: string, name: string): Promise<void> {
+  async removeReaction(channelId: string, ts: string, name: string, userId?: string): Promise<void> {
     const cleanName = name.replace(/^:|:$/g, '');
 
+    // If a test user ID is provided, also emit Socket Mode event so bot receives it
     await this.api('POST', 'reactions.remove', {
       channel: channelId,
       timestamp: ts,
       name: cleanName,
+      _test_user_id: userId,
+      _test_emit_event: userId ? true : undefined,
     });
   }
 

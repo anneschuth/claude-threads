@@ -110,12 +110,15 @@ export interface PlatformTestApi {
    * @param params.channelId - Channel to post in
    * @param params.message - Message content
    * @param params.rootId - Thread root ID for threaded replies (optional)
+   * @param params.userId - User ID to attribute the post to (for mock servers)
    * @returns The created post
    */
   createPost(params: {
     channelId: string;
     message: string;
     rootId?: string;
+    /** User ID to attribute the post to (for Slack mock server testing) */
+    userId?: string;
   }): Promise<PlatformTestPost>;
 
   /**
@@ -307,6 +310,7 @@ class MattermostTestApiAdapter implements PlatformTestApi {
     channelId: string;
     message: string;
     rootId?: string;
+    userId?: string; // Ignored for Mattermost - uses token-based auth
   }): Promise<PlatformTestPost> {
     const post = await this.api.createPost({
       channel_id: params.channelId,
@@ -462,11 +466,14 @@ class SlackTestApiAdapter implements PlatformTestApi {
     channelId: string;
     message: string;
     rootId?: string;
+    userId?: string;
   }): Promise<PlatformTestPost> {
     const post = await this.api.createPost({
       channel: params.channelId,
       text: params.message,
       thread_ts: params.rootId,
+      // Pass user ID to mock server for proper test user attribution
+      _test_user_id: params.userId,
     });
     return this.mapPost(post, params.channelId);
   }
@@ -508,14 +515,14 @@ class SlackTestApiAdapter implements PlatformTestApi {
   async addReaction(
     postId: string,
     emojiName: string,
-    _userId: string
+    userId: string
   ): Promise<PlatformTestReaction> {
-    // Slack reactions don't take userId - it uses the authenticated user
-    await this.api.addReaction(this.channelId, postId, emojiName);
+    // Pass userId to mock server for proper test user attribution
+    await this.api.addReaction(this.channelId, postId, emojiName, userId);
     // Return a synthetic reaction since Slack doesn't return the created reaction
     return {
       postId,
-      userId: _userId,
+      userId,
       emojiName,
     };
   }
@@ -523,10 +530,10 @@ class SlackTestApiAdapter implements PlatformTestApi {
   async removeReaction(
     postId: string,
     emojiName: string,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _userId: string
+    userId: string
   ): Promise<void> {
-    await this.api.removeReaction(this.channelId, postId, emojiName);
+    // Pass userId to mock server for proper test user attribution
+    await this.api.removeReaction(this.channelId, postId, emojiName, userId);
   }
 
   async getReactions(postId: string): Promise<PlatformTestReaction[]> {

@@ -72,6 +72,7 @@ describe.skipIf(SKIP)('Platform API', () => {
         const post = await api.createPost({
           channelId,
           message: `Test message from ${platformType} at ${Date.now()}`,
+          userId: testUserId,
         });
 
         expect(post.id).toBeTruthy();
@@ -86,6 +87,7 @@ describe.skipIf(SKIP)('Platform API', () => {
         const post = await api.createPost({
           channelId,
           message: 'Original message',
+          userId: testUserId,
         });
 
         const updated = await api.updatePost(post.id, 'Updated message');
@@ -102,6 +104,7 @@ describe.skipIf(SKIP)('Platform API', () => {
         const root = await api.createPost({
           channelId,
           message: 'Thread root',
+          userId: testUserId,
         });
 
         // Create reply
@@ -109,6 +112,7 @@ describe.skipIf(SKIP)('Platform API', () => {
           channelId,
           message: 'Thread reply',
           rootId: root.id,
+          userId: testUserId,
         });
 
         expect(reply.rootId).toBe(root.id);
@@ -128,6 +132,7 @@ describe.skipIf(SKIP)('Platform API', () => {
         const post = await api.createPost({
           channelId,
           message: 'Reaction test post',
+          userId: testUserId,
         });
 
         await api.addReaction(post.id, 'thumbsup', testUserId);
@@ -144,6 +149,7 @@ describe.skipIf(SKIP)('Platform API', () => {
         const post = await api.createPost({
           channelId,
           message: 'Reaction removal test',
+          userId: testUserId,
         });
 
         // Add then remove

@@ -96,7 +96,7 @@ jobs:
         run: |
           echo "Waiting for Slack mock server to start..."
           timeout 30 bash -c '
-            until curl -sf http://localhost:3457/api/auth.test -H "Authorization: Bearer xoxb-test-bot-token"; do
+            until curl -sf -X POST http://localhost:3457/api/api.test; do
               echo "Waiting..."
               sleep 1
             done

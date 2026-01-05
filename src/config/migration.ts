@@ -46,6 +46,8 @@ export interface SlackPlatformConfig extends PlatformInstanceConfig {
   botName: string;
   allowedUsers: string[];
   skipPermissions: boolean;
+  /** Optional API URL override for testing (defaults to https://slack.com/api) */
+  apiUrl?: string;
 }
 
 // =============================================================================

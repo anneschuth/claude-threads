@@ -177,6 +177,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       botName: slackBotName,
       allowedUsers,
       skipPermissions,
+      apiUrl: `http://localhost:${slackMockPort}/api`,
     };
 
     platformClient = new SlackClient(slackConfig);

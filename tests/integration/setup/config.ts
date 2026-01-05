@@ -23,6 +23,8 @@ export interface SlackTestConfig {
   appToken: string;
   /** Channel ID for testing */
   channelId: string;
+  /** Bot username for @mentions */
+  botUsername: string;
   /** Test users for multi-user scenarios */
   testUsers: Array<{
     username: string;
@@ -97,6 +99,7 @@ export const DEFAULT_SLACK_CONFIG: SlackTestConfig = {
   botToken: 'xoxb-test-bot-token',
   appToken: 'xapp-test-app-token',
   channelId: 'C_TEST_CHANNEL',
+  botUsername: 'claude-test-bot',
   testUsers: [
     {
       username: 'testuser1',
@@ -209,6 +212,7 @@ export function loadConfig(): IntegrationTestConfig {
         botToken: env.SLACK_BOT_TOKEN || DEFAULT_SLACK_CONFIG.botToken,
         appToken: env.SLACK_APP_TOKEN || DEFAULT_SLACK_CONFIG.appToken,
         channelId: env.SLACK_CHANNEL_ID || DEFAULT_SLACK_CONFIG.channelId,
+        botUsername: env.SLACK_BOT_USERNAME || DEFAULT_SLACK_CONFIG.botUsername,
         testUsers: [...DEFAULT_SLACK_CONFIG.testUsers],
       };
 
@@ -267,6 +271,7 @@ export function saveConfig(config: IntegrationTestConfig): void {
     lines.push(`SLACK_BOT_TOKEN=${config.slack.botToken}`);
     lines.push(`SLACK_APP_TOKEN=${config.slack.appToken}`);
     lines.push(`SLACK_CHANNEL_ID=${config.slack.channelId}`);
+    lines.push(`SLACK_BOT_USERNAME=${config.slack.botUsername}`);
     lines.push('');
 
     // Add Slack test users

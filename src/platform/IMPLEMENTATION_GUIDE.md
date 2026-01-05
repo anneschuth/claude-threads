@@ -501,11 +501,25 @@ function normalizeUser(slack: SlackUser): PlatformUser {
 
 ## Platform-Specific Considerations
 
-### Slack
-- Uses timestamp (`ts`) as message ID
-- Threads are based on `thread_ts`
-- Bot tokens start with `xoxb-`
-- Socket Mode for WebSocket events
+### Slack (Implemented)
+- Uses timestamp (`ts`) as message ID - these are unique per channel
+- Threads are based on `thread_ts` (the timestamp of the parent message)
+- Bot tokens start with `xoxb-` (Bot User OAuth Token)
+- App tokens start with `xapp-` (required for Socket Mode)
+- Socket Mode for WebSocket events - requires `connections:write` scope on app token
+- Must ACK Socket Mode envelopes within 3 seconds to avoid message retries
+- User mentions require user ID format: `<@USER_ID>` (not usernames)
+- Reactions don't include colons: use `thumbsup` not `:thumbsup:`
+- Mrkdwn formatting differs from Markdown: `*bold*` (single asterisk), `_italic_`
+- Characters `&`, `<`, `>` must be escaped in message text
+
+**Slack App Setup:**
+1. Create app at api.slack.com/apps
+2. Enable Socket Mode under "Socket Mode"
+3. Generate App-Level Token with `connections:write` scope
+4. Add Bot Token Scopes: `channels:history`, `channels:read`, `chat:write`, `reactions:read`, `reactions:write`, `users:read`
+5. Install app to workspace
+6. Copy Bot User OAuth Token (`xoxb-...`) and App-Level Token (`xapp-...`)
 
 ### Discord (future)
 - Uses snowflake IDs
@@ -518,8 +532,54 @@ function normalizeUser(slack: SlackUser): PlatformUser {
 - Activity IDs for messages
 - Requires Bot Framework
 
+## Lessons Learned from Slack Implementation
+
+When implementing Slack support, several patterns emerged that may help future platform implementations:
+
+### 1. Two-Token Architecture
+Slack's Socket Mode requires both a Bot Token (for API calls) and an App Token (for WebSocket connection). Other platforms may have similar multi-credential patterns. Design your config schema to accommodate multiple tokens.
+
+### 2. Message ID Handling
+Slack uses timestamps as message IDs, which differ from Mattermost's UUIDs. The key insight: use `channelId:timestamp` as a composite key when you need uniqueness across channels. This pattern applies to any platform where IDs are only unique within a scope.
+
+### 3. Reaction Emoji Normalization
+Platforms handle emoji names differently:
+- Slack: `thumbsup` (no colons)
+- Mattermost: `+1` (shortcode)
+- Unicode: `👍`
+
+Use `src/utils/emoji.ts` for normalization. Strip colons when calling platform APIs.
+
+### 4. Socket Mode Envelope ACK Pattern
+Slack requires acknowledging envelopes within 3 seconds. Implemented pattern:
+```typescript
+// ACK immediately, process async
+ws.send(JSON.stringify({ envelope_id: envelope.envelope_id }));
+setImmediate(() => this.processEvent(envelope.payload));
+```
+
+### 5. Integration Test Parameterization
+All integration tests use `describe.each(TEST_PLATFORMS)` to run against both platforms:
+```typescript
+const TEST_PLATFORMS = (process.env.TEST_PLATFORMS || 'mattermost').split(',');
+
+describe.each(TEST_PLATFORMS)('%s platform', (platformType) => {
+  let ctx: TestSessionContext;
+  beforeAll(() => { ctx = initTestContext(platformType); });
+  // Tests use ctx.api (platform-agnostic)
+});
+```
+
+### 6. Mock Server Design
+The Slack mock server (`tests/integration/fixtures/slack/mock-server.ts`) simulates:
+- Socket Mode WebSocket endpoint
+- Web API endpoints with proper authentication
+- Realistic data structures (users, channels, messages)
+
+This pattern can be reused for other platforms.
+
 ## Need Help?
 
-- Check existing implementations in `src/platform/mattermost/`
+- Check existing implementations in `src/platform/mattermost/` and `src/platform/slack/`
 - Open an issue with questions
 - See the main `CLAUDE.md` for architecture overview
