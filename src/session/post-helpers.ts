@@ -239,7 +239,7 @@ export async function postAndRegister(
     sessionLog(session).debug(`Posted and registered: ${post.id.substring(0, 8)}`);
     registerPost(post.id, session.threadId);
   }
-  return post;
+  return post ?? null;
 }
 
 /**

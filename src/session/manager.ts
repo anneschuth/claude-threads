@@ -229,7 +229,7 @@ export class SessionManager extends EventEmitter {
       id: session.sessionId,
       threadId: session.threadId,
       startedBy: session.startedBy,
-      displayName: session.displayName,
+      displayName: session.startedByDisplayName,
       status: getSessionStatus(session),
       workingDir: session.workingDir,
       sessionNumber: session.sessionNumber,
@@ -237,7 +237,7 @@ export class SessionManager extends EventEmitter {
       // Rich metadata
       title: session.sessionTitle,
       description: session.sessionDescription,
-      lastActivity: session.lastActivity,
+      lastActivity: session.lastActivityAt,
       // Typing indicator state
       isTyping: session.typingTimer !== null,
     };

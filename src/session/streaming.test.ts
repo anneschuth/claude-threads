@@ -113,6 +113,8 @@ function createTestSession(platform: PlatformClient): Session {
     activeToolStarts: new Map(),
     messageCount: 0,
     statusBarTimer: null,
+    hasClaudeResponded: false,
+    isProcessing: false,
   };
 }
 
