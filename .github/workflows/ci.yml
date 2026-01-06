@@ -50,11 +50,28 @@ jobs:
 
       - run: bun install
 
-      - name: Run tests
-        run: bun test
-
       - name: Run tests with coverage
-        run: bun test --coverage
+        run: bun test src/ --coverage --coverage-reporter=lcov
+
+      - name: Check coverage thresholds
+        run: |
+          # Extract coverage percentages from lcov.info
+          COVERAGE_FILE="coverage/lcov.info"
+          if [ -f "$COVERAGE_FILE" ]; then
+            # Count lines and hits
+            TOTAL_LINES=$(grep -c "^DA:" "$COVERAGE_FILE" || echo "0")
+            HIT_LINES=$(grep "^DA:" "$COVERAGE_FILE" | grep -v ",0$" | wc -l || echo "0")
+            if [ "$TOTAL_LINES" -gt 0 ]; then
+              COVERAGE=$((HIT_LINES * 100 / TOTAL_LINES))
+              echo "Line coverage: ${COVERAGE}%"
+              # Enforce minimum coverage threshold (70%)
+              if [ "$COVERAGE" -lt 70 ]; then
+                echo "❌ Coverage ${COVERAGE}% is below threshold of 70%"
+                exit 1
+              fi
+              echo "✅ Coverage ${COVERAGE}% meets threshold of 70%"
+            fi
+          fi
 
   build:
     runs-on: ubuntu-latest
