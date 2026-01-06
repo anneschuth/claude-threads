@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "entry": [
+    "src/index.ts",
+    "src/mcp/permission-server.ts",
+    "src/statusline/writer.ts"
+  ],
+  "project": ["src/**/*.ts", "src/**/*.tsx"],
+  "ignore": [
+    "src/**/*.test.ts",
+    "tests/**/*"
+  ],
+  "ignoreDependencies": [
+    "@modelcontextprotocol/sdk",
+    "zod"
+  ]
+}
