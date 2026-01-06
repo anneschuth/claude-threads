@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.38.0] - 2026-01-06
+
+### Added
+- **Documentation reorganization** - Moved detailed setup guides to `docs/` folder:
+  - `docs/CONFIGURATION.md` - Multi-platform configuration reference
+  - `docs/MATTERMOST_SETUP.md` - Mattermost setup guide
+  - `docs/SLACK_SETUP.md` - Slack setup guide
+
+### Fixed
+- **Slack link previews disabled** - Sticky messages and task posts no longer show link unfurls on Slack
+- **Jump-to-bottom links include bot posts** - Links now correctly scroll to the latest message including bot's own posts
+- **Flaky integration tests** - Fixed timing issues in multi-user and session limit tests
+
 ## [0.37.0] - 2026-01-06
 
 ### Added
