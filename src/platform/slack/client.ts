@@ -162,12 +162,14 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Make a Slack Web API request with rate limiting and error handling.
+   * @param expectedErrors - Array of error codes that are expected and shouldn't be logged as warnings
    */
   private async api<T extends SlackApiResponse>(
     method: string,
     endpoint: string,
     body?: Record<string, unknown>,
-    retryCount = 0
+    retryCount = 0,
+    expectedErrors: string[] = []
   ): Promise<T> {
     // Apply rate limit delay if needed
     if (this.rateLimitDelay > 0) {
@@ -220,7 +222,10 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     const data = (await response.json()) as T;
 
     if (!data.ok) {
-      log.warn(`API ${method} ${endpoint} error: ${data.error}`);
+      // Only log warning for unexpected errors
+      if (!expectedErrors.includes(data.error || '')) {
+        log.warn(`API ${method} ${endpoint} error: ${data.error}`);
+      }
       throw new Error(`Slack API error: ${data.error}`);
     }
 
@@ -292,6 +297,33 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     wsLogger.info('Socket Mode: Got WebSocket URL, connecting...');
 
     return new Promise((resolve, reject) => {
+      // Track whether promise has been settled to avoid double-resolve/reject
+      let settled = false;
+
+      const doResolve = () => {
+        if (!settled) {
+          settled = true;
+          resolve();
+        }
+      };
+
+      const doReject = (err: Error) => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
+      // Connection timeout - if we don't get 'hello' within 30 seconds, fail
+      const connectionTimeout = setTimeout(() => {
+        const err = new Error('Socket Mode connection timeout: no hello received within 30 seconds');
+        wsLogger.warn(`${err.message}`);
+        doReject(err);
+        if (this.ws) {
+          this.ws.close();
+        }
+      }, 30000);
+
       this.ws = new WebSocket(wsUrl);
 
       this.ws.onopen = () => {
@@ -310,6 +342,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
           // Connection established on 'hello'
           if (envelope.type === 'hello') {
+            clearTimeout(connectionTimeout);
             this.reconnectAttempts = 0;
             this.startHeartbeat();
             this.emit('connected');
@@ -322,7 +355,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
             }
             this.isReconnecting = false;
 
-            resolve();
+            doResolve();
           }
         } catch (err) {
           wsLogger.warn(`Failed to parse Socket Mode message: ${err}`);
@@ -330,11 +363,19 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       };
 
       this.ws.onclose = (event) => {
+        clearTimeout(connectionTimeout);
         wsLogger.info(
           `Socket Mode: WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean})`
         );
         this.stopHeartbeat();
         this.emit('disconnected');
+
+        // If we haven't received 'hello' yet, reject the promise
+        // This handles cases where the WebSocket closes before authentication completes
+        if (!settled) {
+          wsLogger.warn(`WebSocket closed before hello event (code: ${event.code}, reason: ${event.reason || 'none'})`);
+        }
+        doReject(new Error(`Socket Mode WebSocket closed before connection established (code: ${event.code})`));
 
         // Only reconnect if not intentional
         if (!this.isIntentionalDisconnect) {
@@ -346,9 +387,10 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       };
 
       this.ws.onerror = (event) => {
+        clearTimeout(connectionTimeout);
         wsLogger.warn(`Socket Mode: WebSocket error: ${event}`);
         this.emit('error', new Error('Socket Mode WebSocket error'));
-        reject(new Error('Socket Mode WebSocket error'));
+        doReject(new Error('Socket Mode WebSocket error'));
       };
     });
   }
@@ -902,7 +944,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       await this.api('POST', 'pins.add', {
         channel: this.channelId,
         timestamp: postId,
-      });
+      }, 0, ['already_pinned']);
     } catch (err) {
       // Ignore "already_pinned" - this is expected when re-pinning
       if (err instanceof Error && err.message.includes('already_pinned')) {
@@ -922,7 +964,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       await this.api('POST', 'pins.remove', {
         channel: this.channelId,
         timestamp: postId,
-      });
+      }, 0, ['no_pin']);
     } catch (err) {
       // Ignore "no_pin" - post wasn't pinned
       if (err instanceof Error && err.message.includes('no_pin')) {

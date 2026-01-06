@@ -283,8 +283,10 @@ async function main() {
   const platforms = new Map<string, PlatformClient>();
 
   // Initialize all configured platforms
+  ui.addLog({ level: 'debug', component: 'init', message: `Initializing ${config.platforms.length} platform(s)` });
   for (const platformConfig of config.platforms) {
     const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
+    ui.addLog({ level: 'info', component: 'init', message: `Creating ${platformConfig.type} platform: ${platformConfig.id}` });
 
     // Register platform with UI
     ui.setPlatformStatus(platformConfig.id, {
@@ -306,8 +308,18 @@ async function main() {
   }
 
   // Connect all platforms
+  ui.addLog({ level: 'info', component: 'init', message: `Connecting ${platforms.size} platform(s)...` });
   await Promise.all(
-    Array.from(platforms.values()).map((client) => client.connect())
+    Array.from(platforms.entries()).map(async ([id, client]) => {
+      ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
+      try {
+        await client.connect();
+        ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
+      } catch (err) {
+        ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
+        throw err;
+      }
+    })
   );
 
   // Resume any persisted sessions from before restart
