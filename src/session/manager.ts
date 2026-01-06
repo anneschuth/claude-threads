@@ -200,7 +200,7 @@ export class SessionManager extends EventEmitter {
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
 
       // Context prompt
-      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
+      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -990,7 +990,7 @@ export class SessionManager extends EventEmitter {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, e) => this.offerContextPrompt(s, q, e),
+      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
