@@ -222,9 +222,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
         // Send !help
         await sendCommand(ctx, rootPost.id, '!help');
 
-        // Wait for help message - use specific pattern that matches bot's "**Commands:**" format
+        // Wait for help message - use pattern that matches both Mattermost (**Commands:**) and Slack (*Commands:*)
         // This avoids matching the user's message
-        const helpPost = await waitForPostMatching(ctx, rootPost.id, /\*\*Commands:\*\*|!stop.*!escape/i, { timeout: 10000 });
+        const helpPost = await waitForPostMatching(ctx, rootPost.id, /\*{1,2}Commands:\*{1,2}|!stop.*!escape/i, { timeout: 10000 });
 
         expect(helpPost).toBeDefined();
         expect(helpPost.message).toContain('!stop');
