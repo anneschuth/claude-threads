@@ -149,6 +149,9 @@ function createSessionContext(): SessionContext {
       emitSessionAdd: mock(() => {}),
       emitSessionUpdate: mock(() => {}),
       emitSessionRemove: mock(() => {}),
+      registerWorktreeUser: mock(() => {}),
+      unregisterWorktreeUser: mock(() => {}),
+      hasOtherSessionsUsingWorktree: mock(() => false),
     },
   };
 }

@@ -10,6 +10,9 @@ const mockGetRepositoryRoot = mock(() => Promise.resolve('/repo'));
 const mockFindWorktreeByBranch = mock(() => Promise.resolve(null as { path: string; branch: string; isMain: boolean } | null));
 const mockCreateWorktree = mock(() => Promise.resolve());
 const mockGetWorktreeDir = mock(() => '/repo-worktrees/feature-branch');
+const mockRemoveWorktree = mock(() => Promise.resolve());
+const mockIsValidWorktreePath = mock((path: string) => path.includes('/.claude-threads/worktrees/'));
+const mockWriteWorktreeMetadata = mock(() => Promise.resolve());
 
 mock.module('../git/worktree.js', () => ({
   isGitRepository: mockIsGitRepository,
@@ -18,9 +21,11 @@ mock.module('../git/worktree.js', () => ({
   createWorktree: mockCreateWorktree,
   getWorktreeDir: mockGetWorktreeDir,
   listWorktrees: mock(() => Promise.resolve([])),
-  removeWorktree: mock(() => Promise.resolve()),
+  removeWorktree: mockRemoveWorktree,
   hasUncommittedChanges: mock(() => Promise.resolve(false)),
   isValidBranchName: mock(() => true),
+  isValidWorktreePath: mockIsValidWorktreePath,
+  writeWorktreeMetadata: mockWriteWorktreeMetadata,
 }));
 
 // Mock the ClaudeCli class to avoid spawning real processes
@@ -391,6 +396,103 @@ describe('Worktree Module', () => {
       const session = createMockSession();
       const result = await worktree.shouldPromptForWorktree(session, 'require', () => false);
       expect(result).toBe('require');
+    });
+  });
+
+  describe('cleanupWorktree', () => {
+    beforeEach(() => {
+      // Reset the isValidWorktreePath mock to a reasonable default
+      mockIsValidWorktreePath.mockReset();
+      mockIsValidWorktreePath.mockImplementation((path: string) => path.includes('/.claude-threads/worktrees/'));
+    });
+
+    it('succeeds when session has no worktree', async () => {
+      const session = createMockSession({
+        worktreeInfo: undefined,
+      });
+
+      const result = await worktree.cleanupWorktree(session, () => false);
+
+      expect(result.success).toBe(true);
+    });
+
+    it('skips cleanup when session is not worktree owner', async () => {
+      const session = createMockSession({
+        worktreeInfo: { repoRoot: '/repo', worktreePath: '/home/user/.claude-threads/worktrees/repo-wt', branch: 'feature' },
+        isWorktreeOwner: false,
+      });
+
+      const result = await worktree.cleanupWorktree(session, () => false);
+
+      expect(result.success).toBe(true);
+      // Should not attempt to remove worktree
+    });
+
+    it('skips cleanup when other sessions are using the worktree', async () => {
+      // Set mock to return true for this test's path
+      mockIsValidWorktreePath.mockReturnValue(true);
+
+      const session = createMockSession({
+        worktreeInfo: { repoRoot: '/repo', worktreePath: '/home/user/.claude-threads/worktrees/repo-wt', branch: 'feature' },
+        isWorktreeOwner: true,
+      });
+
+      const result = await worktree.cleanupWorktree(session, () => true);
+
+      expect(result.success).toBe(true);
+      // Should not attempt to remove worktree
+    });
+
+    it('fails when worktree path is not in centralized location', async () => {
+      const session = createMockSession({
+        worktreeInfo: { repoRoot: '/repo', worktreePath: '/random/path', branch: 'feature' },
+        isWorktreeOwner: true,
+      });
+
+      const result = await worktree.cleanupWorktree(session, () => false);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid path pattern');
+    });
+  });
+
+  describe('worktree ownership tracking', () => {
+    it('sets isWorktreeOwner=false when joining existing worktree', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        queuedPrompt: 'do something',
+      });
+      const options = createMockOptions();
+
+      // Mock existing worktree
+      mockFindWorktreeByBranch.mockImplementation(() =>
+        Promise.resolve({
+          path: '/repo-worktrees/feature-branch',
+          branch: 'feature-branch',
+          isMain: false,
+        })
+      );
+
+      await worktree.createAndSwitchToWorktree(session, 'feature-branch', 'testuser', options);
+
+      expect(session.isWorktreeOwner).toBe(false);
+    });
+
+    it('sets isWorktreeOwner=true when creating new worktree', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        queuedPrompt: 'do something',
+      });
+      const options = createMockOptions();
+
+      // No existing worktree
+      mockFindWorktreeByBranch.mockImplementation(() => Promise.resolve(null));
+
+      await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+      expect(session.isWorktreeOwner).toBe(true);
     });
   });
 });

@@ -2,9 +2,24 @@ import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import { homedir } from 'os';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('git-worktree');
+
+/** Centralized worktree location for easy cleanup */
+const WORKTREES_DIR = path.join(homedir(), '.claude-threads', 'worktrees');
+
+/**
+ * Metadata stored alongside each worktree for cleanup tracking
+ */
+export interface WorktreeMetadata {
+  repoRoot: string;           // Original repo path
+  branch: string;             // Branch name
+  createdAt: string;          // ISO date
+  lastActivityAt: string;     // ISO date - updated on session activity
+  sessionId?: string;         // Current session using this worktree (if any)
+}
 
 export interface WorktreeInfo {
   path: string;
@@ -176,13 +191,14 @@ async function branchExists(repoRoot: string, branch: string): Promise<boolean> 
 }
 
 /**
- * Generate the worktree directory path
- * Creates path like: /path/to/repo-worktrees/branch-name-abc123
+ * Generate the worktree directory path.
+ * Creates worktrees in centralized location: ~/.claude-threads/worktrees/{encoded-repo}--{branch}-{uuid}
+ * This makes it easy to find and clean up orphaned worktrees.
  */
 export function getWorktreeDir(repoRoot: string, branch: string): string {
-  const repoName = path.basename(repoRoot);
-  const parentDir = path.dirname(repoRoot);
-  const worktreesDir = path.join(parentDir, `${repoName}-worktrees`);
+  // Sanitize repo path for use in directory name
+  // /Users/anne/myproject -> -Users-anne-myproject
+  const repoName = repoRoot.replace(/\//g, '-').replace(/^-/, '');
 
   // Sanitize branch name for filesystem
   const sanitizedBranch = branch
@@ -190,7 +206,23 @@ export function getWorktreeDir(repoRoot: string, branch: string): string {
     .replace(/[^a-zA-Z0-9-_]/g, '');
 
   const shortUuid = randomUUID().slice(0, 8);
-  return path.join(worktreesDir, `${sanitizedBranch}-${shortUuid}`);
+  return path.join(WORKTREES_DIR, `${repoName}--${sanitizedBranch}-${shortUuid}`);
+}
+
+/**
+ * Check if a worktree path is in the centralized worktrees directory.
+ * Used to prevent accidentally deleting worktrees outside our control.
+ */
+export function isValidWorktreePath(worktreePath: string): boolean {
+  // Must be inside ~/.claude-threads/worktrees/
+  return worktreePath.startsWith(WORKTREES_DIR + path.sep);
+}
+
+/**
+ * Get the centralized worktrees directory path.
+ */
+export function getWorktreesDir(): string {
+  return WORKTREES_DIR;
 }
 
 /**
@@ -291,4 +323,67 @@ export function isValidBranchName(name: string): boolean {
   if (/\.\./.test(name)) return false;
 
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Worktree Metadata Management
+// ---------------------------------------------------------------------------
+
+const METADATA_FILENAME = '.claude-threads-meta.json';
+
+/**
+ * Get the path to the metadata file for a worktree
+ */
+export function getMetadataPath(worktreePath: string): string {
+  return path.join(worktreePath, METADATA_FILENAME);
+}
+
+/**
+ * Write metadata file for a worktree.
+ * Called when creating a new worktree.
+ */
+export async function writeWorktreeMetadata(
+  worktreePath: string,
+  metadata: WorktreeMetadata
+): Promise<void> {
+  const metaPath = getMetadataPath(worktreePath);
+  try {
+    await fs.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
+    log.debug(`Wrote worktree metadata: ${metaPath}`);
+  } catch (err) {
+    log.warn(`Failed to write worktree metadata: ${err}`);
+  }
+}
+
+/**
+ * Read metadata file for a worktree.
+ * Returns null if metadata doesn't exist or is invalid.
+ */
+export async function readWorktreeMetadata(worktreePath: string): Promise<WorktreeMetadata | null> {
+  const metaPath = getMetadataPath(worktreePath);
+  try {
+    const content = await fs.readFile(metaPath, 'utf-8');
+    return JSON.parse(content) as WorktreeMetadata;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Update the lastActivityAt timestamp in worktree metadata.
+ * Called periodically to track worktree usage for age-based cleanup.
+ */
+export async function updateWorktreeActivity(
+  worktreePath: string,
+  sessionId?: string
+): Promise<void> {
+  const existing = await readWorktreeMetadata(worktreePath);
+  if (!existing) return;
+
+  existing.lastActivityAt = new Date().toISOString();
+  if (sessionId !== undefined) {
+    existing.sessionId = sessionId;
+  }
+
+  await writeWorktreeMetadata(worktreePath, existing);
 }

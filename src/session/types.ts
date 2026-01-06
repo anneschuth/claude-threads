@@ -175,6 +175,7 @@ export interface Session {
 
   // Worktree support
   worktreeInfo?: WorktreeInfo;              // Active worktree info
+  isWorktreeOwner?: boolean;                // True if this session CREATED the worktree (vs joining existing)
   pendingWorktreePrompt?: boolean;          // Waiting for branch name response
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response

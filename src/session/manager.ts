@@ -11,6 +11,9 @@
  */
 
 import { EventEmitter } from 'events';
+import { existsSync } from 'fs';
+import { readdir, rm } from 'fs/promises';
+import { join } from 'path';
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
@@ -22,6 +25,11 @@ import {
   isResumeEmoji,
   isTaskToggleEmoji,
 } from '../utils/emoji.js';
+import {
+  getWorktreesDir,
+  readWorktreeMetadata,
+  removeWorktree as removeGitWorktree,
+} from '../git/worktree.js';
 
 // Import extracted modules
 import * as streaming from './streaming.js';
@@ -74,6 +82,10 @@ export class SessionManager extends EventEmitter {
   // Session state
   private sessions: Map<string, Session> = new Map();
   private postIndex: Map<string, string> = new Map();
+
+  // Worktree reference counting
+  // Key: worktreePath, Value: Set of sessionIds using that worktree
+  private worktreeUsers: Map<string, Set<string>> = new Map();
 
   // Persistence
   private sessionStore: SessionStore;
@@ -140,6 +152,47 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
+  // Worktree Reference Counting
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Register a session as using a worktree.
+   * Called when a session creates or joins a worktree.
+   */
+  private registerWorktreeUser(worktreePath: string, sessionId: string): void {
+    if (!this.worktreeUsers.has(worktreePath)) {
+      this.worktreeUsers.set(worktreePath, new Set());
+    }
+    this.worktreeUsers.get(worktreePath)!.add(sessionId);
+    log.debug(`Registered session ${sessionId.substring(0, 20)} as worktree user for ${worktreePath}`);
+  }
+
+  /**
+   * Unregister a session from using a worktree.
+   * Called when a session ends or switches worktrees.
+   */
+  private unregisterWorktreeUser(worktreePath: string, sessionId: string): void {
+    const users = this.worktreeUsers.get(worktreePath);
+    if (users) {
+      users.delete(sessionId);
+      if (users.size === 0) {
+        this.worktreeUsers.delete(worktreePath);
+      }
+    }
+  }
+
+  /**
+   * Check if other sessions are using a worktree (besides the given session).
+   * Used by cleanupWorktree to determine if safe to delete.
+   */
+  hasOtherSessionsUsingWorktree(worktreePath: string, excludeSessionId: string): boolean {
+    const users = this.worktreeUsers.get(worktreePath);
+    if (!users) return false;
+    // Check if any session other than excludeSessionId is using this worktree
+    return Array.from(users).some(id => id !== excludeSessionId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Unified Context Builder
   // ---------------------------------------------------------------------------
 
@@ -198,6 +251,9 @@ export class SessionManager extends EventEmitter {
       // Worktree
       shouldPromptForWorktree: (s) => this.shouldPromptForWorktree(s),
       postWorktreePrompt: (s, r) => this.postWorktreePrompt(s, r),
+      registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),
+      unregisterWorktreeUser: (path, sid) => this.unregisterWorktreeUser(path, sid),
+      hasOtherSessionsUsingWorktree: (path, sid) => this.hasOtherSessionsUsingWorktree(path, sid),
 
       // Context prompt
       offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
@@ -606,6 +662,7 @@ export class SessionManager extends EventEmitter {
       tasksCompleted: session.tasksCompleted,
       tasksMinimized: session.tasksMinimized,
       worktreeInfo: session.worktreeInfo,
+      isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
@@ -792,12 +849,104 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
+  // Worktree Orphan Cleanup
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Clean up orphaned worktrees on startup.
+   * Orphan = worktree in ~/.claude-threads/worktrees/ with no active session using it.
+   * Also removes worktrees older than 24 hours regardless of metadata.
+   */
+  private async cleanupOrphanedWorktrees(): Promise<void> {
+    const worktreesDir = getWorktreesDir();
+
+    if (!existsSync(worktreesDir)) {
+      log.debug('No worktrees directory exists, nothing to clean');
+      return;
+    }
+
+    // Get list of worktrees currently in use by persisted sessions
+    const persisted = this.sessionStore.load();
+    const activeWorktrees = new Set<string>();
+    for (const session of persisted.values()) {
+      if (session.worktreeInfo?.worktreePath) {
+        activeWorktrees.add(session.worktreeInfo.worktreePath);
+      }
+    }
+
+    const MAX_WORKTREE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
+    const now = Date.now();
+    let cleanedCount = 0;
+
+    try {
+      const entries = await readdir(worktreesDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+
+        const worktreePath = join(worktreesDir, entry.name);
+
+        // Skip worktrees that are in use by persisted sessions
+        if (activeWorktrees.has(worktreePath)) {
+          log.debug(`Worktree in use by persisted session, skipping: ${entry.name}`);
+          continue;
+        }
+
+        // Check metadata for age-based cleanup
+        const meta = await readWorktreeMetadata(worktreePath);
+        if (meta) {
+          const lastActivity = new Date(meta.lastActivityAt).getTime();
+          const age = now - lastActivity;
+
+          if (age < MAX_WORKTREE_AGE_MS) {
+            log.debug(`Worktree recent (${Math.round(age / 60000)}min old), skipping: ${entry.name}`);
+            continue;
+          }
+        }
+
+        // Orphaned or old worktree - clean it up
+        log.info(`🗑️ Cleaning orphaned worktree: ${entry.name}`);
+
+        try {
+          // Try git worktree remove first (proper cleanup)
+          // We need to find the repo root from metadata
+          if (meta?.repoRoot) {
+            await removeGitWorktree(meta.repoRoot, worktreePath);
+          } else {
+            // No metadata, just remove the directory
+            await rm(worktreePath, { recursive: true, force: true });
+          }
+          cleanedCount++;
+        } catch (err) {
+          log.warn(`Failed to clean orphaned worktree ${entry.name}: ${err}`);
+          // Try force remove as fallback
+          try {
+            await rm(worktreePath, { recursive: true, force: true });
+            cleanedCount++;
+          } catch (rmErr) {
+            log.error(`Failed to force remove worktree ${entry.name}: ${rmErr}`);
+          }
+        }
+      }
+    } catch (err) {
+      log.warn(`Failed to scan worktrees directory: ${err}`);
+    }
+
+    if (cleanedCount > 0) {
+      log.info(`🧹 Cleaned ${cleanedCount} orphaned worktree(s)`);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   async initialize(): Promise<void> {
     // Initialize sticky message module with session store for persistence
     stickyMessage.initialize(this.sessionStore);
+
+    // Clean up orphaned worktrees from previous runs
+    await this.cleanupOrphanedWorktrees();
 
     // Clean up old sticky messages from the bot (from failed/crashed runs)
     for (const platform of this.platforms.values()) {
@@ -996,6 +1145,7 @@ export class SessionManager extends EventEmitter {
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
+      registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),
     });
   }
 
