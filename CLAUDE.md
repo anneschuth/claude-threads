@@ -125,7 +125,7 @@ platforms:
 - Requires both a Bot Token (`xoxb-`) and App Token (`xapp-`) for Socket Mode
 - `allowedUsers` uses Slack usernames (not user IDs) for consistency with Mattermost
 - User mentions in messages use Slack user IDs (e.g., `<@U0123ALICE>`) - the bot handles this automatically
-- Bot Token scopes required: `channels:history`, `channels:read`, `chat:write`, `reactions:read`, `reactions:write`, `users:read`
+- Bot Token scopes required: `channels:history`, `channels:read`, `chat:write`, `files:read`, `reactions:read`, `reactions:write`, `users:read`
 - App Token scope: `connections:write` (Socket Mode must be enabled in the Slack app)
 
 Configuration is stored in YAML only - no `.env` file support.
