@@ -101,6 +101,56 @@ export async function getCurrentBranch(dir: string): Promise<string | null> {
 }
 
 /**
+ * Get the default branch name (main or master)
+ */
+export async function getDefaultBranch(repoRoot: string): Promise<string> {
+  try {
+    // First try to get from origin/HEAD
+    const remoteHead = await execGit(['symbolic-ref', '--short', 'refs/remotes/origin/HEAD'], repoRoot);
+    return remoteHead.replace('origin/', '');
+  } catch {
+    // Fall back to checking for main or master
+    try {
+      await execGit(['rev-parse', '--verify', 'main'], repoRoot);
+      return 'main';
+    } catch {
+      try {
+        await execGit(['rev-parse', '--verify', 'master'], repoRoot);
+        return 'master';
+      } catch {
+        return 'main'; // Default fallback
+      }
+    }
+  }
+}
+
+/**
+ * Check if a branch has been merged into the default branch (main/master)
+ * Returns true if the branch's HEAD is an ancestor of the default branch
+ */
+export async function isBranchMerged(repoRoot: string, branchName: string): Promise<boolean> {
+  try {
+    const defaultBranch = await getDefaultBranch(repoRoot);
+
+    // Skip if checking the default branch itself
+    if (branchName === defaultBranch) {
+      return false;
+    }
+
+    // Fetch to ensure we have latest refs (ignore errors - might be offline)
+    await execGit(['fetch', 'origin', defaultBranch], repoRoot).catch(() => {});
+
+    // Check if branch commit is ancestor of default branch
+    // merge-base --is-ancestor exits 0 if ancestor, 1 if not
+    await execGit(['merge-base', '--is-ancestor', branchName, `origin/${defaultBranch}`], repoRoot);
+    return true;
+  } catch {
+    // Not merged or error checking
+    return false;
+  }
+}
+
+/**
  * Check if there are uncommitted changes (staged or unstaged)
  */
 export async function hasUncommittedChanges(dir: string): Promise<boolean> {

@@ -29,6 +29,7 @@ import {
   getWorktreesDir,
   readWorktreeMetadata,
   removeWorktree as removeGitWorktree,
+  isBranchMerged,
 } from '../git/worktree.js';
 
 // Import extracted modules
@@ -892,20 +893,37 @@ export class SessionManager extends EventEmitter {
           continue;
         }
 
-        // Check metadata for age-based cleanup
+        // Check metadata for age-based and merged-branch cleanup
         const meta = await readWorktreeMetadata(worktreePath);
+        let shouldCleanup = false;
+        let cleanupReason = '';
+
         if (meta) {
           const lastActivity = new Date(meta.lastActivityAt).getTime();
           const age = now - lastActivity;
 
-          if (age < MAX_WORKTREE_AGE_MS) {
+          // Check if branch was merged
+          const merged = await isBranchMerged(meta.repoRoot, meta.branch).catch(() => false);
+          if (merged) {
+            shouldCleanup = true;
+            cleanupReason = `branch "${meta.branch}" was merged`;
+          } else if (age >= MAX_WORKTREE_AGE_MS) {
+            shouldCleanup = true;
+            cleanupReason = `inactive for ${Math.round(age / 3600000)}h`;
+          } else {
             log.debug(`Worktree recent (${Math.round(age / 60000)}min old), skipping: ${entry.name}`);
             continue;
           }
+        } else {
+          // No metadata = truly orphaned
+          shouldCleanup = true;
+          cleanupReason = 'no metadata';
         }
 
-        // Orphaned or old worktree - clean it up
-        log.info(`🗑️ Cleaning orphaned worktree: ${entry.name}`);
+        if (!shouldCleanup) continue;
+
+        // Orphaned, old, or merged worktree - clean it up
+        log.info(`🗑️ Cleaning worktree (${cleanupReason}): ${entry.name}`);
 
         try {
           // Try git worktree remove first (proper cleanup)
