@@ -652,14 +652,18 @@ export async function flush(
 
     // Create the continuation post if there's content
     if (remainder) {
+      // Format the continuation marker using the platform's formatter for consistency
+      const continuationMarker = formatter.formatItalic('(continued)');
+      const continuationContent = continuationMarker + '\n\n' + remainder;
+
       // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
       const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
       if (hasActiveTasks) {
-        const postId = await bumpTasksToBottomWithContent(session, '*(continued)*\n\n' + remainder, registerPost);
+        const postId = await bumpTasksToBottomWithContent(session, continuationContent, registerPost);
         session.currentPostId = postId;
       } else {
         const post = await withErrorHandling(
-          () => session.platform.createPost('*(continued)*\n\n' + remainder, session.threadId),
+          () => session.platform.createPost(continuationContent, session.threadId),
           { action: 'Create continuation post', session }
         );
         if (post) {

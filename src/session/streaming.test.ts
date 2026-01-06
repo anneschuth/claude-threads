@@ -331,8 +331,8 @@ describe('flush with continuation (message splitting)', () => {
     // Should update current post with first part
     expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
 
-    // Should repurpose tasks post for continuation
-    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('*(continued)*'));
+    // Should repurpose tasks post for continuation (uses formatItalic)
+    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('_(continued)_'));
 
     // Should create new tasks post with toggle emoji
     expect(platform.createInteractivePost).toHaveBeenCalledWith('📋 Tasks', ['arrow_down_small'], 'thread1');
@@ -354,11 +354,52 @@ describe('flush with continuation (message splitting)', () => {
     // Should update current post with first part
     expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
 
-    // Should NOT repurpose tasks post - create new post instead
-    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('*(continued)*'), 'thread1');
+    // Should NOT repurpose tasks post - create new post instead (uses formatItalic)
+    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('_(continued)_'), 'thread1');
 
     // Tasks post should remain unchanged
     expect(session.tasksPostId).toBe('tasks_post');
+  });
+
+  test('continuation post starting with code block uses formatter for italic marker', async () => {
+    // Set up completed task list so we don't bump it
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
+    session.tasksCompleted = true;
+
+    // Create content with a code block that will be split
+    // The code block must exceed HARD_CONTINUATION_THRESHOLD (14000 chars)
+    const codeContent = 'x'.repeat(15000);
+    const contentWithCodeBlock = `Some text\n\`\`\`typescript\n${codeContent}\n\`\`\`\nEnd text`;
+
+    session.currentPostId = 'current_post';
+    session.pendingContent = contentWithCodeBlock;
+
+    await flush(session, registerPost);
+
+    // Should create continuation post with italic marker (not bold asterisks)
+    const createCalls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    expect(createCalls.length).toBeGreaterThan(0);
+
+    const continuationCall = createCalls.find((call: unknown[]) =>
+      typeof call[0] === 'string' && call[0].includes('(continued)')
+    ) as [string, string] | undefined;
+    expect(continuationCall).toBeDefined();
+
+    // The continuation marker should use formatItalic: _(continued)_ not *(continued)*
+    expect(continuationCall?.[0]).toContain('_(continued)_');
+    expect(continuationCall?.[0]).not.toContain('*(continued)*');
+
+    // The code block should be properly reopened after the marker
+    // This ensures proper rendering when continuation starts with code
+    if (continuationCall?.[0]?.includes('```')) {
+      // If continuation contains a code block, verify there's proper separation
+      const content = continuationCall[0];
+      const markerIndex = content.indexOf('_(continued)_');
+      const codeBlockIndex = content.indexOf('```');
+      // Code block should come after the marker with newlines between
+      expect(codeBlockIndex).toBeGreaterThan(markerIndex);
+    }
   });
 });
 
