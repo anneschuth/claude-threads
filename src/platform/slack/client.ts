@@ -386,13 +386,17 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
         // Only reconnect if not intentional and server didn't shut down
         // When the server shuts down (e.g., test mock server), we should not reconnect
+        // Also don't reconnect when connection was replaced by a new one (test cleanup race condition)
         const serverShutdown = event.reason?.toLowerCase().includes('server shutting down');
-        if (!this.isIntentionalDisconnect && !serverShutdown) {
+        const connectionReplaced = event.reason?.toLowerCase().includes('new connection replacing');
+        if (!this.isIntentionalDisconnect && !serverShutdown && !connectionReplaced) {
           wsLogger.debug('Scheduling reconnect...');
           this.scheduleReconnect();
         } else {
           if (serverShutdown) {
             wsLogger.debug('Server shutdown detected, not reconnecting');
+          } else if (connectionReplaced) {
+            wsLogger.debug('Connection replaced by new one, not reconnecting');
           } else {
             wsLogger.debug('Intentional disconnect, not reconnecting');
           }
