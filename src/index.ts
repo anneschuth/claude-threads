@@ -374,6 +374,9 @@ async function main() {
     // Set shutdown flag FIRST to prevent race conditions with exit events
     session.setShuttingDown();
 
+    // Update sticky messages to show shutdown state
+    await session.updateAllStickyMessages();
+
     // Post shutdown message to active sessions (updates existing timeout posts or creates new ones)
     const activeCount = session.getActiveThreadIds().length;
     if (activeCount > 0) {
