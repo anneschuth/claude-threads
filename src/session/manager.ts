@@ -501,7 +501,9 @@ export class SessionManager extends EventEmitter {
 
   private appendContent(session: Session, text: string): void {
     if (!text) return;
-    session.pendingContent += text + '\n';
+    // Use double newlines for proper visual separation between content blocks
+    // This ensures code blocks, tool results, and text are properly separated
+    session.pendingContent += text + '\n\n';
     streaming.scheduleUpdate(session, (s) => this.flush(s));
   }
 
