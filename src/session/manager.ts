@@ -676,6 +676,9 @@ export class SessionManager extends EventEmitter {
    * Sessions are persisted and can be resumed when platform is re-enabled.
    */
   async pauseSessionsForPlatform(platformId: string): Promise<void> {
+    // Mark platform as paused in sticky message module
+    stickyMessage.setPlatformPaused(platformId, true);
+
     const sessionsToKill: Session[] = [];
 
     for (const session of this.sessions.values()) {
@@ -686,6 +689,8 @@ export class SessionManager extends EventEmitter {
 
     if (sessionsToKill.length === 0) {
       log.info(`No active sessions to pause for platform ${platformId}`);
+      // Still update sticky message to show paused state
+      await this.updateStickyMessage();
       return;
     }
 
@@ -733,6 +738,9 @@ export class SessionManager extends EventEmitter {
         }
       }
     }
+
+    // Update sticky message to show paused state
+    await this.updateStickyMessage();
   }
 
   /**
@@ -740,6 +748,8 @@ export class SessionManager extends EventEmitter {
    * Called when a platform is re-enabled via keyboard toggle.
    */
   async resumePausedSessionsForPlatform(platformId: string): Promise<void> {
+    // Mark platform as active (not paused) in sticky message module
+    stickyMessage.setPlatformPaused(platformId, false);
     const persisted = this.sessionStore.load();
     const sessionsToResume: PersistedSession[] = [];
 
@@ -756,6 +766,8 @@ export class SessionManager extends EventEmitter {
 
     if (sessionsToResume.length === 0) {
       log.info(`No paused sessions to resume for platform ${platformId}`);
+      // Still update sticky message to clear paused state
+      await this.updateStickyMessage();
       return;
     }
 
@@ -769,6 +781,9 @@ export class SessionManager extends EventEmitter {
         log.warn(`Failed to resume session ${state.threadId}: ${err}`);
       }
     }
+
+    // Update sticky message to clear paused state (sessions trigger their own updates)
+    await this.updateStickyMessage();
   }
 
   // ---------------------------------------------------------------------------
@@ -1114,6 +1129,8 @@ export class SessionManager extends EventEmitter {
 
   setShuttingDown(): void {
     this.isShuttingDown = true;
+    // Update sticky message module to show shutdown state
+    stickyMessage.setShuttingDown(true);
   }
 
   // Shutdown

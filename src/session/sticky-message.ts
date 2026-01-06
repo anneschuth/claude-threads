@@ -152,6 +152,12 @@ const updateLocks: Map<string, Promise<void>> = new Map();
 // Reference to session store for persistence
 let sessionStore: SessionStore | null = null;
 
+// Track paused platforms (platform ID -> true if paused)
+const pausedPlatforms: Map<string, boolean> = new Map();
+
+// Track bot shutdown state
+let isShuttingDown = false;
+
 /**
  * Initialize the sticky message module with the session store for persistence.
  */
@@ -167,6 +173,43 @@ export function initialize(store: SessionStore): void {
   if (persistedIds.size > 0) {
     log.info(`📌 Restored ${persistedIds.size} sticky post ID(s) from persistence`);
   }
+}
+
+/**
+ * Mark a platform as paused/unpaused.
+ * When paused, the sticky message will show a pause indicator.
+ */
+export function setPlatformPaused(platformId: string, paused: boolean): void {
+  if (paused) {
+    pausedPlatforms.set(platformId, true);
+    log.debug(`Platform ${platformId} marked as paused`);
+  } else {
+    pausedPlatforms.delete(platformId);
+    log.debug(`Platform ${platformId} marked as active`);
+  }
+}
+
+/**
+ * Check if a platform is paused.
+ */
+export function isPlatformPaused(platformId: string): boolean {
+  return pausedPlatforms.get(platformId) ?? false;
+}
+
+/**
+ * Mark the bot as shutting down.
+ * The sticky message will show a shutdown indicator.
+ */
+export function setShuttingDown(shuttingDown: boolean): void {
+  isShuttingDown = shuttingDown;
+  log.debug(`Bot shutdown state: ${shuttingDown}`);
+}
+
+/**
+ * Check if the bot is shutting down.
+ */
+export function getShuttingDown(): boolean {
+  return isShuttingDown;
 }
 
 
@@ -299,9 +342,20 @@ function formatHistoryEntry(
 async function buildStatusBar(
   sessionCount: number,
   config: StickyMessageConfig,
-  formatter: PlatformFormatter
+  formatter: PlatformFormatter,
+  platformId: string
 ): Promise<string> {
   const items: string[] = [];
+
+  // Show shutdown indicator prominently at the start
+  if (isShuttingDown) {
+    items.push(formatter.formatCode('🛑 Shutting down...'));
+  }
+
+  // Show paused indicator for this platform
+  if (pausedPlatforms.get(platformId)) {
+    items.push(formatter.formatCode('⏸️ Platform paused'));
+  }
 
   // Version (claude-threads + Claude CLI)
   const claudeVersion = getClaudeCliVersion();
@@ -390,6 +444,32 @@ export async function buildStickyMessage(
   formatter: PlatformFormatter,
   getThreadLink: (threadId: string) => string
 ): Promise<string> {
+  // If shutting down, show a minimal message
+  if (isShuttingDown) {
+    const lines = [
+      formatter.formatHorizontalRule(),
+      formatter.formatCode('🛑 Shutting down...'),
+      '',
+      formatter.formatBold('Bot Offline'),
+      '',
+      formatter.formatItalic('Sessions will resume on restart'),
+    ];
+    return lines.join('\n');
+  }
+
+  // If this platform is paused, show a minimal message
+  if (pausedPlatforms.get(platformId)) {
+    const lines = [
+      formatter.formatHorizontalRule(),
+      formatter.formatCode('⏸️ Platform paused'),
+      '',
+      formatter.formatBold('Platform Paused'),
+      '',
+      formatter.formatItalic('Sessions will resume when platform is re-enabled'),
+    ];
+    return lines.join('\n');
+  }
+
   // Get all sessions and separate by platform
   const allSessions = [...sessions.values()];
   const thisPlatformSessions = allSessions.filter(s => s.platformId === platformId);
@@ -397,7 +477,7 @@ export async function buildStickyMessage(
   const totalCount = allSessions.length;
 
   // Build status bar (shown even when no sessions) - show total count
-  const statusBar = await buildStatusBar(totalCount, config, formatter);
+  const statusBar = await buildStatusBar(totalCount, config, formatter, platformId);
 
   // Get recent history (completed + timed-out sessions)
   // Pass active session IDs to exclude them from history
