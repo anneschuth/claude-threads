@@ -34,6 +34,16 @@ function createMockFormatter(): PlatformFormatter {
     formatHorizontalRule: () => '---',
     formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
     escapeText: (text: string) => text.replace(/([*_`[\]()#+\-.!])/g, '\\$1'),
+    formatTable: (headers: string[], rows: string[][]) => {
+      const headerRow = `| ${headers.join(' | ')} |`;
+      const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
+      const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
+      return [headerRow, separatorRow, ...dataRows].join('\n');
+    },
+    formatKeyValueList: (items: [string, string, string][]) => {
+      const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
+      return ['| | |', '|---|---|', ...rows].join('\n');
+    },
   };
 }
 

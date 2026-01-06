@@ -82,4 +82,24 @@ export interface PlatformFormatter {
    * Escape special characters in text to prevent formatting
    */
   escapeText(text: string): string;
+
+  /**
+   * Format a table with headers and rows
+   * Mattermost: Standard markdown table
+   * Slack: Formatted as key-value list (no native table support)
+   *
+   * @param headers - Column headers
+   * @param rows - Array of row data (each row is array of cell values)
+   * @returns Formatted table string
+   */
+  formatTable(headers: string[], rows: string[][]): string;
+
+  /**
+   * Format a simple key-value list (for things like session headers)
+   * Displays as table in Mattermost, as list in Slack
+   *
+   * @param items - Array of [icon, label, value] tuples
+   * @returns Formatted key-value display
+   */
+  formatKeyValueList(items: [string, string, string][]): string;
 }

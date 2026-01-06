@@ -109,26 +109,30 @@ export async function handleMessage(
       // Check for !help command
       if (lowerContent === '!help') {
         const code = formatter.formatCode.bind(formatter);
+        const commandTable = formatter.formatTable(
+          ['Command', 'Description'],
+          [
+            [code('!cd <path>'), 'Change working directory (restarts Claude)'],
+            [code('!worktree <branch>'), 'Create and switch to a git worktree'],
+            [code('!worktree list'), 'List all worktrees for the repo'],
+            [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
+            [code('!worktree remove <branch>'), 'Remove a worktree'],
+            [code('!worktree off'), 'Disable worktree prompts for this session'],
+            [code('!invite @user'), 'Invite a user to this session'],
+            [code('!kick @user'), 'Remove an invited user'],
+            [code('!permissions interactive'), 'Enable interactive permissions'],
+            [code('!escape'), 'Interrupt current task (session stays active)'],
+            [code('!stop'), 'Stop this session'],
+            [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
+          ]
+        );
         await client.createPost(
           `${formatter.formatBold('Commands:')}\n\n` +
-            `| Command | Description |\n` +
-            `|---------|-------------|\n` +
-            `| ${code('!cd <path>')} | Change working directory (restarts Claude) |\n` +
-            `| ${code('!worktree <branch>')} | Create and switch to a git worktree |\n` +
-            `| ${code('!worktree list')} | List all worktrees for the repo |\n` +
-            `| ${code('!worktree switch <branch>')} | Switch to an existing worktree |\n` +
-            `| ${code('!worktree remove <branch>')} | Remove a worktree |\n` +
-            `| ${code('!worktree off')} | Disable worktree prompts for this session |\n` +
-            `| ${code('!invite @user')} | Invite a user to this session |\n` +
-            `| ${code('!kick @user')} | Remove an invited user |\n` +
-            `| ${code('!permissions interactive')} | Enable interactive permissions |\n` +
-            `| ${code('!escape')} | Interrupt current task (session stays active) |\n` +
-            `| ${code('!stop')} | Stop this session |\n` +
-            `| ${code('!kill')} | Emergency shutdown (kills ALL sessions, exits bot) |\n\n` +
-            `${formatter.formatBold('Reactions:')}\n` +
-            `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
-            `- ⏸️ Interrupt current task (session stays active)\n` +
-            `- ❌ or 🛑 Stop session`,
+            commandTable +
+            `\n\n${formatter.formatBold('Reactions:')}\n` +
+            `${formatter.formatListItem('👍 Approve action · ✅ Approve all · 👎 Deny')}\n` +
+            `${formatter.formatListItem('⏸️ Interrupt current task (session stays active)')}\n` +
+            `${formatter.formatListItem('❌ or 🛑 Stop session')}`,
           threadRoot
         );
         return;

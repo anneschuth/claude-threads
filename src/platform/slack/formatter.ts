@@ -79,4 +79,22 @@ export class SlackFormatter implements PlatformFormatter {
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;');
   }
+
+  formatTable(headers: string[], rows: string[][]): string {
+    // Slack doesn't support markdown tables, so format as structured list
+    const lines: string[] = [];
+    for (const row of rows) {
+      const items = row.map((cell, i) => {
+        const header = headers[i];
+        return header ? `*${header}:* ${cell}` : cell;
+      });
+      lines.push(items.join(' · '));
+    }
+    return lines.join('\n');
+  }
+
+  formatKeyValueList(items: [string, string, string][]): string {
+    // Render as indented list with icon, bold label, and value
+    return items.map(([icon, label, value]) => `${icon} *${label}:* ${value}`).join('\n');
+  }
 }

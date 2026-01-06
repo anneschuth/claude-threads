@@ -18,6 +18,16 @@ const mattermostFormatter: PlatformFormatter = {
   formatHorizontalRule: () => '---',
   formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
   escapeText: (text: string) => text,
+  formatTable: (headers: string[], rows: string[][]) => {
+    const headerRow = `| ${headers.join(' | ')} |`;
+    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
+    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
+    return [headerRow, separatorRow, ...dataRows].join('\n');
+  },
+  formatKeyValueList: (items: [string, string, string][]) => {
+    const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
+    return ['| | |', '|---|---|', ...rows].join('\n');
+  },
 };
 
 // Mock formatter for Slack-style formatting
@@ -34,6 +44,20 @@ const slackFormatter: PlatformFormatter = {
   formatHorizontalRule: () => '---',
   formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
   escapeText: (text: string) => text,
+  formatTable: (headers: string[], rows: string[][]) => {
+    const lines: string[] = [];
+    for (const row of rows) {
+      const items = row.map((cell, i) => {
+        const header = headers[i];
+        return header ? `*${header}:* ${cell}` : cell;
+      });
+      lines.push(items.join(' · '));
+    }
+    return lines.join('\n');
+  },
+  formatKeyValueList: (items: [string, string, string][]) => {
+    return items.map(([icon, label, value]) => `${icon} *${label}:* ${value}`).join('\n');
+  },
 };
 
 // Note: Most post-helpers functions require a Session object with a platform client.

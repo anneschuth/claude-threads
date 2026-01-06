@@ -117,4 +117,53 @@ describe('SlackFormatter', () => {
       expect(formatter.escapeText('*bold* and _italic_')).toBe('*bold* and _italic_');
     });
   });
+
+  describe('formatTable', () => {
+    it('formats table as structured list (Slack has no native tables)', () => {
+      const result = formatter.formatTable(
+        ['Command', 'Description'],
+        [
+          ['!help', 'Show help'],
+          ['!stop', 'Stop session'],
+        ]
+      );
+      expect(result).toBe(
+        '*Command:* !help · *Description:* Show help\n' +
+        '*Command:* !stop · *Description:* Stop session'
+      );
+    });
+
+    it('handles single row', () => {
+      const result = formatter.formatTable(['Name'], [['Alice']]);
+      expect(result).toBe('*Name:* Alice');
+    });
+
+    it('handles empty rows', () => {
+      const result = formatter.formatTable(['A', 'B'], []);
+      expect(result).toBe('');
+    });
+  });
+
+  describe('formatKeyValueList', () => {
+    it('formats key-value pairs with icons and bold labels', () => {
+      const result = formatter.formatKeyValueList([
+        ['📂', 'Directory', '/home/user'],
+        ['👤', 'User', '@alice'],
+      ]);
+      expect(result).toBe(
+        '📂 *Directory:* /home/user\n' +
+        '👤 *User:* @alice'
+      );
+    });
+
+    it('handles single item', () => {
+      const result = formatter.formatKeyValueList([['🔑', 'Key', 'value']]);
+      expect(result).toBe('🔑 *Key:* value');
+    });
+
+    it('handles empty list', () => {
+      const result = formatter.formatKeyValueList([]);
+      expect(result).toBe('');
+    });
+  });
 });

@@ -507,52 +507,55 @@ export async function updateSessionHeader(
 
   const statusBar = statusItems.join(' · ');
 
-  const rows: string[] = [];
+  // Build key-value items as tuples: [icon, label, value]
+  const items: [string, string, string][] = [];
 
   // Add title and description if available
   if (session.sessionTitle) {
-    rows.push(`| 📝 ${formatter.formatBold('Topic')} | ${session.sessionTitle} |`);
+    items.push(['📝', 'Topic', session.sessionTitle]);
   }
   if (session.sessionDescription) {
-    rows.push(`| 📄 ${formatter.formatBold('Summary')} | ${formatter.formatItalic(session.sessionDescription)} |`);
+    items.push(['📄', 'Summary', formatter.formatItalic(session.sessionDescription)]);
   }
 
-  rows.push(`| 📂 ${formatter.formatBold('Directory')} | ${formatter.formatCode(shortDir)} |`);
-  rows.push(`| 👤 ${formatter.formatBold('Started by')} | ${formatter.formatUserMention(session.startedBy)} |`);
+  items.push(['📂', 'Directory', formatter.formatCode(shortDir)]);
+  items.push(['👤', 'Started by', formatter.formatUserMention(session.startedBy)]);
 
   // Show worktree info if active, otherwise show git branch if in a git repo
   if (session.worktreeInfo) {
     const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
-    rows.push(
-      `| 🌿 ${formatter.formatBold('Worktree')} | ${formatter.formatCode(session.worktreeInfo.branch)} (from ${formatter.formatCode(shortRepoRoot)}) |`
-    );
+    items.push([
+      '🌿',
+      'Worktree',
+      `${formatter.formatCode(session.worktreeInfo.branch)} (from ${formatter.formatCode(shortRepoRoot)})`
+    ]);
   } else {
     // Check if we're in a git repository and get the current branch
     const isRepo = await isGitRepository(session.workingDir);
     if (isRepo) {
       const branch = await getCurrentBranch(session.workingDir);
       if (branch) {
-        rows.push(`| 🌿 ${formatter.formatBold('Branch')} | ${formatter.formatCode(branch)} |`);
+        items.push(['🌿', 'Branch', formatter.formatCode(branch)]);
       }
     }
   }
 
   // Show pull request link if available
   if (session.pullRequestUrl) {
-    rows.push(`| 🔗 ${formatter.formatBold('Pull Request')} | ${formatPullRequestLink(session.pullRequestUrl)} |`);
+    items.push(['🔗', 'Pull Request', formatPullRequestLink(session.pullRequestUrl)]);
   }
 
   if (otherParticipants) {
-    rows.push(`| 👥 ${formatter.formatBold('Participants')} | ${otherParticipants} |`);
+    items.push(['👥', 'Participants', otherParticipants]);
   }
 
   // Show Claude CLI version
   const claudeVersion = getClaudeCliVersion();
   if (claudeVersion) {
-    rows.push(`| 🤖 ${formatter.formatBold('Claude CLI')} | ${formatter.formatCode(claudeVersion)} |`);
+    items.push(['🤖', 'Claude CLI', formatter.formatCode(claudeVersion)]);
   }
 
-  rows.push(`| 🆔 ${formatter.formatBold('Session ID')} | ${formatter.formatCode(session.claudeSessionId.substring(0, 8))} |`);
+  items.push(['🆔', 'Session ID', formatter.formatCode(session.claudeSessionId.substring(0, 8))]);
 
   // Check for available updates
   const updateInfo = getUpdateInfo();
@@ -571,9 +574,7 @@ export async function updateSessionHeader(
     whatsNewLine,
     statusBar,
     '',
-    `| | |`,
-    `|:--|:--|`,
-    ...rows,
+    formatter.formatKeyValueList(items),
   ].join('\n');
 
   const postId = session.sessionStartPostId;
