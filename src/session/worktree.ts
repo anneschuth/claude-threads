@@ -696,6 +696,69 @@ export interface CleanupResult {
 }
 
 /**
+ * Manually clean up the current session's worktree.
+ * Called via !worktree cleanup command.
+ *
+ * This allows users to explicitly delete their worktree when they're done.
+ * The session will be switched back to the original repo root.
+ */
+export async function cleanupWorktreeCommand(
+  session: Session,
+  username: string,
+  hasOtherSessionsUsingWorktree: (worktreePath: string, excludeSessionId: string) => boolean,
+  changeDirectory: (threadId: string, path: string, username: string) => Promise<void>
+): Promise<void> {
+  // Only session owner or admins can manage worktrees
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to cleanup worktree`);
+    return;
+  }
+
+  // Check if we're in a worktree
+  if (!session.worktreeInfo) {
+    await postWarning(session, `Not currently in a worktree. Nothing to clean up.`);
+    return;
+  }
+
+  const { worktreePath, repoRoot, branch } = session.worktreeInfo;
+
+  // Path safety check - must be in ~/.claude-threads/worktrees/
+  if (!isValidWorktreePath(worktreePath)) {
+    await postError(session, `Cannot cleanup: worktree is not in the centralized location (~/.claude-threads/worktrees/)`);
+    sessionLog(session).warn(`🌿 Invalid worktree path for cleanup: ${worktreePath}`);
+    return;
+  }
+
+  // Check for other sessions using this worktree
+  if (hasOtherSessionsUsingWorktree(worktreePath, session.sessionId)) {
+    await postWarning(session, `Cannot cleanup: other sessions are still using this worktree`);
+    sessionLog(session).info(`🌿 Skipping cleanup - other sessions using worktree`);
+    return;
+  }
+
+  // Switch to original repo root first
+  await postInfo(session, `Switching back to \`${repoRoot}\` before cleanup...`);
+  await changeDirectory(session.threadId, repoRoot, username);
+
+  // Clear worktree info from session
+  session.worktreeInfo = undefined;
+  session.isWorktreeOwner = undefined;
+
+  // Attempt cleanup
+  try {
+    sessionLog(session).info(`🗑️ Cleaning up worktree: ${worktreePath}`);
+    await removeGitWorktree(repoRoot, worktreePath);
+
+    const shortPath = worktreePath.replace(process.env.HOME || '', '~');
+    await postSuccess(session, `Cleaned up worktree \`${branch}\` at \`${shortPath}\``);
+    sessionLog(session).info(`✅ Worktree cleaned up successfully`);
+  } catch (err) {
+    await logAndNotify(err, { action: 'Cleanup worktree', session });
+  }
+}
+
+/**
  * Clean up a worktree when a session ends.
  *
  * Cleanup only happens when:

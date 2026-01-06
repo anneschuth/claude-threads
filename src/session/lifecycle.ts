@@ -19,7 +19,6 @@ import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
 import type { SessionContext } from './context.js';
-import { cleanupWorktree } from './worktree.js';
 
 const log = createLogger('lifecycle');
 
@@ -794,13 +793,10 @@ export async function handleExit(
     const resumeFailFormatter = session.platform.getFormatter();
     if (isPermanent) {
       sessionLog(session).warn(`Detected permanent failure, removing from persistence: ${permanentReason}`);
-      // Clean up worktree on permanent failure
+      // Unregister from worktree but don't cleanup - user may want to recover work
+      // Orphan cleanup will handle it after 24h
       if (session.worktreeInfo) {
         ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
-        const cleanupResult = await cleanupWorktree(session, ctx.ops.hasOtherSessionsUsingWorktree);
-        if (!cleanupResult.success) {
-          sessionLog(session).warn(`Worktree cleanup failed: ${cleanupResult.error}`);
-        }
       }
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
@@ -814,13 +810,10 @@ export async function handleExit(
     if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence
       sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
-      // Clean up worktree on final failure
+      // Unregister from worktree but don't cleanup - user may want to recover work
+      // Orphan cleanup will handle it after 24h
       if (session.worktreeInfo) {
         ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
-        const cleanupResult = await cleanupWorktree(session, ctx.ops.hasOtherSessionsUsingWorktree);
-        if (!cleanupResult.success) {
-          sessionLog(session).warn(`Worktree cleanup failed: ${cleanupResult.error}`);
-        }
       }
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
@@ -859,15 +852,12 @@ export async function handleExit(
     await postInfo(session, exitFormatter.formatBold(`[Exited: ${code}]`));
   }
 
-  // Clean up worktree if this session owns it and no other sessions are using it
-  // Note: We clean up on both normal exit (code=0) and error exit (code≠0)
-  // Worktrees are only preserved for timeout/interrupt/shutdown scenarios
+  // Unregister from worktree reference counting, but DON'T cleanup automatically
+  // Worktrees are preserved for potential reuse - cleanup happens via:
+  // - !worktree cleanup command (manual)
+  // - Orphan cleanup on startup (worktrees > 24h old with no session)
   if (session.worktreeInfo) {
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
-    const cleanupResult = await cleanupWorktree(session, ctx.ops.hasOtherSessionsUsingWorktree);
-    if (!cleanupResult.success) {
-      sessionLog(session).warn(`Worktree cleanup failed: ${cleanupResult.error}`);
-    }
   }
 
   // Clean up session from maps
@@ -912,14 +902,10 @@ export async function killSession(
     await session.platform.unpinPost(session.tasksPostId).catch(() => {});
   }
 
-  // Clean up worktree if unpersisting (user explicitly ended session)
-  // Don't cleanup if preserving for resume (unpersist=false, e.g., timeout)
+  // Unregister from worktree reference counting, but DON'T cleanup automatically
+  // Worktrees are preserved for potential reuse - cleanup via !worktree cleanup or orphan cleanup
   if (unpersist && session.worktreeInfo) {
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
-    const cleanupResult = await cleanupWorktree(session, ctx.ops.hasOtherSessionsUsingWorktree);
-    if (!cleanupResult.success) {
-      sessionLog(session).warn(`Worktree cleanup failed: ${cleanupResult.error}`);
-    }
   }
 
   // Clean up session from maps

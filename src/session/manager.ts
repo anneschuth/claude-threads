@@ -1178,6 +1178,17 @@ export class SessionManager extends EventEmitter {
     await worktreeModule.disableWorktreePrompt(session, username, (s) => this.persistSession(s));
   }
 
+  async cleanupWorktreeCommand(threadId: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await worktreeModule.cleanupWorktreeCommand(
+      session,
+      username,
+      (path, sid) => this.hasOtherSessionsUsingWorktree(path, sid),
+      (tid, path, user) => this.changeDirectory(tid, path, user)
+    );
+  }
+
   hasPendingWorktreePrompt(threadId: string): boolean {
     const session = this.findSessionByThreadId(threadId);
     return session?.pendingWorktreePrompt === true;

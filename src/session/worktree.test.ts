@@ -495,4 +495,87 @@ describe('Worktree Module', () => {
       expect(session.isWorktreeOwner).toBe(true);
     });
   });
+
+  describe('cleanupWorktreeCommand', () => {
+    beforeEach(() => {
+      mockIsValidWorktreePath.mockReset();
+      mockIsValidWorktreePath.mockImplementation((path: string) => path.includes('/.claude-threads/worktrees/'));
+      mockRemoveWorktree.mockReset();
+      mockRemoveWorktree.mockResolvedValue(undefined);
+    });
+
+    it('cleans up worktree and switches back to repo root', async () => {
+      mockIsValidWorktreePath.mockReturnValue(true);
+
+      const session = createMockSession({
+        worktreeInfo: {
+          repoRoot: '/original/repo',
+          worktreePath: '/home/user/.claude-threads/worktrees/repo-wt',
+          branch: 'feature',
+        },
+        isWorktreeOwner: true,
+      });
+
+      const changeDirectoryCalled: string[] = [];
+      const changeDirectory = mock(async (threadId: string, path: string) => {
+        changeDirectoryCalled.push(path);
+      });
+
+      await worktree.cleanupWorktreeCommand(
+        session,
+        'testuser',
+        () => false,
+        changeDirectory
+      );
+
+      // Should switch back to repo root
+      expect(changeDirectoryCalled).toContain('/original/repo');
+      // Should clear worktree info
+      expect(session.worktreeInfo).toBeUndefined();
+      expect(session.isWorktreeOwner).toBeUndefined();
+      // Should remove worktree
+      expect(mockRemoveWorktree).toHaveBeenCalled();
+    });
+
+    it('refuses cleanup when not in a worktree', async () => {
+      const session = createMockSession({
+        worktreeInfo: undefined,
+      });
+
+      await worktree.cleanupWorktreeCommand(
+        session,
+        'testuser',
+        () => false,
+        mock()
+      );
+
+      // Should not attempt removal
+      expect(mockRemoveWorktree).not.toHaveBeenCalled();
+    });
+
+    it('refuses cleanup when other sessions are using worktree', async () => {
+      mockIsValidWorktreePath.mockReturnValue(true);
+
+      const session = createMockSession({
+        worktreeInfo: {
+          repoRoot: '/repo',
+          worktreePath: '/home/user/.claude-threads/worktrees/repo-wt',
+          branch: 'feature',
+        },
+        isWorktreeOwner: true,
+      });
+
+      await worktree.cleanupWorktreeCommand(
+        session,
+        'testuser',
+        () => true, // Other sessions using it
+        mock()
+      );
+
+      // Should not remove worktree
+      expect(mockRemoveWorktree).not.toHaveBeenCalled();
+      // Should not clear worktree info
+      expect(session.worktreeInfo).toBeDefined();
+    });
+  });
 });
