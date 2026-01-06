@@ -5,34 +5,7 @@ import {
   formatToolUse,
   formatToolForPermission,
 } from './tool-formatter.js';
-import type { PlatformFormatter } from '../platform/formatter.js';
-
-// Mock formatter for tests - uses standard markdown syntax
-const formatter: PlatformFormatter = {
-  formatBold: (text: string) => `**${text}**`,
-  formatItalic: (text: string) => `_${text}_`,
-  formatCode: (text: string) => `\`${text}\``,
-  formatCodeBlock: (code: string, language?: string) =>
-    language ? `\`\`\`${language}\n${code}\n\`\`\`` : `\`\`\`\n${code}\n\`\`\``,
-  formatUserMention: (username: string) => `@${username}`,
-  formatLink: (text: string, url: string) => `[${text}](${url})`,
-  formatListItem: (text: string) => `- ${text}`,
-  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
-  formatBlockquote: (text: string) => `> ${text}`,
-  formatHorizontalRule: () => '---',
-  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
-  escapeText: (text: string) => text,
-  formatTable: (headers: string[], rows: string[][]) => {
-    const headerRow = `| ${headers.join(' | ')} |`;
-    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
-    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
-    return [headerRow, separatorRow, ...dataRows].join('\n');
-  },
-  formatKeyValueList: (items: [string, string, string][]) => {
-    const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
-    return ['| | |', '|---|---|', ...rows].join('\n');
-  },
-};
+import { mockFormatter as formatter } from '../test-utils/mock-formatter.js';
 
 describe('shortenPath', () => {
   const originalHome = process.env.HOME;

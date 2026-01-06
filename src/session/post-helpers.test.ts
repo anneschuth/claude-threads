@@ -2,63 +2,10 @@ import { describe, it, expect } from 'bun:test';
 import {
   formatBold,
 } from './post-helpers.js';
-import type { PlatformFormatter } from '../platform/index.js';
-
-// Mock formatter for Mattermost-style formatting
-const mattermostFormatter: PlatformFormatter = {
-  formatBold: (text: string) => `**${text}**`,
-  formatItalic: (text: string) => `_${text}_`,
-  formatCode: (text: string) => `\`${text}\``,
-  formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
-  formatUserMention: (username: string) => `@${username}`,
-  formatLink: (text: string, url: string) => `[${text}](${url})`,
-  formatListItem: (text: string) => `- ${text}`,
-  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
-  formatBlockquote: (text: string) => `> ${text}`,
-  formatHorizontalRule: () => '---',
-  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
-  escapeText: (text: string) => text,
-  formatTable: (headers: string[], rows: string[][]) => {
-    const headerRow = `| ${headers.join(' | ')} |`;
-    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
-    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
-    return [headerRow, separatorRow, ...dataRows].join('\n');
-  },
-  formatKeyValueList: (items: [string, string, string][]) => {
-    const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
-    return ['| | |', '|---|---|', ...rows].join('\n');
-  },
-};
-
-// Mock formatter for Slack-style formatting
-const slackFormatter: PlatformFormatter = {
-  formatBold: (text: string) => `*${text}*`,
-  formatItalic: (text: string) => `_${text}_`,
-  formatCode: (text: string) => `\`${text}\``,
-  formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
-  formatUserMention: (username: string, userId?: string) => userId ? `<@${userId}>` : `@${username}`,
-  formatLink: (text: string, url: string) => `<${url}|${text}>`,
-  formatListItem: (text: string) => `- ${text}`,
-  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
-  formatBlockquote: (text: string) => `> ${text}`,
-  formatHorizontalRule: () => '---',
-  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
-  escapeText: (text: string) => text,
-  formatTable: (headers: string[], rows: string[][]) => {
-    const lines: string[] = [];
-    for (const row of rows) {
-      const items = row.map((cell, i) => {
-        const header = headers[i];
-        return header ? `*${header}:* ${cell}` : cell;
-      });
-      lines.push(items.join(' · '));
-    }
-    return lines.join('\n');
-  },
-  formatKeyValueList: (items: [string, string, string][]) => {
-    return items.map(([icon, label, value]) => `${icon} *${label}:* ${value}`).join('\n');
-  },
-};
+import {
+  mockFormatter as mattermostFormatter,
+  slackMockFormatter as slackFormatter,
+} from '../test-utils/mock-formatter.js';
 
 // Note: Most post-helpers functions require a Session object with a platform client.
 // Since they're thin wrappers around platform.createPost(), we focus on testing
