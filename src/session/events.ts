@@ -61,6 +61,14 @@ function extractAndUpdateMetadata(
   const regex = new RegExp(`\\[${config.marker}:\\s*([^\\]]+)\\]`);
   const match = text.match(regex);
 
+  // Debug: Log extraction attempt for title
+  if (sessionField === 'sessionTitle') {
+    const textPreview = text.substring(0, 200).replace(/\n/g, '\\n');
+    log.forSession(session.sessionId).debug(
+      `Title extraction: match=${match ? `"${match[1]}"` : 'null'}, text="${textPreview}${text.length > 200 ? '...' : ''}"`
+    );
+  }
+
   if (match) {
     const newValue = match[1].trim();
     // Validate: reject placeholders, too short/long, dots-only
@@ -71,12 +79,24 @@ function extractAndUpdateMetadata(
       newValue !== config.placeholder &&
       !newValue.startsWith('...');
 
+    // Debug: Log validation result
+    if (sessionField === 'sessionTitle') {
+      log.forSession(session.sessionId).debug(
+        `Title validation: value="${newValue}", len=${newValue.length}, isValid=${isValid}, current="${session[sessionField]}"`
+      );
+    }
+
     if (isValid && newValue !== session[sessionField]) {
       session[sessionField] = newValue;
+      log.forSession(session.sessionId).debug(`Setting ${sessionField} to "${newValue}"`);
       // Persist and update UI (async, don't wait)
       ctx.ops.persistSession(session);
-      ctx.ops.updateStickyMessage().catch(() => {});
-      ctx.ops.updateSessionHeader(session).catch(() => {});
+      ctx.ops.updateStickyMessage().catch((err) => {
+        log.forSession(session.sessionId).error(`Failed to update sticky message: ${err}`);
+      });
+      ctx.ops.updateSessionHeader(session).catch((err) => {
+        log.forSession(session.sessionId).error(`Failed to update session header: ${err}`);
+      });
       // Update CLI UI with new title/description
       const updates: Record<string, string> = {};
       if (sessionField === 'sessionTitle') updates.title = newValue;
