@@ -9,6 +9,7 @@ import type { Session } from './types.js';
 import type { ThreadMessage } from '../platform/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
 import { withErrorHandling } from './error-handler.js';
+import { updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('context');
@@ -128,6 +129,8 @@ export async function postContextPrompt(
 
   // Register for reaction routing
   registerPost(post.id, session.threadId);
+  // Track for jump-to-bottom links
+  updateLastMessage(session, post);
 
   // Set up timeout
   const timeoutId = setTimeout(onTimeout, CONTEXT_PROMPT_TIMEOUT_MS);

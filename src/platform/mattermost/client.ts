@@ -703,8 +703,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   // Get a clickable link to a thread (full URL for cross-platform compatibility)
-  getThreadLink(threadId: string): string {
-    return `${this.url}/_redirect/pl/${threadId}`;
+  // If lastMessageId is provided, links to that specific message (jump to bottom)
+  getThreadLink(threadId: string, lastMessageId?: string, _lastMessageTs?: string): string {
+    const targetId = lastMessageId || threadId;
+    return `${this.url}/_redirect/pl/${targetId}`;
   }
 
   // Send typing indicator via WebSocket

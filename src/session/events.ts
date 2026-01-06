@@ -20,7 +20,7 @@ import {
   MIN_BREAK_THRESHOLD,
 } from './streaming.js';
 import { withErrorHandling } from './error-handler.js';
-import { resetSessionActivity } from './post-helpers.js';
+import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
@@ -413,6 +413,8 @@ async function handleExitPlanMode(
 
   // Register post for reaction routing
   ctx.ops.registerPost(post.id, session.threadId);
+  // Track for jump-to-bottom links
+  updateLastMessage(session, post);
 
   // Track this for reaction handling
   // Note: toolUseId is stored but not used - Claude Code CLI handles ExitPlanMode internally,
@@ -559,6 +561,8 @@ async function handleTodoWrite(
       session.tasksPostId = post.id;
       // Register the task post so reaction clicks are routed to this session
       ctx.ops.registerPost(post.id, session.threadId);
+      // Track for jump-to-bottom links
+      updateLastMessage(session, post);
       // Pin the task post for easy access
       await session.platform.pinPost(post.id).catch(() => {});
     }
@@ -595,6 +599,8 @@ async function handleTaskStart(
   );
   if (post) {
     session.activeSubagents.set(toolUseId, post.id);
+    // Track for jump-to-bottom links
+    updateLastMessage(session, post);
     // Bump task list to stay below subagent messages
     await ctx.ops.bumpTasksToBottom(session);
   }
@@ -645,6 +651,8 @@ async function handleCompactionStart(
 
   if (post) {
     session.compactionPostId = post.id;
+    // Track for jump-to-bottom links
+    updateLastMessage(session, post);
   }
 }
 
@@ -676,10 +684,13 @@ async function handleCompactionComplete(
     session.compactionPostId = undefined;
   } else {
     // Fallback: create a new post if we don't have the original
-    await withErrorHandling(
+    const post = await withErrorHandling(
       () => session.platform.createPost(completionMessage, session.threadId),
       { action: 'Post compaction complete', session }
     );
+    if (post) {
+      updateLastMessage(session, post);
+    }
   }
 }
 
@@ -775,6 +786,8 @@ export async function postCurrentQuestion(
 
   // Register post for reaction routing
   ctx.ops.registerPost(post.id, session.threadId);
+  // Track for jump-to-bottom links
+  updateLastMessage(session, post);
 }
 
 // ---------------------------------------------------------------------------

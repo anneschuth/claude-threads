@@ -211,6 +211,10 @@ export interface Session {
 
   // Status bar update timer (for periodic refreshes)
   statusBarTimer: ReturnType<typeof setInterval> | null;
+
+  // Last message posted to the thread (for jump-to-bottom links)
+  lastMessageId?: string;
+  lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 }
 
 // =============================================================================

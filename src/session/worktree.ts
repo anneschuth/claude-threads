@@ -21,7 +21,7 @@ import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
-import { postWarning, postError, postSuccess, postInfo, resetSessionActivity } from './post-helpers.js';
+import { postWarning, postError, postSuccess, postInfo, resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('worktree');
@@ -111,6 +111,8 @@ export async function postWorktreePrompt(
   // Track the post for reaction handling
   session.worktreePromptPostId = post.id;
   registerPost(post.id, session.threadId);
+  // Track for jump-to-bottom links
+  updateLastMessage(session, post);
 }
 
 /**
@@ -251,6 +253,8 @@ export async function createAndSwitchToWorktree(
 
     // Register the post for reaction routing
     options.registerPost(post.id, session.threadId);
+    // Track for jump-to-bottom links
+    updateLastMessage(session, post);
 
     // Persist the session state and update sticky message
     options.persistSession(session);

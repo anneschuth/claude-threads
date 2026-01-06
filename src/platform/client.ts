@@ -121,9 +121,11 @@ export interface PlatformClient extends EventEmitter {
   /**
    * Get a clickable link to a thread
    * @param threadId - Thread/root post ID
+   * @param lastMessageId - Optional: ID of the last message to jump to bottom
+   * @param lastMessageTs - Optional: Timestamp of last message (needed for Slack permalinks)
    * @returns URL that links to the thread (platform-specific format)
    */
-  getThreadLink(threadId: string): string;
+  getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;
 
   // ============================================================================
   // Messaging

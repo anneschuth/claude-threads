@@ -274,6 +274,22 @@ export function resetSessionActivity(session: Session): void {
   session.lifecyclePostId = undefined;
 }
 
+/**
+ * Update the session's last message tracking.
+ * This enables "jump to bottom" functionality in thread links.
+ *
+ * @param session - The session to update
+ * @param post - The post that was just created
+ */
+export function updateLastMessage(session: Session, post: PlatformPost): void {
+  session.lastMessageId = post.id;
+  // For Slack, we need the timestamp as well (format: "1234567890.123456")
+  // The post ID in Slack is the timestamp, so we can use it directly
+  if (session.platform.platformType === 'slack') {
+    session.lastMessageTs = post.id;
+  }
+}
+
 // =============================================================================
 // Bold/Formatted Message Helpers
 // =============================================================================
