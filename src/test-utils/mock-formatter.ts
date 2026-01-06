@@ -56,7 +56,7 @@ export function createSlackMockFormatter(): PlatformFormatter {
     formatListItem: (text: string) => `- ${text}`,
     formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
     formatBlockquote: (text: string) => `> ${text}`,
-    formatHorizontalRule: () => '---',
+    formatHorizontalRule: () => '━━━━━━━━━━━━━━━━━━━━',
     formatHeading: (text: string, _level: number) => `*${text}*`,
     escapeText: (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
     formatTable: (headers: string[], rows: string[][]) => {

@@ -76,8 +76,8 @@ describe('SlackFormatter', () => {
   });
 
   describe('formatHorizontalRule', () => {
-    it('returns three dashes', () => {
-      expect(formatter.formatHorizontalRule()).toBe('---');
+    it('returns unicode box drawing characters (Slack has no native hr)', () => {
+      expect(formatter.formatHorizontalRule()).toBe('━━━━━━━━━━━━━━━━━━━━');
     });
   });
 

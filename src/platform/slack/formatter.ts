@@ -59,7 +59,9 @@ export class SlackFormatter implements PlatformFormatter {
   }
 
   formatHorizontalRule(): string {
-    return '---';
+    // Slack mrkdwn doesn't support --- as horizontal rule
+    // Use unicode box drawing characters instead
+    return '━━━━━━━━━━━━━━━━━━━━';
   }
 
   formatHeading(text: string, _level: number): string {
