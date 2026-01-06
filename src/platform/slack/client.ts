@@ -911,11 +911,24 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Create a new post/message.
+   * @param message - Message text
+   * @param threadId - Optional thread parent ID
+   * @param options - Optional settings (e.g., unfurl control)
    */
-  async createPost(message: string, threadId?: string): Promise<PlatformPost> {
+  async createPost(
+    message: string,
+    threadId?: string,
+    options?: { unfurl?: boolean }
+  ): Promise<PlatformPost> {
+    // Disable unfurling for channel-level posts (sticky message) by default
+    // Thread messages can have previews unless explicitly disabled
+    const shouldUnfurl = options?.unfurl ?? (threadId !== undefined);
+
     const body: Record<string, unknown> = {
       channel: this.channelId,
       text: message,
+      unfurl_links: shouldUnfurl,
+      unfurl_media: shouldUnfurl,
     };
 
     if (threadId) {
@@ -957,13 +970,15 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Create a post with reaction options for user interaction.
+   * Used for task lists, permission prompts, etc. - disables link previews.
    */
   async createInteractivePost(
     message: string,
     reactions: string[],
     threadId?: string
   ): Promise<PlatformPost> {
-    const post = await this.createPost(message, threadId);
+    // Disable unfurling for interactive posts (task lists, prompts, etc.)
+    const post = await this.createPost(message, threadId, { unfurl: false });
 
     // Add each reaction option, continuing even if some fail
     for (const emoji of reactions) {
