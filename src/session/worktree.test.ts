@@ -183,7 +183,8 @@ describe('Worktree Module', () => {
         expect(options.offerContextPrompt).toHaveBeenCalledWith(
           session,
           'do something',
-          undefined
+          undefined,  // queuedFiles
+          undefined   // excludePostId
         );
 
         // Should persist session
@@ -274,7 +275,8 @@ describe('Worktree Module', () => {
         expect(options.offerContextPrompt).toHaveBeenCalledWith(
           session,
           'do something',
-          undefined
+          undefined,  // queuedFiles
+          undefined   // excludePostId
         );
       });
 
@@ -324,7 +326,8 @@ describe('Worktree Module', () => {
         expect(options.offerContextPrompt).toHaveBeenCalledWith(
           session,
           'do something',
-          undefined
+          undefined,  // queuedFiles
+          undefined   // excludePostId
         );
       });
     });

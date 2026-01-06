@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
+import type { PlatformFile } from '../platform/types.js';
 
 const log = createLogger('persist');
 
@@ -20,6 +21,7 @@ export interface WorktreeInfo {
 export interface PersistedContextPrompt {
   postId: string;
   queuedPrompt: string;
+  queuedFiles?: PlatformFile[];  // Files attached to the queued prompt (for images)
   threadMessageCount: number;
   createdAt: number;
   availableOptions: number[];
@@ -51,6 +53,7 @@ export interface PersistedSession {
   pendingWorktreePrompt?: boolean;          // Waiting for branch name response
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  queuedFiles?: PlatformFile[];             // Files attached to the queued prompt (for images)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
   // Context prompt support
   pendingContextPrompt?: PersistedContextPrompt; // Waiting for context selection
