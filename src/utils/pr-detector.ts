@@ -8,6 +8,8 @@
  * - Azure DevOps (dev.azure.com)
  */
 
+import type { PlatformFormatter } from '../platform/formatter.js';
+
 /**
  * Information about a detected pull request
  */
@@ -106,9 +108,10 @@ export function extractPullRequestUrl(text: string): string | null {
  * Returns a compact representation like "🔗 PR #123" or "🔗 MR !45"
  *
  * @param url - Full PR URL
+ * @param formatter - Platform formatter for link formatting
  * @returns Formatted string for display
  */
-export function formatPullRequestLink(url: string): string {
+export function formatPullRequestLink(url: string, formatter: PlatformFormatter): string {
   const prs = detectPullRequests(url);
   if (prs.length === 0) return url;
 
@@ -116,11 +119,11 @@ export function formatPullRequestLink(url: string): string {
 
   // GitLab uses "MR" (Merge Request) terminology
   if (pr.platform === 'gitlab') {
-    return `[🔗 MR !${pr.number}](${url})`;
+    return formatter.formatLink(`🔗 MR !${pr.number}`, url);
   }
 
   // GitHub, Bitbucket, Azure use "PR" terminology
-  return `[🔗 PR #${pr.number}](${url})`;
+  return formatter.formatLink(`🔗 PR #${pr.number}`, url);
 }
 
 /**

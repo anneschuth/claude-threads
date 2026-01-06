@@ -5,6 +5,33 @@ import {
   formatPullRequestLink,
   getPlatformIcon,
 } from './pr-detector.js';
+import type { PlatformFormatter } from '../platform/formatter.js';
+
+// Mock formatter for tests - uses Mattermost-style markdown
+const mockFormatter: PlatformFormatter = {
+  formatBold: (text: string) => `**${text}**`,
+  formatItalic: (text: string) => `_${text}_`,
+  formatCode: (text: string) => `\`${text}\``,
+  formatCodeBlock: (code: string, language?: string) => `\`\`\`${language || ''}\n${code}\n\`\`\``,
+  formatUserMention: (username: string) => `@${username}`,
+  formatLink: (text: string, url: string) => `[${text}](${url})`,
+  formatListItem: (text: string) => `- ${text}`,
+  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
+  formatBlockquote: (text: string) => `> ${text}`,
+  formatHorizontalRule: () => '---',
+  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+  escapeText: (text: string) => text,
+  formatTable: (headers: string[], rows: string[][]) => {
+    const headerRow = `| ${headers.join(' | ')} |`;
+    const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
+    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
+    return [headerRow, separatorRow, ...dataRows].join('\n');
+  },
+  formatKeyValueList: (items: [string, string, string][]) => {
+    const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
+    return ['| | |', '|---|---|', ...rows].join('\n');
+  },
+};
 
 describe('detectPullRequests', () => {
   test('detects GitHub PR URLs', () => {
@@ -134,28 +161,28 @@ describe('extractPullRequestUrl', () => {
 describe('formatPullRequestLink', () => {
   test('formats GitHub PR as markdown link', () => {
     const url = 'https://github.com/owner/repo/pull/123';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 PR #123](https://github.com/owner/repo/pull/123)');
   });
 
   test('formats GitLab MR with ! prefix', () => {
     const url = 'https://gitlab.com/group/project/-/merge_requests/456';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 MR !456](https://gitlab.com/group/project/-/merge_requests/456)');
   });
 
   test('formats Bitbucket PR', () => {
     const url = 'https://bitbucket.org/workspace/repo/pull-requests/42';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 PR #42](https://bitbucket.org/workspace/repo/pull-requests/42)');
   });
 
   test('returns URL as-is if not recognized', () => {
     const url = 'https://example.com/some/path';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe(url);
   });

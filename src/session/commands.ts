@@ -542,7 +542,7 @@ export async function updateSessionHeader(
 
   // Show pull request link if available
   if (session.pullRequestUrl) {
-    items.push(['🔗', 'Pull Request', formatPullRequestLink(session.pullRequestUrl)]);
+    items.push(['🔗', 'Pull Request', formatPullRequestLink(session.pullRequestUrl, formatter)]);
   }
 
   if (otherParticipants) {
