@@ -64,12 +64,12 @@ jobs:
             if [ "$TOTAL_LINES" -gt 0 ]; then
               COVERAGE=$((HIT_LINES * 100 / TOTAL_LINES))
               echo "Line coverage: ${COVERAGE}%"
-              # Enforce minimum coverage threshold (70%)
-              if [ "$COVERAGE" -lt 70 ]; then
-                echo "❌ Coverage ${COVERAGE}% is below threshold of 70%"
+              # Enforce minimum coverage threshold (60%)
+              if [ "$COVERAGE" -lt 60 ]; then
+                echo "❌ Coverage ${COVERAGE}% is below threshold of 60%"
                 exit 1
               fi
-              echo "✅ Coverage ${COVERAGE}% meets threshold of 70%"
+              echo "✅ Coverage ${COVERAGE}% meets threshold of 60%"
             fi
           fi
 

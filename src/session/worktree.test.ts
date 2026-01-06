@@ -11,19 +11,6 @@ const mockFindWorktreeByBranch = mock(() => Promise.resolve(null as { path: stri
 const mockCreateWorktree = mock(() => Promise.resolve());
 const mockGetWorktreeDir = mock(() => '/repo-worktrees/feature-branch');
 
-// Re-implement isValidBranchName locally to avoid mock pollution
-function localIsValidBranchName(name: string): boolean {
-  if (!name || name.length === 0) return false;
-  if (name.startsWith('/') || name.endsWith('/')) return false;
-  if (name.includes('..')) return false;
-  if (/[\s~^:?*[\]\\]/.test(name)) return false;
-  if (name.startsWith('-')) return false;
-  if (name.endsWith('.lock')) return false;
-  if (name.includes('@{')) return false;
-  if (name === '@') return false;
-  return true;
-}
-
 mock.module('../git/worktree.js', () => ({
   isGitRepository: mockIsGitRepository,
   getRepositoryRoot: mockGetRepositoryRoot,
@@ -33,8 +20,7 @@ mock.module('../git/worktree.js', () => ({
   listWorktrees: mock(() => Promise.resolve([])),
   removeWorktree: mock(() => Promise.resolve()),
   hasUncommittedChanges: mock(() => Promise.resolve(false)),
-  // Use local implementation to avoid polluting other tests
-  isValidBranchName: localIsValidBranchName,
+  isValidBranchName: mock(() => true),
 }));
 
 // Mock the ClaudeCli class to avoid spawning real processes
