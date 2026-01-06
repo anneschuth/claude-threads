@@ -103,7 +103,7 @@ On first run, an interactive setup wizard guides you through configuration:
 ? App token (xapp-...): ********
 ? Channel ID: C0123456789
 ? Bot mention name: claude
-? Allowed user IDs (optional): U0123ALICE,U0456BOB
+? Allowed usernames (optional): alice,bob
 
   ✓ Added Slack
 
@@ -353,11 +353,11 @@ Set `allowedUsers` in your platform config to restrict who can use the bot:
 platforms:
   - id: mattermost-main
     # ...
-    allowedUsers: [alice, bob, carol]  # Mattermost: usernames
+    allowedUsers: [alice, bob, carol]
 
   - id: slack-team
     # ...
-    allowedUsers: [U0123ALICE, U0456BOB]  # Slack: user IDs
+    allowedUsers: [alice, bob]  # Slack usernames (not user IDs)
 ```
 
 - Only listed users can start sessions
@@ -397,7 +397,7 @@ platforms:
     appToken: xapp-your-app-token      # App-Level Token (Socket Mode)
     channelId: C0123456789
     botName: claude
-    allowedUsers: [U0123ALICE, U0456BOB]  # Slack user IDs
+    allowedUsers: [alice, bob]         # Slack usernames
     skipPermissions: false
 ```
 
@@ -428,7 +428,7 @@ platforms:
 | `appToken` | App-Level Token for Socket Mode (`xapp-...`) |
 | `channelId` | Channel ID to listen in (e.g., `C0123456789`) |
 | `botName` | Mention name (default: `claude`) |
-| `allowedUsers` | List of Slack user IDs (e.g., `U0123ABC`) |
+| `allowedUsers` | List of Slack usernames (e.g., `alice`, `bob`) |
 | `skipPermissions` | Auto-approve actions (`true`/`false`) |
 
 ### Environment Variables
@@ -529,13 +529,7 @@ Setting up claude-threads for Slack requires creating a Slack app with Socket Mo
 1. In Slack, right-click the channel name and select **View channel details**
 2. At the bottom, copy the **Channel ID** (starts with `C`)
 
-### 7. Get User IDs (for allowedUsers)
-
-1. Click on a user's profile in Slack
-2. Click the **⋮** menu and select **Copy member ID**
-3. User IDs start with `U` (e.g., `U0123ABCDEF`)
-
-### 8. Add Bot to Channel
+### 7. Add Bot to Channel
 
 1. In Slack, go to the channel where you want the bot
 2. Type `/invite @YourBotName` or click the channel name → **Integrations** → **Add apps**
@@ -551,7 +545,7 @@ Setting up claude-threads for Slack requires creating a Slack app with Socket Mo
 - Check that Socket Mode is enabled
 - Verify `message.channels` event is subscribed
 - Make sure bot is invited to the channel
-- Check that user ID is in `allowedUsers` (not username)
+- Check that username is in `allowedUsers`
 
 **Reactions not working:**
 - Verify `reactions:read` and `reactions:write` scopes are added

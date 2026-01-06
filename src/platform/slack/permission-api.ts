@@ -25,81 +25,7 @@ import type {
   SlackSocketModeEvent,
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
-
-// =============================================================================
-// Slack Formatter (inline since no separate file exists yet)
-// =============================================================================
-
-/**
- * Slack mrkdwn formatter
- *
- * Slack uses a variant called "mrkdwn" which differs from standard markdown:
- * - Bold: *text* (not **text**)
- * - Links: <url|text> (not [text](url))
- * - User mentions: <@U123456> (requires user ID)
- */
-class SlackFormatter implements PlatformFormatter {
-  formatBold(text: string): string {
-    return `*${text}*`;
-  }
-
-  formatItalic(text: string): string {
-    return `_${text}_`;
-  }
-
-  formatCode(text: string): string {
-    return `\`${text}\``;
-  }
-
-  formatCodeBlock(code: string, language?: string): string {
-    // Slack doesn't support language hints in code blocks
-    void language;
-    return `\`\`\`\n${code}\n\`\`\``;
-  }
-
-  formatUserMention(username: string, userId?: string): string {
-    // Slack requires user ID for proper mentions
-    if (userId) {
-      return `<@${userId}>`;
-    }
-    // Fallback to @username (won't notify but is readable)
-    return `@${username}`;
-  }
-
-  formatLink(text: string, url: string): string {
-    return `<${url}|${text}>`;
-  }
-
-  formatListItem(text: string): string {
-    return `- ${text}`;
-  }
-
-  formatNumberedListItem(number: number, text: string): string {
-    return `${number}. ${text}`;
-  }
-
-  formatBlockquote(text: string): string {
-    return `> ${text}`;
-  }
-
-  formatHorizontalRule(): string {
-    return '---';
-  }
-
-  formatHeading(text: string, level: number): string {
-    // Slack doesn't have heading syntax, use bold for emphasis
-    void level;
-    return `*${text}*`;
-  }
-
-  escapeText(text: string): string {
-    // Escape Slack special characters: &, <, >
-    return text
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-  }
-}
+import { SlackFormatter } from './formatter.js';
 
 // =============================================================================
 // Slack Permission API Configuration
@@ -213,7 +139,12 @@ class SlackPermissionApi implements PermissionApi {
   }
 
   isUserAllowed(username: string): boolean {
-    const allowed = this.config.allowedUsers.includes(username.toLowerCase());
+    // Empty allowlist means everyone is allowed (same as Mattermost)
+    if (this.config.allowedUsers.length === 0) {
+      mcpLogger.debug(`User ${username} allowed: true (empty allowlist)`);
+      return true;
+    }
+    const allowed = this.config.allowedUsers.includes(username);
     mcpLogger.debug(`User ${username} allowed: ${allowed}`);
     return allowed;
   }

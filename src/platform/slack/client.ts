@@ -156,13 +156,17 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   // Slack Web API Helpers
   // ============================================================================
 
+  // Maximum number of rate limit retries before giving up
+  private readonly MAX_RATE_LIMIT_RETRIES = 5;
+
   /**
    * Make a Slack Web API request with rate limiting and error handling.
    */
   private async api<T extends SlackApiResponse>(
     method: string,
     endpoint: string,
-    body?: Record<string, unknown>
+    body?: Record<string, unknown>,
+    retryCount = 0
   ): Promise<T> {
     // Apply rate limit delay if needed
     if (this.rateLimitDelay > 0) {
@@ -189,16 +193,21 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    // Handle rate limiting
+    // Handle rate limiting with max retries
     if (response.status === 429) {
+      if (retryCount >= this.MAX_RATE_LIMIT_RETRIES) {
+        log.error(`Rate limit max retries (${this.MAX_RATE_LIMIT_RETRIES}) exceeded for ${endpoint}`);
+        throw new Error(`Slack API rate limit exceeded after ${this.MAX_RATE_LIMIT_RETRIES} retries`);
+      }
+
       const retryAfter = parseInt(response.headers.get('Retry-After') || '5', 10);
       this.rateLimitDelay = retryAfter * 1000;
       this.rateLimitRetryAfter = Date.now() + this.rateLimitDelay;
-      log.warn(`Rate limited by Slack, retrying after ${retryAfter}s`);
+      log.warn(`Rate limited by Slack, retrying after ${retryAfter}s (attempt ${retryCount + 1}/${this.MAX_RATE_LIMIT_RETRIES})`);
 
       // Retry after delay
       await new Promise((resolve) => setTimeout(resolve, this.rateLimitDelay));
-      return this.api<T>(method, endpoint, body);
+      return this.api<T>(method, endpoint, body, retryCount + 1);
     }
 
     if (!response.ok) {

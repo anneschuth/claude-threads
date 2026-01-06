@@ -117,13 +117,14 @@ platforms:
     appToken: xapp-your-app-token    # App-Level Token (for Socket Mode)
     channelId: C0123456789
     botName: claude-bot
-    allowedUsers: [U0123ALICE, U0456BOB]  # Slack user IDs
+    allowedUsers: [alice, bob]       # Slack usernames
     skipPermissions: false
 ```
 
 **Slack-specific notes:**
 - Requires both a Bot Token (`xoxb-`) and App Token (`xapp-`) for Socket Mode
-- User mentions use Slack user IDs (e.g., `U0123ALICE`), not usernames
+- `allowedUsers` uses Slack usernames (not user IDs) for consistency with Mattermost
+- User mentions in messages use Slack user IDs (e.g., `<@U0123ALICE>`) - the bot handles this automatically
 - Bot Token scopes required: `channels:history`, `channels:read`, `chat:write`, `reactions:read`, `reactions:write`, `users:read`
 - App Token scope: `connections:write` (Socket Mode must be enabled in the Slack app)
 
