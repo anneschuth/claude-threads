@@ -51,27 +51,26 @@ jobs:
       - run: bun install
 
       - name: Run tests with coverage
-        run: bun test src/ --coverage --coverage-reporter=lcov
-
-      - name: Check coverage thresholds
         run: |
-          # Extract coverage percentages from lcov.info
-          COVERAGE_FILE="coverage/lcov.info"
-          if [ -f "$COVERAGE_FILE" ]; then
-            # Count lines and hits
-            TOTAL_LINES=$(grep -c "^DA:" "$COVERAGE_FILE" || echo "0")
-            HIT_LINES=$(grep "^DA:" "$COVERAGE_FILE" | grep -v ",0$" | wc -l || echo "0")
-            if [ "$TOTAL_LINES" -gt 0 ]; then
-              COVERAGE=$((HIT_LINES * 100 / TOTAL_LINES))
-              echo "Line coverage: ${COVERAGE}%"
-              # Enforce minimum coverage threshold (55%)
-              if [ "$COVERAGE" -lt 55 ]; then
-                echo "❌ Coverage ${COVERAGE}% is below threshold of 55%"
-                exit 1
-              fi
-              echo "✅ Coverage ${COVERAGE}% meets threshold of 55%"
-            fi
+          # Run tests and capture coverage output
+          bun test src/ --coverage 2>&1 | tee coverage-output.txt
+
+          # Extract line coverage from "All files" row (column 6 is line coverage %)
+          COVERAGE=$(grep "All files" coverage-output.txt | awk '{print $6}' | sed 's/%//' | cut -d'.' -f1)
+
+          if [ -z "$COVERAGE" ]; then
+            echo "❌ Could not extract coverage percentage"
+            exit 1
           fi
+
+          echo "Line coverage: ${COVERAGE}%"
+
+          # Enforce minimum coverage threshold (70%)
+          if [ "$COVERAGE" -lt 70 ]; then
+            echo "❌ Coverage ${COVERAGE}% is below threshold of 70%"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets threshold of 70%"
 
   build:
     runs-on: ubuntu-latest
