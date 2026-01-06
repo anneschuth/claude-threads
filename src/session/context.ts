@@ -176,6 +176,7 @@ export interface SessionOperations {
   offerContextPrompt(
     session: Session,
     queuedPrompt: string,
+    queuedFiles?: PlatformFile[],
     excludePostId?: string
   ): Promise<boolean>;
 

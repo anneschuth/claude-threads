@@ -452,6 +452,7 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
+      buildMessageContent: (text, session, files) => this.buildMessageContent(text, session.platform, files),
     };
   }
 
@@ -465,8 +466,8 @@ export class SessionManager extends EventEmitter {
    * If no history, sends the message immediately.
    * Returns true if context prompt was posted, false if message was sent directly.
    */
-  async offerContextPrompt(session: Session, queuedPrompt: string, excludePostId?: string): Promise<boolean> {
-    return contextPrompt.offerContextPrompt(session, queuedPrompt, this.getContextPromptHandler(), excludePostId);
+  async offerContextPrompt(session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string): Promise<boolean> {
+    return contextPrompt.offerContextPrompt(session, queuedPrompt, queuedFiles, this.getContextPromptHandler(), excludePostId);
   }
 
   /**
@@ -577,6 +578,7 @@ export class SessionManager extends EventEmitter {
       persistedContextPrompt = {
         postId: session.pendingContextPrompt.postId,
         queuedPrompt: session.pendingContextPrompt.queuedPrompt,
+        queuedFiles: session.pendingContextPrompt.queuedFiles,
         threadMessageCount: session.pendingContextPrompt.threadMessageCount,
         createdAt: session.pendingContextPrompt.createdAt,
         availableOptions: session.pendingContextPrompt.availableOptions,
@@ -605,6 +607,7 @@ export class SessionManager extends EventEmitter {
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
+      queuedFiles: session.queuedFiles,
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,

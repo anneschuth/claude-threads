@@ -6,7 +6,8 @@
  */
 
 import type { Session } from './types.js';
-import type { ThreadMessage } from '../platform/index.js';
+import type { ThreadMessage, PlatformFile } from '../platform/index.js';
+import type { ContentBlock } from '../claude/cli.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
 import { withErrorHandling } from './error-handler.js';
 import { updateLastMessage } from './post-helpers.js';
@@ -31,6 +32,7 @@ export const CONTEXT_OPTIONS = [3, 5, 10] as const;
 export interface PendingContextPrompt {
   postId: string;
   queuedPrompt: string;       // The prompt to send after decision
+  queuedFiles?: PlatformFile[]; // Files attached to the queued prompt (for images)
   threadMessageCount: number; // Total messages in thread before this point
   createdAt: number;          // Timestamp for timeout tracking
   timeoutId?: ReturnType<typeof setTimeout>; // Reference to timeout for cleanup
@@ -81,6 +83,7 @@ export function getValidContextOptions(messageCount: number): number[] {
 export async function postContextPrompt(
   session: Session,
   queuedPrompt: string,
+  queuedFiles: PlatformFile[] | undefined,
   messageCount: number,
   registerPost: (postId: string, threadId: string) => void,
   onTimeout: () => void
@@ -147,6 +150,7 @@ export async function postContextPrompt(
   return {
     postId: post.id,
     queuedPrompt,
+    queuedFiles,
     threadMessageCount: messageCount,
     createdAt: Date.now(),
     timeoutId,
@@ -277,6 +281,7 @@ export interface ContextPromptHandler {
   startTyping: (session: Session) => void;
   persistSession: (session: Session) => void;
   injectMetadataReminder: (message: string, session: Session) => string;
+  buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
 }
 
 /**
@@ -305,8 +310,9 @@ export async function handleContextPromptReaction(
   // Update the post to show selection
   await updateContextPromptPost(session, pending.postId, selection, username);
 
-  // Get the queued prompt
+  // Get the queued prompt and files
   const queuedPrompt = pending.queuedPrompt;
+  const queuedFiles = pending.queuedFiles;
 
   // Clear pending context prompt
   session.pendingContextPrompt = undefined;
@@ -327,9 +333,12 @@ export async function handleContextPromptReaction(
   // Inject metadata reminder periodically
   messageToSend = ctx.injectMetadataReminder(messageToSend, session);
 
+  // Build content with files (images)
+  const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
+
   // Send the message to Claude
   if (session.claude.isRunning()) {
-    session.claude.sendMessage(messageToSend);
+    session.claude.sendMessage(content);
     ctx.startTyping(session);
   }
 
@@ -355,8 +364,9 @@ export async function handleContextPromptTimeout(
   // Update the post to show timeout
   await updateContextPromptPost(session, pending.postId, 'timeout');
 
-  // Get the queued prompt
+  // Get the queued prompt and files
   const queuedPrompt = pending.queuedPrompt;
+  const queuedFiles = pending.queuedFiles;
 
   // Clear pending context prompt
   session.pendingContextPrompt = undefined;
@@ -367,9 +377,12 @@ export async function handleContextPromptTimeout(
   // Inject metadata reminder periodically
   const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
 
+  // Build content with files (images)
+  const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
+
   // Send the message without context
   if (session.claude.isRunning()) {
-    session.claude.sendMessage(messageToSend);
+    session.claude.sendMessage(content);
     ctx.startTyping(session);
   }
 
@@ -388,6 +401,7 @@ export async function handleContextPromptTimeout(
 export async function offerContextPrompt(
   session: Session,
   queuedPrompt: string,
+  queuedFiles: PlatformFile[] | undefined,
   ctx: ContextPromptHandler,
   excludePostId?: string
 ): Promise<boolean> {
@@ -395,11 +409,12 @@ export async function offerContextPrompt(
   const messageCount = await getThreadContextCount(session, excludePostId);
 
   if (messageCount === 0) {
-    // No previous messages, send directly
+    // No previous messages, send directly with files
     session.messageCount++;
     const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
+    const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
     if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
+      session.claude.sendMessage(content);
       ctx.startTyping(session);
     }
     return false;
@@ -416,8 +431,9 @@ export async function offerContextPrompt(
 
     session.messageCount++;
     messageToSend = ctx.injectMetadataReminder(messageToSend, session);
+    const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
     if (session.claude.isRunning()) {
-      session.claude.sendMessage(messageToSend);
+      session.claude.sendMessage(content);
       ctx.startTyping(session);
     }
 
@@ -426,10 +442,11 @@ export async function offerContextPrompt(
     return false;
   }
 
-  // Post context prompt
+  // Post context prompt - files will be stored with the pending prompt
   const pending = await postContextPrompt(
     session,
     queuedPrompt,
+    queuedFiles,
     messageCount,
     ctx.registerPost,
     () => handleContextPromptTimeout(session, ctx)

@@ -341,6 +341,7 @@ export async function startSession(
   const shouldPrompt = await ctx.ops.shouldPromptForWorktree(session);
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
+    session.queuedFiles = options.files;
     session.pendingWorktreePrompt = true;
     await ctx.ops.postWorktreePrompt(session, shouldPrompt);
     ctx.ops.persistSession(session);
@@ -356,7 +357,7 @@ export async function startSession(
   // Offer context prompt if there are previous messages in the thread
   // Pass replyToPostId to exclude the triggering message from the count
   if (replyToPostId) {
-    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, replyToPostId);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, options.files, replyToPostId);
     if (contextOffered) {
       // Context prompt was posted, message is queued
       // Don't persist yet - offerContextPrompt handles that
@@ -501,6 +502,7 @@ export async function resumeSession(
     pendingWorktreePrompt: state.pendingWorktreePrompt,
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
+    queuedFiles: state.queuedFiles,
     firstPrompt: state.firstPrompt,
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
     sessionTitle: state.sessionTitle,
@@ -605,7 +607,7 @@ export async function sendFollowUp(
   // Check if we need to offer context prompt (e.g., after !cd)
   if (session.needsContextPromptOnNextMessage) {
     session.needsContextPromptOnNextMessage = false;
-    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, files);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
       session.lastActivityAt = new Date();

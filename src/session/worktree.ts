@@ -6,6 +6,7 @@
 
 import type { Session } from './types.js';
 import type { WorktreeMode } from '../config.js';
+import type { PlatformFile } from '../platform/index.js';
 import {
   isGitRepository,
   getRepositoryRoot,
@@ -155,7 +156,7 @@ export async function handleWorktreeSkip(
   session: Session,
   username: string,
   persistSession: (session: Session) => void,
-  offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>
+  offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>
 ): Promise<void> {
   if (!session.pendingWorktreePrompt) return;
 
@@ -178,14 +179,16 @@ export async function handleWorktreeSkip(
   session.pendingWorktreePrompt = false;
   session.worktreePromptPostId = undefined;
   const queuedPrompt = session.queuedPrompt;
+  const queuedFiles = session.queuedFiles;
   session.queuedPrompt = undefined;
+  session.queuedFiles = undefined;
 
   // Persist updated state
   persistSession(session);
 
   // Now send the queued message to Claude (with context prompt if thread has history)
   if (queuedPrompt && session.claude.isRunning()) {
-    await offerContextPrompt(session, queuedPrompt);
+    await offerContextPrompt(session, queuedPrompt, queuedFiles);
   }
 }
 
@@ -206,7 +209,7 @@ export async function createAndSwitchToWorktree(
     persistSession: (session: Session) => void;
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
-    offerContextPrompt: (session: Session, queuedPrompt: string, excludePostId?: string) => Promise<boolean>;
+    offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>;
     appendSystemPrompt?: string;
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
@@ -253,9 +256,11 @@ export async function createAndSwitchToWorktree(
 
       // Clear pending worktree prompt state
       const queuedPrompt = session.queuedPrompt;
+      const queuedFiles = session.queuedFiles;
       session.pendingWorktreePrompt = false;
       session.worktreePromptPostId = undefined;
       session.queuedPrompt = undefined;
+      session.queuedFiles = undefined;
 
       // Update working directory and worktree info
       session.workingDir = existing.path;
@@ -316,7 +321,7 @@ export async function createAndSwitchToWorktree(
       // Send the queued prompt to the new Claude CLI
       if (session.claude.isRunning() && queuedPrompt) {
         const excludePostId = session.worktreeResponsePostId;
-        await options.offerContextPrompt(session, queuedPrompt, excludePostId);
+        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
         session.worktreeResponsePostId = undefined;
       }
 
@@ -374,7 +379,9 @@ export async function createAndSwitchToWorktree(
     session.pendingWorktreePrompt = false;
     session.worktreePromptPostId = undefined;
     const queuedPrompt = session.queuedPrompt;
+    const queuedFiles = session.queuedFiles;
     session.queuedPrompt = undefined;
+    session.queuedFiles = undefined;
 
     // Store worktree info
     session.worktreeInfo = {
@@ -448,9 +455,11 @@ export async function createAndSwitchToWorktree(
     if (session.claude.isRunning()) {
       const excludePostId = session.worktreeResponsePostId;
       if (wasPending && queuedPrompt) {
-        await options.offerContextPrompt(session, queuedPrompt, excludePostId);
+        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
       } else if (!wasPending && session.firstPrompt) {
-        await options.offerContextPrompt(session, session.firstPrompt, excludePostId);
+        // Note: firstPrompt doesn't have files stored - this is a mid-session worktree creation
+        // Files are only stored with queuedPrompt at session start
+        await options.offerContextPrompt(session, session.firstPrompt, undefined, excludePostId);
       }
       // Clear the stored response post ID after use
       session.worktreeResponsePostId = undefined;
@@ -476,7 +485,9 @@ export async function createAndSwitchToWorktree(
     session.pendingWorktreePrompt = false;
     session.worktreePromptPostId = undefined;
     const queuedPrompt = session.queuedPrompt;
+    const queuedFiles = session.queuedFiles;
     session.queuedPrompt = undefined;
+    session.queuedFiles = undefined;
 
     // Persist updated state
     options.persistSession(session);
@@ -484,7 +495,7 @@ export async function createAndSwitchToWorktree(
     // Send the queued prompt to Claude without worktree
     if (wasPending && queuedPrompt && session.claude.isRunning()) {
       const excludePostId = session.worktreeResponsePostId;
-      await options.offerContextPrompt(session, queuedPrompt, excludePostId);
+      await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
       session.worktreeResponsePostId = undefined;
     }
   }
