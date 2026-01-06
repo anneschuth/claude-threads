@@ -72,6 +72,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private usernameToIdCache: Map<string, string> = new Map();
   private botUserId: string | null = null;
   private botUser: SlackUser | null = null;
+  private teamUrl: string | null = null;
 
   // Heartbeat / ping-pong for connection health
   private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
@@ -632,6 +633,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private async fetchBotUser(): Promise<void> {
     const response = await this.api<AuthTestResponse>('POST', 'auth.test');
     this.botUserId = response.user_id;
+    this.teamUrl = response.url.replace(/\/$/, ''); // Remove trailing slash
 
     // Also fetch full user info
     const userResponse = await this.api<UsersInfoResponse>(
@@ -768,6 +770,20 @@ export class SlackClient extends EventEmitter implements PlatformClient {
    */
   getFormatter(): PlatformFormatter {
     return this.formatter;
+  }
+
+  /**
+   * Get a clickable link to a thread.
+   * Slack permalink format: {team_url}/archives/{channel_id}/p{timestamp_without_dot}
+   */
+  getThreadLink(threadId: string): string {
+    // Convert "1767690059.430179" to "1767690059430179"
+    const permalinkTs = threadId.replace('.', '');
+    if (this.teamUrl) {
+      return `${this.teamUrl}/archives/${this.channelId}/p${permalinkTs}`;
+    }
+    // Fallback - won't be a proper link but won't break
+    return `#${threadId}`;
   }
 
   // ============================================================================

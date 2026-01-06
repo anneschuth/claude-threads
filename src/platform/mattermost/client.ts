@@ -702,6 +702,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return this.formatter;
   }
 
+  // Get a clickable link to a thread (Mattermost internal redirect)
+  getThreadLink(threadId: string): string {
+    return `/_redirect/pl/${threadId}`;
+  }
+
   // Send typing indicator via WebSocket
   sendTyping(parentId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {

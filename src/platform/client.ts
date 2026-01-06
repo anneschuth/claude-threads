@@ -111,6 +111,13 @@ export interface PlatformClient extends EventEmitter {
    */
   getFormatter(): PlatformFormatter;
 
+  /**
+   * Get a clickable link to a thread
+   * @param threadId - Thread/root post ID
+   * @returns URL that links to the thread (platform-specific format)
+   */
+  getThreadLink(threadId: string): string;
+
   // ============================================================================
   // Messaging
   // ============================================================================

@@ -255,9 +255,13 @@ function getHistorySessionTopic(session: PersistedSession, formatter: PlatformFo
  * @param formatter - Platform formatter
  * @returns Formatted line for the sticky message
  */
-function formatHistoryEntry(session: PersistedSession, formatter: PlatformFormatter): string[] {
+function formatHistoryEntry(
+  session: PersistedSession,
+  formatter: PlatformFormatter,
+  getThreadLink: (threadId: string) => string
+): string[] {
   const topic = getHistorySessionTopic(session, formatter);
-  const threadLink = formatter.formatLink(topic, `/_redirect/pl/${session.threadId}`);
+  const threadLink = formatter.formatLink(topic, getThreadLink(session.threadId));
   const displayName = session.startedByDisplayName || session.startedBy;
   // Determine if this is a timed-out (resumable) session or a completed session
   // Check both new and legacy field names for backward compatibility
@@ -381,7 +385,8 @@ export async function buildStickyMessage(
   sessions: Map<string, Session>,
   platformId: string,
   config: StickyMessageConfig,
-  formatter: PlatformFormatter
+  formatter: PlatformFormatter,
+  getThreadLink: (threadId: string) => string
 ): Promise<string> {
   // Filter sessions for this platform
   const platformSessions = [...sessions.values()].filter(
@@ -412,7 +417,7 @@ export async function buildStickyMessage(
       lines.push(formatter.formatBold(`Recent (${historySessions.length})`));
       lines.push('');
       for (const historySession of historySessions) {
-        lines.push(...formatHistoryEntry(historySession, formatter));
+        lines.push(...formatHistoryEntry(historySession, formatter, getThreadLink));
       }
     }
 
@@ -436,7 +441,7 @@ export async function buildStickyMessage(
 
   for (const session of platformSessions) {
     const topic = getSessionTopic(session, formatter);
-    const threadLink = formatter.formatLink(topic, `/_redirect/pl/${session.threadId}`);
+    const threadLink = formatter.formatLink(topic, session.platform.getThreadLink(session.threadId));
     const displayName = session.startedByDisplayName || session.startedBy;
     const time = formatRelativeTimeShort(session.startedAt);
 
@@ -476,7 +481,7 @@ export async function buildStickyMessage(
     lines.push(formatter.formatBold(`Recent (${historySessions.length})`));
     lines.push('');
     for (const historySession of historySessions) {
-      lines.push(...formatHistoryEntry(historySession, formatter));
+      lines.push(...formatHistoryEntry(historySession, formatter, getThreadLink));
     }
   }
 
@@ -534,7 +539,13 @@ async function updateStickyMessageImpl(
   }
 
   const formatter = platform.getFormatter();
-  const content = await buildStickyMessage(sessions, platform.platformId, config, formatter);
+  const content = await buildStickyMessage(
+    sessions,
+    platform.platformId,
+    config,
+    formatter,
+    (threadId) => platform.getThreadLink(threadId)
+  );
   const existingPostId = stickyPostIds.get(platform.platformId);
   const shouldBump = needsBump.get(platform.platformId) ?? false;
 
