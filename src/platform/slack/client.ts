@@ -898,10 +898,19 @@ export class SlackClient extends EventEmitter implements PlatformClient {
    */
   async pinPost(postId: string): Promise<void> {
     log.debug(`Pinning post ${postId.substring(0, 12)}`);
-    await this.api('POST', 'pins.add', {
-      channel: this.channelId,
-      timestamp: postId,
-    });
+    try {
+      await this.api('POST', 'pins.add', {
+        channel: this.channelId,
+        timestamp: postId,
+      });
+    } catch (err) {
+      // Ignore "already_pinned" - this is expected when re-pinning
+      if (err instanceof Error && err.message.includes('already_pinned')) {
+        log.debug(`Post ${postId.substring(0, 12)} already pinned`);
+        return;
+      }
+      throw err;
+    }
   }
 
   /**
@@ -909,10 +918,19 @@ export class SlackClient extends EventEmitter implements PlatformClient {
    */
   async unpinPost(postId: string): Promise<void> {
     log.debug(`Unpinning post ${postId.substring(0, 12)}`);
-    await this.api('POST', 'pins.remove', {
-      channel: this.channelId,
-      timestamp: postId,
-    });
+    try {
+      await this.api('POST', 'pins.remove', {
+        channel: this.channelId,
+        timestamp: postId,
+      });
+    } catch (err) {
+      // Ignore "no_pin" - post wasn't pinned
+      if (err instanceof Error && err.message.includes('no_pin')) {
+        log.debug(`Post ${postId.substring(0, 12)} was not pinned`);
+        return;
+      }
+      throw err;
+    }
   }
 
   /**

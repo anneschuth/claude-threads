@@ -9,6 +9,7 @@
 import type { Session } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { PlatformClient, PlatformFormatter } from '../platform/index.js';
+import { getPlatformIcon } from '../platform/utils.js';
 import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
 import type { WorktreeMode } from '../config.js';
 import { formatBatteryStatus } from '../utils/battery.js';
@@ -195,9 +196,10 @@ function getTaskProgress(session: Session): string | null {
 function getActiveTask(session: Session): string | null {
   if (!session.lastTasksContent) return null;
 
-  // Parse in-progress task from format: "🔄 **Task name** (12s)" or "🔄 **Task name**"
-  // The activeForm is wrapped in ** and may have elapsed time in parentheses
-  const match = session.lastTasksContent.match(/🔄 \*\*([^*]+)\*\*/);
+  // Parse in-progress task from format: "🔄 **Task name** (12s)" or "🔄 *Task name*"
+  // The activeForm is wrapped in ** (Mattermost) or * (Slack) and may have elapsed time
+  // Regex matches both: \*{1,2} matches 1 or 2 asterisks
+  const match = session.lastTasksContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}/);
   if (match) {
     return match[1].trim();
   }
@@ -388,22 +390,23 @@ export async function buildStickyMessage(
   formatter: PlatformFormatter,
   getThreadLink: (threadId: string) => string
 ): Promise<string> {
-  // Filter sessions for this platform
-  const platformSessions = [...sessions.values()].filter(
-    s => s.platformId === platformId
-  );
+  // Get all sessions and separate by platform
+  const allSessions = [...sessions.values()];
+  const thisPlatformSessions = allSessions.filter(s => s.platformId === platformId);
+  const otherPlatformSessions = allSessions.filter(s => s.platformId !== platformId);
+  const totalCount = allSessions.length;
 
-  // Build status bar (shown even when no sessions)
-  const statusBar = await buildStatusBar(platformSessions.length, config, formatter);
+  // Build status bar (shown even when no sessions) - show total count
+  const statusBar = await buildStatusBar(totalCount, config, formatter);
 
   // Get recent history (completed + timed-out sessions)
   // Pass active session IDs to exclude them from history
   const activeSessionIds = new Set(sessions.keys());
   const historySessions = sessionStore ? sessionStore.getHistory(platformId, activeSessionIds).slice(0, 5) : [];
 
-  if (platformSessions.length === 0) {
+  if (totalCount === 0) {
     const lines = [
-      '---',
+      formatter.formatHorizontalRule(),
       statusBar,
       '',
       formatter.formatBold('Active Claude Threads'),
@@ -427,21 +430,28 @@ export async function buildStickyMessage(
     return lines.join('\n');
   }
 
-  // Sort by start time (newest first)
-  platformSessions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  // Sort all sessions by start time (newest first)
+  thisPlatformSessions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
+  otherPlatformSessions.sort((a, b) => b.startedAt.getTime() - a.startedAt.getTime());
 
-  const count = platformSessions.length;
   const lines: string[] = [
-    '---',
+    formatter.formatHorizontalRule(),
     statusBar,
     '',
-    formatter.formatBold(`Active Claude Threads (${count})`),
+    formatter.formatBold(`Active Claude Threads (${totalCount})`),
     '',
   ];
 
-  for (const session of platformSessions) {
+  // Helper to format a session entry
+  const formatSessionEntry = (session: Session, isThisPlatform: boolean) => {
+    const platformIcon = getPlatformIcon(session.platform.platformType);
     const topic = getSessionTopic(session, formatter);
-    const threadLink = formatter.formatLink(topic, session.platform.getThreadLink(session.threadId));
+
+    // Only create clickable link for sessions on this platform
+    const topicDisplay = isThisPlatform
+      ? formatter.formatLink(topic, session.platform.getThreadLink(session.threadId))
+      : topic;
+
     const displayName = session.startedByDisplayName || session.startedBy;
     const time = formatRelativeTimeShort(session.startedAt);
 
@@ -455,7 +465,10 @@ export async function buildStickyMessage(
     // Status indicator at end (● active, ○ idle)
     const statusIcon = getStatusIndicator(session);
 
-    lines.push(`▸ ${threadLink} · ${formatter.formatBold(displayName)}${progressStr}${prStr} · ${time} ${statusIcon}`);
+    // Add platform name for other platforms
+    const platformSuffix = isThisPlatform ? '' : ` · ${formatter.formatItalic(session.platform.displayName)}`;
+
+    lines.push(`${platformIcon} ▸ ${topicDisplay} · ${formatter.formatBold(displayName)}${progressStr}${prStr} · ${time}${platformSuffix} ${statusIcon}`);
 
     // Add description on next line if available
     if (session.sessionDescription) {
@@ -473,6 +486,16 @@ export async function buildStickyMessage(
     if (activeTask && !pendingPromptsStr) {
       lines.push(`   🔄 ${formatter.formatItalic(activeTask)}`);
     }
+  };
+
+  // First show sessions from this platform
+  for (const session of thisPlatformSessions) {
+    formatSessionEntry(session, true);
+  }
+
+  // Then show sessions from other platforms
+  for (const session of otherPlatformSessions) {
+    formatSessionEntry(session, false);
   }
 
   // Add history section if there are recent completed sessions

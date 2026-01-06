@@ -79,22 +79,23 @@ export async function postWorktreePrompt(
   reason: string,
   registerPost: (postId: string, threadId: string) => void
 ): Promise<void> {
+  const formatter = session.platform.getFormatter();
   let message: string;
   switch (reason) {
     case 'uncommitted':
-      message = `🌿 **This repo has uncommitted changes.**\n` +
+      message = `🌿 ${formatter.formatBold('This repo has uncommitted changes.')}\n` +
         `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue in the main repo.`;
       break;
     case 'concurrent':
-      message = `⚠️ **Another session is already using this repo.**\n` +
+      message = `⚠️ ${formatter.formatBold('Another session is already using this repo.')}\n` +
         `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue anyway.`;
       break;
     case 'require':
-      message = `🌿 **This deployment requires working in a worktree.**\n` +
+      message = `🌿 ${formatter.formatBold('This deployment requires working in a worktree.')}\n` +
         `Please reply with a branch name to continue.`;
       break;
     default:
-      message = `🌿 **Would you like to work in an isolated worktree?**\n` +
+      message = `🌿 ${formatter.formatBold('Would you like to work in an isolated worktree?')}\n` +
         `Reply with a branch name, or react with ❌ to continue in the main repo.`;
   }
 
@@ -232,8 +233,9 @@ export async function createAndSwitchToWorktree(
   if (existing && !existing.isMain) {
     // Post interactive prompt asking if user wants to join the existing worktree
     const shortPath = existing.path.replace(process.env.HOME || '', '~');
+    const fmt = session.platform.getFormatter();
     const post = await session.platform.createInteractivePost(
-      `🌿 **Worktree for branch \`${branch}\` already exists** at \`${shortPath}\`.\n` +
+      `🌿 ${fmt.formatBold(`Worktree for branch ${fmt.formatCode(branch)} already exists`)} at ${fmt.formatCode(shortPath)}.\n` +
       `React with 👍 to join this worktree, or ❌ to continue in the current directory.`,
       ['+1', 'x'],  // thumbsup and x emoji names
       session.threadId
@@ -339,7 +341,8 @@ export async function createAndSwitchToWorktree(
 
     // Post confirmation
     const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
-    await postSuccess(session, `**Created worktree** for branch \`${branch}\`\n📁 Working directory: \`${shortWorktreePath}\`\n*Claude Code restarted in the new worktree*`);
+    const fmt = session.platform.getFormatter();
+    await postSuccess(session, `${fmt.formatBold('Created worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortWorktreePath)}\n${fmt.formatItalic('Claude Code restarted in the new worktree')}`);
 
     // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
     resetSessionActivity(session);
@@ -434,14 +437,15 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   }
 
   const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
-  let message = `📋 **Worktrees for** \`${shortRepoRoot}\`:\n\n`;
+  const fmt = session.platform.getFormatter();
+  let message = `📋 ${fmt.formatBold('Worktrees for')} ${fmt.formatCode(shortRepoRoot)}:\n\n`;
 
   for (const wt of worktrees) {
     const shortPath = wt.path.replace(process.env.HOME || '', '~');
     const isCurrent = session.workingDir === wt.path;
     const marker = isCurrent ? ' ← current' : '';
     const label = wt.isMain ? '(main repository)' : '';
-    message += `• \`${wt.branch}\` → \`${shortPath}\` ${label}${marker}\n`;
+    message += `• ${fmt.formatCode(wt.branch)} → ${fmt.formatCode(shortPath)} ${label}${marker}\n`;
   }
 
   await postInfo(session, message);

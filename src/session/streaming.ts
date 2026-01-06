@@ -6,6 +6,7 @@
  */
 
 import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
+import { convertMarkdownTablesToSlack } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
@@ -35,7 +36,8 @@ function getMinimizedTaskContent(fullContent: string, formatter: PlatformFormatt
   const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
 
   // Find current in-progress task
-  const inProgressMatch = fullContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  // Match both ** (Mattermost) and * (Slack) bold formatting
+  const inProgressMatch = fullContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}(?:\s*\((\d+)s\))?/);
   let currentTaskText = '';
   if (inProgressMatch) {
     const taskName = inProgressMatch[1];
@@ -43,7 +45,7 @@ function getMinimizedTaskContent(fullContent: string, formatter: PlatformFormatt
     currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
   }
 
-  return `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  return `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
 }
 
 /**
@@ -536,6 +538,11 @@ export async function flush(
   }
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
+
+  // Convert markdown tables for Slack (Slack doesn't render markdown tables)
+  if (session.platform.platformType === 'slack') {
+    content = convertMarkdownTablesToSlack(content);
+  }
 
   // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin

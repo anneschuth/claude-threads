@@ -55,6 +55,11 @@ export class DiscordFormatter implements PlatformFormatter {
     return '───────────────────';
   }
 
+  formatStrikethrough(text: string): string {
+    // Discord uses ~~ for strikethrough (same as standard markdown)
+    return `~~${text}~~`;
+  }
+
   formatHeading(text: string, level: number): string {
     // Discord supports # headings but they're less prominent
     const hashes = '#'.repeat(Math.min(Math.max(level, 1), 3));

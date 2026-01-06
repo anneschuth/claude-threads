@@ -31,6 +31,9 @@ function createMockSession(): Session {
     // Platform reference
     platform: {
       createPost: mock(() => Promise.resolve({ id: 'post-1' })),
+      getFormatter: () => ({
+        formatBold: (text: string) => `**${text}**`,
+      }),
     } as any,
 
     // Working directory

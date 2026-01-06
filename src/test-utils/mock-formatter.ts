@@ -22,6 +22,7 @@ export function createMockFormatter(): PlatformFormatter {
     formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
     formatBlockquote: (text: string) => `> ${text}`,
     formatHorizontalRule: () => '---',
+    formatStrikethrough: (text: string) => `~~${text}~~`,
     formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
     escapeText: (text: string) => text.replace(/([*_`[\]()#+\-.!])/g, '\\$1'),
     formatTable: (headers: string[], rows: string[][]) => {
@@ -57,6 +58,7 @@ export function createSlackMockFormatter(): PlatformFormatter {
     formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
     formatBlockquote: (text: string) => `> ${text}`,
     formatHorizontalRule: () => '━━━━━━━━━━━━━━━━━━━━',
+    formatStrikethrough: (text: string) => `~${text}~`,
     formatHeading: (text: string, _level: number) => `*${text}*`,
     escapeText: (text: string) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
     formatTable: (headers: string[], rows: string[][]) => {

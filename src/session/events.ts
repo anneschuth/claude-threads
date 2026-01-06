@@ -447,7 +447,7 @@ async function handleTodoWrite(
     const tasksPostId = session.tasksPostId;
     if (tasksPostId) {
       const formatter = session.platform.getFormatter();
-      const completedMsg = `---\n📋 ~~Tasks~~ ${formatter.formatItalic('(completed)')}`;
+      const completedMsg = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatStrikethrough('Tasks')} ${formatter.formatItalic('(completed)')}`;
       await withErrorHandling(
         () => session.platform.updatePost(tasksPostId, completedMsg),
         { action: 'Update tasks', session }
@@ -490,14 +490,14 @@ async function handleTodoWrite(
 
   // Build full task list (always computed for lastTasksContent)
   const formatter = session.platform.getFormatter();
-  let fullMessage = `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)\n\n`;
+  let fullMessage = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)\n\n`;
   for (const todo of todos) {
     let icon: string;
     let text: string;
     switch (todo.status) {
       case 'completed':
         icon = '✅';
-        text = `~~${todo.content}~~`;
+        text = formatter.formatStrikethrough(todo.content);
         break;
       case 'in_progress': {
         icon = '🔄';
@@ -527,7 +527,7 @@ async function handleTodoWrite(
   // Choose display format based on minimized state
   // Minimized: show only progress bar with current task
   // Expanded: show full task list
-  const minimizedMessage = `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const minimizedMessage = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : fullMessage;
 
   // Update or create tasks post

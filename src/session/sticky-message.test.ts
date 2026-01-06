@@ -214,10 +214,10 @@ describe('buildStickyMessage', () => {
     expect(result).toContain('Help me with this');
   });
 
-  it('filters sessions by platform', async () => {
+  it('shows sessions from all platforms with cross-platform indicator', async () => {
     const sessions = new Map<string, Session>();
 
-    // Session for test-platform
+    // Session for test-platform (this platform)
     const session1 = createMockSession({
       platformId: 'test-platform',
       sessionId: 'test-platform:thread1',
@@ -225,7 +225,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session1.sessionId, session1);
 
-    // Session for other-platform
+    // Session for other-platform (different platform)
     const session2 = createMockSession({
       platformId: 'other-platform',
       sessionId: 'other-platform:thread2',
@@ -235,9 +235,16 @@ describe('buildStickyMessage', () => {
 
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    expect(result).toContain('(1)');
+    // Now shows all sessions from all platforms (cross-platform visibility)
+    expect(result).toContain('(2)');
     expect(result).toContain('Session 1');
-    expect(result).not.toContain('Session 2');
+    expect(result).toContain('Session 2');
+    // Session 1 (this platform) should have a link
+    expect(result).toContain('[Session 1]');
+    // Session 2 (other platform) should NOT have a link, just plain text
+    expect(result).not.toContain('[Session 2]');
+    // Session 2 should show the platform name
+    expect(result).toContain('Test Platform');
   });
 
   it('sorts sessions by start time (newest first)', async () => {

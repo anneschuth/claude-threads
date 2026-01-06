@@ -79,6 +79,13 @@ export interface PlatformFormatter {
   formatHeading(text: string, level: number): string;
 
   /**
+   * Format text as strikethrough
+   * Mattermost: ~~text~~
+   * Slack: ~text~
+   */
+  formatStrikethrough(text: string): string;
+
+  /**
    * Escape special characters in text to prevent formatting
    */
   escapeText(text: string): string;

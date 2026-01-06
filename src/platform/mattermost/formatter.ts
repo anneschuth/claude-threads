@@ -47,6 +47,10 @@ export class MattermostFormatter implements PlatformFormatter {
     return '---';
   }
 
+  formatStrikethrough(text: string): string {
+    return `~~${text}~~`;
+  }
+
   formatHeading(text: string, level: number): string {
     const hashes = '#'.repeat(Math.min(Math.max(level, 1), 6));
     return `${hashes} ${text}`;

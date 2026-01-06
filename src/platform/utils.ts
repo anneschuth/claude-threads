@@ -11,6 +11,27 @@
  */
 
 // =============================================================================
+// Platform Icons
+// =============================================================================
+
+/**
+ * Get the display icon for a platform type.
+ *
+ * @param platformType - The platform type (slack, mattermost, etc.)
+ * @returns Emoji icon for the platform
+ */
+export function getPlatformIcon(platformType: string): string {
+  switch (platformType) {
+    case 'slack':
+      return '💬';
+    case 'mattermost':
+      return '📢';
+    default:
+      return '💬';
+  }
+}
+
+// =============================================================================
 // Message Utilities
 // =============================================================================
 
@@ -390,4 +411,57 @@ export function sanitizeForLogging(message: string): string {
     .replace(/token[=:]\s*["']?[^"'\s]+["']?/gi, 'token=[REDACTED]')
     .replace(/password[=:]\s*["']?[^"'\s]+["']?/gi, 'password=[REDACTED]')
     .replace(/secret[=:]\s*["']?[^"'\s]+["']?/gi, 'secret=[REDACTED]');
+}
+
+// =============================================================================
+// Markdown Table Conversion (for Slack)
+// =============================================================================
+
+/**
+ * Convert markdown tables to a Slack-friendly list format.
+ *
+ * Markdown tables like:
+ * | Header1 | Header2 |
+ * |---------|---------|
+ * | Cell1   | Cell2   |
+ *
+ * Become:
+ * *Header1:* Cell1 · *Header2:* Cell2
+ *
+ * @param content - Content potentially containing markdown tables
+ * @returns Content with tables converted to list format
+ */
+export function convertMarkdownTablesToSlack(content: string): string {
+  // Match markdown tables: | Header | Header | \n |---| \n | Cell | Cell |
+  const tableRegex = /^\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)+)/gm;
+
+  return content.replace(tableRegex, (_match, headerLine, bodyLines) => {
+    // Parse headers
+    const headers = headerLine
+      .split('|')
+      .map((h: string) => h.trim())
+      .filter((h: string) => h);
+
+    // Parse body rows
+    const rows = bodyLines
+      .trim()
+      .split('\n')
+      .map((row: string) =>
+        row
+          .split('|')
+          .map((c: string) => c.trim())
+          .filter((c: string) => c !== '')
+      );
+
+    // Convert to Slack format: *Header:* Value · *Header:* Value
+    const formattedRows = rows.map((row: string[]) => {
+      const cells = row.map((cell: string, i: number) => {
+        const header = headers[i];
+        return header ? `*${header}:* ${cell}` : cell;
+      });
+      return cells.join(' · ');
+    });
+
+    return formattedRows.join('\n');
+  });
 }

@@ -291,6 +291,7 @@ async function main() {
       displayName: platformConfig.displayName || platformConfig.id,
       botName: typedConfig.botName,
       url: typedConfig.type === 'mattermost' ? (typedConfig as MattermostPlatformConfig).url : 'slack.com',
+      platformType: typedConfig.type as 'mattermost' | 'slack',
     });
 
     // Create platform client using factory

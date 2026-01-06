@@ -64,6 +64,11 @@ export class SlackFormatter implements PlatformFormatter {
     return '━━━━━━━━━━━━━━━━━━━━';
   }
 
+  formatStrikethrough(text: string): string {
+    // Slack uses single tildes for strikethrough
+    return `~${text}~`;
+  }
+
   formatHeading(text: string, _level: number): string {
     // Slack doesn't have real headings, so we use bold text
     // The level parameter is ignored since all "headings" are rendered the same

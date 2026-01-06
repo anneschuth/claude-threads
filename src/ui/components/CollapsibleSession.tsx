@@ -6,6 +6,7 @@ import type { SessionInfo, LogEntry } from '../types.js';
 import { SessionLog } from './SessionLog.js';
 import { Spinner } from './Spinner.js';
 import { formatShortId, formatRelativeTimeShort } from '../../utils/format.js';
+import { getPlatformIcon } from '../../platform/utils.js';
 
 interface CollapsibleSessionProps {
   session: SessionInfo;
@@ -34,6 +35,7 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
   const { session, logs, expanded } = props;
   // Note: sessionNumber is available in props if needed in the future
   const { icon, color } = getStatusIndicator(session.status);
+  const platformIcon = getPlatformIcon(session.platformType || 'mattermost');
   const arrow = expanded ? '▼' : '▶';
   const shortId = formatShortId(session.id);
   const timeAgo = session.lastActivity ? formatRelativeTimeShort(session.lastActivity) : '';
@@ -43,8 +45,9 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
 
   return (
     <Box flexDirection="column" marginTop={0}>
-      {/* Header line: arrow + title + user + status + branch */}
+      {/* Header line: platform + arrow + title + user + status + branch */}
       <Box gap={1}>
+        <Text>{platformIcon}</Text>
         <Text dimColor>{arrow}</Text>
         <Text color={session.title ? 'cyan' : 'white'} bold>{displayTitle}</Text>
         <Text dimColor>·</Text>

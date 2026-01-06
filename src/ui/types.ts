@@ -11,6 +11,9 @@ export interface SessionInfo {
   workingDir: string;
   sessionNumber: number;
   worktreeBranch?: string;
+  // Platform information
+  platformType?: 'mattermost' | 'slack';
+  platformDisplayName?: string;
   // Rich session metadata
   title?: string;
   description?: string;
@@ -33,6 +36,7 @@ export interface PlatformStatus {
   displayName: string;
   botName: string;
   url: string;
+  platformType?: 'mattermost' | 'slack';
   connected: boolean;
   reconnecting: boolean;
   reconnectAttempts: number;

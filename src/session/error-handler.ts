@@ -127,8 +127,9 @@ export async function handleError(
   // Notify user if requested and session available
   if (context.notifyUser && context.session) {
     try {
+      const fmt = context.session.platform.getFormatter();
       await context.session.platform.createPost(
-        `⚠️ **Error**: ${context.action} failed. Please try again.`,
+        `⚠️ ${fmt.formatBold('Error')}: ${context.action} failed. Please try again.`,
         context.session.threadId
       );
     } catch (notifyError) {

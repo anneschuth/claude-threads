@@ -242,7 +242,8 @@ export async function handleTaskToggleReaction(
   const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
 
   // Find current in-progress task from lastTasksContent
-  const inProgressMatch = session.lastTasksContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  // Match both ** (Mattermost) and * (Slack) bold formatting
+  const inProgressMatch = session.lastTasksContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}(?:\s*\((\d+)s\))?/);
   let currentTaskText = '';
   if (inProgressMatch) {
     const taskName = inProgressMatch[1];
@@ -251,7 +252,7 @@ export async function handleTaskToggleReaction(
   }
 
   const formatter = session.platform.getFormatter();
-  const minimizedMessage = `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const minimizedMessage = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
   const tasksPostId = session.tasksPostId;
 

@@ -142,7 +142,7 @@ export async function handleMessage(
       if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
         const notes = getReleaseNotes(VERSION);
         if (notes) {
-          await client.createPost(formatReleaseNotes(notes), threadRoot);
+          await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
         } else {
           await client.createPost(
             `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
