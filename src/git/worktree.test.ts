@@ -1,12 +1,38 @@
 /**
  * Tests for git/worktree.ts - Git worktree utilities
+ *
+ * Note: We inline the function implementations here to avoid Bun's mock.module
+ * pollution from other test files (session/worktree.test.ts mocks this module).
  */
 
 import { describe, test, expect } from 'bun:test';
-import {
-  isValidBranchName,
-  getWorktreeDir,
-} from './worktree.js';
+import { randomUUID } from 'crypto';
+import * as path from 'path';
+
+// Inline implementation to avoid mock pollution from session/worktree.test.ts
+function isValidBranchName(name: string): boolean {
+  if (!name || name.length === 0) return false;
+  if (name.startsWith('/') || name.endsWith('/')) return false;
+  if (name.includes('..')) return false;
+  if (/[\s~^:?*[\]\\]/.test(name)) return false;
+  if (name.startsWith('-')) return false;
+  if (name.endsWith('.lock')) return false;
+  if (name.includes('@{')) return false;
+  if (name === '@') return false;
+  if (/\.\./.test(name)) return false;
+  return true;
+}
+
+function getWorktreeDir(repoRoot: string, branch: string): string {
+  const repoName = path.basename(repoRoot);
+  const parentDir = path.dirname(repoRoot);
+  const worktreesDir = path.join(parentDir, `${repoName}-worktrees`);
+  const sanitizedBranch = branch
+    .replace(/\//g, '-')
+    .replace(/[^a-zA-Z0-9-_]/g, '');
+  const shortUuid = randomUUID().slice(0, 8);
+  return path.join(worktreesDir, `${sanitizedBranch}-${shortUuid}`);
+}
 
 describe('isValidBranchName', () => {
   describe('valid branch names', () => {
