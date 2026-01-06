@@ -521,6 +521,10 @@ export async function updateSessionHeader(
   items.push(['📂', 'Directory', formatter.formatCode(shortDir)]);
   items.push(['👤', 'Started by', formatter.formatUserMention(session.startedBy)]);
 
+  // Platform indicator (useful when running multi-platform)
+  const platformIcon = session.platform.platformType === 'slack' ? '💬' : '📢';
+  items.push([platformIcon, 'Platform', session.platform.displayName]);
+
   // Show worktree info if active, otherwise show git branch if in a git repo
   if (session.worktreeInfo) {
     const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
