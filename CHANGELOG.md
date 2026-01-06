@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.39.0] - 2026-01-06
+
+### Added
+- **Test coverage enforcement** - CI now enforces minimum 55% code coverage with new unit tests for:
+  - `src/claude/cli.test.ts` - Claude CLI spawning and MCP config
+  - `src/message-handler.test.ts` - Message routing logic
+  - `src/session/manager.test.ts` - Session manager orchestration
+  - `src/session/reactions.test.ts` - Emoji reaction handling
+- **Slack app manifest** - Added `docs/slack-app-manifest.yaml` for easier Slack app setup
+- **Session title/description logging** - Debug logging for extracting session metadata from Claude responses
+
+### Fixed
+- **Slack strikethrough formatting** - Escape tildes in strikethrough text to prevent formatting breakage
+- **Image files preserved during prompts** - Image files are no longer lost when context/worktree prompts are shown
+- **Double newlines between content blocks** - Proper formatting with double newlines for better readability
+- **Documentation** - Added `files:read` scope to Slack setup docs
+
 ## [0.38.0] - 2026-01-06
 
 ### Added
