@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-01-06
+
+### Added
+- **Platform toggle from UI** - Use `Shift+1-9` to toggle platforms on/off from the terminal UI:
+  - When disabled: active sessions are paused, platform disconnects, UI shows gray state
+  - When re-enabled: platform reconnects, paused sessions auto-resume
+  - Visual feedback in StatusLine with colors (green=connected, gray=disabled, yellow=reconnecting, red=error)
+- **Pin active task post** - Task posts are now pinned to the channel for easy access:
+  - Pin when task post is created
+  - Unpin when all tasks complete or session ends
+  - Handles task post "bumping" by unpinning old and pinning new
+- **Slack file attachment support** - Fixed bug where Slack messages with image attachments were silently ignored:
+  - Now handles `file_share` message subtype correctly
+  - Added comprehensive integration tests for Slack file uploads
+
+### Changed
+- **Universal markdown formatting** - Added `formatMarkdown()` method to `PlatformFormatter` interface:
+  - Claude's responses now render properly on all platforms
+  - MattermostFormatter: pass-through (standard markdown)
+  - SlackFormatter: converts `**bold**` → `*bold*`, `## headers` → bold, links → Slack format
+  - DiscordFormatter: pass-through (standard markdown)
+
 ## [0.35.0] - 2026-01-06
 
 ### Added
