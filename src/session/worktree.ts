@@ -231,9 +231,97 @@ export async function createAndSwitchToWorktree(
   // Check if worktree already exists for this branch
   const existing = await findWorktreeByBranch(repoRoot, branch);
   if (existing && !existing.isMain) {
-    // Post interactive prompt asking if user wants to join the existing worktree
     const shortPath = existing.path.replace(process.env.HOME || '', '~');
     const fmt = session.platform.getFormatter();
+
+    // If user explicitly specified this branch inline (via "on branch X" or "!worktree X" in initial message),
+    // skip the confirmation prompt and directly join the existing worktree
+    if (session.pendingWorktreePrompt) {
+      sessionLog(session).info(`🌿 Auto-joining existing worktree ${branch} (user specified inline)`);
+
+      // Update the worktree prompt post
+      const worktreePromptId = session.worktreePromptPostId;
+      if (worktreePromptId) {
+        await withErrorHandling(
+          () => session.platform.updatePost(worktreePromptId,
+            `✅ Joining existing worktree for ${fmt.formatCode(branch)}`),
+          { action: 'Update worktree prompt', session }
+        );
+      }
+
+      // Clear pending worktree prompt state
+      const queuedPrompt = session.queuedPrompt;
+      session.pendingWorktreePrompt = false;
+      session.worktreePromptPostId = undefined;
+      session.queuedPrompt = undefined;
+
+      // Update working directory and worktree info
+      session.workingDir = existing.path;
+      session.worktreeInfo = {
+        repoRoot,
+        worktreePath: existing.path,
+        branch: existing.branch,
+      };
+
+      // Restart Claude CLI in the worktree directory if running
+      if (session.claude.isRunning()) {
+        options.stopTyping(session);
+        session.isRestarting = true;
+        session.claude.kill();
+
+        // Flush any pending content
+        await options.flush(session);
+        session.currentPostId = null;
+        session.pendingContent = '';
+
+        // Generate new session ID for fresh start in new directory
+        const newSessionId = randomUUID();
+        session.claudeSessionId = newSessionId;
+
+        // Create new CLI with new working directory
+        const needsTitlePrompt = !session.sessionTitle;
+        const cliOptions: ClaudeCliOptions = {
+          workingDir: existing.path,
+          threadId: session.threadId,
+          skipPermissions: options.skipPermissions || !session.forceInteractivePermissions,
+          sessionId: newSessionId,
+          resume: false,
+          chrome: options.chromeEnabled,
+          platformConfig: session.platform.getMcpConfig(),
+          appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
+          logSessionId: session.sessionId,
+        };
+        session.claude = new ClaudeCli(cliOptions);
+
+        // Rebind event handlers
+        session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
+        session.claude.on('exit', (code: number) => options.handleExit(session.sessionId, code));
+
+        // Start the new CLI
+        session.claude.start();
+      }
+
+      // Update session header
+      await options.updateSessionHeader(session);
+
+      // Post confirmation
+      await postSuccess(session, `${fmt.formatBold('Joined existing worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortPath)}\n${fmt.formatItalic('Claude Code restarted in the worktree')}`);
+
+      // Reset activity and persist
+      resetSessionActivity(session);
+      options.persistSession(session);
+
+      // Send the queued prompt to the new Claude CLI
+      if (session.claude.isRunning() && queuedPrompt) {
+        const excludePostId = session.worktreeResponsePostId;
+        await options.offerContextPrompt(session, queuedPrompt, excludePostId);
+        session.worktreeResponsePostId = undefined;
+      }
+
+      return;
+    }
+
+    // Otherwise, post interactive prompt asking if user wants to join the existing worktree
     const post = await session.platform.createInteractivePost(
       `🌿 ${fmt.formatBold(`Worktree for branch ${fmt.formatCode(branch)} already exists`)} at ${fmt.formatCode(shortPath)}.\n` +
       `React with 👍 to join this worktree, or ❌ to continue in the current directory.`,
@@ -367,6 +455,34 @@ export async function createAndSwitchToWorktree(
     sessionLog(session).info(`🌿 Switched to worktree ${branch} at ${shortWorktreePath}`);
   } catch (err) {
     await logAndNotify(err, { action: 'Create worktree', session });
+
+    // On failure, clear pending state and continue without worktree
+    const fmt = session.platform.getFormatter();
+    const worktreePromptId = session.worktreePromptPostId;
+    if (worktreePromptId) {
+      await withErrorHandling(
+        () => session.platform.updatePost(worktreePromptId,
+          `❌ Failed to create worktree for ${fmt.formatCode(branch)} - continuing in main repo`),
+        { action: 'Update worktree prompt after failure', session }
+      );
+    }
+
+    // Clear pending state
+    const wasPending = session.pendingWorktreePrompt;
+    session.pendingWorktreePrompt = false;
+    session.worktreePromptPostId = undefined;
+    const queuedPrompt = session.queuedPrompt;
+    session.queuedPrompt = undefined;
+
+    // Persist updated state
+    options.persistSession(session);
+
+    // Send the queued prompt to Claude without worktree
+    if (wasPending && queuedPrompt && session.claude.isRunning()) {
+      const excludePostId = session.worktreeResponsePostId;
+      await options.offerContextPrompt(session, queuedPrompt, excludePostId);
+      session.worktreeResponsePostId = undefined;
+    }
   }
 }
 
