@@ -505,6 +505,8 @@ Setting up claude-threads for Slack requires creating a Slack app with Socket Mo
    - `channels:history` - Read messages in channels
    - `channels:read` - View basic channel info
    - `chat:write` - Send messages
+   - `pins:read` - Read pinned messages
+   - `pins:write` - Pin/unpin messages
    - `reactions:read` - Read emoji reactions
    - `reactions:write` - Add emoji reactions
    - `users:read` - View users and their info
