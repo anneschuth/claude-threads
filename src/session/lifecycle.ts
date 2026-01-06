@@ -220,17 +220,19 @@ export async function startSession(
 
   // Check max sessions limit
   if (ctx.state.sessions.size >= ctx.config.maxSessions) {
+    const formatter = platform.getFormatter();
     await platform.createPost(
-      `⚠️ **Too busy** - ${ctx.state.sessions.size} sessions active. Please try again later.`,
+      `⚠️ ${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`,
       replyToPostId
     );
     return;
   }
 
   // Post initial session message
+  const startFormatter = platform.getFormatter();
   const post = await withErrorHandling(
     () => platform.createPost(
-      `${getLogo(VERSION)}\n\n*Starting session...*`,
+      `${getLogo(VERSION)}\n\n${startFormatter.formatItalic('Starting session...')}`,
       replyToPostId
     ),
     { action: 'Create session post' }
@@ -421,9 +423,10 @@ export async function resumeSession(
   if (!existsSync(state.workingDir)) {
     log.warn(`Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+    const resumeFormatter = platform.getFormatter();
     await withErrorHandling(
       () => platform.createPost(
-        `⚠️ **Cannot resume session** - working directory no longer exists:\n\`${state.workingDir}\`\n\nPlease start a new session.`,
+        `⚠️ ${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`,
         state.threadId
       ),
       { action: 'Post resume failure notification' }
@@ -534,16 +537,19 @@ export async function resumeSession(
     // Post or update resume message
     // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
     // Otherwise create a new post (normal for old persisted sessions without lifecyclePostId)
+    const sessionFormatter = session.platform.getFormatter();
     if (session.lifecyclePostId) {
+      const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')} by ${sessionFormatter.formatUserMention(session.startedBy)}\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
       await withErrorHandling(
-        () => session.platform.updatePost(session.lifecyclePostId!, `🔄 **Session resumed** by @${session.startedBy}\n*Reconnected to Claude session. You can continue where you left off.*`),
+        () => session.platform.updatePost(session.lifecyclePostId!, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
       );
       // Clear the lifecyclePostId since we're no longer in timeout/shutdown state
       session.lifecyclePostId = undefined;
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
-      await postResume(session, `**Session resumed** after bot restart (v${VERSION})\n*Reconnected to Claude session. You can continue where you left off.*`);
+      const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
+      await postResume(session, restartMsg);
     }
 
     // Update session header
@@ -561,9 +567,10 @@ export async function resumeSession(
     ctx.state.sessionStore.remove(sessionId);
 
     // Try to notify user
+    const failFormatter = session.platform.getFormatter();
     await withErrorHandling(
       () => session.platform.createPost(
-        `⚠️ **Could not resume previous session.** Starting fresh.\n*Your previous conversation context is preserved, but Claude needs to re-read it.*`,
+        `⚠️ ${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`,
         state.threadId
       ),
       { action: 'Post resume failure notification', session }
@@ -747,8 +754,9 @@ export async function handleExit(
     cleanupPostIndex(ctx, session.threadId);
     keepAlive.sessionEnded();
     // Notify user
+    const earlyExitFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => postWarning(session, `**Session ended** before Claude could respond (exit code ${code}). Please start a new session.`),
+      () => postWarning(session, `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
       { action: 'Post early exit notification', session }
     );
     sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);
@@ -774,11 +782,12 @@ export async function handleExit(
     keepAlive.sessionEnded();
 
     // Immediately give up on permanent failures
+    const resumeFailFormatter = session.platform.getFormatter();
     if (isPermanent) {
       sessionLog(session).warn(`Detected permanent failure, removing from persistence: ${permanentReason}`);
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
-        () => postError(session, `**Session cannot be resumed** — ${permanentReason}\n\nPlease start a new session.`),
+        () => postError(session, `${resumeFailFormatter.formatBold('Session cannot be resumed')} — ${permanentReason}\n\nPlease start a new session.`),
         { action: 'Post session permanent failure', session }
       );
       await ctx.ops.updateStickyMessage();
@@ -790,14 +799,14 @@ export async function handleExit(
       sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
-        () => postError(session, `**Session permanently failed** after ${MAX_RESUME_FAILURES} resume attempts (exit code ${code}). Session data has been removed. Please start a new session.`),
+        () => postError(session, `${resumeFailFormatter.formatBold('Session permanently failed')} after ${MAX_RESUME_FAILURES} resume attempts (exit code ${code}). Session data has been removed. Please start a new session.`),
         { action: 'Post session permanent failure', session }
       );
     } else {
       // Still have retries left - persist with updated fail count
       ctx.ops.persistSession(session);
       await withErrorHandling(
-        () => postWarning(session, `**Session resume failed** (exit code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
+        () => postWarning(session, `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
         { action: 'Post session resume failure', session }
       );
     }
@@ -815,7 +824,8 @@ export async function handleExit(
   await ctx.ops.flush(session);
 
   if (code !== 0 && code !== null) {
-    await postInfo(session, `**[Exited: ${code}]**`);
+    const exitFormatter = session.platform.getFormatter();
+    await postInfo(session, exitFormatter.formatBold(`[Exited: ${code}]`));
   }
 
   // Clean up session from maps
@@ -922,7 +932,8 @@ export async function cleanupIdleSessions(
     if (idleMs > timeoutMs) {
       sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
 
-      const timeoutMessage = `**Session timed out** after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
+      const timeoutFormatter = session.platform.getFormatter();
+      const timeoutMessage = `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
       // Update existing warning post or create a new one
       if (session.lifecyclePostId) {
@@ -955,7 +966,8 @@ export async function cleanupIdleSessions(
     const warningThresholdMs = timeoutMs - warningMs;
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
-      const warningMessage = `**Session idle** - will timeout in ~${remainingMins} minutes without activity`;
+      const warningFormatter = session.platform.getFormatter();
+      const warningMessage = `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(

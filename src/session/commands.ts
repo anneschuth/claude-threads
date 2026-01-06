@@ -91,7 +91,8 @@ async function requireSessionOwner(
   action: string
 ): Promise<boolean> {
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can ${action}`);
+    const formatter = session.platform.getFormatter();
+    await postWarning(session, `Only ${formatter.formatUserMention(session.startedBy)} or allowed users can ${action}`);
     sessionLog(session).warn(`Unauthorized: @${username} tried to ${action}`);
     return false;
   }
@@ -145,7 +146,8 @@ export async function cancelSession(
 ): Promise<void> {
   sessionLog(session).info(`🛑 Cancelled by @${username}`);
 
-  await postCancelled(session, `**Session cancelled** by @${username}`);
+  const formatter = session.platform.getFormatter();
+  await postCancelled(session, `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
 
   await ctx.ops.killSession(session.threadId);
 }
@@ -169,7 +171,8 @@ export async function interruptSession(
 
   if (interrupted) {
     sessionLog(session).info(`⏸️ Interrupted by @${username}`);
-    await postInterrupt(session, `**Interrupted** by @${username}`);
+    const formatter = session.platform.getFormatter();
+    await postInterrupt(session, `${formatter.formatBold('Interrupted')} by ${formatter.formatUserMention(username)}`);
   }
 }
 
@@ -199,15 +202,17 @@ export async function changeDirectory(
   // Resolve to absolute path
   const absoluteDir = resolve(expandedDir);
 
+  const formatter = session.platform.getFormatter();
+
   // Check if directory exists
   if (!existsSync(absoluteDir)) {
-    await postError(session, `Directory does not exist: \`${newDir}\``);
+    await postError(session, `Directory does not exist: ${formatter.formatCode(newDir)}`);
     sessionLog(session).warn(`📂 Directory does not exist: ${newDir}`);
     return;
   }
 
   if (!statSync(absoluteDir).isDirectory()) {
-    await postError(session, `Not a directory: \`${newDir}\``);
+    await postError(session, `Not a directory: ${formatter.formatCode(newDir)}`);
     sessionLog(session).warn(`📂 Not a directory: ${newDir}`);
     return;
   }
@@ -241,7 +246,7 @@ export async function changeDirectory(
   await updateSessionHeader(session, ctx);
 
   // Post confirmation
-  await postCommand(session, `**Working directory changed** to \`${shortDir}\`\n*Claude Code restarted in new directory*`);
+  await postCommand(session, `${formatter.formatBold('Working directory changed')} to ${formatter.formatCode(shortDir)}\n${formatter.formatItalic('Claude Code restarted in new directory')}`);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
   resetSessionActivity(session);
@@ -274,14 +279,15 @@ export async function inviteUser(
 
   // Validate that the user exists on the platform
   const user = await session.platform.getUserByUsername(invitedUser);
+  const formatter = session.platform.getFormatter();
   if (!user) {
-    await postWarning(session, `User @${invitedUser} does not exist on this platform`);
+    await postWarning(session, `User ${formatter.formatUserMention(invitedUser)} does not exist on this platform`);
     sessionLog(session).warn(`👋 User @${invitedUser} not found`);
     return;
   }
 
   session.sessionAllowedUsers.add(invitedUser);
-  await postSuccess(session, `@${invitedUser} can now participate in this session (invited by @${invitedBy})`);
+  await postSuccess(session, `${formatter.formatUserMention(invitedUser)} can now participate in this session (invited by ${formatter.formatUserMention(invitedBy)})`);
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
   await updateSessionHeader(session, ctx);
   ctx.ops.persistSession(session);
@@ -303,33 +309,34 @@ export async function kickUser(
 
   // Validate that the user exists on the platform
   const user = await session.platform.getUserByUsername(kickedUser);
+  const formatter = session.platform.getFormatter();
   if (!user) {
-    await postWarning(session, `User @${kickedUser} does not exist on this platform`);
+    await postWarning(session, `User ${formatter.formatUserMention(kickedUser)} does not exist on this platform`);
     sessionLog(session).warn(`🚫 User @${kickedUser} not found`);
     return;
   }
 
   // Can't kick session owner
   if (kickedUser === session.startedBy) {
-    await postWarning(session, `Cannot kick session owner @${session.startedBy}`);
+    await postWarning(session, `Cannot kick session owner ${formatter.formatUserMention(session.startedBy)}`);
     sessionLog(session).warn(`🚫 Cannot kick session owner @${session.startedBy}`);
     return;
   }
 
   // Can't kick globally allowed users
   if (session.platform.isUserAllowed(kickedUser)) {
-    await postWarning(session, `@${kickedUser} is globally allowed and cannot be kicked from individual sessions`);
+    await postWarning(session, `${formatter.formatUserMention(kickedUser)} is globally allowed and cannot be kicked from individual sessions`);
     sessionLog(session).warn(`🚫 Cannot kick globally allowed user @${kickedUser}`);
     return;
   }
 
   if (session.sessionAllowedUsers.delete(kickedUser)) {
-    await postUser(session, `@${kickedUser} removed from this session by @${kickedBy}`);
+    await postUser(session, `${formatter.formatUserMention(kickedUser)} removed from this session by ${formatter.formatUserMention(kickedBy)}`);
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     await updateSessionHeader(session, ctx);
     ctx.ops.persistSession(session);
   } else {
-    await postWarning(session, `@${kickedUser} was not in this session`);
+    await postWarning(session, `${formatter.formatUserMention(kickedUser)} was not in this session`);
     sessionLog(session).warn(`🚫 @${kickedUser} was not in session`);
   }
 }
@@ -390,7 +397,8 @@ export async function enableInteractivePermissions(
   await updateSessionHeader(session, ctx);
 
   // Post confirmation
-  await postSecure(session, `**Interactive permissions enabled** for this session by @${username}\n*Claude Code restarted with permission prompts*`);
+  const formatter = session.platform.getFormatter();
+  await postSecure(session, `${formatter.formatBold('Interactive permissions enabled')} for this session by ${formatter.formatUserMention(username)}\n${formatter.formatItalic('Claude Code restarted with permission prompts')}`);
   sessionLog(session).info(`🔐 Interactive permissions enabled by @${username}`);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
@@ -419,9 +427,10 @@ export async function requestMessageApproval(
   // Truncate long messages for display
   const displayMessage = message.length > 200 ? message.substring(0, 200) + '...' : message;
 
+  const formatter = session.platform.getFormatter();
   const approvalMessage =
-    `🔒 **Message from @${username}** needs approval:\n\n` +
-    `> ${displayMessage}\n\n` +
+    `🔒 ${formatter.formatBold(`Message from ${formatter.formatUserMention(username)}`)} needs approval:\n\n` +
+    `${formatter.formatBlockquote(displayMessage)}\n\n` +
     `React: 👍 Allow once | ✅ Invite to session | 👎 Deny`;
 
   const post = await session.platform.createInteractivePost(
@@ -453,6 +462,8 @@ export async function updateSessionHeader(
 ): Promise<void> {
   if (!session.sessionStartPostId) return;
 
+  const formatter = session.platform.getFormatter();
+
   // Use session's working directory
   const shortDir = session.workingDir.replace(process.env.HOME || '', '~');
   // Check session-level permission override
@@ -462,7 +473,7 @@ export async function updateSessionHeader(
   // Build participants list (excluding owner)
   const otherParticipants = [...session.sessionAllowedUsers]
     .filter((u) => u !== session.startedBy)
-    .map((u) => `@${u}`)
+    .map((u) => formatter.formatUserMention(u))
     .join(', ');
 
   // Build status bar items
@@ -471,28 +482,28 @@ export async function updateSessionHeader(
   // Model and context usage (if available)
   if (session.usageStats) {
     const stats = session.usageStats;
-    statusItems.push(`\`🤖 ${stats.modelDisplayName}\``);
+    statusItems.push(formatter.formatCode(`🤖 ${stats.modelDisplayName}`));
     // Calculate context usage percentage (using primary model's context tokens)
     const contextPercent = Math.round((stats.contextTokens / stats.contextWindowSize) * 100);
     const contextBar = formatContextBar(contextPercent);
-    statusItems.push(`\`${contextBar} ${contextPercent}%\``);
+    statusItems.push(formatter.formatCode(`${contextBar} ${contextPercent}%`));
     // Show cost
-    statusItems.push(`\`💰 $${stats.totalCostUSD.toFixed(2)}\``);
+    statusItems.push(formatter.formatCode(`💰 $${stats.totalCostUSD.toFixed(2)}`));
   }
 
-  statusItems.push(`\`${permMode}\``);
+  statusItems.push(formatter.formatCode(permMode));
   if (ctx.config.chromeEnabled) {
-    statusItems.push('`🌐 Chrome`');
+    statusItems.push(formatter.formatCode('🌐 Chrome'));
   }
   if (keepAlive.isActive()) {
-    statusItems.push('`💓 Keep-alive`');
+    statusItems.push(formatter.formatCode('💓 Keep-alive'));
   }
   const battery = await formatBatteryStatus();
   if (battery) {
-    statusItems.push(`\`${battery}\``);
+    statusItems.push(formatter.formatCode(battery));
   }
   const uptime = formatUptime(session.startedAt);
-  statusItems.push(`\`⏱️ ${uptime}\``);
+  statusItems.push(formatter.formatCode(`⏱️ ${uptime}`));
 
   const statusBar = statusItems.join(' · ');
 
@@ -500,20 +511,20 @@ export async function updateSessionHeader(
 
   // Add title and description if available
   if (session.sessionTitle) {
-    rows.push(`| 📝 **Topic** | ${session.sessionTitle} |`);
+    rows.push(`| 📝 ${formatter.formatBold('Topic')} | ${session.sessionTitle} |`);
   }
   if (session.sessionDescription) {
-    rows.push(`| 📄 **Summary** | _${session.sessionDescription}_ |`);
+    rows.push(`| 📄 ${formatter.formatBold('Summary')} | ${formatter.formatItalic(session.sessionDescription)} |`);
   }
 
-  rows.push(`| 📂 **Directory** | \`${shortDir}\` |`);
-  rows.push(`| 👤 **Started by** | @${session.startedBy} |`);
+  rows.push(`| 📂 ${formatter.formatBold('Directory')} | ${formatter.formatCode(shortDir)} |`);
+  rows.push(`| 👤 ${formatter.formatBold('Started by')} | ${formatter.formatUserMention(session.startedBy)} |`);
 
   // Show worktree info if active, otherwise show git branch if in a git repo
   if (session.worktreeInfo) {
     const shortRepoRoot = session.worktreeInfo.repoRoot.replace(process.env.HOME || '', '~');
     rows.push(
-      `| 🌿 **Worktree** | \`${session.worktreeInfo.branch}\` (from \`${shortRepoRoot}\`) |`
+      `| 🌿 ${formatter.formatBold('Worktree')} | ${formatter.formatCode(session.worktreeInfo.branch)} (from ${formatter.formatCode(shortRepoRoot)}) |`
     );
   } else {
     // Check if we're in a git repository and get the current branch
@@ -521,38 +532,38 @@ export async function updateSessionHeader(
     if (isRepo) {
       const branch = await getCurrentBranch(session.workingDir);
       if (branch) {
-        rows.push(`| 🌿 **Branch** | \`${branch}\` |`);
+        rows.push(`| 🌿 ${formatter.formatBold('Branch')} | ${formatter.formatCode(branch)} |`);
       }
     }
   }
 
   // Show pull request link if available
   if (session.pullRequestUrl) {
-    rows.push(`| 🔗 **Pull Request** | ${formatPullRequestLink(session.pullRequestUrl)} |`);
+    rows.push(`| 🔗 ${formatter.formatBold('Pull Request')} | ${formatPullRequestLink(session.pullRequestUrl)} |`);
   }
 
   if (otherParticipants) {
-    rows.push(`| 👥 **Participants** | ${otherParticipants} |`);
+    rows.push(`| 👥 ${formatter.formatBold('Participants')} | ${otherParticipants} |`);
   }
 
   // Show Claude CLI version
   const claudeVersion = getClaudeCliVersion();
   if (claudeVersion) {
-    rows.push(`| 🤖 **Claude CLI** | \`${claudeVersion}\` |`);
+    rows.push(`| 🤖 ${formatter.formatBold('Claude CLI')} | ${formatter.formatCode(claudeVersion)} |`);
   }
 
-  rows.push(`| 🆔 **Session ID** | \`${session.claudeSessionId.substring(0, 8)}\` |`);
+  rows.push(`| 🆔 ${formatter.formatBold('Session ID')} | ${formatter.formatCode(session.claudeSessionId.substring(0, 8))} |`);
 
   // Check for available updates
   const updateInfo = getUpdateInfo();
   const updateNotice = updateInfo
-    ? `\n> ⚠️ **Update available:** v${updateInfo.current} → v${updateInfo.latest} - Run \`npm install -g claude-threads\`\n`
+    ? `\n> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('npm install -g claude-threads')}\n`
     : '';
 
   // Get "What's new" from release notes
   const releaseNotes = getReleaseNotes(VERSION);
   const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
-  const whatsNewLine = whatsNew ? `\n> ✨ **What's new:** ${whatsNew}\n` : '';
+  const whatsNewLine = whatsNew ? `\n> ✨ ${formatter.formatBold("What's new:")} ${whatsNew}\n` : '';
 
   const msg = [
     getLogo(VERSION),

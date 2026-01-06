@@ -13,7 +13,7 @@
  */
 
 import type { Session } from './types.js';
-import type { PlatformPost } from '../platform/index.js';
+import type { PlatformPost, PlatformFormatter } from '../platform/index.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
 
@@ -279,11 +279,15 @@ export function resetSessionActivity(session: Session): void {
 // =============================================================================
 
 /**
- * Format a message with bold label.
- * @example formatBold('Session cancelled', 'by @user') => '**Session cancelled** by @user'
+ * Format a message with bold label using platform-specific formatting.
+ * @param formatter - The platform formatter to use
+ * @param label - The label to make bold
+ * @param rest - Optional rest of the message (not bolded)
+ * @example formatBold(formatter, 'Session cancelled', 'by @user') => '**Session cancelled** by @user' (Mattermost)
+ * @example formatBold(formatter, 'Session cancelled', 'by @user') => '*Session cancelled* by @user' (Slack)
  */
-export function formatBold(label: string, rest?: string): string {
-  return rest ? `**${label}** ${rest}` : `**${label}**`;
+export function formatBold(formatter: PlatformFormatter, label: string, rest?: string): string {
+  return rest ? `${formatter.formatBold(label)} ${rest}` : formatter.formatBold(label);
 }
 
 /**
@@ -300,8 +304,9 @@ export async function postBold(
   label: string,
   rest?: string
 ): Promise<PlatformPost> {
+  const formatter = session.platform.getFormatter();
   const message = emoji
-    ? `${emoji} ${formatBold(label, rest)}`
-    : formatBold(label, rest);
+    ? `${emoji} ${formatBold(formatter, label, rest)}`
+    : formatBold(formatter, label, rest);
   return session.platform.createPost(message, session.threadId);
 }

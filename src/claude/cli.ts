@@ -95,6 +95,8 @@ export interface PlatformMcpConfig {
   token: string;
   channelId: string;
   allowedUsers: string[];
+  /** App-level token for Slack Socket Mode (only needed for Slack) */
+  appToken?: string;
 }
 
 export interface ClaudeCliOptions {
@@ -233,7 +235,7 @@ export class ClaudeCli extends EventEmitter {
         throw new Error('platformConfig is required when skipPermissions is false');
       }
       // Platform-agnostic environment variables for MCP permission server
-      const mcpEnv = {
+      const mcpEnv: Record<string, string> = {
         PLATFORM_TYPE: platformConfig.type,
         PLATFORM_URL: platformConfig.url,
         PLATFORM_TOKEN: platformConfig.token,
@@ -242,6 +244,11 @@ export class ClaudeCli extends EventEmitter {
         ALLOWED_USERS: platformConfig.allowedUsers.join(','),
         DEBUG: this.debug ? '1' : '',
       };
+
+      // Add Slack-specific app token if present (needed for Socket Mode)
+      if (platformConfig.appToken) {
+        mcpEnv.PLATFORM_APP_TOKEN = platformConfig.appToken;
+      }
 
       const mcpConfig = {
         mcpServers: {

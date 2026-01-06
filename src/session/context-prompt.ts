@@ -113,8 +113,9 @@ export async function postContextPrompt(
   optionsText += `❌ No context (default after 30s)`;
   reactionOptions.push(DENIAL_EMOJIS[0]);
 
+  const formatter = session.platform.getFormatter();
   const message =
-    `🧵 **Include thread context?**\n` +
+    `🧵 ${formatter.formatBold('Include thread context?')}\n` +
     `This thread has ${messageCount} message${messageCount === 1 ? '' : 's'} before this point.\n` +
     `React to include previous messages, or continue without context.\n\n` +
     optionsText;
@@ -230,17 +231,18 @@ export async function updateContextPromptPost(
   selection: number | 'timeout' | 'skip',
   username?: string
 ): Promise<void> {
+  const formatter = session.platform.getFormatter();
   let message: string;
 
   if (selection === 'timeout') {
     message = '⏱️ Continuing without context (no response)';
   } else if (selection === 'skip' || selection === 0) {
     message = username
-      ? `✅ Continuing without context (skipped by @${username})`
+      ? `✅ Continuing without context (skipped by ${formatter.formatUserMention(username)})`
       : '✅ Continuing without context';
   } else {
     message = username
-      ? `✅ Including last ${selection} messages (selected by @${username})`
+      ? `✅ Including last ${selection} messages (selected by ${formatter.formatUserMention(username)})`
       : `✅ Including last ${selection} messages`;
   }
 

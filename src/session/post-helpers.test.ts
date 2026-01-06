@@ -2,23 +2,64 @@ import { describe, it, expect } from 'bun:test';
 import {
   formatBold,
 } from './post-helpers.js';
+import type { PlatformFormatter } from '../platform/index.js';
+
+// Mock formatter for Mattermost-style formatting
+const mattermostFormatter: PlatformFormatter = {
+  formatBold: (text: string) => `**${text}**`,
+  formatItalic: (text: string) => `_${text}_`,
+  formatCode: (text: string) => `\`${text}\``,
+  formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
+  formatUserMention: (username: string) => `@${username}`,
+  formatLink: (text: string, url: string) => `[${text}](${url})`,
+  formatListItem: (text: string) => `- ${text}`,
+  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
+  formatBlockquote: (text: string) => `> ${text}`,
+  formatHorizontalRule: () => '---',
+  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+  escapeText: (text: string) => text,
+};
+
+// Mock formatter for Slack-style formatting
+const slackFormatter: PlatformFormatter = {
+  formatBold: (text: string) => `*${text}*`,
+  formatItalic: (text: string) => `_${text}_`,
+  formatCode: (text: string) => `\`${text}\``,
+  formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
+  formatUserMention: (username: string, userId?: string) => userId ? `<@${userId}>` : `@${username}`,
+  formatLink: (text: string, url: string) => `<${url}|${text}>`,
+  formatListItem: (text: string) => `- ${text}`,
+  formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
+  formatBlockquote: (text: string) => `> ${text}`,
+  formatHorizontalRule: () => '---',
+  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+  escapeText: (text: string) => text,
+};
 
 // Note: Most post-helpers functions require a Session object with a platform client.
 // Since they're thin wrappers around platform.createPost(), we focus on testing
 // the formatting utilities that don't require mocking the platform.
 
 describe('formatBold', () => {
-  it('formats label only', () => {
-    expect(formatBold('Session cancelled')).toBe('**Session cancelled**');
+  it('formats label only (Mattermost)', () => {
+    expect(formatBold(mattermostFormatter, 'Session cancelled')).toBe('**Session cancelled**');
   });
 
-  it('formats label with rest', () => {
-    expect(formatBold('Session cancelled', 'by @user')).toBe('**Session cancelled** by @user');
+  it('formats label with rest (Mattermost)', () => {
+    expect(formatBold(mattermostFormatter, 'Session cancelled', 'by @user')).toBe('**Session cancelled** by @user');
   });
 
-  it('handles empty rest', () => {
+  it('handles empty rest (Mattermost)', () => {
     // Empty string is falsy, so formatBold treats it as no rest
-    expect(formatBold('Label', '')).toBe('**Label**');
+    expect(formatBold(mattermostFormatter, 'Label', '')).toBe('**Label**');
+  });
+
+  it('formats label only (Slack)', () => {
+    expect(formatBold(slackFormatter, 'Session cancelled')).toBe('*Session cancelled*');
+  });
+
+  it('formats label with rest (Slack)', () => {
+    expect(formatBold(slackFormatter, 'Session cancelled', 'by @user')).toBe('*Session cancelled* by @user');
   });
 });
 

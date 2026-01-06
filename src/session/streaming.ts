@@ -5,7 +5,7 @@
  * Implements logical message breaking to avoid content collapse on chat platforms.
  */
 
-import type { PlatformClient, PlatformFile } from '../platform/index.js';
+import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
@@ -27,7 +27,7 @@ function sessionLog(session: Session) {
  * Compute the minimized task list message from the full content.
  * Format: "---\n📋 **Tasks** (X/Y · Z%) · 🔄 TaskName 🔽"
  */
-function getMinimizedTaskContent(fullContent: string): string {
+function getMinimizedTaskContent(fullContent: string, formatter: PlatformFormatter): string {
   // Parse progress from content (format: "📋 **Tasks** (X/Y · Z%)")
   const progressMatch = fullContent.match(/\((\d+)\/(\d+) · (\d+)%\)/);
   const completed = progressMatch ? parseInt(progressMatch[1], 10) : 0;
@@ -43,7 +43,7 @@ function getMinimizedTaskContent(fullContent: string): string {
     currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
   }
 
-  return `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  return `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
 }
 
 /**
@@ -54,8 +54,9 @@ function getTaskDisplayContent(session: Session): string {
   if (!session.lastTasksContent) {
     return '';
   }
+  const formatter = session.platform.getFormatter();
   return session.tasksMinimized
-    ? getMinimizedTaskContent(session.lastTasksContent)
+    ? getMinimizedTaskContent(session.lastTasksContent, formatter)
     : session.lastTasksContent;
 }
 
@@ -620,8 +621,9 @@ export async function flush(
     }
 
     // Only add continuation marker if we have more content
+    const formatter = session.platform.getFormatter();
     const firstPartWithMarker = remainder
-      ? firstPart + '\n\n*... (continued below)*'
+      ? firstPart + '\n\n' + formatter.formatItalic('... (continued below)')
       : firstPart;
 
     // Update the current post with the first part
@@ -659,7 +661,8 @@ export async function flush(
   if (content.length > MAX_POST_LENGTH) {
     // Safety truncation if we somehow got content that's still too long
     sessionLog(session).warn(`Content too long (${content.length}), truncating to ${MAX_POST_LENGTH - 50}`);
-    content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
+    const formatter = session.platform.getFormatter();
+    content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n' + formatter.formatItalic('... (truncated)');
   }
 
   if (session.currentPostId) {

@@ -2,11 +2,31 @@ import { describe, it, expect, mock } from 'bun:test';
 import * as commands from './commands.js';
 import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
-import type { PlatformClient } from '../platform/index.js';
+import type { PlatformClient, PlatformFormatter } from '../platform/index.js';
 
 // =============================================================================
 // Test Utilities
 // =============================================================================
+
+/**
+ * Create a mock formatter for testing
+ */
+function createMockFormatter(): PlatformFormatter {
+  return {
+    formatBold: (text: string) => `**${text}**`,
+    formatItalic: (text: string) => `_${text}_`,
+    formatCode: (text: string) => `\`${text}\``,
+    formatCodeBlock: (code: string, language?: string) => `\`\`\`${language || ''}\n${code}\n\`\`\``,
+    formatUserMention: (username: string) => `@${username}`,
+    formatLink: (text: string, url: string) => `[${text}](${url})`,
+    formatListItem: (text: string) => `- ${text}`,
+    formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
+    formatBlockquote: (text: string) => `> ${text}`,
+    formatHorizontalRule: () => '---',
+    formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+    escapeText: (text: string) => text.replace(/([*_`[\]()#+\-.!])/g, '\\$1'),
+  };
+}
 
 /**
  * Create a mock platform client for testing
@@ -37,7 +57,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     isBotMentioned: mock(() => false),
     extractPrompt: mock((msg: string) => msg),
     getBotName: mock(() => 'testbot'),
-    getFormatter: mock(() => ({ bold: (t: string) => `**${t}**`, code: (t: string) => `\`${t}\`` })),
+    getFormatter: mock(() => createMockFormatter()),
     sendTyping: mock(() => {}),
     on: mock(() => {}),
     emit: mock(() => true),

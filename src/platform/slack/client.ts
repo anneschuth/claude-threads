@@ -426,14 +426,20 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       const post = this.normalizePlatformPost(message, event.channel || this.channelId);
 
       // Get user info and emit
-      this.getUser(event.user || '').then((user) => {
-        this.emit('message', post, user);
+      this.getUser(event.user || '')
+        .then((user) => {
+          this.emit('message', post, user);
 
-        // Also emit channel_post for top-level posts (not thread replies)
-        if (!event.thread_ts || event.thread_ts === event.ts) {
-          this.emit('channel_post', post, user);
-        }
-      });
+          // Also emit channel_post for top-level posts (not thread replies)
+          if (!event.thread_ts || event.thread_ts === event.ts) {
+            this.emit('channel_post', post, user);
+          }
+        })
+        .catch((err) => {
+          log.warn(`Failed to get user for message event: ${err}`);
+          // Emit anyway with null user
+          this.emit('message', post, null);
+        });
     }
 
     // Handle reaction_added events
@@ -455,9 +461,14 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         createAt: Date.now(),
       };
 
-      this.getUser(event.user || '').then((user) => {
-        this.emit('reaction', reaction, user);
-      });
+      this.getUser(event.user || '')
+        .then((user) => {
+          this.emit('reaction', reaction, user);
+        })
+        .catch((err) => {
+          log.warn(`Failed to get user for reaction event: ${err}`);
+          this.emit('reaction', reaction, null);
+        });
     }
 
     // Handle reaction_removed events
@@ -479,9 +490,14 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         createAt: Date.now(),
       };
 
-      this.getUser(event.user || '').then((user) => {
-        this.emit('reaction_removed', reaction, user);
-      });
+      this.getUser(event.user || '')
+        .then((user) => {
+          this.emit('reaction_removed', reaction, user);
+        })
+        .catch((err) => {
+          log.warn(`Failed to get user for reaction_removed event: ${err}`);
+          this.emit('reaction_removed', reaction, null);
+        });
     }
   }
 
@@ -735,6 +751,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     token: string;
     channelId: string;
     allowedUsers: string[];
+    appToken?: string;
   } {
     return {
       type: 'slack',
@@ -742,6 +759,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       token: this.botToken,
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
+      appToken: this.appToken, // Required for Socket Mode in permission server
     };
   }
 

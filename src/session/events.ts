@@ -288,11 +288,13 @@ function formatEvent(
             preview = (lastSpace > maxLength * 0.7 ? truncated.substring(0, lastSpace) : truncated) + '...';
           }
           // Use blockquote for better formatting
-          parts.push(`> 💭 *${preview}*`);
+          const formatter = session.platform.getFormatter();
+          parts.push(formatter.formatBlockquote(`💭 ${formatter.formatItalic(preview)}`));
         } else if (block.type === 'server_tool_use' && block.name) {
           // Server-managed tools like web search
+          const formatter = session.platform.getFormatter();
           parts.push(
-            `🌐 **${block.name}** ${block.input ? JSON.stringify(block.input).substring(0, 50) : ''}`
+            `🌐 ${formatter.formatBold(block.name)} ${block.input ? JSON.stringify(block.input).substring(0, 50) : ''}`
           );
         }
       }
@@ -396,11 +398,12 @@ async function handleExitPlanMode(
   session.pendingContent = '';
 
   // Post approval message with reactions
+  const formatter = session.platform.getFormatter();
   const message =
-    `✅ **Plan ready for approval**\n\n` +
+    `✅ ${formatter.formatBold('Plan ready for approval')}\n\n` +
     `👍 Approve and start building\n` +
     `👎 Request changes\n\n` +
-    `*React to respond*`;
+    formatter.formatItalic('React to respond');
 
   const post = await session.platform.createInteractivePost(
     message,
@@ -443,7 +446,8 @@ async function handleTodoWrite(
     session.tasksCompleted = true;
     const tasksPostId = session.tasksPostId;
     if (tasksPostId) {
-      const completedMsg = '---\n📋 ~~Tasks~~ *(completed)*';
+      const formatter = session.platform.getFormatter();
+      const completedMsg = `---\n📋 ~~Tasks~~ ${formatter.formatItalic('(completed)')}`;
       await withErrorHandling(
         () => session.platform.updatePost(tasksPostId, completedMsg),
         { action: 'Update tasks', session }
@@ -485,7 +489,8 @@ async function handleTodoWrite(
   }
 
   // Build full task list (always computed for lastTasksContent)
-  let fullMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)\n\n`;
+  const formatter = session.platform.getFormatter();
+  let fullMessage = `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)\n\n`;
   for (const todo of todos) {
     let icon: string;
     let text: string;
@@ -505,7 +510,7 @@ async function handleTodoWrite(
             elapsed = ` (${secs}s)`;
           }
         }
-        text = `**${todo.activeForm}**${elapsed}`;
+        text = `${formatter.formatBold(todo.activeForm)}${elapsed}`;
         break;
       }
       default:
@@ -522,7 +527,7 @@ async function handleTodoWrite(
   // Choose display format based on minimized state
   // Minimized: show only progress bar with current task
   // Expanded: show full task list
-  const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const minimizedMessage = `---\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : fullMessage;
 
   // Update or create tasks post
@@ -570,7 +575,9 @@ async function handleTaskStart(
   session.pendingContent = '';
 
   // Post subagent status
-  const message = `🤖 **Subagent** *(${subagentType})*\n` + `> ${description}\n` + `⏳ Running...`;
+  const formatter = session.platform.getFormatter();
+  const message = `🤖 ${formatter.formatBold('Subagent')} ${formatter.formatItalic(`(${subagentType})`)}\n` +
+    `${formatter.formatBlockquote(description)}\n` + `⏳ Running...`;
 
   const post = await withErrorHandling(
     () => session.platform.createPost(message, session.threadId),
@@ -591,9 +598,10 @@ async function handleTaskComplete(
   toolUseId: string,
   postId: string
 ): Promise<void> {
+  const formatter = session.platform.getFormatter();
   const completionMessage = session.activeSubagents.has(toolUseId)
-    ? `🤖 **Subagent** ✅ *completed*`
-    : `🤖 **Subagent** ✅`;
+    ? `🤖 ${formatter.formatBold('Subagent')} ✅ ${formatter.formatItalic('completed')}`
+    : `🤖 ${formatter.formatBold('Subagent')} ✅`;
   await withErrorHandling(
     () => session.platform.updatePost(postId, completionMessage),
     { action: 'Update subagent completion', session }
@@ -618,7 +626,8 @@ async function handleCompactionStart(
   session.pendingContent = '';
 
   // Create the compaction status post
-  const message = '🗜️ **Compacting context...** *(freeing up memory)*';
+  const formatter = session.platform.getFormatter();
+  const message = `🗜️ ${formatter.formatBold('Compacting context...')} ${formatter.formatItalic('(freeing up memory)')}`;
   const post = await withErrorHandling(
     () => session.platform.createPost(message, session.threadId),
     { action: 'Post compaction start', session }
@@ -645,7 +654,8 @@ async function handleCompactionComplete(
   if (preTokens && preTokens > 0) {
     info += `, ${Math.round(preTokens / 1000)}k tokens`;
   }
-  const completionMessage = `✅ **Context compacted** *(${info})*`;
+  const formatter = session.platform.getFormatter();
+  const completionMessage = `✅ ${formatter.formatBold('Context compacted')} ${formatter.formatItalic(`(${info})`)}`;
 
   if (session.compactionPostId) {
     // Update the existing compaction post
@@ -732,11 +742,12 @@ export async function postCurrentQuestion(
   const total = questions.length;
 
   // Format the question message
-  let message = `❓ **Question** *(${currentIndex + 1}/${total})*\n`;
-  message += `**${q.header}:** ${q.question}\n\n`;
+  const formatter = session.platform.getFormatter();
+  let message = `❓ ${formatter.formatBold('Question')} ${formatter.formatItalic(`(${currentIndex + 1}/${total})`)}\n`;
+  message += `${formatter.formatBold(`${q.header}:`)} ${q.question}\n\n`;
   for (let i = 0; i < q.options.length && i < 4; i++) {
     const emoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'][i];
-    message += `${emoji} **${q.options[i].label}**`;
+    message += `${emoji} ${formatter.formatBold(q.options[i].label)}`;
     if (q.options[i].description) {
       message += ` - ${q.options[i].description}`;
     }
