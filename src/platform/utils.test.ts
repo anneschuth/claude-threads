@@ -15,6 +15,7 @@ import {
   isUserAllowed,
   sanitizeForLogging,
   convertMarkdownTablesToSlack,
+  convertMarkdownToSlack,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -298,5 +299,178 @@ Some text
     expect(result).toContain('*A:* 1 · *B:* 2');
     expect(result).toContain('Some text');
     expect(result).toContain('*C:* 3 · *D:* 4');
+  });
+});
+
+describe('convertMarkdownToSlack', () => {
+  describe('bold conversion', () => {
+    it('converts double asterisks to single asterisks', () => {
+      const input = 'This is **bold** text';
+      expect(convertMarkdownToSlack(input)).toBe('This is *bold* text');
+    });
+
+    it('handles multiple bold sections', () => {
+      const input = '**Option 1** - Description **Option 2** - More';
+      expect(convertMarkdownToSlack(input)).toBe('*Option 1* - Description *Option 2* - More');
+    });
+
+    it('preserves already-correct single asterisks', () => {
+      const input = 'This is *already slack bold* text';
+      expect(convertMarkdownToSlack(input)).toBe('This is *already slack bold* text');
+    });
+  });
+
+  describe('header conversion', () => {
+    it('converts h1 headers to bold', () => {
+      const input = '# Main Heading';
+      expect(convertMarkdownToSlack(input)).toBe('*Main Heading*');
+    });
+
+    it('converts h2 headers to bold', () => {
+      const input = '## Section Heading';
+      expect(convertMarkdownToSlack(input)).toBe('*Section Heading*');
+    });
+
+    it('converts h3-h6 headers to bold', () => {
+      expect(convertMarkdownToSlack('### H3')).toBe('*H3*');
+      expect(convertMarkdownToSlack('#### H4')).toBe('*H4*');
+      expect(convertMarkdownToSlack('##### H5')).toBe('*H5*');
+      expect(convertMarkdownToSlack('###### H6')).toBe('*H6*');
+    });
+
+    it('handles headers with bold text inside', () => {
+      const input = '## **Bold Header**';
+      expect(convertMarkdownToSlack(input)).toBe('**Bold Header**');
+    });
+
+    it('handles multiple headers', () => {
+      const input = `# Title
+
+## Section 1
+Content here
+
+## Section 2
+More content`;
+      const result = convertMarkdownToSlack(input);
+      expect(result).toContain('*Title*');
+      expect(result).toContain('*Section 1*');
+      expect(result).toContain('*Section 2*');
+    });
+  });
+
+  describe('link conversion', () => {
+    it('converts standard markdown links to Slack format', () => {
+      const input = 'Check out [Claude Code](https://claude.ai)';
+      expect(convertMarkdownToSlack(input)).toBe('Check out <https://claude.ai|Claude Code>');
+    });
+
+    it('handles multiple links', () => {
+      const input = '[Link1](https://a.com) and [Link2](https://b.com)';
+      expect(convertMarkdownToSlack(input)).toBe('<https://a.com|Link1> and <https://b.com|Link2>');
+    });
+  });
+
+  describe('horizontal rule conversion', () => {
+    it('converts --- to unicode line', () => {
+      const input = 'Text above\n---\nText below';
+      expect(convertMarkdownToSlack(input)).toContain('━━━━━━━━━━━━━━━━━━━━');
+    });
+
+    it('converts *** to unicode line', () => {
+      const input = '***';
+      expect(convertMarkdownToSlack(input)).toBe('━━━━━━━━━━━━━━━━━━━━');
+    });
+
+    it('converts ___ to unicode line', () => {
+      const input = '___';
+      expect(convertMarkdownToSlack(input)).toBe('━━━━━━━━━━━━━━━━━━━━');
+    });
+  });
+
+  describe('code block preservation', () => {
+    it('does not modify content inside fenced code blocks', () => {
+      const input = '```\n**bold** and ## heading\n```';
+      expect(convertMarkdownToSlack(input)).toBe('```\n**bold** and ## heading\n```');
+    });
+
+    it('does not modify content inside code blocks with language', () => {
+      const input = '```javascript\nconst x = **bold**;\n```';
+      expect(convertMarkdownToSlack(input)).toBe('```javascript\nconst x = **bold**;\n```');
+    });
+
+    it('does not modify inline code', () => {
+      const input = 'Use `**bold**` syntax for bold';
+      expect(convertMarkdownToSlack(input)).toBe('Use `**bold**` syntax for bold');
+    });
+
+    it('preserves code blocks while converting surrounding text', () => {
+      const input = `## Heading
+
+\`\`\`
+**not converted**
+\`\`\`
+
+**this is converted**`;
+      const result = convertMarkdownToSlack(input);
+      expect(result).toContain('*Heading*');
+      expect(result).toContain('```\n**not converted**\n```');
+      expect(result).toContain('*this is converted*');
+    });
+  });
+
+  describe('table conversion', () => {
+    it('converts markdown tables to Slack format', () => {
+      const input = `| Command | Description |
+|---------|-------------|
+| !help | Show help |`;
+      expect(convertMarkdownToSlack(input)).toContain('*Command:*');
+    });
+  });
+
+  describe('combined conversions', () => {
+    it('handles message with multiple markdown features', () => {
+      const input = `## Alternative keyboard options:
+
+1. **Shift+1-9** - Mirrors the existing 1-9 for sessions
+2. **Alt/Option+1-9** - Similar pattern, uses Option key on Mac
+
+---
+
+I'd recommend **Shift+1-9** since it's intuitive.
+
+Check out [the docs](https://example.com) for more info.`;
+
+      const result = convertMarkdownToSlack(input);
+
+      // Headers converted
+      expect(result).toContain('*Alternative keyboard options:*');
+
+      // Bold converted
+      expect(result).toContain('*Shift+1-9*');
+      expect(result).toContain('*Alt/Option+1-9*');
+
+      // Horizontal rule converted
+      expect(result).toContain('━━━━━━━━━━━━━━━━━━━━');
+
+      // Links converted
+      expect(result).toContain('<https://example.com|the docs>');
+    });
+  });
+
+  describe('passthrough cases', () => {
+    it('returns content unchanged if no markdown patterns', () => {
+      const input = 'Just regular text without any special formatting';
+      expect(convertMarkdownToSlack(input)).toBe(input);
+    });
+
+    it('preserves numbered lists', () => {
+      const input = '1. First item\n2. Second item\n3. Third item';
+      expect(convertMarkdownToSlack(input)).toBe(input);
+    });
+
+    it('preserves bullet lists', () => {
+      const input = '- First item\n- Second item\n- Third item';
+      expect(convertMarkdownToSlack(input)).toBe(input);
+    });
   });
 });

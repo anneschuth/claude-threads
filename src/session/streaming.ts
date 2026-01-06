@@ -6,7 +6,6 @@
  */
 
 import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
-import { convertMarkdownTablesToSlack } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
@@ -537,12 +536,10 @@ export async function flush(
     return;  // No content to flush - silent return
   }
 
-  let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
-
-  // Convert markdown tables for Slack (Slack doesn't render markdown tables)
-  if (session.platform.platformType === 'slack') {
-    content = convertMarkdownTablesToSlack(content);
-  }
+  // Format markdown for the target platform
+  // This converts standard markdown to the platform's native format
+  const formatter = session.platform.getFormatter();
+  let content = formatter.formatMarkdown(session.pendingContent).trim();
 
   // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin

@@ -88,4 +88,9 @@ export class DiscordFormatter implements PlatformFormatter {
     // Render as indented list with icon, bold label, and value
     return items.map(([icon, label, value]) => `${icon} **${label}:** ${value}`).join('\n');
   }
+
+  formatMarkdown(content: string): string {
+    // Discord supports standard markdown well, so we just normalize newlines
+    return content.replace(/\n{3,}/g, '\n\n');
+  }
 }
