@@ -702,6 +702,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return this.formatter;
   }
 
+  // Get a clickable link to a thread (full URL for cross-platform compatibility)
+  getThreadLink(threadId: string): string {
+    return `${this.url}/_redirect/pl/${threadId}`;
+  }
+
   // Send typing indicator via WebSocket
   sendTyping(parentId?: string): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {

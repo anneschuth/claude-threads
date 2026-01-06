@@ -48,6 +48,7 @@ export async function handleMessage(
   const username = user?.username || 'unknown';
   const message = post.message;
   const threadRoot = post.rootId || post.id;
+  const formatter = client.getFormatter();
 
   try {
     // Check for !kill command (emergency shutdown)
@@ -57,13 +58,13 @@ export async function handleMessage(
       (client.isBotMentioned(message) && client.extractPrompt(message).toLowerCase() === '!kill')
     ) {
       if (!client.isUserAllowed(username)) {
-        await client.createPost('⛔ Only authorized users can use `!kill`', threadRoot);
+        await client.createPost(`⛔ Only authorized users can use ${formatter.formatCode('!kill')}`, threadRoot);
         return;
       }
       // Notify all active sessions before killing
       for (const tid of session.getActiveThreadIds()) {
         try {
-          await client.createPost(`🔴 **EMERGENCY SHUTDOWN** by @${username}`, tid);
+          await client.createPost(`🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} by ${formatter.formatUserMention(username)}`, tid);
         } catch {
           /* ignore */
         }
@@ -107,26 +108,31 @@ export async function handleMessage(
 
       // Check for !help command
       if (lowerContent === '!help') {
+        const code = formatter.formatCode.bind(formatter);
+        const commandTable = formatter.formatTable(
+          ['Command', 'Description'],
+          [
+            [code('!cd <path>'), 'Change working directory (restarts Claude)'],
+            [code('!worktree <branch>'), 'Create and switch to a git worktree'],
+            [code('!worktree list'), 'List all worktrees for the repo'],
+            [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
+            [code('!worktree remove <branch>'), 'Remove a worktree'],
+            [code('!worktree off'), 'Disable worktree prompts for this session'],
+            [code('!invite @user'), 'Invite a user to this session'],
+            [code('!kick @user'), 'Remove an invited user'],
+            [code('!permissions interactive'), 'Enable interactive permissions'],
+            [code('!escape'), 'Interrupt current task (session stays active)'],
+            [code('!stop'), 'Stop this session'],
+            [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
+          ]
+        );
         await client.createPost(
-          `**Commands:**\n\n` +
-            `| Command | Description |\n` +
-            `|---------|-------------|\n` +
-            `| \`!cd <path>\` | Change working directory (restarts Claude) |\n` +
-            `| \`!worktree <branch>\` | Create and switch to a git worktree |\n` +
-            `| \`!worktree list\` | List all worktrees for the repo |\n` +
-            `| \`!worktree switch <branch>\` | Switch to an existing worktree |\n` +
-            `| \`!worktree remove <branch>\` | Remove a worktree |\n` +
-            `| \`!worktree off\` | Disable worktree prompts for this session |\n` +
-            `| \`!invite @user\` | Invite a user to this session |\n` +
-            `| \`!kick @user\` | Remove an invited user |\n` +
-            `| \`!permissions interactive\` | Enable interactive permissions |\n` +
-            `| \`!escape\` | Interrupt current task (session stays active) |\n` +
-            `| \`!stop\` | Stop this session |\n` +
-            `| \`!kill\` | Emergency shutdown (kills ALL sessions, exits bot) |\n\n` +
-            `**Reactions:**\n` +
-            `- 👍 Approve action · ✅ Approve all · 👎 Deny\n` +
-            `- ⏸️ Interrupt current task (session stays active)\n` +
-            `- ❌ or 🛑 Stop session`,
+          `${formatter.formatBold('Commands:')}\n\n` +
+            commandTable +
+            `\n\n${formatter.formatBold('Reactions:')}\n` +
+            `${formatter.formatListItem('👍 Approve action · ✅ Approve all · 👎 Deny')}\n` +
+            `${formatter.formatListItem('⏸️ Interrupt current task (session stays active)')}\n` +
+            `${formatter.formatListItem('❌ or 🛑 Stop session')}`,
           threadRoot
         );
         return;
@@ -136,10 +142,10 @@ export async function handleMessage(
       if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
         const notes = getReleaseNotes(VERSION);
         if (notes) {
-          await client.createPost(formatReleaseNotes(notes), threadRoot);
+          await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
         } else {
           await client.createPost(
-            `📋 **claude-threads v${VERSION}**\n\nRelease notes not available. See [GitHub releases](https://github.com/anneschuth/claude-threads/releases).`,
+            `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
             threadRoot
           );
         }
@@ -195,14 +201,14 @@ export async function handleMessage(
             break;
           case 'switch':
             if (!args) {
-              await client.createPost('❌ Usage: `!worktree switch <branch>`', threadRoot);
+              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
             } else {
               await session.switchToWorktree(threadRoot, args, username);
             }
             break;
           case 'remove':
             if (!args) {
-              await client.createPost('❌ Usage: `!worktree remove <branch>`', threadRoot);
+              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
             } else {
               await session.removeWorktreeCommand(threadRoot, args, username);
             }
@@ -271,12 +277,12 @@ export async function handleMessage(
       // Check if user is allowed in the paused session
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        // Defensive: handle missing sessionAllowedUsers (old persisted data)
+        // Defensive: handle missing sessionAllowedUsers (old Bristol data)
         const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
         if (!allowedUsers.has(username) && !client.isUserAllowed(username)) {
           // Not allowed - could request approval but that would require the session to be active
           await client.createPost(
-            `⚠️ @${username} is not authorized to resume this session`,
+            `⚠️ ${formatter.formatUserMention(username)} is not authorized to resume this session`,
             threadRoot
           );
           return;
@@ -296,7 +302,7 @@ export async function handleMessage(
     if (!client.isBotMentioned(message)) return;
 
     if (!client.isUserAllowed(username)) {
-      await client.createPost(`⚠️ @${username} is not authorized`, threadRoot);
+      await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
       return;
     }
 

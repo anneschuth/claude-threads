@@ -3,6 +3,7 @@ import * as lifecycle from './lifecycle.js';
 import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
+import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 // =============================================================================
 // Test Utilities
@@ -34,6 +35,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     unpinPost: mock(() => Promise.resolve()),
     getPinnedPosts: mock(() => Promise.resolve([])),
     getPost: mock(() => Promise.resolve(null)),
+    getFormatter: mock(() => createMockFormatter()),
     ...overrides,
   } as unknown as PlatformClient;
 }

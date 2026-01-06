@@ -4,6 +4,7 @@
 import { Box, Text } from 'ink';
 import { Spinner } from './Spinner.js';
 import type { PlatformStatus } from '../types.js';
+import { getPlatformIcon } from '../../platform/utils.js';
 
 interface PlatformsProps {
   platforms: Map<string, PlatformStatus>;
@@ -22,6 +23,9 @@ export function Platforms({ platforms }: PlatformsProps) {
     <Box flexDirection="column" marginTop={1}>
       {Array.from(platforms.values()).map((platform) => (
         <Box key={platform.id} gap={1}>
+          {/* Platform type icon */}
+          <Text>{getPlatformIcon(platform.platformType || 'mattermost')}</Text>
+
           {/* Connection status indicator */}
           {platform.reconnecting ? (
             <Text color="yellow">◌</Text>

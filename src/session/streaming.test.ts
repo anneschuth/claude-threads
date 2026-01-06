@@ -16,6 +16,7 @@ import {
 } from './streaming.js';
 import type { Session } from './types.js';
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
+import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 // Mock platform client
 function createMockPlatform() {
@@ -68,6 +69,7 @@ function createMockPlatform() {
       // Mock - do nothing
     }),
     sendTyping: mock(() => {}),
+    getFormatter: mock(() => createMockFormatter()),
     posts,
   };
 
@@ -306,7 +308,7 @@ describe('flush with continuation (message splitting)', () => {
     expect(platform.updatePost).toHaveBeenCalled();
     const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
     expect(updateCall[0]).toBe('current_post');
-    expect(updateCall[1]).toContain('*... (continued below)*');
+    expect(updateCall[1]).toContain('_... (continued below)_');
 
     // Should create continuation post
     expect(platform.createPost).toHaveBeenCalled();
@@ -325,7 +327,7 @@ describe('flush with continuation (message splitting)', () => {
     await flush(session, registerPost);
 
     // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('*... (continued below)*'));
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
 
     // Should repurpose tasks post for continuation
     expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('*(continued)*'));
@@ -348,7 +350,7 @@ describe('flush with continuation (message splitting)', () => {
     await flush(session, registerPost);
 
     // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('*... (continued below)*'));
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
 
     // Should NOT repurpose tasks post - create new post instead
     expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('*(continued)*'), 'thread1');
@@ -590,7 +592,7 @@ describe('flush with smart breaking', () => {
 
     // First call to updatePost should include continuation marker
     const firstCallArgs = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
-    expect(firstCallArgs[1]).toContain('*... (continued below)*');
+    expect(firstCallArgs[1]).toContain('_... (continued below)_');
   });
 });
 

@@ -1,5 +1,5 @@
 # Integration Tests workflow
-# Runs integration tests with a local Mattermost instance
+# Runs integration tests with local Mattermost and Slack mock servers
 
 name: Integration Tests
 
@@ -14,6 +14,11 @@ jobs:
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [mattermost, slack]
 
     services:
       postgres:
@@ -42,7 +47,9 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      # Mattermost setup (only for mattermost platform)
       - name: Start Mattermost
+        if: matrix.platform == 'mattermost'
         run: |
           # Use official AMD64 image for CI (GitHub Actions runners are AMD64)
           docker run -d \
@@ -60,6 +67,7 @@ jobs:
             mattermost/mattermost-enterprise-edition:9.11
 
       - name: Wait for Mattermost to be ready
+        if: matrix.platform == 'mattermost'
         run: |
           echo "Waiting for Mattermost to start..."
           timeout 180 bash -c '
@@ -71,31 +79,56 @@ jobs:
           echo "Mattermost is ready!"
 
       - name: Setup Mattermost (create users, channels, bot)
+        if: matrix.platform == 'mattermost'
         run: bun run tests/integration/setup/setup-mattermost.ts
         env:
           MATTERMOST_URL: http://localhost:8065
 
+      # Slack mock server setup (only for slack platform)
+      - name: Start Slack Mock Server
+        if: matrix.platform == 'slack'
+        run: bun run tests/integration/fixtures/slack/start-mock-server.ts &
+        env:
+          SLACK_MOCK_PORT: 3457
+
+      - name: Wait for Slack Mock Server to be ready
+        if: matrix.platform == 'slack'
+        run: |
+          echo "Waiting for Slack mock server to start..."
+          timeout 30 bash -c '
+            until curl -sf -X POST http://localhost:3457/api/api.test; do
+              echo "Waiting..."
+              sleep 1
+            done
+          '
+          echo "Slack mock server is ready!"
+
+      # Run integration tests
       - name: Run integration tests
         run: bun test tests/integration/suites --timeout 60000
         env:
           MATTERMOST_URL: http://localhost:8065
+          SLACK_MOCK_URL: http://localhost:3457/api
+          SLACK_MOCK_PORT: 3457
           INTEGRATION_TEST: "1"
+          TEST_PLATFORMS: ${{ matrix.platform }}
 
+      # Cleanup and logs
       - name: Collect Mattermost logs on failure
-        if: failure()
+        if: failure() && matrix.platform == 'mattermost'
         run: docker logs mattermost > mattermost.log 2>&1
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-test-logs
+          name: integration-test-logs-${{ matrix.platform }}
           path: |
             mattermost.log
           retention-days: 5
 
       - name: Stop Mattermost
-        if: always()
+        if: always() && matrix.platform == 'mattermost'
         run: |
           docker stop mattermost || true
           docker rm mattermost || true

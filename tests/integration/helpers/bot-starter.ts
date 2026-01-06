@@ -14,8 +14,10 @@ import { mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
 import { MattermostClient } from '../../../src/platform/mattermost/client.js';
+import { SlackClient } from '../../../src/platform/slack/client.js';
 import { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
+import type { PlatformClient } from '../../../src/platform/client.js';
 import type { PlatformPost, PlatformUser } from '../../../src/platform/types.js';
 import { loadConfig } from '../setup/config.js';
 import { handleMessage } from '../../../src/message-handler.js';
@@ -35,7 +37,10 @@ function generateTestSessionsPath(): string {
 
 export interface TestBot {
   sessionManager: SessionManager;
+  /** @deprecated Use `platformClient` instead for platform-agnostic access */
   mattermostClient: MattermostClient;
+  /** The platform client (MattermostClient or SlackClient) */
+  platformClient: PlatformClient;
   platformId: string;
   /** The isolated sessions file path for this test bot */
   sessionsPath: string;
@@ -64,6 +69,18 @@ export interface StartBotOptions {
   sessionsPath?: string;
   /** Git worktree mode: 'off' (default for tests), 'prompt', or 'require' */
   worktreeMode?: 'off' | 'prompt' | 'require';
+  /** Platform type to use (default: 'mattermost') */
+  platform?: 'mattermost' | 'slack';
+  /** Port for Slack mock server (required when platform is 'slack') */
+  slackMockPort?: number;
+  /** Slack bot token for testing (required when platform is 'slack') */
+  slackBotToken?: string;
+  /** Slack app token for testing (required when platform is 'slack') */
+  slackAppToken?: string;
+  /** Slack channel ID for testing (required when platform is 'slack') */
+  slackChannelId?: string;
+  /** Slack bot name for testing (default: 'claude-test-bot') */
+  slackBotName?: string;
 }
 
 /**
@@ -83,6 +100,12 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     allowedUsersOverride,
     sessionsPath: explicitSessionsPath,
     worktreeMode = 'off',
+    platform = 'mattermost',
+    slackMockPort,
+    slackBotToken,
+    slackAppToken,
+    slackChannelId,
+    slackBotName = 'claude-test-bot',
   } = options;
 
   // Load test config
@@ -122,27 +145,64 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     process.env.DEBUG = '1';
   }
 
-  // Build platform config
-  const platformId = 'test-mattermost';
-  const allowedUsers = allowedUsersOverride ?? [
-    ...testConfig.mattermost.testUsers.map(u => u.username),
-    ...extraAllowedUsers,
-  ];
+  // Create platform client based on platform type
+  let platformClient: PlatformClient;
+  let platformId: string;
 
-  const platformConfig = {
-    id: platformId,
-    type: 'mattermost' as const,
-    displayName: 'Test Mattermost',
-    url: testConfig.mattermost.url,
-    token: testConfig.mattermost.bot.token!,
-    channelId: testConfig.mattermost.channel.id!,
-    botName: testConfig.mattermost.bot.username,
-    allowedUsers,
-    skipPermissions,
-  };
+  if (platform === 'slack') {
+    // Validate required Slack options
+    if (!slackMockPort) {
+      throw new Error('slackMockPort is required when platform is "slack"');
+    }
+    if (!slackBotToken) {
+      throw new Error('slackBotToken is required when platform is "slack"');
+    }
+    if (!slackAppToken) {
+      throw new Error('slackAppToken is required when platform is "slack"');
+    }
+    if (!slackChannelId) {
+      throw new Error('slackChannelId is required when platform is "slack"');
+    }
 
-  // Create the Mattermost client
-  const mattermostClient = new MattermostClient(platformConfig);
+    platformId = 'test-slack';
+    const allowedUsers = allowedUsersOverride ?? extraAllowedUsers;
+
+    const slackConfig = {
+      id: platformId,
+      type: 'slack' as const,
+      displayName: 'Test Slack',
+      botToken: slackBotToken,
+      appToken: slackAppToken,
+      channelId: slackChannelId,
+      botName: slackBotName,
+      allowedUsers,
+      skipPermissions,
+      apiUrl: `http://localhost:${slackMockPort}/api`,
+    };
+
+    platformClient = new SlackClient(slackConfig);
+  } else {
+    // Default: Mattermost
+    platformId = 'test-mattermost';
+    const allowedUsers = allowedUsersOverride ?? [
+      ...testConfig.mattermost.testUsers.map(u => u.username),
+      ...extraAllowedUsers,
+    ];
+
+    const platformConfig = {
+      id: platformId,
+      type: 'mattermost' as const,
+      displayName: 'Test Mattermost',
+      url: testConfig.mattermost.url,
+      token: testConfig.mattermost.bot.token!,
+      channelId: testConfig.mattermost.channel.id!,
+      botName: testConfig.mattermost.bot.username,
+      allowedUsers,
+      skipPermissions,
+    };
+
+    platformClient = new MattermostClient(platformConfig);
+  }
 
   // Create the session manager (no UI, no chrome for tests)
   // Pass explicit sessionsPath for test isolation
@@ -155,11 +215,11 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   );
 
   // Register platform (this wires up reaction handlers)
-  sessionManager.addPlatform(platformId, mattermostClient);
+  sessionManager.addPlatform(platformId, platformClient);
 
   // Wire up message handler - uses the actual bot logic from src/message-handler.ts
-  mattermostClient.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
-    await handleMessage(mattermostClient, sessionManager, post, user, {
+  platformClient.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+    await handleMessage(platformClient, sessionManager, post, user, {
       platformId,
       logger: debug ? {
         error: (msg) => console.error('[test-bot]', msg),
@@ -167,7 +227,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       onKill: () => {
         // In tests, just disconnect without exiting the process
         sessionManager.killAllSessionsAndUnpersist();
-        mattermostClient.disconnect();
+        platformClient.disconnect();
         // Clear environment (same as stop())
         delete process.env.CLAUDE_PATH;
         delete process.env.CLAUDE_SCENARIO;
@@ -175,19 +235,25 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     });
   });
 
-  // Connect to Mattermost
-  await mattermostClient.connect();
+  // Connect to platform
+  await platformClient.connect();
 
   // Initialize session manager (loads persisted sessions)
   await sessionManager.initialize();
 
   if (debug) {
-    console.log('[test-bot] Started with scenario:', scenario);
+    console.log('[test-bot] Started with scenario:', scenario, 'platform:', platform);
   }
+
+  // For backward compatibility, cast to MattermostClient when platform is mattermost
+  const mattermostClient = platform === 'mattermost'
+    ? platformClient as MattermostClient
+    : platformClient as unknown as MattermostClient; // Type assertion for deprecated field
 
   return {
     sessionManager,
-    mattermostClient,
+    mattermostClient, // Deprecated but kept for backward compatibility
+    platformClient,
     platformId,
     sessionsPath,
     async stop() {
@@ -196,8 +262,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       }
       // Kill all sessions and unpersist
       sessionManager.killAllSessionsAndUnpersist();
-      // Disconnect from Mattermost
-      mattermostClient.disconnect();
+      // Disconnect from platform
+      platformClient.disconnect();
       // Wait a bit for processes to terminate fully
       await new Promise((r) => setTimeout(r, 100));
       // Clear environment AFTER processes are terminated
@@ -216,8 +282,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       sessionManager.setShuttingDown();
       // Kill sessions but keep persistence (simulates graceful shutdown)
       await sessionManager.killAllSessions();
-      // Disconnect from Mattermost
-      mattermostClient.disconnect();
+      // Disconnect from platform
+      platformClient.disconnect();
       // Wait a bit for processes to terminate fully
       await new Promise((r) => setTimeout(r, 100));
       // Clear environment AFTER processes are terminated

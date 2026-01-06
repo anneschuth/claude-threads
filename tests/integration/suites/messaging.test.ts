@@ -1,254 +1,280 @@
 /**
- * Messaging tests for Mattermost REST API
+ * Messaging tests for platform REST APIs
  *
  * Tests post creation, updates, threading, and channel operations.
+ * Parameterized to run against both Mattermost and Slack platforms.
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
+import {
+  initTestContext,
+  initAdminApi,
+  type TestSessionContext,
+} from '../helpers/session-helpers.js';
+import {
+  createPlatformTestApi,
+  type PlatformType,
+  type PlatformTestPost,
+  MattermostTestApi,
+} from '../fixtures/platform-test-api.js';
 import { loadConfig } from '../setup/config.js';
-import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
+
+// Determine which platforms to test based on environment
+const TEST_PLATFORMS = (process.env.TEST_PLATFORMS || 'mattermost').split(',') as PlatformType[];
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;
 
 describe.skipIf(SKIP)('Messaging', () => {
-  let adminApi: MattermostTestApi;
-  let userApi: MattermostTestApi;
-  let botApi: MattermostTestApi;
-  let config: ReturnType<typeof loadConfig>;
-  let testPostIds: string[] = [];
+  // Run tests for each configured platform
+  describe.each(TEST_PLATFORMS)('%s platform', (platformType) => {
+    let ctx: TestSessionContext;
+    let adminApi: MattermostTestApi | null = null;
+    let botCtx: TestSessionContext | null = null;
+    let config: ReturnType<typeof loadConfig>;
+    let testPostIds: string[] = [];
 
-  beforeAll(() => {
-    config = loadConfig();
+    beforeAll(() => {
+      config = loadConfig();
+      ctx = initTestContext(platformType);
 
-    if (!config.mattermost.admin.token) {
-      throw new Error('Admin token not found. Run setup-mattermost.ts first.');
-    }
-    if (!config.mattermost.bot.token) {
-      throw new Error('Bot token not found. Run setup-mattermost.ts first.');
-    }
+      // For Mattermost, we also need admin and bot APIs for some tests
+      if (platformType === 'mattermost') {
+        adminApi = initAdminApi();
 
-    adminApi = new MattermostTestApi(config.mattermost.url, config.mattermost.admin.token);
-    botApi = new MattermostTestApi(config.mattermost.url, config.mattermost.bot.token);
-
-    if (config.mattermost.testUsers[0]?.token) {
-      userApi = new MattermostTestApi(config.mattermost.url, config.mattermost.testUsers[0].token);
-    }
-  });
-
-  afterEach(async () => {
-    // Cleanup test posts
-    for (const postId of testPostIds) {
-      try {
-        await adminApi.deletePost(postId);
-      } catch {
-        // Ignore errors
+        // Create a bot context for bot-specific tests
+        if (config.mattermost.bot.token) {
+          const botApi = createPlatformTestApi('mattermost', {
+            baseUrl: config.mattermost.url,
+            token: config.mattermost.bot.token,
+          });
+          botCtx = {
+            api: botApi,
+            platformType: 'mattermost',
+            botUserId: config.mattermost.bot.userId!,
+            channelId: config.mattermost.channel.id!,
+            testUserId: config.mattermost.bot.userId!,
+            testUserToken: config.mattermost.bot.token,
+          };
+        }
       }
-    }
-    testPostIds = [];
-  });
-
-  describe('Post Creation', () => {
-    it('should create a post as user', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const message = `User post - ${Date.now()}`;
-      const post = await userApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message,
-      });
-
-      expect(post.message).toBe(message);
-      expect(post.user_id).toBe(config.mattermost.testUsers[0].userId!);
-      testPostIds.push(post.id);
     });
 
-    it('should create a post as bot', async () => {
-      if (!config.mattermost.channel.id || !config.mattermost.bot.userId) {
-        throw new Error('Channel or Bot ID not found.');
+    afterEach(async () => {
+      // Cleanup test posts
+      for (const postId of testPostIds) {
+        try {
+          // Use admin API for Mattermost, regular API for Slack
+          if (adminApi) {
+            await adminApi.deletePost(postId);
+          } else {
+            await ctx.api.deletePost(postId);
+          }
+        } catch {
+          // Ignore errors
+        }
       }
-
-      const message = `Bot post - ${Date.now()}`;
-      const post = await botApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message,
-      });
-
-      expect(post.message).toBe(message);
-      expect(post.user_id).toBe(config.mattermost.bot.userId);
-      testPostIds.push(post.id);
+      testPostIds = [];
     });
 
-    it('should create posts with markdown', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const message = `**Bold** and _italic_ and \`code\`\n\n\`\`\`javascript\nconst x = 1;\n\`\`\``;
-      const post = await adminApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message,
-      });
-
-      expect(post.message).toBe(message);
-      testPostIds.push(post.id);
-    });
-  });
-
-  describe('Threading', () => {
-    let rootPostId: string;
-
-    beforeEach(async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const rootPost = await userApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message: `Thread root - ${Date.now()}`,
-      });
-      rootPostId = rootPost.id;
-      testPostIds.push(rootPostId);
-    });
-
-    it('should create reply in thread', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const reply = await userApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message: `Reply - ${Date.now()}`,
-        root_id: rootPostId,
-      });
-
-      expect(reply.root_id).toBe(rootPostId);
-      testPostIds.push(reply.id);
-    });
-
-    it('should get all posts in thread', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      // Create multiple replies
-      for (let i = 0; i < 3; i++) {
-        const reply = await userApi.createPost({
-          channel_id: config.mattermost.channel.id,
-          message: `Reply ${i + 1} - ${Date.now()}`,
-          root_id: rootPostId,
+    describe('Post Creation', () => {
+      it('should create a post as user', async () => {
+        const message = `User post - ${Date.now()}`;
+        const post = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message,
+          userId: ctx.testUserId,
         });
+
+        expect(post.message).toBe(message);
+        expect(post.userId).toBe(ctx.testUserId);
+        testPostIds.push(post.id);
+      });
+
+      it('should create a post as bot', async () => {
+        // Skip for Slack as we don't have separate bot context in mock
+        if (platformType === 'slack') {
+          return;
+        }
+
+        if (!botCtx) {
+          throw new Error('Bot context not available');
+        }
+
+        const message = `Bot post - ${Date.now()}`;
+        const post = await botCtx.api.createPost({
+          channelId: ctx.channelId,
+          message,
+          userId: ctx.botUserId,
+        });
+
+        expect(post.message).toBe(message);
+        expect(post.userId).toBe(ctx.botUserId);
+        testPostIds.push(post.id);
+      });
+
+      it('should create posts with markdown', async () => {
+        const message = `**Bold** and _italic_ and \`code\`\n\n\`\`\`javascript\nconst x = 1;\n\`\`\``;
+        const post = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message,
+          userId: ctx.testUserId,
+        });
+
+        expect(post.message).toBe(message);
+        testPostIds.push(post.id);
+      });
+    });
+
+    describe('Threading', () => {
+      let rootPost: PlatformTestPost;
+
+      beforeEach(async () => {
+        rootPost = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message: `Thread root - ${Date.now()}`,
+          userId: ctx.testUserId,
+        });
+        testPostIds.push(rootPost.id);
+      });
+
+      it('should create reply in thread', async () => {
+        const reply = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message: `Reply - ${Date.now()}`,
+          rootId: rootPost.id,
+          userId: ctx.testUserId,
+        });
+
+        expect(reply.rootId).toBe(rootPost.id);
         testPostIds.push(reply.id);
-      }
-
-      const { posts, order } = await userApi.getThreadPosts(rootPostId);
-
-      expect(Object.keys(posts).length).toBeGreaterThanOrEqual(4); // root + 3 replies
-      expect(order).toContain(rootPostId);
-    });
-
-    it('should allow bot to reply in user-started thread', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const botReply = await botApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message: `Bot reply - ${Date.now()}`,
-        root_id: rootPostId,
       });
 
-      expect(botReply.root_id).toBe(rootPostId);
-      expect(botReply.user_id).toBe(config.mattermost.bot.userId!);
-      testPostIds.push(botReply.id);
-    });
-  });
+      it('should get all posts in thread', async () => {
+        // Create multiple replies
+        for (let i = 0; i < 3; i++) {
+          const reply = await ctx.api.createPost({
+            channelId: ctx.channelId,
+            message: `Reply ${i + 1} - ${Date.now()}`,
+            rootId: rootPost.id,
+            userId: ctx.testUserId,
+          });
+          testPostIds.push(reply.id);
+        }
 
-  describe('Post Updates', () => {
-    let testPostId: string;
+        const threadPosts = await ctx.api.getThreadPosts(rootPost.id);
 
-    beforeEach(async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const post = await userApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message: `Original message - ${Date.now()}`,
-      });
-      testPostId = post.id;
-      testPostIds.push(testPostId);
-    });
-
-    it('should update post content', async () => {
-      const newMessage = `Updated message - ${Date.now()}`;
-      const updated = await userApi.updatePost(testPostId, newMessage);
-
-      expect(updated.message).toBe(newMessage);
-    });
-
-    it('should preserve post ID after update', async () => {
-      const newMessage = `Updated again - ${Date.now()}`;
-      const updated = await userApi.updatePost(testPostId, newMessage);
-
-      expect(updated.id).toBe(testPostId);
-    });
-
-    it('bot should update its own posts', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const botPost = await botApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message: `Bot original - ${Date.now()}`,
-      });
-      testPostIds.push(botPost.id);
-
-      const newMessage = `Bot updated - ${Date.now()}`;
-      const updated = await botApi.updatePost(botPost.id, newMessage);
-
-      expect(updated.message).toBe(newMessage);
-    });
-  });
-
-  describe('Mention Detection', () => {
-    it('should include mention in post', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
-
-      const botUsername = config.mattermost.bot.username;
-      const message = `@${botUsername} please help`;
-      const post = await userApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message,
+        expect(threadPosts.length).toBeGreaterThanOrEqual(4); // root + 3 replies
+        expect(threadPosts.some((p) => p.id === rootPost.id)).toBe(true);
       });
 
-      expect(post.message).toContain(`@${botUsername}`);
-      testPostIds.push(post.id);
+      it('should allow bot to reply in user-started thread', async () => {
+        // Skip for Slack as we don't have separate bot context in mock
+        if (platformType === 'slack') {
+          return;
+        }
+
+        if (!botCtx) {
+          throw new Error('Bot context not available');
+        }
+
+        const botReply = await botCtx.api.createPost({
+          channelId: ctx.channelId,
+          message: `Bot reply - ${Date.now()}`,
+          rootId: rootPost.id,
+          userId: ctx.botUserId,
+        });
+
+        expect(botReply.rootId).toBe(rootPost.id);
+        expect(botReply.userId).toBe(ctx.botUserId);
+        testPostIds.push(botReply.id);
+      });
     });
-  });
 
-  describe('Long Messages', () => {
-    it('should handle messages near 16K limit', async () => {
-      if (!config.mattermost.channel.id) {
-        throw new Error('Channel ID not found.');
-      }
+    describe('Post Updates', () => {
+      let testPost: PlatformTestPost;
 
-      // Create a long message (but under the 16K limit)
-      const longContent = 'x'.repeat(10000);
-      const message = `Long message start\n${longContent}\nLong message end`;
-
-      const post = await adminApi.createPost({
-        channel_id: config.mattermost.channel.id,
-        message,
+      beforeEach(async () => {
+        testPost = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message: `Original message - ${Date.now()}`,
+          userId: ctx.testUserId,
+        });
+        testPostIds.push(testPost.id);
       });
 
-      expect(post.message.length).toBeGreaterThan(10000);
-      testPostIds.push(post.id);
+      it('should update post content', async () => {
+        const newMessage = `Updated message - ${Date.now()}`;
+        const updated = await ctx.api.updatePost(testPost.id, newMessage);
+
+        expect(updated.message).toBe(newMessage);
+      });
+
+      it('should preserve post ID after update', async () => {
+        const newMessage = `Updated again - ${Date.now()}`;
+        const updated = await ctx.api.updatePost(testPost.id, newMessage);
+
+        expect(updated.id).toBe(testPost.id);
+      });
+
+      it('bot should update its own posts', async () => {
+        // Skip for Slack as we don't have separate bot context in mock
+        if (platformType === 'slack') {
+          return;
+        }
+
+        if (!botCtx) {
+          throw new Error('Bot context not available');
+        }
+
+        const botPost = await botCtx.api.createPost({
+          channelId: ctx.channelId,
+          message: `Bot original - ${Date.now()}`,
+          userId: ctx.botUserId,
+        });
+        testPostIds.push(botPost.id);
+
+        const newMessage = `Bot updated - ${Date.now()}`;
+        const updated = await botCtx.api.updatePost(botPost.id, newMessage);
+
+        expect(updated.message).toBe(newMessage);
+      });
+    });
+
+    describe('Mention Detection', () => {
+      it('should include mention in post', async () => {
+        const botUsername =
+          platformType === 'mattermost'
+            ? config.mattermost.bot.username
+            : 'claude-test-bot';
+
+        const message = `@${botUsername} please help`;
+        const post = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message,
+          userId: ctx.testUserId,
+        });
+
+        expect(post.message).toContain(`@${botUsername}`);
+        testPostIds.push(post.id);
+      });
+    });
+
+    describe('Long Messages', () => {
+      it('should handle messages near 16K limit', async () => {
+        // Create a long message (but under the 16K limit)
+        const longContent = 'x'.repeat(10000);
+        const message = `Long message start\n${longContent}\nLong message end`;
+
+        const post = await ctx.api.createPost({
+          channelId: ctx.channelId,
+          message,
+          userId: ctx.testUserId,
+        });
+
+        expect(post.message.length).toBeGreaterThan(10000);
+        testPostIds.push(post.id);
+      });
     });
   });
 });

@@ -6,27 +6,13 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { handleEvent } from './events.js';
 import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
-import type { PlatformClient, PlatformPost, PlatformFormatter } from '../platform/index.js';
+import type { PlatformClient, PlatformPost } from '../platform/index.js';
+import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 // Mock platform client
 function createMockPlatform() {
   const posts: Map<string, string> = new Map();
   let postIdCounter = 1;
-
-  const mockFormatter: PlatformFormatter = {
-    formatBold: (text: string) => `**${text}**`,
-    formatItalic: (text: string) => `_${text}_`,
-    formatCode: (text: string) => `\`${text}\``,
-    formatCodeBlock: (code: string, lang?: string) => `\`\`\`${lang || ''}\n${code}\n\`\`\``,
-    formatUserMention: (username: string) => `@${username}`,
-    formatLink: (text: string, url: string) => `[${text}](${url})`,
-    formatListItem: (text: string) => `- ${text}`,
-    formatNumberedListItem: (num: number, text: string) => `${num}. ${text}`,
-    formatBlockquote: (text: string) => `> ${text}`,
-    formatHorizontalRule: () => '---',
-    formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
-    escapeText: (text: string) => text,
-  };
 
   const mockPlatform = {
     createPost: mock(async (message: string, _threadId?: string): Promise<PlatformPost> => {
@@ -71,7 +57,7 @@ function createMockPlatform() {
       };
     }),
     sendTyping: mock(() => {}),
-    getFormatter: () => mockFormatter,
+    getFormatter: () => createMockFormatter(),
     posts,
   };
 

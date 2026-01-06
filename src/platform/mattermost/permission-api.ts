@@ -5,7 +5,7 @@
  */
 
 // Native WebSocket - no import needed in Bun
-import type { PermissionApi, PermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
+import type { PermissionApi, LegacyPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import {
@@ -23,11 +23,11 @@ import { mcpLogger } from '../../utils/logger.js';
  */
 class MattermostPermissionApi implements PermissionApi {
   private readonly apiConfig: MattermostApiConfig;
-  private readonly config: PermissionApiConfig;
+  private readonly config: LegacyPermissionApiConfig;
   private readonly formatter = new MattermostFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: PermissionApiConfig) {
+  constructor(config: LegacyPermissionApiConfig) {
     this.config = config;
     this.apiConfig = {
       url: config.url,
@@ -194,6 +194,6 @@ class MattermostPermissionApi implements PermissionApi {
 /**
  * Create a Mattermost permission API instance
  */
-export function createMattermostPermissionApi(config: PermissionApiConfig): PermissionApi {
+export function createMattermostPermissionApi(config: LegacyPermissionApiConfig): PermissionApi {
   return new MattermostPermissionApi(config);
 }

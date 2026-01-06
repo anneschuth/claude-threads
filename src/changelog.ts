@@ -103,11 +103,13 @@ function parseChangelog(content: string, targetVersion?: string): ReleaseNotes |
   };
 }
 
+import type { PlatformFormatter } from './platform/formatter.js';
+
 /**
  * Format release notes as a chat message with markdown.
  */
-export function formatReleaseNotes(notes: ReleaseNotes): string {
-  let msg = `### 📋 Release Notes - v${notes.version}`;
+export function formatReleaseNotes(notes: ReleaseNotes, formatter: PlatformFormatter): string {
+  let msg = `${formatter.formatHeading(`📋 Release Notes - v${notes.version}`, 3)}`;
   if (notes.date) {
     msg += ` (${notes.date})`;
   }
@@ -121,7 +123,7 @@ export function formatReleaseNotes(notes: ReleaseNotes): string {
                   section === 'Changed' ? '🔄' :
                   section === 'Removed' ? '🗑️' : '•';
 
-    msg += `**${emoji} ${section}**\n`;
+    msg += `${formatter.formatBold(`${emoji} ${section}`)}\n`;
     for (const item of items) {
       msg += `- ${item}\n`;
     }

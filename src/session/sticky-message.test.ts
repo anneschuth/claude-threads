@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test';
 import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
+import { mockFormatter } from '../test-utils/mock-formatter.js';
 
 // Default test config
 const testConfig: StickyMessageConfig = {
@@ -32,6 +33,7 @@ function createMockPlatform(platformId: string): PlatformClient {
     downloadFile: mock(),
     getFileInfo: mock(),
     getFormatter: mock(),
+    getThreadLink: mock((threadId: string) => `/_redirect/pl/${threadId}`),
     connect: mock(),
     disconnect: mock(),
     on: mock(),
@@ -86,7 +88,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 describe('buildStickyMessage', () => {
   it('shows no active sessions message when empty', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('Active Claude Threads');
     expect(result).toContain('No active sessions');
@@ -96,7 +98,7 @@ describe('buildStickyMessage', () => {
 
   it('shows status bar with version and session count', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     // Should contain version (with optional CLI version appended)
     expect(result).toMatch(/`v\d+\.\d+\.\d+( · CLI \d+\.\d+\.\d+)?`/);
@@ -109,21 +111,21 @@ describe('buildStickyMessage', () => {
   it('shows Chrome status when enabled', async () => {
     const sessions = new Map<string, Session>();
     const chromeConfig = { ...testConfig, chromeEnabled: true };
-    const result = await buildStickyMessage(sessions, 'test-platform', chromeConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', chromeConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`🌐 Chrome`');
   });
 
   it('hides Chrome status when disabled', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).not.toContain('Chrome');
   });
 
   it('shows Interactive permission mode by default', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`🔐 Interactive`');
   });
@@ -131,7 +133,7 @@ describe('buildStickyMessage', () => {
   it('shows Auto permission mode when skipPermissions is true', async () => {
     const sessions = new Map<string, Session>();
     const autoConfig = { ...testConfig, skipPermissions: true };
-    const result = await buildStickyMessage(sessions, 'test-platform', autoConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', autoConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`⚡ Auto`');
   });
@@ -139,14 +141,14 @@ describe('buildStickyMessage', () => {
   it('shows worktree mode when not default prompt', async () => {
     const sessions = new Map<string, Session>();
     const requireConfig = { ...testConfig, worktreeMode: 'require' as const };
-    const result = await buildStickyMessage(sessions, 'test-platform', requireConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', requireConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`🌿 Worktree: require`');
   });
 
   it('hides worktree mode when set to prompt (default)', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).not.toContain('Worktree');
   });
@@ -154,14 +156,14 @@ describe('buildStickyMessage', () => {
   it('shows debug mode when enabled', async () => {
     const sessions = new Map<string, Session>();
     const debugConfig = { ...testConfig, debug: true };
-    const result = await buildStickyMessage(sessions, 'test-platform', debugConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', debugConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`🐛 Debug`');
   });
 
   it('shows working directory', async () => {
     const sessions = new Map<string, Session>();
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`📂 /home/user/projects`');
   });
@@ -173,7 +175,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('Active Claude Threads');
     expect(result).toContain('(1)');
@@ -193,7 +195,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('…');
     expect(result.length).toBeLessThan(1000);
@@ -206,16 +208,16 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).not.toContain('@claude-bot');
     expect(result).toContain('Help me with this');
   });
 
-  it('filters sessions by platform', async () => {
+  it('shows sessions from all platforms with cross-platform indicator', async () => {
     const sessions = new Map<string, Session>();
 
-    // Session for test-platform
+    // Session for test-platform (this platform)
     const session1 = createMockSession({
       platformId: 'test-platform',
       sessionId: 'test-platform:thread1',
@@ -223,7 +225,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session1.sessionId, session1);
 
-    // Session for other-platform
+    // Session for other-platform (different platform)
     const session2 = createMockSession({
       platformId: 'other-platform',
       sessionId: 'other-platform:thread2',
@@ -231,11 +233,18 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session2.sessionId, session2);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    expect(result).toContain('(1)');
+    // Now shows all sessions from all platforms (cross-platform visibility)
+    expect(result).toContain('(2)');
     expect(result).toContain('Session 1');
-    expect(result).not.toContain('Session 2');
+    expect(result).toContain('Session 2');
+    // Session 1 (this platform) should have a link
+    expect(result).toContain('[Session 1]');
+    // Session 2 (other platform) should NOT have a link, just plain text
+    expect(result).not.toContain('[Session 2]');
+    // Session 2 should show the platform name
+    expect(result).toContain('Test Platform');
   });
 
   it('sorts sessions by start time (newest first)', async () => {
@@ -255,7 +264,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session2.sessionId, session2);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('(2)');
     // Newer session should appear first in the list
@@ -271,7 +280,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('3/7');
   });
@@ -283,7 +292,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     // Should not have double dots from missing progress
     expect(result).not.toMatch(/· ·/);
@@ -296,7 +305,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('2/5');
     expect(result).toContain('🔄 _Building the API_');
@@ -309,7 +318,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('1/3');
     expect(result).toContain('🔄 _Running tests_');
@@ -322,7 +331,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('3/3');
     expect(result).not.toContain('🔄');
@@ -335,7 +344,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('0/2');
     expect(result).not.toContain('🔄');
@@ -348,7 +357,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('No topic');
   });
@@ -360,7 +369,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('No topic');
     expect(result).not.toContain('!worktree');
@@ -373,7 +382,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('No topic');
     expect(result).not.toContain('!cd');
@@ -387,7 +396,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('Improve sticky message feature');
     expect(result).not.toContain('No topic');
@@ -401,7 +410,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('📋 Plan approval');
@@ -423,7 +432,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('❓ Question 2/3');
@@ -436,7 +445,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('💬 Message approval');
@@ -449,7 +458,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('🌿 Branch name');
@@ -467,7 +476,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('🌿 Join worktree');
@@ -486,7 +495,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('📝 Context selection');
@@ -500,7 +509,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('⏳');
     expect(result).toContain('📋 Plan approval');
@@ -516,7 +525,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     // Should show pending prompt
     expect(result).toContain('📋 Plan approval');
@@ -531,7 +540,7 @@ describe('buildStickyMessage', () => {
     });
     sessions.set(session.sessionId, session);
 
-    const result = await buildStickyMessage(sessions, 'test-platform', testConfig);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('🔄 _Running tests_');
     expect(result).not.toContain('⏳');

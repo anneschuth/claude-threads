@@ -2,23 +2,35 @@ import { describe, it, expect } from 'bun:test';
 import {
   formatBold,
 } from './post-helpers.js';
+import {
+  mockFormatter as mattermostFormatter,
+  slackMockFormatter as slackFormatter,
+} from '../test-utils/mock-formatter.js';
 
 // Note: Most post-helpers functions require a Session object with a platform client.
 // Since they're thin wrappers around platform.createPost(), we focus on testing
 // the formatting utilities that don't require mocking the platform.
 
 describe('formatBold', () => {
-  it('formats label only', () => {
-    expect(formatBold('Session cancelled')).toBe('**Session cancelled**');
+  it('formats label only (Mattermost)', () => {
+    expect(formatBold(mattermostFormatter, 'Session cancelled')).toBe('**Session cancelled**');
   });
 
-  it('formats label with rest', () => {
-    expect(formatBold('Session cancelled', 'by @user')).toBe('**Session cancelled** by @user');
+  it('formats label with rest (Mattermost)', () => {
+    expect(formatBold(mattermostFormatter, 'Session cancelled', 'by @user')).toBe('**Session cancelled** by @user');
   });
 
-  it('handles empty rest', () => {
+  it('handles empty rest (Mattermost)', () => {
     // Empty string is falsy, so formatBold treats it as no rest
-    expect(formatBold('Label', '')).toBe('**Label**');
+    expect(formatBold(mattermostFormatter, 'Label', '')).toBe('**Label**');
+  });
+
+  it('formats label only (Slack)', () => {
+    expect(formatBold(slackFormatter, 'Session cancelled')).toBe('*Session cancelled*');
+  });
+
+  it('formats label with rest (Slack)', () => {
+    expect(formatBold(slackFormatter, 'Session cancelled', 'by @user')).toBe('*Session cancelled* by @user');
   });
 });
 

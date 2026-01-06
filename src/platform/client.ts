@@ -14,6 +14,7 @@ import type { PlatformFormatter } from './formatter.js';
 export interface PlatformClientEvents {
   connected: () => void;
   disconnected: () => void;
+  reconnecting: (attempt: number) => void;
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
   /** Emitted when a reaction is added */
@@ -109,6 +110,13 @@ export interface PlatformClient extends EventEmitter {
    * Use this to format bold, code, etc. in a platform-appropriate way.
    */
   getFormatter(): PlatformFormatter;
+
+  /**
+   * Get a clickable link to a thread
+   * @param threadId - Thread/root post ID
+   * @returns URL that links to the thread (platform-specific format)
+   */
+  getThreadLink(threadId: string): string;
 
   // ============================================================================
   // Messaging

@@ -236,6 +236,9 @@ export class SessionManager extends EventEmitter {
       workingDir: session.workingDir,
       sessionNumber: session.sessionNumber,
       worktreeBranch: session.worktreeInfo?.branch,
+      // Platform information
+      platformType: session.platform.platformType as 'mattermost' | 'slack',
+      platformDisplayName: session.platform.displayName,
       // Rich metadata
       title: session.sessionTitle,
       description: session.sessionDescription,
@@ -345,8 +348,9 @@ export class SessionManager extends EventEmitter {
     // Check max sessions limit
     if (this.sessions.size >= MAX_SESSIONS) {
       if (platform) {
+        const fmt = platform.getFormatter();
         await platform.createPost(
-          `⚠️ **Too busy** - ${this.sessions.size} sessions active. Please try again later.`,
+          `⚠️ ${fmt.formatBold('Too busy')} - ${this.sessions.size} sessions active. Please try again later.`,
           persistedSession.threadId
         );
       }
@@ -938,10 +942,11 @@ export class SessionManager extends EventEmitter {
    * This allows the resume to update the same post instead of creating a new one.
    */
   async postShutdownMessages(): Promise<void> {
-    const shutdownMessage = `⏸️ **Bot shutting down** - session will resume on restart`;
-
     for (const session of this.sessions.values()) {
       try {
+        const fmt = session.platform.getFormatter();
+        const shutdownMessage = `⏸️ ${fmt.formatBold('Bot shutting down')} - session will resume on restart`;
+
         if (session.lifecyclePostId) {
           // Update existing timeout/warning post
           await session.platform.updatePost(session.lifecyclePostId, shutdownMessage);

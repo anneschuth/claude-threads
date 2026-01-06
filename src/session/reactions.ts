@@ -53,8 +53,9 @@ export async function handleQuestionReaction(
   sessionLog(session).debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
   // Update the post to show answer
+  const formatter = session.platform.getFormatter();
   await withErrorHandling(
-    () => session.platform.updatePost(postId, `✅ **${question.header}**: ${selectedOption.label}`),
+    () => session.platform.updatePost(postId, `✅ ${formatter.formatBold(question.header)}: ${selectedOption.label}`),
     { action: 'Update answered question', session }
   );
 
@@ -70,7 +71,7 @@ export async function handleQuestionReaction(
     // so we can't send another tool_result. Instead, send a user message with answers.
     let answersText = 'Here are my answers:\n';
     for (const q of questions) {
-      answersText += `- **${q.header}**: ${q.answer}\n`;
+      answersText += `- ${formatter.formatBold(q.header)}: ${q.answer}\n`;
     }
 
     sessionLog(session).debug('✅ All questions answered');
@@ -111,9 +112,10 @@ export async function handleApprovalReaction(
   sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
 
   // Update the post to show the decision
+  const formatter = session.platform.getFormatter();
   const statusMessage = isApprove
-    ? `✅ **Plan approved** by @${username} - starting implementation...`
-    : `❌ **Changes requested** by @${username}`;
+    ? `✅ ${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`
+    : `❌ ${formatter.formatBold('Changes requested')} by ${formatter.formatUserMention(username)}`;
   await withErrorHandling(
     () => session.platform.updatePost(postId, statusMessage),
     { action: 'Update approval post', session }
@@ -164,11 +166,13 @@ export async function handleMessageApprovalReaction(
 
   if (!isAllow && !isInvite && !isDeny) return;
 
+  const formatter = session.platform.getFormatter();
+
   if (isAllow) {
     // Allow this single message
     await session.platform.updatePost(
       pending.postId,
-      `✅ Message from @${pending.fromUser} approved by @${approver}`
+      `✅ Message from ${formatter.formatUserMention(pending.fromUser)} approved by ${formatter.formatUserMention(approver)}`
     );
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
@@ -179,7 +183,7 @@ export async function handleMessageApprovalReaction(
     session.sessionAllowedUsers.add(pending.fromUser);
     await session.platform.updatePost(
       pending.postId,
-      `✅ @${pending.fromUser} invited to session by @${approver}`
+      `✅ ${formatter.formatUserMention(pending.fromUser)} invited to session by ${formatter.formatUserMention(approver)}`
     );
     await ctx.ops.updateSessionHeader(session);
     session.claude.sendMessage(pending.originalMessage);
@@ -190,7 +194,7 @@ export async function handleMessageApprovalReaction(
     // Deny
     await session.platform.updatePost(
       pending.postId,
-      `❌ Message from @${pending.fromUser} denied by @${approver}`
+      `❌ Message from ${formatter.formatUserMention(pending.fromUser)} denied by ${formatter.formatUserMention(approver)}`
     );
     sessionLog(session).info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
   }
@@ -238,7 +242,8 @@ export async function handleTaskToggleReaction(
   const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
 
   // Find current in-progress task from lastTasksContent
-  const inProgressMatch = session.lastTasksContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  // Match both ** (Mattermost) and * (Slack) bold formatting
+  const inProgressMatch = session.lastTasksContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}(?:\s*\((\d+)s\))?/);
   let currentTaskText = '';
   if (inProgressMatch) {
     const taskName = inProgressMatch[1];
@@ -246,7 +251,8 @@ export async function handleTaskToggleReaction(
     currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
   }
 
-  const minimizedMessage = `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  const formatter = session.platform.getFormatter();
+  const minimizedMessage = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
   const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
   const tasksPostId = session.tasksPostId;
 
@@ -303,11 +309,13 @@ export async function handleExistingWorktreeReaction(
 
   const shortPath = pending.worktreePath.replace(process.env.HOME || '', '~');
 
+  const formatter = session.platform.getFormatter();
+
   if (isApprove) {
     // Join the existing worktree
     await session.platform.updatePost(
       pending.postId,
-      `✅ Joining worktree for branch \`${pending.branch}\` at \`${shortPath}\``
+      `✅ Joining worktree for branch ${formatter.formatCode(pending.branch)} at ${formatter.formatCode(shortPath)}`
     );
 
     // Clear the pending prompt before switching
@@ -322,7 +330,7 @@ export async function handleExistingWorktreeReaction(
     // Skip - continue in current directory
     await session.platform.updatePost(
       pending.postId,
-      `✅ Continuing in current directory (skipped by @${username})`
+      `✅ Continuing in current directory (skipped by ${formatter.formatUserMention(username)})`
     );
 
     // Clear the pending prompt

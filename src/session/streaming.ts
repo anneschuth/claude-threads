@@ -5,7 +5,8 @@
  * Implements logical message breaking to avoid content collapse on chat platforms.
  */
 
-import type { PlatformClient, PlatformFile } from '../platform/index.js';
+import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
+import { convertMarkdownTablesToSlack } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
@@ -27,7 +28,7 @@ function sessionLog(session: Session) {
  * Compute the minimized task list message from the full content.
  * Format: "---\n📋 **Tasks** (X/Y · Z%) · 🔄 TaskName 🔽"
  */
-function getMinimizedTaskContent(fullContent: string): string {
+function getMinimizedTaskContent(fullContent: string, formatter: PlatformFormatter): string {
   // Parse progress from content (format: "📋 **Tasks** (X/Y · Z%)")
   const progressMatch = fullContent.match(/\((\d+)\/(\d+) · (\d+)%\)/);
   const completed = progressMatch ? parseInt(progressMatch[1], 10) : 0;
@@ -35,7 +36,8 @@ function getMinimizedTaskContent(fullContent: string): string {
   const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
 
   // Find current in-progress task
-  const inProgressMatch = fullContent.match(/🔄 \*\*([^*]+)\*\*(?:\s*\((\d+)s\))?/);
+  // Match both ** (Mattermost) and * (Slack) bold formatting
+  const inProgressMatch = fullContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}(?:\s*\((\d+)s\))?/);
   let currentTaskText = '';
   if (inProgressMatch) {
     const taskName = inProgressMatch[1];
@@ -43,7 +45,7 @@ function getMinimizedTaskContent(fullContent: string): string {
     currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
   }
 
-  return `---\n📋 **Tasks** (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
+  return `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
 }
 
 /**
@@ -54,8 +56,9 @@ function getTaskDisplayContent(session: Session): string {
   if (!session.lastTasksContent) {
     return '';
   }
+  const formatter = session.platform.getFormatter();
   return session.tasksMinimized
-    ? getMinimizedTaskContent(session.lastTasksContent)
+    ? getMinimizedTaskContent(session.lastTasksContent, formatter)
     : session.lastTasksContent;
 }
 
@@ -536,6 +539,11 @@ export async function flush(
 
   let content = session.pendingContent.replace(/\n{3,}/g, '\n\n').trim();
 
+  // Convert markdown tables for Slack (Slack doesn't render markdown tables)
+  if (session.platform.platformType === 'slack') {
+    content = convertMarkdownTablesToSlack(content);
+  }
+
   // Most chat platforms have post length limits (~16K)
   const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
   const HARD_CONTINUATION_THRESHOLD = 14000;  // Absolute max before we force a break
@@ -620,8 +628,9 @@ export async function flush(
     }
 
     // Only add continuation marker if we have more content
+    const formatter = session.platform.getFormatter();
     const firstPartWithMarker = remainder
-      ? firstPart + '\n\n*... (continued below)*'
+      ? firstPart + '\n\n' + formatter.formatItalic('... (continued below)')
       : firstPart;
 
     // Update the current post with the first part
@@ -659,7 +668,8 @@ export async function flush(
   if (content.length > MAX_POST_LENGTH) {
     // Safety truncation if we somehow got content that's still too long
     sessionLog(session).warn(`Content too long (${content.length}), truncating to ${MAX_POST_LENGTH - 50}`);
-    content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n*... (truncated)*';
+    const formatter = session.platform.getFormatter();
+    content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n' + formatter.formatItalic('... (truncated)');
   }
 
   if (session.currentPostId) {

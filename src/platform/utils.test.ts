@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
+  getPlatformIcon,
   truncateMessage,
   splitMessage,
   extractMentions,
@@ -13,7 +14,23 @@ import {
   isValidUrl,
   isUserAllowed,
   sanitizeForLogging,
+  convertMarkdownTablesToSlack,
 } from './utils.js';
+
+describe('getPlatformIcon', () => {
+  it('returns 💬 for slack', () => {
+    expect(getPlatformIcon('slack')).toBe('💬');
+  });
+
+  it('returns 📢 for mattermost', () => {
+    expect(getPlatformIcon('mattermost')).toBe('📢');
+  });
+
+  it('returns 💬 as default for unknown platforms', () => {
+    expect(getPlatformIcon('unknown')).toBe('💬');
+    expect(getPlatformIcon('')).toBe('💬');
+  });
+});
 
 describe('truncateMessage', () => {
   it('returns original if within limit', () => {
@@ -219,5 +236,67 @@ describe('sanitizeForLogging', () => {
   it('preserves non-sensitive content', () => {
     const input = 'User logged in successfully';
     expect(sanitizeForLogging(input)).toBe(input);
+  });
+});
+
+describe('convertMarkdownTablesToSlack', () => {
+  it('converts a simple markdown table to Slack list format', () => {
+    const input = `| Command | Description |
+|---------|-------------|
+| !help | Show help |
+| !stop | Stop session |`;
+    const expected = `*Command:* !help · *Description:* Show help
+*Command:* !stop · *Description:* Stop session`;
+    expect(convertMarkdownTablesToSlack(input)).toBe(expected);
+  });
+
+  it('handles tables with colons in separator row', () => {
+    const input = `| Name | Value |
+|:-----|------:|
+| Foo | Bar |`;
+    const expected = `*Name:* Foo · *Value:* Bar`;
+    expect(convertMarkdownTablesToSlack(input)).toBe(expected);
+  });
+
+  it('preserves content around tables', () => {
+    const input = `Here is a table:
+
+| A | B |
+|---|---|
+| 1 | 2 |
+
+And more text.`;
+    const result = convertMarkdownTablesToSlack(input);
+    expect(result).toContain('Here is a table:');
+    expect(result).toContain('*A:* 1 · *B:* 2');
+    expect(result).toContain('And more text.');
+  });
+
+  it('handles content without tables', () => {
+    const input = 'Just regular text with no tables';
+    expect(convertMarkdownTablesToSlack(input)).toBe(input);
+  });
+
+  it('handles empty rows', () => {
+    const input = `| Header |
+|--------|`;
+    expect(convertMarkdownTablesToSlack(input)).toBe(`| Header |
+|--------|`);
+  });
+
+  it('handles multiple tables', () => {
+    const input = `| A | B |
+|---|---|
+| 1 | 2 |
+
+Some text
+
+| C | D |
+|---|---|
+| 3 | 4 |`;
+    const result = convertMarkdownTablesToSlack(input);
+    expect(result).toContain('*A:* 1 · *B:* 2');
+    expect(result).toContain('Some text');
+    expect(result).toContain('*C:* 3 · *D:* 4');
   });
 });

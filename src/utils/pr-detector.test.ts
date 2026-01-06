@@ -5,6 +5,7 @@ import {
   formatPullRequestLink,
   getPlatformIcon,
 } from './pr-detector.js';
+import { mockFormatter } from '../test-utils/mock-formatter.js';
 
 describe('detectPullRequests', () => {
   test('detects GitHub PR URLs', () => {
@@ -134,28 +135,28 @@ describe('extractPullRequestUrl', () => {
 describe('formatPullRequestLink', () => {
   test('formats GitHub PR as markdown link', () => {
     const url = 'https://github.com/owner/repo/pull/123';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 PR #123](https://github.com/owner/repo/pull/123)');
   });
 
   test('formats GitLab MR with ! prefix', () => {
     const url = 'https://gitlab.com/group/project/-/merge_requests/456';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 MR !456](https://gitlab.com/group/project/-/merge_requests/456)');
   });
 
   test('formats Bitbucket PR', () => {
     const url = 'https://bitbucket.org/workspace/repo/pull-requests/42';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe('[🔗 PR #42](https://bitbucket.org/workspace/repo/pull-requests/42)');
   });
 
   test('returns URL as-is if not recognized', () => {
     const url = 'https://example.com/some/path';
-    const formatted = formatPullRequestLink(url);
+    const formatted = formatPullRequestLink(url, mockFormatter);
 
     expect(formatted).toBe(url);
   });

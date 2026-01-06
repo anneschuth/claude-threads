@@ -3,6 +3,7 @@ import * as commands from './commands.js';
 import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
+import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 // =============================================================================
 // Test Utilities
@@ -37,7 +38,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     isBotMentioned: mock(() => false),
     extractPrompt: mock((msg: string) => msg),
     getBotName: mock(() => 'testbot'),
-    getFormatter: mock(() => ({ bold: (t: string) => `**${t}**`, code: (t: string) => `\`${t}\`` })),
+    getFormatter: mock(() => createMockFormatter()),
     sendTyping: mock(() => {}),
     on: mock(() => {}),
     emit: mock(() => true),

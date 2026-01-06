@@ -6,7 +6,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 **Currently Supported Platforms:**
 - Mattermost (full support)
-- Slack (architecture ready, implementation pending)
+- Slack (full support)
 
 **Key Features:**
 - Real-time streaming of Claude responses to chat platforms
@@ -78,7 +78,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 **Currently Supported**:
 - ✅ Mattermost (fully implemented)
-- 🔄 Slack (architecture ready, awaiting implementation)
+- ✅ Slack (fully implemented)
 
 **Key Concepts**:
 
@@ -98,6 +98,7 @@ chrome: false
 worktreeMode: prompt
 
 platforms:
+  # Mattermost configuration
   - id: mattermost-main
     type: mattermost
     displayName: Main Team
@@ -107,7 +108,25 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
+
+  # Slack configuration
+  - id: slack-workspace
+    type: slack
+    displayName: Slack Team
+    botToken: xoxb-your-bot-token    # Bot User OAuth Token
+    appToken: xapp-your-app-token    # App-Level Token (for Socket Mode)
+    channelId: C0123456789
+    botName: claude-bot
+    allowedUsers: [alice, bob]       # Slack usernames
+    skipPermissions: false
 ```
+
+**Slack-specific notes:**
+- Requires both a Bot Token (`xoxb-`) and App Token (`xapp-`) for Socket Mode
+- `allowedUsers` uses Slack usernames (not user IDs) for consistency with Mattermost
+- User mentions in messages use Slack user IDs (e.g., `<@U0123ALICE>`) - the bot handles this automatically
+- Bot Token scopes required: `channels:history`, `channels:read`, `chat:write`, `reactions:read`, `reactions:write`, `users:read`
+- App Token scope: `connections:write` (Socket Mode must be enabled in the Slack app)
 
 Configuration is stored in YAML only - no `.env` file support.
 
@@ -163,6 +182,11 @@ The session management is split into focused modules for maintainability:
 | `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
 | `src/platform/mattermost/types.ts` | Mattermost-specific types |
 | `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
+| `src/platform/slack/client.ts` | Slack implementation of PlatformClient (Socket Mode + Web API) |
+| `src/platform/slack/types.ts` | Slack-specific types |
+| `src/platform/slack/formatter.ts` | Slack mrkdwn formatter |
+| `src/platform/slack/permission-api.ts` | Slack permission API for MCP server |
+| `src/platform/slack/index.ts` | Slack module exports |
 
 ### Utilities
 | File | Purpose |
@@ -481,7 +505,7 @@ When making changes to persisted data:
 
 ## Future Improvements to Consider
 
-- [ ] Implement Slack platform support
+- [x] Implement Slack platform support - **Done**
 - [ ] Add rate limiting for API calls
 - [x] Support file uploads via chat attachments - **Done**
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**
