@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.37.0] - 2026-01-06
+
+### Added
+- **Jump to bottom of thread** - Sticky message links now include `?scrollTo=bottom` parameter to jump directly to the latest messages in threads
+- **Pause/shutdown status in pinned message** - Channel sticky message now shows when platforms are paused or shutting down with visual indicators (⏸️ paused, 🛑 shutting down)
+
+### Changed
+- **Improved spinner animations** - Different spinner styles for different contexts:
+  - Braille spinner for typing indicator
+  - Dots spinner for session starting
+  - Arc spinner for general loading states
+
+### Fixed
+- **Code block rendering when messages are split** - Continuation markers (`*... (continued below)*`) now use platform-specific formatting, fixing broken code blocks on Slack
+- **Worktree creation failures** - Better error handling when worktree already exists or creation fails:
+  - Inline `on branch X` syntax now detects existing worktrees and offers to join them
+  - Creation failures now show helpful error messages instead of crashing
+
 ## [0.36.0] - 2026-01-06
 
 ### Added
