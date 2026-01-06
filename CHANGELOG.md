@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-01-06
+
+### Added
+- **Slack platform support** - Full Slack integration using Socket Mode for real-time events:
+  - Socket Mode WebSocket connection with automatic reconnection
+  - All session features work identically to Mattermost (commands, reactions, permissions, etc.)
+  - Slack mrkdwn formatting (single `*bold*`, `~strikethrough~`, unicode horizontal rules)
+  - User mention translation (`<@U123>` format)
+  - File attachment support with authenticated downloads
+  - Rate limiting with exponential backoff
+  - Message recovery after disconnection
+- **Slack integration tests** - Platform-agnostic test framework that runs the same 116 tests against both Mattermost and Slack mock servers
+- **Slack mock server** - Full mock implementation of Slack's Socket Mode and Web API for testing
+- **Platform initialization logging** - Better diagnostics showing which platforms are connecting
+
+### Changed
+- **Platform-agnostic formatters** - All markdown formatting now goes through `PlatformFormatter` interface for cross-platform compatibility
+- **Cross-platform regex patterns** - Task list parsing now handles both `**bold**` (Mattermost) and `*bold*` (Slack) formats
+
+### Fixed
+- **Slack WebSocket reliability** - Added 30-second connection timeout and proper promise rejection if WebSocket closes before hello event
+- **Expected API errors** - `already_pinned` and `no_pin` Slack errors no longer spam logs
+
 ## [0.34.1] - 2026-01-05
 
 ### Added
