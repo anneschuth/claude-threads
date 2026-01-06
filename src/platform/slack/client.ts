@@ -440,7 +440,8 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     files?: SlackFile[];
   }): void {
     // Handle message events
-    if (event.type === 'message' && !event.subtype) {
+    // Note: file_share subtype is used when a user uploads a file with a message
+    if (event.type === 'message' && (!event.subtype || event.subtype === 'file_share')) {
       // Ignore messages from ourselves
       if (event.user === this.botUserId || event.bot_id) {
         return;
