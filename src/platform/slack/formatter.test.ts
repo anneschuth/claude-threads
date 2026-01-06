@@ -81,6 +81,32 @@ describe('SlackFormatter', () => {
     });
   });
 
+  describe('formatStrikethrough', () => {
+    it('wraps text in tildes', () => {
+      expect(formatter.formatStrikethrough('hello')).toBe('~hello~');
+    });
+
+    it('escapes tildes in text to prevent formatting breakage', () => {
+      // Text containing ~ would break strikethrough in Slack
+      // e.g., ~Change to ~/.config~ would end strikethrough at the second ~
+      // Solution: insert zero-width space (U+200B) after each ~ to break pattern matching
+      // This preserves the actual ~ character for copy/paste
+      const result = formatter.formatStrikethrough('Change to ~/.config/path');
+      expect(result).toBe('~Change to ~\u200B/.config/path~');
+      // The zero-width space is invisible, so the tilde is preserved for copy/paste
+      expect(result).toContain('~');
+    });
+
+    it('escapes multiple tildes in text', () => {
+      expect(formatter.formatStrikethrough('~foo~ and ~bar~'))
+        .toBe('~~\u200Bfoo~\u200B and ~\u200Bbar~\u200B~');
+    });
+
+    it('handles text with no tildes', () => {
+      expect(formatter.formatStrikethrough('normal text')).toBe('~normal text~');
+    });
+  });
+
   describe('formatHeading', () => {
     it('uses bold text for headings (Slack has no native headings)', () => {
       // Slack doesn't have heading syntax, so all levels use bold

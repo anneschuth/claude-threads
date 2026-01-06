@@ -67,7 +67,13 @@ export class SlackFormatter implements PlatformFormatter {
 
   formatStrikethrough(text: string): string {
     // Slack uses single tildes for strikethrough
-    return `~${text}~`;
+    // Problem: If the text contains ~ characters (e.g., ~/.config/path), Slack interprets
+    // them as the end of strikethrough formatting, breaking the display.
+    // Solution: Insert a zero-width space (U+200B) after each tilde in the content.
+    // This breaks Slack's pattern matching for strikethrough delimiters while preserving
+    // the actual ~ character for copy/paste. The zero-width space is invisible.
+    const escapedText = text.replace(/~/g, '~\u200B');
+    return `~${escapedText}~`;
   }
 
   formatHeading(text: string, _level: number): string {
