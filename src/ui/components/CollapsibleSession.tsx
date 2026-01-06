@@ -80,12 +80,12 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
           <SessionLog logs={logs} />
           {session.status === 'starting' && (
             <Box marginTop={0}>
-              <Spinner label="Starting..." />
+              <Spinner label="Starting..." type="dots" />
             </Box>
           )}
           {session.isTyping && session.status !== 'starting' && (
             <Box marginTop={0}>
-              <Spinner label="Typing..." />
+              <Spinner label="Typing..." type="simpleDots" />
             </Box>
           )}
         </Box>
