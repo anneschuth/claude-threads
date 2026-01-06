@@ -1248,6 +1248,21 @@ export class SlackMockServer extends EventEmitter {
   // ============================================================================
 
   private handleWsOpen(ws: ServerWebSocket<unknown>): void {
+    // Close any existing connections before adding the new one
+    // This prevents duplicate message delivery when tests don't properly clean up
+    // their WebSocket connections before starting a new bot instance
+    if (this.wsConnections.size > 0) {
+      this.log(`Closing ${this.wsConnections.size} existing connection(s) before accepting new one`);
+      for (const existingWs of this.wsConnections) {
+        try {
+          existingWs.close(1000, 'New connection replacing old one');
+        } catch {
+          // Ignore errors when closing
+        }
+      }
+      this.wsConnections.clear();
+    }
+
     this.wsConnections.add(ws);
     this.log('Socket Mode connection opened');
 

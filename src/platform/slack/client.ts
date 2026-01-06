@@ -66,6 +66,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private reconnectDelay = 1000;
   private isIntentionalDisconnect = false;
   private isReconnecting = false;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User caching
   private userCache: Map<string, SlackUser> = new Map();
@@ -82,6 +83,12 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   // Track last processed message for recovery after disconnection
   private lastProcessedTs: string | null = null;
+
+  // Message deduplication: track recently processed message timestamps
+  // This prevents duplicate session starts when the mock server sends the same
+  // event to multiple WebSocket connections (during test cleanup race conditions)
+  private readonly processedMessages = new Set<string>();
+  private readonly MAX_PROCESSED_MESSAGES = 1000;
 
   // Rate limiting with exponential backoff
   private rateLimitDelay = 0;
@@ -377,19 +384,30 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         }
         doReject(new Error(`Socket Mode WebSocket closed before connection established (code: ${event.code})`));
 
-        // Only reconnect if not intentional
-        if (!this.isIntentionalDisconnect) {
+        // Only reconnect if not intentional and server didn't shut down
+        // When the server shuts down (e.g., test mock server), we should not reconnect
+        const serverShutdown = event.reason?.toLowerCase().includes('server shutting down');
+        if (!this.isIntentionalDisconnect && !serverShutdown) {
           wsLogger.debug('Scheduling reconnect...');
           this.scheduleReconnect();
         } else {
-          wsLogger.debug('Intentional disconnect, not reconnecting');
+          if (serverShutdown) {
+            wsLogger.debug('Server shutdown detected, not reconnecting');
+          } else {
+            wsLogger.debug('Intentional disconnect, not reconnecting');
+          }
         }
       };
 
       this.ws.onerror = (event) => {
         clearTimeout(connectionTimeout);
         wsLogger.warn(`Socket Mode: WebSocket error: ${event}`);
-        this.emit('error', new Error('Socket Mode WebSocket error'));
+        // Only emit error event if this is not an intentional disconnect and not a reconnection attempt.
+        // During reconnection, errors are already handled by the .catch() in scheduleReconnect().
+        // This avoids unhandled error events during test cleanup when mock server is shut down.
+        if (!this.isIntentionalDisconnect && !this.isReconnecting) {
+          this.emit('error', new Error('Socket Mode WebSocket error'));
+        }
         doReject(new Error('Socket Mode WebSocket error'));
       };
     });
@@ -452,8 +470,23 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         return;
       }
 
-      // Track for message recovery
+      // Deduplicate messages by timestamp
+      // This prevents duplicate session starts when the mock server sends the same
+      // event to multiple WebSocket connections (during test cleanup race conditions)
+      if (event.ts && this.processedMessages.has(event.ts)) {
+        wsLogger.debug(`Ignoring duplicate message: ${event.ts}`);
+        return;
+      }
+
+      // Track this message as processed
       if (event.ts) {
+        this.processedMessages.add(event.ts);
+        // Prevent unbounded growth by clearing old entries
+        if (this.processedMessages.size > this.MAX_PROCESSED_MESSAGES) {
+          const iterator = this.processedMessages.values();
+          const first = iterator.next().value;
+          if (first) this.processedMessages.delete(first);
+        }
         this.lastProcessedTs = event.ts;
       }
 
@@ -554,13 +587,25 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       return;
     }
 
+    // Clear any existing reconnect timeout
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
     log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
     this.emit('reconnecting', this.reconnectAttempts);
 
-    setTimeout(() => {
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      // Check if disconnect was called while we were waiting
+      if (this.isIntentionalDisconnect) {
+        wsLogger.debug('Skipping reconnect: intentional disconnect was called');
+        return;
+      }
       this.connect().catch((err) => {
         log.error(`Reconnection failed: ${err}`);
       });
@@ -660,6 +705,15 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     wsLogger.info('Disconnecting Socket Mode WebSocket (intentional)');
     this.isIntentionalDisconnect = true;
     this.stopHeartbeat();
+
+    // Cancel any pending reconnect timeout to prevent reconnection attempts
+    // after intentional disconnect (fixes flaky tests where reconnect fires
+    // after the mock server is shut down)
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.ws) {
       this.ws.close();
       this.ws = null;
