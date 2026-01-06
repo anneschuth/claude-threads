@@ -109,4 +109,21 @@ describe('MattermostFormatter', () => {
       expect(formatter.escapeText('hello world')).toBe('hello world');
     });
   });
+
+  describe('formatMarkdown', () => {
+    it('normalizes excessive newlines', () => {
+      const input = 'Line 1\n\n\n\nLine 2';
+      expect(formatter.formatMarkdown(input)).toBe('Line 1\n\nLine 2');
+    });
+
+    it('preserves standard markdown (no conversion needed)', () => {
+      const input = '**bold** and [link](url) and ## Header';
+      expect(formatter.formatMarkdown(input)).toBe(input);
+    });
+
+    it('preserves code blocks', () => {
+      const input = '```javascript\nconst x = 1;\n```';
+      expect(formatter.formatMarkdown(input)).toBe(input);
+    });
+  });
 });

@@ -1,4 +1,5 @@
 import type { PlatformFormatter } from '../formatter.js';
+import { convertMarkdownToSlack } from '../utils.js';
 
 /**
  * Slack mrkdwn formatter
@@ -103,5 +104,10 @@ export class SlackFormatter implements PlatformFormatter {
   formatKeyValueList(items: [string, string, string][]): string {
     // Render as indented list with icon, bold label, and value
     return items.map(([icon, label, value]) => `${icon} *${label}:* ${value}`).join('\n');
+  }
+
+  formatMarkdown(content: string): string {
+    // Convert standard markdown to Slack mrkdwn format
+    return convertMarkdownToSlack(content);
   }
 }

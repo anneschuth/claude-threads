@@ -74,4 +74,9 @@ export class MattermostFormatter implements PlatformFormatter {
     const rows = items.map(([icon, label, value]) => `| ${icon} ${this.formatBold(label)} | ${value} |`);
     return ['| | |', '|---|---|', ...rows].join('\n');
   }
+
+  formatMarkdown(content: string): string {
+    // Mattermost supports standard markdown well, so we just normalize newlines
+    return content.replace(/\n{3,}/g, '\n\n');
+  }
 }

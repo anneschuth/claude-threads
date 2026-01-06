@@ -414,8 +414,67 @@ export function sanitizeForLogging(message: string): string {
 }
 
 // =============================================================================
-// Markdown Table Conversion (for Slack)
+// Slack Markdown Conversion
 // =============================================================================
+
+/**
+ * Convert standard markdown to Slack mrkdwn format.
+ *
+ * Handles the following conversions:
+ * - **bold** → *bold* (double asterisks to single)
+ * - ## Heading → *Heading* (headers to bold, Slack has no native headers)
+ * - [text](url) → <url|text> (standard links to Slack format)
+ * - --- → ━━━━━━━━━━━━ (horizontal rules to unicode)
+ * - Tables → list format (via convertMarkdownTablesToSlack)
+ *
+ * Note: Preserves code blocks (``` ```) without modification inside them.
+ *
+ * @param content - Content in standard markdown
+ * @returns Content converted to Slack mrkdwn format
+ */
+export function convertMarkdownToSlack(content: string): string {
+  // First, extract and preserve code blocks to avoid modifying their content
+  const codeBlocks: string[] = [];
+  const CODE_BLOCK_PLACEHOLDER = '\x00CODE_BLOCK_';
+
+  // Preserve fenced code blocks (```...```)
+  let preserved = content.replace(/```[\s\S]*?```/g, match => {
+    const index = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${CODE_BLOCK_PLACEHOLDER}${index}\x00`;
+  });
+
+  // Preserve inline code (`...`)
+  preserved = preserved.replace(/`[^`\n]+`/g, match => {
+    const index = codeBlocks.length;
+    codeBlocks.push(match);
+    return `${CODE_BLOCK_PLACEHOLDER}${index}\x00`;
+  });
+
+  // Convert markdown tables to Slack format
+  preserved = convertMarkdownTablesToSlack(preserved);
+
+  // Convert headers (## Heading) to bold (*Heading*)
+  // Match 1-6 # characters at start of line, followed by space and text
+  preserved = preserved.replace(/^#{1,6}\s+(.+)$/gm, '*$1*');
+
+  // Convert bold (**text**) to Slack bold (*text*)
+  // Must be careful not to break already-correct single asterisks
+  preserved = preserved.replace(/\*\*([^*]+)\*\*/g, '*$1*');
+
+  // Convert standard markdown links [text](url) to Slack format <url|text>
+  preserved = preserved.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
+
+  // Convert horizontal rules (---, ***, ___) to unicode line
+  preserved = preserved.replace(/^[-*_]{3,}\s*$/gm, '━━━━━━━━━━━━━━━━━━━━');
+
+  // Restore code blocks
+  for (let i = 0; i < codeBlocks.length; i++) {
+    preserved = preserved.replace(`${CODE_BLOCK_PLACEHOLDER}${i}\x00`, codeBlocks[i]);
+  }
+
+  return preserved;
+}
 
 /**
  * Convert markdown tables to a Slack-friendly list format.

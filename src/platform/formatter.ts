@@ -109,4 +109,19 @@ export interface PlatformFormatter {
    * @returns Formatted key-value display
    */
   formatKeyValueList(items: [string, string, string][]): string;
+
+  /**
+   * Format markdown content for this platform.
+   *
+   * Converts standard markdown to the platform's native format.
+   * This should be called on any content that may contain markdown
+   * before posting to the platform.
+   *
+   * Mattermost: Mostly pass-through (standard markdown supported)
+   * Slack: Converts **bold** → *bold*, ## headers → *bold*, [text](url) → <url|text>, etc.
+   *
+   * @param content - Content in standard markdown
+   * @returns Content formatted for this platform
+   */
+  formatMarkdown(content: string): string;
 }

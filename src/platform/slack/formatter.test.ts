@@ -166,4 +166,47 @@ describe('SlackFormatter', () => {
       expect(result).toBe('');
     });
   });
+
+  describe('formatMarkdown', () => {
+    it('converts double asterisks to single (bold)', () => {
+      expect(formatter.formatMarkdown('**bold**')).toBe('*bold*');
+    });
+
+    it('converts headers to bold', () => {
+      expect(formatter.formatMarkdown('## Section')).toBe('*Section*');
+    });
+
+    it('converts standard links to Slack format', () => {
+      expect(formatter.formatMarkdown('[text](https://url.com)'))
+        .toBe('<https://url.com|text>');
+    });
+
+    it('converts horizontal rules to unicode', () => {
+      expect(formatter.formatMarkdown('---')).toBe('━━━━━━━━━━━━━━━━━━━━');
+    });
+
+    it('preserves code blocks unchanged', () => {
+      const input = '```\n**not converted**\n```';
+      expect(formatter.formatMarkdown(input)).toBe(input);
+    });
+
+    it('handles complex message with multiple features', () => {
+      const input = `## Options
+
+1. **Option A** - Description
+2. **Option B** - Description
+
+---
+
+Check [the docs](https://docs.com) for info.`;
+
+      const result = formatter.formatMarkdown(input);
+
+      expect(result).toContain('*Options*');
+      expect(result).toContain('*Option A*');
+      expect(result).toContain('*Option B*');
+      expect(result).toContain('━━━━━━━━━━━━━━━━━━━━');
+      expect(result).toContain('<https://docs.com|the docs>');
+    });
+  });
 });

@@ -35,6 +35,7 @@ export function createMockFormatter(): PlatformFormatter {
       const rows = items.map(([icon, label, value]) => `| ${icon} **${label}** | ${value} |`);
       return ['| | |', '|---|---|', ...rows].join('\n');
     },
+    formatMarkdown: (content: string) => content.replace(/\n{3,}/g, '\n\n'),
   };
 }
 
@@ -74,6 +75,13 @@ export function createSlackMockFormatter(): PlatformFormatter {
     },
     formatKeyValueList: (items: [string, string, string][]) => {
       return items.map(([icon, label, value]) => `${icon} *${label}:* ${value}`).join('\n');
+    },
+    formatMarkdown: (content: string) => {
+      // Simulate Slack conversion - simplified version
+      return content
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/\*\*([^*]+)\*\*/g, '*$1*')
+        .replace(/^#{1,6}\s+(.+)$/gm, '*$1*');
     },
   };
 }
