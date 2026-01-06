@@ -131,11 +131,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     };
   }
 
-  // REST API helper
+  // Maximum number of retry attempts for transient errors
+  private readonly MAX_RETRIES = 3;
+  private readonly RETRY_DELAY_MS = 500;
+
+  // REST API helper with retry logic for transient errors
   private async api<T>(
     method: string,
     path: string,
-    body?: unknown
+    body?: unknown,
+    retryCount = 0
   ): Promise<T> {
     const url = `${this.url}/api/v4${path}`;
     log.debug(`API ${method} ${path}`);
@@ -150,6 +155,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
     if (!response.ok) {
       const text = await response.text();
+
+      // Retry on 500 errors (transient server issues like app.post.save.app_error)
+      // These can occur due to database contention under load
+      if (response.status === 500 && retryCount < this.MAX_RETRIES) {
+        const delay = this.RETRY_DELAY_MS * Math.pow(2, retryCount); // Exponential backoff
+        log.warn(`API ${method} ${path} failed with 500, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.api<T>(method, path, body, retryCount + 1);
+      }
+
       log.warn(`API ${method} ${path} failed: ${response.status} ${text.substring(0, 100)}`);
       throw new Error(`Mattermost API error ${response.status}: ${text}`);
     }
