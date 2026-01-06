@@ -25,6 +25,21 @@ function sessionLog(session: Session) {
 }
 
 // =============================================================================
+// Internal Helper
+// =============================================================================
+
+/**
+ * Create a post and automatically track it as the last message for jump-to-bottom links.
+ * This is the core helper used by all post functions to ensure consistent tracking.
+ */
+async function createPostAndTrack(session: Session, message: string): Promise<PlatformPost> {
+  const post = await session.platform.createPost(message, session.threadId);
+  // Track this post for jump-to-bottom links in the sticky message
+  updateLastMessage(session, post);
+  return post;
+}
+
+// =============================================================================
 // Core Post Functions
 // =============================================================================
 
@@ -35,7 +50,7 @@ function sessionLog(session: Session) {
  * @returns The created post
  */
 export async function postInfo(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(message, session.threadId);
+  return createPostAndTrack(session, message);
 }
 
 /**
@@ -45,7 +60,7 @@ export async function postInfo(session: Session, message: string): Promise<Platf
  * @returns The created post
  */
 export async function postSuccess(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`✅ ${message}`, session.threadId);
+  return createPostAndTrack(session, `✅ ${message}`);
 }
 
 /**
@@ -55,7 +70,7 @@ export async function postSuccess(session: Session, message: string): Promise<Pl
  * @returns The created post
  */
 export async function postWarning(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`⚠️ ${message}`, session.threadId);
+  return createPostAndTrack(session, `⚠️ ${message}`);
 }
 
 /**
@@ -65,7 +80,7 @@ export async function postWarning(session: Session, message: string): Promise<Pl
  * @returns The created post
  */
 export async function postError(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`❌ ${message}`, session.threadId);
+  return createPostAndTrack(session, `❌ ${message}`);
 }
 
 /**
@@ -75,7 +90,7 @@ export async function postError(session: Session, message: string): Promise<Plat
  * @returns The created post
  */
 export async function postSecure(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`🔐 ${message}`, session.threadId);
+  return createPostAndTrack(session, `🔐 ${message}`);
 }
 
 /**
@@ -85,7 +100,7 @@ export async function postSecure(session: Session, message: string): Promise<Pla
  * @returns The created post
  */
 export async function postCommand(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`⚙️ ${message}`, session.threadId);
+  return createPostAndTrack(session, `⚙️ ${message}`);
 }
 
 /**
@@ -95,7 +110,7 @@ export async function postCommand(session: Session, message: string): Promise<Pl
  * @returns The created post
  */
 export async function postCancelled(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`🛑 ${message}`, session.threadId);
+  return createPostAndTrack(session, `🛑 ${message}`);
 }
 
 /**
@@ -105,7 +120,7 @@ export async function postCancelled(session: Session, message: string): Promise<
  * @returns The created post
  */
 export async function postResume(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`🔄 ${message}`, session.threadId);
+  return createPostAndTrack(session, `🔄 ${message}`);
 }
 
 /**
@@ -115,7 +130,7 @@ export async function postResume(session: Session, message: string): Promise<Pla
  * @returns The created post
  */
 export async function postTimeout(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`⏱️ ${message}`, session.threadId);
+  return createPostAndTrack(session, `⏱️ ${message}`);
 }
 
 /**
@@ -125,7 +140,7 @@ export async function postTimeout(session: Session, message: string): Promise<Pl
  * @returns The created post
  */
 export async function postInterrupt(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`⏸️ ${message}`, session.threadId);
+  return createPostAndTrack(session, `⏸️ ${message}`);
 }
 
 /**
@@ -135,7 +150,7 @@ export async function postInterrupt(session: Session, message: string): Promise<
  * @returns The created post
  */
 export async function postWorktree(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`🌿 ${message}`, session.threadId);
+  return createPostAndTrack(session, `🌿 ${message}`);
 }
 
 /**
@@ -145,7 +160,7 @@ export async function postWorktree(session: Session, message: string): Promise<P
  * @returns The created post
  */
 export async function postContext(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`🧵 ${message}`, session.threadId);
+  return createPostAndTrack(session, `🧵 ${message}`);
 }
 
 /**
@@ -155,7 +170,7 @@ export async function postContext(session: Session, message: string): Promise<Pl
  * @returns The created post
  */
 export async function postUser(session: Session, message: string): Promise<PlatformPost> {
-  return session.platform.createPost(`👤 ${message}`, session.threadId);
+  return createPostAndTrack(session, `👤 ${message}`);
 }
 
 // =============================================================================
@@ -176,7 +191,7 @@ export async function postWithReactions(
   message: string,
   reactions: string[]
 ): Promise<PlatformPost> {
-  const post = await session.platform.createPost(message, session.threadId);
+  const post = await createPostAndTrack(session, message);
   sessionLog(session).debug(`Posted with ${reactions.length} reactions: ${post.id.substring(0, 8)}`);
   for (const emoji of reactions) {
     try {
@@ -232,7 +247,7 @@ export async function postAndRegister(
   registerPost: (postId: string, threadId: string) => void
 ): Promise<PlatformPost | null> {
   const post = await withErrorHandling(
-    () => session.platform.createPost(message, session.threadId),
+    () => createPostAndTrack(session, message),
     { action: 'Create post', session }
   );
   if (post) {
@@ -324,5 +339,5 @@ export async function postBold(
   const message = emoji
     ? `${emoji} ${formatBold(formatter, label, rest)}`
     : formatBold(formatter, label, rest);
-  return session.platform.createPost(message, session.threadId);
+  return createPostAndTrack(session, message);
 }
