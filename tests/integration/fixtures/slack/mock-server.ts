@@ -71,8 +71,12 @@ export interface SlackFile {
   id: string;
   name: string;
   mimetype: string;
+  filetype?: string;
   size: number;
   url_private?: string;
+  url_private_download?: string;
+  // For mock server: store the actual file content for downloads
+  _mock_content?: Buffer;
 }
 
 export interface SlackPin {
@@ -104,6 +108,7 @@ export interface SlackMockState {
   channels: Map<string, SlackChannel>;
   messages: Map<string, SlackMessage>; // key: channel:ts
   pins: Map<string, SlackPin>; // key: channel:ts
+  files: Map<string, SlackFile>; // key: file id
   team: SlackTeam;
   botUser: SlackUser;
   botToken: string;
@@ -134,7 +139,7 @@ function generateTs(): string {
   return `${seconds}.${microseconds.toString().padStart(6, '0')}`;
 }
 
-export function createDefaultTestData(): Omit<SlackMockState, 'messages' | 'pins'> {
+export function createDefaultTestData(): Omit<SlackMockState, 'messages' | 'pins' | 'files'> {
   const teamId = 'T_TEST_TEAM';
 
   const botUser: SlackUser = {
@@ -228,6 +233,7 @@ export class SlackMockServer extends EventEmitter {
       ...defaultData,
       messages: new Map(),
       pins: new Map(),
+      files: new Map(),
     };
   }
 
@@ -276,6 +282,7 @@ export class SlackMockServer extends EventEmitter {
       ...defaultData,
       messages: new Map(),
       pins: new Map(),
+      files: new Map(),
     };
     this.envelopeCounter = 0;
     this.log('State reset to defaults');
@@ -324,6 +331,28 @@ export class SlackMockServer extends EventEmitter {
 
   addChannel(channel: SlackChannel): void {
     this.state.channels.set(channel.id, channel);
+  }
+
+  /**
+   * Add a file to the mock server (for test setup)
+   * The file can then be referenced in messages and downloaded via files.info
+   */
+  addFile(file: SlackFile): void {
+    // Set URLs if not provided
+    if (!file.url_private) {
+      file.url_private = `${this.getUrl()}/files/${file.id}`;
+    }
+    if (!file.url_private_download) {
+      file.url_private_download = `${this.getUrl()}/files/${file.id}/download`;
+    }
+    this.state.files.set(file.id, file);
+  }
+
+  /**
+   * Get a file by ID
+   */
+  getFile(fileId: string): SlackFile | undefined {
+    return this.state.files.get(fileId);
   }
 
   /**
@@ -416,6 +445,46 @@ export class SlackMockServer extends EventEmitter {
     this.injectMessage(message);
 
     // Send Socket Mode event
+    this.sendSocketModeEvent({
+      type: 'events_api',
+      accepts_response_payload: false,
+      payload: {
+        type: 'event_callback',
+        event: {
+          ...message,
+        },
+      },
+    });
+
+    return message;
+  }
+
+  /**
+   * Simulate a message with file attachment being posted (triggers Socket Mode event)
+   * This simulates the file_share subtype that Slack sends when a user uploads a file
+   */
+  simulateFileShareEvent(
+    channelId: string,
+    userId: string,
+    text: string,
+    files: SlackFile[],
+    threadTs?: string,
+  ): SlackMessage {
+    const message: SlackMessage = {
+      type: 'message',
+      subtype: 'file_share',
+      ts: generateTs(),
+      channel: channelId,
+      user: userId,
+      text,
+      thread_ts: threadTs,
+      files,
+    };
+
+    // Store the message
+    this.injectMessage(message);
+
+    // Send Socket Mode event with file_share subtype
     this.sendSocketModeEvent({
       type: 'events_api',
       accepts_response_payload: false,
@@ -610,7 +679,15 @@ export class SlackMockServer extends EventEmitter {
         case '/api/pins.list':
           return this.handlePinsList(url.searchParams, body);
 
+        // Files
+        case '/api/files.info':
+          return this.handleFilesInfo(url.searchParams, body);
+
         default:
+          // Handle file download paths: /files/{fileId} or /files/{fileId}/download
+          if (path.startsWith('/files/')) {
+            return this.handleFileDownload(path, req);
+          }
           this.log(`Unhandled endpoint: ${path}`);
           return this.jsonResponse({ ok: false, error: 'unknown_method' }, 404);
       }
@@ -1112,6 +1189,60 @@ export class SlackMockServer extends EventEmitter {
     });
   }
 
+  private handleFilesInfo(
+    params: URLSearchParams,
+    body: Record<string, unknown>,
+  ): Response {
+    const fileId = (params.get('file') || body.file) as string;
+
+    if (!fileId) {
+      return this.jsonResponse({ ok: false, error: 'invalid_arguments' }, 400);
+    }
+
+    const file = this.state.files.get(fileId);
+    if (!file) {
+      return this.jsonResponse({ ok: false, error: 'file_not_found' }, 404);
+    }
+
+    // Return file without the mock content buffer
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { _mock_content, ...fileInfo } = file;
+    return this.jsonResponse({
+      ok: true,
+      file: fileInfo,
+    });
+  }
+
+  private handleFileDownload(path: string, req: Request): Response {
+    // Parse file ID from path: /files/{fileId} or /files/{fileId}/download
+    const pathParts = path.split('/').filter(Boolean);
+    const fileId = pathParts[1];
+
+    if (!fileId) {
+      return new Response('File ID required', { status: 400 });
+    }
+
+    // Check authorization
+    const authHeader = req.headers.get('Authorization');
+    if (!authHeader?.startsWith('Bearer ') || authHeader.substring(7) !== this.state.botToken) {
+      return new Response('Unauthorized', { status: 401 });
+    }
+
+    const file = this.state.files.get(fileId);
+    if (!file) {
+      return new Response('File not found', { status: 404 });
+    }
+
+    // Return the mock content or a placeholder
+    const content = file._mock_content || Buffer.from('mock file content');
+    return new Response(new Uint8Array(content), {
+      headers: {
+        'Content-Type': file.mimetype,
+        'Content-Length': String(content.length),
+      },
+    });
+  }
+
   // ============================================================================
   // WebSocket Handling
   // ============================================================================
@@ -1203,6 +1334,50 @@ export function createTestMessage(
     channel: channelId,
     user: userId,
     text,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a test file for injection
+ */
+export function createTestFile(overrides: Partial<SlackFile> = {}): SlackFile {
+  const id = overrides.id || generateId('F');
+  return {
+    id,
+    name: overrides.name || 'test-file.png',
+    mimetype: overrides.mimetype || 'image/png',
+    filetype: overrides.filetype || 'png',
+    size: overrides.size || 1024,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a test image file with actual content for download testing
+ */
+export function createTestImageFile(overrides: Partial<SlackFile> = {}): SlackFile {
+  const id = overrides.id || generateId('F');
+  // Create a minimal 1x1 PNG image (smallest valid PNG)
+  const pngHeader = Buffer.from([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, // PNG signature
+    0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52, // IHDR chunk
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // 1x1 pixels
+    0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, 0xde, // 8-bit RGB
+    0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, // IDAT chunk
+    0x08, 0xd7, 0x63, 0xf8, 0xff, 0xff, 0x3f, 0x00, // compressed data
+    0x05, 0xfe, 0x02, 0xfe, 0xa7, 0x35, 0x81, 0x84, // CRC
+    0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, // IEND chunk
+    0xae, 0x42, 0x60, 0x82, // CRC
+  ]);
+
+  return {
+    id,
+    name: overrides.name || 'test-image.png',
+    mimetype: 'image/png',
+    filetype: 'png',
+    size: pngHeader.length,
+    _mock_content: overrides._mock_content || pngHeader,
     ...overrides,
   };
 }
