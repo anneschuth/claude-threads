@@ -108,7 +108,7 @@ jobs:
         run: bun test tests/integration/suites --timeout 60000
         env:
           MATTERMOST_URL: http://localhost:8065
-          SLACK_MOCK_URL: http://localhost:3457
+          SLACK_MOCK_URL: http://localhost:3457/api
           SLACK_MOCK_PORT: 3457
           INTEGRATION_TEST: "1"
           TEST_PLATFORMS: ${{ matrix.platform }}
