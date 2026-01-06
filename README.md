@@ -2,7 +2,7 @@
 
 ```
  ✴ ▄█▀ ███ ✴   claude-threads
-✴  █▀   █   ✴  Mattermost × Claude Code
+✴  █▀   █   ✴  Mattermost & Slack × Claude Code
  ✴ ▀█▄  █  ✴
 ```
 
@@ -13,13 +13,14 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
-**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost. Colleagues can watch, collaborate, and run their own sessions—all from chat.
+**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost or Slack. Colleagues can watch, collaborate, and run their own sessions—all from chat.
 
 > 💡 *Think of it as screen-sharing for AI pair programming, but everyone can type.*
 
 ## Features
 
-- **Real-time streaming** - Claude's responses stream live to Mattermost
+- **Real-time streaming** - Claude's responses stream live to Mattermost/Slack
+- **Multi-platform support** - Connect to multiple Mattermost and Slack workspaces
 - **Multiple concurrent sessions** - Each thread gets its own Claude session
 - **Session persistence** - Sessions survive bot restarts and resume automatically
 - **Session collaboration** - Invite others to participate in your session
@@ -43,7 +44,7 @@ flowchart TB
         cli <-->|"stdio"| mm
     end
 
-    subgraph server["Mattermost Server"]
+    subgraph server["Chat Platform (Mattermost/Slack)"]
         bot["Bot Account<br/>@claude-code"]
         channel["Channel<br/>#claude-sessions"]
         bot <--> channel
@@ -52,13 +53,15 @@ flowchart TB
     mm -->|"WebSocket + REST API<br/>(outbound only)"| server
 ```
 
-Runs entirely on your machine - only **outbound** connections to Mattermost. No port forwarding needed!
+Runs entirely on your machine - only **outbound** connections to your chat platform. No port forwarding needed!
 
 ## Prerequisites
 
 1. **Claude Code CLI** installed and authenticated (`claude --version`)
 2. **Bun 1.2.21+** (`bun --version`) - [Install Bun](https://bun.sh/)
-3. **Mattermost bot account** with a personal access token
+3. **Chat platform bot account:**
+   - **Mattermost**: Bot account with personal access token
+   - **Slack**: Slack app with Socket Mode enabled (see [Slack Setup](#for-slack-admins))
 
 ## Quick Start
 
@@ -89,20 +92,20 @@ On first run, an interactive setup wizard guides you through configuration:
 
   Now let's add your platform connections.
 
-? First platform: Mattermost
-? Platform ID: default
-? Display name: Mattermost
+? First platform: Slack
+? Platform ID: slack-team
+? Display name: Engineering Team
 
-  Mattermost setup:
+  Slack setup (requires Socket Mode):
+  Create app at: api.slack.com/apps
 
-? Server URL: https://chat.example.com
-? Bot token: ********
-? Channel ID: abc123def456
-? Bot mention name: claude-code
-? Allowed usernames (optional): alice,bob
-? Auto-approve all actions? No
+? Bot token (xoxb-...): ********
+? App token (xapp-...): ********
+? Channel ID: C0123456789
+? Bot mention name: claude
+? Allowed user IDs (optional): U0123ALICE,U0456BOB
 
-  ✓ Added Mattermost
+  ✓ Added Slack
 
 ? Add another platform? No
 
@@ -110,17 +113,17 @@ On first run, an interactive setup wizard guides you through configuration:
     ~/.config/claude-threads/config.yaml
 
   Configured 1 platform(s):
-    • Mattermost (mattermost)
+    • Engineering Team (slack)
 
   Starting claude-threads...
 ```
 
 ### 3. Use
 
-In Mattermost, mention the bot:
+In your chat platform, mention the bot:
 
 ```
-@claude-code help me fix the bug in src/auth.ts
+@claude help me fix the bug in src/auth.ts
 ```
 
 ## CLI Options
@@ -167,7 +170,7 @@ Type `!help` in any session thread to see available commands:
 | `!stop` | Stop this session |
 | `!kill` | Emergency shutdown (kills ALL sessions, exits bot) |
 
-> **Note:** Commands use `!` prefix instead of `/` to avoid conflicts with Mattermost's slash commands.
+> **Note:** Commands use `!` prefix instead of `/` to avoid conflicts with platform slash commands.
 
 ## Session Collaboration
 
@@ -225,13 +228,13 @@ When working on a task that requires code changes, Claude can work in an isolate
 Specify a branch when starting:
 
 ```
-@claude-code on branch feature/add-auth implement user authentication
+@claude on branch feature/add-auth implement user authentication
 ```
 
 Or use the worktree command:
 
 ```
-@claude-code !worktree feature/add-auth implement user authentication
+@claude !worktree feature/add-auth implement user authentication
 ```
 
 ### Worktree Commands
@@ -287,7 +290,7 @@ When Claude asks questions with multiple choice options:
 
 ### Task List
 
-Claude's todo list shows live in Mattermost and stays at the bottom of the thread:
+Claude's todo list shows live in your chat and stays at the bottom of the thread:
 
 - ○ Pending
 - 🔄 In progress (shows elapsed time)
@@ -350,7 +353,11 @@ Set `allowedUsers` in your platform config to restrict who can use the bot:
 platforms:
   - id: mattermost-main
     # ...
-    allowedUsers: [alice, bob, carol]
+    allowedUsers: [alice, bob, carol]  # Mattermost: usernames
+
+  - id: slack-team
+    # ...
+    allowedUsers: [U0123ALICE, U0456BOB]  # Slack: user IDs
 ```
 
 - Only listed users can start sessions
@@ -371,6 +378,7 @@ chrome: false
 worktreeMode: prompt
 
 platforms:
+  # Mattermost example
   - id: mattermost-main
     type: mattermost
     displayName: Main Team
@@ -379,6 +387,17 @@ platforms:
     channelId: abc123
     botName: claude-code
     allowedUsers: [alice, bob]
+    skipPermissions: false
+
+  # Slack example
+  - id: slack-eng
+    type: slack
+    displayName: Engineering
+    botToken: xoxb-your-bot-token      # Bot User OAuth Token
+    appToken: xapp-your-app-token      # App-Level Token (Socket Mode)
+    channelId: C0123456789
+    botName: claude
+    allowedUsers: [U0123ALICE, U0456BOB]  # Slack user IDs
     skipPermissions: false
 ```
 
@@ -399,6 +418,17 @@ platforms:
 | `channelId` | Channel to listen in |
 | `botName` | Mention name (default: `claude-code`) |
 | `allowedUsers` | List of usernames who can use the bot |
+| `skipPermissions` | Auto-approve actions (`true`/`false`) |
+
+### Platform Settings (Slack)
+
+| Setting | Description |
+|---------|-------------|
+| `botToken` | Bot User OAuth Token (`xoxb-...`) |
+| `appToken` | App-Level Token for Socket Mode (`xapp-...`) |
+| `channelId` | Channel ID to listen in (e.g., `C0123456789`) |
+| `botName` | Mention name (default: `claude`) |
+| `allowedUsers` | List of Slack user IDs (e.g., `U0123ABC`) |
 | `skipPermissions` | Auto-approve actions (`true`/`false`) |
 
 ### Environment Variables
@@ -427,7 +457,7 @@ The bot automatically prevents system sleep while sessions are active (uses `caf
 claude-threads checks for updates every 30 minutes and notifies you when a new version is available:
 
 - **CLI**: Shows a notification box on startup
-- **Mattermost**: Shows a warning in session headers
+- **Chat**: Shows a warning in session headers
 
 To update:
 
@@ -450,6 +480,82 @@ The bot needs permissions to:
 - Post messages
 - Add reactions
 - Read channel messages
+
+## For Slack Admins
+
+Setting up claude-threads for Slack requires creating a Slack app with Socket Mode enabled.
+
+### 1. Create Slack App
+
+1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
+2. Choose **From scratch**
+3. Name your app (e.g., "Claude Code") and select your workspace
+
+### 2. Enable Socket Mode
+
+1. Go to **Socket Mode** in the left sidebar
+2. Toggle **Enable Socket Mode** to On
+3. Create an **App-Level Token** with the `connections:write` scope
+4. Save this token - it starts with `xapp-` (you'll need it for config)
+
+### 3. Add Bot Scopes
+
+1. Go to **OAuth & Permissions** in the left sidebar
+2. Under **Bot Token Scopes**, add these scopes:
+   - `channels:history` - Read messages in channels
+   - `channels:read` - View basic channel info
+   - `chat:write` - Send messages
+   - `reactions:read` - Read emoji reactions
+   - `reactions:write` - Add emoji reactions
+   - `users:read` - View users and their info
+
+### 4. Enable Events
+
+1. Go to **Event Subscriptions** in the left sidebar
+2. Toggle **Enable Events** to On
+3. Under **Subscribe to bot events**, add:
+   - `message.channels` - Messages in public channels
+   - `reaction_added` - Reaction added to messages
+   - `reaction_removed` - Reaction removed from messages
+
+### 5. Install to Workspace
+
+1. Go to **Install App** in the left sidebar
+2. Click **Install to Workspace** and authorize
+3. Copy the **Bot User OAuth Token** - it starts with `xoxb-`
+
+### 6. Get Channel ID
+
+1. In Slack, right-click the channel name and select **View channel details**
+2. At the bottom, copy the **Channel ID** (starts with `C`)
+
+### 7. Get User IDs (for allowedUsers)
+
+1. Click on a user's profile in Slack
+2. Click the **⋮** menu and select **Copy member ID**
+3. User IDs start with `U` (e.g., `U0123ABCDEF`)
+
+### 8. Add Bot to Channel
+
+1. In Slack, go to the channel where you want the bot
+2. Type `/invite @YourBotName` or click the channel name → **Integrations** → **Add apps**
+
+### Troubleshooting Slack
+
+**"not_authed" or "invalid_auth" errors:**
+- Verify your `botToken` starts with `xoxb-`
+- Verify your `appToken` starts with `xapp-`
+- Make sure the app is installed to your workspace
+
+**Bot not responding to messages:**
+- Check that Socket Mode is enabled
+- Verify `message.channels` event is subscribed
+- Make sure bot is invited to the channel
+- Check that user ID is in `allowedUsers` (not username)
+
+**Reactions not working:**
+- Verify `reactions:read` and `reactions:write` scopes are added
+- Check that `reaction_added` event is subscribed
 
 ## License
 
