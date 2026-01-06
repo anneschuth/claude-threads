@@ -11,6 +11,7 @@ import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
+import { updateLastMessage } from './post-helpers.js';
 
 const log = createLogger('streaming');
 
@@ -458,6 +459,8 @@ async function bumpTasksToBottomWithContent(
     sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
     // Register the new task post so reaction clicks are routed to this session
     registerPost(newTasksPost.id, session.threadId);
+    // Track for jump-to-bottom links
+    updateLastMessage(session, newTasksPost);
     // Pin the new task post
     await session.platform.pinPost(newTasksPost.id).catch(() => {});
   } else {
@@ -517,6 +520,8 @@ export async function bumpTasksToBottom(
     if (registerPost) {
       registerPost(newPost.id, session.threadId);
     }
+    // Track for jump-to-bottom links
+    updateLastMessage(session, newPost);
     // Pin the new task post
     await session.platform.pinPost(newPost.id).catch(() => {});
   } catch (err) {
@@ -669,6 +674,7 @@ export async function flush(
         if (post) {
           session.currentPostId = post.id;
           registerPost(post.id, session.threadId);
+          updateLastMessage(session, post);
         }
       }
     }
@@ -705,6 +711,8 @@ export async function flush(
         sessionLog(session).debug(`Created post ${post.id.substring(0, 8)}`);
         // Register post for reaction routing
         registerPost(post.id, session.threadId);
+        // Track for jump-to-bottom links
+        updateLastMessage(session, post);
       }
     }
   }

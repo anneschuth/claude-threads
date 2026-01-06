@@ -528,8 +528,9 @@ export async function buildStickyMessage(
     const topic = getSessionTopic(session, formatter);
 
     // Only create clickable link for sessions on this platform
+    // Use lastMessageId/lastMessageTs to jump to bottom of thread if available
     const topicDisplay = isThisPlatform
-      ? formatter.formatLink(topic, session.platform.getThreadLink(session.threadId))
+      ? formatter.formatLink(topic, session.platform.getThreadLink(session.threadId, session.lastMessageId, session.lastMessageTs))
       : topic;
 
     const displayName = session.startedByDisplayName || session.startedBy;

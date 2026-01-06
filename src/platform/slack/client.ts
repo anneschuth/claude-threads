@@ -829,15 +829,22 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   /**
    * Get a clickable link to a thread.
    * Slack permalink format: {team_url}/archives/{channel_id}/p{timestamp_without_dot}
+   * If lastMessageTs is provided, links to that specific message (jump to bottom)
    */
-  getThreadLink(threadId: string): string {
+  getThreadLink(threadId: string, _lastMessageId?: string, lastMessageTs?: string): string {
+    // Use lastMessageTs if provided for jump-to-bottom, otherwise use threadId (root message)
+    const targetTs = lastMessageTs || threadId;
     // Convert "1767690059.430179" to "1767690059430179"
-    const permalinkTs = threadId.replace('.', '');
+    const permalinkTs = targetTs.replace('.', '');
     if (this.teamUrl) {
+      // For thread replies, we need to include thread_ts parameter
+      if (lastMessageTs && lastMessageTs !== threadId) {
+        return `${this.teamUrl}/archives/${this.channelId}/p${permalinkTs}?thread_ts=${threadId}&cid=${this.channelId}`;
+      }
       return `${this.teamUrl}/archives/${this.channelId}/p${permalinkTs}`;
     }
     // Fallback - won't be a proper link but won't break
-    return `#${threadId}`;
+    return `#${targetTs}`;
   }
 
   // ============================================================================

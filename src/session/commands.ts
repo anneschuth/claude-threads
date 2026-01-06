@@ -24,7 +24,7 @@ import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
-import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser, resetSessionActivity } from './post-helpers.js';
+import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser, resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
@@ -447,6 +447,8 @@ export async function requestMessageApproval(
 
   // Register post for reaction routing
   ctx.ops.registerPost(post.id, session.threadId);
+  // Track for jump-to-bottom links
+  updateLastMessage(session, post);
 }
 
 // ---------------------------------------------------------------------------
