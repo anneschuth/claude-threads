@@ -14,7 +14,7 @@ export function Platforms({ platforms }: PlatformsProps) {
   if (platforms.size === 0) {
     return (
       <Box marginTop={1}>
-        <Spinner label="Connecting to platforms..." />
+        <Spinner label="Connecting to platforms..." type="dots" />
       </Box>
     );
   }
@@ -42,9 +42,12 @@ export function Platforms({ platforms }: PlatformsProps) {
           <Text dimColor>on</Text>
           <Text>{platform.displayName}</Text>
 
-          {/* Reconnecting indicator */}
+          {/* Reconnecting indicator with spinner */}
           {platform.reconnecting && (
-            <Text color="yellow">(reconnecting {platform.reconnectAttempts}...)</Text>
+            <Box gap={1}>
+              <Spinner type="dots" />
+              <Text color="yellow">reconnecting ({platform.reconnectAttempts})</Text>
+            </Box>
           )}
         </Box>
       ))}

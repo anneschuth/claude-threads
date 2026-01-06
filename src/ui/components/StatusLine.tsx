@@ -5,6 +5,7 @@
  * Visually separated from sessions with a line.
  */
 import { Box, Text } from 'ink';
+import { Spinner } from './Spinner.js';
 import type { ToggleState, PlatformStatus } from '../types.js';
 
 interface StatusLineProps {
@@ -86,7 +87,7 @@ export function StatusLine({
         {/* Bot status */}
         {shuttingDown ? (
           <Box gap={1}>
-            <Text color="yellow">⏻</Text>
+            <Spinner type="line" />
             <Text color="yellow">Shutting down...</Text>
           </Box>
         ) : ready ? (
@@ -96,7 +97,7 @@ export function StatusLine({
           </Box>
         ) : (
           <Box gap={1}>
-            <Text color="yellow">○</Text>
+            <Spinner type="dots" />
             <Text dimColor>Starting...</Text>
           </Box>
         )}
