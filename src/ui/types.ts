@@ -40,6 +40,7 @@ export interface PlatformStatus {
   connected: boolean;
   reconnecting: boolean;
   reconnectAttempts: number;
+  enabled: boolean;  // Whether the platform is enabled (accepting messages)
 }
 
 export interface AppConfig {
@@ -70,6 +71,7 @@ export interface ToggleCallbacks {
   onPermissionsToggle?: (skipPermissions: boolean) => void;
   onChromeToggle?: (enabled: boolean) => void;
   onKeepAliveToggle?: (enabled: boolean) => void;
+  onPlatformToggle?: (platformId: string, enabled: boolean) => void;
 }
 
 export interface AppState {

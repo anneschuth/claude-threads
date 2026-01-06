@@ -38,6 +38,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     addLog,
     toggleSession,
     setPlatformStatus,
+    togglePlatformEnabled,
     getLogsForSession,
     getGlobalLogs,
   } = useAppState(config);
@@ -88,6 +89,12 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     });
   }, [toggleCallbacks]);
 
+  // Platform toggle handler - toggles enabled state and calls callback
+  const handlePlatformToggle = React.useCallback((platformId: string) => {
+    const newEnabled = togglePlatformEnabled(platformId);
+    toggleCallbacks?.onPlatformToggle?.(platformId, newEnabled);
+  }, [togglePlatformEnabled, toggleCallbacks]);
+
   // Getter for external access to toggle state
   const getToggles = React.useCallback(() => toggles, [toggles]);
 
@@ -116,10 +123,15 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   // Get session IDs for keyboard handling
   const sessionIds = Array.from(state.sessions.keys());
 
+  // Get platform IDs for keyboard handling (Shift+1-9)
+  const platformIds = Array.from(state.platforms.keys());
+
   // Handle keyboard input
   useKeyboard({
     sessionIds,
+    platformIds,
     onToggle: toggleSession,
+    onPlatformToggle: handlePlatformToggle,
     onQuit,
     onDebugToggle: handleDebugToggle,
     onPermissionsToggle: handlePermissionsToggle,
@@ -186,6 +198,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         shuttingDown={state.shuttingDown}
         sessionCount={state.sessions.size}
         toggles={toggles}
+        platforms={state.platforms}
       />
     </Box>
   );

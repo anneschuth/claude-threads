@@ -95,6 +95,7 @@ export function useAppState(initialConfig: AppConfig) {
         connected: false,
         reconnecting: false,
         reconnectAttempts: 0,
+        enabled: true,  // Platforms start enabled by default
       };
       platforms.set(platformId, { ...current, ...status });
       return { ...prev, platforms };
@@ -109,6 +110,21 @@ export function useAppState(initialConfig: AppConfig) {
     return state.logs.filter((log) => !log.sessionId);
   }, [state.logs]);
 
+  // Toggle platform enabled state, returns new enabled state
+  const togglePlatformEnabled = useCallback((platformId: string): boolean => {
+    let newEnabled = false;
+    setState((prev) => {
+      const platforms = new Map(prev.platforms);
+      const current = platforms.get(platformId);
+      if (current) {
+        newEnabled = !current.enabled;
+        platforms.set(platformId, { ...current, enabled: newEnabled });
+      }
+      return { ...prev, platforms };
+    });
+    return newEnabled;
+  }, []);
+
   return {
     state,
     setReady,
@@ -119,6 +135,7 @@ export function useAppState(initialConfig: AppConfig) {
     addLog,
     toggleSession,
     setPlatformStatus,
+    togglePlatformEnabled,
     getLogsForSession,
     getGlobalLogs,
   };

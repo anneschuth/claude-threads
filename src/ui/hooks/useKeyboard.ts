@@ -3,9 +3,25 @@
  */
 import { useInput } from 'ink';
 
+// Map Shift+number characters to their index (0-8 for platforms 1-9)
+// On US keyboard: Shift+1='!', Shift+2='@', etc.
+const SHIFT_NUMBER_MAP: Record<string, number> = {
+  '!': 0, // Shift+1
+  '@': 1, // Shift+2
+  '#': 2, // Shift+3
+  $: 3, // Shift+4
+  '%': 4, // Shift+5
+  '^': 5, // Shift+6
+  '&': 6, // Shift+7
+  '*': 7, // Shift+8
+  '(': 8, // Shift+9
+};
+
 interface UseKeyboardOptions {
   sessionIds: string[];
+  platformIds: string[];
   onToggle: (sessionId: string) => void;
+  onPlatformToggle?: (platformId: string) => void;
   onQuit?: () => void;
   // Runtime toggle handlers
   onDebugToggle?: () => void;
@@ -16,7 +32,9 @@ interface UseKeyboardOptions {
 
 export function useKeyboard({
   sessionIds,
+  platformIds,
   onToggle,
+  onPlatformToggle,
   onQuit,
   onDebugToggle,
   onPermissionsToggle,
@@ -29,6 +47,16 @@ export function useKeyboard({
     if (input === '\x03' || (input === 'c' && key.ctrl)) {
       if (onQuit) {
         onQuit();
+      }
+      return;
+    }
+
+    // Shift+number keys to toggle platforms (!, @, #, $, %, ^, &, *, ()
+    const platformIndex = SHIFT_NUMBER_MAP[input];
+    if (platformIndex !== undefined && onPlatformToggle) {
+      const platformId = platformIds[platformIndex];
+      if (platformId) {
+        onPlatformToggle(platformId);
       }
       return;
     }

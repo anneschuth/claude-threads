@@ -245,6 +245,37 @@ async function main() {
         ui.addLog({ level: 'info', component: 'toggle', message: `Keep-alive ${enabled ? 'enabled' : 'disabled'}` });
         sessionManager?.updateAllStickyMessages();
       },
+      onPlatformToggle: async (platformId, enabled) => {
+        const client = platforms.get(platformId);
+        if (!client) {
+          ui.addLog({ level: 'error', component: 'toggle', message: `Platform ${platformId} not found` });
+          return;
+        }
+
+        if (enabled) {
+          // Re-enable platform: reconnect and resume sessions
+          ui.addLog({ level: 'info', component: 'toggle', message: `Enabling platform ${platformId}...` });
+          try {
+            client.prepareForReconnect();
+            await client.connect();
+            ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
+            // Resume paused sessions for this platform
+            await sessionManager?.resumePausedSessionsForPlatform(platformId);
+          } catch (err) {
+            ui.addLog({ level: 'error', component: 'toggle', message: `Failed to reconnect ${platformId}: ${err}` });
+            // Revert UI state since connect failed
+            ui.setPlatformStatus(platformId, { enabled: false });
+          }
+        } else {
+          // Disable platform: pause sessions and disconnect
+          ui.addLog({ level: 'info', component: 'toggle', message: `Disabling platform ${platformId}...` });
+          // Pause all active sessions for this platform first
+          await sessionManager?.pauseSessionsForPlatform(platformId);
+          client.disconnect();
+          ui.setPlatformStatus(platformId, { connected: false });
+          ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
+        }
+      },
     },
   });
 

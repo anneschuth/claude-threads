@@ -665,6 +665,17 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     }
   }
 
+  /**
+   * Prepare for reconnection after intentional disconnect.
+   * Resets the intentional disconnect flag and reconnect attempts
+   * so that connect() will work again.
+   */
+  prepareForReconnect(): void {
+    wsLogger.debug('Preparing for reconnect (resetting intentional disconnect flag)');
+    this.isIntentionalDisconnect = false;
+    this.reconnectAttempts = 0;
+  }
+
   // ============================================================================
   // User Management
   // ============================================================================

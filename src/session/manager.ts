@@ -667,6 +667,111 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
+  // Platform Toggle Support
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Pause all active sessions for a platform.
+   * Called when a platform is disabled via keyboard toggle.
+   * Sessions are persisted and can be resumed when platform is re-enabled.
+   */
+  async pauseSessionsForPlatform(platformId: string): Promise<void> {
+    const sessionsToKill: Session[] = [];
+
+    for (const session of this.sessions.values()) {
+      if (session.platformId === platformId) {
+        sessionsToKill.push(session);
+      }
+    }
+
+    if (sessionsToKill.length === 0) {
+      log.info(`No active sessions to pause for platform ${platformId}`);
+      return;
+    }
+
+    log.info(`⏸️ Pausing ${sessionsToKill.length} session(s) for platform ${platformId}`);
+
+    for (const session of sessionsToKill) {
+      try {
+        const fmt = session.platform.getFormatter();
+        const pauseMessage = `⏸️ ${fmt.formatBold('Platform disabled')} - session paused. Re-enable platform to resume.`;
+
+        // Update or create lifecycle post
+        if (session.lifecyclePostId) {
+          await session.platform.updatePost(session.lifecyclePostId, pauseMessage);
+        } else {
+          const post = await session.platform.createPost(pauseMessage, session.threadId);
+          session.lifecyclePostId = post.id;
+        }
+
+        // Stop typing indicator
+        this.stopTyping(session);
+
+        // Persist session state for later resume
+        this.persistSession(session);
+
+        // Kill the Claude CLI process
+        session.claude.kill();
+
+        // Remove from active sessions (but keep persisted)
+        this.sessions.delete(session.sessionId);
+
+        // Emit UI update
+        this.emitSessionRemove(session.sessionId);
+
+        log.info(`⏸️ Paused session ${session.threadId.substring(0, 8)}`);
+      } catch (err) {
+        log.warn(`Failed to pause session ${session.threadId}: ${err}`);
+      }
+    }
+
+    // Clear post index entries for paused sessions
+    for (const session of sessionsToKill) {
+      for (const [postId, threadId] of this.postIndex.entries()) {
+        if (threadId === session.threadId) {
+          this.postIndex.delete(postId);
+        }
+      }
+    }
+  }
+
+  /**
+   * Resume all paused sessions for a platform.
+   * Called when a platform is re-enabled via keyboard toggle.
+   */
+  async resumePausedSessionsForPlatform(platformId: string): Promise<void> {
+    const persisted = this.sessionStore.load();
+    const sessionsToResume: PersistedSession[] = [];
+
+    for (const state of persisted.values()) {
+      // Only resume sessions for this platform
+      if (state.platformId !== platformId) continue;
+
+      // Skip sessions that are already active
+      const sessionId = `${state.platformId}:${state.threadId}`;
+      if (this.sessions.has(sessionId)) continue;
+
+      sessionsToResume.push(state);
+    }
+
+    if (sessionsToResume.length === 0) {
+      log.info(`No paused sessions to resume for platform ${platformId}`);
+      return;
+    }
+
+    log.info(`▶️ Resuming ${sessionsToResume.length} paused session(s) for platform ${platformId}`);
+
+    for (const state of sessionsToResume) {
+      try {
+        await lifecycle.resumeSession(state, this.getContext());
+        log.info(`▶️ Resumed session ${state.threadId.substring(0, 8)}`);
+      } catch (err) {
+        log.warn(`Failed to resume session ${state.threadId}: ${err}`);
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 

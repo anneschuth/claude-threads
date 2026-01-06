@@ -69,6 +69,13 @@ export interface PlatformClient extends EventEmitter {
    */
   disconnect(): void;
 
+  /**
+   * Prepare for reconnection after intentional disconnect
+   * Resets internal state (intentionalDisconnect flag, reconnect attempts)
+   * so that connect() will work again.
+   */
+  prepareForReconnect(): void;
+
   // ============================================================================
   // User Management
   // ============================================================================
