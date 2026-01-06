@@ -1,5 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
+import { describe, it, expect, mock, beforeEach } from 'bun:test';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown } from './sticky-message.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import { mockFormatter } from '../test-utils/mock-formatter.js';
@@ -86,6 +86,11 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
 }
 
 describe('buildStickyMessage', () => {
+  // Reset global state before each test
+  beforeEach(() => {
+    setShuttingDown(false);
+  });
+
   it('shows no active sessions message when empty', async () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);

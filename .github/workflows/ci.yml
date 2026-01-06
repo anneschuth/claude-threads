@@ -50,11 +50,27 @@ jobs:
 
       - run: bun install
 
-      - name: Run tests
-        run: bun test
-
       - name: Run tests with coverage
-        run: bun test --coverage
+        run: |
+          # Run tests and capture coverage output
+          bun test src/ --coverage 2>&1 | tee coverage-output.txt
+
+          # Extract line coverage from "All files" row (column 6 is line coverage %)
+          COVERAGE=$(grep "All files" coverage-output.txt | awk '{print $6}' | sed 's/%//' | cut -d'.' -f1)
+
+          if [ -z "$COVERAGE" ]; then
+            echo "❌ Could not extract coverage percentage"
+            exit 1
+          fi
+
+          echo "Line coverage: ${COVERAGE}%"
+
+          # Enforce minimum coverage threshold (70%)
+          if [ "$COVERAGE" -lt 70 ]; then
+            echo "❌ Coverage ${COVERAGE}% is below threshold of 70%"
+            exit 1
+          fi
+          echo "✅ Coverage ${COVERAGE}% meets threshold of 70%"
 
   build:
     runs-on: ubuntu-latest
