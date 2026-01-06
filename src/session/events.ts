@@ -318,7 +318,7 @@ function formatEvent(
           );
         }
       }
-      return parts.length > 0 ? parts.join('\n') : null;
+      return parts.length > 0 ? parts.join('\n\n') : null;
     }
     case 'tool_use': {
       const tool = e.tool_use as { id?: string; name: string; input?: Record<string, unknown> };
