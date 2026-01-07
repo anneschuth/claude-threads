@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-01-07
+
+### Added
+- **Emoji reactions for `!update` command** - React with 👍 to update immediately or 👎 to defer for 1 hour, easier than typing commands on mobile
+
+### Fixed
+- **Auto-update uses bun instead of npm** - Fixed updates to use `bun install -g` matching the actual install location
+- **ESLint warnings resolved** - Fixed 8 non-null assertion warnings with proper null checks
+- **Dead code removed** - Removed unused Discord formatter/types and other dead code via Knip
+
+### Changed
+- **Knip added to CI and pre-commit** - Dead code detection now runs automatically
+
 ## [0.45.0] - 2026-01-07
 
 ### Added
