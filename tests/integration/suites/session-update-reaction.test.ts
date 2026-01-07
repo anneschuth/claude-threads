@@ -91,9 +91,10 @@ describe.skipIf(SKIP)('Session Update Reaction', () => {
       config = loadConfig();
       ctx = initTestContext(platformType);
 
-      // Start bot with simple response scenario
+      // Start bot with persistent-session scenario (keeps session active)
+      // We need the session to stay active so we can call postUpdateAskMessage
       bot = await startTestBot(getPlatformBotOptions(platformType, {
-        scenario: 'simple-response',
+        scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
       }));
