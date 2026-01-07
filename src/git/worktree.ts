@@ -376,47 +376,65 @@ export function isValidBranchName(name: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Worktree Metadata Management
+// Worktree Metadata Management (Centralized)
 // ---------------------------------------------------------------------------
 
-const METADATA_FILENAME = '.claude-threads-meta.json';
+/**
+ * Centralized metadata store for all worktrees.
+ * Stored in ~/.claude-threads/worktree-metadata.json to avoid polluting project directories.
+ */
+interface WorktreeMetadataStore {
+  [worktreePath: string]: WorktreeMetadata;
+}
+
+const METADATA_STORE_PATH = path.join(homedir(), '.claude-threads', 'worktree-metadata.json');
 
 /**
- * Get the path to the metadata file for a worktree
+ * Read the entire metadata store from disk.
  */
-export function getMetadataPath(worktreePath: string): string {
-  return path.join(worktreePath, METADATA_FILENAME);
+async function readMetadataStore(): Promise<WorktreeMetadataStore> {
+  try {
+    const content = await fs.readFile(METADATA_STORE_PATH, 'utf-8');
+    return JSON.parse(content) as WorktreeMetadataStore;
+  } catch {
+    return {};
+  }
 }
 
 /**
- * Write metadata file for a worktree.
+ * Write the entire metadata store to disk.
+ */
+async function writeMetadataStore(store: WorktreeMetadataStore): Promise<void> {
+  try {
+    // Ensure parent directory exists
+    await fs.mkdir(path.dirname(METADATA_STORE_PATH), { recursive: true });
+    await fs.writeFile(METADATA_STORE_PATH, JSON.stringify(store, null, 2), 'utf-8');
+  } catch (err) {
+    log.warn(`Failed to write worktree metadata store: ${err}`);
+  }
+}
+
+/**
+ * Write metadata for a worktree.
  * Called when creating a new worktree.
  */
 export async function writeWorktreeMetadata(
   worktreePath: string,
   metadata: WorktreeMetadata
 ): Promise<void> {
-  const metaPath = getMetadataPath(worktreePath);
-  try {
-    await fs.writeFile(metaPath, JSON.stringify(metadata, null, 2), 'utf-8');
-    log.debug(`Wrote worktree metadata: ${metaPath}`);
-  } catch (err) {
-    log.warn(`Failed to write worktree metadata: ${err}`);
-  }
+  const store = await readMetadataStore();
+  store[worktreePath] = metadata;
+  await writeMetadataStore(store);
+  log.debug(`Wrote worktree metadata for: ${worktreePath}`);
 }
 
 /**
- * Read metadata file for a worktree.
- * Returns null if metadata doesn't exist or is invalid.
+ * Read metadata for a worktree.
+ * Returns null if metadata doesn't exist.
  */
 export async function readWorktreeMetadata(worktreePath: string): Promise<WorktreeMetadata | null> {
-  const metaPath = getMetadataPath(worktreePath);
-  try {
-    const content = await fs.readFile(metaPath, 'utf-8');
-    return JSON.parse(content) as WorktreeMetadata;
-  } catch {
-    return null;
-  }
+  const store = await readMetadataStore();
+  return store[worktreePath] || null;
 }
 
 /**
@@ -427,7 +445,8 @@ export async function updateWorktreeActivity(
   worktreePath: string,
   sessionId?: string
 ): Promise<void> {
-  const existing = await readWorktreeMetadata(worktreePath);
+  const store = await readMetadataStore();
+  const existing = store[worktreePath];
   if (!existing) return;
 
   existing.lastActivityAt = new Date().toISOString();
@@ -435,5 +454,19 @@ export async function updateWorktreeActivity(
     existing.sessionId = sessionId;
   }
 
-  await writeWorktreeMetadata(worktreePath, existing);
+  store[worktreePath] = existing;
+  await writeMetadataStore(store);
+}
+
+/**
+ * Remove metadata for a worktree.
+ * Called when cleaning up a worktree.
+ */
+export async function removeWorktreeMetadata(worktreePath: string): Promise<void> {
+  const store = await readMetadataStore();
+  if (store[worktreePath]) {
+    delete store[worktreePath];
+    await writeMetadataStore(store);
+    log.debug(`Removed worktree metadata for: ${worktreePath}`);
+  }
 }
