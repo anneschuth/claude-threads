@@ -76,6 +76,7 @@ export async function startUI(options: StartUIOptions): Promise<UIInstance> {
     removeSession: handlers.removeSession,
     addLog: handlers.addLog,
     setPlatformStatus: handlers.setPlatformStatus,
+    setUpdateState: handlers.setUpdateState,
     waitUntilExit,
     getToggles: handlers.getToggles,
   };

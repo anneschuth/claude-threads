@@ -6,7 +6,7 @@
  */
 import { Box, Text } from 'ink';
 import { Spinner } from './Spinner.js';
-import type { ToggleState, PlatformStatus } from '../types.js';
+import type { ToggleState, PlatformStatus, UpdatePanelState } from '../types.js';
 
 interface StatusLineProps {
   ready: boolean;
@@ -14,20 +14,60 @@ interface StatusLineProps {
   sessionCount: number;
   toggles: ToggleState;
   platforms: Map<string, PlatformStatus>;
+  updateState?: UpdatePanelState;
 }
 
 /**
  * Render a toggle key hint with current state
  */
-function ToggleKey({ keyChar, label, enabled }: { keyChar: string; label: string; enabled: boolean }) {
+function ToggleKey({ keyChar, label, enabled, color }: { keyChar: string; label: string; enabled: boolean; color?: string }) {
+  const displayColor = color ?? (enabled ? 'green' : 'gray');
   return (
     <Box gap={0}>
       <Text dimColor>[</Text>
-      <Text color={enabled ? 'green' : 'gray'} bold>{keyChar}</Text>
+      <Text color={displayColor} bold>{keyChar}</Text>
       <Text dimColor>]</Text>
-      <Text color={enabled ? 'green' : 'gray'}>{label}</Text>
+      <Text color={displayColor}>{label}</Text>
     </Box>
   );
+}
+
+/**
+ * Get the color for the update toggle based on update state
+ */
+function getUpdateColor(state?: UpdatePanelState): string {
+  if (!state) return 'gray';
+  switch (state.status) {
+    case 'available':
+      return 'green';
+    case 'scheduled':
+    case 'installing':
+    case 'pending_restart':
+      return 'yellow';
+    case 'failed':
+      return 'red';
+    case 'deferred':
+    case 'idle':
+    default:
+      return 'gray';
+  }
+}
+
+/**
+ * Get the update indicator emoji based on state
+ */
+function getUpdateIndicator(state?: UpdatePanelState): string {
+  if (!state) return '';
+  switch (state.status) {
+    case 'available':
+      return ' 🆕';
+    case 'installing':
+      return ' 📦';
+    case 'failed':
+      return ' ❌';
+    default:
+      return '';
+  }
 }
 
 /**
@@ -74,8 +114,11 @@ export function StatusLine({
   sessionCount,
   toggles,
   platforms,
+  updateState,
 }: StatusLineProps) {
   const platformList = Array.from(platforms.values());
+  const updateColor = getUpdateColor(updateState);
+  const updateIndicator = getUpdateIndicator(updateState);
 
   return (
     <Box flexDirection="column" marginTop={1}>
@@ -111,6 +154,10 @@ export function StatusLine({
             <ToggleKey keyChar="p" label="erms" enabled={!toggles.skipPermissions} />
             <ToggleKey keyChar="c" label="hrome" enabled={toggles.chromeEnabled} />
             <ToggleKey keyChar="k" label="eep-alive" enabled={toggles.keepAliveEnabled} />
+            <Box gap={0}>
+              <ToggleKey keyChar="u" label="pdate" enabled={updateState?.status === 'available'} color={updateColor} />
+              {updateIndicator && <Text>{updateIndicator}</Text>}
+            </Box>
 
             {/* Platform toggles */}
             {platformList.length > 0 && (

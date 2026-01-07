@@ -347,6 +347,16 @@ async function main() {
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
         }
       },
+      onForceUpdate: () => {
+        if (autoUpdateManager?.hasUpdate()) {
+          ui.addLog({ level: 'info', component: 'update', message: '🚀 Force updating via Shift+U...' });
+          autoUpdateManager.forceUpdate().catch((err) => {
+            ui.addLog({ level: 'error', component: 'update', message: `Force update failed: ${err}` });
+          });
+        } else {
+          ui.addLog({ level: 'info', component: 'update', message: 'No update available to install' });
+        }
+      },
     },
   });
 
@@ -442,11 +452,27 @@ async function main() {
   // Wire up auto-update events to UI
   autoUpdateManager.on('update:available', (info) => {
     ui.addLog({ level: 'info', component: 'update', message: `🆕 Update available: v${info.currentVersion} → v${info.latestVersion}` });
+    ui.setUpdateState({
+      status: 'available',
+      currentVersion: info.currentVersion,
+      latestVersion: info.latestVersion,
+    });
   });
 
   autoUpdateManager.on('update:countdown', (seconds) => {
     if (seconds === 60 || seconds === 30 || seconds === 10 || seconds <= 5) {
       ui.addLog({ level: 'info', component: 'update', message: `🔄 Restarting in ${seconds} seconds...` });
+    }
+    // Update scheduled restart time
+    const restartAt = autoUpdateManager?.getScheduledRestartAt();
+    const updateInfo = autoUpdateManager?.getUpdateInfo();
+    if (restartAt) {
+      ui.setUpdateState({
+        status: 'scheduled',
+        currentVersion: VERSION,
+        latestVersion: updateInfo?.latestVersion,
+        scheduledRestartAt: restartAt,
+      });
     }
   });
 
@@ -454,10 +480,32 @@ async function main() {
     if (message) {
       ui.addLog({ level: 'info', component: 'update', message: `🔄 ${status}: ${message}` });
     }
+    // Map auto-update status to UI status
+    const updateInfo = autoUpdateManager?.getUpdateInfo();
+    const state = autoUpdateManager?.getState();
+    ui.setUpdateState({
+      status: status as 'idle' | 'available' | 'scheduled' | 'installing' | 'pending_restart' | 'failed' | 'deferred',
+      currentVersion: VERSION,
+      latestVersion: updateInfo?.latestVersion,
+      scheduledRestartAt: autoUpdateManager?.getScheduledRestartAt() ?? undefined,
+      errorMessage: state?.errorMessage,
+    });
   });
 
   autoUpdateManager.on('update:failed', (error) => {
     ui.addLog({ level: 'error', component: 'update', message: `❌ Update failed: ${error}` });
+    ui.setUpdateState({
+      status: 'failed',
+      currentVersion: VERSION,
+      latestVersion: autoUpdateManager?.getUpdateInfo()?.latestVersion,
+      errorMessage: error,
+    });
+  });
+
+  // Initialize update state
+  ui.setUpdateState({
+    status: 'idle',
+    currentVersion: VERSION,
   });
 
   // Start auto-update system

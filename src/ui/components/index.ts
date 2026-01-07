@@ -9,3 +9,5 @@ export { SessionLog } from './SessionLog.js';
 export { StatusLine } from './StatusLine.js';
 export { Spinner } from './Spinner.js';
 export { LogPanel } from './LogPanel.js';
+export { Modal } from './Modal.js';
+export { UpdateModal } from './UpdateModal.js';

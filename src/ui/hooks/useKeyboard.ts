@@ -28,6 +28,10 @@ interface UseKeyboardOptions {
   onPermissionsToggle?: () => void;
   onChromeToggle?: () => void;
   onKeepAliveToggle?: () => void;
+  onUpdateModalToggle?: () => void;
+  onForceUpdate?: () => void;
+  // Modal state (for Escape key handling)
+  updateModalVisible?: boolean;
 }
 
 export function useKeyboard({
@@ -40,14 +44,28 @@ export function useKeyboard({
   onPermissionsToggle,
   onChromeToggle,
   onKeepAliveToggle,
+  onUpdateModalToggle,
+  onForceUpdate,
+  updateModalVisible,
 }: UseKeyboardOptions) {
   useInput((input, key) => {
+    // Escape key to close modal
+    if (key.escape && updateModalVisible) {
+      onUpdateModalToggle?.();
+      return;
+    }
     // Ctrl+C to quit - handle explicitly since Ink captures it in raw mode
     // Ctrl+C can appear as '\x03' (raw) or 'c' with key.ctrl
     if (input === '\x03' || (input === 'c' && key.ctrl)) {
       if (onQuit) {
         onQuit();
       }
+      return;
+    }
+
+    // Shift+U to force update
+    if (input === 'U') {
+      onForceUpdate?.();
       return;
     }
 
@@ -70,7 +88,7 @@ export function useKeyboard({
       }
     }
 
-    // Runtime toggles - d, p, c, k
+    // Runtime toggles - d, p, c, k, u
     switch (input.toLowerCase()) {
       case 'd':
         onDebugToggle?.();
@@ -83,6 +101,9 @@ export function useKeyboard({
         break;
       case 'k':
         onKeepAliveToggle?.();
+        break;
+      case 'u':
+        onUpdateModalToggle?.();
         break;
       case 'q':
         onQuit?.();
