@@ -161,7 +161,9 @@ describe('auto-update/installer', () => {
     it('returns rollback command with version', () => {
       const instructions = getRollbackInstructions('1.0.0');
 
-      expect(instructions).toContain('npm install -g claude-threads@1.0.0');
+      // Uses bun on non-Windows, npm on Windows
+      const expectedCmd = process.platform === 'win32' ? 'npm' : 'bun';
+      expect(instructions).toContain(`${expectedCmd} install -g claude-threads@1.0.0`);
     });
   });
 
@@ -217,7 +219,7 @@ describe('auto-update/installer', () => {
       });
     });
 
-    // Note: We don't test install() directly as it runs npm install -g
+    // Note: We don't test install() directly as it runs bun/npm install -g
     // which would actually modify the system. Integration tests would cover this.
   });
 });

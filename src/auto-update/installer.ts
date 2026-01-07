@@ -1,7 +1,7 @@
 /**
  * Update installer module
  *
- * Handles the actual npm install and state persistence.
+ * Handles the actual bun/npm install and state persistence.
  */
 
 import { spawn } from 'child_process';
@@ -88,7 +88,7 @@ export function checkJustUpdated(): { previousVersion: string; currentVersion: s
 }
 
 /**
- * Install a specific version using npm.
+ * Install a specific version using bun (preferred) or npm as fallback.
  * Returns true on success, false on failure.
  */
 export async function installVersion(version: string): Promise<{ success: boolean; error?: string }> {
@@ -103,13 +103,21 @@ export async function installVersion(version: string): Promise<{ success: boolea
   });
 
   return new Promise((resolve) => {
-    // Use npm to install globally
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const child = spawn(npmCmd, ['install', '-g', `${PACKAGE_NAME}@${version}`], {
+    // Use bun to install globally (preferred since this package requires bun)
+    // Fall back to npm on Windows where bun may not be available
+    const useBun = process.platform !== 'win32';
+    const cmd = useBun ? 'bun' : 'npm.cmd';
+    const args = useBun
+      ? ['install', '-g', `${PACKAGE_NAME}@${version}`]
+      : ['install', '-g', `${PACKAGE_NAME}@${version}`];
+
+    log.debug(`Using ${useBun ? 'bun' : 'npm'} for installation`);
+
+    const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
-        // Disable npm progress bar for cleaner output
+        // Disable npm progress bar for cleaner output (only affects npm)
         npm_config_progress: 'false',
       },
     });
@@ -171,7 +179,8 @@ export async function installVersion(version: string): Promise<{ success: boolea
  * Get rollback instructions for the previous version.
  */
 export function getRollbackInstructions(previousVersion: string): string {
-  return `To rollback to the previous version, run:\n  npm install -g ${PACKAGE_NAME}@${previousVersion}`;
+  const cmd = process.platform === 'win32' ? 'npm' : 'bun';
+  return `To rollback to the previous version, run:\n  ${cmd} install -g ${PACKAGE_NAME}@${previousVersion}`;
 }
 
 /**
