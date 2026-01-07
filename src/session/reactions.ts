@@ -17,6 +17,7 @@ import {
 import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
+import { shortenPath } from '../utils/tool-formatter.js';
 
 const log = createLogger('reactions');
 
@@ -307,7 +308,7 @@ export async function handleExistingWorktreeReaction(
     return false;
   }
 
-  const shortPath = pending.worktreePath.replace(process.env.HOME || '', '~');
+  const shortPath = shortenPath(pending.worktreePath, undefined, { path: pending.worktreePath, branch: pending.branch });
 
   const formatter = session.platform.getFormatter();
 
