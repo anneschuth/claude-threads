@@ -54,6 +54,18 @@ export interface AppConfig {
 }
 
 /**
+ * Update panel state - tracks auto-update status for UI display
+ */
+export interface UpdatePanelState {
+  status: 'idle' | 'available' | 'scheduled' | 'installing' | 'pending_restart' | 'failed' | 'deferred';
+  currentVersion: string;
+  latestVersion?: string;
+  scheduledRestartAt?: Date;
+  errorMessage?: string;
+  deferredUntil?: Date;
+}
+
+/**
  * Runtime toggle state - can be changed via keyboard shortcuts
  */
 export interface ToggleState {
@@ -61,6 +73,7 @@ export interface ToggleState {
   skipPermissions: boolean;  // Default for new sessions
   chromeEnabled: boolean;    // Default for new sessions
   keepAliveEnabled: boolean;
+  updateModalVisible: boolean;  // Whether the update modal is shown
 }
 
 /**
@@ -72,6 +85,7 @@ export interface ToggleCallbacks {
   onChromeToggle?: (enabled: boolean) => void;
   onKeepAliveToggle?: (enabled: boolean) => void;
   onPlatformToggle?: (platformId: string, enabled: boolean) => void;
+  onForceUpdate?: () => void;
 }
 
 export interface AppState {
@@ -92,6 +106,7 @@ export interface UIInstance {
   removeSession: (sessionId: string) => void;
   addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
+  setUpdateState: (state: UpdatePanelState) => void;
   waitUntilExit: () => Promise<void>;
   // Toggle state getters (for main logic to read current values)
   getToggles: () => ToggleState;

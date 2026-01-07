@@ -3,10 +3,10 @@
  */
 import React from 'react';
 import { Box, Static, Text } from 'ink';
-import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel } from './components/index.js';
+import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
-import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks } from './types.js';
+import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState } from './types.js';
 
 interface AppProps {
   config: AppConfig;
@@ -24,6 +24,7 @@ export interface AppHandlers {
   removeSession: (sessionId: string) => void;
   addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
+  setUpdateState: (state: UpdatePanelState) => void;
   getToggles: () => ToggleState;
 }
 
@@ -52,6 +53,13 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     skipPermissions: config.skipPermissions,
     chromeEnabled: config.chromeEnabled,
     keepAliveEnabled: config.keepAliveEnabled,
+    updateModalVisible: false,
+  });
+
+  // Update panel state - tracks auto-update status
+  const [updateState, setUpdateState] = React.useState<UpdatePanelState>({
+    status: 'idle',
+    currentVersion: config.version,
   });
 
   // Toggle handlers - update state and call callbacks
@@ -89,6 +97,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     });
   }, [toggleCallbacks]);
 
+  // Update modal toggle handler
+  const handleUpdateModalToggle = React.useCallback(() => {
+    setToggles(prev => ({ ...prev, updateModalVisible: !prev.updateModalVisible }));
+  }, []);
+
   // Platform toggle handler - toggles enabled state and calls callback
   const handlePlatformToggle = React.useCallback((platformId: string) => {
     const newEnabled = togglePlatformEnabled(platformId);
@@ -109,9 +122,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       removeSession,
       addLog,
       setPlatformStatus,
+      setUpdateState,
       getToggles,
     });
-  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus, getToggles]);
+  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus, setUpdateState, getToggles]);
 
   // Register resize handler
   React.useEffect(() => {
@@ -137,6 +151,9 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     onPermissionsToggle: handlePermissionsToggle,
     onChromeToggle: handleChromeToggle,
     onKeepAliveToggle: handleKeepAliveToggle,
+    onUpdateModalToggle: handleUpdateModalToggle,
+    onForceUpdate: toggleCallbacks?.onForceUpdate,
+    updateModalVisible: toggles.updateModalVisible,
   });
 
 
@@ -199,7 +216,15 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         sessionCount={state.sessions.size}
         toggles={toggles}
         platforms={state.platforms}
+        updateState={updateState}
       />
+
+      {/* Update modal overlay */}
+      {toggles.updateModalVisible && (
+        <Box marginTop={1} justifyContent="center">
+          <UpdateModal state={updateState} />
+        </Box>
+      )}
     </Box>
   );
 }
