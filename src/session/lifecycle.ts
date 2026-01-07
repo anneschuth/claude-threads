@@ -604,6 +604,14 @@ export async function sendFollowUp(
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
 
+  // Flush any pending content before starting new message
+  // This ensures code blocks and other structures are properly closed
+  await ctx.ops.flush(session);
+
+  // Reset current post so Claude's response starts in a new message
+  session.currentPostId = null;
+  session.currentPostContent = '';
+
   // Bump task list below the user's message
   await ctx.ops.bumpTasksToBottom(session);
 

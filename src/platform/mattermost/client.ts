@@ -347,6 +347,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return response.order || [];
   }
 
+  // Get platform-specific message size limits
+  getMessageLimits(): { maxLength: number; hardThreshold: number } {
+    return { maxLength: 16000, hardThreshold: 14000 };
+  }
+
   // Get thread history for context retrieval
   async getThreadHistory(
     threadId: string,

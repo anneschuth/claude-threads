@@ -534,3 +534,72 @@ describe('killAllSessions edge cases', () => {
     expect(session.claude.kill).toHaveBeenCalled();
   });
 });
+
+describe('sendFollowUp', () => {
+  it('flushes pending content before sending new message', async () => {
+    const session = createMockSession({
+      currentPostId: 'old-post-id',
+      currentPostContent: 'old content',
+      pendingContent: 'pending text',
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+
+    // Should have called flush
+    expect(ctx.ops.flush).toHaveBeenCalledWith(session);
+  });
+
+  it('resets currentPostId so response starts in new message', async () => {
+    const session = createMockSession({
+      currentPostId: 'old-post-id',
+      currentPostContent: 'old content',
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+
+    // currentPostId should be reset
+    expect(session.currentPostId).toBeNull();
+    expect(session.currentPostContent).toBe('');
+  });
+
+  it('bumps task list after resetting post state', async () => {
+    const session = createMockSession({
+      currentPostId: 'old-post-id',
+      tasksPostId: 'tasks-post',
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+
+    // Should bump tasks after flushing
+    expect(ctx.ops.bumpTasksToBottom).toHaveBeenCalledWith(session);
+  });
+
+  it('does not send if Claude is not running', async () => {
+    const session = createMockSession();
+    (session.claude.isRunning as any).mockReturnValue(false);
+
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+
+    // Should not have called sendMessage
+    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('increments message counter', async () => {
+    const session = createMockSession({ messageCount: 5 });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+
+    expect(session.messageCount).toBe(6);
+  });
+});

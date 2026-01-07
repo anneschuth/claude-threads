@@ -72,6 +72,7 @@ function createMockPlatform() {
     unpinPost: mock(async (_postId: string): Promise<void> => {}),
     sendTyping: mock(() => {}),
     getFormatter: mock(() => createMockFormatter()),
+    getMessageLimits: mock(() => ({ maxLength: 16000, hardThreshold: 14000 })),
     posts,
   };
 
@@ -760,5 +761,176 @@ describe('findLogicalBreakpoint with code blocks', () => {
     const content = '```markdown\n## Heading inside block\n```\noutside';
     const result = findLogicalBreakpoint(content, 0);
     expect(result?.type).toBe('code_block_end');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Error recovery tests - when updatePost fails
+// ---------------------------------------------------------------------------
+
+describe('flush error recovery', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let registerPost: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    registerPost = mock((_postId: string, _threadId: string) => {});
+  });
+
+  test('creates new post when updatePost fails', async () => {
+    session.currentPostId = 'existing_post';
+    session.pendingContent = 'Some content';
+
+    // Make updatePost fail by returning undefined (simulating error handler catching it)
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      return Promise.resolve(undefined as any);
+    });
+
+    await flush(session, registerPost);
+
+    // Should have tried to update first
+    expect(platform.updatePost).toHaveBeenCalledWith('existing_post', 'Some content');
+
+    // Should have created a new post after update failed
+    expect(platform.createPost).toHaveBeenCalledWith('Some content', 'thread1');
+
+    // currentPostId should be the new post
+    expect(session.currentPostId).toBe('post_1');
+  });
+
+  test('creates new post when updatePost fails during soft break', async () => {
+    // Content exceeds soft threshold but no good breakpoint - update will be tried
+    const longContent = 'X'.repeat(3000);
+    session.currentPostId = 'existing_post';
+    session.pendingContent = longContent;
+
+    // Make updatePost fail
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      return Promise.resolve(undefined as any);
+    });
+
+    await flush(session, registerPost);
+
+    // Should have tried to update
+    expect(platform.updatePost).toHaveBeenCalled();
+
+    // Should have created a new post after failure
+    expect(platform.createPost).toHaveBeenCalled();
+  });
+
+  test('handles updatePost failure during split - includes full content in new post', async () => {
+    // Create content that exceeds hard threshold, will be split
+    const longContent = 'A'.repeat(15000);
+    session.currentPostId = 'existing_post';
+    session.pendingContent = longContent;
+
+    // Make first updatePost call fail (the split attempt)
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      return Promise.resolve(undefined as any);
+    });
+
+    await flush(session, registerPost);
+
+    // After split fails, should create new post with content
+    // (not continuation marker since first part never posted)
+    expect(platform.createPost).toHaveBeenCalled();
+    const createCall = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
+    // Should NOT have "(continued)" marker since first part failed
+    expect(createCall[0]).not.toContain('(continued)');
+  });
+
+  test('resets session state when update fails', async () => {
+    session.currentPostId = 'existing_post';
+    session.currentPostContent = 'old content';
+    session.pendingContent = 'New content';
+
+    // Make updatePost fail
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      return Promise.resolve(undefined as any);
+    });
+
+    await flush(session, registerPost);
+
+    // currentPostContent should be reset (new post was created)
+    expect(session.currentPostId).toBe('post_1');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Platform-specific message limits tests
+// ---------------------------------------------------------------------------
+
+describe('platform-specific message limits', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let registerPost: ReturnType<typeof mock>;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    registerPost = mock((_postId: string, _threadId: string) => {});
+  });
+
+  test('uses platform getMessageLimits for thresholds', async () => {
+    // Configure platform with lower limits (like Slack)
+    (platform.getMessageLimits as ReturnType<typeof mock>).mockReturnValue({
+      maxLength: 12000,
+      hardThreshold: 10000,
+    });
+
+    // Create content that exceeds the lower Slack threshold (10000)
+    // but would be under the default Mattermost threshold (14000)
+    const slackLongContent = 'S'.repeat(11000);
+    session.currentPostId = 'existing_post';
+    session.pendingContent = slackLongContent;
+
+    await flush(session, registerPost);
+
+    // Should have split at the lower threshold
+    expect(platform.updatePost).toHaveBeenCalled();
+    const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
+    // First part should have continuation marker (content was split)
+    expect(updateCall[1]).toContain('_... (continued below)_');
+  });
+
+  test('respects higher Mattermost limits', async () => {
+    // Default mock returns Mattermost limits (16000/14000)
+    (platform.getMessageLimits as ReturnType<typeof mock>).mockReturnValue({
+      maxLength: 16000,
+      hardThreshold: 14000,
+    });
+
+    // Create content that's above Slack threshold but below Mattermost
+    const mattermostContent = 'M'.repeat(11000);
+    session.currentPostId = 'existing_post';
+    session.pendingContent = mattermostContent;
+
+    await flush(session, registerPost);
+
+    // Should NOT split - content is under Mattermost threshold
+    expect(platform.updatePost).toHaveBeenCalledWith('existing_post', mattermostContent);
+    expect(platform.createPost).not.toHaveBeenCalled();
+  });
+
+  test('truncates content when exceeding maxLength', async () => {
+    (platform.getMessageLimits as ReturnType<typeof mock>).mockReturnValue({
+      maxLength: 12000,
+      hardThreshold: 10000,
+    });
+
+    // Create content that exceeds maxLength even after splitting
+    // This tests the safety truncation path
+    const veryLongContent = 'V'.repeat(13000);
+    session.currentPostId = null; // No existing post
+    session.pendingContent = veryLongContent;
+
+    await flush(session, registerPost);
+
+    // Content should have been truncated
+    const createCall = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
+    expect(createCall[0].length).toBeLessThan(13000);
+    expect(createCall[0]).toContain('... (truncated)');
   });
 });
