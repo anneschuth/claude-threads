@@ -203,7 +203,7 @@ export async function handleMessage(
       }
 
       // Check for !update command
-      const updateMatch = content.match(/^!update(?:\s+(now|defer))?$/i);
+      const updateMatch = content.trim().match(/^!update(?:\s+(now|defer))?$/i);
       if (updateMatch) {
         const subcommand = updateMatch[1]?.toLowerCase();
         if (subcommand === 'now') {
