@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.47.0] - 2026-01-07
+
+### Added
+- **Session context in system prompt** - Claude now receives metadata about the session including version, current working directory, git status, and platform info (#119)
+
+### Fixed
+- **Task list duplication fixed** - Resolved race condition causing duplicate task lists by extending promise lock scope (#122)
+- **Code blocks now render correctly** - Added trailing newline to code blocks for proper markdown rendering (#123)
+- **Worktree paths shortened in UI** - Paths now show as `[branch]/path` instead of full worktree paths for better readability (#121)
+- **Worktree metadata centralized** - Moved `.claude-threads-meta.json` to central config directory to avoid polluting project directories (#120)
+
+### Changed
+- **Bump @modelcontextprotocol/sdk** - Updated from 1.25.1 to 1.25.2 (#118)
+
 ## [0.46.0] - 2026-01-07
 
 ### Added
