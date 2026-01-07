@@ -27,15 +27,16 @@ describe('SlackFormatter', () => {
   });
 
   describe('formatCodeBlock', () => {
-    it('wraps code in triple backticks (language ignored)', () => {
+    it('wraps code in triple backticks with trailing newline (language ignored)', () => {
       const result = formatter.formatCodeBlock('const x = 1', 'javascript');
       // Slack doesn't support language hints well, so it's omitted
-      expect(result).toBe('```\nconst x = 1\n```');
+      // Trailing newline ensures proper rendering when followed by text
+      expect(result).toBe('```\nconst x = 1\n```\n');
     });
 
     it('works without language', () => {
       const result = formatter.formatCodeBlock('const x = 1');
-      expect(result).toBe('```\nconst x = 1\n```');
+      expect(result).toBe('```\nconst x = 1\n```\n');
     });
   });
 

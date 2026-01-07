@@ -31,7 +31,10 @@ export class SlackFormatter implements PlatformFormatter {
   formatCodeBlock(code: string, _language?: string): string {
     // Slack doesn't support language hints in code blocks well,
     // so we omit the language identifier
-    return `\`\`\`\n${code}\n\`\`\``;
+    // NOTE: We add a trailing newline after the closing ``` to ensure proper
+    // rendering when followed by text. Without this, Slack may collapse
+    // the text onto the same line as the code block closing.
+    return `\`\`\`\n${code}\n\`\`\`\n`;
   }
 
   formatUserMention(username: string, userId?: string): string {

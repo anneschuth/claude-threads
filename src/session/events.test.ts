@@ -834,3 +834,102 @@ describe('handleEvent with compaction events', () => {
     expect(appendedContent[0]).toContain('Something went wrong');
   });
 });
+
+describe('handleEvent with assistant messages containing tool_use and text', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let ctx: SessionContext;
+  let appendedContent: string[];
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createSessionContext();
+    appendedContent = [];
+    ctx.ops.appendContent = mock((_, text: string) => {
+      appendedContent.push(text);
+    });
+  });
+
+  test('Edit tool followed by text has proper newline separation', () => {
+    // This test verifies the fix for the "missing newline" bug where
+    // code blocks ending with ``` were followed directly by text on
+    // the same line, making the output hard to read.
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Edit',
+            id: 'edit_1',
+            input: {
+              file_path: '/test/file.ts',
+              old_string: 'old code',
+              new_string: 'new code',
+            },
+          },
+          {
+            type: 'text',
+            text: 'Now let me explain what I changed...',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // The appended content should have proper newline separation
+    expect(appendedContent).toHaveLength(1);
+    const content = appendedContent[0];
+
+    // Should contain both the Edit diff and the text
+    expect(content).toContain('Edit');
+    expect(content).toContain('Now let me explain');
+
+    // The code block should end with ``` followed by newlines before the text
+    // Pattern: ``` then newline(s) then eventually "Now"
+    expect(content).toMatch(/```\n+.*Now let me explain/s);
+
+    // Should NOT have ``` immediately followed by text on same line (no newline)
+    expect(content).not.toMatch(/```Now/);
+    // There should be at least one newline between ``` and the next content
+    expect(content).toMatch(/```\n/);
+  });
+
+  test('Write tool followed by text has proper newline separation', () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'Write',
+            id: 'write_1',
+            input: {
+              file_path: '/test/newfile.ts',
+              content: 'const x = 1;',
+            },
+          },
+          {
+            type: 'text',
+            text: 'I created a new file with...',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    expect(appendedContent).toHaveLength(1);
+    const content = appendedContent[0];
+
+    // Should contain both the Write preview and the text
+    expect(content).toContain('Write');
+    expect(content).toContain('I created a new file');
+
+    // The code block should end with proper newline separation
+    expect(content).toMatch(/```\n+.*I created a new file/s);
+    expect(content).not.toMatch(/```I created/);
+  });
+});
