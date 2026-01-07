@@ -12,6 +12,7 @@ import type { CliArgs } from './config.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
+import { SessionStore } from './persistence/session-store.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
@@ -270,6 +271,9 @@ async function main() {
   // Auto-update manager reference
   let autoUpdateManager: AutoUpdateManager | null = null;
 
+  // Session store for persistence (created early so toggle callbacks can use it)
+  const sessionStore = new SessionStore();
+
   // Start the Ink UI
   const ui: UIInstance = await startUI({
     config: {
@@ -329,6 +333,8 @@ async function main() {
           try {
             client.prepareForReconnect();
             await client.connect();
+            // Persist enabled state after successful connect
+            sessionStore.setPlatformEnabled(platformId, true);
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
             // Resume paused sessions for this platform
             await sessionManager?.resumePausedSessionsForPlatform(platformId);
@@ -343,6 +349,8 @@ async function main() {
           // Pause all active sessions for this platform first
           await sessionManager?.pauseSessionsForPlatform(platformId);
           client.disconnect();
+          // Persist disabled state
+          sessionStore.setPlatformEnabled(platformId, false);
           ui.setPlatformStatus(platformId, { connected: false });
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
         }
@@ -384,18 +392,23 @@ async function main() {
   // Store all platform clients for shutdown
   const platforms = new Map<string, PlatformClient>();
 
+  // Load persisted platform enabled states (sessionStore created earlier for toggle callbacks)
+  const platformEnabledState = sessionStore.getPlatformEnabledState();
+
   // Initialize all configured platforms
   ui.addLog({ level: 'debug', component: 'init', message: `Initializing ${config.platforms.length} platform(s)` });
   for (const platformConfig of config.platforms) {
     const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
-    ui.addLog({ level: 'info', component: 'init', message: `Creating ${platformConfig.type} platform: ${platformConfig.id}` });
+    const isEnabled = platformEnabledState.get(platformConfig.id) ?? true; // Default to enabled
+    ui.addLog({ level: 'info', component: 'init', message: `Creating ${platformConfig.type} platform: ${platformConfig.id}${isEnabled ? '' : ' (disabled)'}` });
 
-    // Register platform with UI
+    // Register platform with UI (with persisted enabled state)
     ui.setPlatformStatus(platformConfig.id, {
       displayName: platformConfig.displayName || platformConfig.id,
       botName: typedConfig.botName,
       url: typedConfig.type === 'mattermost' ? (typedConfig as MattermostPlatformConfig).url : 'slack.com',
       platformType: typedConfig.type as 'mattermost' | 'slack',
+      enabled: isEnabled,
     });
 
     // Create platform client using factory
@@ -409,10 +422,14 @@ async function main() {
     wirePlatformEvents(platformConfig.id, client, session, ui);
   }
 
-  // Connect all platforms
-  ui.addLog({ level: 'info', component: 'init', message: `Connecting ${platforms.size} platform(s)...` });
+  // Connect only enabled platforms
+  const enabledPlatforms = Array.from(platforms.entries()).filter(
+    ([id]) => platformEnabledState.get(id) ?? true
+  );
+  const disabledCount = platforms.size - enabledPlatforms.length;
+  ui.addLog({ level: 'info', component: 'init', message: `Connecting ${enabledPlatforms.length} platform(s)...${disabledCount > 0 ? ` (${disabledCount} disabled)` : ''}` });
   await Promise.all(
-    Array.from(platforms.entries()).map(async ([id, client]) => {
+    enabledPlatforms.map(async ([id, client]) => {
       ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
       try {
         await client.connect();
