@@ -20,7 +20,8 @@ export class MattermostFormatter implements PlatformFormatter {
 
   formatCodeBlock(code: string, language?: string): string {
     const lang = language || '';
-    return `\`\`\`${lang}\n${code}\n\`\`\``;
+    // Add trailing newline to ensure proper rendering when followed by text
+    return `\`\`\`${lang}\n${code}\n\`\`\`\n`;
   }
 
   formatUserMention(username: string): string {

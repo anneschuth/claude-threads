@@ -193,14 +193,14 @@ describe('extractCodeBlocks', () => {
 });
 
 describe('formatCodeBlock', () => {
-  it('formats code with language', () => {
+  it('formats code with language and trailing newline', () => {
     expect(formatCodeBlock('const x = 1;', 'typescript')).toBe(
-      '```typescript\nconst x = 1;\n```'
+      '```typescript\nconst x = 1;\n```\n'
     );
   });
 
   it('formats code without language', () => {
-    expect(formatCodeBlock('plain code')).toBe('```\nplain code\n```');
+    expect(formatCodeBlock('plain code')).toBe('```\nplain code\n```\n');
   });
 });
 

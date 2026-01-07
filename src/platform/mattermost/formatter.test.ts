@@ -27,14 +27,14 @@ describe('MattermostFormatter', () => {
   });
 
   describe('formatCodeBlock', () => {
-    it('wraps code in triple backticks with language', () => {
+    it('wraps code in triple backticks with language and trailing newline', () => {
       const result = formatter.formatCodeBlock('const x = 1', 'javascript');
-      expect(result).toBe('```javascript\nconst x = 1\n```');
+      expect(result).toBe('```javascript\nconst x = 1\n```\n');
     });
 
     it('works without language', () => {
       const result = formatter.formatCodeBlock('const x = 1');
-      expect(result).toBe('```\nconst x = 1\n```');
+      expect(result).toBe('```\nconst x = 1\n```\n');
     });
   });
 

@@ -28,12 +28,12 @@ describe('createMockFormatter (Mattermost-style)', () => {
   });
 
   describe('formatCodeBlock', () => {
-    it('wraps code with triple backticks', () => {
-      expect(formatter.formatCodeBlock('code')).toBe('```\ncode\n```');
+    it('wraps code with triple backticks and trailing newline', () => {
+      expect(formatter.formatCodeBlock('code')).toBe('```\ncode\n```\n');
     });
 
     it('includes language when provided', () => {
-      expect(formatter.formatCodeBlock('code', 'typescript')).toBe('```typescript\ncode\n```');
+      expect(formatter.formatCodeBlock('code', 'typescript')).toBe('```typescript\ncode\n```\n');
     });
   });
 
@@ -190,8 +190,8 @@ describe('createSlackMockFormatter', () => {
   });
 
   describe('formatCodeBlock', () => {
-    it('ignores language parameter', () => {
-      expect(formatter.formatCodeBlock('code', 'typescript')).toBe('```\ncode\n```');
+    it('ignores language parameter and includes trailing newline', () => {
+      expect(formatter.formatCodeBlock('code', 'typescript')).toBe('```\ncode\n```\n');
     });
   });
 

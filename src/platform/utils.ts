@@ -287,11 +287,12 @@ export function extractCodeBlocks(content: string): Array<{ language: string; co
  *
  * @param code - The code to wrap
  * @param language - Optional language for syntax highlighting
- * @returns Formatted code block
+ * @returns Formatted code block with trailing newline
  */
 export function formatCodeBlock(code: string, language?: string): string {
   const lang = language ?? '';
-  return '```' + lang + '\n' + code + '\n```';
+  // Add trailing newline to ensure proper rendering when followed by text
+  return '```' + lang + '\n' + code + '\n```\n';
 }
 
 // =============================================================================
