@@ -21,6 +21,7 @@ import { startUI, type UIInstance } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
+import { AutoUpdateManager } from './auto-update/index.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -102,6 +103,8 @@ program
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
   .option('--skip-version-check', 'Skip Claude CLI version compatibility check')
+  .option('--auto-restart', 'Enable auto-restart on updates (default when autoUpdate enabled)')
+  .option('--no-auto-restart', 'Disable auto-restart on updates')
   .parse();
 
 const opts = program.opts();
@@ -112,6 +115,71 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
+  // Determine if we should use auto-restart daemon wrapper
+  // Priority: --no-auto-restart (off) > --auto-restart (on) > config.autoUpdate.enabled
+  // Note: Commander.js converts --no-auto-restart to opts.autoRestart = false
+  const shouldUseAutoRestart = async (): Promise<boolean> => {
+    // Explicit CLI flags take precedence
+    // opts.autoRestart is: true (--auto-restart), false (--no-auto-restart), or undefined (neither)
+    if (opts.autoRestart === false) return false;
+    if (opts.autoRestart === true) return true;
+
+    // Check config for autoUpdate.enabled (if config exists)
+    // Default is enabled=true, so only disable if explicitly set to false
+    if (await checkConfigExists()) {
+      try {
+        const config = loadConfigWithMigration();
+        if (!config) return false;
+        return config.autoUpdate?.enabled !== false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+
+  if (await shouldUseAutoRestart()) {
+    const { spawn } = await import('child_process');
+    const { dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+
+    // Find the daemon wrapper script
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const daemonPath = resolve(__dirname, '..', 'bin', 'claude-threads-daemon');
+
+    // Remove auto-restart flags and add --no-auto-restart to prevent infinite loop
+    const args = process.argv.slice(2)
+      .filter(arg => arg !== '--auto-restart' && arg !== '--no-auto-restart')
+      .concat('--no-auto-restart');
+
+    console.log('🔄 Starting with auto-restart enabled...');
+    console.log('');
+
+    // Spawn the daemon wrapper with the remaining args
+    // Pass the path to this binary so daemon runs the local version, not global
+    // The entry point is dist/index.js (where this code is running from)
+    const binPath = __filename;
+    const child = spawn(daemonPath, ['--restart-on-error', ...args], {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        CLAUDE_THREADS_BIN: binPath,
+      },
+    });
+
+    child.on('error', (err) => {
+      console.error(`Failed to start daemon: ${err.message}`);
+      process.exit(1);
+    });
+
+    child.on('exit', (code) => {
+      process.exit(code ?? 0);
+    });
+
+    return; // Don't continue with normal startup
+  }
+
   // Check for updates (non-blocking, shows notification if available)
   checkForUpdates();
 
@@ -198,6 +266,9 @@ async function main() {
 
   // Session manager reference (set after UI is ready)
   let sessionManager: SessionManager | null = null;
+
+  // Auto-update manager reference
+  let autoUpdateManager: AutoUpdateManager | null = null;
 
   // Start the Ink UI
   const ui: UIInstance = await startUI({
@@ -356,6 +427,42 @@ async function main() {
   // Resume any persisted sessions from before restart
   await session.initialize();
 
+  // Initialize auto-update manager
+  autoUpdateManager = new AutoUpdateManager(config.autoUpdate, {
+    getSessionActivity: () => session.getActivityInfo(),
+    getActiveThreadIds: () => session.getActiveThreadIds(),
+    broadcastUpdate: (msg) => session.broadcastToAll(msg),
+    postAskMessage: (ids, ver) => session.postUpdateAskMessage(ids, ver),
+    refreshUI: () => session.updateAllStickyMessages(),
+  });
+
+  // Connect auto-update manager to session manager for !update commands
+  session.setAutoUpdateManager(autoUpdateManager);
+
+  // Wire up auto-update events to UI
+  autoUpdateManager.on('update:available', (info) => {
+    ui.addLog({ level: 'info', component: 'update', message: `🆕 Update available: v${info.currentVersion} → v${info.latestVersion}` });
+  });
+
+  autoUpdateManager.on('update:countdown', (seconds) => {
+    if (seconds === 60 || seconds === 30 || seconds === 10 || seconds <= 5) {
+      ui.addLog({ level: 'info', component: 'update', message: `🔄 Restarting in ${seconds} seconds...` });
+    }
+  });
+
+  autoUpdateManager.on('update:status', (status, message) => {
+    if (message) {
+      ui.addLog({ level: 'info', component: 'update', message: `🔄 ${status}: ${message}` });
+    }
+  });
+
+  autoUpdateManager.on('update:failed', (error) => {
+    ui.addLog({ level: 'error', component: 'update', message: `❌ Update failed: ${error}` });
+  });
+
+  // Start auto-update system
+  autoUpdateManager.start();
+
   // Mark UI as ready
   ui.setReady();
 
@@ -385,6 +492,9 @@ async function main() {
     }
 
     await session.killAllSessions();
+
+    // Stop auto-update manager
+    autoUpdateManager?.stop();
 
     // Disconnect all platforms
     for (const client of platforms.values()) {

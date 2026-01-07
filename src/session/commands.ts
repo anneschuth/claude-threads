@@ -637,3 +637,135 @@ export async function updateSessionHeader(
     { action: 'Update session header', session }
   );
 }
+
+// ---------------------------------------------------------------------------
+// Update commands
+// ---------------------------------------------------------------------------
+
+/** Interface for auto-update manager access from commands */
+export interface AutoUpdateManagerInterface {
+  isEnabled(): boolean;
+  hasUpdate(): boolean;
+  getUpdateInfo(): { available: boolean; currentVersion: string; latestVersion: string; detectedAt: Date } | undefined;
+  getScheduledRestartAt(): Date | null;
+  checkNow(): Promise<{ available: boolean; currentVersion: string; latestVersion: string; detectedAt: Date } | null>;
+  forceUpdate(): Promise<void>;
+  deferUpdate(minutes?: number): void;
+  getConfig(): { autoRestartMode: string };
+}
+
+/**
+ * Check for updates and show status (!update)
+ */
+export async function showUpdateStatus(
+  session: Session,
+  updateManager: AutoUpdateManagerInterface | null
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+
+  if (!updateManager) {
+    await postInfo(session, `Auto-update is not available`);
+    return;
+  }
+
+  if (!updateManager.isEnabled()) {
+    await postInfo(session, `Auto-update is disabled in configuration`);
+    return;
+  }
+
+  // Check for new updates
+  const updateInfo = await updateManager.checkNow();
+
+  if (!updateInfo || !updateInfo.available) {
+    await postSuccess(session, `${formatter.formatBold('Up to date')} - no updates available`);
+    return;
+  }
+
+  const scheduledAt = updateManager.getScheduledRestartAt();
+  const config = updateManager.getConfig();
+
+  let statusLine: string;
+  if (scheduledAt) {
+    const secondsRemaining = Math.max(0, Math.round((scheduledAt.getTime() - Date.now()) / 1000));
+    statusLine = `Restarting in ${secondsRemaining} seconds`;
+  } else {
+    statusLine = `Mode: ${config.autoRestartMode}`;
+  }
+
+  await postInfo(session,
+    `🔄 ${formatter.formatBold('Update available')}\n\n` +
+    `Current: v${updateInfo.currentVersion}\n` +
+    `Latest: v${updateInfo.latestVersion}\n` +
+    `${statusLine}\n\n` +
+    `Commands:\n` +
+    `• ${formatter.formatCode('!update now')} - Update immediately\n` +
+    `• ${formatter.formatCode('!update defer')} - Defer for 1 hour`
+  );
+}
+
+/**
+ * Force an immediate update (!update now)
+ */
+export async function forceUpdateNow(
+  session: Session,
+  username: string,
+  updateManager: AutoUpdateManagerInterface | null
+): Promise<void> {
+  // Only session owner or globally allowed users can force update
+  if (!await requireSessionOwner(session, username, 'force updates')) {
+    return;
+  }
+
+  const formatter = session.platform.getFormatter();
+
+  if (!updateManager) {
+    await postWarning(session, `Auto-update is not available`);
+    return;
+  }
+
+  if (!updateManager.hasUpdate()) {
+    await postInfo(session, `No update available to install`);
+    return;
+  }
+
+  await postInfo(session,
+    `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...\n` +
+    formatter.formatItalic('Sessions will resume automatically')
+  );
+
+  // This will trigger the update process
+  await updateManager.forceUpdate();
+}
+
+/**
+ * Defer the pending update (!update defer)
+ */
+export async function deferUpdate(
+  session: Session,
+  username: string,
+  updateManager: AutoUpdateManagerInterface | null
+): Promise<void> {
+  // Only session owner or globally allowed users can defer updates
+  if (!await requireSessionOwner(session, username, 'defer updates')) {
+    return;
+  }
+
+  const formatter = session.platform.getFormatter();
+
+  if (!updateManager) {
+    await postWarning(session, `Auto-update is not available`);
+    return;
+  }
+
+  if (!updateManager.hasUpdate()) {
+    await postInfo(session, `No pending update to defer`);
+    return;
+  }
+
+  updateManager.deferUpdate(60); // Defer for 1 hour
+
+  await postSuccess(session,
+    `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
+    formatter.formatItalic('Use !update now to apply earlier')
+  );
+}

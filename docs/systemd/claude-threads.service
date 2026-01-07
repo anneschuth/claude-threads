@@ -1,0 +1,55 @@
+# claude-threads systemd service file
+#
+# Installation:
+#   1. Copy this file to /etc/systemd/system/claude-threads.service
+#   2. Edit the User, WorkingDirectory, and Environment settings
+#   3. Run: sudo systemctl daemon-reload
+#   4. Run: sudo systemctl enable claude-threads
+#   5. Run: sudo systemctl start claude-threads
+#
+# The service uses the daemon wrapper which handles exit code 42
+# for automatic restarts after updates.
+
+[Unit]
+Description=Claude Threads - Share Claude Code sessions in chat
+Documentation=https://github.com/anneschuth/claude-threads
+After=network.target
+
+[Service]
+Type=simple
+
+# Change this to your user
+User=your-username
+
+# Change this to your working directory
+WorkingDirectory=/home/your-username/projects
+
+# Environment variables
+Environment=NODE_ENV=production
+# Uncomment to enable debug logging:
+# Environment=DEBUG=1
+
+# The daemon script handles exit code 42 for update restarts
+# Use --restart-on-error to also restart on errors
+ExecStart=/usr/bin/env claude-threads-daemon
+
+# Restart settings - the daemon handles most restarts internally
+# This is a fallback for unexpected crashes
+Restart=on-failure
+RestartSec=10
+
+# Resource limits (adjust as needed)
+# LimitNOFILE=65536
+
+# Security hardening (optional)
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=read-only
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claude-threads
+
+[Install]
+WantedBy=multi-user.target

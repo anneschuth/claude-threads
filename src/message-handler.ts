@@ -131,6 +131,9 @@ export async function handleMessage(
             [code('!kick @user'), 'Remove an invited user'],
             [code('!permissions interactive'), 'Enable interactive permissions'],
             [code('!approve'), 'Approve pending plan (alternative to 👍 reaction)'],
+            [code('!update'), 'Show auto-update status'],
+            [code('!update now'), 'Apply pending update immediately'],
+            [code('!update defer'), 'Defer pending update for 1 hour'],
             [code('!escape'), 'Interrupt current task (session stays active)'],
             [code('!stop'), 'Stop this session'],
             [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
@@ -196,6 +199,20 @@ export async function handleMessage(
       const cdMatch = content.match(/^!cd\s+(.+)/i);
       if (cdMatch) {
         await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
+        return;
+      }
+
+      // Check for !update command
+      const updateMatch = content.trim().match(/^!update(?:\s+(now|defer))?$/i);
+      if (updateMatch) {
+        const subcommand = updateMatch[1]?.toLowerCase();
+        if (subcommand === 'now') {
+          await session.forceUpdateNow(threadRoot, username);
+        } else if (subcommand === 'defer') {
+          await session.deferUpdate(threadRoot, username);
+        } else {
+          await session.showUpdateStatus(threadRoot, username);
+        }
         return;
       }
 

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { homedir } from 'os';
+import type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow } from '../auto-update/types.js';
 
 // YAML config path
 export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'config.yaml');
@@ -11,12 +12,16 @@ export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'conf
 
 export type WorktreeMode = 'off' | 'prompt' | 'require';
 
+// Re-export auto-update types for convenience
+export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
+
 export interface NewConfig {
   version: number;
   workingDir: string;
   chrome: boolean;
   worktreeMode: WorktreeMode;
   keepAlive?: boolean; // Optional, defaults to true when undefined
+  autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   platforms: PlatformInstanceConfig[];
 }
 
