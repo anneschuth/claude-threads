@@ -19,7 +19,6 @@ import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
 import type { SessionContext } from './context.js';
-import { getGitStatus } from '../git/worktree.js';
 
 const log = createLogger('lifecycle');
 
@@ -102,58 +101,22 @@ function findPersistedByThreadId(
 // System prompt for chat platform context
 // ---------------------------------------------------------------------------
 
-import type { GitStatusInfo } from '../git/worktree.js';
-
 /**
- * Options for building the chat platform system prompt
+ * Build a context line for the system prompt with session metadata.
  */
-export interface ChatPlatformPromptOptions {
-  platformType: string;       // 'mattermost' or 'slack'
-  platformDisplayName: string; // Display name like 'Main Team'
-  workingDir: string;
-  threadId: string;
-  gitStatus?: GitStatusInfo;
+function buildSessionContext(platform: { platformType: string; displayName: string }, workingDir: string): string {
+  const platformName = platform.platformType.charAt(0).toUpperCase() + platform.platformType.slice(1);
+  return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir}`;
 }
 
 /**
- * Build the system prompt that gives Claude context about running in a chat platform.
+ * System prompt that gives Claude context about running in a chat platform.
  * This is appended to Claude's system prompt via --append-system-prompt.
  */
-export function buildChatPlatformPrompt(options: ChatPlatformPromptOptions): string {
-  const { platformType, platformDisplayName, workingDir, threadId, gitStatus } = options;
+export const CHAT_PLATFORM_PROMPT = `
+You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
 
-  // Build git status section
-  let gitSection = '';
-  if (gitStatus?.isGitRepo) {
-    const parts: string[] = [];
-    if (gitStatus.branch) {
-      parts.push(`Current branch: ${gitStatus.branch}`);
-    }
-    if (gitStatus.defaultBranch) {
-      parts.push(`Main branch: ${gitStatus.defaultBranch}`);
-    }
-    if (gitStatus.hasUncommittedChanges) {
-      parts.push(`Status: Has uncommitted changes`);
-    }
-    if (gitStatus.recentCommits.length > 0) {
-      parts.push(`Recent commits:\n${gitStatus.recentCommits.map(c => `  - ${c}`).join('\n')}`);
-    }
-    if (parts.length > 0) {
-      gitSection = `
-
-## Git Repository
-${parts.join('\n')}`;
-    }
-  }
-
-  return `
-You are running inside a chat platform. Users interact with you through chat messages in a thread.
-
-## Session Context
-- **Platform:** ${platformType.charAt(0).toUpperCase() + platformType.slice(1)} (${platformDisplayName})
-- **Working Directory:** ${workingDir}
-- **Thread ID:** ${threadId.substring(0, 12)}...
-- **Claude Threads Version:** ${VERSION}${gitSection}
+**Claude Threads Version:** ${VERSION}
 
 ## How This Works
 - You are Claude Code running as a bot via "Claude Threads"
@@ -204,18 +167,6 @@ Example: If the user asks "help me debug why the tests are failing", respond wit
 
 Then continue with your normal response.
 `.trim();
-}
-
-/**
- * Legacy static prompt (for backward compatibility with tests).
- * @deprecated Use buildChatPlatformPrompt() instead
- */
-export const CHAT_PLATFORM_PROMPT = buildChatPlatformPrompt({
-  platformType: 'chat',
-  platformDisplayName: 'Chat',
-  workingDir: process.cwd(),
-  threadId: 'unknown',
-});
 
 /**
  * Reminder to update session metadata, injected periodically into user messages.
@@ -306,22 +257,9 @@ export async function startSession(
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
 
-  // Get git status for system prompt context (non-blocking, use undefined on error)
-  let gitStatus: GitStatusInfo | undefined;
-  try {
-    gitStatus = await getGitStatus(ctx.config.workingDir);
-  } catch {
-    // Ignore errors - git status is optional context
-  }
-
-  // Build the system prompt with full context
-  const systemPrompt = buildChatPlatformPrompt({
-    platformType: platform.platformType,
-    platformDisplayName: platform.displayName,
-    workingDir: ctx.config.workingDir,
-    threadId: actualThreadId,
-    gitStatus,
-  });
+  // Build system prompt with session context
+  const sessionContext = buildSessionContext(platform, ctx.config.workingDir);
+  const systemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
@@ -525,23 +463,10 @@ export async function resumeSession(
   // Include system prompt if session doesn't have a title yet
   // This ensures Claude will generate a title on its next response
   const needsTitlePrompt = !state.sessionTitle;
-
-  // Build system prompt with context if needed
-  let systemPrompt: string | undefined;
+  let appendSystemPrompt: string | undefined;
   if (needsTitlePrompt) {
-    let gitStatus: GitStatusInfo | undefined;
-    try {
-      gitStatus = await getGitStatus(state.workingDir);
-    } catch {
-      // Ignore errors - git status is optional context
-    }
-    systemPrompt = buildChatPlatformPrompt({
-      platformType: platform.platformType,
-      platformDisplayName: platform.displayName,
-      workingDir: state.workingDir,
-      threadId: state.threadId,
-      gitStatus,
-    });
+    const sessionContext = buildSessionContext(platform, state.workingDir);
+    appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
   }
 
   const cliOptions: ClaudeCliOptions = {
@@ -552,7 +477,7 @@ export async function resumeSession(
     resume: true,
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
-    appendSystemPrompt: systemPrompt,
+    appendSystemPrompt,
     logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
