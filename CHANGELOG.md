@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.42.0] - 2026-01-07
+
+### Fixed
+- **Slack message visibility for long sessions** - Add platform-specific message size limits (Slack: 12K, Mattermost: 16K) with error recovery when `updatePost` fails - automatically creates new message instead of silently losing content
+- **ExitPlanMode approval on Slack** - Fix emoji reaction handling by normalizing `thumbsup` → `+1` across platforms
+
+### Added
+- **`!approve` / `!yes` commands** - Text-based alternative to 👍 reaction for plan approval
+- **Plan mode status in session header** - Shows 📋 Plan pending or 🔨 Implementing status
+
+### Changed
+- **User follow-up message handling** - Reset `currentPostId` on user follow-up messages so Claude's responses start in fresh messages with proper code block closure
+
 ## [0.41.0] - 2026-01-07
 
 ### Changed
