@@ -346,3 +346,107 @@ describe('interruptSession', () => {
     );
   });
 });
+
+describe('approvePendingPlan', () => {
+  it('approves pending plan and sends message to Claude', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    // Should update the approval post
+    expect(mockPlatform.updatePost).toHaveBeenCalledWith(
+      'plan-post-1',
+      expect.stringContaining('Plan approved')
+    );
+
+    // Should clear the pending approval
+    expect(session.pendingApproval).toBeNull();
+
+    // Should mark as approved
+    expect(session.planApproved).toBe(true);
+
+    // Should send message to Claude
+    expect(session.claude.sendMessage).toHaveBeenCalledWith(
+      'Plan approved! Please proceed with the implementation.'
+    );
+
+    // Should start typing
+    expect(ctx.ops.startTyping).toHaveBeenCalledWith(session);
+  });
+
+  it('shows info message when no pending plan', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: null,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    // Should post info message
+    expect(mockPlatform.createPost).toHaveBeenCalledWith(
+      expect.stringContaining('No pending plan'),
+      session.threadId
+    );
+
+    // Should not update any post
+    expect(mockPlatform.updatePost).not.toHaveBeenCalled();
+  });
+
+  it('does not approve non-plan pending approval', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'action-post-1', type: 'action', toolUseId: 'tool-1' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    // Should show "no pending plan" info since it's an action, not a plan
+    expect(mockPlatform.createPost).toHaveBeenCalledWith(
+      expect.stringContaining('No pending plan'),
+      session.threadId
+    );
+
+    // Should not clear the action pending approval
+    expect(session.pendingApproval).not.toBeNull();
+  });
+
+  it('does not send message if Claude is not running', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+      claude: {
+        isRunning: mock(() => false),
+        kill: mock(() => {}),
+        start: mock(() => {}),
+        sendMessage: mock(() => {}),
+        on: mock(() => {}),
+        interrupt: mock(() => false),
+      } as any,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    // Should still clear and mark approved
+    expect(session.pendingApproval).toBeNull();
+    expect(session.planApproved).toBe(true);
+
+    // Should not send message since Claude not running
+    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+    expect(ctx.ops.startTyping).not.toHaveBeenCalled();
+  });
+});

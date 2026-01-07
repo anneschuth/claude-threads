@@ -176,6 +176,46 @@ export async function interruptSession(
   }
 }
 
+/**
+ * Approve a pending plan via text command (alternative to 👍 reaction).
+ * This is useful when the emoji reaction doesn't work reliably.
+ */
+export async function approvePendingPlan(
+  session: Session,
+  username: string,
+  ctx: SessionContext
+): Promise<void> {
+  // Check if there's a pending plan approval
+  if (!session.pendingApproval || session.pendingApproval.type !== 'plan') {
+    await postInfo(session, `No pending plan to approve`);
+    sessionLog(session).debug(`Approve requested but no pending plan`);
+    return;
+  }
+
+  const { postId } = session.pendingApproval;
+  sessionLog(session).info(`✅ Plan approved by @${username} via command`);
+
+  // Update the post to show the decision
+  const formatter = session.platform.getFormatter();
+  const statusMessage = `✅ ${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`;
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, statusMessage),
+    { action: 'Update approval post', session }
+  );
+
+  // Clear pending approval and mark as approved
+  session.pendingApproval = null;
+  session.planApproved = true;
+
+  // Send user message to Claude - NOT a tool_result
+  // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
+  // so we can't send another tool_result. Instead, send a user message to continue.
+  if (session.claude.isRunning()) {
+    session.claude.sendMessage('Plan approved! Please proceed with the implementation.');
+    ctx.ops.startTyping(session);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Directory management
 // ---------------------------------------------------------------------------
@@ -494,6 +534,14 @@ export async function updateSessionHeader(
   }
 
   statusItems.push(formatter.formatCode(permMode));
+
+  // Show plan mode status
+  if (session.pendingApproval?.type === 'plan') {
+    statusItems.push(formatter.formatCode('📋 Plan pending'));
+  } else if (session.planApproved) {
+    statusItems.push(formatter.formatCode('🔨 Implementing'));
+  }
+
   if (ctx.config.chromeEnabled) {
     statusItems.push(formatter.formatCode('🌐 Chrome'));
   }

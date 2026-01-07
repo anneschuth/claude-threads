@@ -25,6 +25,7 @@ import {
   isResumeEmoji,
   isTaskToggleEmoji,
 } from '../utils/emoji.js';
+import { normalizeEmojiName } from '../platform/utils.js';
 import {
   getWorktreesDir,
   readWorktreeMetadata,
@@ -356,8 +357,11 @@ export class SessionManager extends EventEmitter {
     username: string,
     action: 'added' | 'removed'
   ): Promise<void> {
+    // Normalize emoji name to handle platform differences (e.g., Slack's "thumbsup" vs Mattermost's "+1")
+    const normalizedEmoji = normalizeEmojiName(emojiName);
+
     // First, check if this is a resume emoji for a timed-out session (only on add)
-    if (action === 'added' && isResumeEmoji(emojiName)) {
+    if (action === 'added' && isResumeEmoji(normalizedEmoji)) {
       const resumed = await this.tryResumeFromReaction(platformId, postId, username);
       if (resumed) return;
     }
@@ -373,7 +377,7 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
-    await this.handleSessionReaction(session, postId, emojiName, username, action);
+    await this.handleSessionReaction(session, postId, normalizedEmoji, username, action);
   }
 
   /**
@@ -1083,6 +1087,12 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.interruptSession(session, username);
+  }
+
+  async approvePendingPlan(threadId: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.approvePendingPlan(session, username, this.getContext());
   }
 
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
