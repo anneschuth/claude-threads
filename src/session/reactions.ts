@@ -342,3 +342,88 @@ export async function handleExistingWorktreeReaction(
 
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Update prompt reaction handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Callback interface for update actions.
+ */
+export interface UpdateReactionHandler {
+  forceUpdate: () => Promise<void>;
+  deferUpdate: (minutes: number) => void;
+}
+
+/**
+ * Handle a reaction on an update prompt post (thumbs up = now, thumbs down = defer).
+ * Returns true if the reaction was handled, false otherwise.
+ */
+export async function handleUpdateReaction(
+  session: Session,
+  postId: string,
+  emojiName: string,
+  username: string,
+  ctx: SessionContext,
+  updateHandler: UpdateReactionHandler
+): Promise<boolean> {
+  const pending = session.pendingUpdatePrompt;
+  if (!pending || pending.postId !== postId) {
+    return false;
+  }
+
+  // Only session owner or allowed users can respond
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    return false;
+  }
+
+  const isUpdateNow = isApprovalEmoji(emojiName);
+  const isDefer = isDenialEmoji(emojiName);
+
+  if (!isUpdateNow && !isDefer) {
+    return false;
+  }
+
+  const formatter = session.platform.getFormatter();
+
+  if (isUpdateNow) {
+    // Update now
+    await withErrorHandling(
+      () => session.platform.updatePost(
+        pending.postId,
+        `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...\n` +
+        formatter.formatItalic('Sessions will resume automatically')
+      ),
+      { action: 'Update post for force update', session }
+    );
+
+    // Clear the pending prompt
+    session.pendingUpdatePrompt = undefined;
+    ctx.ops.persistSession(session);
+
+    sessionLog(session).info(`🔄 @${username} triggered immediate update`);
+
+    // Trigger the update
+    await updateHandler.forceUpdate();
+  } else {
+    // Defer for 1 hour
+    updateHandler.deferUpdate(60);
+
+    await withErrorHandling(
+      () => session.platform.updatePost(
+        pending.postId,
+        `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
+        formatter.formatItalic('Use !update now to apply earlier')
+      ),
+      { action: 'Update post for defer update', session }
+    );
+
+    // Clear the pending prompt
+    session.pendingUpdatePrompt = undefined;
+    ctx.ops.persistSession(session);
+
+    sessionLog(session).info(`⏸️ @${username} deferred update for 1 hour`);
+  }
+
+  return true;
+}
