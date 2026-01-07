@@ -437,3 +437,64 @@ export async function updateWorktreeActivity(
 
   await writeWorktreeMetadata(worktreePath, existing);
 }
+
+// ---------------------------------------------------------------------------
+// Git Status for System Prompt
+// ---------------------------------------------------------------------------
+
+/**
+ * Git status information for system prompt context
+ */
+export interface GitStatusInfo {
+  isGitRepo: boolean;
+  branch: string | null;
+  defaultBranch: string | null;
+  hasUncommittedChanges: boolean;
+  recentCommits: string[];  // Last 3-5 commit summaries
+}
+
+/**
+ * Get comprehensive git status for a directory.
+ * Used to provide context in the system prompt.
+ */
+export async function getGitStatus(dir: string): Promise<GitStatusInfo> {
+  const result: GitStatusInfo = {
+    isGitRepo: false,
+    branch: null,
+    defaultBranch: null,
+    hasUncommittedChanges: false,
+    recentCommits: [],
+  };
+
+  // Check if it's a git repo
+  const isRepo = await isGitRepository(dir);
+  if (!isRepo) return result;
+  result.isGitRepo = true;
+
+  // Get current branch
+  result.branch = await getCurrentBranch(dir);
+
+  // Get default branch
+  try {
+    const repoRoot = await getRepositoryRoot(dir);
+    result.defaultBranch = await getDefaultBranch(repoRoot);
+  } catch {
+    // Ignore errors
+  }
+
+  // Check for uncommitted changes
+  result.hasUncommittedChanges = await hasUncommittedChanges(dir);
+
+  // Get recent commits (last 5)
+  try {
+    const commits = await execGit(
+      ['log', '--oneline', '-5', '--format=%h %s'],
+      dir
+    );
+    result.recentCommits = commits.split('\n').filter(Boolean);
+  } catch {
+    // Ignore errors - might be empty repo
+  }
+
+  return result;
+}
