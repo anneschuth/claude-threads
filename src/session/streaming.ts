@@ -421,54 +421,75 @@ async function bumpTasksToBottomWithContent(
   newContent: string,
   registerPost: (postId: string, threadId: string) => void
 ): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- caller checks tasksPostId exists
-  const oldTasksPostId = session.tasksPostId!;
-  const oldTasksContent = session.lastTasksContent;
+  // Wait for any in-progress task list creation to complete first.
+  // This prevents race conditions where TodoWrite and bump operations
+  // both try to create/modify the task list simultaneously.
+  if (session.taskListCreationPromise) {
+    await session.taskListCreationPromise;
+  }
 
-  sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
+  // Acquire the lock for this operation
+  let resolveCreation: (() => void) | undefined;
+  session.taskListCreationPromise = new Promise((resolve) => {
+    resolveCreation = resolve;
+  });
 
-  // Remove the toggle emoji from the old task post before repurposing it
   try {
-    await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
-  } catch (err) {
-    sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
-  }
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- caller checks tasksPostId exists
+    const oldTasksPostId = session.tasksPostId!;
+    const oldTasksContent = session.lastTasksContent;
 
-  // Unpin the old task post before repurposing it
-  await session.platform.unpinPost(oldTasksPostId).catch(() => {});
+    sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
 
-  // Repurpose the task list post for the new content
-  await withErrorHandling(
-    () => session.platform.updatePost(oldTasksPostId, newContent),
-    { action: 'Repurpose task post', session }
-  );
-  registerPost(oldTasksPostId, session.threadId);
+    // Remove the toggle emoji from the old task post before repurposing it
+    try {
+      await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
+    } catch (err) {
+      sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
+    }
 
-  // Create a new task list post at the bottom (if we have content to show)
-  if (oldTasksContent) {
-    // Preserve the minimized state for content, but always add the toggle emoji
-    // (emoji is always present as a clickable button; user clicks to toggle)
-    const displayContent = getTaskDisplayContent(session);
+    // Unpin the old task post before repurposing it
+    await session.platform.unpinPost(oldTasksPostId).catch(() => {});
 
-    const newTasksPost = await session.platform.createInteractivePost(
-      displayContent,
-      [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
-      session.threadId
+    // Repurpose the task list post for the new content
+    await withErrorHandling(
+      () => session.platform.updatePost(oldTasksPostId, newContent),
+      { action: 'Repurpose task post', session }
     );
-    session.tasksPostId = newTasksPost.id;
-    sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
-    // Register the new task post so reaction clicks are routed to this session
-    registerPost(newTasksPost.id, session.threadId);
-    // Track for jump-to-bottom links
-    updateLastMessage(session, newTasksPost);
-    // Pin the new task post
-    await session.platform.pinPost(newTasksPost.id).catch(() => {});
-  } else {
-    // No task content to re-post, clear the task post ID
-    session.tasksPostId = null;
-  }
+    registerPost(oldTasksPostId, session.threadId);
 
-  return oldTasksPostId;
+    // Create a new task list post at the bottom (if we have content to show)
+    if (oldTasksContent) {
+      // Preserve the minimized state for content, but always add the toggle emoji
+      // (emoji is always present as a clickable button; user clicks to toggle)
+      const displayContent = getTaskDisplayContent(session);
+
+      const newTasksPost = await session.platform.createInteractivePost(
+        displayContent,
+        [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
+        session.threadId
+      );
+      session.tasksPostId = newTasksPost.id;
+      sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
+      // Register the new task post so reaction clicks are routed to this session
+      registerPost(newTasksPost.id, session.threadId);
+      // Track for jump-to-bottom links
+      updateLastMessage(session, newTasksPost);
+      // Pin the new task post
+      await session.platform.pinPost(newTasksPost.id).catch(() => {});
+    } else {
+      // No task content to re-post, clear the task post ID
+      session.tasksPostId = null;
+    }
+
+    return oldTasksPostId;
+  } finally {
+    // Release the lock so other callers can proceed
+    if (resolveCreation) {
+      resolveCreation();
+    }
+    session.taskListCreationPromise = undefined;
+  }
 }
 
 /**
@@ -495,10 +516,29 @@ export async function bumpTasksToBottom(
     return;
   }
 
-  const oldPostId = session.tasksPostId;
-  sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
+  // Wait for any in-progress task list creation to complete first.
+  // This prevents race conditions where TodoWrite and bump operations
+  // both try to create/modify the task list simultaneously.
+  if (session.taskListCreationPromise) {
+    await session.taskListCreationPromise;
+  }
+
+  // Re-check conditions after awaiting (state may have changed)
+  if (!session.tasksPostId || !session.lastTasksContent || session.tasksCompleted) {
+    sessionLog(session).debug('Task list state changed while waiting for lock');
+    return;
+  }
+
+  // Acquire the lock for this operation
+  let resolveCreation: (() => void) | undefined;
+  session.taskListCreationPromise = new Promise((resolve) => {
+    resolveCreation = resolve;
+  });
 
   try {
+    const oldPostId = session.tasksPostId;
+    sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
+
     // Unpin the old task post before deleting
     await session.platform.unpinPost(session.tasksPostId).catch(() => {});
 
@@ -526,6 +566,12 @@ export async function bumpTasksToBottom(
     await session.platform.pinPost(newPost.id).catch(() => {});
   } catch (err) {
     sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
+  } finally {
+    // Release the lock so other callers can proceed
+    if (resolveCreation) {
+      resolveCreation();
+    }
+    session.taskListCreationPromise = undefined;
   }
 }
 
