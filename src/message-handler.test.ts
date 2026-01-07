@@ -56,6 +56,7 @@ function createMockSessionManager() {
     switchToWorktree: mock(async () => {}),
     removeWorktreeCommand: mock(async () => {}),
     disableWorktreePrompt: mock(async () => {}),
+    cleanupWorktreeCommand: mock(async () => {}),
     createAndSwitchToWorktree: mock(async () => {}),
     hasPendingWorktreePrompt: mock(() => false),
     handleWorktreeBranchResponse: mock(async () => false),
@@ -567,6 +568,397 @@ describe('handleMessage', () => {
 
       expect(options.logger?.error).toHaveBeenCalled();
       expect(client.createPost).toHaveBeenCalled();
+    });
+
+    test('handles null user gracefully', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot help',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+
+      await handleMessage(client, session, post, null, options);
+
+      // Should reject with "unknown" username as unauthorized
+      expect(session.startSession).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+    });
+  });
+
+  describe('!permissions auto command', () => {
+    beforeEach(() => {
+      (session.isInSessionThread as any).mockReturnValue(true);
+    });
+
+    test('rejects upgrade to auto permissions', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!permissions auto',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.enableInteractivePermissions).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      expect(postContent).toContain('Cannot upgrade to auto');
+    });
+  });
+
+  describe('!worktree commands', () => {
+    beforeEach(() => {
+      (session.isInSessionThread as any).mockReturnValue(true);
+    });
+
+    test('handles !worktree switch without branch name', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree switch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.switchToWorktree).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      expect(postContent).toContain('Usage');
+    });
+
+    test('handles !worktree remove without branch name', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree remove',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      expect(postContent).toContain('Usage');
+    });
+
+    test('handles !worktree off command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree off',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.disableWorktreePrompt).toHaveBeenCalledWith('thread1', 'allowed-user');
+    });
+
+    test('handles !worktree cleanup command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree cleanup',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.cleanupWorktreeCommand).toHaveBeenCalledWith('thread1', 'allowed-user');
+    });
+
+    test('handles !worktree remove with branch name', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree remove old-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).toHaveBeenCalledWith('thread1', 'old-branch', 'allowed-user');
+    });
+  });
+
+  describe('Claude Code slash commands', () => {
+    beforeEach(() => {
+      (session.isInSessionThread as any).mockReturnValue(true);
+    });
+
+    test('handles !context command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!context',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/context');
+    });
+
+    test('handles !cost command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!cost',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/cost');
+    });
+
+    test('handles !compact command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!compact',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/compact');
+    });
+
+    test('does not send slash commands for unauthorized user', async () => {
+      (session.isUserAllowedInSession as any).mockReturnValue(false);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!context',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'outsider', displayName: 'Outsider' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('!kill with active sessions', () => {
+    test('notifies all active sessions before shutdown', async () => {
+      const onKill = mock(() => {});
+      options.onKill = onKill;
+      (session.getActiveThreadIds as any).mockReturnValue(['thread1', 'thread2']);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!kill',
+        rootId: '',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should have posted to both active threads plus whatever else
+      expect(client.createPost).toHaveBeenCalledTimes(2);
+      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+    });
+
+    test('continues kill even if notifying a thread fails', async () => {
+      const onKill = mock(() => {});
+      options.onKill = onKill;
+      (session.getActiveThreadIds as any).mockReturnValue(['thread1', 'thread2']);
+      // Make the first createPost call fail
+      let callCount = 0;
+      (client.createPost as any).mockImplementation(async () => {
+        callCount++;
+        if (callCount === 1) {
+          throw new Error('Network error');
+        }
+        return { id: 'post_1' };
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!kill',
+        rootId: '',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Kill should still proceed
+      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(onKill).toHaveBeenCalledWith('admin');
+    });
+  });
+
+  describe('!release-notes command', () => {
+    beforeEach(() => {
+      (session.isInSessionThread as any).mockReturnValue(true);
+    });
+
+    test('shows release notes when available', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!release-notes',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(client.createPost).toHaveBeenCalled();
+      // The post should contain version info (either formatted release notes or fallback message)
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      // Either contains "Release Notes" (formatted) or "claude-threads" (fallback)
+      expect(postContent.includes('Release Notes') || postContent.includes('claude-threads')).toBe(true);
+    });
+
+    test('handles !changelog alias', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!changelog',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(client.createPost).toHaveBeenCalled();
+    });
+  });
+
+  describe('pending worktree prompt', () => {
+    beforeEach(() => {
+      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.hasPendingWorktreePrompt as any).mockReturnValue(true);
+    });
+
+    test('handles branch response when user is allowed', async () => {
+      (session.handleWorktreeBranchResponse as any).mockResolvedValue(true);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'feature/my-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.handleWorktreeBranchResponse).toHaveBeenCalledWith(
+        'thread1',
+        'feature/my-branch',
+        'allowed-user',
+        'post1'
+      );
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    test('falls through when branch response returns false', async () => {
+      (session.handleWorktreeBranchResponse as any).mockResolvedValue(false);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'not a valid branch response',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.handleWorktreeBranchResponse).toHaveBeenCalled();
+      // Should fall through to sendFollowUp
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'not a valid branch response', undefined);
+    });
+
+    test('does not handle branch response for unauthorized user', async () => {
+      (session.isUserAllowedInSession as any).mockReturnValue(false);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'feature/branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'outsider', displayName: 'Outsider' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.handleWorktreeBranchResponse).not.toHaveBeenCalled();
+      expect(session.requestMessageApproval).toHaveBeenCalled();
     });
   });
 });
