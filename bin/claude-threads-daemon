@@ -30,6 +30,19 @@ RESTART_DELAY=${CLAUDE_THREADS_RESTART_DELAY:-2}
 RESTART_ON_ERROR=false
 VERBOSE=false
 
+# Path to claude-threads binary (set by index.ts when spawning daemon)
+# Falls back to global 'claude-threads' command if not set
+# If CLAUDE_THREADS_BIN is a .js file, run it with bun
+if [ -n "$CLAUDE_THREADS_BIN" ]; then
+    if [[ "$CLAUDE_THREADS_BIN" == *.js ]]; then
+        CLAUDE_THREADS_CMD="bun $CLAUDE_THREADS_BIN"
+    else
+        CLAUDE_THREADS_CMD="$CLAUDE_THREADS_BIN"
+    fi
+else
+    CLAUDE_THREADS_CMD="claude-threads"
+fi
+
 # Track restart count
 restart_count=0
 
@@ -84,6 +97,7 @@ log() {
 }
 
 log "Starting claude-threads daemon"
+log "Binary: $CLAUDE_THREADS_CMD"
 log "Max restarts: ${MAX_RESTARTS:-unlimited}"
 log "Restart delay: ${RESTART_DELAY}s"
 log "Restart on error: $RESTART_ON_ERROR"
@@ -92,8 +106,9 @@ while true; do
     log "Starting claude-threads (restart #$restart_count)..."
 
     # Run claude-threads with any remaining arguments
+    # Note: CLAUDE_THREADS_CMD may be "bun /path/to/file.js" so we use eval
     set +e
-    claude-threads "$@"
+    eval $CLAUDE_THREADS_CMD '"$@"'
     exit_code=$?
     set -e
 

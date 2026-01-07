@@ -1398,10 +1398,13 @@ export class SessionManager extends EventEmitter {
   /**
    * Broadcast a message to all active sessions.
    * Used for update notifications.
+   * @param messageBuilder - Function that takes a formatter and returns the formatted message
    */
-  async broadcastToAll(message: string): Promise<void> {
+  async broadcastToAll(messageBuilder: (formatter: import('../platform/formatter.js').PlatformFormatter) => string): Promise<void> {
     for (const session of this.sessions.values()) {
       try {
+        const formatter = session.platform.getFormatter();
+        const message = messageBuilder(formatter);
         await postInfo(session, message);
       } catch (err) {
         log.warn(`Failed to broadcast to session ${session.threadId}: ${err}`);

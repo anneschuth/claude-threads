@@ -103,7 +103,8 @@ program
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
   .option('--skip-version-check', 'Skip Claude CLI version compatibility check')
-  .option('--daemon', 'Run with auto-restart on updates (re-execs with daemon wrapper)')
+  .option('--auto-restart', 'Enable auto-restart on updates (default when autoUpdate enabled)')
+  .option('--no-auto-restart', 'Disable auto-restart on updates')
   .parse();
 
 const opts = program.opts();
@@ -114,8 +115,30 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
-  // Handle --daemon flag: re-exec with the daemon wrapper
-  if (opts.daemon) {
+  // Determine if we should use auto-restart daemon wrapper
+  // Priority: --no-auto-restart (off) > --auto-restart (on) > config.autoUpdate.enabled
+  // Note: Commander.js converts --no-auto-restart to opts.autoRestart = false
+  const shouldUseAutoRestart = async (): Promise<boolean> => {
+    // Explicit CLI flags take precedence
+    // opts.autoRestart is: true (--auto-restart), false (--no-auto-restart), or undefined (neither)
+    if (opts.autoRestart === false) return false;
+    if (opts.autoRestart === true) return true;
+
+    // Check config for autoUpdate.enabled (if config exists)
+    // Default is enabled=true, so only disable if explicitly set to false
+    if (await checkConfigExists()) {
+      try {
+        const config = loadConfigWithMigration();
+        if (!config) return false;
+        return config.autoUpdate?.enabled !== false;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  };
+
+  if (await shouldUseAutoRestart()) {
     const { spawn } = await import('child_process');
     const { dirname, resolve } = await import('path');
     const { fileURLToPath } = await import('url');
@@ -125,16 +148,24 @@ async function main() {
     const __dirname = dirname(__filename);
     const daemonPath = resolve(__dirname, '..', 'bin', 'claude-threads-daemon');
 
-    // Remove --daemon from args and pass the rest
-    const args = process.argv.slice(2).filter(arg => arg !== '--daemon');
+    // Remove auto-restart flags and add --no-auto-restart to prevent infinite loop
+    const args = process.argv.slice(2)
+      .filter(arg => arg !== '--auto-restart' && arg !== '--no-auto-restart')
+      .concat('--no-auto-restart');
 
-    console.log('🔄 Starting claude-threads with daemon wrapper (auto-restart enabled)...');
+    console.log('🔄 Starting with auto-restart enabled...');
     console.log('');
 
     // Spawn the daemon wrapper with the remaining args
+    // Pass the path to this binary so daemon runs the local version, not global
+    // The entry point is dist/index.js (where this code is running from)
+    const binPath = __filename;
     const child = spawn(daemonPath, ['--restart-on-error', ...args], {
       stdio: 'inherit',
-      env: process.env,
+      env: {
+        ...process.env,
+        CLAUDE_THREADS_BIN: binPath,
+      },
     });
 
     child.on('error', (err) => {
@@ -410,23 +441,23 @@ async function main() {
 
   // Wire up auto-update events to UI
   autoUpdateManager.on('update:available', (info) => {
-    ui.addLog({ level: 'info', component: '🆕', message: `Update available: v${info.currentVersion} → v${info.latestVersion}` });
+    ui.addLog({ level: 'info', component: 'update', message: `🆕 Update available: v${info.currentVersion} → v${info.latestVersion}` });
   });
 
   autoUpdateManager.on('update:countdown', (seconds) => {
     if (seconds === 60 || seconds === 30 || seconds === 10 || seconds <= 5) {
-      ui.addLog({ level: 'info', component: '🔄', message: `Restarting in ${seconds} seconds...` });
+      ui.addLog({ level: 'info', component: 'update', message: `🔄 Restarting in ${seconds} seconds...` });
     }
   });
 
   autoUpdateManager.on('update:status', (status, message) => {
     if (message) {
-      ui.addLog({ level: 'info', component: '🔄', message: `Update status: ${status} - ${message}` });
+      ui.addLog({ level: 'info', component: 'update', message: `🔄 ${status}: ${message}` });
     }
   });
 
   autoUpdateManager.on('update:failed', (error) => {
-    ui.addLog({ level: 'error', component: '❌', message: `Update failed: ${error}` });
+    ui.addLog({ level: 'error', component: 'update', message: `❌ Update failed: ${error}` });
   });
 
   // Start auto-update system

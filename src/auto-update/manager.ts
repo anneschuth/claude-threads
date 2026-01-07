@@ -21,6 +21,10 @@ import type {
   AutoUpdateEvents,
 } from './types.js';
 import { RESTART_EXIT_CODE, mergeAutoUpdateConfig } from './types.js';
+import type { PlatformFormatter } from '../platform/formatter.js';
+
+/** Message builder function that takes a formatter and returns the formatted message */
+export type MessageBuilder = (formatter: PlatformFormatter) => string;
 
 const log = createLogger('auto-update');
 
@@ -33,7 +37,7 @@ export interface AutoUpdateCallbacks {
   getActiveThreadIds: () => string[];
 
   /** Post update notification to all active threads */
-  broadcastUpdate: (message: string) => Promise<void>;
+  broadcastUpdate: (messageBuilder: MessageBuilder) => Promise<void>;
 
   /** Post ask message to specific threads */
   postAskMessage: (threadIds: string[], version: string) => Promise<void>;
@@ -104,8 +108,8 @@ export class AutoUpdateManager extends EventEmitter {
     if (updateResult) {
       log.info(`🎉 Updated from v${updateResult.previousVersion} to v${updateResult.currentVersion}`);
       // Broadcast the good news
-      this.callbacks.broadcastUpdate(
-        `🎉 **Bot updated** from v${updateResult.previousVersion} to v${updateResult.currentVersion}`
+      this.callbacks.broadcastUpdate((fmt) =>
+        `🎉 ${fmt.formatBold('Bot updated')} from v${updateResult.previousVersion} to v${updateResult.currentVersion}`
       ).catch(err => {
         log.warn(`Failed to broadcast update notification: ${err}`);
       });
@@ -228,8 +232,9 @@ export class AutoUpdateManager extends EventEmitter {
 
       // Broadcast countdown at key intervals
       if (seconds === 60 || seconds === 30 || seconds === 10) {
-        this.callbacks.broadcastUpdate(
-          `⏳ **Restarting in ${seconds} seconds** for update to v${this.state.updateInfo?.latestVersion}`
+        const latestVersion = this.state.updateInfo?.latestVersion;
+        this.callbacks.broadcastUpdate((fmt) =>
+          `⏳ ${fmt.formatBold(`Restarting in ${seconds} seconds`)} for update to v${latestVersion}`
         ).catch(() => {});
       }
     });
@@ -250,8 +255,8 @@ export class AutoUpdateManager extends EventEmitter {
     this.updateStatus('installing');
 
     // Broadcast installation start
-    await this.callbacks.broadcastUpdate(
-      `📦 **Installing update** v${updateInfo.latestVersion}...`
+    await this.callbacks.broadcastUpdate((fmt) =>
+      `📦 ${fmt.formatBold('Installing update')} v${updateInfo.latestVersion}...`
     ).catch(() => {});
 
     // Perform installation
@@ -262,8 +267,8 @@ export class AutoUpdateManager extends EventEmitter {
       this.emit('update:restart', updateInfo.latestVersion);
 
       // Broadcast success and restart notice
-      await this.callbacks.broadcastUpdate(
-        `✅ **Update installed** - restarting now. Sessions will resume automatically.`
+      await this.callbacks.broadcastUpdate((fmt) =>
+        `✅ ${fmt.formatBold('Update installed')} - restarting now. ${fmt.formatItalic('Sessions will resume automatically.')}`
       ).catch(() => {});
 
       // Give a moment for the message to be sent
@@ -279,8 +284,9 @@ export class AutoUpdateManager extends EventEmitter {
       this.emit('update:failed', errorMsg);
 
       // Broadcast failure
-      await this.callbacks.broadcastUpdate(
-        `❌ **Update failed**: ${result.error}\n${getRollbackInstructions(VERSION)}`
+      const errorText = result.error;
+      await this.callbacks.broadcastUpdate((fmt) =>
+        `❌ ${fmt.formatBold('Update failed')}: ${errorText}\n${getRollbackInstructions(VERSION)}`
       ).catch(() => {});
     }
   }

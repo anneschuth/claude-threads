@@ -20,7 +20,7 @@
  */
 
 // Main manager
-export { AutoUpdateManager, type AutoUpdateCallbacks } from './manager.js';
+export { AutoUpdateManager, type AutoUpdateCallbacks, type MessageBuilder } from './manager.js';
 
 // Types
 export {

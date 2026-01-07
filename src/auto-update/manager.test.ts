@@ -24,7 +24,7 @@ describe('auto-update/manager', () => {
         anySessionBusy: false,
       }),
       getActiveThreadIds: () => [],
-      broadcastUpdate: mock(() => Promise.resolve()),
+      broadcastUpdate: mock((_msgBuilder: unknown) => Promise.resolve()),
       postAskMessage: mock(() => Promise.resolve()),
       refreshUI: mock(() => Promise.resolve()),
     };
