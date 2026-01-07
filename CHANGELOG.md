@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.1] - 2026-01-07
+
+### Changed
+- **Dependency updates** - Updated ink (5.2.1 → 6.6.0) and react (18.3.1 → 19.2.3)
+
 ## [0.40.0] - 2026-01-07
 
 ### Added
