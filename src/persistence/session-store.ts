@@ -93,6 +93,7 @@ interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
   stickyPostIds?: Record<string, string>;  // platformId -> postId
+  platformEnabledState?: Record<string, boolean>;  // platformId -> enabled (defaults to true if not set)
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
@@ -388,6 +389,46 @@ export class SessionStore {
 
       log.debug(`Removed sticky post ID for ${platformId}`);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Platform Enabled State Management
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get all platform enabled states
+   * Returns a map of platformId -> enabled (defaults to true if not set)
+   */
+  getPlatformEnabledState(): Map<string, boolean> {
+    const data = this.loadRaw();
+    return new Map(Object.entries(data.platformEnabledState || {}));
+  }
+
+  /**
+   * Check if a specific platform is enabled
+   * @param platformId - Platform instance ID
+   * @returns true if enabled or not set (defaults to enabled), false if explicitly disabled
+   */
+  isPlatformEnabled(platformId: string): boolean {
+    const data = this.loadRaw();
+    // Default to true if not set
+    return data.platformEnabledState?.[platformId] ?? true;
+  }
+
+  /**
+   * Set the enabled state for a platform
+   * @param platformId - Platform instance ID
+   * @param enabled - Whether the platform is enabled
+   */
+  setPlatformEnabled(platformId: string, enabled: boolean): void {
+    const data = this.loadRaw();
+    if (!data.platformEnabledState) {
+      data.platformEnabledState = {};
+    }
+    data.platformEnabledState[platformId] = enabled;
+    this.writeAtomic(data);
+
+    log.debug(`Set platform ${platformId} enabled state to ${enabled}`);
   }
 
   /**
