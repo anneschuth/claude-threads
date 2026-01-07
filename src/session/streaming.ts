@@ -15,6 +15,61 @@ import { updateLastMessage } from './post-helpers.js';
 
 const log = createLogger('streaming');
 
+// ---------------------------------------------------------------------------
+// Task list lock utilities
+// ---------------------------------------------------------------------------
+
+/**
+ * Acquire the task list lock in an atomic manner.
+ *
+ * This function solves the race condition where multiple concurrent calls
+ * could both see `taskListCreationPromise` as undefined and both proceed
+ * to create task lists. By chaining the new promise onto the existing one
+ * (or creating a new chain if none exists) in a single synchronous operation,
+ * we ensure that all callers properly serialize their access.
+ *
+ * The key insight is that in JavaScript's event loop, synchronous code runs
+ * atomically (no interleaving). By immediately setting the new promise in
+ * the same synchronous block where we check for existing promises, we prevent
+ * the race condition where two callers both see "no lock" simultaneously.
+ *
+ * @param session - The session to acquire the lock for
+ * @returns A promise that resolves to a release function when the lock is acquired
+ */
+export async function acquireTaskListLock(session: Session): Promise<() => void> {
+  let resolveCreation: (() => void) | undefined;
+
+  // Create a new promise that will be resolved when the caller releases the lock
+  const newPromise = new Promise<void>((resolve) => {
+    resolveCreation = resolve;
+  });
+
+  // Get the existing promise (may be undefined)
+  const existingPromise = session.taskListCreationPromise;
+
+  // CRITICAL: This is the atomic part - we immediately set the new promise
+  // so any subsequent callers will see it and wait on it.
+  // We chain onto the existing promise (if any) so operations serialize.
+  session.taskListCreationPromise = existingPromise
+    ? existingPromise.then(() => newPromise)
+    : newPromise;
+
+  // Wait for our turn (if there was an existing promise, wait for it)
+  if (existingPromise) {
+    await existingPromise;
+  }
+
+  // Now we have the lock - return the release function
+  return () => {
+    if (resolveCreation) {
+      resolveCreation();
+    }
+    // Note: we don't clear taskListCreationPromise here because other
+    // callers may have already chained onto it. The promise chain will
+    // naturally resolve and eventually be garbage collected.
+  };
+}
+
 /** Get session-scoped logger for routing to correct UI panel */
 function sessionLog(session: Session) {
   return log.forSession(session.sessionId);
@@ -421,18 +476,9 @@ async function bumpTasksToBottomWithContent(
   newContent: string,
   registerPost: (postId: string, threadId: string) => void
 ): Promise<string> {
-  // Wait for any in-progress task list creation to complete first.
-  // This prevents race conditions where TodoWrite and bump operations
-  // both try to create/modify the task list simultaneously.
-  if (session.taskListCreationPromise) {
-    await session.taskListCreationPromise;
-  }
-
-  // Acquire the lock for this operation
-  let resolveCreation: (() => void) | undefined;
-  session.taskListCreationPromise = new Promise((resolve) => {
-    resolveCreation = resolve;
-  });
+  // Acquire the lock atomically - this prevents race conditions where
+  // multiple concurrent calls could both proceed simultaneously.
+  const releaseLock = await acquireTaskListLock(session);
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- caller checks tasksPostId exists
@@ -485,10 +531,7 @@ async function bumpTasksToBottomWithContent(
     return oldTasksPostId;
   } finally {
     // Release the lock so other callers can proceed
-    if (resolveCreation) {
-      resolveCreation();
-    }
-    session.taskListCreationPromise = undefined;
+    releaseLock();
   }
 }
 
@@ -505,6 +548,7 @@ export async function bumpTasksToBottom(
   session: Session,
   registerPost?: (postId: string, threadId: string) => void
 ): Promise<void> {
+  // Early exit checks (before acquiring lock)
   if (!session.tasksPostId || !session.lastTasksContent) {
     sessionLog(session).debug('No task list to bump');
     return; // No task list to bump
@@ -516,26 +560,16 @@ export async function bumpTasksToBottom(
     return;
   }
 
-  // Wait for any in-progress task list creation to complete first.
-  // This prevents race conditions where TodoWrite and bump operations
-  // both try to create/modify the task list simultaneously.
-  if (session.taskListCreationPromise) {
-    await session.taskListCreationPromise;
-  }
-
-  // Re-check conditions after awaiting (state may have changed)
-  if (!session.tasksPostId || !session.lastTasksContent || session.tasksCompleted) {
-    sessionLog(session).debug('Task list state changed while waiting for lock');
-    return;
-  }
-
-  // Acquire the lock for this operation
-  let resolveCreation: (() => void) | undefined;
-  session.taskListCreationPromise = new Promise((resolve) => {
-    resolveCreation = resolve;
-  });
+  // Acquire the lock atomically - this prevents race conditions where
+  // multiple concurrent calls could both proceed simultaneously.
+  const releaseLock = await acquireTaskListLock(session);
 
   try {
+    // Re-check conditions after acquiring lock (state may have changed)
+    if (!session.tasksPostId || !session.lastTasksContent || session.tasksCompleted) {
+      sessionLog(session).debug('Task list state changed while waiting for lock');
+      return;
+    }
     const oldPostId = session.tasksPostId;
     sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
 
@@ -568,10 +602,7 @@ export async function bumpTasksToBottom(
     sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
   } finally {
     // Release the lock so other callers can proceed
-    if (resolveCreation) {
-      resolveCreation();
-    }
-    session.taskListCreationPromise = undefined;
+    releaseLock();
   }
 }
 

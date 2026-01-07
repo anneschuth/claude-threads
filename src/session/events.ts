@@ -18,6 +18,7 @@ import {
 import {
   shouldFlushEarly,
   MIN_BREAK_THRESHOLD,
+  acquireTaskListLock,
 } from './streaming.js';
 import { withErrorHandling } from './error-handler.js';
 import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
@@ -454,24 +455,36 @@ async function handleExitPlanMode(
 /**
  * Handle TodoWrite tool use - update task list display.
  *
- * Uses a promise-based lock to prevent race conditions when multiple
+ * Uses an atomic promise-based lock to prevent race conditions when multiple
  * TodoWrite events are processed concurrently (which happens because
- * handleEvent doesn't await async handlers). Without this lock, two
- * concurrent calls could both see tasksPostId as null and create
- * duplicate task list posts.
+ * handleEvent doesn't await async handlers). The lock ensures that only one
+ * call can create/update the task list at a time, preventing duplicate posts.
  */
 async function handleTodoWrite(
   session: Session,
   input: Record<string, unknown>,
   ctx: SessionContext
 ): Promise<void> {
-  // Wait for any in-progress task list creation to complete first.
-  // This prevents race conditions where multiple TodoWrite events
-  // fire before tasksPostId is set, causing duplicate posts.
-  if (session.taskListCreationPromise) {
-    await session.taskListCreationPromise;
-  }
+  // Acquire the lock atomically at the start - this prevents race conditions
+  // where multiple concurrent calls could both see tasksPostId as null and
+  // both proceed to create task posts.
+  const releaseLock = await acquireTaskListLock(session);
 
+  try {
+    await handleTodoWriteWithLock(session, input, ctx);
+  } finally {
+    releaseLock();
+  }
+}
+
+/**
+ * Internal implementation of handleTodoWrite, called while holding the lock.
+ */
+async function handleTodoWriteWithLock(
+  session: Session,
+  input: Record<string, unknown>,
+  ctx: SessionContext
+): Promise<void> {
   const todos = input.todos as Array<{
     content: string;
     status: 'pending' | 'in_progress' | 'completed';
@@ -576,6 +589,7 @@ async function handleTodoWrite(
   const displayMessage = session.tasksMinimized ? minimizedMessage : fullMessage;
 
   // Update or create tasks post
+  // Note: We already hold the lock from handleTodoWrite, so this is safe
   const existingTasksPostId = session.tasksPostId;
   if (existingTasksPostId) {
     await withErrorHandling(
@@ -584,36 +598,22 @@ async function handleTodoWrite(
     );
   } else {
     // Create with toggle emoji reaction so users can click to collapse.
-    // Use a promise lock to prevent concurrent calls from creating duplicates.
-    let resolveCreation: (() => void) | undefined;
-    session.taskListCreationPromise = new Promise((resolve) => {
-      resolveCreation = resolve;
-    });
-
-    try {
-      const post = await withErrorHandling(
-        () => session.platform.createInteractivePost(
-          displayMessage,
-          [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
-          session.threadId
-        ),
-        { action: 'Create tasks post', session }
-      );
-      if (post) {
-        session.tasksPostId = post.id;
-        // Register the task post so reaction clicks are routed to this session
-        ctx.ops.registerPost(post.id, session.threadId);
-        // Track for jump-to-bottom links
-        updateLastMessage(session, post);
-        // Pin the task post for easy access
-        await session.platform.pinPost(post.id).catch(() => {});
-      }
-    } finally {
-      // Release the lock so other callers can proceed
-      if (resolveCreation) {
-        resolveCreation();
-      }
-      session.taskListCreationPromise = undefined;
+    const post = await withErrorHandling(
+      () => session.platform.createInteractivePost(
+        displayMessage,
+        [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+        session.threadId
+      ),
+      { action: 'Create tasks post', session }
+    );
+    if (post) {
+      session.tasksPostId = post.id;
+      // Register the task post so reaction clicks are routed to this session
+      ctx.ops.registerPost(post.id, session.threadId);
+      // Track for jump-to-bottom links
+      updateLastMessage(session, post);
+      // Pin the task post for easy access
+      await session.platform.pinPost(post.id).catch(() => {});
     }
   }
   // Update sticky message with new task progress

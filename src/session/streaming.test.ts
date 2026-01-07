@@ -10,6 +10,7 @@ import {
   shouldFlushEarly,
   endsAtBreakpoint,
   getCodeBlockState,
+  acquireTaskListLock,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -363,6 +364,126 @@ describe('bumpTasksToBottom', () => {
     // Verify the order: lock released first, then post creation
     expect(executionOrder[0]).toBe('existing_lock_released');
     expect(executionOrder).toContain('createInteractivePost');
+  });
+});
+
+describe('acquireTaskListLock', () => {
+  let session: Session;
+
+  beforeEach(() => {
+    const platform = createMockPlatform();
+    session = createTestSession(platform);
+  });
+
+  test('acquires lock atomically - prevents check-then-act race condition', async () => {
+    // This test verifies the fix for the duplicate task list bug.
+    // The bug occurred because the old lock pattern had a gap between
+    // checking if a lock exists and creating a new lock, allowing two
+    // concurrent calls to both see "no lock" and both proceed.
+
+    const executionOrder: string[] = [];
+    let callCount = 0;
+
+    // Simulate two concurrent critical sections
+    async function criticalSection(id: string) {
+      callCount++;
+      const myCallNum = callCount;
+      executionOrder.push(`${id}_start_${myCallNum}`);
+
+      const releaseLock = await acquireTaskListLock(session);
+      executionOrder.push(`${id}_acquired_${myCallNum}`);
+
+      // Simulate some async work
+      await new Promise(resolve => setTimeout(resolve, 20));
+
+      executionOrder.push(`${id}_done_${myCallNum}`);
+      releaseLock();
+    }
+
+    // Fire both concurrently - this is the race condition scenario
+    const p1 = criticalSection('A');
+    const p2 = criticalSection('B');
+
+    await Promise.all([p1, p2]);
+
+    // Both should start immediately (synchronous part)
+    expect(executionOrder[0]).toBe('A_start_1');
+    expect(executionOrder[1]).toBe('B_start_2');
+
+    // But only one should acquire at a time - verify sequential execution
+    // A_acquired should come before B_acquired (or vice versa), and
+    // whichever acquires first should complete before the other acquires
+    const aAcquiredIdx = executionOrder.indexOf('A_acquired_1');
+    const bAcquiredIdx = executionOrder.indexOf('B_acquired_2');
+    const aDoneIdx = executionOrder.indexOf('A_done_1');
+    const bDoneIdx = executionOrder.indexOf('B_done_2');
+
+    // If A acquired first, A should be done before B acquires (and vice versa)
+    if (aAcquiredIdx < bAcquiredIdx) {
+      expect(aDoneIdx).toBeLessThan(bAcquiredIdx);
+    } else {
+      expect(bDoneIdx).toBeLessThan(aAcquiredIdx);
+    }
+  });
+
+  test('multiple concurrent locks are properly serialized', async () => {
+    const results: number[] = [];
+
+    async function acquireAndRecord(value: number) {
+      const releaseLock = await acquireTaskListLock(session);
+      // The value should be pushed only while we hold the lock
+      results.push(value);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      releaseLock();
+    }
+
+    // Fire 5 concurrent lock acquisitions
+    await Promise.all([
+      acquireAndRecord(1),
+      acquireAndRecord(2),
+      acquireAndRecord(3),
+      acquireAndRecord(4),
+      acquireAndRecord(5),
+    ]);
+
+    // All 5 values should be recorded (none lost due to race)
+    expect(results).toHaveLength(5);
+    expect(results.sort()).toEqual([1, 2, 3, 4, 5]);
+  });
+
+  test('lock release allows next caller to proceed', async () => {
+    const events: string[] = [];
+
+    // First acquire
+    const release1 = await acquireTaskListLock(session);
+    events.push('lock1_acquired');
+
+    // Start second acquire (will wait)
+    const lock2Promise = acquireTaskListLock(session).then(release => {
+      events.push('lock2_acquired');
+      return release;
+    });
+
+    // Give time for lock2 to start waiting
+    await new Promise(resolve => setTimeout(resolve, 5));
+    expect(events).toEqual(['lock1_acquired']);
+
+    // Release first lock
+    release1();
+    events.push('lock1_released');
+
+    // Wait for second lock
+    const release2 = await lock2Promise;
+    release2();
+    events.push('lock2_released');
+
+    // Verify sequence
+    expect(events).toEqual([
+      'lock1_acquired',
+      'lock1_released',
+      'lock2_acquired',
+      'lock2_released',
+    ]);
   });
 });
 
