@@ -9,6 +9,8 @@ import {
   handleMessageApprovalReaction,
   handleTaskToggleReaction,
   handleExistingWorktreeReaction,
+  handleUpdateReaction,
+  type UpdateReactionHandler,
 } from './reactions.js';
 import type { Session } from './types.js';
 import type { SessionContext } from './context.js';
@@ -512,5 +514,93 @@ describe('handleExistingWorktreeReaction', () => {
     expect(result).toBe(true);
     expect(session.pendingExistingWorktreePrompt).toBeUndefined();
     expect(switchToWorktree).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// handleUpdateReaction tests
+// ---------------------------------------------------------------------------
+
+describe('handleUpdateReaction', () => {
+  let platform: ReturnType<typeof createMockPlatform>;
+  let session: Session;
+  let ctx: SessionContext;
+  let updateHandler: UpdateReactionHandler;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createMockContext();
+    updateHandler = {
+      forceUpdate: mock(async () => {}),
+      deferUpdate: mock(() => {}),
+    };
+  });
+
+  test('returns false if no pending prompt', async () => {
+    session.pendingUpdatePrompt = undefined;
+    const result = await handleUpdateReaction(session, 'post1', '+1', 'testuser', ctx, updateHandler);
+    expect(result).toBe(false);
+  });
+
+  test('returns false if wrong post', async () => {
+    session.pendingUpdatePrompt = { postId: 'post2' };
+    const result = await handleUpdateReaction(session, 'post1', '+1', 'testuser', ctx, updateHandler);
+    expect(result).toBe(false);
+  });
+
+  test('returns false if non-owner tries to respond', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+    const result = await handleUpdateReaction(session, 'post1', '+1', 'otheruser', ctx, updateHandler);
+    expect(result).toBe(false);
+  });
+
+  test('returns false for unrelated emoji', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+    const result = await handleUpdateReaction(session, 'post1', 'smile', 'testuser', ctx, updateHandler);
+    expect(result).toBe(false);
+  });
+
+  test('triggers force update on approval emoji', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+
+    const result = await handleUpdateReaction(session, 'post1', '+1', 'testuser', ctx, updateHandler);
+
+    expect(result).toBe(true);
+    expect(session.pendingUpdatePrompt).toBeUndefined();
+    expect(updateHandler.forceUpdate).toHaveBeenCalled();
+    expect(updateHandler.deferUpdate).not.toHaveBeenCalled();
+    expect(platform.updatePost).toHaveBeenCalledWith('post1', expect.stringContaining('Forcing update'));
+  });
+
+  test('triggers defer on denial emoji', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+
+    const result = await handleUpdateReaction(session, 'post1', '-1', 'testuser', ctx, updateHandler);
+
+    expect(result).toBe(true);
+    expect(session.pendingUpdatePrompt).toBeUndefined();
+    expect(updateHandler.deferUpdate).toHaveBeenCalledWith(60);
+    expect(updateHandler.forceUpdate).not.toHaveBeenCalled();
+    expect(platform.updatePost).toHaveBeenCalledWith('post1', expect.stringContaining('Update deferred'));
+  });
+
+  test('allows globally allowed users to respond', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+    // Mock isUserAllowed to return true for 'alloweduser'
+    (platform as any).isUserAllowed = mock((username: string) => username === 'alloweduser');
+
+    const result = await handleUpdateReaction(session, 'post1', '+1', 'alloweduser', ctx, updateHandler);
+
+    expect(result).toBe(true);
+    expect(updateHandler.forceUpdate).toHaveBeenCalled();
+  });
+
+  test('persists session after handling', async () => {
+    session.pendingUpdatePrompt = { postId: 'post1' };
+
+    await handleUpdateReaction(session, 'post1', '+1', 'testuser', ctx, updateHandler);
+
+    expect(ctx.ops.persistSession).toHaveBeenCalledWith(session);
   });
 });

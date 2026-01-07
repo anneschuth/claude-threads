@@ -692,15 +692,22 @@ export async function showUpdateStatus(
     statusLine = `Mode: ${config.autoRestartMode}`;
   }
 
-  await postInfo(session,
+  const message =
     `🔄 ${formatter.formatBold('Update available')}\n\n` +
     `Current: v${updateInfo.currentVersion}\n` +
     `Latest: v${updateInfo.latestVersion}\n` +
     `${statusLine}\n\n` +
-    `Commands:\n` +
-    `• ${formatter.formatCode('!update now')} - Update immediately\n` +
-    `• ${formatter.formatCode('!update defer')} - Defer for 1 hour`
+    `React: 👍 Update now | 👎 Defer for 1 hour`;
+
+  // Create interactive post with reaction options
+  const post = await session.platform.createInteractivePost(
+    message,
+    [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
+    session.threadId
   );
+
+  // Store pending update prompt for reaction handling
+  session.pendingUpdatePrompt = { postId: post.id };
 }
 
 /**

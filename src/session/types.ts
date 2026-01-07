@@ -92,6 +92,13 @@ export interface PendingExistingWorktreePrompt {
   username: string;  // User who triggered the prompt
 }
 
+/**
+ * Pending update prompt asking user to update now or defer
+ */
+export interface PendingUpdatePrompt {
+  postId: string;
+}
+
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -189,6 +196,9 @@ export interface Session {
   // Thread context prompt support
   pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
+
+  // Update prompt support
+  pendingUpdatePrompt?: PendingUpdatePrompt; // Waiting for user to confirm update now/defer
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)

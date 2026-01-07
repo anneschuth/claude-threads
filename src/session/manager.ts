@@ -470,6 +470,25 @@ export class SessionManager extends EventEmitter {
       if (handled) return;
     }
 
+    // Handle update prompt reactions (only on add)
+    if (action === 'added' && session.pendingUpdatePrompt?.postId === postId) {
+      if (this.autoUpdateManager) {
+        const updateHandler: reactions.UpdateReactionHandler = {
+          forceUpdate: () => this.autoUpdateManager!.forceUpdate(),
+          deferUpdate: (minutes: number) => this.autoUpdateManager!.deferUpdate(minutes),
+        };
+        const handled = await reactions.handleUpdateReaction(
+          session,
+          postId,
+          emojiName,
+          username,
+          this.getContext(),
+          updateHandler
+        );
+        if (handled) return;
+      }
+    }
+
     // Handle context prompt reactions (only on add)
     if (action === 'added' && session.pendingContextPrompt?.postId === postId) {
       await this.handleContextPromptReaction(session, emojiName, username);
