@@ -117,6 +117,7 @@ export async function handleMessage(
             [code('!worktree list'), 'List all worktrees for the repo'],
             [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
             [code('!worktree remove <branch>'), 'Remove a worktree'],
+            [code('!worktree cleanup'), 'Delete current worktree and switch back to repo'],
             [code('!worktree off'), 'Disable worktree prompts for this session'],
             [code('!invite @user'), 'Invite a user to this session'],
             [code('!kick @user'), 'Remove an invited user'],
@@ -215,6 +216,9 @@ export async function handleMessage(
             break;
           case 'off':
             await session.disableWorktreePrompt(threadRoot, username);
+            break;
+          case 'cleanup':
+            await session.cleanupWorktreeCommand(threadRoot, username);
             break;
           default:
             // Treat as branch name: !worktree feature/foo

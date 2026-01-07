@@ -14,7 +14,7 @@ function createMockPlatform(platformId = 'test-platform') {
   const posts: Map<string, string> = new Map();
   let postIdCounter = 1;
 
-  const mockPlatform = {
+  const mockPlatform: any = {
     platformId,
     platformType: 'mattermost',
     displayName: 'Test Platform',

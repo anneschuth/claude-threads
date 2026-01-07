@@ -17,6 +17,8 @@ import {
   getWorktreeDir,
   findWorktreeByBranch,
   isValidBranchName,
+  writeWorktreeMetadata,
+  isValidWorktreePath,
 } from '../git/worktree.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -213,6 +215,7 @@ export async function createAndSwitchToWorktree(
     appendSystemPrompt?: string;
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
+    registerWorktreeUser?: (worktreePath: string, sessionId: string) => void;
   }
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
@@ -269,6 +272,8 @@ export async function createAndSwitchToWorktree(
         worktreePath: existing.path,
         branch: existing.branch,
       };
+      // Not the owner since we're joining an existing worktree
+      session.isWorktreeOwner = false;
 
       // Restart Claude CLI in the worktree directory if running
       if (session.claude.isRunning()) {
@@ -364,6 +369,15 @@ export async function createAndSwitchToWorktree(
     // Create the worktree
     await createGitWorktree(repoRoot, branch, worktreePath);
 
+    // Write metadata file for cleanup tracking
+    await writeWorktreeMetadata(worktreePath, {
+      repoRoot,
+      branch,
+      createdAt: new Date().toISOString(),
+      lastActivityAt: new Date().toISOString(),
+      sessionId: session.sessionId,
+    });
+
     // Update the prompt post if it exists
     const worktreePromptId = session.worktreePromptPostId;
     if (worktreePromptId) {
@@ -389,6 +403,11 @@ export async function createAndSwitchToWorktree(
       worktreePath,
       branch,
     };
+    // Mark this session as the owner since we CREATED this worktree
+    session.isWorktreeOwner = true;
+
+    // Register this session as using the worktree (for reference counting)
+    options.registerWorktreeUser?.(worktreePath, session.sessionId);
 
     // Update working directory
     session.workingDir = worktreePath;
@@ -543,6 +562,8 @@ export async function switchToWorktree(
     worktreePath: target.path,
     branch: target.branch,
   };
+  // Not the owner since we're switching to (joining) an existing worktree
+  session.isWorktreeOwner = false;
 }
 
 /**
@@ -660,4 +681,133 @@ export async function disableWorktreePrompt(
 
   await postSuccess(session, `Worktree prompts disabled for this session`);
   sessionLog(session).info(`🌿 Worktree prompts disabled`);
+}
+
+// ---------------------------------------------------------------------------
+// Worktree Cleanup
+// ---------------------------------------------------------------------------
+
+/**
+ * Result of worktree cleanup attempt
+ */
+export interface CleanupResult {
+  success: boolean;
+  error?: string;
+}
+
+/**
+ * Manually clean up the current session's worktree.
+ * Called via !worktree cleanup command.
+ *
+ * This allows users to explicitly delete their worktree when they're done.
+ * The session will be switched back to the original repo root.
+ */
+export async function cleanupWorktreeCommand(
+  session: Session,
+  username: string,
+  hasOtherSessionsUsingWorktree: (worktreePath: string, excludeSessionId: string) => boolean,
+  changeDirectory: (threadId: string, path: string, username: string) => Promise<void>
+): Promise<void> {
+  // Only session owner or admins can manage worktrees
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to cleanup worktree`);
+    return;
+  }
+
+  // Check if we're in a worktree
+  if (!session.worktreeInfo) {
+    await postWarning(session, `Not currently in a worktree. Nothing to clean up.`);
+    return;
+  }
+
+  const { worktreePath, repoRoot, branch } = session.worktreeInfo;
+
+  // Path safety check - must be in ~/.claude-threads/worktrees/
+  if (!isValidWorktreePath(worktreePath)) {
+    await postError(session, `Cannot cleanup: worktree is not in the centralized location (~/.claude-threads/worktrees/)`);
+    sessionLog(session).warn(`🌿 Invalid worktree path for cleanup: ${worktreePath}`);
+    return;
+  }
+
+  // Check for other sessions using this worktree
+  if (hasOtherSessionsUsingWorktree(worktreePath, session.sessionId)) {
+    await postWarning(session, `Cannot cleanup: other sessions are still using this worktree`);
+    sessionLog(session).info(`🌿 Skipping cleanup - other sessions using worktree`);
+    return;
+  }
+
+  // Switch to original repo root first
+  await postInfo(session, `Switching back to \`${repoRoot}\` before cleanup...`);
+  await changeDirectory(session.threadId, repoRoot, username);
+
+  // Clear worktree info from session
+  session.worktreeInfo = undefined;
+  session.isWorktreeOwner = undefined;
+
+  // Attempt cleanup
+  try {
+    sessionLog(session).info(`🗑️ Cleaning up worktree: ${worktreePath}`);
+    await removeGitWorktree(repoRoot, worktreePath);
+
+    const shortPath = worktreePath.replace(process.env.HOME || '', '~');
+    await postSuccess(session, `Cleaned up worktree \`${branch}\` at \`${shortPath}\``);
+    sessionLog(session).info(`✅ Worktree cleaned up successfully`);
+  } catch (err) {
+    await logAndNotify(err, { action: 'Cleanup worktree', session });
+  }
+}
+
+/**
+ * Clean up a worktree when a session ends.
+ *
+ * Cleanup only happens when:
+ * - Session has a worktree
+ * - Session is the worktree owner (created it, not joined)
+ * - No other sessions are using the worktree
+ * - Worktree path is in the centralized location
+ *
+ * @param session - The session that's ending
+ * @param hasOtherSessionsUsingWorktree - Callback to check if other sessions use this worktree
+ * @returns Result indicating success or failure
+ */
+export async function cleanupWorktree(
+  session: Session,
+  hasOtherSessionsUsingWorktree: (worktreePath: string, excludeSessionId: string) => boolean
+): Promise<CleanupResult> {
+  // Check preconditions
+  if (!session.worktreeInfo) {
+    return { success: true };
+  }
+
+  if (!session.isWorktreeOwner) {
+    sessionLog(session).debug('Skipping cleanup - session is not worktree owner');
+    return { success: true };
+  }
+
+  const { worktreePath, repoRoot } = session.worktreeInfo;
+
+  // Path safety check - must be in ~/.claude-threads/worktrees/
+  if (!isValidWorktreePath(worktreePath)) {
+    sessionLog(session).warn(`Invalid worktree path, skipping cleanup: ${worktreePath}`);
+    return { success: false, error: 'Invalid path pattern - not in centralized worktrees directory' };
+  }
+
+  // Check for other sessions using this worktree
+  if (hasOtherSessionsUsingWorktree(worktreePath, session.sessionId)) {
+    sessionLog(session).info('Skipping cleanup - other sessions using worktree');
+    return { success: true };
+  }
+
+  // Attempt cleanup
+  try {
+    sessionLog(session).info(`🗑️ Cleaning up worktree: ${worktreePath}`);
+    await removeGitWorktree(repoRoot, worktreePath);
+    sessionLog(session).info(`✅ Worktree cleaned up successfully`);
+    return { success: true };
+  } catch (err) {
+    const errorMsg = err instanceof Error ? err.message : String(err);
+    sessionLog(session).warn(`Worktree cleanup failed: ${errorMsg}`);
+    return { success: false, error: errorMsg };
+  }
 }

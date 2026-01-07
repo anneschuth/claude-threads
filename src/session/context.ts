@@ -165,6 +165,15 @@ export interface SessionOperations {
   /** Post worktree prompt to session thread */
   postWorktreePrompt(session: Session, reason: string): Promise<void>;
 
+  /** Register a session as using a worktree */
+  registerWorktreeUser(worktreePath: string, sessionId: string): void;
+
+  /** Unregister a session from using a worktree */
+  unregisterWorktreeUser(worktreePath: string, sessionId: string): void;
+
+  /** Check if other sessions are using a worktree (besides the given session) */
+  hasOtherSessionsUsingWorktree(worktreePath: string, excludeSessionId: string): boolean;
+
   // ---------------------------------------------------------------------------
   // Context Prompt
   // ---------------------------------------------------------------------------

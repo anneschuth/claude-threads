@@ -144,6 +144,9 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       emitSessionAdd: mock(() => {}),
       emitSessionUpdate: mock(() => {}),
       emitSessionRemove: mock(() => {}),
+      registerWorktreeUser: mock(() => {}),
+      unregisterWorktreeUser: mock(() => {}),
+      hasOtherSessionsUsingWorktree: mock(() => false),
     },
   };
 }

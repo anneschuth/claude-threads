@@ -499,6 +499,7 @@ export async function resumeSession(
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     worktreeInfo: state.worktreeInfo,
+    isWorktreeOwner: state.isWorktreeOwner,
     pendingWorktreePrompt: state.pendingWorktreePrompt,
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
@@ -516,6 +517,11 @@ export async function resumeSession(
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
+
+  // Register worktree user for reference counting (if session has a worktree)
+  if (session.worktreeInfo) {
+    ctx.ops.registerWorktreeUser(session.worktreeInfo.worktreePath, sessionId);
+  }
   if (state.sessionStartPostId) {
     ctx.ops.registerPost(state.sessionStartPostId, state.threadId);
   }
@@ -787,6 +793,11 @@ export async function handleExit(
     const resumeFailFormatter = session.platform.getFormatter();
     if (isPermanent) {
       sessionLog(session).warn(`Detected permanent failure, removing from persistence: ${permanentReason}`);
+      // Unregister from worktree but don't cleanup - user may want to recover work
+      // Orphan cleanup will handle it after 24h
+      if (session.worktreeInfo) {
+        ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
+      }
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
         () => postError(session, `${resumeFailFormatter.formatBold('Session cannot be resumed')} — ${permanentReason}\n\nPlease start a new session.`),
@@ -799,6 +810,11 @@ export async function handleExit(
     if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence
       sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
+      // Unregister from worktree but don't cleanup - user may want to recover work
+      // Orphan cleanup will handle it after 24h
+      if (session.worktreeInfo) {
+        ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
+      }
       ctx.ops.unpersistSession(session.sessionId);
       await withErrorHandling(
         () => postError(session, `${resumeFailFormatter.formatBold('Session permanently failed')} after ${MAX_RESUME_FAILURES} resume attempts (exit code ${code}). Session data has been removed. Please start a new session.`),
@@ -834,6 +850,14 @@ export async function handleExit(
   if (code !== 0 && code !== null) {
     const exitFormatter = session.platform.getFormatter();
     await postInfo(session, exitFormatter.formatBold(`[Exited: ${code}]`));
+  }
+
+  // Unregister from worktree reference counting, but DON'T cleanup automatically
+  // Worktrees are preserved for potential reuse - cleanup happens via:
+  // - !worktree cleanup command (manual)
+  // - Orphan cleanup on startup (worktrees > 24h old with no session)
+  if (session.worktreeInfo) {
+    ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
   // Clean up session from maps
@@ -876,6 +900,12 @@ export async function killSession(
   // Unpin task post on session kill
   if (session.tasksPostId) {
     await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  }
+
+  // Unregister from worktree reference counting, but DON'T cleanup automatically
+  // Worktrees are preserved for potential reuse - cleanup via !worktree cleanup or orphan cleanup
+  if (unpersist && session.worktreeInfo) {
+    ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
   // Clean up session from maps
