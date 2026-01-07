@@ -1327,6 +1327,89 @@ export class SessionManager extends EventEmitter {
     stickyMessage.setShuttingDown(true);
   }
 
+  // ---------------------------------------------------------------------------
+  // Auto-update support methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Get session activity info for auto-update scheduling.
+   * Returns the number of active sessions, last activity time, and busy state.
+   */
+  getActivityInfo(): { activeSessionCount: number; lastActivityAt: Date | null; anySessionBusy: boolean } {
+    const sessions = [...this.sessions.values()];
+
+    if (sessions.length === 0) {
+      return {
+        activeSessionCount: 0,
+        lastActivityAt: null,
+        anySessionBusy: false,
+      };
+    }
+
+    // Find the most recent activity across all sessions
+    let lastActivity: Date | null = null;
+    let anyBusy = false;
+
+    for (const session of sessions) {
+      if (!lastActivity || session.lastActivityAt > lastActivity) {
+        lastActivity = session.lastActivityAt;
+      }
+      // A session is "busy" if it's typing (Claude is processing)
+      if (session.typingTimer !== null) {
+        anyBusy = true;
+      }
+    }
+
+    return {
+      activeSessionCount: sessions.length,
+      lastActivityAt: lastActivity,
+      anySessionBusy: anyBusy,
+    };
+  }
+
+  /**
+   * Broadcast a message to all active sessions.
+   * Used for update notifications.
+   */
+  async broadcastToAll(message: string): Promise<void> {
+    for (const session of this.sessions.values()) {
+      try {
+        await postInfo(session, message);
+      } catch (err) {
+        log.warn(`Failed to broadcast to session ${session.threadId}: ${err}`);
+      }
+    }
+  }
+
+  /**
+   * Post update approval request to specific threads (for 'ask' mode).
+   * Returns the post IDs for reaction tracking.
+   */
+  async postUpdateAskMessage(threadIds: string[], version: string): Promise<void> {
+    for (const threadId of threadIds) {
+      const session = this.findSessionByThreadId(threadId);
+      if (!session) continue;
+
+      try {
+        const fmt = session.platform.getFormatter();
+        const message =
+          `🔄 ${fmt.formatBold('Update available:')} v${version}\n\n` +
+          `React: 👍 to update now | 👎 to defer for 1 hour\n` +
+          fmt.formatItalic('Update will proceed automatically after timeout if no response');
+
+        const post = await session.platform.createInteractivePost(
+          message,
+          ['👍', '👎'],
+          session.threadId
+        );
+
+        this.registerPost(post.id, session.threadId);
+      } catch (err) {
+        log.warn(`Failed to post ask message to ${threadId}: ${err}`);
+      }
+    }
+  }
+
   // Shutdown
   async shutdown(message?: string): Promise<void> {
     this.isShuttingDown = true;

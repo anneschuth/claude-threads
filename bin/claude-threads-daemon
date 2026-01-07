@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+#
+# claude-threads-daemon - Auto-restart wrapper for claude-threads
+#
+# This script runs claude-threads and automatically restarts it when
+# it exits with code 42 (the special "update restart" signal).
+#
+# For other exit codes:
+# - 0: Clean exit, don't restart
+# - 1+: Error, optional restart based on flags
+#
+# Usage:
+#   claude-threads-daemon [options]
+#   claude-threads-daemon --restart-on-error  # Also restart on errors
+#   claude-threads-daemon --max-restarts 10   # Limit restart count
+#
+# Environment variables:
+#   CLAUDE_THREADS_MAX_RESTARTS - Maximum restart attempts (default: unlimited)
+#   CLAUDE_THREADS_RESTART_DELAY - Delay between restarts in seconds (default: 2)
+#
+
+set -e
+
+# Exit code that signals "restart for update"
+RESTART_EXIT_CODE=42
+
+# Configuration
+MAX_RESTARTS=${CLAUDE_THREADS_MAX_RESTARTS:-0}  # 0 = unlimited
+RESTART_DELAY=${CLAUDE_THREADS_RESTART_DELAY:-2}
+RESTART_ON_ERROR=false
+VERBOSE=false
+
+# Track restart count
+restart_count=0
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --restart-on-error)
+            RESTART_ON_ERROR=true
+            shift
+            ;;
+        --max-restarts)
+            MAX_RESTARTS="$2"
+            shift 2
+            ;;
+        --restart-delay)
+            RESTART_DELAY="$2"
+            shift 2
+            ;;
+        --verbose|-v)
+            VERBOSE=true
+            shift
+            ;;
+        --help|-h)
+            echo "claude-threads-daemon - Auto-restart wrapper for claude-threads"
+            echo ""
+            echo "Usage: claude-threads-daemon [options]"
+            echo ""
+            echo "Options:"
+            echo "  --restart-on-error    Also restart on non-zero exit codes"
+            echo "  --max-restarts N      Maximum number of restarts (default: unlimited)"
+            echo "  --restart-delay N     Seconds to wait between restarts (default: 2)"
+            echo "  --verbose, -v         Print debug information"
+            echo "  --help, -h            Show this help message"
+            echo ""
+            echo "Exit codes:"
+            echo "  0     Clean exit, no restart"
+            echo "  42    Update restart signal (always restarts)"
+            echo "  other Error (restarts only with --restart-on-error)"
+            exit 0
+            ;;
+        *)
+            # Pass through to claude-threads
+            break
+            ;;
+    esac
+done
+
+log() {
+    if [ "$VERBOSE" = true ]; then
+        echo "[daemon] $*" >&2
+    fi
+}
+
+log "Starting claude-threads daemon"
+log "Max restarts: ${MAX_RESTARTS:-unlimited}"
+log "Restart delay: ${RESTART_DELAY}s"
+log "Restart on error: $RESTART_ON_ERROR"
+
+while true; do
+    log "Starting claude-threads (restart #$restart_count)..."
+
+    # Run claude-threads with any remaining arguments
+    set +e
+    claude-threads "$@"
+    exit_code=$?
+    set -e
+
+    log "claude-threads exited with code $exit_code"
+
+    # Check if we should restart
+    should_restart=false
+
+    if [ $exit_code -eq $RESTART_EXIT_CODE ]; then
+        # Exit code 42 = restart for update
+        log "Received update restart signal"
+        should_restart=true
+    elif [ $exit_code -eq 0 ]; then
+        # Clean exit
+        log "Clean exit, not restarting"
+        should_restart=false
+    elif [ "$RESTART_ON_ERROR" = true ]; then
+        # Error exit with restart-on-error enabled
+        log "Error exit, restarting due to --restart-on-error"
+        should_restart=true
+    fi
+
+    if [ "$should_restart" = false ]; then
+        log "Exiting daemon with code $exit_code"
+        exit $exit_code
+    fi
+
+    # Check max restarts
+    if [ $MAX_RESTARTS -gt 0 ]; then
+        restart_count=$((restart_count + 1))
+        if [ $restart_count -ge $MAX_RESTARTS ]; then
+            echo "[daemon] Maximum restart count ($MAX_RESTARTS) reached, exiting" >&2
+            exit 1
+        fi
+    fi
+
+    # Wait before restart
+    log "Waiting ${RESTART_DELAY}s before restart..."
+    sleep "$RESTART_DELAY"
+done

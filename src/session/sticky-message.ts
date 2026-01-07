@@ -128,6 +128,20 @@ export function formatPendingPrompts(session: Session): string | null {
 }
 
 /**
+ * Update status info for sticky message display
+ */
+export interface UpdateStatusInfo {
+  /** Whether an update is available */
+  available: boolean;
+  /** Latest version (if available) */
+  latestVersion?: string;
+  /** Current status: idle, available, scheduled, installing, etc. */
+  status: string;
+  /** Seconds until restart (if countdown active) */
+  countdownSeconds?: number;
+}
+
+/**
  * Configuration for sticky message status bar
  */
 export interface StickyMessageConfig {
@@ -137,6 +151,8 @@ export interface StickyMessageConfig {
   worktreeMode: WorktreeMode;
   workingDir: string;
   debug: boolean;
+  /** Optional update status info */
+  updateStatus?: UpdateStatusInfo;
 }
 
 // Store sticky post IDs per platform (in-memory cache)
@@ -355,6 +371,20 @@ async function buildStatusBar(
   // Show paused indicator for this platform
   if (pausedPlatforms.get(platformId)) {
     items.push(formatter.formatCode('⏸️ Platform paused'));
+  }
+
+  // Show update status if available
+  if (config.updateStatus?.available) {
+    const status = config.updateStatus;
+    if (status.countdownSeconds !== undefined && status.countdownSeconds > 0) {
+      items.push(formatter.formatCode(`🔄 Restarting in ${status.countdownSeconds}s`));
+    } else if (status.status === 'installing') {
+      items.push(formatter.formatCode(`📦 Installing v${status.latestVersion}...`));
+    } else if (status.status === 'available') {
+      items.push(formatter.formatCode(`🆕 Update: v${status.latestVersion}`));
+    } else if (status.status === 'deferred') {
+      items.push(formatter.formatCode(`⏸️ Update deferred`));
+    }
   }
 
   // Version (claude-threads + Claude CLI)

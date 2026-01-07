@@ -21,6 +21,7 @@ import { startUI, type UIInstance } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
+import { AutoUpdateManager } from './auto-update/index.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -199,6 +200,9 @@ async function main() {
   // Session manager reference (set after UI is ready)
   let sessionManager: SessionManager | null = null;
 
+  // Auto-update manager reference
+  let autoUpdateManager: AutoUpdateManager | null = null;
+
   // Start the Ink UI
   const ui: UIInstance = await startUI({
     config: {
@@ -356,6 +360,39 @@ async function main() {
   // Resume any persisted sessions from before restart
   await session.initialize();
 
+  // Initialize auto-update manager
+  autoUpdateManager = new AutoUpdateManager(config.autoUpdate, {
+    getSessionActivity: () => session.getActivityInfo(),
+    getActiveThreadIds: () => session.getActiveThreadIds(),
+    broadcastUpdate: (msg) => session.broadcastToAll(msg),
+    postAskMessage: (ids, ver) => session.postUpdateAskMessage(ids, ver),
+    refreshUI: () => session.updateAllStickyMessages(),
+  });
+
+  // Wire up auto-update events to UI
+  autoUpdateManager.on('update:available', (info) => {
+    ui.addLog({ level: 'info', component: '🆕', message: `Update available: v${info.currentVersion} → v${info.latestVersion}` });
+  });
+
+  autoUpdateManager.on('update:countdown', (seconds) => {
+    if (seconds === 60 || seconds === 30 || seconds === 10 || seconds <= 5) {
+      ui.addLog({ level: 'info', component: '🔄', message: `Restarting in ${seconds} seconds...` });
+    }
+  });
+
+  autoUpdateManager.on('update:status', (status, message) => {
+    if (message) {
+      ui.addLog({ level: 'info', component: '🔄', message: `Update status: ${status} - ${message}` });
+    }
+  });
+
+  autoUpdateManager.on('update:failed', (error) => {
+    ui.addLog({ level: 'error', component: '❌', message: `Update failed: ${error}` });
+  });
+
+  // Start auto-update system
+  autoUpdateManager.start();
+
   // Mark UI as ready
   ui.setReady();
 
@@ -385,6 +422,9 @@ async function main() {
     }
 
     await session.killAllSessions();
+
+    // Stop auto-update manager
+    autoUpdateManager?.stop();
 
     // Disconnect all platforms
     for (const client of platforms.values()) {
