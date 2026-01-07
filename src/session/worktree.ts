@@ -26,6 +26,7 @@ import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
 import { postWarning, postError, postSuccess, postInfo, resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
+import { shortenPath } from '../utils/tool-formatter.js';
 
 const log = createLogger('worktree');
 
@@ -244,7 +245,7 @@ export async function createAndSwitchToWorktree(
   // Check if worktree already exists for this branch
   const existing = await findWorktreeByBranch(repoRoot, branch);
   if (existing && !existing.isMain) {
-    const shortPath = existing.path.replace(process.env.HOME || '', '~');
+    const shortPath = shortenPath(existing.path, undefined, { path: existing.path, branch });
     const fmt = session.platform.getFormatter();
 
     // If user explicitly specified this branch inline (via "on branch X" or "!worktree X" in initial message),
@@ -473,7 +474,7 @@ export async function createAndSwitchToWorktree(
     await options.updateSessionHeader(session);
 
     // Post confirmation
-    const shortWorktreePath = worktreePath.replace(process.env.HOME || '', '~');
+    const shortWorktreePath = shortenPath(worktreePath, undefined, { path: worktreePath, branch });
     const fmt = session.platform.getFormatter();
     await postSuccess(session, `${fmt.formatBold('Created worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortWorktreePath)}\n${fmt.formatItalic('Claude Code restarted in the new worktree')}`);
 
@@ -613,7 +614,10 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   let message = `📋 ${fmt.formatBold('Worktrees for')} ${fmt.formatCode(shortRepoRoot)}:\n\n`;
 
   for (const wt of worktrees) {
-    const shortPath = wt.path.replace(process.env.HOME || '', '~');
+    // For main repo, keep the regular path; for worktrees, use [branch]/ format
+    const shortPath = wt.isMain
+      ? wt.path.replace(process.env.HOME || '', '~')
+      : shortenPath(wt.path, undefined, { path: wt.path, branch: wt.branch });
     const isCurrent = session.workingDir === wt.path;
     const marker = isCurrent ? ' ← current' : '';
     const label = wt.isMain ? '(main repository)' : '';
@@ -672,7 +676,7 @@ export async function removeWorktreeCommand(
   try {
     await removeGitWorktree(repoRoot, target.path);
 
-    const shortPath = target.path.replace(process.env.HOME || '', '~');
+    const shortPath = shortenPath(target.path, undefined, { path: target.path, branch: target.branch });
     await postSuccess(session, `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
 
     sessionLog(session).info(`🗑️ Removed worktree ${target.branch} at ${shortPath}`);
@@ -770,7 +774,7 @@ export async function cleanupWorktreeCommand(
     sessionLog(session).info(`🗑️ Cleaning up worktree: ${worktreePath}`);
     await removeGitWorktree(repoRoot, worktreePath);
 
-    const shortPath = worktreePath.replace(process.env.HOME || '', '~');
+    const shortPath = shortenPath(worktreePath, undefined, { path: worktreePath, branch });
     await postSuccess(session, `Cleaned up worktree \`${branch}\` at \`${shortPath}\``);
     sessionLog(session).info(`✅ Worktree cleaned up successfully`);
   } catch (err) {

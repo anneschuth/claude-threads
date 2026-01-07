@@ -29,6 +29,7 @@ import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
+import { shortenPath } from '../utils/tool-formatter.js';
 
 const log = createLogger('commands');
 
@@ -257,7 +258,11 @@ export async function changeDirectory(
     return;
   }
 
-  const shortDir = absoluteDir.replace(process.env.HOME || '', '~');
+  // Use worktree-aware path shortening if in a worktree
+  const worktreeContext = session.worktreeInfo
+    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
+    : undefined;
+  const shortDir = shortenPath(absoluteDir, undefined, worktreeContext);
   sessionLog(session).info(`📂 Changing directory to ${shortDir}`);
 
   // Update session working directory
@@ -506,8 +511,11 @@ export async function updateSessionHeader(
 
   const formatter = session.platform.getFormatter();
 
-  // Use session's working directory
-  const shortDir = session.workingDir.replace(process.env.HOME || '', '~');
+  // Use session's working directory (with worktree-aware shortening)
+  const worktreeContext = session.worktreeInfo
+    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
+    : undefined;
+  const shortDir = shortenPath(session.workingDir, undefined, worktreeContext);
   // Check session-level permission override
   const isInteractive = !ctx.config.skipPermissions || session.forceInteractivePermissions;
   const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';
