@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-01-07
+
+### Added
+- **Persist platform enabled state** - Platform enabled/disabled toggles (Shift+1-9) now persist across restarts. When you disable a platform, it stays disabled after bot restart.
+
 ## [0.43.0] - 2026-01-07
 
 ### Added
