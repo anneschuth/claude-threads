@@ -175,7 +175,10 @@ export class SessionManager extends EventEmitter {
     if (!this.worktreeUsers.has(worktreePath)) {
       this.worktreeUsers.set(worktreePath, new Set());
     }
-    this.worktreeUsers.get(worktreePath)!.add(sessionId);
+    const users = this.worktreeUsers.get(worktreePath);
+    if (users) {
+      users.add(sessionId);
+    }
     log.debug(`Registered session ${sessionId.substring(0, 20)} as worktree user for ${worktreePath}`);
   }
 

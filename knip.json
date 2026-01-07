@@ -8,10 +8,14 @@
   "project": ["src/**/*.ts", "src/**/*.tsx"],
   "ignore": [
     "src/**/*.test.ts",
+    "src/test-utils/**/*",
     "tests/**/*"
   ],
-  "ignoreDependencies": [
-    "@modelcontextprotocol/sdk",
-    "zod"
-  ]
+  "ignoreDependencies": [],
+  "ignoreBinaries": ["pkill", "sleep"],
+  "ignoreExportsUsedInFile": true,
+  "rules": {
+    "exports": "off",
+    "types": "off"
+  }
 }

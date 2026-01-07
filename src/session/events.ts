@@ -585,7 +585,7 @@ async function handleTodoWrite(
   } else {
     // Create with toggle emoji reaction so users can click to collapse.
     // Use a promise lock to prevent concurrent calls from creating duplicates.
-    let resolveCreation: () => void;
+    let resolveCreation: (() => void) | undefined;
     session.taskListCreationPromise = new Promise((resolve) => {
       resolveCreation = resolve;
     });
@@ -610,7 +610,9 @@ async function handleTodoWrite(
       }
     } finally {
       // Release the lock so other callers can proceed
-      resolveCreation!();
+      if (resolveCreation) {
+        resolveCreation();
+      }
       session.taskListCreationPromise = undefined;
     }
   }
@@ -724,8 +726,9 @@ async function handleCompactionComplete(
 
   if (session.compactionPostId) {
     // Update the existing compaction post
+    const postId = session.compactionPostId;
     await withErrorHandling(
-      () => session.platform.updatePost(session.compactionPostId!, completionMessage),
+      () => session.platform.updatePost(postId, completionMessage),
       { action: 'Update compaction complete', session }
     );
     session.compactionPostId = undefined;

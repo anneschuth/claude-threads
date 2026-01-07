@@ -23,6 +23,9 @@ jobs:
       - name: Run ESLint
         run: bun run lint
 
+      - name: Run Knip
+        run: bunx knip
+
   typecheck:
     runs-on: ubuntu-latest
 

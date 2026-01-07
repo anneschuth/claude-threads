@@ -554,9 +554,10 @@ export async function resumeSession(
     // Otherwise create a new post (normal for old persisted sessions without lifecyclePostId)
     const sessionFormatter = session.platform.getFormatter();
     if (session.lifecyclePostId) {
+      const postId = session.lifecyclePostId;
       const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')} by ${sessionFormatter.formatUserMention(session.startedBy)}\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
       await withErrorHandling(
-        () => session.platform.updatePost(session.lifecyclePostId!, resumeMsg),
+        () => session.platform.updatePost(postId, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
       );
       // Clear the lifecyclePostId since we're no longer in timeout/shutdown state
@@ -996,8 +997,9 @@ export async function cleanupIdleSessions(
       // Update existing warning post or create a new one
       if (session.lifecyclePostId) {
         // Update the existing warning post to show timeout
+        const postId = session.lifecyclePostId;
         await withErrorHandling(
-          () => session.platform.updatePost(session.lifecyclePostId!, `⏱️ ${timeoutMessage}`),
+          () => session.platform.updatePost(postId, `⏱️ ${timeoutMessage}`),
           { action: 'Update timeout post', session }
         );
       } else {
