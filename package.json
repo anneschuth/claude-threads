@@ -63,13 +63,13 @@
     "@modelcontextprotocol/sdk": "^1.25.1",
     "commander": "^14.0.2",
     "diff": "^8.0.2",
-    "ink": "^5.2.0",
+    "ink": "^6.6.0",
     "prompts": "^2.4.2",
-    "react": "^18.3.1",
+    "react": "^19.2.3",
     "react-devtools-core": "^7.0.1",
     "semver": "^7.7.3",
     "update-notifier": "^7.3.1",
-    "zod": "4.2.1"
+    "zod": "4.3.5"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
