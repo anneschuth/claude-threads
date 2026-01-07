@@ -556,9 +556,9 @@ export async function flush(
   const formatter = session.platform.getFormatter();
   let content = formatter.formatMarkdown(session.pendingContent).trim();
 
-  // Most chat platforms have post length limits (~16K)
-  const MAX_POST_LENGTH = 16000;  // Hard limit - leave some margin
-  const HARD_CONTINUATION_THRESHOLD = 14000;  // Absolute max before we force a break
+  // Get platform-specific message size limits
+  const { maxLength: MAX_POST_LENGTH, hardThreshold: HARD_CONTINUATION_THRESHOLD } =
+    session.platform.getMessageLimits();
 
   // Check if we should break early based on logical breakpoints
   // This helps avoid "Show More" collapse on some platforms
@@ -619,10 +619,18 @@ export async function flush(
         breakPoint = breakInfo.position;
       } else {
         // No good breakpoint found, just update the current post and wait
-        await withErrorHandling(
+        const result = await withErrorHandling(
           () => session.platform.updatePost(session.currentPostId!, content),
           { action: 'Update post (no breakpoint)', session }
         );
+
+        // If update failed, start a new message instead
+        if (result === undefined) {
+          sessionLog(session).warn('Update failed (no breakpoint), starting new message');
+          session.currentPostId = null;
+          session.currentPostContent = '';
+          return flush(session, registerPost);
+        }
         return;
       }
     }
@@ -646,20 +654,34 @@ export async function flush(
       : firstPart;
 
     // Update the current post with the first part
-    await withErrorHandling(
+    const updateResult = await withErrorHandling(
       () => session.platform.updatePost(session.currentPostId!, firstPartWithMarker),
       { action: 'Update post with first part', session }
     );
 
+    // If update failed, include first part content in the continuation
+    if (updateResult === undefined) {
+      sessionLog(session).warn('Update failed during split, including content in new message');
+      // Keep the full content for the new message
+      session.pendingContent = content;
+    } else {
+      // Only keep remainder for continuation
+      session.pendingContent = remainder;
+    }
+
     // Start a new post for the continuation
     session.currentPostId = null;
-    session.pendingContent = remainder;
 
     // Create the continuation post if there's content
-    if (remainder) {
+    // Use pendingContent which may be full content (if update failed) or just remainder
+    const contentToPost = session.pendingContent;
+    if (contentToPost) {
       // Format the continuation marker using the platform's formatter for consistency
-      const continuationMarker = formatter.formatItalic('(continued)');
-      const continuationContent = continuationMarker + '\n\n' + remainder;
+      // Only add "(continued)" if we successfully posted the first part
+      const continuationMarker = updateResult !== undefined
+        ? formatter.formatItalic('(continued)') + '\n\n'
+        : '';
+      const continuationContent = continuationMarker + contentToPost;
 
       // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
       const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
@@ -690,10 +712,19 @@ export async function flush(
   }
 
   if (session.currentPostId) {
-    await withErrorHandling(
+    const result = await withErrorHandling(
       () => session.platform.updatePost(session.currentPostId!, content),
       { action: 'Update current post', session }
     );
+
+    // If update failed, start a new message instead
+    if (result === undefined) {
+      sessionLog(session).warn('Update failed, starting new message');
+      session.currentPostId = null;
+      session.currentPostContent = '';
+      // Re-flush with new post (recursive call)
+      return flush(session, registerPost);
+    }
   } else {
     // Need to create a new post
     // If we have an active (non-completed) task list, reuse its post and bump it to the bottom

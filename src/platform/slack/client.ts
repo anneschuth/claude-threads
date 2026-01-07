@@ -1079,6 +1079,14 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   }
 
   /**
+   * Get platform-specific message size limits.
+   * Slack markdown blocks fail at ~13K chars, so we use stricter limits.
+   */
+  getMessageLimits(): { maxLength: number; hardThreshold: number } {
+    return { maxLength: 12000, hardThreshold: 10000 };
+  }
+
+  /**
    * Get thread history (messages in a thread).
    */
   async getThreadHistory(

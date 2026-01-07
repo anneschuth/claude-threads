@@ -81,6 +81,7 @@ function createTestSession(platform: PlatformClient): Session {
     workingDir: '/test',
     claude: null as any,
     currentPostId: null,
+    currentPostContent: '',
     pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,

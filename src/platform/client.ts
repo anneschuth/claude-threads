@@ -192,6 +192,12 @@ export interface PlatformClient extends EventEmitter {
   getPinnedPosts(): Promise<string[]>;
 
   /**
+   * Get platform-specific message size limits
+   * @returns maxLength: absolute max chars, hardThreshold: when to force continuation
+   */
+  getMessageLimits(): { maxLength: number; hardThreshold: number };
+
+  /**
    * Get thread history (messages in a thread)
    * @param threadId - Thread/root post ID
    * @param options - Optional filtering/limiting options

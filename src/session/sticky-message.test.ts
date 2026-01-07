@@ -58,6 +58,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     workingDir: '/home/user/projects/myproject',
     claude: { isRunning: () => true, kill: mock(), sendMessage: mock() } as any,
     currentPostId: null,
+    currentPostContent: '',
     pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,
