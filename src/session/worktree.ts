@@ -175,6 +175,11 @@ export async function handleWorktreeSkip(
         `✅ Continuing in main repo (skipped by @${username})`),
       { action: 'Update worktree prompt', session }
     );
+    // Remove the ❌ reaction option since the action is complete
+    await withErrorHandling(
+      () => session.platform.removeReaction(promptPostId, 'x'),
+      { action: 'Remove x reaction from worktree prompt', session }
+    );
   }
 
   // Clear pending state
@@ -254,6 +259,11 @@ export async function createAndSwitchToWorktree(
           () => session.platform.updatePost(worktreePromptId,
             `✅ Joining existing worktree for ${fmt.formatCode(branch)}`),
           { action: 'Update worktree prompt', session }
+        );
+        // Remove the ❌ reaction option since the action is complete
+        await withErrorHandling(
+          () => session.platform.removeReaction(worktreePromptId, 'x'),
+          { action: 'Remove x reaction from worktree prompt', session }
         );
       }
 
@@ -386,6 +396,11 @@ export async function createAndSwitchToWorktree(
           `✅ Created worktree for \`${branch}\``),
         { action: 'Update worktree prompt', session }
       );
+      // Remove the ❌ reaction option since the action is complete
+      await withErrorHandling(
+        () => session.platform.removeReaction(worktreePromptId, 'x'),
+        { action: 'Remove x reaction from worktree prompt', session }
+      );
     }
 
     // Clear pending state
@@ -496,6 +511,11 @@ export async function createAndSwitchToWorktree(
         () => session.platform.updatePost(worktreePromptId,
           `❌ Failed to create worktree for ${fmt.formatCode(branch)} - continuing in main repo`),
         { action: 'Update worktree prompt after failure', session }
+      );
+      // Remove the ❌ reaction option since the action is resolved
+      await withErrorHandling(
+        () => session.platform.removeReaction(worktreePromptId, 'x'),
+        { action: 'Remove x reaction from worktree prompt', session }
       );
     }
 
