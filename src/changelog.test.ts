@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import { getReleaseNotes, formatReleaseNotes, getWhatsNewSummary } from './changelog.js';
 import { createMockFormatter } from './test-utils/mock-formatter.js';
@@ -36,10 +36,6 @@ All notable changes to this project will be documented in this file.
 - Initial release with basic features
 `;
 
-// Backup original functions
-const originalExistsSync = fs.existsSync;
-const originalReadFileSync = fs.readFileSync;
-
 describe('changelog', () => {
   describe('getReleaseNotes (with mocked filesystem)', () => {
     let existsSyncSpy: ReturnType<typeof spyOn>;
@@ -53,7 +49,7 @@ describe('changelog', () => {
       });
 
       // Mock readFileSync to return our mock changelog
-      readFileSyncSpy = spyOn(fs, 'readFileSync').mockImplementation(() => MOCK_CHANGELOG);
+      readFileSyncSpy = spyOn(fs, 'readFileSync').mockReturnValue(MOCK_CHANGELOG as any);
     });
 
     afterEach(() => {

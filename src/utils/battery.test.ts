@@ -1,4 +1,4 @@
-import { describe, expect, it, mock, spyOn, beforeEach, afterEach } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { getBatteryStatus, formatBatteryStatus, type BatteryStatus } from './battery.js';
 
 describe('getBatteryStatus', () => {

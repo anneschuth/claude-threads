@@ -393,7 +393,7 @@ describe('cleanupIdleSessions extended', () => {
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000), // 35 min ago
       timeoutWarningPosted: true,
-      pendingApproval: { postId: 'p1', toolUseId: 't1', type: 'permission' },
+      pendingApproval: { postId: 'p1', toolUseId: 't1', type: 'action' },
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -413,7 +413,7 @@ describe('cleanupIdleSessions extended', () => {
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
       timeoutWarningPosted: true,
-      pendingQuestionSet: { postId: 'p1', questions: [] },
+      pendingQuestionSet: { toolUseId: 't1', currentIndex: 0, currentPostId: 'p1', questions: [] },
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -433,7 +433,7 @@ describe('cleanupIdleSessions extended', () => {
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
       timeoutWarningPosted: true,
-      pendingWorktreePrompt: { postId: 'p1', queuedPrompt: 'test', suggestedBranch: 'branch', mode: 'create' },
+      pendingWorktreePrompt: true,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);

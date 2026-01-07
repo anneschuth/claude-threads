@@ -36,7 +36,7 @@ function createMockSession(overrides?: Partial<{
   platformOverrides: Partial<PlatformClient>;
   sessionOverrides: Partial<Session>;
 }>): Session {
-  const mockPost: PlatformPost = { id: 'post-123', message: '', userId: 'bot' };
+  const mockPost: PlatformPost = { id: 'post-123', message: '', userId: 'bot', platformId: 'test-platform', channelId: 'channel-123' };
 
   const mockPlatform: Partial<PlatformClient> = {
     platformId: 'test-platform',
@@ -113,7 +113,7 @@ describe('formatBold', () => {
 
 describe('getPostId', () => {
   it('returns the post id from a post object', () => {
-    const post: PlatformPost = { id: 'abc123', message: 'test', userId: 'user1' };
+    const post: PlatformPost = { id: 'abc123', message: 'test', userId: 'user1', platformId: 'test', channelId: 'ch1' };
     expect(getPostId(post)).toBe('abc123');
   });
 });
@@ -154,7 +154,7 @@ describe('updateLastMessage', () => {
     const session = createMockSession({
       platformOverrides: { platformType: 'mattermost' as const },
     });
-    const post: PlatformPost = { id: 'post-456', message: '', userId: 'bot' };
+    const post: PlatformPost = { id: 'post-456', message: '', userId: 'bot', platformId: 'test', channelId: 'ch1' };
 
     updateLastMessage(session, post);
 
@@ -166,7 +166,7 @@ describe('updateLastMessage', () => {
     const session = createMockSession({
       platformOverrides: { platformType: 'slack' as const },
     });
-    const post: PlatformPost = { id: '1234567890.123456', message: '', userId: 'bot' };
+    const post: PlatformPost = { id: '1234567890.123456', message: '', userId: 'bot', platformId: 'test', channelId: 'ch1' };
 
     updateLastMessage(session, post);
 

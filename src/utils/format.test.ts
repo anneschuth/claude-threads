@@ -438,7 +438,7 @@ describe('setSessionLogHandler', () => {
   });
 
   it('routes all logs through custom handler when set', () => {
-    const handler = mock((level: string, message: string, sessionId?: string) => {});
+    const handler = mock(() => {});
     setSessionLogHandler(handler);
 
     sessionLog.started('thread123', 'alice', '/path');

@@ -1,4 +1,4 @@
-import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import {
   getContextSelectionFromReaction,
   formatContextForClaude,
@@ -205,7 +205,7 @@ describe('context-prompt', () => {
     platformOverrides?: Partial<PlatformClient>;
     sessionOverrides?: Partial<Session>;
   }): Session {
-    const mockPost: PlatformPost = { id: 'post-123', message: '', userId: 'bot' };
+    const mockPost: PlatformPost = { id: 'post-123', message: '', userId: 'bot', platformId: 'test-platform', channelId: 'channel-123' };
 
     const mockPlatform: Partial<PlatformClient> = {
       platformId: 'test-platform',
