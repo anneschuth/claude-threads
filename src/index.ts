@@ -405,6 +405,9 @@ async function main() {
     refreshUI: () => session.updateAllStickyMessages(),
   });
 
+  // Connect auto-update manager to session manager for !update commands
+  session.setAutoUpdateManager(autoUpdateManager);
+
   // Wire up auto-update events to UI
   autoUpdateManager.on('update:available', (info) => {
     ui.addLog({ level: 'info', component: '🆕', message: `Update available: v${info.currentVersion} → v${info.latestVersion}` });

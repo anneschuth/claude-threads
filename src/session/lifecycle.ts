@@ -131,6 +131,9 @@ Users can control sessions with these commands:
 - \`!kick @user\`: Remove a user from the session
 - \`!cd /path\`: Change working directory (restarts the session)
 - \`!permissions interactive|skip\`: Toggle permission prompts
+- \`!update\`: Show auto-update status
+- \`!update now\`: Apply pending update immediately
+- \`!update defer\`: Defer pending update for 1 hour
 
 SESSION METADATA: At the START of your first response, include metadata about this session:
 

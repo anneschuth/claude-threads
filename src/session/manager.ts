@@ -98,6 +98,9 @@ export class SessionManager extends EventEmitter {
   // Shutdown flag
   private isShuttingDown = false;
 
+  // Auto-update manager (set via setAutoUpdateManager)
+  private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
+
   constructor(
     workingDir: string,
     skipPermissions = false,
@@ -151,6 +154,13 @@ export class SessionManager extends EventEmitter {
 
   removePlatform(platformId: string): void {
     this.platforms.delete(platformId);
+  }
+
+  /**
+   * Set the auto-update manager for update commands.
+   */
+  setAutoUpdateManager(manager: typeof this.autoUpdateManager): void {
+    this.autoUpdateManager = manager;
   }
 
   // ---------------------------------------------------------------------------
@@ -1117,6 +1127,24 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.enableInteractivePermissions(session, username, this.getContext());
+  }
+
+  async showUpdateStatus(threadId: string, _username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.showUpdateStatus(session, this.autoUpdateManager);
+  }
+
+  async forceUpdateNow(threadId: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.forceUpdateNow(session, username, this.autoUpdateManager);
+  }
+
+  async deferUpdate(threadId: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.deferUpdate(session, username, this.autoUpdateManager);
   }
 
   isSessionInteractive(threadId: string): boolean {
