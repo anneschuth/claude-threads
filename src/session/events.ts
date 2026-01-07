@@ -25,6 +25,7 @@ import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
 import { changeDirectory } from './commands.js';
+import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
 
 const log = createLogger('events');
 
@@ -131,31 +132,25 @@ const DESCRIPTION_CONFIG: MetadataConfig = {
 // ---------------------------------------------------------------------------
 
 /**
- * Detect and execute !cd commands from Claude's assistant output.
+ * Detect and execute commands from Claude's assistant output.
+ * Uses the shared command parser with Claude's allowlist.
  * Returns the text with the command removed (if executed), or original text.
- *
- * Only !cd is allowed for now - it's safe and useful for Claude to switch
- * directories when it realizes it needs to work in a different project.
  */
 function detectAndExecuteClaudeCommands(
   text: string,
   session: Session,
   ctx: SessionContext
 ): string {
-  // Pattern: !cd followed by a path (at start of line or after newline)
-  // Captures the path which can include ~, /, alphanumeric, dots, dashes, underscores
-  const cdPattern = /^!cd\s+([\w~./-]+)\s*$/m;
-  const match = text.match(cdPattern);
+  const parsed = parseClaudeCommand(text);
 
-  if (match) {
-    const targetPath = match[1];
-    sessionLog(session).info(`🤖 Claude executing !cd ${targetPath}`);
+  if (parsed && isClaudeAllowedCommand(parsed.command)) {
+    sessionLog(session).info(`🤖 Claude executing !${parsed.command} ${parsed.args || ''}`);
 
-    // Execute the directory change asynchronously
-    executeClaudeCommand(session, 'cd', targetPath, ctx);
+    // Execute the command asynchronously
+    executeClaudeCommand(session, parsed.command, parsed.args || '', ctx);
 
     // Remove the command from the displayed text
-    return text.replace(cdPattern, '').trim();
+    return removeCommandFromText(text, parsed);
   }
 
   return text;
@@ -165,12 +160,11 @@ function detectAndExecuteClaudeCommands(
  * Execute a command on behalf of Claude.
  * Posts a visibility message and runs the command.
  *
- * Currently only supports 'cd' command. Other commands could be added
- * in the future with appropriate safety checks.
+ * Only commands in CLAUDE_ALLOWED_COMMANDS can be executed.
  */
 async function executeClaudeCommand(
   session: Session,
-  command: 'cd',  // Only 'cd' is supported for now
+  command: string,
   args: string,
   ctx: SessionContext
 ): Promise<void> {
@@ -180,21 +174,21 @@ async function executeClaudeCommand(
   const worktreeContext = session.worktreeInfo
     ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
     : undefined;
-  const shortPath = shortenPath(args, undefined, worktreeContext);
-  const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command} ${shortPath}`)}`;
+  const shortArgs = args ? shortenPath(args, undefined, worktreeContext) : '';
+  const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command}${shortArgs ? ' ' + shortArgs : ''}`)}`;
 
   await withErrorHandling(
     () => session.platform.createPost(visibilityMessage, session.threadId),
     { action: 'Post Claude command visibility', session }
   );
 
-  // Execute the command
+  // Execute the command based on type
   switch (command) {
     case 'cd':
-      // Use 'claude' as the username - since Claude is "trusted" within the session,
-      // we bypass the owner check by using a special identifier
+      // Use session owner's permissions
       await changeDirectory(session, args, session.startedBy, ctx);
       break;
+    // Future commands can be added here
   }
 }
 

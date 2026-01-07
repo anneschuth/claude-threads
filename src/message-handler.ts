@@ -9,6 +9,7 @@ import type { PlatformClient, PlatformPost, PlatformUser } from './platform/inde
 import type { SessionManager } from './session/index.js';
 import { VERSION } from './version.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
+import { parseCommand } from './commands/index.js';
 
 /**
  * Logger interface for message handler
@@ -88,169 +89,160 @@ export async function handleMessage(
       const content = client.isBotMentioned(message)
         ? client.extractPrompt(message)
         : message.trim();
-      const lowerContent = content.toLowerCase();
 
-      // Check for stop/cancel commands
-      if (lowerContent === '!stop' || lowerContent === '!cancel') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          await session.cancelSession(threadRoot, username);
-        }
-        return;
-      }
+      // Parse command using shared parser
+      const parsed = parseCommand(content);
+      if (parsed) {
+        const isAllowed = session.isUserAllowedInSession(threadRoot, username);
 
-      // Check for escape/interrupt commands
-      if (lowerContent === '!escape' || lowerContent === '!interrupt') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          await session.interruptSession(threadRoot, username);
-        }
-        return;
-      }
+        switch (parsed.command) {
+          case 'stop':
+            if (isAllowed) await session.cancelSession(threadRoot, username);
+            return;
 
-      // Check for !approve command (approve pending plan)
-      if (lowerContent === '!approve' || lowerContent === '!yes') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          await session.approvePendingPlan(threadRoot, username);
-        }
-        return;
-      }
+          case 'escape':
+            if (isAllowed) await session.interruptSession(threadRoot, username);
+            return;
 
-      // Check for !help command
-      if (lowerContent === '!help') {
-        const code = formatter.formatCode.bind(formatter);
-        const commandTable = formatter.formatTable(
-          ['Command', 'Description'],
-          [
-            [code('!cd <path>'), 'Change working directory (restarts Claude)'],
-            [code('!worktree <branch>'), 'Create and switch to a git worktree'],
-            [code('!worktree list'), 'List all worktrees for the repo'],
-            [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
-            [code('!worktree remove <branch>'), 'Remove a worktree'],
-            [code('!worktree cleanup'), 'Delete current worktree and switch back to repo'],
-            [code('!worktree off'), 'Disable worktree prompts for this session'],
-            [code('!invite @user'), 'Invite a user to this session'],
-            [code('!kick @user'), 'Remove an invited user'],
-            [code('!permissions interactive'), 'Enable interactive permissions'],
-            [code('!approve'), 'Approve pending plan (alternative to 👍 reaction)'],
-            [code('!update'), 'Show auto-update status'],
-            [code('!update now'), 'Apply pending update immediately'],
-            [code('!update defer'), 'Defer pending update for 1 hour'],
-            [code('!escape'), 'Interrupt current task (session stays active)'],
-            [code('!stop'), 'Stop this session'],
-            [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
-          ]
-        );
-        await client.createPost(
-          `${formatter.formatBold('Commands:')}\n\n` +
-            commandTable +
-            `\n\n${formatter.formatBold('Reactions:')}\n` +
-            `${formatter.formatListItem('👍 Approve action · ✅ Approve all · 👎 Deny')}\n` +
-            `${formatter.formatListItem('⏸️ Interrupt current task (session stays active)')}\n` +
-            `${formatter.formatListItem('❌ or 🛑 Stop session')}`,
-          threadRoot
-        );
-        return;
-      }
+          case 'approve':
+            if (isAllowed) await session.approvePendingPlan(threadRoot, username);
+            return;
 
-      // Check for !release-notes command
-      if (lowerContent === '!release-notes' || lowerContent === '!changelog') {
-        const notes = getReleaseNotes(VERSION);
-        if (notes) {
-          await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
-        } else {
-          await client.createPost(
-            `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
-            threadRoot
-          );
-        }
-        return;
-      }
+          case 'help': {
+            const code = formatter.formatCode.bind(formatter);
+            const commandTable = formatter.formatTable(
+              ['Command', 'Description'],
+              [
+                [code('!cd <path>'), 'Change working directory (restarts Claude)'],
+                [code('!worktree <branch>'), 'Create and switch to a git worktree'],
+                [code('!worktree list'), 'List all worktrees for the repo'],
+                [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
+                [code('!worktree remove <branch>'), 'Remove a worktree'],
+                [code('!worktree cleanup'), 'Delete current worktree and switch back to repo'],
+                [code('!worktree off'), 'Disable worktree prompts for this session'],
+                [code('!invite @user'), 'Invite a user to this session'],
+                [code('!kick @user'), 'Remove an invited user'],
+                [code('!permissions interactive'), 'Enable interactive permissions'],
+                [code('!approve'), 'Approve pending plan (alternative to 👍 reaction)'],
+                [code('!update'), 'Show auto-update status'],
+                [code('!update now'), 'Apply pending update immediately'],
+                [code('!update defer'), 'Defer pending update for 1 hour'],
+                [code('!escape'), 'Interrupt current task (session stays active)'],
+                [code('!stop'), 'Stop this session'],
+                [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
+              ]
+            );
+            await client.createPost(
+              `${formatter.formatBold('Commands:')}\n\n` +
+                commandTable +
+                `\n\n${formatter.formatBold('Reactions:')}\n` +
+                `${formatter.formatListItem('👍 Approve action · ✅ Approve all · 👎 Deny')}\n` +
+                `${formatter.formatListItem('⏸️ Interrupt current task (session stays active)')}\n` +
+                `${formatter.formatListItem('❌ or 🛑 Stop session')}`,
+              threadRoot
+            );
+            return;
+          }
 
-      // Check for !invite command
-      const inviteMatch = content.match(/^!invite\s+@?([\w.-]+)/i);
-      if (inviteMatch) {
-        await session.inviteUser(threadRoot, inviteMatch[1], username);
-        return;
-      }
-
-      // Check for !kick command
-      const kickMatch = content.match(/^!kick\s+@?([\w.-]+)/i);
-      if (kickMatch) {
-        await session.kickUser(threadRoot, kickMatch[1], username);
-        return;
-      }
-
-      // Check for !permissions command
-      const permMatch = content.match(/^!permissions?\s+(interactive|auto)/i);
-      if (permMatch) {
-        const mode = permMatch[1].toLowerCase();
-        if (mode === 'interactive') {
-          await session.enableInteractivePermissions(threadRoot, username);
-        } else {
-          // Can't upgrade to auto - that would be less secure
-          await client.createPost(
-            `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
-            threadRoot
-          );
-        }
-        return;
-      }
-
-      // Check for !cd command
-      const cdMatch = content.match(/^!cd\s+(.+)/i);
-      if (cdMatch) {
-        await session.changeDirectory(threadRoot, cdMatch[1].trim(), username);
-        return;
-      }
-
-      // Check for !update command
-      const updateMatch = content.trim().match(/^!update(?:\s+(now|defer))?$/i);
-      if (updateMatch) {
-        const subcommand = updateMatch[1]?.toLowerCase();
-        if (subcommand === 'now') {
-          await session.forceUpdateNow(threadRoot, username);
-        } else if (subcommand === 'defer') {
-          await session.deferUpdate(threadRoot, username);
-        } else {
-          await session.showUpdateStatus(threadRoot, username);
-        }
-        return;
-      }
-
-      // Check for !worktree command
-      const worktreeMatch = content.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
-      if (worktreeMatch) {
-        const subcommand = worktreeMatch[1].toLowerCase();
-        const args = worktreeMatch[2]?.trim();
-
-        switch (subcommand) {
-          case 'list':
-            await session.listWorktreesCommand(threadRoot, username);
-            break;
-          case 'switch':
-            if (!args) {
-              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
+          case 'release-notes': {
+            const notes = getReleaseNotes(VERSION);
+            if (notes) {
+              await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
             } else {
-              await session.switchToWorktree(threadRoot, args, username);
+              await client.createPost(
+                `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
+                threadRoot
+              );
             }
-            break;
-          case 'remove':
-            if (!args) {
-              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
+            return;
+          }
+
+          case 'invite':
+            if (parsed.args) await session.inviteUser(threadRoot, parsed.args, username);
+            return;
+
+          case 'kick':
+            if (parsed.args) await session.kickUser(threadRoot, parsed.args, username);
+            return;
+
+          case 'permissions':
+            if (parsed.args?.toLowerCase() === 'interactive') {
+              await session.enableInteractivePermissions(threadRoot, username);
             } else {
-              await session.removeWorktreeCommand(threadRoot, args, username);
+              await client.createPost(
+                `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
+                threadRoot
+              );
             }
-            break;
-          case 'off':
-            await session.disableWorktreePrompt(threadRoot, username);
-            break;
-          case 'cleanup':
-            await session.cleanupWorktreeCommand(threadRoot, username);
-            break;
-          default:
-            // Treat as branch name: !worktree feature/foo
-            await session.createAndSwitchToWorktree(threadRoot, subcommand, username);
+            return;
+
+          case 'cd':
+            if (parsed.args) await session.changeDirectory(threadRoot, parsed.args, username);
+            return;
+
+          case 'update': {
+            const subcommand = parsed.args?.toLowerCase();
+            if (subcommand === 'now') {
+              await session.forceUpdateNow(threadRoot, username);
+            } else if (subcommand === 'defer') {
+              await session.deferUpdate(threadRoot, username);
+            } else {
+              await session.showUpdateStatus(threadRoot, username);
+            }
+            return;
+          }
+
+          case 'worktree': {
+            // Parse worktree subcommand from args
+            const worktreeArgs = parsed.args?.split(/\s+/) || [];
+            const subcommand = worktreeArgs[0]?.toLowerCase();
+            const subArgs = worktreeArgs.slice(1).join(' ');
+
+            switch (subcommand) {
+              case 'list':
+                await session.listWorktreesCommand(threadRoot, username);
+                break;
+              case 'switch':
+                if (!subArgs) {
+                  await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
+                } else {
+                  await session.switchToWorktree(threadRoot, subArgs, username);
+                }
+                break;
+              case 'remove':
+                if (!subArgs) {
+                  await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
+                } else {
+                  await session.removeWorktreeCommand(threadRoot, subArgs, username);
+                }
+                break;
+              case 'off':
+                await session.disableWorktreePrompt(threadRoot, username);
+                break;
+              case 'cleanup':
+                await session.cleanupWorktreeCommand(threadRoot, username);
+                break;
+              default:
+                // Treat as branch name: !worktree feature/foo
+                if (subcommand) await session.createAndSwitchToWorktree(threadRoot, subcommand, username);
+            }
+            return;
+          }
+
+          case 'context':
+          case 'cost':
+          case 'compact':
+            // Claude Code passthrough commands
+            if (isAllowed) {
+              const claudeCommand = '/' + parsed.command;
+              await session.sendFollowUp(threadRoot, claudeCommand);
+            }
+            return;
+
+          case 'kill':
+            // Kill is handled earlier, but include for completeness
+            return;
         }
-        return;
       }
 
       // Check for pending worktree prompt - treat message as branch name response
@@ -265,17 +257,6 @@ export async function handleMessage(
           );
           if (handled) return;
         }
-      }
-
-      // Check for Claude Code slash commands (translate ! to /)
-      // These are sent directly to Claude Code as /commands
-      if (lowerContent === '!context' || lowerContent === '!cost' || lowerContent === '!compact') {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
-          // Translate !command to /command for Claude Code
-          const claudeCommand = '/' + lowerContent.substring(1);
-          await session.sendFollowUp(threadRoot, claudeCommand);
-        }
-        return;
       }
 
       // Check if user is allowed in this session
