@@ -69,6 +69,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     activeSubagents: new Map(),
     isResumed: false,
     sessionStartPostId: 'start-post-id',
+    currentPostContent: '',
     pendingContent: '',
     timeoutWarningPosted: false,
     tasksCompleted: false,

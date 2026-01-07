@@ -86,6 +86,7 @@ function createTestSession(platform: PlatformClient): Session {
       sendToolResult: mock(() => {}),
     } as any,
     currentPostId: null,
+    currentPostContent: '',
     pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,

@@ -123,6 +123,7 @@ export interface Session {
 
   // Post state for streaming updates
   currentPostId: string | null;
+  currentPostContent: string;  // Tracks what content has been posted to currentPostId (for error recovery)
   pendingContent: string;
 
   // Interactive state

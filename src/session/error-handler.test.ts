@@ -44,6 +44,7 @@ function createMockSession(): Session {
 
     // Post state
     currentPostId: null,
+    currentPostContent: '',
     pendingContent: '',
 
     // Interactive state
