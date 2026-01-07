@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-01-07
+
+### Added
+- **Update modal in CLI UI** - Press `u` to open a modal showing update status, changelog, and options to apply or defer updates
+- **Worktree path shortening** - Tool output shows shortened worktree paths as `[branch]/path` instead of full paths for readability
+
+### Fixed
+- **Duplicate task list posts in Slack** - Fixed race condition that caused double task list messages
+- **Worktree prompt cleanup** - Remove ❌ reaction from worktree prompts after user responds
+- **Streaming message failures** - Handle `updatePost` failures gracefully with automatic recovery
+
+### Changed
+- **`.claude-threads-meta.json` added to .gitignore** - Session metadata files are no longer tracked
+
 ## [0.44.0] - 2026-01-07
 
 ### Added
