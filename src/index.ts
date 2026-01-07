@@ -103,6 +103,7 @@ program
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
   .option('--debug', 'Enable debug logging')
   .option('--skip-version-check', 'Skip Claude CLI version compatibility check')
+  .option('--daemon', 'Run with auto-restart on updates (re-execs with daemon wrapper)')
   .parse();
 
 const opts = program.opts();
@@ -113,6 +114,41 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
+  // Handle --daemon flag: re-exec with the daemon wrapper
+  if (opts.daemon) {
+    const { spawn } = await import('child_process');
+    const { dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+
+    // Find the daemon wrapper script
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = dirname(__filename);
+    const daemonPath = resolve(__dirname, '..', 'bin', 'claude-threads-daemon');
+
+    // Remove --daemon from args and pass the rest
+    const args = process.argv.slice(2).filter(arg => arg !== '--daemon');
+
+    console.log('🔄 Starting claude-threads with daemon wrapper (auto-restart enabled)...');
+    console.log('');
+
+    // Spawn the daemon wrapper with the remaining args
+    const child = spawn(daemonPath, ['--restart-on-error', ...args], {
+      stdio: 'inherit',
+      env: process.env,
+    });
+
+    child.on('error', (err) => {
+      console.error(`Failed to start daemon: ${err.message}`);
+      process.exit(1);
+    });
+
+    child.on('exit', (code) => {
+      process.exit(code ?? 0);
+    });
+
+    return; // Don't continue with normal startup
+  }
+
   // Check for updates (non-blocking, shows notification if available)
   checkForUpdates();
 
