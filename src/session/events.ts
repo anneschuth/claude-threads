@@ -451,12 +451,25 @@ async function handleExitPlanMode(
 
 /**
  * Handle TodoWrite tool use - update task list display.
+ *
+ * Uses a promise-based lock to prevent race conditions when multiple
+ * TodoWrite events are processed concurrently (which happens because
+ * handleEvent doesn't await async handlers). Without this lock, two
+ * concurrent calls could both see tasksPostId as null and create
+ * duplicate task list posts.
  */
 async function handleTodoWrite(
   session: Session,
   input: Record<string, unknown>,
   ctx: SessionContext
 ): Promise<void> {
+  // Wait for any in-progress task list creation to complete first.
+  // This prevents race conditions where multiple TodoWrite events
+  // fire before tasksPostId is set, causing duplicate posts.
+  if (session.taskListCreationPromise) {
+    await session.taskListCreationPromise;
+  }
+
   const todos = input.todos as Array<{
     content: string;
     status: 'pending' | 'in_progress' | 'completed';
@@ -568,23 +581,35 @@ async function handleTodoWrite(
       { action: 'Update tasks', session }
     );
   } else {
-    // Create with toggle emoji reaction so users can click to collapse
-    const post = await withErrorHandling(
-      () => session.platform.createInteractivePost(
-        displayMessage,
-        [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
-        session.threadId
-      ),
-      { action: 'Create tasks post', session }
-    );
-    if (post) {
-      session.tasksPostId = post.id;
-      // Register the task post so reaction clicks are routed to this session
-      ctx.ops.registerPost(post.id, session.threadId);
-      // Track for jump-to-bottom links
-      updateLastMessage(session, post);
-      // Pin the task post for easy access
-      await session.platform.pinPost(post.id).catch(() => {});
+    // Create with toggle emoji reaction so users can click to collapse.
+    // Use a promise lock to prevent concurrent calls from creating duplicates.
+    let resolveCreation: () => void;
+    session.taskListCreationPromise = new Promise((resolve) => {
+      resolveCreation = resolve;
+    });
+
+    try {
+      const post = await withErrorHandling(
+        () => session.platform.createInteractivePost(
+          displayMessage,
+          [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+          session.threadId
+        ),
+        { action: 'Create tasks post', session }
+      );
+      if (post) {
+        session.tasksPostId = post.id;
+        // Register the task post so reaction clicks are routed to this session
+        ctx.ops.registerPost(post.id, session.threadId);
+        // Track for jump-to-bottom links
+        updateLastMessage(session, post);
+        // Pin the task post for easy access
+        await session.platform.pinPost(post.id).catch(() => {});
+      }
+    } finally {
+      // Release the lock so other callers can proceed
+      resolveCreation!();
+      session.taskListCreationPromise = undefined;
     }
   }
   // Update sticky message with new task progress

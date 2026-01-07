@@ -307,6 +307,70 @@ describe('handleEvent with TodoWrite', () => {
     expect(session.lastTasksContent).toContain('3/3');
     expect(session.lastTasksContent).toContain('100%');
   });
+
+  test('concurrent TodoWrite events do not create duplicate task list posts', async () => {
+    // Track how many times createInteractivePost was called
+    let createPostCallCount = 0;
+    const originalCreateInteractivePost = platform.createInteractivePost;
+    (platform as any).createInteractivePost = mock(async (message: string, reactions: string[], threadId?: string) => {
+      createPostCallCount++;
+      // Add a small delay to simulate network latency that allows race conditions
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return originalCreateInteractivePost.call(platform, message, reactions, threadId);
+    });
+
+    // Create two TodoWrite events (as if Claude emitted them rapidly)
+    const event1 = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'TodoWrite',
+            id: 'tool_1',
+            input: {
+              todos: [
+                { content: 'Task 1', status: 'pending', activeForm: 'Doing task 1' },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    const event2 = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'TodoWrite',
+            id: 'tool_2',
+            input: {
+              todos: [
+                { content: 'Task 1', status: 'in_progress', activeForm: 'Doing task 1' },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    // Fire both events concurrently (simulating the race condition)
+    // handleEvent doesn't await the async handlers, so these run concurrently
+    handleEvent(session, event1, ctx);
+    handleEvent(session, event2, ctx);
+
+    // Wait for all async operations to complete
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // With the fix, only ONE task post should be created
+    // The second call should see the existing tasksPostId and update instead
+    expect(createPostCallCount).toBe(1);
+
+    // The session should have a valid tasksPostId
+    expect(session.tasksPostId).toBeTruthy();
+  });
 });
 
 describe('handleEvent with result event (usage stats)', () => {

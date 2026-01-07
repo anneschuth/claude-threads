@@ -218,6 +218,9 @@ export interface Session {
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
+
+  // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
+  taskListCreationPromise?: Promise<void>;
 }
 
 // =============================================================================
