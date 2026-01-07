@@ -193,6 +193,24 @@ describe('formatToolUse', () => {
       expect(result).toContain('+ new line');
     });
 
+    it('Edit diff ends with trailing newline for proper rendering', () => {
+      // This test ensures code blocks end with a trailing newline so that
+      // text following the code block renders on a new line, not on the
+      // same line as the closing ```
+      const result = formatToolUse(
+        'Edit',
+        {
+          file_path: '/Users/testuser/file.ts',
+          old_string: 'old',
+          new_string: 'new',
+        },
+        formatter,
+        { detailed: true }
+      );
+      // The result should end with ```\n (trailing newline after code block)
+      expect(result).toMatch(/```\n$/);
+    });
+
     it('truncates long diffs', () => {
       const oldLines = Array(30).fill('old line').join('\n');
       const newLines = Array(30).fill('new line').join('\n');
@@ -268,6 +286,22 @@ describe('formatToolUse', () => {
       expect(result).toContain('📝 **Write** `~/file.ts`');
       expect(result).toContain('_(3 lines)_');
       expect(result).toContain('line 1');
+    });
+
+    it('Write preview ends with trailing newline for proper rendering', () => {
+      // This test ensures code blocks end with a trailing newline so that
+      // text following the code block renders on a new line
+      const result = formatToolUse(
+        'Write',
+        {
+          file_path: '/Users/testuser/file.ts',
+          content: 'const x = 1;',
+        },
+        formatter,
+        { detailed: true }
+      );
+      // The result should end with ```\n (trailing newline after code block)
+      expect(result).toMatch(/```\n$/);
     });
 
     it('truncates long content previews', () => {
