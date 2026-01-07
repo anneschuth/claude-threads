@@ -1,11 +1,19 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import {
   getContextSelectionFromReaction,
   formatContextForClaude,
   getValidContextOptions,
   CONTEXT_OPTIONS,
+  CONTEXT_PROMPT_TIMEOUT_MS,
+  getThreadContextCount,
+  getThreadMessagesForContext,
+  updateContextPromptPost,
+  clearContextPromptTimeout,
+  type PendingContextPrompt,
 } from './context-prompt.js';
-import type { ThreadMessage } from '../platform/index.js';
+import type { ThreadMessage, PlatformClient, PlatformPost } from '../platform/index.js';
+import type { Session } from './types.js';
+import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 describe('context-prompt', () => {
   describe('getValidContextOptions', () => {
@@ -183,6 +191,249 @@ describe('context-prompt', () => {
 
     it('first option is 3 messages', () => {
       expect(CONTEXT_OPTIONS[0]).toBe(3);
+    });
+  });
+
+  describe('CONTEXT_PROMPT_TIMEOUT_MS', () => {
+    it('is 30 seconds', () => {
+      expect(CONTEXT_PROMPT_TIMEOUT_MS).toBe(30000);
+    });
+  });
+
+  // Helper to create a mock session
+  function createMockSession(overrides?: {
+    platformOverrides?: Partial<PlatformClient>;
+    sessionOverrides?: Partial<Session>;
+  }): Session {
+    const mockPost: PlatformPost = { id: 'post-123', message: '', userId: 'bot' };
+
+    const mockPlatform: Partial<PlatformClient> = {
+      platformId: 'test-platform',
+      platformType: 'mattermost',
+      createPost: mock(() => Promise.resolve(mockPost)),
+      updatePost: mock(() => Promise.resolve(mockPost)),
+      addReaction: mock(() => Promise.resolve()),
+      getFormatter: mock(() => createMockFormatter()),
+      getThreadHistory: mock(() => Promise.resolve([])),
+      ...overrides?.platformOverrides,
+    };
+
+    return {
+      sessionId: 'test:thread-123',
+      threadId: 'thread-123',
+      platform: mockPlatform as PlatformClient,
+      claude: {
+        isRunning: mock(() => true),
+        kill: mock(() => Promise.resolve()),
+        sendMessage: mock(() => {}),
+        on: mock(() => {}),
+      } as any,
+      claudeSessionId: 'claude-session-1',
+      owner: 'testuser',
+      startedBy: 'testuser',
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+      buffer: '',
+      sessionAllowedUsers: new Set(['testuser']),
+      workingDir: '/test',
+      activeSubagents: new Map(),
+      isResumed: false,
+      messageCount: 0,
+      skipPermissions: true,
+      ...overrides?.sessionOverrides,
+    } as Session;
+  }
+
+  describe('getThreadContextCount', () => {
+    it('returns count of non-bot messages', async () => {
+      const messages: ThreadMessage[] = [
+        { id: '1', userId: 'user1', username: 'alice', message: 'Hello', createAt: 1000 },
+        { id: '2', userId: 'user2', username: 'bob', message: 'Hi', createAt: 2000 },
+        { id: '3', userId: 'user3', username: 'carol', message: 'Hey', createAt: 3000 },
+      ];
+
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(messages)),
+        },
+      });
+
+      const count = await getThreadContextCount(session);
+      expect(count).toBe(3);
+    });
+
+    it('excludes specified post ID from count', async () => {
+      const messages: ThreadMessage[] = [
+        { id: '1', userId: 'user1', username: 'alice', message: 'Hello', createAt: 1000 },
+        { id: '2', userId: 'user2', username: 'bob', message: 'Hi', createAt: 2000 },
+      ];
+
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(messages)),
+        },
+      });
+
+      const count = await getThreadContextCount(session, '1');
+      expect(count).toBe(1); // Excludes post with id '1'
+    });
+
+    it('returns 0 when getThreadHistory fails', async () => {
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.reject(new Error('API error'))),
+        },
+      });
+
+      const count = await getThreadContextCount(session);
+      expect(count).toBe(0);
+    });
+
+    it('returns 0 for empty thread', async () => {
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve([])),
+        },
+      });
+
+      const count = await getThreadContextCount(session);
+      expect(count).toBe(0);
+    });
+  });
+
+  describe('getThreadMessagesForContext', () => {
+    it('returns messages up to the specified limit', async () => {
+      const messages: ThreadMessage[] = [
+        { id: '1', userId: 'user1', username: 'alice', message: 'Hello', createAt: 1000 },
+        { id: '2', userId: 'user2', username: 'bob', message: 'Hi', createAt: 2000 },
+        { id: '3', userId: 'user3', username: 'carol', message: 'Hey', createAt: 3000 },
+      ];
+
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(messages)),
+        },
+      });
+
+      const result = await getThreadMessagesForContext(session, 5);
+      expect(result.length).toBe(3);
+    });
+
+    it('filters out the excluded post ID', async () => {
+      const messages: ThreadMessage[] = [
+        { id: '1', userId: 'user1', username: 'alice', message: 'Hello', createAt: 1000 },
+        { id: '2', userId: 'user2', username: 'bob', message: 'Hi', createAt: 2000 },
+      ];
+
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(messages)),
+        },
+      });
+
+      const result = await getThreadMessagesForContext(session, 5, '2');
+      expect(result.length).toBe(1);
+      expect(result[0].id).toBe('1');
+    });
+  });
+
+  describe('updateContextPromptPost', () => {
+    it('updates post with timeout message', async () => {
+      const session = createMockSession();
+
+      await updateContextPromptPost(session, 'post-123', 'timeout');
+
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'post-123',
+        '⏱️ Continuing without context (no response)'
+      );
+    });
+
+    it('updates post with skip message (selection = 0)', async () => {
+      const session = createMockSession();
+
+      await updateContextPromptPost(session, 'post-123', 0, 'alice');
+
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'post-123',
+        expect.stringContaining('Continuing without context')
+      );
+    });
+
+    it('updates post with skip message (selection = "skip")', async () => {
+      const session = createMockSession();
+
+      await updateContextPromptPost(session, 'post-123', 'skip');
+
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'post-123',
+        '✅ Continuing without context'
+      );
+    });
+
+    it('updates post with message count selection', async () => {
+      const session = createMockSession();
+
+      await updateContextPromptPost(session, 'post-123', 5, 'bob');
+
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'post-123',
+        expect.stringContaining('Including last 5 messages')
+      );
+    });
+
+    it('includes username in message when provided', async () => {
+      const session = createMockSession();
+
+      await updateContextPromptPost(session, 'post-123', 5, 'charlie');
+
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'post-123',
+        expect.stringContaining('charlie')
+      );
+    });
+
+    it('handles update errors gracefully', async () => {
+      const session = createMockSession({
+        platformOverrides: {
+          updatePost: mock(() => Promise.reject(new Error('Update failed'))),
+        },
+      });
+
+      // Should not throw
+      await expect(updateContextPromptPost(session, 'post-123', 'timeout')).resolves.toBeUndefined();
+    });
+  });
+
+  describe('clearContextPromptTimeout', () => {
+    it('clears the timeout when present', () => {
+      const timeoutId = setTimeout(() => {}, 10000);
+      const pending: PendingContextPrompt = {
+        postId: 'post-123',
+        queuedPrompt: 'test prompt',
+        threadMessageCount: 5,
+        createdAt: Date.now(),
+        timeoutId,
+        availableOptions: [3, 5],
+      };
+
+      clearContextPromptTimeout(pending);
+
+      expect(pending.timeoutId).toBeUndefined();
+    });
+
+    it('handles pending without timeoutId', () => {
+      const pending: PendingContextPrompt = {
+        postId: 'post-123',
+        queuedPrompt: 'test prompt',
+        threadMessageCount: 5,
+        createdAt: Date.now(),
+        availableOptions: [3, 5],
+      };
+
+      // Should not throw
+      clearContextPromptTimeout(pending);
+      expect(pending.timeoutId).toBeUndefined();
     });
   });
 });

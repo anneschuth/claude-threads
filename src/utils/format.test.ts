@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
 import {
   formatShortId,
   formatSessionId,
+  extractThreadId,
   formatDuration,
   formatRelativeTime,
   formatRelativeTimeShort,
@@ -10,6 +11,9 @@ import {
   formatBytes,
   truncate,
   pluralize,
+  logSessionAction,
+  sessionLog,
+  setSessionLogHandler,
 } from './format.js';
 
 describe('formatShortId', () => {
@@ -182,5 +186,278 @@ describe('pluralize', () => {
   it('uses custom plural form', () => {
     expect(pluralize(2, 'child', 'children')).toBe('2 children');
     expect(pluralize(1, 'child', 'children')).toBe('1 child');
+  });
+});
+
+describe('extractThreadId', () => {
+  it('extracts thread ID from composite session ID', () => {
+    expect(extractThreadId('platform:thread123')).toBe('thread123');
+    expect(extractThreadId('mattermost-main:abc123xyz')).toBe('abc123xyz');
+  });
+
+  it('returns original ID if no colon present', () => {
+    expect(extractThreadId('thread123')).toBe('thread123');
+    expect(extractThreadId('abc')).toBe('abc');
+  });
+
+  it('handles multiple colons correctly', () => {
+    expect(extractThreadId('platform:thread:with:colons')).toBe('thread:with:colons');
+  });
+
+  it('handles empty string', () => {
+    expect(extractThreadId('')).toBe('');
+  });
+});
+
+describe('formatShortId with composite IDs', () => {
+  it('extracts and truncates thread ID from composite ID', () => {
+    expect(formatShortId('platform:thread123456789')).toBe('thread12…');
+  });
+});
+
+describe('logSessionAction', () => {
+  let consoleLogSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
+    setSessionLogHandler(null); // Reset handler
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    setSessionLogHandler(null);
+  });
+
+  it('logs action with emoji and short ID', () => {
+    logSessionAction('✅', 'Test action', 'thread123456789');
+    expect(consoleLogSpy).toHaveBeenCalledWith('✅ Test action (thread12…)');
+  });
+
+  it('logs action with username', () => {
+    logSessionAction('🛑', 'Session cancelled', 'thread123', 'alice');
+    expect(consoleLogSpy).toHaveBeenCalledWith('🛑 Session cancelled (thread12…) by @alice');
+  });
+
+  it('routes through custom handler when set', () => {
+    const handler = mock(() => {});
+    setSessionLogHandler(handler);
+
+    logSessionAction('✅', 'Test', 'thread123');
+
+    expect(handler).toHaveBeenCalledWith('info', '✅ Test (thread12…)', 'thread123');
+    expect(consoleLogSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sessionLog', () => {
+  let consoleLogSpy: ReturnType<typeof spyOn>;
+  let consoleErrorSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+    setSessionLogHandler(null);
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    setSessionLogHandler(null);
+  });
+
+  describe('started', () => {
+    it('logs session start with user and directory', () => {
+      sessionLog.started('thread123456789', 'alice', '/home/user/project');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '✅ Session started (thread12…) by @alice in /home/user/project'
+      );
+    });
+  });
+
+  describe('cancelled', () => {
+    it('logs session cancellation', () => {
+      sessionLog.cancelled('thread123', 'bob');
+      expect(consoleLogSpy).toHaveBeenCalledWith('🛑 Session cancelled (thread12…) by @bob');
+    });
+  });
+
+  describe('timeout', () => {
+    it('logs session timeout', () => {
+      sessionLog.timeout('thread123');
+      expect(consoleLogSpy).toHaveBeenCalledWith('⏱️ Session timed out (thread12…)');
+    });
+  });
+
+  describe('resumed', () => {
+    it('logs session resume with user', () => {
+      sessionLog.resumed('thread123', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith('🔄 Session resumed (thread12…) by @alice');
+    });
+
+    it('logs session resume without user', () => {
+      sessionLog.resumed('thread123');
+      expect(consoleLogSpy).toHaveBeenCalledWith('🔄 Session resumed (thread12…)');
+    });
+  });
+
+  describe('interrupted', () => {
+    it('logs session interrupt', () => {
+      sessionLog.interrupted('thread123', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith('⏸️ Session interrupted (thread12…) by @alice');
+    });
+  });
+
+  describe('exited', () => {
+    it('logs successful exit with code 0', () => {
+      sessionLog.exited('thread123', 0);
+      expect(consoleLogSpy).toHaveBeenCalledWith('✅ Session (thread12…) exited with code 0');
+    });
+
+    it('logs unsuccessful exit with non-zero code', () => {
+      sessionLog.exited('thread123', 1);
+      expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Session (thread12…) exited with code 1');
+    });
+  });
+
+  describe('error', () => {
+    it('logs error to stderr', () => {
+      sessionLog.error('thread123', 'Something went wrong');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('⚠️ Session (thread12…): Something went wrong');
+    });
+  });
+
+  describe('cdChanged', () => {
+    it('logs directory change', () => {
+      sessionLog.cdChanged('thread123', '/new/path', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '📂 Session (thread12…) changed to /new/path by @alice'
+      );
+    });
+  });
+
+  describe('invited', () => {
+    it('logs user invitation', () => {
+      sessionLog.invited('thread123', 'bob', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '👤 @bob invited to session (thread12…) by @alice'
+      );
+    });
+  });
+
+  describe('kicked', () => {
+    it('logs user removal', () => {
+      sessionLog.kicked('thread123', 'bob', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '👤 @bob removed from session (thread12…) by @alice'
+      );
+    });
+  });
+
+  describe('worktreeCreated', () => {
+    it('logs worktree creation', () => {
+      sessionLog.worktreeCreated('thread123', 'feature/new-feature');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '🌿 Worktree created for branch "feature/new-feature" (thread12…)'
+      );
+    });
+  });
+
+  describe('contextPrompt', () => {
+    it('logs context prompt timeout', () => {
+      sessionLog.contextPrompt('thread123', 'timeout');
+      expect(consoleLogSpy).toHaveBeenCalledWith('🧵 Session (thread12…) context: timed out');
+    });
+
+    it('logs no context selected', () => {
+      sessionLog.contextPrompt('thread123', 0, 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '🧵 Session (thread12…) context: no context selected by @alice'
+      );
+    });
+
+    it('logs message count selected', () => {
+      sessionLog.contextPrompt('thread123', 5, 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '🧵 Session (thread12…) context: last 5 messages selected by @alice'
+      );
+    });
+  });
+
+  describe('permissionMode', () => {
+    it('logs interactive permission mode', () => {
+      sessionLog.permissionMode('thread123', 'interactive', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '🔐 Session (thread12…) permissions set to interactive by @alice'
+      );
+    });
+
+    it('logs skip permission mode', () => {
+      sessionLog.permissionMode('thread123', 'skip', 'alice');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '⚡ Session (thread12…) permissions set to skip by @alice'
+      );
+    });
+  });
+
+  describe('debug', () => {
+    it('does not log debug messages when DEBUG is not set', () => {
+      const originalDebug = process.env.DEBUG;
+      delete process.env.DEBUG;
+
+      sessionLog.debug('thread123', 'Debug message');
+      expect(consoleLogSpy).not.toHaveBeenCalled();
+
+      process.env.DEBUG = originalDebug;
+    });
+
+    it('logs debug messages when DEBUG=1', () => {
+      const originalDebug = process.env.DEBUG;
+      process.env.DEBUG = '1';
+
+      sessionLog.debug('thread123', 'Debug message');
+      expect(consoleLogSpy).toHaveBeenCalledWith('[debug] Session (thread12…): Debug message');
+
+      process.env.DEBUG = originalDebug;
+    });
+  });
+});
+
+describe('setSessionLogHandler', () => {
+  let consoleLogSpy: ReturnType<typeof spyOn>;
+  let consoleErrorSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    consoleLogSpy = spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    setSessionLogHandler(null);
+  });
+
+  it('routes all logs through custom handler when set', () => {
+    const handler = mock((level: string, message: string, sessionId?: string) => {});
+    setSessionLogHandler(handler);
+
+    sessionLog.started('thread123', 'alice', '/path');
+
+    expect(handler).toHaveBeenCalledWith(
+      'info',
+      expect.stringContaining('Session started'),
+      'thread123'
+    );
+  });
+
+  it('reverts to console when handler is cleared', () => {
+    const handler = mock(() => {});
+    setSessionLogHandler(handler);
+    setSessionLogHandler(null);
+
+    sessionLog.started('thread123', 'alice', '/path');
+
+    expect(handler).not.toHaveBeenCalled();
+    expect(consoleLogSpy).toHaveBeenCalled();
   });
 });

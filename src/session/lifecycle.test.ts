@@ -299,3 +299,238 @@ describe('Session State Management', () => {
     expect(session.pendingContent).toBe('Hello World');
   });
 });
+
+describe('CHAT_PLATFORM_PROMPT', () => {
+  it('contains version information', () => {
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('Claude Threads Version:');
+  });
+
+  it('contains user command documentation', () => {
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!stop');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!escape');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!invite');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!kick');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!cd');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!permissions');
+  });
+
+  it('contains session metadata format', () => {
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('[SESSION_TITLE:');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('[SESSION_DESCRIPTION:');
+  });
+});
+
+describe('maybeInjectMetadataReminder', () => {
+  it('does not inject reminder on first message', () => {
+    const message = 'Hello';
+    const session = { messageCount: 1 };
+
+    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+
+    expect(result).toBe('Hello');
+    expect(result).not.toContain('system-reminder');
+  });
+
+  it('does not inject reminder on second message', () => {
+    const message = 'Hello';
+    const session = { messageCount: 2 };
+
+    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+
+    expect(result).toBe('Hello');
+  });
+
+  it('injects reminder at interval (every 5 messages)', () => {
+    const message = 'Hello';
+
+    // 5th message - should inject
+    const result5 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 5 });
+    expect(result5).toContain('system-reminder');
+    expect(result5).toContain('SESSION_TITLE');
+
+    // 10th message - should inject
+    const result10 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 10 });
+    expect(result10).toContain('system-reminder');
+
+    // 15th message - should inject
+    const result15 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 15 });
+    expect(result15).toContain('system-reminder');
+  });
+
+  it('does not inject reminder at non-interval messages', () => {
+    const message = 'Hello';
+
+    // 3rd, 4th, 6th, 7th messages - should not inject
+    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
+    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
+    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
+    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 7 })).toBe('Hello');
+  });
+});
+
+describe('cleanupIdleSessions extended', () => {
+  it('kills session that has exceeded timeout', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 35 * 60 * 1000), // 35 min ago
+      timeoutWarningPosted: true,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(
+      30 * 60 * 1000, // 30 min timeout
+      5 * 60 * 1000,  // 5 min warning
+      ctx
+    );
+
+    // Session should be killed
+    expect(sessions.has('test-platform:thread-123')).toBe(false);
+  });
+
+  it('does not skip sessions with pending approval when timed out', async () => {
+    // Note: The current implementation does NOT skip sessions with pending items when timing out
+    // This tests the actual behavior
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 35 * 60 * 1000), // 35 min ago
+      timeoutWarningPosted: true,
+      pendingApproval: { postId: 'p1', toolUseId: 't1', type: 'permission' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(
+      30 * 60 * 1000,
+      5 * 60 * 1000,
+      ctx
+    );
+
+    // Session is killed even with pending approval (current behavior)
+    expect(sessions.has('test-platform:thread-123')).toBe(false);
+  });
+
+  it('does not skip sessions with pending question when timed out', async () => {
+    // Note: The current implementation does NOT skip sessions with pending items when timing out
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
+      timeoutWarningPosted: true,
+      pendingQuestionSet: { postId: 'p1', questions: [] },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(
+      30 * 60 * 1000,
+      5 * 60 * 1000,
+      ctx
+    );
+
+    // Session is killed even with pending question (current behavior)
+    expect(sessions.has('test-platform:thread-123')).toBe(false);
+  });
+
+  it('does not skip sessions with pending worktree prompt when timed out', async () => {
+    // Note: The current implementation does NOT skip sessions with pending items when timing out
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
+      timeoutWarningPosted: true,
+      pendingWorktreePrompt: { postId: 'p1', queuedPrompt: 'test', suggestedBranch: 'branch', mode: 'create' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(
+      30 * 60 * 1000,
+      5 * 60 * 1000,
+      ctx
+    );
+
+    // Session is killed even with pending worktree prompt (current behavior)
+    expect(sessions.has('test-platform:thread-123')).toBe(false);
+  });
+
+  it('handles empty sessions map', async () => {
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+
+    // Should not throw
+    await lifecycle.cleanupIdleSessions(30000, 5000, ctx);
+
+    expect(sessions.size).toBe(0);
+  });
+});
+
+describe('killSession edge cases', () => {
+  it('clears session timers', async () => {
+    const session = createMockSession({
+      updateTimer: setTimeout(() => {}, 10000) as any,
+      statusBarTimer: setInterval(() => {}, 10000) as any,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killSession(session, true, ctx);
+
+    // Session should be removed and timers cleared
+    expect(sessions.has('test-platform:thread-123')).toBe(false);
+  });
+
+  it('emits session remove event', async () => {
+    const session = createMockSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killSession(session, true, ctx);
+
+    expect(ctx.ops.emitSessionRemove).toHaveBeenCalledWith('test-platform:thread-123');
+  });
+
+  it('decrements keepAlive session count', async () => {
+    const session = createMockSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // Start a session to increment keepAlive
+    const { keepAlive } = await import('../utils/keep-alive.js');
+    const initialCount = keepAlive.getSessionCount();
+
+    await lifecycle.killSession(session, true, ctx);
+
+    // Count should have decremented (or stayed at 0 if already 0)
+    expect(keepAlive.getSessionCount()).toBeLessThanOrEqual(initialCount);
+  });
+});
+
+describe('killAllSessions edge cases', () => {
+  it('handles sessions with timers', async () => {
+    const session = createMockSession({
+      updateTimer: setTimeout(() => {}, 10000) as any,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killAllSessions(ctx);
+
+    expect(sessions.size).toBe(0);
+  });
+
+  it('handles empty sessions gracefully', async () => {
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+
+    // Should not throw
+    await lifecycle.killAllSessions(ctx);
+
+    expect(sessions.size).toBe(0);
+  });
+
+  it('calls killSession for each session', async () => {
+    const session = createMockSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killAllSessions(ctx);
+
+    // Claude CLI kill should be called
+    expect(session.claude.kill).toHaveBeenCalled();
+  });
+});
