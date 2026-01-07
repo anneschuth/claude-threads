@@ -568,6 +568,9 @@ export async function flush(
 
   // Check if we need to start a new message due to length or logical breakpoint
   if (session.currentPostId && (content.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
+    // Capture the post ID - we've confirmed it's truthy in the condition above
+    const currentPostId = session.currentPostId;
+
     // Determine where to break
     let breakPoint: number;
 
@@ -620,7 +623,7 @@ export async function flush(
       } else {
         // No good breakpoint found, just update the current post and wait
         try {
-          await session.platform.updatePost(session.currentPostId!, content);
+          await session.platform.updatePost(currentPostId, content);
         } catch {
           // Update failed - post may have been deleted. Clear the post ID
           // so the next flush will create a new post instead of retrying.
@@ -651,7 +654,7 @@ export async function flush(
 
     // Update the current post with the first part
     try {
-      await session.platform.updatePost(session.currentPostId!, firstPartWithMarker);
+      await session.platform.updatePost(currentPostId, firstPartWithMarker);
     } catch {
       // Update failed - post may have been deleted. Log at debug level since
       // we're about to start a new post anyway, so this is not critical.
@@ -697,8 +700,9 @@ export async function flush(
   }
 
   if (session.currentPostId) {
+    const postId = session.currentPostId;
     try {
-      await session.platform.updatePost(session.currentPostId!, content);
+      await session.platform.updatePost(postId, content);
     } catch {
       // Update failed - post may have been deleted. Clear the post ID
       // so the next flush will create a new post instead of retrying.
