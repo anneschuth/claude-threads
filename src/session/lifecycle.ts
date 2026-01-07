@@ -102,6 +102,14 @@ function findPersistedByThreadId(
 // ---------------------------------------------------------------------------
 
 /**
+ * Build a context line for the system prompt with session metadata.
+ */
+function buildSessionContext(platform: { platformType: string; displayName: string }, workingDir: string): string {
+  const platformName = platform.platformType.charAt(0).toUpperCase() + platform.platformType.slice(1);
+  return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir}`;
+}
+
+/**
  * System prompt that gives Claude context about running in a chat platform.
  * This is appended to Claude's system prompt via --append-system-prompt.
  */
@@ -249,6 +257,10 @@ export async function startSession(
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
 
+  // Build system prompt with session context
+  const sessionContext = buildSessionContext(platform, ctx.config.workingDir);
+  const systemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
+
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
 
@@ -260,7 +272,7 @@ export async function startSession(
     resume: false,
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
-    appendSystemPrompt: CHAT_PLATFORM_PROMPT,
+    appendSystemPrompt: systemPrompt,
     logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
@@ -451,6 +463,11 @@ export async function resumeSession(
   // Include system prompt if session doesn't have a title yet
   // This ensures Claude will generate a title on its next response
   const needsTitlePrompt = !state.sessionTitle;
+  let appendSystemPrompt: string | undefined;
+  if (needsTitlePrompt) {
+    const sessionContext = buildSessionContext(platform, state.workingDir);
+    appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
+  }
 
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
@@ -460,7 +477,7 @@ export async function resumeSession(
     resume: true,
     chrome: ctx.config.chromeEnabled,
     platformConfig: platformMcpConfig,
-    appendSystemPrompt: needsTitlePrompt ? CHAT_PLATFORM_PROMPT : undefined,
+    appendSystemPrompt,
     logSessionId: sessionId,  // Route logs to session panel
   };
   const claude = new ClaudeCli(cliOptions);
