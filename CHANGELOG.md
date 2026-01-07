@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.40.0] - 2026-01-07
+
+### Added
+- **Centralized worktree location** - All worktrees now created in `~/.claude-threads/worktrees/` for easy management
+- **`!worktree cleanup` command** - Manually delete current worktree and switch back to repo root
+- **Merged branch detection** - Worktrees are automatically cleaned on startup if their branch was merged into main/master
+- **Worktree ownership tracking** - Only sessions that created a worktree can trigger cleanup (not sessions that joined)
+- **Worktree reference counting** - Prevents deletion while other sessions are using the same worktree
+
+### Changed
+- **Worktrees preserved on session exit** - No automatic cleanup when sessions end normally; use `!worktree cleanup` for manual cleanup or wait for orphan cleanup on startup (>24h old)
+
 ## [0.39.0] - 2026-01-06
 
 ### Added
