@@ -12,7 +12,7 @@
     "tests/**/*"
   ],
   "ignoreDependencies": [],
-  "ignoreBinaries": ["pkill", "sleep"],
+  "ignoreBinaries": ["pkill", "sleep", "dist/index.js"],
   "ignoreExportsUsedInFile": true,
   "rules": {
     "exports": "off",
