@@ -41,6 +41,59 @@ describe('shortenPath', () => {
   it('handles path equal to home', () => {
     expect(shortenPath('/Users/testuser')).toBe('~');
   });
+
+  describe('worktree paths with worktreeInfo', () => {
+    const worktreeInfo = {
+      path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+      branch: 'feat/update-cli-ui',
+    };
+
+    it('shortens worktree paths to [branch]/relativePath', () => {
+      const path =
+        '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src/index.ts';
+      expect(shortenPath(path, undefined, worktreeInfo)).toBe(
+        '[feat/update-cli-ui]/src/index.ts'
+      );
+    });
+
+    it('handles deeply nested files in worktrees', () => {
+      const path =
+        '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src/ui/components/Button.tsx';
+      expect(shortenPath(path, undefined, worktreeInfo)).toBe(
+        '[feat/update-cli-ui]/src/ui/components/Button.tsx'
+      );
+    });
+
+    it('handles worktree root path exact match', () => {
+      const path =
+        '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345';
+      expect(shortenPath(path, undefined, worktreeInfo)).toBe(
+        '[feat/update-cli-ui]/'
+      );
+    });
+
+    it('handles worktree root path with trailing slash', () => {
+      const wtInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/',
+        branch: 'develop',
+      };
+      const path =
+        '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/package.json';
+      expect(shortenPath(path, undefined, wtInfo)).toBe('[develop]/package.json');
+    });
+
+    it('falls back to ~ when path does not match worktree', () => {
+      const path = '/Users/testuser/other-project/src/index.ts';
+      expect(shortenPath(path, undefined, worktreeInfo)).toBe(
+        '~/other-project/src/index.ts'
+      );
+    });
+
+    it('works without worktreeInfo (falls back to ~ replacement)', () => {
+      const path = '/Users/testuser/project/src/index.ts';
+      expect(shortenPath(path)).toBe('~/project/src/index.ts');
+    });
+  });
 });
 
 describe('parseMcpToolName', () => {
@@ -99,6 +152,17 @@ describe('formatToolUse', () => {
     it('shows full path when not under home', () => {
       const result = formatToolUse('Read', { file_path: '/var/log/app.log' }, formatter);
       expect(result).toBe('📄 **Read** `/var/log/app.log`');
+    });
+
+    it('shortens worktree paths when worktreeInfo provided', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'feat/my-feature',
+      };
+      const result = formatToolUse('Read', {
+        file_path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src/index.ts',
+      }, formatter, { worktreeInfo });
+      expect(result).toBe('📄 **Read** `[feat/my-feature]/src/index.ts`');
     });
   });
 
@@ -167,6 +231,19 @@ describe('formatToolUse', () => {
       expect(result).toContain('- old line');
       expect(result).toContain('+ new line');
     });
+
+    it('shortens worktree paths when worktreeInfo provided', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'refactor/cleanup',
+      };
+      const result = formatToolUse('Edit', {
+        file_path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src/utils.ts',
+        old_string: 'old',
+        new_string: 'new',
+      }, formatter, { worktreeInfo });
+      expect(result).toBe('✏️ **Edit** `[refactor/cleanup]/src/utils.ts`');
+    });
   });
 
   describe('Write tool', () => {
@@ -205,6 +282,18 @@ describe('formatToolUse', () => {
         { detailed: true }
       );
       expect(result).toContain('more lines');
+    });
+
+    it('shortens worktree paths when worktreeInfo provided', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'fix/bug-123',
+      };
+      const result = formatToolUse('Write', {
+        file_path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src/new-file.ts',
+        content: 'hello',
+      }, formatter, { worktreeInfo });
+      expect(result).toBe('📝 **Write** `[fix/bug-123]/src/new-file.ts`');
     });
   });
 
@@ -478,5 +567,16 @@ describe('formatToolForPermission', () => {
   it('formats unknown tools', () => {
     const result = formatToolForPermission('CustomTool', {}, formatter);
     expect(result).toBe('● **CustomTool**');
+  });
+
+  it('shortens worktree paths when worktreeInfo provided', () => {
+    const worktreeInfo = {
+      path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+      branch: 'feat/permissions',
+    };
+    const result = formatToolForPermission('Write', {
+      file_path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/config.json',
+    }, formatter, { worktreeInfo });
+    expect(result).toBe('📝 **Write** `[feat/permissions]/config.json`');
   });
 });
