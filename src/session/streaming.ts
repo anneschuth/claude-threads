@@ -216,12 +216,23 @@ export function findLogicalBreakpoint(
   }
 
   // Priority 3: Look for end of code blocks
+  // We need to verify this is actually a CLOSING marker, not an OPENING marker.
+  // Check if we're inside a code block just before the ``` - if so, it's a closing marker.
   const codeBlockEndMatch = searchWindow.match(/^```$/m);
   if (codeBlockEndMatch && codeBlockEndMatch.index !== undefined) {
-    const pos = startPos + codeBlockEndMatch.index + codeBlockEndMatch[0].length;
-    const nextChar = content[pos];
-    const finalPos = nextChar === '\n' ? pos + 1 : pos;
-    return { position: finalPos, type: 'code_block_end' };
+    const markerPos = startPos + codeBlockEndMatch.index;
+    // Check if there's an unclosed code block before this position
+    // If we're inside a code block at the character just before the ```, this is a closing marker
+    const stateBeforeMarker = getCodeBlockState(content, markerPos);
+    if (stateBeforeMarker.isInside) {
+      // This is a valid closing marker - break after it
+      const pos = markerPos + codeBlockEndMatch[0].length;
+      const nextChar = content[pos];
+      const finalPos = nextChar === '\n' ? pos + 1 : pos;
+      return { position: finalPos, type: 'code_block_end' };
+    }
+    // Otherwise, this ``` is an OPENING marker, not a closing one.
+    // Don't break here - we'd be splitting right before a code block starts.
   }
 
   // Priority 4: Look for paragraph breaks (double newlines)
@@ -551,35 +562,37 @@ export async function flush(
     return;  // No content to flush - silent return
   }
 
-  // Format markdown for the target platform
-  // This converts standard markdown to the platform's native format
   const formatter = session.platform.getFormatter();
-  let content = formatter.formatMarkdown(session.pendingContent).trim();
 
   // Get platform-specific message size limits
   const { maxLength: MAX_POST_LENGTH, hardThreshold: HARD_CONTINUATION_THRESHOLD } =
     session.platform.getMessageLimits();
 
+  // IMPORTANT: Split FIRST on raw markdown (before formatting)
+  // This ensures code block detection works correctly with ```language patterns
+  // Then format each chunk for the target platform
+  const rawContent = session.pendingContent.trim();
+
   // Check if we should break early based on logical breakpoints
   // This helps avoid "Show More" collapse on some platforms
   const shouldBreakEarly = session.currentPostId &&
-    content.length > MIN_BREAK_THRESHOLD &&
-    shouldFlushEarly(content);
+    rawContent.length > MIN_BREAK_THRESHOLD &&
+    shouldFlushEarly(rawContent);
 
   // Check if we need to start a new message due to length or logical breakpoint
-  if (session.currentPostId && (content.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
-    // Determine where to break
+  if (session.currentPostId && (rawContent.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
+    // Determine where to break (on raw markdown)
     let breakPoint: number;
 
     // Track if we're breaking inside a code block (so we can close/reopen it)
     let codeBlockLanguage: string | undefined;
 
-    if (content.length > HARD_CONTINUATION_THRESHOLD) {
+    if (rawContent.length > HARD_CONTINUATION_THRESHOLD) {
       // Hard break: we're at the limit, must break now
       // Try to find a logical breakpoint near the threshold
       const startSearchPos = Math.floor(HARD_CONTINUATION_THRESHOLD * 0.7);
       const breakInfo = findLogicalBreakpoint(
-        content,
+        rawContent,
         startSearchPos,
         Math.floor(HARD_CONTINUATION_THRESHOLD * 0.3)
       );
@@ -588,7 +601,7 @@ export async function flush(
       } else {
         // findLogicalBreakpoint returned null - we might be inside a code block
         // Check if we're inside a code block at the desired break position
-        const codeBlockState = getCodeBlockState(content, startSearchPos);
+        const codeBlockState = getCodeBlockState(rawContent, startSearchPos);
 
         if (codeBlockState.isInside) {
           // We're inside a code block and can't find its end within the lookahead
@@ -596,7 +609,7 @@ export async function flush(
           codeBlockLanguage = codeBlockState.language;
 
           // Find a line break within the code block to break at
-          const searchWindow = content.substring(startSearchPos, HARD_CONTINUATION_THRESHOLD);
+          const searchWindow = rawContent.substring(startSearchPos, HARD_CONTINUATION_THRESHOLD);
           const lineBreakMatch = searchWindow.match(/\n/);
           if (lineBreakMatch && lineBreakMatch.index !== undefined) {
             breakPoint = startSearchPos + lineBreakMatch.index + 1;
@@ -606,7 +619,7 @@ export async function flush(
         } else {
           // Not inside a code block, just couldn't find a good breakpoint
           // Fallback: find any line break
-          breakPoint = content.lastIndexOf('\n', HARD_CONTINUATION_THRESHOLD);
+          breakPoint = rawContent.lastIndexOf('\n', HARD_CONTINUATION_THRESHOLD);
           if (breakPoint < HARD_CONTINUATION_THRESHOLD * 0.7) {
             breakPoint = HARD_CONTINUATION_THRESHOLD;
           }
@@ -614,13 +627,15 @@ export async function flush(
       }
     } else {
       // Soft break: we've exceeded soft threshold, find a good logical breakpoint
-      const breakInfo = findLogicalBreakpoint(content, SOFT_BREAK_THRESHOLD);
-      if (breakInfo && breakInfo.position < content.length) {
+      const breakInfo = findLogicalBreakpoint(rawContent, SOFT_BREAK_THRESHOLD);
+      if (breakInfo && breakInfo.position < rawContent.length) {
         breakPoint = breakInfo.position;
       } else {
         // No good breakpoint found, just update the current post and wait
+        // Format before posting
+        const formattedContent = formatter.formatMarkdown(rawContent);
         const result = await withErrorHandling(
-          () => session.platform.updatePost(session.currentPostId!, content),
+          () => session.platform.updatePost(session.currentPostId!, formattedContent),
           { action: 'Update post (no breakpoint)', session }
         );
 
@@ -635,9 +650,9 @@ export async function flush(
       }
     }
 
-    // Split at the breakpoint
-    let firstPart = content.substring(0, breakPoint).trim();
-    let remainder = content.substring(breakPoint).trim();
+    // Split at the breakpoint (on raw markdown)
+    let firstPart = rawContent.substring(0, breakPoint).trim();
+    let remainder = rawContent.substring(breakPoint).trim();
 
     // If we're breaking inside a code block, close it in the first part and reopen in the remainder
     if (codeBlockLanguage !== undefined) {
@@ -647,11 +662,13 @@ export async function flush(
       remainder = '```' + codeBlockLanguage + '\n' + remainder;
     }
 
+    // Now format each part for the platform
+    const formattedFirstPart = formatter.formatMarkdown(firstPart);
+
     // Only add continuation marker if we have more content
-    const formatter = session.platform.getFormatter();
     const firstPartWithMarker = remainder
-      ? firstPart + '\n\n' + formatter.formatItalic('... (continued below)')
-      : firstPart;
+      ? formattedFirstPart + '\n\n' + formatter.formatItalic('... (continued below)')
+      : formattedFirstPart;
 
     // Update the current post with the first part
     const updateResult = await withErrorHandling(
@@ -662,10 +679,10 @@ export async function flush(
     // If update failed, include first part content in the continuation
     if (updateResult === undefined) {
       sessionLog(session).warn('Update failed during split, including content in new message');
-      // Keep the full content for the new message
-      session.pendingContent = content;
+      // Keep the full raw content for the new message
+      session.pendingContent = rawContent;
     } else {
-      // Only keep remainder for continuation
+      // Only keep remainder for continuation (raw markdown)
       session.pendingContent = remainder;
     }
 
@@ -676,12 +693,13 @@ export async function flush(
     // Use pendingContent which may be full content (if update failed) or just remainder
     const contentToPost = session.pendingContent;
     if (contentToPost) {
-      // Format the continuation marker using the platform's formatter for consistency
+      // Format the continuation content
+      const formattedContinuation = formatter.formatMarkdown(contentToPost);
       // Only add "(continued)" if we successfully posted the first part
       const continuationMarker = updateResult !== undefined
         ? formatter.formatItalic('(continued)') + '\n\n'
         : '';
-      const continuationContent = continuationMarker + contentToPost;
+      const continuationContent = continuationMarker + formattedContinuation;
 
       // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
       const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
@@ -704,10 +722,12 @@ export async function flush(
   }
 
   // Normal case: content fits in current post
+  // Format before posting
+  let content = formatter.formatMarkdown(rawContent);
+
   if (content.length > MAX_POST_LENGTH) {
     // Safety truncation if we somehow got content that's still too long
     sessionLog(session).warn(`Content too long (${content.length}), truncating to ${MAX_POST_LENGTH - 50}`);
-    const formatter = session.platform.getFormatter();
     content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n' + formatter.formatItalic('... (truncated)');
   }
 

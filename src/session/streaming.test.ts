@@ -763,6 +763,60 @@ describe('findLogicalBreakpoint with code blocks', () => {
     const result = findLogicalBreakpoint(content, 0);
     expect(result?.type).toBe('code_block_end');
   });
+
+  test('does not break at opening code block marker (bug fix)', () => {
+    // This was a bug: when content had a code block starting in the search window,
+    // the opening ``` was incorrectly identified as a "code_block_end" breakpoint.
+    // The fix ensures we only treat ``` as a closing marker if we're inside a code block.
+    const prefix = 'x'.repeat(100);
+    const content = prefix + '\n```\ncode inside block\n```\nafter';
+
+    // Search from position 90 - the ``` is ahead in the search window
+    // but we're NOT inside a code block at position 90
+    const result = findLogicalBreakpoint(content, 90);
+
+    // Should NOT return code_block_end for the opening ```
+    // It should find another breakpoint (like a line break) instead
+    expect(result).not.toBeNull();
+    if (result?.type === 'code_block_end') {
+      // If it did find a code block end, make sure it's the CLOSING marker, not the opening one
+      // The closing marker is after position 100 + 1 + 3 + 1 + "code inside block".length + 1 = ~123
+      expect(result.position).toBeGreaterThan(115);
+    }
+  });
+
+  test('correctly breaks after code block when content continues after', () => {
+    // When there's a complete code block followed by more content,
+    // we should break AFTER the closing ``` marker
+    const content = '```typescript\nconst x = 1;\n```\nMore content here';
+    const result = findLogicalBreakpoint(content, 0);
+
+    expect(result).not.toBeNull();
+    expect(result?.type).toBe('code_block_end');
+    // Position should be after the closing ```\n
+    expect(result?.position).toBe(content.indexOf('```\n') + 4);
+    // Content after the break should start with "More content"
+    expect(content.substring(result!.position)).toBe('More content here');
+  });
+
+  test('does not confuse opening ``` with closing ``` in search window', () => {
+    // Scenario: we're searching from a position where the search window
+    // contains both an opening AND closing ```. The first ``` is opening,
+    // not closing.
+    const prefix = 'Some text here\n';
+    const content = prefix + '```diff\n- old\n+ new\n```\nAfter block';
+
+    // Search from position 10 - both ``` markers are in the search window
+    const result = findLogicalBreakpoint(content, 10);
+
+    expect(result).not.toBeNull();
+    // Should find code_block_end at the CLOSING marker, not the opening one
+    expect(result?.type).toBe('code_block_end');
+    // The closing ``` is at position prefix.length + '```diff\n- old\n+ new\n'.length = 15 + 21 = 36
+    // Position should be after the closing marker
+    const closingPos = content.lastIndexOf('```');
+    expect(result?.position).toBe(closingPos + 4); // +4 for ```\n
+  });
 });
 
 // ---------------------------------------------------------------------------
