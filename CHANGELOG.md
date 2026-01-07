@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.41.0] - 2026-01-07
+
+### Changed
+- **Test coverage threshold increased to 80%** - CI now enforces minimum 80% line coverage (previously 75%)
+- **Comprehensive test suite expansion** - Added 400+ new tests bringing total to 942 tests:
+  - `src/changelog.test.ts` - Changelog parsing and "What's New" extraction
+  - `src/logo.test.ts` - ASCII art logo generation
+  - `src/version.test.ts` - Package version resolution
+  - `src/session/types.test.ts` - Session type definitions
+  - `src/test-utils/mock-formatter.test.ts` - Mock formatter utilities
+  - `src/update-notifier.test.ts` - Update notification system
+  - Enhanced tests for message-handler, mattermost/api, platform/utils, and session modules
+
+### Added
+- **Coverage badge** - README now displays live test coverage percentage via shields.io endpoint
+
 ## [0.40.1] - 2026-01-07
 
 ### Changed
