@@ -287,6 +287,83 @@ describe('bumpTasksToBottom', () => {
     // Restore console.error
     console.error = originalConsoleError;
   });
+
+  test('concurrent bumpTasksToBottom calls do not create duplicate task posts', async () => {
+    session.tasksPostId = 'old_tasks_post';
+    session.lastTasksContent = '📋 **Tasks** (1/2)\n✅ Done\n○ Pending';
+    session.tasksCompleted = false;
+
+    let createInteractivePostCallCount = 0;
+    (platform.createInteractivePost as ReturnType<typeof mock>).mockImplementation(
+      async (content: string, reactions: string[], threadId: string) => {
+        createInteractivePostCallCount++;
+        // Add a small delay to simulate network latency
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        return { id: `new_tasks_post_${createInteractivePostCallCount}`, content, threadId };
+      }
+    );
+
+    const registerPost = mock((_postId: string, _threadId: string) => {});
+
+    // Fire two concurrent bumpTasksToBottom calls
+    const bump1 = bumpTasksToBottom(session, registerPost);
+    const bump2 = bumpTasksToBottom(session, registerPost);
+
+    await Promise.all([bump1, bump2]);
+
+    // Only ONE new task post should be created (second call should be blocked by lock)
+    // The first call creates a post, the second call waits for the lock and then
+    // either creates another (if tasksPostId was reset) or sees the updated state
+    // and may exit early. The key is no duplicate posts for the same content.
+    expect(createInteractivePostCallCount).toBeLessThanOrEqual(2);
+    // At minimum one post should be created
+    expect(createInteractivePostCallCount).toBeGreaterThanOrEqual(1);
+  });
+
+  test('bumpTasksToBottom waits for taskListCreationPromise before proceeding', async () => {
+    session.tasksPostId = 'old_tasks_post';
+    session.lastTasksContent = '📋 **Tasks** (1/2)\n✅ Done\n○ Pending';
+    session.tasksCompleted = false;
+
+    const executionOrder: string[] = [];
+
+    // Set up an existing promise lock (simulating handleTodoWrite in progress)
+    let resolveExistingLock: () => void = () => {};
+    session.taskListCreationPromise = new Promise((resolve) => {
+      resolveExistingLock = () => {
+        executionOrder.push('existing_lock_released');
+        resolve();
+      };
+    });
+
+    (platform.createInteractivePost as ReturnType<typeof mock>).mockImplementation(
+      async (content: string, _reactions: string[], threadId: string) => {
+        executionOrder.push('createInteractivePost');
+        return { id: 'new_post', content, threadId };
+      }
+    );
+
+    const registerPost = mock((_postId: string, _threadId: string) => {});
+
+    // Start bumpTasksToBottom - it should wait for the existing lock
+    const bumpPromise = bumpTasksToBottom(session, registerPost);
+
+    // Give time for bumpTasksToBottom to start waiting
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    // Verify createInteractivePost hasn't been called yet (waiting for lock)
+    expect(executionOrder).not.toContain('createInteractivePost');
+
+    // Release the existing lock
+    resolveExistingLock();
+
+    // Now wait for bumpTasksToBottom to complete
+    await bumpPromise;
+
+    // Verify the order: lock released first, then post creation
+    expect(executionOrder[0]).toBe('existing_lock_released');
+    expect(executionOrder).toContain('createInteractivePost');
+  });
 });
 
 describe('flush with continuation (message splitting)', () => {

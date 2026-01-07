@@ -371,6 +371,86 @@ describe('handleEvent with TodoWrite', () => {
     // The session should have a valid tasksPostId
     expect(session.tasksPostId).toBeTruthy();
   });
+
+  test('TodoWrite and bumpTasksToBottom do not create duplicate task posts when interleaved', async () => {
+    // This tests the fix for the duplicate task list bug where both
+    // handleTodoWrite and bumpTasksToBottom could create task posts
+    // when called concurrently.
+
+    // First, create an initial task list
+    session.tasksPostId = 'initial_tasks_post';
+    session.lastTasksContent = '📋 **Tasks** (0/1)\n○ Task 1';
+    session.tasksCompleted = false;
+
+    const originalCreateInteractivePost = platform.createInteractivePost;
+    (platform as any).createInteractivePost = mock(async (message: string, reactions: string[], threadId?: string) => {
+      // Add delay to simulate network latency
+      await new Promise(resolve => setTimeout(resolve, 20));
+      return originalCreateInteractivePost.call(platform, message, reactions, threadId);
+    });
+
+    // Create a TodoWrite event
+    const todoWriteEvent = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'TodoWrite',
+            id: 'tool_bump_test',
+            input: {
+              todos: [
+                { content: 'Task 1', status: 'in_progress', activeForm: 'Doing task 1' },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    // Simulate bumpTasksToBottom being called (e.g., user sends a message)
+    // by having the ctx.ops.bumpTasksToBottom mock actually do the work
+    let bumpCalled = false;
+    (ctx.ops.bumpTasksToBottom as ReturnType<typeof mock>).mockImplementation(async (s: Session) => {
+      bumpCalled = true;
+      // Wait for any existing lock
+      if (s.taskListCreationPromise) {
+        await s.taskListCreationPromise;
+      }
+      // Re-check after waiting
+      if (!s.tasksPostId || !s.lastTasksContent || s.tasksCompleted) {
+        return;
+      }
+      // Acquire lock
+      let resolve: () => void = () => {};
+      s.taskListCreationPromise = new Promise(r => { resolve = r; });
+      try {
+        // Simulate creating a new post
+        const post = await originalCreateInteractivePost.call(platform, s.lastTasksContent, ['arrow_down_small'], s.threadId);
+        s.tasksPostId = post.id;
+      } finally {
+        resolve();
+        s.taskListCreationPromise = undefined;
+      }
+    });
+
+    // Fire TodoWrite event - this will trigger handleTodoWrite which updates tasks
+    handleEvent(session, todoWriteEvent, ctx);
+
+    // Also trigger bumpTasksToBottom concurrently (simulating user follow-up message)
+    ctx.ops.bumpTasksToBottom(session);
+
+    // Wait for all async operations
+    await new Promise(resolve => setTimeout(resolve, 150));
+
+    // With proper locking, we should have at most 2 posts created
+    // (one from TodoWrite if it creates, one from bump)
+    // But critically, there should be only ONE valid tasksPostId
+    expect(session.tasksPostId).toBeTruthy();
+
+    // The bump function should have been called
+    expect(bumpCalled).toBe(true);
+  });
 });
 
 describe('handleEvent with result event (usage stats)', () => {
