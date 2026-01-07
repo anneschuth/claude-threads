@@ -306,8 +306,13 @@ export async function startSession(
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
 
-  // Get git status for system prompt context
-  const gitStatus = await getGitStatus(ctx.config.workingDir);
+  // Get git status for system prompt context (non-blocking, use undefined on error)
+  let gitStatus: GitStatusInfo | undefined;
+  try {
+    gitStatus = await getGitStatus(ctx.config.workingDir);
+  } catch {
+    // Ignore errors - git status is optional context
+  }
 
   // Build the system prompt with full context
   const systemPrompt = buildChatPlatformPrompt({
@@ -524,7 +529,12 @@ export async function resumeSession(
   // Build system prompt with context if needed
   let systemPrompt: string | undefined;
   if (needsTitlePrompt) {
-    const gitStatus = await getGitStatus(state.workingDir);
+    let gitStatus: GitStatusInfo | undefined;
+    try {
+      gitStatus = await getGitStatus(state.workingDir);
+    } catch {
+      // Ignore errors - git status is optional context
+    }
     systemPrompt = buildChatPlatformPrompt({
       platformType: platform.platformType,
       platformDisplayName: platform.displayName,
