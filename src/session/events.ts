@@ -8,7 +8,7 @@
 import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
-import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
+import { formatToolUse as sharedFormatToolUse, shortenPath } from '../utils/tool-formatter.js';
 import {
   NUMBER_EMOJIS,
   APPROVAL_EMOJIS,
@@ -24,6 +24,7 @@ import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
+import { changeDirectory } from './commands.js';
 
 const log = createLogger('events');
 
@@ -124,6 +125,78 @@ const DESCRIPTION_CONFIG: MetadataConfig = {
   maxLength: 100,
   placeholder: '<brief description>',
 };
+
+// ---------------------------------------------------------------------------
+// Claude command detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect and execute !cd commands from Claude's assistant output.
+ * Returns the text with the command removed (if executed), or original text.
+ *
+ * Only !cd is allowed for now - it's safe and useful for Claude to switch
+ * directories when it realizes it needs to work in a different project.
+ */
+function detectAndExecuteClaudeCommands(
+  text: string,
+  session: Session,
+  ctx: SessionContext
+): string {
+  // Pattern: !cd followed by a path (at start of line or after newline)
+  // Captures the path which can include ~, /, alphanumeric, dots, dashes, underscores
+  const cdPattern = /^!cd\s+([\w~./-]+)\s*$/m;
+  const match = text.match(cdPattern);
+
+  if (match) {
+    const targetPath = match[1];
+    sessionLog(session).info(`🤖 Claude executing !cd ${targetPath}`);
+
+    // Execute the directory change asynchronously
+    executeClaudeCommand(session, 'cd', targetPath, ctx);
+
+    // Remove the command from the displayed text
+    return text.replace(cdPattern, '').trim();
+  }
+
+  return text;
+}
+
+/**
+ * Execute a command on behalf of Claude.
+ * Posts a visibility message and runs the command.
+ *
+ * Currently only supports 'cd' command. Other commands could be added
+ * in the future with appropriate safety checks.
+ */
+async function executeClaudeCommand(
+  session: Session,
+  command: 'cd',  // Only 'cd' is supported for now
+  args: string,
+  ctx: SessionContext
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+
+  // Post visibility message so users can see what Claude is doing
+  const worktreeContext = session.worktreeInfo
+    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
+    : undefined;
+  const shortPath = shortenPath(args, undefined, worktreeContext);
+  const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command} ${shortPath}`)}`;
+
+  await withErrorHandling(
+    () => session.platform.createPost(visibilityMessage, session.threadId),
+    { action: 'Post Claude command visibility', session }
+  );
+
+  // Execute the command
+  switch (command) {
+    case 'cd':
+      // Use 'claude' as the username - since Claude is "trusted" within the session,
+      // we bypass the owner check by using a special identifier
+      await changeDirectory(session, args, session.startedBy, ctx);
+      break;
+  }
+}
 
 /**
  * Extract and update pull request URL from text.
@@ -291,6 +364,10 @@ function formatEvent(
 
           // Detect and store pull request URLs
           extractAndUpdatePullRequest(text, session, ctx);
+
+          // Detect and execute Claude commands (e.g., !cd)
+          // This allows Claude to change directories when needed
+          text = detectAndExecuteClaudeCommands(text, session, ctx);
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
