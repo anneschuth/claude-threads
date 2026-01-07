@@ -619,17 +619,13 @@ export async function flush(
         breakPoint = breakInfo.position;
       } else {
         // No good breakpoint found, just update the current post and wait
-        const result = await withErrorHandling(
-          () => session.platform.updatePost(session.currentPostId!, content),
-          { action: 'Update post (no breakpoint)', session }
-        );
-
-        // If update failed, start a new message instead
-        if (result === undefined) {
-          sessionLog(session).warn('Update failed (no breakpoint), starting new message');
+        try {
+          await session.platform.updatePost(session.currentPostId!, content);
+        } catch {
+          // Update failed - post may have been deleted. Clear the post ID
+          // so the next flush will create a new post instead of retrying.
+          sessionLog(session).debug('Update failed (no breakpoint), will create new post on next flush');
           session.currentPostId = null;
-          session.currentPostContent = '';
-          return flush(session, registerPost);
         }
         return;
       }
@@ -654,34 +650,23 @@ export async function flush(
       : firstPart;
 
     // Update the current post with the first part
-    const updateResult = await withErrorHandling(
-      () => session.platform.updatePost(session.currentPostId!, firstPartWithMarker),
-      { action: 'Update post with first part', session }
-    );
-
-    // If update failed, include first part content in the continuation
-    if (updateResult === undefined) {
-      sessionLog(session).warn('Update failed during split, including content in new message');
-      // Keep the full content for the new message
-      session.pendingContent = content;
-    } else {
-      // Only keep remainder for continuation
-      session.pendingContent = remainder;
+    try {
+      await session.platform.updatePost(session.currentPostId!, firstPartWithMarker);
+    } catch {
+      // Update failed - post may have been deleted. Log at debug level since
+      // we're about to start a new post anyway, so this is not critical.
+      sessionLog(session).debug('Update failed during split, continuing with new post');
     }
 
     // Start a new post for the continuation
     session.currentPostId = null;
+    session.pendingContent = remainder;
 
     // Create the continuation post if there's content
-    // Use pendingContent which may be full content (if update failed) or just remainder
-    const contentToPost = session.pendingContent;
-    if (contentToPost) {
+    if (remainder) {
       // Format the continuation marker using the platform's formatter for consistency
-      // Only add "(continued)" if we successfully posted the first part
-      const continuationMarker = updateResult !== undefined
-        ? formatter.formatItalic('(continued)') + '\n\n'
-        : '';
-      const continuationContent = continuationMarker + contentToPost;
+      const continuationMarker = formatter.formatItalic('(continued)');
+      const continuationContent = continuationMarker + '\n\n' + remainder;
 
       // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
       const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
@@ -712,18 +697,13 @@ export async function flush(
   }
 
   if (session.currentPostId) {
-    const result = await withErrorHandling(
-      () => session.platform.updatePost(session.currentPostId!, content),
-      { action: 'Update current post', session }
-    );
-
-    // If update failed, start a new message instead
-    if (result === undefined) {
-      sessionLog(session).warn('Update failed, starting new message');
+    try {
+      await session.platform.updatePost(session.currentPostId!, content);
+    } catch {
+      // Update failed - post may have been deleted. Clear the post ID
+      // so the next flush will create a new post instead of retrying.
+      sessionLog(session).debug('Update failed, will create new post on next flush');
       session.currentPostId = null;
-      session.currentPostContent = '';
-      // Re-flush with new post (recursive call)
-      return flush(session, registerPost);
     }
   } else {
     // Need to create a new post

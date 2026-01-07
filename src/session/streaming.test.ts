@@ -766,10 +766,10 @@ describe('findLogicalBreakpoint with code blocks', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Error recovery tests - when updatePost fails
+// updatePost failure handling tests
 // ---------------------------------------------------------------------------
 
-describe('flush error recovery', () => {
+describe('flush handles updatePost failures', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;
   let registerPost: ReturnType<typeof mock>;
@@ -780,82 +780,122 @@ describe('flush error recovery', () => {
     registerPost = mock((_postId: string, _threadId: string) => {});
   });
 
-  test('creates new post when updatePost fails', async () => {
-    session.currentPostId = 'existing_post';
+  test('clears currentPostId when normal update fails', async () => {
+    session.currentPostId = 'deleted_post';
     session.pendingContent = 'Some content';
 
-    // Make updatePost fail by returning undefined (simulating error handler catching it)
+    // Make updatePost fail
     (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      return Promise.resolve(undefined as any);
+      throw new Error('Post not found');
+    });
+
+    // Should not throw
+    await flush(session, registerPost);
+
+    // currentPostId should be cleared so next flush creates a new post
+    expect(session.currentPostId).toBeNull();
+  });
+
+  test('creates new post after failed update on next flush', async () => {
+    session.currentPostId = 'deleted_post';
+    session.pendingContent = 'Content part 1';
+
+    // First flush - update fails
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      throw new Error('Post not found');
     });
 
     await flush(session, registerPost);
+    expect(session.currentPostId).toBeNull();
 
-    // Should have tried to update first
-    expect(platform.updatePost).toHaveBeenCalledWith('existing_post', 'Some content');
+    // Second flush - should create a new post since currentPostId is null
+    session.pendingContent = 'Content part 2';
+    await flush(session, registerPost);
 
-    // Should have created a new post after update failed
-    expect(platform.createPost).toHaveBeenCalledWith('Some content', 'thread1');
-
-    // currentPostId should be the new post
+    expect(platform.createPost).toHaveBeenCalledWith('Content part 2', 'thread1');
     expect(session.currentPostId).toBe('post_1');
   });
 
-  test('creates new post when updatePost fails during soft break', async () => {
-    // Content exceeds soft threshold but no good breakpoint - update will be tried
-    const longContent = 'X'.repeat(3000);
-    session.currentPostId = 'existing_post';
-    session.pendingContent = longContent;
+  test('clears currentPostId when soft break update fails (no breakpoint)', async () => {
+    // Create content that exceeds soft threshold but has no good breakpoint
+    // shouldFlushEarly returns true but findLogicalBreakpoint returns null
+    const contentWithNoBreakpoint = 'X'.repeat(SOFT_BREAK_THRESHOLD + 100);
+
+    session.currentPostId = 'deleted_post';
+    session.pendingContent = contentWithNoBreakpoint;
 
     // Make updatePost fail
     (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      return Promise.resolve(undefined as any);
+      throw new Error('Post not found');
     });
 
     await flush(session, registerPost);
 
-    // Should have tried to update
-    expect(platform.updatePost).toHaveBeenCalled();
-
-    // Should have created a new post after failure
-    expect(platform.createPost).toHaveBeenCalled();
+    // currentPostId should be cleared
+    expect(session.currentPostId).toBeNull();
   });
 
-  test('handles updatePost failure during split - includes full content in new post', async () => {
-    // Create content that exceeds hard threshold, will be split
-    const longContent = 'A'.repeat(15000);
-    session.currentPostId = 'existing_post';
+  test('continues after split update failure', async () => {
+    // Create content that will be split (exceeds hard threshold)
+    const longContent = 'Y'.repeat(15000);
+
+    session.currentPostId = 'deleted_post';
     session.pendingContent = longContent;
 
-    // Make first updatePost call fail (the split attempt)
+    // Make first updatePost fail (the split update)
     (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      return Promise.resolve(undefined as any);
+      throw new Error('Post not found');
     });
 
     await flush(session, registerPost);
 
-    // After split fails, should create new post with content
-    // (not continuation marker since first part never posted)
-    expect(platform.createPost).toHaveBeenCalled();
-    const createCall = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
-    // Should NOT have "(continued)" marker since first part failed
-    expect(createCall[0]).not.toContain('(continued)');
+    // Even though first update failed, should still try to create continuation
+    // currentPostId is cleared and a continuation post is created
+    expect(session.currentPostId).not.toBe('deleted_post');
   });
 
-  test('resets session state when update fails', async () => {
-    session.currentPostId = 'existing_post';
-    session.currentPostContent = 'old content';
+  test('handles task post repurpose failure gracefully', async () => {
+    // Set up task list
+    session.tasksPostId = 'deleted_tasks_post';
+    session.lastTasksContent = '📋 Tasks';
+    session.currentPostId = null;
     session.pendingContent = 'New content';
 
-    // Make updatePost fail
+    // Make first updatePost fail (the repurpose attempt)
     (platform.updatePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      return Promise.resolve(undefined as any);
+      throw new Error('Post not found');
     });
 
+    // Should not throw
     await flush(session, registerPost);
 
-    // currentPostContent should be reset (new post was created)
-    expect(session.currentPostId).toBe('post_1');
+    // Should still try to create new task post
+    expect(platform.createInteractivePost).toHaveBeenCalled();
+  });
+
+  test('does not spam warnings when update repeatedly fails', async () => {
+    session.currentPostId = 'deleted_post';
+    session.pendingContent = 'Content';
+
+    // Fail the update
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementation(() => {
+      throw new Error('Post not found');
+    });
+
+    // First flush - update fails, currentPostId cleared
+    await flush(session, registerPost);
+    expect(session.currentPostId).toBeNull();
+
+    // Reset pendingContent for second flush
+    session.pendingContent = 'More content';
+
+    // Second flush - should create new post, not try to update the deleted one
+    await flush(session, registerPost);
+
+    // updatePost should only have been called once (the first failed attempt)
+    expect(platform.updatePost).toHaveBeenCalledTimes(1);
+    // createPost should have been called for the second flush
+    expect(platform.createPost).toHaveBeenCalled();
   });
 });
 
