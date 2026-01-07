@@ -65,7 +65,7 @@ export function validateClaudeCli(): {
       installed: false,
       version: null,
       compatible: false,
-      message: 'Claude CLI not found. Install it with: npm install -g @anthropic-ai/claude-code',
+      message: 'Claude CLI not found. Install it with: bun install -g @anthropic-ai/claude-code',
     };
   }
 
@@ -77,7 +77,7 @@ export function validateClaudeCli(): {
       version,
       compatible: false,
       message: `Claude CLI version ${version} is not compatible. Required: ${CLAUDE_CLI_VERSION_RANGE}\n` +
-        `Install a compatible version: npm install -g @anthropic-ai/claude-code@2.0.76`,
+        `Install a compatible version: bun install -g @anthropic-ai/claude-code@2.0.76`,
     };
   }
 

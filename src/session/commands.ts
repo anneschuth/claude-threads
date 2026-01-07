@@ -614,7 +614,7 @@ export async function updateSessionHeader(
   // Check for available updates
   const updateInfo = getUpdateInfo();
   const updateNotice = updateInfo
-    ? `\n> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('npm install -g claude-threads')}\n`
+    ? `\n> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n`
     : '';
 
   // Get "What's new" from release notes

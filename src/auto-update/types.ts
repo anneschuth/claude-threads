@@ -107,7 +107,7 @@ export type UpdateStatus =
   | 'idle'            // No update in progress
   | 'available'       // Update detected, waiting for right time
   | 'scheduled'       // Restart scheduled (countdown active)
-  | 'installing'      // npm install in progress
+  | 'installing'      // bun install in progress
   | 'pending_restart' // Install complete, waiting for restart
   | 'failed'          // Installation failed
   | 'deferred';       // User deferred the update
