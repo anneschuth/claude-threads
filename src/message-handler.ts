@@ -106,6 +106,14 @@ export async function handleMessage(
         return;
       }
 
+      // Check for !approve command (approve pending plan)
+      if (lowerContent === '!approve' || lowerContent === '!yes') {
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          await session.approvePendingPlan(threadRoot, username);
+        }
+        return;
+      }
+
       // Check for !help command
       if (lowerContent === '!help') {
         const code = formatter.formatCode.bind(formatter);
@@ -122,6 +130,7 @@ export async function handleMessage(
             [code('!invite @user'), 'Invite a user to this session'],
             [code('!kick @user'), 'Remove an invited user'],
             [code('!permissions interactive'), 'Enable interactive permissions'],
+            [code('!approve'), 'Approve pending plan (alternative to 👍 reaction)'],
             [code('!escape'), 'Interrupt current task (session stays active)'],
             [code('!stop'), 'Stop this session'],
             [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],

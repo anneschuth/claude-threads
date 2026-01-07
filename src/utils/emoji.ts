@@ -18,10 +18,12 @@ export const ALLOW_ALL_EMOJIS = ['white_check_mark', 'heavy_check_mark'] as cons
 export const NUMBER_EMOJIS = ['one', 'two', 'three', 'four'] as const;
 
 /** Emojis for canceling/killing a session */
-export const CANCEL_EMOJIS = ['x', 'octagonal_sign', 'stop_sign'] as const;
+// Include both original names and normalized forms (stop_sign/octagonal_sign -> stop via normalizeEmojiName)
+export const CANCEL_EMOJIS = ['x', 'octagonal_sign', 'stop_sign', 'stop'] as const;
 
 /** Emojis for escaping/pausing a session */
-export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button'] as const;
+// Include both original names and normalized forms (pause_button/double_vertical_bar -> pause via normalizeEmojiName)
+export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button', 'pause'] as const;
 
 /** Emojis for resuming a timed-out session */
 export const RESUME_EMOJIS = ['arrows_counterclockwise', 'arrow_forward', 'repeat'] as const;

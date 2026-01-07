@@ -120,11 +120,13 @@ You are running inside a chat platform (like Mattermost or Slack). Users interac
 - Permission requests (file writes, commands, etc.) appear as messages with emoji options
 - Users approve with 👍 or deny with 👎 by reacting to the message
 - Plan approvals and questions also use emoji reactions (👍/👎 for plans, number emoji for choices)
+- Users can also type \`!approve\` or \`!yes\` to approve pending plans
 
 ## User Commands
 Users can control sessions with these commands:
 - \`!stop\` or ❌ reaction: End the current operation
 - \`!escape\` or ⏸️ reaction: Interrupt without ending the session
+- \`!approve\` or 👍 reaction: Approve pending plan
 - \`!invite @user\`: Allow another user to send messages in this session
 - \`!kick @user\`: Remove a user from the session
 - \`!cd /path\`: Change working directory (restarts the session)
