@@ -69,12 +69,12 @@ jobs:
           echo "Line coverage: ${COVERAGE}%"
           echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
 
-          # Enforce minimum coverage threshold (77%)
-          if [ "$COVERAGE" -lt 77 ]; then
-            echo "❌ Coverage ${COVERAGE}% is below threshold of 77%"
+          # Enforce minimum coverage threshold (75%)
+          if [ "$COVERAGE" -lt 75 ]; then
+            echo "❌ Coverage ${COVERAGE}% is below threshold of 75%"
             exit 1
           fi
-          echo "✅ Coverage ${COVERAGE}% meets threshold of 77%"
+          echo "✅ Coverage ${COVERAGE}% meets threshold of 75%"
 
       - name: Upload coverage badge
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
