@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-01-07
+
+### Added
+- **Auto-restart on updates** - Bot automatically restarts after installing updates when running with daemon wrapper
+- **`!update` command family** - Check update status, force immediate update (`!update now`), or defer (`!update defer`)
+- **`--auto-restart` / `--no-auto-restart` CLI flags** - Control auto-restart behavior (enabled by default when `autoUpdate.enabled`)
+
+### Changed
+- **Platform-specific formatting for update messages** - Update notifications now use proper bold/italic formatting per platform (Mattermost vs Slack)
+- **Improved daemon wrapper** - Now correctly uses local binary instead of global installation
+
 ## [0.42.0] - 2026-01-07
 
 ### Fixed
