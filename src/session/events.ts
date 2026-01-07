@@ -294,7 +294,8 @@ function formatEvent(
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
-          const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true });
+          const worktreeInfo = session.worktreeInfo ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch } : undefined;
+          const formatted = sharedFormatToolUse(block.name, block.input || {}, session.platform.getFormatter(), { detailed: true, worktreeInfo });
           if (formatted) parts.push(formatted);
         } else if (block.type === 'thinking' && block.thinking) {
           // Extended thinking - show abbreviated version in blockquote
@@ -326,7 +327,8 @@ function formatEvent(
       if (tool.id) {
         session.activeToolStarts.set(tool.id, Date.now());
       }
-      return sharedFormatToolUse(tool.name, tool.input || {}, session.platform.getFormatter(), { detailed: true }) || null;
+      const worktreeInfo = session.worktreeInfo ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch } : undefined;
+      return sharedFormatToolUse(tool.name, tool.input || {}, session.platform.getFormatter(), { detailed: true, worktreeInfo }) || null;
     }
     case 'tool_result': {
       const result = e.tool_result as { tool_use_id?: string; is_error?: boolean };

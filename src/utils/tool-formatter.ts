@@ -25,20 +25,50 @@ export interface FormatOptions {
   maxPathLength?: number;
   /** Max lines to show in previews. Default: 20 for diff, 6 for content */
   maxPreviewLines?: number;
+  /** Worktree info for shortening paths (if session is in a worktree) */
+  worktreeInfo?: { path: string; branch: string };
 }
 
-const DEFAULT_OPTIONS: Required<FormatOptions> = {
-  detailed: false,
-  maxCommandLength: 50,
-  maxPathLength: 60,
-  maxPreviewLines: 20,
-};
+// Required defaults for non-optional fields
+const DEFAULT_DETAILED = false;
+const DEFAULT_MAX_COMMAND_LENGTH = 50;
+const DEFAULT_MAX_PREVIEW_LINES = 20;
+
+export interface WorktreeContext {
+  path: string;
+  branch: string;
+}
 
 /**
  * Shorten a file path for display by replacing home directory with ~
+ * and simplifying worktree paths to show just the branch name
+ *
+ * @param path - The file path to shorten
+ * @param homeDir - Optional home directory override (defaults to process.env.HOME)
+ * @param worktreeInfo - Optional worktree context for reliable path shortening
  */
-export function shortenPath(path: string, homeDir?: string): string {
+export function shortenPath(
+  path: string,
+  homeDir?: string,
+  worktreeInfo?: WorktreeContext
+): string {
   if (!path) return '';
+
+  // If we have worktree context, use it for reliable path shortening
+  if (worktreeInfo?.path && worktreeInfo?.branch) {
+    const worktreePath = worktreeInfo.path.endsWith('/')
+      ? worktreeInfo.path
+      : worktreeInfo.path + '/';
+    if (path.startsWith(worktreePath)) {
+      const relativePath = path.slice(worktreePath.length);
+      return `[${worktreeInfo.branch}]/${relativePath}`;
+    }
+    // Also check without trailing slash for exact match
+    if (path === worktreeInfo.path) {
+      return `[${worktreeInfo.branch}]/`;
+    }
+  }
+
   const home = homeDir ?? process.env.HOME ?? '';
   if (home && path.startsWith(home)) {
     return '~' + path.slice(home.length);
@@ -77,8 +107,10 @@ export function formatToolUse(
   formatter: PlatformFormatter,
   options: FormatOptions = {}
 ): string | null {
-  const opts = { ...DEFAULT_OPTIONS, ...options };
-  const short = (p: string) => shortenPath(p);
+  const detailed = options.detailed ?? DEFAULT_DETAILED;
+  const maxCommandLength = options.maxCommandLength ?? DEFAULT_MAX_COMMAND_LENGTH;
+  const maxPreviewLines = options.maxPreviewLines ?? DEFAULT_MAX_PREVIEW_LINES;
+  const short = (p: string) => shortenPath(p, undefined, options.worktreeInfo);
 
   switch (toolName) {
     case 'Read':
@@ -90,9 +122,9 @@ export function formatToolUse(
       const newStr = (input.new_string as string) || '';
 
       // Show diff if detailed mode and we have old/new strings
-      if (opts.detailed && (oldStr || newStr)) {
+      if (detailed && (oldStr || newStr)) {
         const changes = Diff.diffLines(oldStr, newStr);
-        const maxLines = opts.maxPreviewLines;
+        const maxLines = maxPreviewLines;
         let lineCount = 0;
         const diffLines: string[] = [];
 
@@ -139,7 +171,7 @@ export function formatToolUse(
       const lineCount = lines.length;
 
       // Show preview if detailed mode
-      if (opts.detailed && content && lineCount > 0) {
+      if (detailed && content && lineCount > 0) {
         const maxLines = 6;
         const previewLines = lines.slice(0, maxLines);
         let preview = `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)} ${formatter.formatItalic(`(${lineCount} lines)`)}\n`;
@@ -158,9 +190,9 @@ export function formatToolUse(
     case 'Bash': {
       const cmd = ((input.command as string) || '').substring(
         0,
-        opts.maxCommandLength
+        maxCommandLength
       );
-      const truncated = cmd.length >= opts.maxCommandLength;
+      const truncated = cmd.length >= maxCommandLength;
       return `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd + (truncated ? '...' : ''))}`;
     }
 
@@ -214,14 +246,16 @@ export function formatToolUse(
  * @param toolName - The name of the tool
  * @param input - The tool input parameters
  * @param formatter - Platform-specific markdown formatter
+ * @param options - Formatting options (including worktreeInfo for path shortening)
  * @returns Formatted string for permission prompts
  */
 export function formatToolForPermission(
   toolName: string,
   input: ToolInput,
-  formatter: PlatformFormatter
+  formatter: PlatformFormatter,
+  options: FormatOptions = {}
 ): string {
-  const short = (p: string) => shortenPath(p);
+  const short = (p: string) => shortenPath(p, undefined, options.worktreeInfo);
 
   switch (toolName) {
     case 'Read':
