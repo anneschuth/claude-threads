@@ -197,6 +197,29 @@ describe('Worktree Module', () => {
         expect(options.persistSession).toHaveBeenCalled();
       });
 
+      it('removes the x reaction from the prompt post after joining', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+        });
+        const options = createMockOptions();
+
+        // Mock existing worktree
+        mockFindWorktreeByBranch.mockImplementation(() =>
+          Promise.resolve({
+            path: '/repo-worktrees/feature-branch',
+            branch: 'feature-branch',
+            isMain: false,
+          })
+        );
+
+        await worktree.createAndSwitchToWorktree(session, 'feature-branch', 'testuser', options);
+
+        // Should remove the x reaction from the prompt post
+        expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
+      });
+
       it('restarts Claude CLI in the worktree directory', async () => {
         const killMock = mock(() => Promise.resolve());
         const session = createMockSession({
@@ -286,6 +309,25 @@ describe('Worktree Module', () => {
         );
       });
 
+      it('removes the x reaction from the prompt post after failure', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+        });
+        const options = createMockOptions();
+
+        // Mock worktree creation failure
+        mockCreateWorktree.mockImplementation(() =>
+          Promise.reject(new Error('Failed to create worktree'))
+        );
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Should remove the x reaction from the prompt post
+        expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
+      });
+
       it('does not leave session stuck in pending state', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,
@@ -336,6 +378,20 @@ describe('Worktree Module', () => {
           undefined   // excludePostId
         );
       });
+
+      it('removes the x reaction from the prompt post after success', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Should remove the x reaction from the prompt post
+        expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
+      });
     });
 
     describe('authorization checks', () => {
@@ -369,6 +425,70 @@ describe('Worktree Module', () => {
         // Should attempt to create worktree (or find existing)
         expect(mockGetRepositoryRoot).toHaveBeenCalled();
       });
+    });
+  });
+
+  describe('handleWorktreeSkip', () => {
+    it('removes the x reaction from the prompt post when skipping', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        queuedPrompt: 'do something',
+      });
+
+      const persistSession = mock(() => {});
+      const offerContextPrompt = mock(() => Promise.resolve(false));
+
+      await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+      // Should update the prompt post
+      expect(session.platform.updatePost).toHaveBeenCalledWith(
+        'prompt-post-1',
+        expect.stringContaining('Continuing in main repo')
+      );
+
+      // Should remove the x reaction from the prompt post
+      expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
+
+      // Should clear pending state
+      expect(session.pendingWorktreePrompt).toBe(false);
+      expect(session.worktreePromptPostId).toBeUndefined();
+    });
+
+    it('does nothing if not pending', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: false,
+      });
+
+      const persistSession = mock(() => {});
+      const offerContextPrompt = mock(() => Promise.resolve(false));
+
+      await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+      // Should not update any post
+      expect(session.platform.updatePost).not.toHaveBeenCalled();
+      expect(session.platform.removeReaction).not.toHaveBeenCalled();
+    });
+
+    it('rejects unauthorized users', async () => {
+      const platform = createMockPlatform({
+        isUserAllowed: mock(() => false),
+      });
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        startedBy: 'owner',
+        platform,
+      });
+
+      const persistSession = mock(() => {});
+      const offerContextPrompt = mock(() => Promise.resolve(false));
+
+      await worktree.handleWorktreeSkip(session, 'unauthorized-user', persistSession, offerContextPrompt);
+
+      // Should not update any post
+      expect(platform.updatePost).not.toHaveBeenCalled();
+      expect(platform.removeReaction).not.toHaveBeenCalled();
     });
   });
 
