@@ -53,6 +53,8 @@ jobs:
       - name: Run tests with coverage
         run: |
           # Run tests and capture coverage output
+          # Use pipefail to ensure test failures are not masked by tee
+          set -o pipefail
           bun test src/ --coverage 2>&1 | tee coverage-output.txt
 
           # Extract line coverage from "All files" row (column 6 is line coverage %)
