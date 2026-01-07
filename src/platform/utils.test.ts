@@ -16,6 +16,7 @@ import {
   sanitizeForLogging,
   convertMarkdownTablesToSlack,
   convertMarkdownToSlack,
+  withRetry,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -61,6 +62,40 @@ describe('splitMessage', () => {
     const result = splitMessage(content, 50);
     expect(result.length).toBe(2);
     expect(result[0].length).toBe(50);
+  });
+
+  it('splits at single newline when no paragraph break', () => {
+    // Content with single newline positioned at >70% of maxLength (no double newlines)
+    // maxLength=50, so newline needs to be after position 35 (0.7*50)
+    // "abcdefghijklmnopqrstuvwxyz0123456789012\n" = 40 chars before newline
+    const content = 'abcdefghijklmnopqrstuvwxyz0123456789012\nrest of text that continues here';
+    const result = splitMessage(content, 50);
+    expect(result.length).toBeGreaterThan(1);
+    // Should split at the newline (position 40)
+    expect(result[0]).toBe('abcdefghijklmnopqrstuvwxyz0123456789012');
+  });
+
+  it('splits at sentence break when no newline available', () => {
+    // Content with sentence break at >50% of maxLength, no newlines
+    // maxLength=50, so sentence break needs to be after position 25 (0.5*50)
+    // The result will be trimmed, so trailing space is removed
+    const content = 'abcdefghijklmnopqrstuvwxyz012. rest of text continues without any breaks';
+    const result = splitMessage(content, 50);
+    expect(result.length).toBeGreaterThan(1);
+    // Should split at the sentence break, trimmed (no trailing space)
+    expect(result[0]).toBe('abcdefghijklmnopqrstuvwxyz012.');
+  });
+
+  it('splits at word boundary when no sentence break', () => {
+    // Content with space at >50% of maxLength, no newlines or sentence breaks
+    // maxLength=50, so space needs to be after position 25 (0.5*50)
+    // Use long words without sentence-ending punctuation (. ! ?)
+    // Need the only space in the first 50 chars to be at >50% position
+    const content = 'abcdefghijklmnopqrstuvwxyz012345 abcdefghijklmnopqrstuvwxyz';
+    const result = splitMessage(content, 50);
+    expect(result.length).toBeGreaterThan(1);
+    // Should split at the space (position 32), result is trimmed
+    expect(result[0]).toBe('abcdefghijklmnopqrstuvwxyz012345');
   });
 });
 
@@ -472,5 +507,45 @@ Check out [the docs](https://example.com) for more info.`;
       const input = '- First item\n- Second item\n- Third item';
       expect(convertMarkdownToSlack(input)).toBe(input);
     });
+  });
+});
+
+describe('withRetry', () => {
+  it('returns result on first success', async () => {
+    const result = await withRetry(async () => 'success');
+    expect(result).toBe('success');
+  });
+
+  it('retries on failure and eventually succeeds', async () => {
+    let attempts = 0;
+    const result = await withRetry(async () => {
+      attempts++;
+      if (attempts < 3) throw new Error('fail');
+      return 'success';
+    }, { baseDelayMs: 1, maxRetries: 3 });
+    expect(result).toBe('success');
+    expect(attempts).toBe(3);
+  });
+
+  it('throws after max retries', async () => {
+    let attempts = 0;
+    await expect(withRetry(async () => {
+      attempts++;
+      throw new Error('always fails');
+    }, { maxRetries: 2, baseDelayMs: 1 })).rejects.toThrow('always fails');
+    expect(attempts).toBe(3); // initial + 2 retries
+  });
+
+  it('respects shouldRetry predicate', async () => {
+    let attempts = 0;
+    await expect(withRetry(async () => {
+      attempts++;
+      throw new Error('non-retryable');
+    }, {
+      maxRetries: 3,
+      baseDelayMs: 1,
+      shouldRetry: () => false
+    })).rejects.toThrow('non-retryable');
+    expect(attempts).toBe(1); // no retries
   });
 });

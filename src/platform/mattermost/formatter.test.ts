@@ -70,6 +70,47 @@ describe('MattermostFormatter', () => {
     });
   });
 
+  describe('formatStrikethrough', () => {
+    it('wraps text in double tildes', () => {
+      expect(formatter.formatStrikethrough('deleted')).toBe('~~deleted~~');
+    });
+  });
+
+  describe('formatTable', () => {
+    it('creates markdown table with headers and rows', () => {
+      const headers = ['Name', 'Age', 'City'];
+      const rows = [
+        ['Alice', '30', 'NYC'],
+        ['Bob', '25', 'LA'],
+      ];
+      const result = formatter.formatTable(headers, rows);
+      expect(result).toContain('| Name | Age | City |');
+      expect(result).toContain('| --- | --- | --- |');
+      expect(result).toContain('| Alice | 30 | NYC |');
+      expect(result).toContain('| Bob | 25 | LA |');
+    });
+
+    it('handles empty rows', () => {
+      const headers = ['A', 'B'];
+      const rows: string[][] = [];
+      const result = formatter.formatTable(headers, rows);
+      expect(result).toContain('| A | B |');
+      expect(result).toContain('| --- | --- |');
+    });
+  });
+
+  describe('formatKeyValueList', () => {
+    it('creates table with icon, label, and value', () => {
+      const items: [string, string, string][] = [
+        ['🔵', 'Status', 'Active'],
+        ['🏷️', 'Version', '1.0.0'],
+      ];
+      const result = formatter.formatKeyValueList(items);
+      expect(result).toContain('| 🔵 **Status** | Active |');
+      expect(result).toContain('| 🏷️ **Version** | 1.0.0 |');
+    });
+  });
+
   describe('formatHorizontalRule', () => {
     it('returns three dashes', () => {
       expect(formatter.formatHorizontalRule()).toBe('---');

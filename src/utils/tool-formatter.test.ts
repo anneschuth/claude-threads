@@ -144,6 +144,29 @@ describe('formatToolUse', () => {
       );
       expect(result).toContain('more lines');
     });
+
+    it('includes unchanged context lines in diff', () => {
+      // Create strings with context (unchanged lines around changes)
+      const oldStr = 'unchanged line 1\nold line\nunchanged line 2';
+      const newStr = 'unchanged line 1\nnew line\nunchanged line 2';
+      const result = formatToolUse(
+        'Edit',
+        {
+          file_path: '/Users/testuser/file.ts',
+          old_string: oldStr,
+          new_string: newStr,
+        },
+        formatter,
+        { detailed: true }
+      );
+      expect(result).toContain('✏️ **Edit**');
+      expect(result).toContain('```diff');
+      // Context lines (unchanged) should be prefixed with space
+      expect(result).toContain('unchanged line 1');
+      // Changed lines should have +/-
+      expect(result).toContain('- old line');
+      expect(result).toContain('+ new line');
+    });
   });
 
   describe('Write tool', () => {
