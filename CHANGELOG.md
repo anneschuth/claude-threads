@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.8] - 2026-01-08
+
+### Fixed
+- **Sessions now persist before update restart** - When `!update now` was triggered, sessions were lost because the bot exited without persisting them. Now sessions are properly saved before restart and resume automatically after the update (#141)
+
 ## [0.48.7] - 2026-01-08
 
 ### Fixed
