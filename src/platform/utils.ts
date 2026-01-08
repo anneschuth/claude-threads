@@ -304,24 +304,10 @@ export function getEmojiCharacter(emojiName: string): string {
   return EMOJI_NAME_TO_UNICODE[normalized] ?? `:${emojiName}:`;
 }
 
-/**
- * Convert Unicode emoji characters to Mattermost shortcode format.
- *
- * Mattermost's mobile app sometimes has issues rendering Unicode emoji
- * directly in message text. Converting to :shortcode: format ensures
- * consistent rendering across all Mattermost clients.
- *
- * @param text - The text containing Unicode emoji
- * @returns Text with emoji converted to :shortcode: format
- */
-export function convertUnicodeEmojiToShortcodes(text: string): string {
-  let result = text;
-  for (const [unicode, name] of Object.entries(EMOJI_UNICODE_TO_NAME)) {
-    // Use global replacement to convert all occurrences
-    result = result.split(unicode).join(`:${name}:`);
-  }
-  return result;
-}
+// NOTE: convertUnicodeEmojiToShortcodes was removed because modern Mattermost
+// clients (7.x+) render Unicode emoji natively. The conversion was causing issues
+// because not all shortcodes (like :stopwatch:, :pause:) are recognized by all
+// Mattermost instances.
 
 /**
  * Convert a Unicode emoji character to its shortcode name.

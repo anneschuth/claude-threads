@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Emoji rendering on Mattermost** - Removed Unicode-to-shortcode conversion that was causing broken emoji display (`:stopwatch:`, `:pause:` etc. showing as text). Modern Mattermost clients (7.x+) render Unicode emoji natively.
+
 ## [0.48.6] - 2026-01-08
 
 ### Added

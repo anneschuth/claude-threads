@@ -10,7 +10,6 @@
  */
 
 import { createLogger } from '../utils/logger.js';
-import { convertUnicodeEmojiToShortcodes } from '../platform/utils.js';
 
 const log = createLogger('mm-api');
 
@@ -96,8 +95,7 @@ export async function getUser(
 
 /**
  * Create a new post in a channel
- * Note: Unicode emoji are converted to :shortcode: format for consistent
- * rendering across all Mattermost clients (especially mobile).
+ * Note: Modern Mattermost clients (7.x+) render Unicode emoji natively.
  */
 export async function createPost(
   config: MattermostApiConfig,
@@ -107,15 +105,13 @@ export async function createPost(
 ): Promise<MattermostApiPost> {
   return mattermostApi<MattermostApiPost>(config, 'POST', '/posts', {
     channel_id: channelId,
-    message: convertUnicodeEmojiToShortcodes(message),
+    message,
     root_id: rootId,
   });
 }
 
 /**
  * Update an existing post
- * Note: Unicode emoji are converted to :shortcode: format for consistent
- * rendering across all Mattermost clients (especially mobile).
  */
 export async function updatePost(
   config: MattermostApiConfig,
@@ -124,7 +120,7 @@ export async function updatePost(
 ): Promise<MattermostApiPost> {
   return mattermostApi<MattermostApiPost>(config, 'PUT', `/posts/${postId}`, {
     id: postId,
-    message: convertUnicodeEmojiToShortcodes(message),
+    message,
   });
 }
 

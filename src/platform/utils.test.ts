@@ -9,7 +9,6 @@ import {
   normalizeEmojiName,
   getEmojiCharacter,
   getEmojiName,
-  convertUnicodeEmojiToShortcodes,
   containsCodeBlock,
   extractCodeBlocks,
   formatCodeBlock,
@@ -217,42 +216,9 @@ describe('getEmojiCharacter', () => {
   });
 });
 
-describe('convertUnicodeEmojiToShortcodes', () => {
-  it('converts known Unicode emoji to shortcodes', () => {
-    expect(convertUnicodeEmojiToShortcodes('🔄 Update available')).toBe(':arrows_counterclockwise: Update available');
-    expect(convertUnicodeEmojiToShortcodes('✅ Success')).toBe(':white_check_mark: Success');
-    expect(convertUnicodeEmojiToShortcodes('📦 Installing')).toBe(':package: Installing');
-    expect(convertUnicodeEmojiToShortcodes('🎉 Done!')).toBe(':partying_face: Done!');
-  });
-
-  it('converts stopwatch emoji to standard shortcode', () => {
-    // This is used in session timeout messages - must use :stopwatch: not :clock:
-    // as Mattermost doesn't recognize :clock: as a valid emoji shortcode
-    expect(convertUnicodeEmojiToShortcodes('⏱️ Session timed out')).toBe(':stopwatch: Session timed out');
-    expect(convertUnicodeEmojiToShortcodes('⏱️')).toBe(':stopwatch:');
-  });
-
-  it('converts multiple emoji in one message', () => {
-    expect(convertUnicodeEmojiToShortcodes('👍 or 👎')).toBe(':+1: or :-1:');
-  });
-
-  it('leaves unknown Unicode emoji unchanged', () => {
-    // Unicode emoji not in our mapping should pass through unchanged
-    expect(convertUnicodeEmojiToShortcodes('🦄 Unicorn')).toBe('🦄 Unicorn');
-  });
-
-  it('leaves plain text unchanged', () => {
-    expect(convertUnicodeEmojiToShortcodes('Hello world')).toBe('Hello world');
-  });
-
-  it('handles empty string', () => {
-    expect(convertUnicodeEmojiToShortcodes('')).toBe('');
-  });
-
-  it('handles message with existing shortcodes (leaves them alone)', () => {
-    expect(convertUnicodeEmojiToShortcodes(':smile: and 👍')).toBe(':smile: and :+1:');
-  });
-});
+// NOTE: convertUnicodeEmojiToShortcodes tests removed - function was removed because
+// modern Mattermost clients (7.x+) render Unicode emoji natively, and the conversion
+// was causing issues with unrecognized shortcodes like :stopwatch: and :pause:.
 
 describe('getEmojiName', () => {
   it('converts Unicode emoji to shortcode names', () => {
