@@ -351,7 +351,7 @@ async function main() {
           client.disconnect();
           // Persist disabled state
           sessionStore.setPlatformEnabled(platformId, false);
-          ui.setPlatformStatus(platformId, { connected: false });
+          ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
         }
       },
