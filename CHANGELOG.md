@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.9] - 2026-01-08
+
+### Added
+- **Sticky plan approval message** - Plan approval messages now stay at the bottom of the thread while pending (similar to task list), with a horizontal rule for visual separation. This improves UX by keeping the approval prompt visible below the plan content (#142)
+
 ## [0.48.8] - 2026-01-08
 
 ### Fixed
