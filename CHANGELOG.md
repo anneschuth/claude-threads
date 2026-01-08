@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.0] - 2026-01-08
+
+### Added
+- **Claude can execute !cd command** - Claude can now output `!cd /path` in responses to change the session's working directory, with visibility messages posted to the thread (#125)
+
+### Fixed
+- **Update reactions now work** - Fixed bug where 👍/👎 reactions on auto-update messages were silently ignored due to missing `pendingUpdatePrompt` state (#124)
+- **Duplicate task lists prevented** - Replaced promise-lock with atomic lock acquisition pattern to fix race condition causing duplicate task list posts (#126)
+- **Worktree paths shortened in Bash** - Bash commands now show `[branch]/path` instead of full worktree paths, matching other tools (#127)
+
+### Removed
+- **Removed .env.example** - Configuration is done via YAML config only
+
 ## [0.47.0] - 2026-01-07
 
 ### Added
