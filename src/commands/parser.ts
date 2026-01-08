@@ -24,9 +24,12 @@ export interface ParsedCommand {
 /**
  * Commands that Claude is allowed to execute from its output.
  * Only safe commands that don't modify access control or security settings.
+ *
+ * Commands marked with 'returns_result' will have their output sent back to Claude.
  */
 export const CLAUDE_ALLOWED_COMMANDS = new Set([
-  'cd',  // Change directory - safe, just changes context
+  'cd',              // Change directory - restarts Claude (no result returned)
+  'worktree list',   // List worktrees - returns result to Claude
 ]);
 
 /**
@@ -100,12 +103,24 @@ export function parseCommand(text: string): ParsedCommand | null {
 export function parseClaudeCommand(text: string): ParsedCommand | null {
   // For Claude output, we only allow specific commands
   // and they must be on their own line
+
+  // Check for !cd command
   const cdMatch = text.match(/^!cd\s+([\w~./-]+)\s*$/m);
   if (cdMatch && CLAUDE_ALLOWED_COMMANDS.has('cd')) {
     return {
       command: 'cd',
       args: cdMatch[1],
       match: cdMatch[0].trimEnd(),  // Remove trailing whitespace/newline
+    };
+  }
+
+  // Check for !worktree list command
+  const worktreeListMatch = text.match(/^!worktree\s+list\s*$/m);
+  if (worktreeListMatch && CLAUDE_ALLOWED_COMMANDS.has('worktree list')) {
+    return {
+      command: 'worktree list',
+      args: undefined,
+      match: worktreeListMatch[0].trimEnd(),
     };
   }
 

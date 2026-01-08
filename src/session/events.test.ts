@@ -1147,6 +1147,57 @@ describe('handleEvent with Claude command detection', () => {
     // Since we filter empty text, appendedContent might be empty
     expect(appendedContent.length === 0 || appendedContent[0] === '').toBe(true);
   });
+
+  test('executes !worktree list and posts visibility message', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!worktree list',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have posted a visibility message
+    expect(platform.createPost).toHaveBeenCalled();
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const postContents = calls.map(call => call[0]);
+    expect(postContents.some(content => content.includes('Claude executed'))).toBe(true);
+    expect(postContents.some(content => content.includes('!worktree list'))).toBe(true);
+  });
+
+  test('removes !worktree list from displayed text', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'Let me check the worktrees.\n\n!worktree list\n\nI will analyze the results.',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // The !worktree list command should be removed from displayed text
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).not.toContain('!worktree list');
+    expect(appendedContent[0]).toContain('check the worktrees');
+    expect(appendedContent[0]).toContain('analyze the results');
+  });
 });
 
 describe('handleEvent with assistant messages containing tool_use and text', () => {

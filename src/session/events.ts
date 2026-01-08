@@ -26,7 +26,9 @@ import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
 import { changeDirectory } from './commands.js';
+import { buildWorktreeListMessage } from './worktree.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
+import { postInfo, postError } from './post-helpers.js';
 
 const log = createLogger('events');
 
@@ -160,6 +162,7 @@ function detectAndExecuteClaudeCommands(
 /**
  * Execute a command on behalf of Claude.
  * Posts a visibility message and runs the command.
+ * For commands that produce output, sends the result back to Claude.
  *
  * Only commands in CLAUDE_ALLOWED_COMMANDS can be executed.
  */
@@ -187,9 +190,33 @@ async function executeClaudeCommand(
   switch (command) {
     case 'cd':
       // Use session owner's permissions
+      // Note: This restarts Claude, so no result can be sent back
       await changeDirectory(session, args, session.startedBy, ctx);
       break;
-    // Future commands can be added here
+
+    case 'worktree list': {
+      // Get worktree list and send result back to Claude
+      const message = await buildWorktreeListMessage(session);
+      if (message === null) {
+        await postError(session, `Current directory is not a git repository`);
+        // Send error back to Claude too
+        if (session.claude?.isRunning()) {
+          session.claude.sendMessage(`<command-result command="!worktree list">\nError: Current directory is not a git repository\n</command-result>`);
+        }
+      } else {
+        await postInfo(session, message);
+        // Send the result back to Claude so it can see the worktree list
+        if (session.claude?.isRunning()) {
+          // Use plain text version for Claude (strip markdown formatting for clarity)
+          const plainMessage = message
+            .replace(/\*\*([^*]+)\*\*/g, '$1')  // Remove bold
+            .replace(/`([^`]+)`/g, '$1');       // Remove code formatting
+          session.claude.sendMessage(`<command-result command="!worktree list">\n${plainMessage}\n</command-result>`);
+          sessionLog(session).info(`📤 Sent worktree list result back to Claude`);
+        }
+      }
+      break;
+    }
   }
 }
 

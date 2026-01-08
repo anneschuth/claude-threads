@@ -588,15 +588,15 @@ export async function switchToWorktree(
 }
 
 /**
- * List all worktrees for the current repository.
+ * Build worktree list message (without posting).
+ * Returns the formatted message or null if not in a git repo.
  */
-export async function listWorktreesCommand(session: Session): Promise<void> {
+export async function buildWorktreeListMessage(session: Session): Promise<string | null> {
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
-    await postError(session, `Current directory is not a git repository`);
     sessionLog(session).warn(`🌿 Not a git repository: ${session.workingDir}`);
-    return;
+    return null;
   }
 
   // Get repo root (either from worktree info or current dir)
@@ -604,9 +604,8 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
   const worktrees = await listGitWorktrees(repoRoot);
 
   if (worktrees.length === 0) {
-    await postInfo(session, `No worktrees found for this repository`);
     sessionLog(session).debug(`🌿 No worktrees found`);
-    return;
+    return 'No worktrees found for this repository';
   }
 
   const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
@@ -622,6 +621,20 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
     const marker = isCurrent ? ' ← current' : '';
     const label = wt.isMain ? '(main repository)' : '';
     message += `• ${fmt.formatCode(wt.branch)} → ${fmt.formatCode(shortPath)} ${label}${marker}\n`;
+  }
+
+  return message;
+}
+
+/**
+ * List all worktrees for the current repository.
+ */
+export async function listWorktreesCommand(session: Session): Promise<void> {
+  const message = await buildWorktreeListMessage(session);
+
+  if (message === null) {
+    await postError(session, `Current directory is not a git repository`);
+    return;
   }
 
   await postInfo(session, message);

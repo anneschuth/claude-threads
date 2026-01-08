@@ -23,6 +23,50 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - Multi-user access control
 - Automatic idle session cleanup
 
+## Commands Available to Claude (Yes, You!)
+
+**Important:** As the Claude instance running in this bot, you can execute certain commands by writing them in your response. The bot intercepts messages starting with `!` and executes them as commands.
+
+### How It Works
+When you output a command like `!cd /some/path` in your response, the bot infrastructure intercepts it and executes it before your text is shown to the user. You'll see feedback like "Claude executed: `!cd /path`" in the chat.
+
+### Commands You Can Use
+
+| Command | Effect | Note |
+|---------|--------|------|
+| `!cd <path>` | Change working directory | ⚠️ **Spawns a new Claude instance** - you won't remember this conversation |
+| `!worktree <branch>` | Create and switch to git worktree | ⚠️ **Spawns a new Claude instance** |
+| `!worktree list` | List all worktrees for the repo | Safe - just displays info |
+| `!worktree switch <branch>` | Switch to existing worktree | ⚠️ **Spawns a new Claude instance** |
+| `!worktree cleanup` | Delete current worktree, return to repo | ⚠️ **Spawns a new Claude instance** |
+| `/context` | Show context usage | Passed to Claude Code CLI |
+| `/cost` | Show cost information | Passed to Claude Code CLI |
+| `/compact` | Compact the conversation | Passed to Claude Code CLI |
+
+### Commands You Should NOT Use
+These commands exist but using them would be counterproductive:
+
+| Command | Why Not |
+|---------|---------|
+| `!stop` | Kills your own session |
+| `!escape` | Interrupts your own processing |
+| `!kill` | Emergency shutdown of entire bot |
+| `!invite`/`!kick` | User management - let users decide |
+| `!permissions` | User decision about security |
+| `!approve` | For approving your own plans - users do this |
+| `!help` | For users, not for you |
+
+### Example Usage
+If a user asks you to work in a different directory:
+```
+User: Can you work on my other project at ~/projects/webapp?
+You: I'll switch to that directory now.
+
+!cd ~/projects/webapp
+```
+
+**Caveat:** After `!cd`, a fresh Claude instance starts in the new directory. The user will need to re-explain what they want. Consider warning them about this.
+
 ## Architecture Overview
 
 ```
