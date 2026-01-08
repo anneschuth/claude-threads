@@ -1456,6 +1456,8 @@ export class SessionManager extends EventEmitter {
           session.threadId
         );
 
+        // Store pending update prompt for reaction handling
+        session.pendingUpdatePrompt = { postId: post.id };
         this.registerPost(post.id, session.threadId);
       } catch (err) {
         log.warn(`Failed to post ask message to ${threadId}: ${err}`);
