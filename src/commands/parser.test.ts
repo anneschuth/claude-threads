@@ -219,11 +219,31 @@ describe('parseClaudeCommand', () => {
   test('returns null for !cd not on its own line', () => {
     expect(parseClaudeCommand('You can use !cd /path or other commands')).toBeNull();
   });
+
+  test('parses !worktree list', () => {
+    const result = parseClaudeCommand('!worktree list');
+    expect(result).toEqual({ command: 'worktree list', args: undefined, match: '!worktree list' });
+  });
+
+  test('parses !worktree list in multiline text', () => {
+    const text = 'Let me check the worktrees.\n\n!worktree list\n\nHere are the results.';
+    const result = parseClaudeCommand(text);
+    expect(result).toEqual({ command: 'worktree list', args: undefined, match: '!worktree list' });
+  });
+
+  test('returns null for !worktree (not just list)', () => {
+    // Other worktree subcommands are not allowed
+    expect(parseClaudeCommand('!worktree feature-branch')).toBeNull();
+  });
 });
 
 describe('isClaudeAllowedCommand', () => {
   test('cd is allowed', () => {
     expect(isClaudeAllowedCommand('cd')).toBe(true);
+  });
+
+  test('worktree list is allowed', () => {
+    expect(isClaudeAllowedCommand('worktree list')).toBe(true);
   });
 
   test('invite is not allowed', () => {
@@ -270,8 +290,9 @@ describe('removeCommandFromText', () => {
 
 describe('CLAUDE_ALLOWED_COMMANDS', () => {
   test('only contains safe commands', () => {
-    // Currently only cd is allowed
+    // Safe commands that Claude can execute
     expect(CLAUDE_ALLOWED_COMMANDS.has('cd')).toBe(true);
-    expect(CLAUDE_ALLOWED_COMMANDS.size).toBe(1);
+    expect(CLAUDE_ALLOWED_COMMANDS.has('worktree list')).toBe(true);
+    expect(CLAUDE_ALLOWED_COMMANDS.size).toBe(2);
   });
 });
