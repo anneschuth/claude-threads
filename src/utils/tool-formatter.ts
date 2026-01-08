@@ -12,6 +12,11 @@
 import * as Diff from 'diff';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
+// Escape special regex characters to prevent regex injection
+function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 export interface ToolInput {
   [key: string]: unknown;
 }
@@ -188,10 +193,15 @@ export function formatToolUse(
     }
 
     case 'Bash': {
-      const cmd = ((input.command as string) || '').substring(
-        0,
-        maxCommandLength
-      );
+      let cmd = (input.command as string) || '';
+      // Shorten worktree paths in the command
+      if (options.worktreeInfo?.path) {
+        cmd = cmd.replace(
+          new RegExp(escapeRegExp(options.worktreeInfo.path), 'g'),
+          `[${options.worktreeInfo.branch}]`
+        );
+      }
+      cmd = cmd.substring(0, maxCommandLength);
       const truncated = cmd.length >= maxCommandLength;
       return `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd + (truncated ? '...' : ''))}`;
     }

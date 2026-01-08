@@ -354,6 +354,50 @@ describe('formatToolUse', () => {
       );
       expect(result).toBe('💻 **Bash** `12345...`');
     });
+
+    it('shortens worktree paths in commands when worktreeInfo provided', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'feat/update',
+      };
+      const result = formatToolUse('Bash', {
+        command: 'ls -la /Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/src',
+      }, formatter, { worktreeInfo });
+      expect(result).toBe('💻 **Bash** `ls -la [feat/update]/src`');
+    });
+
+    it('shortens multiple worktree paths in commands', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'feat/multi',
+      };
+      const result = formatToolUse('Bash', {
+        command: 'cp /Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/a /Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345/b',
+      }, formatter, { worktreeInfo, maxCommandLength: 100 });
+      expect(result).toBe('💻 **Bash** `cp [feat/multi]/a [feat/multi]/b`');
+    });
+
+    it('handles commands without worktree paths when worktreeInfo provided', () => {
+      const worktreeInfo = {
+        path: '/Users/testuser/.claude-threads/worktrees/myproject-feat-abc12345',
+        branch: 'feat/test',
+      };
+      const result = formatToolUse('Bash', {
+        command: 'git status',
+      }, formatter, { worktreeInfo });
+      expect(result).toBe('💻 **Bash** `git status`');
+    });
+
+    it('escapes special regex characters in worktree path', () => {
+      const worktreeInfo = {
+        path: '/Users/test.user/.claude-threads/worktrees/project(1)-abc',
+        branch: 'fix/regex',
+      };
+      const result = formatToolUse('Bash', {
+        command: 'ls /Users/test.user/.claude-threads/worktrees/project(1)-abc/src',
+      }, formatter, { worktreeInfo, maxCommandLength: 100 });
+      expect(result).toBe('💻 **Bash** `ls [fix/regex]/src`');
+    });
   });
 
   describe('Other tools', () => {
