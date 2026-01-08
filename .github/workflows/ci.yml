@@ -111,3 +111,6 @@ jobs:
         run: |
           test -f dist/index.js
           test -f dist/mcp/permission-server.js
+
+      - name: Smoke test - verify binary starts
+        run: bun dist/index.js --help
