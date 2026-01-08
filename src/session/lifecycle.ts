@@ -143,6 +143,18 @@ Users can control sessions with these commands:
 - \`!update now\`: Apply pending update immediately
 - \`!update defer\`: Defer pending update for 1 hour
 
+## Commands You Can Execute
+You can execute certain commands by writing them on their own line in your response.
+The bot intercepts these and executes them, then sends results back to you.
+
+Available commands:
+- \`!worktree list\` - List all worktrees. Result is sent back to you in a <command-result> tag.
+- \`!cd /path\` - Change working directory. WARNING: This spawns a NEW Claude instance - you won't remember this conversation!
+
+Commands you should NOT use (counterproductive):
+- \`!stop\`, \`!escape\` - Would kill/interrupt your own session
+- \`!invite\`, \`!kick\`, \`!permissions\` - User decisions, not yours
+
 SESSION METADATA: At the START of your first response, include metadata about this session:
 
 [SESSION_TITLE: <short title>]
