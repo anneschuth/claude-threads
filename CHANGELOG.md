@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.1] - 2026-01-08
+
+### Fixed
+- **Pre-commit hooks work with non-JS files** - Added `--allow-empty` to lint-staged so commits with only markdown/config files don't fail
+- **Knip no longer flags prettier** - Added prettier to ignoreDependencies and ignoreBinaries in knip config
+
+### Changed
+- **Updated release documentation** - Added PR check verification step and removed `--no-verify` flags from release instructions
+
 ## [0.48.0] - 2026-01-08
 
 ### Added
