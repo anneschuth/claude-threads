@@ -1,22 +1,29 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 90" fill="none">
-  <!-- ASCII art logo recreation:
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 100" fill="none">
+  <!-- ASCII art logo from logo.ts:
     ✴ ▄█▀ ███ ✴
    ✴  █▀   █   ✴
     ✴ ▀█▄  █  ✴
   -->
 
-  <!-- Row 1: ✴ ▄█▀ ███ ✴ -->
-  <text x="10" y="28" font-family="monospace" font-size="24" fill="#eab308">✴</text>
-  <text x="35" y="28" font-family="monospace" font-size="24" fill="#3b82f6">▄█▀ ███</text>
-  <text x="155" y="28" font-family="monospace" font-size="24" fill="#eab308">✴</text>
+  <!-- Use a more reliable monospace font stack and pre element style -->
+  <style>
+    .logo-text { font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 20px; white-space: pre; }
+    .sparkle { fill: #eab308; }
+    .ct { fill: #3b82f6; }
+  </style>
 
-  <!-- Row 2: ✴  █▀   █   ✴ -->
-  <text x="0" y="53" font-family="monospace" font-size="24" fill="#eab308">✴</text>
-  <text x="40" y="53" font-family="monospace" font-size="24" fill="#3b82f6">█▀   █</text>
-  <text x="165" y="53" font-family="monospace" font-size="24" fill="#eab308">✴</text>
+  <!-- Row 1 -->
+  <text x="20" y="30" class="logo-text sparkle">✴</text>
+  <text x="50" y="30" class="logo-text ct">▄█▀ ███</text>
+  <text x="180" y="30" class="logo-text sparkle">✴</text>
 
-  <!-- Row 3: ✴ ▀█▄  █  ✴ -->
-  <text x="10" y="78" font-family="monospace" font-size="24" fill="#eab308">✴</text>
-  <text x="35" y="78" font-family="monospace" font-size="24" fill="#3b82f6">▀█▄  █</text>
-  <text x="155" y="78" font-family="monospace" font-size="24" fill="#eab308">✴</text>
+  <!-- Row 2 -->
+  <text x="8" y="55" class="logo-text sparkle">✴</text>
+  <text x="56" y="55" class="logo-text ct">█▀   █</text>
+  <text x="192" y="55" class="logo-text sparkle">✴</text>
+
+  <!-- Row 3 -->
+  <text x="20" y="80" class="logo-text sparkle">✴</text>
+  <text x="50" y="80" class="logo-text ct">▀█▄  █</text>
+  <text x="180" y="80" class="logo-text sparkle">✴</text>
 </svg>
