@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.5] - 2026-01-08
+
+### Fixed
+- **Slack msg_too_long errors fixed** - Messages are now safely truncated before sending to Slack API, preventing 4000+ character errors (#136)
+- **Emoji conversion for Slack reactions** - Emoji names like `thumbsup` are now correctly converted to unicode for Slack reactions and Mattermost messages (#135)
+
 ## [0.48.4] - 2026-01-08
 
 ### Fixed
