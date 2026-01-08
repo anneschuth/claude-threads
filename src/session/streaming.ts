@@ -6,6 +6,7 @@
  */
 
 import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
+import { truncateMessageSafely } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
 import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
@@ -487,6 +488,21 @@ async function bumpTasksToBottomWithContent(
 
     sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
 
+    // Get platform-specific message size limits
+    const { maxLength: MAX_POST_LENGTH } = session.platform.getMessageLimits();
+
+    // Safety truncation if content exceeds platform limits
+    let contentToPost = newContent;
+    if (contentToPost.length > MAX_POST_LENGTH) {
+      sessionLog(session).warn(`Content too long for repurposed post (${contentToPost.length}), truncating`);
+      const formatter = session.platform.getFormatter();
+      contentToPost = truncateMessageSafely(
+        contentToPost,
+        MAX_POST_LENGTH,
+        formatter.formatItalic('... (truncated)')
+      );
+    }
+
     // Remove the toggle emoji from the old task post before repurposing it
     try {
       await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
@@ -499,7 +515,7 @@ async function bumpTasksToBottomWithContent(
 
     // Repurpose the task list post for the new content
     await withErrorHandling(
-      () => session.platform.updatePost(oldTasksPostId, newContent),
+      () => session.platform.updatePost(oldTasksPostId, contentToPost),
       { action: 'Repurpose task post', session }
     );
     registerPost(oldTasksPostId, session.threadId);
@@ -778,9 +794,13 @@ export async function flush(
   // Normal case: content fits in current post
   if (content.length > MAX_POST_LENGTH) {
     // Safety truncation if we somehow got content that's still too long
-    sessionLog(session).warn(`Content too long (${content.length}), truncating to ${MAX_POST_LENGTH - 50}`);
+    sessionLog(session).warn(`Content too long (${content.length}), truncating`);
     const formatter = session.platform.getFormatter();
-    content = content.substring(0, MAX_POST_LENGTH - 50) + '\n\n' + formatter.formatItalic('... (truncated)');
+    content = truncateMessageSafely(
+      content,
+      MAX_POST_LENGTH,
+      formatter.formatItalic('... (truncated)')
+    );
   }
 
   if (session.currentPostId) {

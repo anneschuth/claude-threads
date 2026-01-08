@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   getPlatformIcon,
   truncateMessage,
+  truncateMessageSafely,
   splitMessage,
   extractMentions,
   isMentioned,
@@ -43,6 +44,60 @@ describe('truncateMessage', () => {
 
   it('truncates with ellipsis', () => {
     expect(truncateMessage('hello world', 8)).toBe('hello...');
+  });
+});
+
+describe('truncateMessageSafely', () => {
+  it('returns original if within limit', () => {
+    expect(truncateMessageSafely('hello', 100)).toBe('hello');
+  });
+
+  it('truncates with default indicator', () => {
+    const result = truncateMessageSafely('a'.repeat(200), 100);
+    expect(result).toContain('... (truncated)');
+    expect(result.length).toBeLessThanOrEqual(100);
+  });
+
+  it('uses custom truncation indicator', () => {
+    const result = truncateMessageSafely('a'.repeat(200), 100, '_truncated_');
+    expect(result).toContain('_truncated_');
+    expect(result.length).toBeLessThanOrEqual(100);
+  });
+
+  it('closes open code blocks when truncating', () => {
+    const content = '```javascript\nconst x = 1;\nconst y = 2;\n' + 'a'.repeat(200);
+    const result = truncateMessageSafely(content, 100);
+
+    // Count ``` markers - should be even (properly closed)
+    const markers = (result.match(/```/g) || []).length;
+    expect(markers % 2).toBe(0);
+    expect(result).toContain('... (truncated)');
+  });
+
+  it('does not add extra closing when code block is already closed', () => {
+    const content = '```javascript\nconst x = 1;\n```\n\nSome text after\n' + 'a'.repeat(200);
+    const result = truncateMessageSafely(content, 100);
+
+    // Count ``` markers - should be even (properly closed)
+    const markers = (result.match(/```/g) || []).length;
+    expect(markers % 2).toBe(0);
+  });
+
+  it('handles multiple code blocks with last one open', () => {
+    const content = '```js\ncode1\n```\n\nText\n\n```python\ncode2\n' + 'a'.repeat(200);
+    const result = truncateMessageSafely(content, 120);
+
+    // Count ``` markers - should be even (properly closed)
+    const markers = (result.match(/```/g) || []).length;
+    expect(markers % 2).toBe(0);
+  });
+
+  it('handles content with no code blocks', () => {
+    const content = 'Just plain text without any code blocks ' + 'a'.repeat(200);
+    const result = truncateMessageSafely(content, 100);
+
+    expect(result).not.toContain('```');
+    expect(result).toContain('... (truncated)');
   });
 });
 

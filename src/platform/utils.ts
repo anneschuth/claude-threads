@@ -49,6 +49,39 @@ export function truncateMessage(message: string, maxLength: number): string {
 }
 
 /**
+ * Truncate a message safely, properly closing any open code blocks.
+ * This prevents malformed markdown when truncating in the middle of a code block.
+ *
+ * @param message - The message to truncate
+ * @param maxLength - Maximum allowed length
+ * @param truncationIndicator - Text to append after truncation (default: '... (truncated)')
+ * @returns Truncated message with properly closed code blocks
+ */
+export function truncateMessageSafely(
+  message: string,
+  maxLength: number,
+  truncationIndicator = '... (truncated)'
+): string {
+  if (message.length <= maxLength) return message;
+
+  // Leave room for closing code block (4 chars: \n```) and truncation indicator
+  const reservedSpace = 4 + 2 + truncationIndicator.length; // 4 for \n```, 2 for \n\n
+  let truncated = message.substring(0, maxLength - reservedSpace);
+
+  // Check if we're inside an unclosed code block
+  // Count ``` occurrences - odd number means we're inside a code block
+  const codeBlockMarkers = (truncated.match(/```/g) || []).length;
+  const isInsideCodeBlock = codeBlockMarkers % 2 === 1;
+
+  if (isInsideCodeBlock) {
+    // Close the code block before adding truncation message
+    truncated += '\n```';
+  }
+
+  return truncated + '\n\n' + truncationIndicator;
+}
+
+/**
  * Split a long message into chunks at natural breakpoints.
  * Tries to break at paragraph boundaries, then sentence boundaries.
  *
