@@ -218,7 +218,7 @@ describe('handleEvent with TodoWrite', () => {
     expect(session.tasksCompleted).toBe(false);
   });
 
-  test('sets tasksCompleted=true when all tasks are completed', () => {
+  test('sets tasksCompleted=true when all tasks are completed', async () => {
     const event = {
       type: 'assistant' as const,
       message: {
@@ -241,10 +241,13 @@ describe('handleEvent with TodoWrite', () => {
 
     handleEvent(session, event, ctx);
 
+    // Wait for async lock acquisition and processing
+    await new Promise(resolve => setTimeout(resolve, 10));
+
     expect(session.tasksCompleted).toBe(true);
   });
 
-  test('sets tasksCompleted=true when todos array is empty', () => {
+  test('sets tasksCompleted=true when todos array is empty', async () => {
     session.tasksPostId = 'existing_tasks_post';
 
     const event = {
@@ -264,6 +267,9 @@ describe('handleEvent with TodoWrite', () => {
     };
 
     handleEvent(session, event, ctx);
+
+    // Wait for async lock acquisition and processing
+    await new Promise(resolve => setTimeout(resolve, 10));
 
     expect(session.tasksCompleted).toBe(true);
   });
