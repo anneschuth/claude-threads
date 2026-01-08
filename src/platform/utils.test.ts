@@ -7,6 +7,8 @@ import {
   isMentioned,
   normalizeEmojiName,
   getEmojiCharacter,
+  getEmojiName,
+  convertUnicodeEmojiToShortcodes,
   containsCodeBlock,
   extractCodeBlocks,
   formatCodeBlock,
@@ -157,6 +159,58 @@ describe('getEmojiCharacter', () => {
 
   it('returns colon format for unknown names', () => {
     expect(getEmojiCharacter('unknown_emoji')).toBe(':unknown_emoji:');
+  });
+});
+
+describe('convertUnicodeEmojiToShortcodes', () => {
+  it('converts known Unicode emoji to shortcodes', () => {
+    expect(convertUnicodeEmojiToShortcodes('🔄 Update available')).toBe(':arrows_counterclockwise: Update available');
+    expect(convertUnicodeEmojiToShortcodes('✅ Success')).toBe(':white_check_mark: Success');
+    expect(convertUnicodeEmojiToShortcodes('📦 Installing')).toBe(':package: Installing');
+    expect(convertUnicodeEmojiToShortcodes('🎉 Done!')).toBe(':partying_face: Done!');
+  });
+
+  it('converts multiple emoji in one message', () => {
+    expect(convertUnicodeEmojiToShortcodes('👍 or 👎')).toBe(':+1: or :-1:');
+  });
+
+  it('leaves unknown Unicode emoji unchanged', () => {
+    // Unicode emoji not in our mapping should pass through unchanged
+    expect(convertUnicodeEmojiToShortcodes('🦄 Unicorn')).toBe('🦄 Unicorn');
+  });
+
+  it('leaves plain text unchanged', () => {
+    expect(convertUnicodeEmojiToShortcodes('Hello world')).toBe('Hello world');
+  });
+
+  it('handles empty string', () => {
+    expect(convertUnicodeEmojiToShortcodes('')).toBe('');
+  });
+
+  it('handles message with existing shortcodes (leaves them alone)', () => {
+    expect(convertUnicodeEmojiToShortcodes(':smile: and 👍')).toBe(':smile: and :+1:');
+  });
+});
+
+describe('getEmojiName', () => {
+  it('converts Unicode emoji to shortcode names', () => {
+    expect(getEmojiName('👍')).toBe('+1');
+    expect(getEmojiName('👎')).toBe('-1');
+    expect(getEmojiName('✅')).toBe('white_check_mark');
+    expect(getEmojiName('❌')).toBe('x');
+    expect(getEmojiName('🔄')).toBe('arrows_counterclockwise');
+    expect(getEmojiName('🎉')).toBe('partying_face');
+  });
+
+  it('returns shortcode names unchanged', () => {
+    expect(getEmojiName('+1')).toBe('+1');
+    expect(getEmojiName('thumbsup')).toBe('thumbsup');
+    expect(getEmojiName('white_check_mark')).toBe('white_check_mark');
+  });
+
+  it('returns unknown emoji/names unchanged', () => {
+    expect(getEmojiName('custom_emoji')).toBe('custom_emoji');
+    expect(getEmojiName('🦄')).toBe('🦄'); // Not in our mapping
   });
 });
 
