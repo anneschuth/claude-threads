@@ -8,7 +8,7 @@ import { satisfies, coerce } from 'semver';
  * - MIN: Oldest version known to work
  * - MAX: Newest version known to work
  */
-export const CLAUDE_CLI_VERSION_RANGE = '>=2.0.74 <=2.0.76';
+export const CLAUDE_CLI_VERSION_RANGE = '>=2.0.74 <=2.1.1';
 
 /**
  * Get the installed Claude CLI version.
