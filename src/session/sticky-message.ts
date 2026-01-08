@@ -749,6 +749,13 @@ async function updateStickyMessageImpl(
     }
 
     log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
+
+    // Clean up any orphaned pinned posts from the bot (in case previous delete failed)
+    // This runs in the background to not block the sticky message update
+    const botUser = await platform.getBotUser();
+    cleanupOldStickyMessages(platform, botUser.id).catch(err => {
+      log.debug(`Background cleanup failed: ${err}`);
+    });
   } catch (err) {
     log.error(`Failed to update sticky message for ${platform.platformId}`, err instanceof Error ? err : undefined);
   }

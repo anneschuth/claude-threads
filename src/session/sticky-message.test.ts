@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown } from './sticky-message.js';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, setStickyPostId, markNeedsBump, initialize } from './sticky-message.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import { mockFormatter } from '../test-utils/mock-formatter.js';
@@ -679,5 +679,190 @@ describe('formatPendingPrompts', () => {
     });
     const result = formatPendingPrompts(session);
     expect(result).toBe('⏳ 📋 Plan approval · 💬 Message approval');
+  });
+});
+
+describe('cleanupOldStickyMessages', () => {
+  it('deletes pinned posts from bot that are not the current sticky', async () => {
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getPost = mock((postId: string) => Promise.resolve({
+      id: postId,
+      userId: 'bot-user-123',
+      message: 'old sticky content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const getPinnedPosts = mock(() => Promise.resolve(['old-post-1', 'old-post-2', 'current-sticky']));
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    // Set up current sticky so it gets skipped
+    setStickyPostId('test-platform', 'current-sticky');
+
+    await cleanupOldStickyMessages(platform, 'bot-user-123');
+
+    // Should have unpinned and deleted old-post-1 and old-post-2, but not current-sticky
+    expect(unpinPost).toHaveBeenCalledTimes(2);
+    expect(deletePost).toHaveBeenCalledTimes(2);
+    expect(unpinPost).toHaveBeenCalledWith('old-post-1');
+    expect(unpinPost).toHaveBeenCalledWith('old-post-2');
+    expect(deletePost).toHaveBeenCalledWith('old-post-1');
+    expect(deletePost).toHaveBeenCalledWith('old-post-2');
+  });
+
+  it('skips posts from other users', async () => {
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getPost = mock((postId: string) => Promise.resolve({
+      id: postId,
+      userId: postId === 'bot-post' ? 'bot-user-123' : 'other-user-456',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const getPinnedPosts = mock(() => Promise.resolve(['bot-post', 'user-post']));
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    // Clear any current sticky
+    setStickyPostId('test-platform', 'some-other-post');
+
+    await cleanupOldStickyMessages(platform, 'bot-user-123');
+
+    // Should only delete the bot's post, not the user's post
+    expect(unpinPost).toHaveBeenCalledTimes(1);
+    expect(deletePost).toHaveBeenCalledTimes(1);
+    expect(unpinPost).toHaveBeenCalledWith('bot-post');
+    expect(deletePost).toHaveBeenCalledWith('bot-post');
+  });
+
+  it('handles errors gracefully when deleting posts', async () => {
+    const unpinPost = mock(() => Promise.reject(new Error('Unpin failed')));
+    const deletePost = mock(() => Promise.reject(new Error('Delete failed')));
+    const getPost = mock(() => Promise.resolve({
+      id: 'post1',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const getPinnedPosts = mock(() => Promise.resolve(['post1']));
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    setStickyPostId('test-platform', 'different-post');
+
+    // Should not throw
+    await cleanupOldStickyMessages(platform, 'bot-user-123');
+
+    expect(unpinPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('does nothing when no pinned posts exist', async () => {
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getPost = mock(() => Promise.resolve(null));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    await cleanupOldStickyMessages(platform, 'bot-user-123');
+
+    expect(unpinPost).not.toHaveBeenCalled();
+    expect(deletePost).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateStickyMessage with bump', () => {
+  it('triggers cleanup after creating new sticky post during bump', async () => {
+    const sessions = new Map<string, Session>();
+    const createdPostId = 'new-sticky-post-123';
+
+    const createPost = mock(() => Promise.resolve({
+      id: createdPostId,
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const updatePost = mock(() => Promise.reject(new Error('Post not found'))); // Force bump
+    const pinPost = mock(() => Promise.resolve());
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot-user-123', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve(['orphaned-post', createdPostId]));
+    const getPost = mock((postId: string) => Promise.resolve({
+      id: postId,
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      createPost,
+      updatePost,
+      pinPost,
+      unpinPost,
+      deletePost,
+      getBotUser,
+      getPinnedPosts,
+      getPost,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    // Initialize with a mock session store
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map()),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
+
+    // Set up existing sticky and mark for bump
+    setStickyPostId('test-platform', 'old-sticky-post');
+    markNeedsBump('test-platform');
+
+    await updateStickyMessage(platform, sessions, testConfig);
+
+    // Wait a bit for the background cleanup to be triggered
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify new sticky was created
+    expect(createPost).toHaveBeenCalled();
+    expect(pinPost).toHaveBeenCalled();
+
+    // Verify cleanup was triggered (getBotUser called for cleanup)
+    expect(getBotUser).toHaveBeenCalled();
+
+    // Verify cleanup attempted to get pinned posts
+    expect(getPinnedPosts).toHaveBeenCalled();
   });
 });
