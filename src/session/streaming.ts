@@ -651,8 +651,9 @@ export async function flush(
     // Determine where to break
     let breakPoint: number;
 
-    // Track if we're breaking inside a code block (so we can close/reopen it)
+    // Track if we're breaking inside a code block (so we can move it to next message)
     let codeBlockLanguage: string | undefined;
+    let codeBlockOpenPosition: number | undefined;
 
     if (content.length > HARD_CONTINUATION_THRESHOLD) {
       // Hard break: we're at the limit, must break now
@@ -672,17 +673,11 @@ export async function flush(
 
         if (codeBlockState.isInside) {
           // We're inside a code block and can't find its end within the lookahead
-          // We need to force-break and properly close/reopen the code block
+          // We'll split before the code block so it moves to the next message
           codeBlockLanguage = codeBlockState.language;
-
-          // Find a line break within the code block to break at
-          const searchWindow = content.substring(startSearchPos, HARD_CONTINUATION_THRESHOLD);
-          const lineBreakMatch = searchWindow.match(/\n/);
-          if (lineBreakMatch && lineBreakMatch.index !== undefined) {
-            breakPoint = startSearchPos + lineBreakMatch.index + 1;
-          } else {
-            breakPoint = HARD_CONTINUATION_THRESHOLD;
-          }
+          codeBlockOpenPosition = codeBlockState.openPosition;
+          // Temporary breakPoint - will be overridden below to split before code block
+          breakPoint = HARD_CONTINUATION_THRESHOLD;
         } else {
           // Not inside a code block, just couldn't find a good breakpoint
           // Fallback: find any line break
@@ -711,27 +706,43 @@ export async function flush(
       }
     }
 
-    // Split at the breakpoint
-    let firstPart = content.substring(0, breakPoint).trim();
-    let remainder = content.substring(breakPoint).trim();
+    // If we're inside a code block, split BEFORE the code block starts
+    // so the entire code block moves to the next message
+    if (codeBlockLanguage !== undefined && codeBlockOpenPosition !== undefined) {
+      if (codeBlockOpenPosition === 0) {
+        // Code block is at the very start, can't split before it - just update and wait
+        try {
+          await session.platform.updatePost(currentPostId, content);
+        } catch {
+          sessionLog(session).debug('Update failed (code block at start), will create new post on next flush');
+          session.currentPostId = null;
+        }
+        return;
+      }
 
-    // If we're breaking inside a code block, close it in the first part and reopen in the remainder
-    if (codeBlockLanguage !== undefined) {
-      // Close the code block in the first part
-      firstPart = firstPart + '\n```';
-      // Reopen the code block in the remainder (use same language)
-      remainder = '```' + codeBlockLanguage + '\n' + remainder;
+      // Find the last newline before the code block to get a clean break
+      const breakBeforeCodeBlock = content.lastIndexOf('\n', codeBlockOpenPosition);
+      if (breakBeforeCodeBlock > 0) {
+        breakPoint = breakBeforeCodeBlock;
+      } else {
+        // No good break point before the code block - just update and wait
+        try {
+          await session.platform.updatePost(currentPostId, content);
+        } catch {
+          sessionLog(session).debug('Update failed (no break before code block), will create new post on next flush');
+          session.currentPostId = null;
+        }
+        return;
+      }
     }
 
-    // Only add continuation marker if we have more content
-    const formatter = session.platform.getFormatter();
-    const firstPartWithMarker = remainder
-      ? firstPart + '\n\n' + formatter.formatItalic('... (continued below)')
-      : firstPart;
+    // Split at the breakpoint
+    const firstPart = content.substring(0, breakPoint).trim();
+    const remainder = content.substring(breakPoint).trim();
 
     // Update the current post with the first part
     try {
-      await session.platform.updatePost(currentPostId, firstPartWithMarker);
+      await session.platform.updatePost(currentPostId, firstPart);
     } catch {
       // Update failed - post may have been deleted. Log at debug level since
       // we're about to start a new post anyway, so this is not critical.
@@ -744,18 +755,14 @@ export async function flush(
 
     // Create the continuation post if there's content
     if (remainder) {
-      // Format the continuation marker using the platform's formatter for consistency
-      const continuationMarker = formatter.formatItalic('(continued)');
-      const continuationContent = continuationMarker + '\n\n' + remainder;
-
       // If we have an active (non-completed) task list, reuse its post and bump it to the bottom
       const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
       if (hasActiveTasks) {
-        const postId = await bumpTasksToBottomWithContent(session, continuationContent, registerPost);
+        const postId = await bumpTasksToBottomWithContent(session, remainder, registerPost);
         session.currentPostId = postId;
       } else {
         const post = await withErrorHandling(
-          () => session.platform.createPost(continuationContent, session.threadId),
+          () => session.platform.createPost(remainder, session.threadId),
           { action: 'Create continuation post', session }
         );
         if (post) {

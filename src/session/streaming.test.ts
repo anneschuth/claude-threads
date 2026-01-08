@@ -510,7 +510,6 @@ describe('flush with continuation (message splitting)', () => {
     expect(platform.updatePost).toHaveBeenCalled();
     const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
     expect(updateCall[0]).toBe('current_post');
-    expect(updateCall[1]).toContain('_... (continued below)_');
 
     // Should create continuation post
     expect(platform.createPost).toHaveBeenCalled();
@@ -529,10 +528,10 @@ describe('flush with continuation (message splitting)', () => {
     await flush(session, registerPost);
 
     // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('BBBB'));
 
-    // Should repurpose tasks post for continuation (uses formatItalic)
-    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('_(continued)_'));
+    // Should repurpose tasks post for continuation
+    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('BBBB'));
 
     // Should create new tasks post with toggle emoji
     expect(platform.createInteractivePost).toHaveBeenCalledWith('📋 Tasks', ['arrow_down_small'], 'thread1');
@@ -552,54 +551,57 @@ describe('flush with continuation (message splitting)', () => {
     await flush(session, registerPost);
 
     // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('_... (continued below)_'));
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('CCCC'));
 
-    // Should NOT repurpose tasks post - create new post instead (uses formatItalic)
-    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('_(continued)_'), 'thread1');
+    // Should NOT repurpose tasks post - create new post instead
+    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('CCCC'), 'thread1');
 
     // Tasks post should remain unchanged
     expect(session.tasksPostId).toBe('tasks_post');
   });
 
-  test('continuation post starting with code block uses formatter for italic marker', async () => {
-    // Set up completed task list so we don't bump it
-    session.tasksPostId = 'tasks_post';
-    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
-    session.tasksCompleted = true;
-
-    // Create content with a code block that will be split
-    // The code block must exceed HARD_CONTINUATION_THRESHOLD (14000 chars)
-    const codeContent = 'x'.repeat(15000);
-    const contentWithCodeBlock = `Some text\n\`\`\`typescript\n${codeContent}\n\`\`\`\nEnd text`;
+  test('splits before code block instead of inside it', async () => {
+    // Create content with text followed by a large code block
+    // The code block should move entirely to the next message
+    const textBefore = 'Here is some introductory text.\n\n';
+    const codeBlock = '```typescript\n' + 'x'.repeat(14000) + '\n```';
+    const longContent = textBefore + codeBlock;
 
     session.currentPostId = 'current_post';
-    session.pendingContent = contentWithCodeBlock;
+    session.pendingContent = longContent;
 
     await flush(session, registerPost);
 
-    // Should create continuation post with italic marker (not bold asterisks)
-    const createCalls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
-    expect(createCalls.length).toBeGreaterThan(0);
+    // Should have updated and created posts
+    expect(platform.updatePost).toHaveBeenCalled();
+    expect(platform.createPost).toHaveBeenCalled();
 
-    const continuationCall = createCalls.find((call: unknown[]) =>
-      typeof call[0] === 'string' && call[0].includes('(continued)')
-    ) as [string, string] | undefined;
-    expect(continuationCall).toBeDefined();
+    // First part should contain the intro text but NOT the code block
+    const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
+    const firstPart = updateCall[1] as string;
+    expect(firstPart).toContain('introductory text');
+    expect(firstPart).not.toContain('```typescript');
 
-    // The continuation marker should use formatItalic: _(continued)_ not *(continued)*
-    expect(continuationCall?.[0]).toContain('_(continued)_');
-    expect(continuationCall?.[0]).not.toContain('*(continued)*');
+    // Second part (continuation) should contain the entire code block
+    const createCall = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
+    const secondPart = createCall[0] as string;
+    expect(secondPart).toContain('```typescript');
+    expect(secondPart).toContain('```'); // closing backticks
+  });
 
-    // The code block should be properly reopened after the marker
-    // This ensures proper rendering when continuation starts with code
-    if (continuationCall?.[0]?.includes('```')) {
-      // If continuation contains a code block, verify there's proper separation
-      const content = continuationCall[0];
-      const markerIndex = content.indexOf('_(continued)_');
-      const codeBlockIndex = content.indexOf('```');
-      // Code block should come after the marker with newlines between
-      expect(codeBlockIndex).toBeGreaterThan(markerIndex);
-    }
+  test('does not split when code block starts at beginning', async () => {
+    // Code block at the very start - can't split before it
+    const codeBlock = '```typescript\n' + 'y'.repeat(15000) + '\n```';
+
+    session.currentPostId = 'current_post';
+    session.pendingContent = codeBlock;
+
+    await flush(session, registerPost);
+
+    // Should just update the current post without creating continuation
+    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('```typescript'));
+    // Should NOT create a new post since we can't split before the code block
+    expect(platform.createPost).not.toHaveBeenCalled();
   });
 });
 
@@ -823,19 +825,6 @@ describe('flush with smart breaking', () => {
     // Should just update the existing post
     expect(platform.updatePost).toHaveBeenCalledWith('existing_post', content);
     expect(platform.createPost).not.toHaveBeenCalled();
-  });
-
-  test('adds continuation marker when breaking', async () => {
-    const longContent = 'X'.repeat(SOFT_BREAK_THRESHOLD) + '\n  ↳ ✓\nMore content';
-
-    session.currentPostId = 'existing_post';
-    session.pendingContent = longContent;
-
-    await flush(session, registerPost);
-
-    // First call to updatePost should include continuation marker
-    const firstCallArgs = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
-    expect(firstCallArgs[1]).toContain('_... (continued below)_');
   });
 });
 
@@ -1130,8 +1119,8 @@ describe('platform-specific message limits', () => {
     // Should have split at the lower threshold
     expect(platform.updatePost).toHaveBeenCalled();
     const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
-    // First part should have continuation marker (content was split)
-    expect(updateCall[1]).toContain('_... (continued below)_');
+    // First part should contain content (content was split)
+    expect(updateCall[1]).toContain('SSSS');
   });
 
   test('respects higher Mattermost limits', async () => {
