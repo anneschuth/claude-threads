@@ -496,7 +496,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
         );
 
         expect(rejectPost).toBeDefined();
-        expect(rejectPost.message).toContain('⚠️');
+        // Accept either Unicode emoji or shortcode (Mattermost converts for mobile)
+        expect(rejectPost.message).toMatch(/⚠️|:warning:/);
       });
 
       it('should only allow session-allowed users to change permissions', async () => {
