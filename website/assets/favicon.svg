@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <!-- Background -->
+  <rect width="32" height="32" rx="6" fill="#151517"/>
+
+  <!-- Sparkle -->
+  <path d="M6 7 L7 8 L6 9 L5 8 Z" fill="#a78bfa"/>
+
+  <!-- C -->
+  <path d="M8 11 L8 8 L15 8 L15 10 L10 10 L10 22 L15 22 L15 24 L8 24 L8 11 Z" fill="#fafafa"/>
+
+  <!-- T -->
+  <path d="M17 8 L26 8 L26 10 L23 10 L23 24 L20 24 L20 10 L17 10 Z" fill="#fafafa"/>
+</svg>
