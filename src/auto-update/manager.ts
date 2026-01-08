@@ -44,6 +44,9 @@ export interface AutoUpdateCallbacks {
 
   /** Trigger UI update (sticky message, status bar, etc.) */
   refreshUI: () => Promise<void>;
+
+  /** Prepare for restart (persist sessions, disconnect platforms) */
+  prepareForRestart: () => Promise<void>;
 }
 
 /**
@@ -273,6 +276,9 @@ export class AutoUpdateManager extends EventEmitter {
 
       // Give a moment for the message to be sent
       await new Promise(resolve => setTimeout(resolve, 1000));
+
+      // Prepare for restart (persist sessions, disconnect platforms)
+      await this.callbacks.prepareForRestart();
 
       // Exit with special code to signal restart needed
       log.info(`🔄 Restarting for update to v${updateInfo.latestVersion}`);

@@ -27,6 +27,7 @@ describe('auto-update/manager', () => {
       broadcastUpdate: mock((_msgBuilder: unknown) => Promise.resolve()),
       postAskMessage: mock(() => Promise.resolve()),
       refreshUI: mock(() => Promise.resolve()),
+      prepareForRestart: mock(() => Promise.resolve()),
     };
   });
 
@@ -253,6 +254,28 @@ describe('auto-update/manager', () => {
         await manager.checkNow();
 
         expect(emittedStatus).toBe('available');
+        manager.stop();
+      });
+    });
+
+    describe('forceUpdate()', () => {
+      it('returns early when no update is available', async () => {
+        // Mock fetch to return no update
+        globalThis.fetch = mockFetch(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ version: '0.0.1' }),
+          } as Response)
+        );
+
+        const manager = new AutoUpdateManager(config, callbacks);
+
+        // Should not throw, just return early
+        await manager.forceUpdate();
+
+        // prepareForRestart should NOT have been called
+        expect(callbacks.prepareForRestart).not.toHaveBeenCalled();
+
         manager.stop();
       });
     });
