@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none">
+  <!-- Background circle -->
+  <circle cx="40" cy="40" r="38" fill="#151517" stroke="#27272a" stroke-width="2"/>
+
+  <!-- Sparkles -->
+  <path d="M16 20 L18 22 L16 24 L14 22 Z" fill="#a78bfa"/>
+  <path d="M64 20 L66 22 L64 24 L62 22 Z" fill="#a78bfa"/>
+  <path d="M16 56 L18 58 L16 60 L14 58 Z" fill="#a78bfa"/>
+
+  <!-- C letter -->
+  <path d="M24 32 L24 26 L38 26 L38 30 L28 30 L28 50 L38 50 L38 54 L24 54 L24 32 Z" fill="#fafafa"/>
+
+  <!-- T letter -->
+  <path d="M42 26 L58 26 L58 30 L52 30 L52 54 L48 54 L48 30 L42 30 Z" fill="#fafafa"/>
+</svg>
