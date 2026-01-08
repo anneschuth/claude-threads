@@ -31,6 +31,7 @@ import type {
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
+import { getEmojiName } from '../utils.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
@@ -1137,25 +1138,31 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Add a reaction to a post.
+   * Converts Unicode emoji (e.g., '👍') to Slack emoji names (e.g., '+1').
    */
   async addReaction(postId: string, emojiName: string): Promise<void> {
-    log.debug(`Adding reaction :${emojiName}: to post ${postId.substring(0, 12)}`);
+    // Convert Unicode emoji to name if necessary (e.g., '👍' → '+1')
+    const name = getEmojiName(emojiName);
+    log.debug(`Adding reaction :${name}: to post ${postId.substring(0, 12)}`);
     await this.api('POST', 'reactions.add', {
       channel: this.channelId,
       timestamp: postId,
-      name: emojiName,
+      name,
     });
   }
 
   /**
    * Remove a reaction from a post.
+   * Converts Unicode emoji (e.g., '👍') to Slack emoji names (e.g., '+1').
    */
   async removeReaction(postId: string, emojiName: string): Promise<void> {
-    log.debug(`Removing reaction :${emojiName}: from post ${postId.substring(0, 12)}`);
+    // Convert Unicode emoji to name if necessary (e.g., '👍' → '+1')
+    const name = getEmojiName(emojiName);
+    log.debug(`Removing reaction :${name}: from post ${postId.substring(0, 12)}`);
     await this.api('POST', 'reactions.remove', {
       channel: this.channelId,
       timestamp: postId,
-      name: emojiName,
+      name,
     });
   }
 

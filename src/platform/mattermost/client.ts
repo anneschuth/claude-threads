@@ -25,6 +25,7 @@ import type {
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
+import { convertUnicodeEmojiToShortcodes } from '../utils.js';
 
 // Escape special regex characters to prevent regex injection
 function escapeRegExp(string: string): string {
@@ -213,13 +214,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   // Post a message
+  // Note: We convert Unicode emoji to :shortcode: format because some
+  // Mattermost clients (especially mobile) have issues rendering Unicode
+  // emoji directly in message text.
   async createPost(
     message: string,
     threadId?: string
   ): Promise<PlatformPost> {
     const request: CreatePostRequest = {
       channel_id: this.channelId,
-      message,
+      message: convertUnicodeEmojiToShortcodes(message),
       root_id: threadId,
     };
     const post = await this.api<MattermostPost>('POST', '/posts', request);
@@ -227,10 +231,13 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   // Update a message (for streaming updates)
+  // Note: We convert Unicode emoji to :shortcode: format because some
+  // Mattermost clients (especially mobile) have issues rendering Unicode
+  // emoji directly in message text.
   async updatePost(postId: string, message: string): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
-      message,
+      message: convertUnicodeEmojiToShortcodes(message),
     };
     const post = await this.api<MattermostPost>('PUT', `/posts/${postId}`, request);
     return this.normalizePlatformPost(post);
