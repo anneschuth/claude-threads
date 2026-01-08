@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.4] - 2026-01-08
+
+### Fixed
+- **Code blocks no longer split incorrectly** - Messages are now split at line boundaries and never inside code blocks, removing ugly continuation markers (#134)
+- **Disabled platforms show dim indicator** - Changed disabled platform status from red (error) to dim (inactive) for clearer visual feedback (#132)
+
+### Added
+- **CI smoke test** - Added startup verification to CI pipeline to catch binary launch issues early (#133)
+
 ## [0.48.3] - 2026-01-08
 
 ### Changed
