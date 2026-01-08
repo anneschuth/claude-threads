@@ -320,35 +320,38 @@ Releases are automated via GitHub Actions. When you create a GitHub release, it 
 When there are open PRs to merge before releasing:
 
 ```bash
-# 1. Merge all open PRs (squash merge, delete branches)
+# 1. List open PRs and verify checks pass before merging
 gh pr list --state open
+gh pr checks <PR_NUMBER>  # Ensure all checks pass!
+
+# 2. Merge PRs (squash merge, delete branches)
 gh pr merge <PR_NUMBER> --squash --delete-branch
 # Repeat for each PR (ignore worktree branch deletion errors)
 
-# 2. Pull merged changes
+# 3. Pull merged changes
 git pull
 
-# 3. Remove any deprecated files if needed
+# 4. Remove any deprecated files if needed
 rm <file> && git add -A
 
-# 4. Update CHANGELOG.md with new version and all merged PR changes
+# 5. Update CHANGELOG.md with new version and all merged PR changes
 # Use format: **Feature/Fix name** - Description (#PR_NUMBER)
 
-# 5. Commit changelog (use --no-verify if pre-commit hooks fail on non-JS files)
-git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z" --no-verify
+# 6. Commit changelog
+git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z"
 
-# 6. Bump version
+# 7. Bump version
 npm version patch --no-git-tag-version  # 0.47.0 → 0.47.1 (fixes only)
 npm version minor --no-git-tag-version  # 0.47.0 → 0.48.0 (new features)
 npm version major --no-git-tag-version  # 0.47.0 → 1.0.0 (breaking changes)
 
-# 7. Commit and tag
-git add package.json && git commit -m "X.Y.Z" --no-verify && git tag vX.Y.Z
+# 8. Commit and tag
+git add package.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
 
-# 8. Push to GitHub with tags
+# 9. Push to GitHub with tags
 git push && git push --tags
 
-# 9. Create GitHub release (triggers automatic npm publish)
+# 10. Create GitHub release (triggers automatic npm publish)
 gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes
 ```
 
@@ -372,7 +375,7 @@ git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z"
 npm version patch --no-git-tag-version  # then commit and tag manually
 
 # 4. Commit and tag
-git add package.json && git commit -m "X.Y.Z" --no-verify && git tag vX.Y.Z
+git add package.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
 
 # 5. Push to GitHub with tags
 git push && git push --tags

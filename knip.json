@@ -11,8 +11,8 @@
     "src/test-utils/**/*",
     "tests/**/*"
   ],
-  "ignoreDependencies": [],
-  "ignoreBinaries": ["pkill", "sleep", "dist/index.js"],
+  "ignoreDependencies": ["prettier"],
+  "ignoreBinaries": ["pkill", "sleep", "prettier"],
   "ignoreExportsUsedInFile": true,
   "rules": {
     "exports": "off",

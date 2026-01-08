@@ -1,2 +1,2 @@
-bunx lint-staged
+bunx lint-staged --allow-empty
 bunx knip
