@@ -225,6 +225,13 @@ describe('convertUnicodeEmojiToShortcodes', () => {
     expect(convertUnicodeEmojiToShortcodes('🎉 Done!')).toBe(':partying_face: Done!');
   });
 
+  it('converts stopwatch emoji to standard shortcode', () => {
+    // This is used in session timeout messages - must use :stopwatch: not :clock:
+    // as Mattermost doesn't recognize :clock: as a valid emoji shortcode
+    expect(convertUnicodeEmojiToShortcodes('⏱️ Session timed out')).toBe(':stopwatch: Session timed out');
+    expect(convertUnicodeEmojiToShortcodes('⏱️')).toBe(':stopwatch:');
+  });
+
   it('converts multiple emoji in one message', () => {
     expect(convertUnicodeEmojiToShortcodes('👍 or 👎')).toBe(':+1: or :-1:');
   });
@@ -255,6 +262,7 @@ describe('getEmojiName', () => {
     expect(getEmojiName('❌')).toBe('x');
     expect(getEmojiName('🔄')).toBe('arrows_counterclockwise');
     expect(getEmojiName('🎉')).toBe('partying_face');
+    expect(getEmojiName('⏱️')).toBe('stopwatch');
   });
 
   it('returns shortcode names unchanged', () => {

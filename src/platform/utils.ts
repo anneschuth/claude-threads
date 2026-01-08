@@ -264,7 +264,7 @@ const EMOJI_NAME_TO_UNICODE: Record<string, string> = {
   'file_folder': '📁',
   'page_facing_up': '📄',
   'memo': '📝',
-  'clock': '⏱️',
+  'stopwatch': '⏱️',
   'hourglass': '⏳',
   'seedling': '🌱',
   'evergreen_tree': '🌲',
