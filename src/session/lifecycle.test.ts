@@ -137,6 +137,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       registerWorktreeUser: mock(() => {}),
       unregisterWorktreeUser: mock(() => {}),
       hasOtherSessionsUsingWorktree: mock(() => false),
+      bumpAllStickyPosts: mock(async () => {}),
     },
   };
 }

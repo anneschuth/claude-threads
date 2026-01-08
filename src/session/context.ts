@@ -118,6 +118,9 @@ export interface SessionOperations {
   /** Move task list to bottom of thread */
   bumpTasksToBottom(session: Session): Promise<void>;
 
+  /** Bump all sticky posts (plan approval, task list) to bottom in correct order */
+  bumpAllStickyPosts(session: Session): Promise<void>;
+
   // ---------------------------------------------------------------------------
   // Persistence
   // ---------------------------------------------------------------------------

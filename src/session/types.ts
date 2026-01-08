@@ -71,6 +71,7 @@ export interface PendingApproval {
   postId: string;
   type: 'plan' | 'action';
   toolUseId: string;
+  content?: string;  // Message content for recreation when bumping
 }
 
 /**
@@ -229,7 +230,11 @@ export interface Session {
   lastMessageId?: string;
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
-  // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
+  // Sticky post lock (prevents duplicate posts from concurrent updates)
+  // Used by both task list and plan approval bumping
+  stickyPostLock?: Promise<void>;
+
+  // DEPRECATED: Use stickyPostLock instead. Kept for backward compatibility.
   taskListCreationPromise?: Promise<void>;
 }
 
