@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.6] - 2026-01-08
+
+### Added
+- **Claude can execute !worktree list** - Claude can now run `!worktree list` command and receive the results in the conversation, enabling better worktree management (#137)
+
+### Fixed
+- **Orphaned pinned sticky messages cleaned up** - Sticky messages from previous bot instances are now properly unpinned and deleted on startup (#138)
+- **Stopwatch emoji compatibility** - Changed from Unicode ⏱️ to standard `:stopwatch:` shortcode for better cross-platform compatibility (#139)
+
 ## [0.48.5] - 2026-01-08
 
 ### Fixed
