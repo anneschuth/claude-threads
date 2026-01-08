@@ -1,2 +1,2 @@
 bunx lint-staged --allow-empty
-bunx knip
+bunx knip --no-config-hints

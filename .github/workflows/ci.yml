@@ -24,7 +24,7 @@ jobs:
         run: bun run lint
 
       - name: Run Knip
-        run: bunx knip
+        run: bunx knip --no-config-hints
 
   typecheck:
     runs-on: ubuntu-latest
