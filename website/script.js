@@ -6,7 +6,7 @@ function copyInstall() {
     const originalHTML = btn.innerHTML;
     btn.innerHTML =
       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polyline points="20 6 9 17 4 12"/></svg>';
-    btn.style.color = "#a78bfa";
+    btn.style.color = "#3b82f6";
     setTimeout(() => {
       btn.innerHTML = originalHTML;
       btn.style.color = "";
