@@ -454,6 +454,9 @@ async function main() {
   // Resume any persisted sessions from before restart
   await session.initialize();
 
+  // Shutdown flag - shared between shutdown() and prepareForRestart callback
+  let isShuttingDown = false;
+
   // Initialize auto-update manager
   autoUpdateManager = new AutoUpdateManager(config.autoUpdate, {
     getSessionActivity: () => session.getActivityInfo(),
@@ -461,6 +464,21 @@ async function main() {
     broadcastUpdate: (msg) => session.broadcastToAll(msg),
     postAskMessage: (ids, ver) => session.postUpdateAskMessage(ids, ver),
     refreshUI: () => session.updateAllStickyMessages(),
+    prepareForRestart: async () => {
+      // Reuse shutdown logic to persist sessions before update restart
+      if (isShuttingDown) return;
+      isShuttingDown = true;
+
+      ui.setShuttingDown();
+      session.setShuttingDown();
+      await session.updateAllStickyMessages();
+      await session.killAllSessions();
+      autoUpdateManager?.stop();
+
+      for (const client of platforms.values()) {
+        client.disconnect();
+      }
+    },
   });
 
   // Connect auto-update manager to session manager for !update commands
@@ -531,7 +549,6 @@ async function main() {
   // Mark UI as ready
   ui.setReady();
 
-  let isShuttingDown = false;
   const shutdown = async (_signal: string) => {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
