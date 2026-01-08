@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import type { SlackPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
+import { truncateMessageSafely } from '../utils.js';
 
 const log = createLogger('slack');
 
@@ -924,9 +925,12 @@ export class SlackClient extends EventEmitter implements PlatformClient {
     // Thread messages can have previews unless explicitly disabled
     const shouldUnfurl = options?.unfurl ?? (threadId !== undefined);
 
+    // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
+    const truncatedMessage = this.truncateMessageIfNeeded(message);
+
     const body: Record<string, unknown> = {
       channel: this.channelId,
-      text: message,
+      text: truncatedMessage,
       unfurl_links: shouldUnfurl,
       unfurl_media: shouldUnfurl,
     };
@@ -952,10 +956,13 @@ export class SlackClient extends EventEmitter implements PlatformClient {
    * Update an existing post/message.
    */
   async updatePost(postId: string, message: string): Promise<PlatformPost> {
+    // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
+    const truncatedMessage = this.truncateMessageIfNeeded(message);
+
     const response = await this.api<UpdateMessageResponse>('POST', 'chat.update', {
       channel: this.channelId,
       ts: postId,
-      text: message,
+      text: truncatedMessage,
     });
 
     return {
@@ -1084,6 +1091,21 @@ export class SlackClient extends EventEmitter implements PlatformClient {
    */
   getMessageLimits(): { maxLength: number; hardThreshold: number } {
     return { maxLength: 12000, hardThreshold: 10000 };
+  }
+
+  /**
+   * Truncate a message if it exceeds Slack's message length limit.
+   * Adds an ellipsis indicator when truncation occurs.
+   * Properly closes any open code blocks to prevent malformed markdown.
+   * This is a safety net to prevent msg_too_long errors from the API.
+   */
+  private truncateMessageIfNeeded(message: string): string {
+    const { maxLength } = this.getMessageLimits();
+    if (message.length <= maxLength) {
+      return message;
+    }
+    log.warn(`Truncating message from ${message.length} to ~${maxLength} chars`);
+    return truncateMessageSafely(message, maxLength, '_... (truncated)_');
   }
 
   /**
