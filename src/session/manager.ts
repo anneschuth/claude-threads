@@ -35,6 +35,7 @@ import {
 
 // Import extracted modules
 import * as streaming from './streaming.js';
+import * as stickyThread from './sticky-thread.js';
 import * as events from './events.js';
 import * as reactions from './reactions.js';
 import * as commands from './commands.js';
@@ -247,6 +248,7 @@ export class SessionManager extends EventEmitter {
       stopTyping: (s) => this.stopTyping(s),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
       bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      bumpAllStickyPosts: (s) => this.bumpAllStickyPosts(s),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -632,7 +634,11 @@ export class SessionManager extends EventEmitter {
   }
 
   private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
+    return stickyThread.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
+  }
+
+  private async bumpAllStickyPosts(session: Session): Promise<void> {
+    return stickyThread.bumpAllStickyPosts(session, (pid, tid) => this.registerPost(pid, tid));
   }
 
   // ---------------------------------------------------------------------------
