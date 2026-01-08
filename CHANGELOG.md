@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.2] - 2026-01-08
+
+### Fixed
+- **CI knip checks now pass** - Added `--no-config-hints` flag to knip in CI and pre-commit to handle environment differences (dist/ exists locally but not in CI)
+
 ## [0.48.1] - 2026-01-08
 
 ### Fixed
