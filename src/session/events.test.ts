@@ -835,6 +835,314 @@ describe('handleEvent with compaction events', () => {
   });
 });
 
+describe('handleEvent with Claude command detection', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let ctx: SessionContext;
+  let appendedContent: string[];
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createSessionContext();
+    appendedContent = [];
+    ctx.ops.appendContent = mock((_, text: string) => {
+      appendedContent.push(text);
+    });
+  });
+
+  test('detects !cd command in Claude output and removes it from display', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'I need to switch to a different directory.\n\n!cd /path/to/project\n\nNow I can work on this project.',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // The !cd command should be removed from the displayed text
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).not.toContain('!cd');
+    expect(appendedContent[0]).toContain('I need to switch');
+    expect(appendedContent[0]).toContain('Now I can work');
+  });
+
+  test('posts visibility message when Claude executes !cd', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!cd /path/to/project',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have posted a visibility message
+    expect(platform.createPost).toHaveBeenCalled();
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const postContents = calls.map(call => call[0]);
+    expect(postContents.some(content => content.includes('Claude executed'))).toBe(true);
+    expect(postContents.some(content => content.includes('!cd'))).toBe(true);
+  });
+
+  test('does not trigger on !cd in code blocks or inline code', () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'You can use the command `!cd /path` to change directories.',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // The text should remain unchanged (inline code with !cd should not trigger)
+    // Note: Our regex only matches !cd at start of line, so this won't match
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!cd /path');
+  });
+
+  test('handles !cd with tilde path expansion', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!cd ~/projects/myapp',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should have attempted to change directory
+    expect(platform.createPost).toHaveBeenCalled();
+  });
+
+  test('does not match other ! commands like !invite', () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: 'You should use !invite @user to add them to the session.',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Should not trigger any command execution
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!invite');
+  });
+
+  test('does not execute !invite at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!invite @bob',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // Should NOT have posted a visibility message (only !cd is allowed)
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    // The text should remain unchanged
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!invite @bob');
+  });
+
+  test('does not execute !kick at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!kick @alice',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!kick @alice');
+  });
+
+  test('does not execute !permissions at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!permissions skip',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!permissions skip');
+  });
+
+  test('does not execute !stop at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!stop',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!stop');
+  });
+
+  test('does not execute !escape at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!escape',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!escape');
+  });
+
+  test('does not execute !update at start of line', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!update now',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
+    const hasClaudeExecuted = calls.some(call => call[0].includes('Claude executed'));
+    expect(hasClaudeExecuted).toBe(false);
+
+    expect(appendedContent).toHaveLength(1);
+    expect(appendedContent[0]).toContain('!update now');
+  });
+
+  test('handles !cd at the start of text without other content', async () => {
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'text',
+            text: '!cd /some/path',
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    // The text should be removed entirely (empty after command extraction)
+    // So nothing gets appended, or an empty string
+    // Since we filter empty text, appendedContent might be empty
+    expect(appendedContent.length === 0 || appendedContent[0] === '').toBe(true);
+  });
+});
+
 describe('handleEvent with assistant messages containing tool_use and text', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;

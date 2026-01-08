@@ -8,7 +8,7 @@
 import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
-import { formatToolUse as sharedFormatToolUse } from '../utils/tool-formatter.js';
+import { formatToolUse as sharedFormatToolUse, shortenPath } from '../utils/tool-formatter.js';
 import {
   NUMBER_EMOJIS,
   APPROVAL_EMOJIS,
@@ -24,6 +24,8 @@ import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
+import { changeDirectory } from './commands.js';
+import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
 
 const log = createLogger('events');
 
@@ -124,6 +126,71 @@ const DESCRIPTION_CONFIG: MetadataConfig = {
   maxLength: 100,
   placeholder: '<brief description>',
 };
+
+// ---------------------------------------------------------------------------
+// Claude command detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect and execute commands from Claude's assistant output.
+ * Uses the shared command parser with Claude's allowlist.
+ * Returns the text with the command removed (if executed), or original text.
+ */
+function detectAndExecuteClaudeCommands(
+  text: string,
+  session: Session,
+  ctx: SessionContext
+): string {
+  const parsed = parseClaudeCommand(text);
+
+  if (parsed && isClaudeAllowedCommand(parsed.command)) {
+    sessionLog(session).info(`🤖 Claude executing !${parsed.command} ${parsed.args || ''}`);
+
+    // Execute the command asynchronously
+    executeClaudeCommand(session, parsed.command, parsed.args || '', ctx);
+
+    // Remove the command from the displayed text
+    return removeCommandFromText(text, parsed);
+  }
+
+  return text;
+}
+
+/**
+ * Execute a command on behalf of Claude.
+ * Posts a visibility message and runs the command.
+ *
+ * Only commands in CLAUDE_ALLOWED_COMMANDS can be executed.
+ */
+async function executeClaudeCommand(
+  session: Session,
+  command: string,
+  args: string,
+  ctx: SessionContext
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+
+  // Post visibility message so users can see what Claude is doing
+  const worktreeContext = session.worktreeInfo
+    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
+    : undefined;
+  const shortArgs = args ? shortenPath(args, undefined, worktreeContext) : '';
+  const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command}${shortArgs ? ' ' + shortArgs : ''}`)}`;
+
+  await withErrorHandling(
+    () => session.platform.createPost(visibilityMessage, session.threadId),
+    { action: 'Post Claude command visibility', session }
+  );
+
+  // Execute the command based on type
+  switch (command) {
+    case 'cd':
+      // Use session owner's permissions
+      await changeDirectory(session, args, session.startedBy, ctx);
+      break;
+    // Future commands can be added here
+  }
+}
 
 /**
  * Extract and update pull request URL from text.
@@ -291,6 +358,10 @@ function formatEvent(
 
           // Detect and store pull request URLs
           extractAndUpdatePullRequest(text, session, ctx);
+
+          // Detect and execute Claude commands (e.g., !cd)
+          // This allows Claude to change directories when needed
+          text = detectAndExecuteClaudeCommands(text, session, ctx);
 
           if (text) parts.push(text);
         } else if (block.type === 'tool_use' && block.name) {
