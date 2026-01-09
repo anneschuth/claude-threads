@@ -2,7 +2,7 @@
  * Main App component - root of the Ink UI
  */
 import React from 'react';
-import { Box, Static, Text, useStdout } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
@@ -167,33 +167,19 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     updateModalVisible: toggles.updateModalVisible,
     logsFocused: toggles.logsFocused,
   });
-
-
-  // Static content - re-created on resize to fix artifacts
-  // Note: Platforms is NOT static because it needs to update on connect/disconnect
-  const staticContent = React.useMemo(() => [
-    { id: `header-${resizeCount}`, element: <Header version={config.version} /> },
-    { id: `config-${resizeCount}`, element: <ConfigSummary config={config} /> },
-  ], [config, resizeCount]);
-
   // Get global logs (not associated with a session)
   const globalLogs = getGlobalLogs();
   const hasLogs = globalLogs.length > 0;
   const hasSessions = state.sessions.size > 0;
 
-  // Calculate height for main area (terminal height minus header lines and status line)
-  // Header is about 5 lines, StatusLine is 2 lines
-  const mainAreaHeight = Math.max(10, terminalRows - 7);
-
   return (
-    <Box flexDirection="column">
-      {/* Static header - renders once, never re-renders */}
-      <Static items={staticContent}>
-        {(item) => <Box key={item.id}>{item.element}</Box>}
-      </Static>
+    <Box flexDirection="column" height={terminalRows}>
+      {/* Fixed header at top */}
+      <Header version={config.version} />
+      <ConfigSummary config={config} />
 
-      {/* Main content area with fixed height to push StatusLine to bottom */}
-      <Box flexDirection="column" height={mainAreaHeight}>
+      {/* Main content area - fills available space */}
+      <Box flexDirection="column" flexGrow={1}>
         {/* Platforms section */}
         <Box marginTop={1}>
           <Text dimColor>{'─'.repeat(50)}</Text>
