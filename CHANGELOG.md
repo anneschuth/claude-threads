@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.14] - 2026-01-09
+
+### Fixed
+- **Clean screen before update restart** - Screen now clears and cursor is restored before the daemon restarts, so the new UI appears cleanly at the top instead of below the old UI remnants (#144)
+
 ## [0.48.13] - 2026-01-09
 
 ### Fixed
