@@ -81,15 +81,19 @@ export function PanelGroup({ availableHeight, panels }: PanelGroupProps) {
 
   return (
     <Box flexDirection="column" height={availableHeight} overflow="hidden">
-      {panels.map((panel) => (
-        <Box
-          key={panel.id}
-          height={heights.get(panel.id) ?? panel.minHeight}
-          overflow="hidden"
-        >
-          {panel.content}
-        </Box>
-      ))}
+      {panels.map((panel) => {
+        const panelHeight = heights.get(panel.id) ?? panel.minHeight;
+        return (
+          <Box
+            key={panel.id}
+            flexDirection="column"
+            height={panelHeight}
+            overflow="hidden"
+          >
+            {panel.content}
+          </Box>
+        );
+      })}
     </Box>
   );
 }

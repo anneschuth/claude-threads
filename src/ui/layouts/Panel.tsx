@@ -12,10 +12,8 @@ interface PanelProps {
   title?: string;
   /** Optional count to display as "Title (count)" */
   count?: number;
-  /** Fixed height for the panel */
+  /** Fixed height for the panel (optional - defaults to filling parent) */
   height?: number;
-  /** Minimum height if not fixed (default: 1) */
-  minHeight?: number;
   /** Whether this panel is focused (highlights title) */
   focused?: boolean;
   /** Panel content */
@@ -32,16 +30,14 @@ export function Panel({
   title,
   count,
   height,
-  minHeight = 1,
   focused,
   children,
 }: PanelProps) {
-  const actualHeight = height ?? minHeight;
-
+  // Panel fills its parent's space - don't constrain height unless explicitly set
   return (
-    <Box flexDirection="column" height={actualHeight} overflow="hidden">
+    <Box flexDirection="column" height={height} flexGrow={1} overflow="hidden">
       {title && (
-        <Box>
+        <Box flexShrink={0}>
           <Text dimColor bold={focused} color={focused ? 'cyan' : undefined}>
             {title}
           </Text>
