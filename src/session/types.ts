@@ -104,6 +104,14 @@ export interface PendingWorktreeFailurePrompt {
 }
 
 /**
+ * Pending worktree prompt with branch suggestions
+ */
+export interface PendingWorktreeSuggestions {
+  postId: string;
+  suggestions: string[];  // Array of suggested branch names (0-3)
+}
+
+/**
  * Pending update prompt asking user to update now or defer
  */
 export interface PendingUpdatePrompt {
@@ -204,6 +212,7 @@ export interface Session {
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
   pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt; // Waiting for user to confirm joining existing worktree
   pendingWorktreeFailurePrompt?: PendingWorktreeFailurePrompt;  // Waiting for user to decide after worktree creation failed
+  pendingWorktreeSuggestions?: PendingWorktreeSuggestions; // Branch suggestions for worktree prompt
 
   // Thread context prompt support
   pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
