@@ -2,8 +2,16 @@
  * Main App component - root of the Ink UI
  */
 import React from 'react';
-import { Box, Static, Text } from 'ink';
+import { Box, Text, useStdout } from 'ink';
 import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
+
+// Memoized separator to prevent flickering
+const SEPARATOR = '─'.repeat(50);
+const Separator = React.memo(() => (
+  <Box marginTop={1}>
+    <Text dimColor>{SEPARATOR}</Text>
+  </Box>
+));
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState } from './types.js';
@@ -44,8 +52,13 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     getGlobalLogs,
   } = useAppState(config);
 
-  // Resize counter to force re-render on terminal resize
+  // Resize counter to force re-render on terminal resize (value used indirectly)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [resizeCount, setResizeCount] = React.useState(0);
+
+  // Get terminal dimensions for pinning StatusLine to bottom
+  const { stdout } = useStdout();
+  const terminalRows = stdout?.rows ?? 24;
 
   // Runtime toggle state - initialized from config
   const [toggles, setToggles] = React.useState<ToggleState>({
@@ -54,6 +67,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     chromeEnabled: config.chromeEnabled,
     keepAliveEnabled: config.keepAliveEnabled,
     updateModalVisible: false,
+    logsFocused: false,
   });
 
   // Update panel state - tracks auto-update status
@@ -100,6 +114,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   // Update modal toggle handler
   const handleUpdateModalToggle = React.useCallback(() => {
     setToggles(prev => ({ ...prev, updateModalVisible: !prev.updateModalVisible }));
+  }, []);
+
+  // Logs focus toggle handler
+  const handleLogsFocusToggle = React.useCallback(() => {
+    setToggles(prev => ({ ...prev, logsFocused: !prev.logsFocused }));
   }, []);
 
   // Platform toggle handler - toggles enabled state and calls callback
@@ -152,64 +171,81 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     onChromeToggle: handleChromeToggle,
     onKeepAliveToggle: handleKeepAliveToggle,
     onUpdateModalToggle: handleUpdateModalToggle,
+    onLogsFocusToggle: handleLogsFocusToggle,
     onForceUpdate: toggleCallbacks?.onForceUpdate,
     updateModalVisible: toggles.updateModalVisible,
+    logsFocused: toggles.logsFocused,
   });
-
-
-  // Static content - re-created on resize to fix artifacts
-  // Note: Platforms is NOT static because it needs to update on connect/disconnect
-  const staticContent = React.useMemo(() => [
-    { id: `header-${resizeCount}`, element: <Header version={config.version} /> },
-    { id: `config-${resizeCount}`, element: <ConfigSummary config={config} /> },
-  ], [config, resizeCount]);
-
   // Get global logs (not associated with a session)
   const globalLogs = getGlobalLogs();
   const hasLogs = globalLogs.length > 0;
   const hasSessions = state.sessions.size > 0;
 
-  return (
-    <Box flexDirection="column">
-      {/* Static header - renders once, never re-renders */}
-      <Static items={staticContent}>
-        {(item) => <Box key={item.id}>{item.element}</Box>}
-      </Static>
+  // Calculate fixed heights for stable layout (prevents flickering)
+  // Header: 5 (bordered box), Config: 4, Separator+Platforms: 3 + count,
+  // Separator+Logs header: 3, Separator+Threads: 3 + count, StatusLine: 3
+  const platformCount = Math.max(1, state.platforms.size);
+  const sessionCount = Math.max(1, state.sessions.size);
+  const fixedOverhead = 5 + 4 + 3 + platformCount + 3 + 3 + sessionCount + 3;
+  const logHeight = Math.max(3, terminalRows - fixedOverhead);
 
-      {/* Platforms - dynamic, updates on connect/disconnect */}
+  return (
+    <Box flexDirection="column" height={terminalRows}>
+      {/* Fixed header at top */}
+      <Header version={config.version} />
+      <ConfigSummary config={config} />
+
+      {/* Platforms section */}
+      <Separator />
+      <Box>
+        <Text dimColor bold>Platforms</Text>
+        <Text dimColor> ({state.platforms.size})</Text>
+      </Box>
       <Platforms platforms={state.platforms} />
 
-      {/* Global logs (system messages, keep-alive, etc.) */}
-      {hasLogs && (
-        <>
-          <Box marginTop={1}>
-            <Text dimColor>{'─'.repeat(50)}</Text>
-          </Box>
-          <LogPanel logs={globalLogs} maxLines={10} />
-        </>
+      {/* Global logs section - fixed height to prevent flickering */}
+      <Separator />
+      <Box>
+        <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
+          Logs
+        </Text>
+        <Text dimColor> ({globalLogs.length})</Text>
+        {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
+      </Box>
+      {hasLogs ? (
+        <LogPanel logs={globalLogs} maxLines={logHeight} focused={toggles.logsFocused} />
+      ) : (
+        <Text dimColor italic>  No logs yet</Text>
       )}
 
       {/* Sessions section */}
-      {hasSessions && (
-        <>
-          <Box marginTop={1}>
-            <Text dimColor>{'─'.repeat(50)}</Text>
-          </Box>
-          <Box marginTop={0}>
-            <Text dimColor>Sessions ({state.sessions.size})</Text>
-          </Box>
-          {Array.from(state.sessions.entries()).map(([id, session], index) => (
-            <CollapsibleSession
-              key={id}
-              session={session}
-              logs={getLogsForSession(id)}
-              expanded={state.expandedSessions.has(id)}
-              sessionNumber={index + 1}
-            />
-          ))}
-        </>
+      <Separator />
+      <Box>
+        <Text dimColor bold>Threads</Text>
+        <Text dimColor> ({state.sessions.size})</Text>
+      </Box>
+      {hasSessions ? (
+        Array.from(state.sessions.entries()).map(([id, session], index) => (
+          <CollapsibleSession
+            key={id}
+            session={session}
+            logs={getLogsForSession(id)}
+            expanded={state.expandedSessions.has(id)}
+            sessionNumber={index + 1}
+          />
+        ))
+      ) : (
+        <Text dimColor italic>  No active threads</Text>
       )}
 
+      {/* Update modal overlay */}
+      {toggles.updateModalVisible && (
+        <Box marginTop={1} justifyContent="center">
+          <UpdateModal state={updateState} />
+        </Box>
+      )}
+
+      {/* StatusLine pinned to bottom */}
       <StatusLine
         ready={state.ready}
         shuttingDown={state.shuttingDown}
@@ -218,13 +254,6 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         platforms={state.platforms}
         updateState={updateState}
       />
-
-      {/* Update modal overlay */}
-      {toggles.updateModalVisible && (
-        <Box marginTop={1} justifyContent="center">
-          <UpdateModal state={updateState} />
-        </Box>
-      )}
     </Box>
   );
 }

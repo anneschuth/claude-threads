@@ -29,9 +29,11 @@ interface UseKeyboardOptions {
   onChromeToggle?: () => void;
   onKeepAliveToggle?: () => void;
   onUpdateModalToggle?: () => void;
+  onLogsFocusToggle?: () => void;
   onForceUpdate?: () => void;
-  // Modal state (for Escape key handling)
+  // Modal/focus state (for Escape key handling)
   updateModalVisible?: boolean;
+  logsFocused?: boolean;
 }
 
 export function useKeyboard({
@@ -45,14 +47,22 @@ export function useKeyboard({
   onChromeToggle,
   onKeepAliveToggle,
   onUpdateModalToggle,
+  onLogsFocusToggle,
   onForceUpdate,
   updateModalVisible,
+  logsFocused,
 }: UseKeyboardOptions) {
   useInput((input, key) => {
-    // Escape key to close modal
-    if (key.escape && updateModalVisible) {
-      onUpdateModalToggle?.();
-      return;
+    // Escape key to close modal or unfocus logs
+    if (key.escape) {
+      if (updateModalVisible) {
+        onUpdateModalToggle?.();
+        return;
+      }
+      if (logsFocused) {
+        onLogsFocusToggle?.();
+        return;
+      }
     }
     // Ctrl+C to quit - handle explicitly since Ink captures it in raw mode
     // Ctrl+C can appear as '\x03' (raw) or 'c' with key.ctrl
@@ -88,7 +98,7 @@ export function useKeyboard({
       }
     }
 
-    // Runtime toggles - d, p, c, k, u
+    // Runtime toggles - d, p, c, k, u, l
     switch (input.toLowerCase()) {
       case 'd':
         onDebugToggle?.();
@@ -104,6 +114,9 @@ export function useKeyboard({
         break;
       case 'u':
         onUpdateModalToggle?.();
+        break;
+      case 'l':
+        onLogsFocusToggle?.();
         break;
       case 'q':
         onQuit?.();
