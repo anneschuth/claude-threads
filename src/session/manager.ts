@@ -24,6 +24,7 @@ import {
   isEscapeEmoji,
   isResumeEmoji,
   isTaskToggleEmoji,
+  getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
 import {
@@ -458,6 +459,21 @@ export class SessionManager extends EventEmitter {
         (s, q) => this.offerContextPrompt(s, q)
       );
       return;
+    }
+
+    // Handle number emoji on worktree prompt (branch suggestion selection)
+    if (action === 'added' && session.pendingWorktreeSuggestions?.postId === postId) {
+      const emojiIndex = getNumberEmojiIndex(emojiName);
+      if (emojiIndex >= 0) {
+        const handled = await worktreeModule.handleBranchSuggestionReaction(
+          session,
+          postId,
+          emojiIndex,
+          username,
+          (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
+        );
+        if (handled) return;
+      }
     }
 
     // Handle existing worktree join prompt reactions (only on add)

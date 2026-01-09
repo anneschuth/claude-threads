@@ -7,6 +7,7 @@
 import type { Session } from './types.js';
 import type { WorktreeMode } from '../config.js';
 import type { PlatformFile } from '../platform/index.js';
+import { suggestBranchNames } from './branch-suggest.js';
 import {
   isGitRepository,
   getRepositoryRoot,
@@ -142,8 +143,12 @@ export async function shouldPromptForWorktree(
   return null;
 }
 
+/** Number emoji names for branch suggestions */
+const BRANCH_SUGGESTION_EMOJIS = ['one', 'two', 'three'] as const;
+
 /**
  * Post the worktree prompt message to the user.
+ * Fetches branch name suggestions from Claude (Haiku) and displays them.
  */
 export async function postWorktreePrompt(
   session: Session,
@@ -151,28 +156,58 @@ export async function postWorktreePrompt(
   registerPost: (postId: string, threadId: string) => void
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
+
+  // Fetch branch suggestions if we have the user's message
+  let suggestions: string[] = [];
+  if (session.queuedPrompt) {
+    suggestions = await suggestBranchNames(session.workingDir, session.queuedPrompt);
+    sessionLog(session).debug(`🌿 Got ${suggestions.length} branch suggestions`);
+  }
+
+  // Build the prompt message
   let message: string;
   switch (reason) {
     case 'uncommitted':
-      message = `🌿 ${formatter.formatBold('This repo has uncommitted changes.')}\n` +
-        `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue in the main repo.`;
+      message = `🌿 ${formatter.formatBold('This repo has uncommitted changes.')}`;
       break;
     case 'concurrent':
-      message = `⚠️ ${formatter.formatBold('Another session is already using this repo.')}\n` +
-        `Reply with a branch name to work in an isolated worktree, or react with ❌ to continue anyway.`;
+      message = `⚠️ ${formatter.formatBold('Another session is already using this repo.')}`;
       break;
     case 'require':
-      message = `🌿 ${formatter.formatBold('This deployment requires working in a worktree.')}\n` +
-        `Please reply with a branch name to continue.`;
+      message = `🌿 ${formatter.formatBold('This deployment requires working in a worktree.')}`;
       break;
     default:
-      message = `🌿 ${formatter.formatBold('Would you like to work in an isolated worktree?')}\n` +
-        `Reply with a branch name, or react with ❌ to continue in the main repo.`;
+      message = `🌿 ${formatter.formatBold('Would you like to work in an isolated worktree?')}`;
   }
 
-  // Create post with ❌ reaction option (except for 'require' mode)
-  // Use 'x' emoji name, not Unicode ❌ character
-  const reactionOptions = reason === 'require' ? [] : ['x'];
+  // Add suggestions if available
+  if (suggestions.length > 0) {
+    message += `\n\n${formatter.formatBold('Suggested branches:')}\n`;
+    const numberEmojis = ['1️⃣', '2️⃣', '3️⃣'];
+    suggestions.forEach((branch, i) => {
+      message += `${numberEmojis[i]} ${formatter.formatCode(branch)}\n`;
+    });
+    message += `\nReact with a number to select, type your own name`;
+  } else {
+    message += `\n\nReply with a branch name`;
+  }
+
+  // Add skip option (except for 'require' mode)
+  if (reason === 'require') {
+    message += ` to continue.`;
+  } else {
+    message += `, or react with ❌ to skip.`;
+  }
+
+  // Build reaction options: number emojis for suggestions + ❌ to skip
+  const reactionOptions: string[] = [];
+  for (let i = 0; i < suggestions.length; i++) {
+    reactionOptions.push(BRANCH_SUGGESTION_EMOJIS[i]);
+  }
+  if (reason !== 'require') {
+    reactionOptions.push('x');
+  }
+
   const post = await session.platform.createInteractivePost(
     message,
     reactionOptions,
@@ -182,8 +217,55 @@ export async function postWorktreePrompt(
   // Track the post for reaction handling
   session.worktreePromptPostId = post.id;
   registerPost(post.id, session.threadId);
+
+  // Store suggestions for reaction handling
+  if (suggestions.length > 0) {
+    session.pendingWorktreeSuggestions = {
+      postId: post.id,
+      suggestions,
+    };
+  }
+
   // Track for jump-to-bottom links
   updateLastMessage(session, post);
+}
+
+/**
+ * Handle a number emoji reaction on the worktree prompt (selecting a suggested branch).
+ * Returns true if the reaction was handled, false otherwise.
+ */
+export async function handleBranchSuggestionReaction(
+  session: Session,
+  postId: string,
+  emojiIndex: number,
+  username: string,
+  createAndSwitch: (threadId: string, branch: string, username: string) => Promise<void>
+): Promise<boolean> {
+  const pending = session.pendingWorktreeSuggestions;
+  if (!pending || pending.postId !== postId) {
+    return false;
+  }
+
+  // Only session owner or allowed users can select
+  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
+    return false;
+  }
+
+  // Check if the index is valid
+  if (emojiIndex < 0 || emojiIndex >= pending.suggestions.length) {
+    return false;
+  }
+
+  const selectedBranch = pending.suggestions[emojiIndex];
+  sessionLog(session).info(`🌿 @${username} selected branch suggestion: ${selectedBranch}`);
+
+  // Clear the suggestions state
+  session.pendingWorktreeSuggestions = undefined;
+
+  // Create and switch to the selected branch
+  await createAndSwitch(session.threadId, selectedBranch, username);
+
+  return true;
 }
 
 /**
@@ -222,6 +304,9 @@ export async function handleWorktreeBranchResponse(
 
   // Store the response post ID so we can exclude it from context prompt
   session.worktreeResponsePostId = responsePostId;
+
+  // Clear suggestions since user typed a custom branch name
+  session.pendingWorktreeSuggestions = undefined;
 
   // Create and switch to worktree
   await createAndSwitch(session.threadId, branchName, username);
@@ -273,6 +358,7 @@ export async function handleWorktreeSkip(
   session.pendingWorktreePrompt = false;
   session.worktreePromptPostId = undefined;
   session.pendingWorktreeFailurePrompt = undefined;
+  session.pendingWorktreeSuggestions = undefined;
   const queuedPrompt = session.queuedPrompt;
   const queuedFiles = session.queuedFiles;
   session.queuedPrompt = undefined;
