@@ -23,9 +23,9 @@
 export function getPlatformIcon(platformType: string): string {
   switch (platformType) {
     case 'slack':
-      return '💬';
+      return '🆂';
     case 'mattermost':
-      return '📢';
+      return '𝓜';
     default:
       return '💬';
   }

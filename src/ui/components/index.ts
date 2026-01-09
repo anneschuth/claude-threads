@@ -11,3 +11,5 @@ export { Spinner } from './Spinner.js';
 export { LogPanel } from './LogPanel.js';
 export { OverlayModal } from './OverlayModal.js';
 export { UpdateModal } from './UpdateModal.js';
+export { TabBar } from './TabBar.js';
+export { SessionContent } from './SessionContent.js';

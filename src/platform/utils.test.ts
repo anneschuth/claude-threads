@@ -22,12 +22,12 @@ import {
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
-  it('returns 💬 for slack', () => {
-    expect(getPlatformIcon('slack')).toBe('💬');
+  it('returns 🆂 for slack', () => {
+    expect(getPlatformIcon('slack')).toBe('🆂');
   });
 
-  it('returns 📢 for mattermost', () => {
-    expect(getPlatformIcon('mattermost')).toBe('📢');
+  it('returns 𝓜 for mattermost', () => {
+    expect(getPlatformIcon('mattermost')).toBe('𝓜');
   });
 
   it('returns 💬 as default for unknown platforms', () => {

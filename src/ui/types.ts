@@ -94,7 +94,7 @@ export interface AppState {
   platforms: Map<string, PlatformStatus>;
   sessions: Map<string, SessionInfo>;
   logs: LogEntry[];
-  expandedSessions: Set<string>;
+  selectedSessionId: string | null;  // Currently selected session tab
   ready: boolean;
   shuttingDown: boolean;
 }

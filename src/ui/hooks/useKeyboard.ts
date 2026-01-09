@@ -20,7 +20,7 @@ const SHIFT_NUMBER_MAP: Record<string, number> = {
 interface UseKeyboardOptions {
   sessionIds: string[];
   platformIds: string[];
-  onToggle: (sessionId: string) => void;
+  onSelect: (sessionId: string) => void;  // Select a session tab (1-9)
   onPlatformToggle?: (platformId: string) => void;
   onQuit?: () => void;
   // Runtime toggle handlers
@@ -39,7 +39,7 @@ interface UseKeyboardOptions {
 export function useKeyboard({
   sessionIds,
   platformIds,
-  onToggle,
+  onSelect,
   onPlatformToggle,
   onQuit,
   onDebugToggle,
@@ -89,12 +89,12 @@ export function useKeyboard({
       return;
     }
 
-    // Number keys 1-9 to toggle sessions
+    // Number keys 1-9 to select session tabs
     const num = parseInt(input, 10);
     if (num >= 1 && num <= 9) {
       const sessionId = sessionIds[num - 1];
       if (sessionId) {
-        onToggle(sessionId);
+        onSelect(sessionId);
       }
     }
 

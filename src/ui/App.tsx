@@ -1,11 +1,29 @@
 /**
  * Main App component - root of the Ink UI
+ *
+ * Layout:
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │ HEADER (logo, version, working dir)                             │
+ * ├─────────────────────────────┬───────────────────────────────────┤
+ * │ Platforms                   │ Logs                              │
+ * │ 1. 𝓜 ● @bot on Main         │ [lifecycle] Session started       │
+ * │ 2. 🆂 ● @slack on Work       │ [error] Connection timeout        │
+ * ├─────────────────────────────┴───────────────────────────────────┤
+ * │ [1 ● Fix auth] [2 ● Feature] [3 ○ Review]     ← tab bar         │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │ Fix authentication bug                        ← session content │
+ * │ @alice · 2m · fix-auth                                          │
+ * │ ─────────────────────────────────────────────────────────────── │
+ * │ [Session] ▶ Starting Claude...                                  │
+ * │ [Claude]  I'll help fix the authentication bug...               │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │ ✓ Ready | [d]ebug [p]erms [1-3] tabs | [q]uit      ← footer     │
+ * └─────────────────────────────────────────────────────────────────┘
  */
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
-import { Header, Platforms, CollapsibleSession, LogPanel } from './components/index.js';
-import { RootLayout, Panel, PanelGroup } from './layouts/index.js';
-import type { PanelConfig } from './layouts/index.js';
+import { Header, Platforms, LogPanel, TabBar, SessionContent } from './components/index.js';
+import { RootLayout, Panel, SplitPanel } from './layouts/index.js';
 import { Footer } from './components/Footer.js';
 import { OverlayModal } from './components/OverlayModal.js';
 import { useAppState } from './hooks/useAppState.js';
@@ -41,7 +59,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     updateSession,
     removeSession,
     addLog,
-    toggleSession,
+    selectSession,
     setPlatformStatus,
     togglePlatformEnabled,
     getLogsForSession,
@@ -191,7 +209,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   useKeyboard({
     sessionIds,
     platformIds,
-    onToggle: toggleSession,
+    onSelect: selectSession,
     onPlatformToggle: handlePlatformToggle,
     onQuit,
     onDebugToggle: handleDebugToggle,
@@ -207,14 +225,26 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
 
   // Get global logs (not associated with a session)
   const globalLogs = getGlobalLogs();
-  const hasSessions = state.sessions.size > 0;
 
-  // Calculate middle height for PanelGroup (matches RootLayout calculation)
+  // Get sessions as array for TabBar
+  const sessionsArray = Array.from(state.sessions.values());
+
+  // Get selected session and its logs
+  const selectedSession = state.selectedSessionId
+    ? state.sessions.get(state.selectedSessionId)
+    : null;
+  const selectedSessionLogs = state.selectedSessionId
+    ? getLogsForSession(state.selectedSessionId)
+    : [];
+
+  // Calculate heights for the layout
   const headerHeight = 5; // Logo (3 lines + border)
   const footerHeight = 2; // Separator + status row
-  const middleHeight = Math.max(5, terminalRows - headerHeight - footerHeight);
+  const tabBarHeight = 2; // Tab bar + separator
+  const topHalfHeight = Math.floor((terminalRows - headerHeight - footerHeight - tabBarHeight) * 0.4);
+  const bottomHalfHeight = terminalRows - headerHeight - footerHeight - tabBarHeight - topHalfHeight;
 
-  // Build the header content (logo + config merged into Header)
+  // Build the header content
   const headerContent = (
     <Header
       version={config.version}
@@ -235,79 +265,26 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     />
   );
 
-  // Build panel configurations for the middle content
-  // Space distribution: platforms (fixed), logs (grows to fill), sessions (fixed based on content)
-  const platformCount = Math.max(1, state.platforms.size);
-  const numSessions = state.sessions.size;
+  // Left panel: Platforms
+  const platformsPanel = (
+    <Panel title="Platforms" count={state.platforms.size}>
+      <Platforms platforms={state.platforms} />
+    </Panel>
+  );
 
-  // Calculate session panel height based on expanded state
-  // Each collapsed session = 1 line, expanded = ~4 lines (header + description + 2 log lines)
-  const expandedCount = state.expandedSessions.size;
-  const collapsedCount = numSessions - expandedCount;
-  const sessionPanelHeight = 2 + collapsedCount + (expandedCount * 4); // Title + separator + sessions
-
-  const panels: PanelConfig[] = [
-    {
-      id: 'platforms',
-      minHeight: 2 + platformCount, // Separator + title + platforms
-      maxHeight: 2 + platformCount, // Fixed size
-      priority: 1,
-      content: (
-        <Box flexDirection="column">
-          <Text dimColor>{'─'.repeat(50)}</Text>
-          <Panel title="Platforms" count={state.platforms.size}>
-            <Platforms platforms={state.platforms} />
-          </Panel>
-        </Box>
-      ),
-    },
-    {
-      id: 'logs',
-      minHeight: 5, // Separator + title + at least 3 log lines
-      priority: 3, // Highest - logs gets remaining space (grows to fill)
-      content: (
-        <Box flexDirection="column" flexGrow={1}>
-          <Text dimColor>{'─'.repeat(50)}</Text>
-          <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
-            {toggles.logsFocused && (
-              <Text dimColor> - up/down scroll, g/G top/bottom, [l] unfocus</Text>
-            )}
-            {globalLogs.length > 0 ? (
-              <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
-            ) : (
-              <Text dimColor italic>  No logs yet</Text>
-            )}
-          </Panel>
-        </Box>
-      ),
-    },
-    {
-      id: 'sessions',
-      minHeight: Math.max(3, sessionPanelHeight), // Separator + title + sessions
-      maxHeight: Math.max(10, sessionPanelHeight), // Cap to prevent taking all space
-      priority: 2,
-      content: (
-        <Box flexDirection="column">
-          <Text dimColor>{'─'.repeat(50)}</Text>
-          <Panel title="Threads" count={numSessions}>
-            {hasSessions ? (
-              Array.from(state.sessions.entries()).map(([id, session], index) => (
-                <CollapsibleSession
-                  key={id}
-                  session={session}
-                  logs={getLogsForSession(id)}
-                  expanded={state.expandedSessions.has(id)}
-                  sessionNumber={index + 1}
-                />
-              ))
-            ) : (
-              <Text dimColor italic>  No active threads</Text>
-            )}
-          </Panel>
-        </Box>
-      ),
-    },
-  ];
+  // Right panel: Logs
+  const logsPanel = (
+    <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
+      {toggles.logsFocused && (
+        <Text dimColor> - up/down scroll, g/G top/bottom, [l] unfocus</Text>
+      )}
+      {globalLogs.length > 0 ? (
+        <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
+      ) : (
+        <Text dimColor italic>  No logs yet</Text>
+      )}
+    </Panel>
+  );
 
   return (
     <RootLayout
@@ -315,7 +292,46 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       footer={footerContent}
       modal={activeModal}
     >
-      <PanelGroup availableHeight={middleHeight} panels={panels} />
+      {/* Main content area */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {/* Top half: Platforms | Logs (side by side) */}
+        <Box height={topHalfHeight} overflow="hidden">
+          <Text dimColor>{'─'.repeat(80)}</Text>
+        </Box>
+        <SplitPanel
+          left={platformsPanel}
+          right={logsPanel}
+          leftWidth={30}
+          height={topHalfHeight}
+        />
+
+        {/* Tab bar for sessions */}
+        <Box flexDirection="column" overflow="hidden">
+          <Text dimColor>{'─'.repeat(80)}</Text>
+          <TabBar
+            sessions={sessionsArray}
+            selectedId={state.selectedSessionId}
+            onSelect={selectSession}
+          />
+        </Box>
+
+        {/* Bottom half: Selected session content */}
+        <Box flexDirection="column" overflow="hidden">
+          <Text dimColor>{'─'.repeat(80)}</Text>
+          {selectedSession ? (
+            <SessionContent
+              session={selectedSession}
+              logs={selectedSessionLogs}
+              height={bottomHalfHeight}
+            />
+          ) : (
+            <Box flexDirection="column" alignItems="center" paddingTop={1}>
+              <Text dimColor>No session selected</Text>
+              <Text dimColor italic>@mention the bot to start a session</Text>
+            </Box>
+          )}
+        </Box>
+      </Box>
     </RootLayout>
   );
 }
