@@ -46,8 +46,9 @@ async function getRecentCommits(workingDir: string, count: number = 5): Promise<
 
 /**
  * Build the prompt for branch name suggestions.
+ * Exported for testing.
  */
-function buildSuggestionPrompt(
+export function buildSuggestionPrompt(
   userMessage: string,
   currentBranch: string | null,
   recentCommits: string[]

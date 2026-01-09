@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { parseBranchSuggestions } from './branch-suggest.js';
+import { parseBranchSuggestions, buildSuggestionPrompt } from './branch-suggest.js';
 
 describe('parseBranchSuggestions', () => {
   test('parses simple branch names', () => {
@@ -113,5 +113,71 @@ describe('parseBranchSuggestions', () => {
     expect(suggestions).toContain('feature/ABC-123-add-feature');
     expect(suggestions).toContain('bugfix/fix_underscore');
     expect(suggestions).toContain('release/v1.0.0');
+  });
+});
+
+describe('buildSuggestionPrompt', () => {
+  test('builds prompt with all context', () => {
+    const prompt = buildSuggestionPrompt(
+      'add dark mode toggle',
+      'main',
+      ['abc123 Initial commit', 'def456 Add feature']
+    );
+
+    expect(prompt).toContain('add dark mode toggle');
+    expect(prompt).toContain('Current branch: main');
+    expect(prompt).toContain('abc123 Initial commit');
+    expect(prompt).toContain('def456 Add feature');
+    expect(prompt).toContain('feat/');
+    expect(prompt).toContain('fix/');
+  });
+
+  test('builds prompt without current branch', () => {
+    const prompt = buildSuggestionPrompt(
+      'fix login bug',
+      null,
+      ['abc123 Some commit']
+    );
+
+    expect(prompt).toContain('fix login bug');
+    expect(prompt).not.toContain('Current branch:');
+    expect(prompt).toContain('abc123 Some commit');
+  });
+
+  test('builds prompt without recent commits', () => {
+    const prompt = buildSuggestionPrompt(
+      'add new feature',
+      'develop',
+      []
+    );
+
+    expect(prompt).toContain('add new feature');
+    expect(prompt).toContain('Current branch: develop');
+    expect(prompt).not.toContain('Recent commits:');
+  });
+
+  test('builds prompt with minimal context', () => {
+    const prompt = buildSuggestionPrompt(
+      'do something',
+      null,
+      []
+    );
+
+    expect(prompt).toContain('do something');
+    expect(prompt).toContain('Output ONLY the 3 branch names');
+    expect(prompt).not.toContain('Current branch:');
+    expect(prompt).not.toContain('Recent commits:');
+  });
+
+  test('includes branching conventions in prompt', () => {
+    const prompt = buildSuggestionPrompt('test', null, []);
+
+    expect(prompt).toContain('feat/');
+    expect(prompt).toContain('fix/');
+    expect(prompt).toContain('chore/');
+    expect(prompt).toContain('docs/');
+    expect(prompt).toContain('refactor/');
+    expect(prompt).toContain('test/');
+    expect(prompt).toContain('kebab-case');
   });
 });
