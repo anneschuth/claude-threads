@@ -15,7 +15,7 @@ const execAsync = promisify(exec);
 const log = createLogger('branch-suggest');
 
 /** Default timeout for branch suggestions (ms) */
-const SUGGESTION_TIMEOUT = 5000;
+const SUGGESTION_TIMEOUT = 15000;
 
 /** Maximum number of suggestions to return */
 const MAX_SUGGESTIONS = 3;
