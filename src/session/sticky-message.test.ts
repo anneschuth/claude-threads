@@ -691,12 +691,12 @@ describe('cleanupOldStickyMessages', () => {
       userId: 'bot-user-123',
       message: 'old sticky content',
       channelId: 'channel1',
-      platformId: 'test-platform',
+      platformId: 'cleanup-test-1',
     }));
     const getPinnedPosts = mock(() => Promise.resolve(['old-post-1', 'old-post-2', 'current-sticky']));
 
     const platform = {
-      ...createMockPlatform('test-platform'),
+      ...createMockPlatform('cleanup-test-1'),
       unpinPost,
       deletePost,
       getPost,
@@ -704,9 +704,10 @@ describe('cleanupOldStickyMessages', () => {
     } as unknown as PlatformClient;
 
     // Set up current sticky so it gets skipped
-    setStickyPostId('test-platform', 'current-sticky');
+    setStickyPostId('cleanup-test-1', 'current-sticky');
 
-    await cleanupOldStickyMessages(platform, 'bot-user-123');
+    // forceRun=true bypasses throttle for testing
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true);
 
     // Should have unpinned and deleted old-post-1 and old-post-2, but not current-sticky
     expect(unpinPost).toHaveBeenCalledTimes(2);
@@ -725,12 +726,12 @@ describe('cleanupOldStickyMessages', () => {
       userId: postId === 'bot-post' ? 'bot-user-123' : 'other-user-456',
       message: 'content',
       channelId: 'channel1',
-      platformId: 'test-platform',
+      platformId: 'cleanup-test-2',
     }));
     const getPinnedPosts = mock(() => Promise.resolve(['bot-post', 'user-post']));
 
     const platform = {
-      ...createMockPlatform('test-platform'),
+      ...createMockPlatform('cleanup-test-2'),
       unpinPost,
       deletePost,
       getPost,
@@ -738,9 +739,10 @@ describe('cleanupOldStickyMessages', () => {
     } as unknown as PlatformClient;
 
     // Clear any current sticky
-    setStickyPostId('test-platform', 'some-other-post');
+    setStickyPostId('cleanup-test-2', 'some-other-post');
 
-    await cleanupOldStickyMessages(platform, 'bot-user-123');
+    // forceRun=true bypasses throttle for testing
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true);
 
     // Should only delete the bot's post, not the user's post
     expect(unpinPost).toHaveBeenCalledTimes(1);
@@ -757,22 +759,22 @@ describe('cleanupOldStickyMessages', () => {
       userId: 'bot-user-123',
       message: 'content',
       channelId: 'channel1',
-      platformId: 'test-platform',
+      platformId: 'cleanup-test-3',
     }));
     const getPinnedPosts = mock(() => Promise.resolve(['post1']));
 
     const platform = {
-      ...createMockPlatform('test-platform'),
+      ...createMockPlatform('cleanup-test-3'),
       unpinPost,
       deletePost,
       getPost,
       getPinnedPosts,
     } as unknown as PlatformClient;
 
-    setStickyPostId('test-platform', 'different-post');
+    setStickyPostId('cleanup-test-3', 'different-post');
 
-    // Should not throw
-    await cleanupOldStickyMessages(platform, 'bot-user-123');
+    // Should not throw (forceRun=true bypasses throttle for testing)
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true);
 
     expect(unpinPost).toHaveBeenCalledTimes(1);
   });
@@ -784,14 +786,15 @@ describe('cleanupOldStickyMessages', () => {
     const getPinnedPosts = mock(() => Promise.resolve([]));
 
     const platform = {
-      ...createMockPlatform('test-platform'),
+      ...createMockPlatform('cleanup-test-4'),
       unpinPost,
       deletePost,
       getPost,
       getPinnedPosts,
     } as unknown as PlatformClient;
 
-    await cleanupOldStickyMessages(platform, 'bot-user-123');
+    // forceRun=true bypasses throttle for testing
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true);
 
     expect(unpinPost).not.toHaveBeenCalled();
     expect(deletePost).not.toHaveBeenCalled();
@@ -799,34 +802,38 @@ describe('cleanupOldStickyMessages', () => {
 });
 
 describe('updateStickyMessage with bump', () => {
-  it('triggers cleanup after creating new sticky post during bump', async () => {
+  it('triggers throttled cleanup after creating new sticky post during bump', async () => {
+    // Cleanup runs on bump but is throttled (max once per 5 min) and only checks recent posts
     const sessions = new Map<string, Session>();
-    const createdPostId = 'new-sticky-post-123';
+    // Use a recent Slack-style timestamp for the created post
+    const now = Math.floor(Date.now() / 1000);
+    const createdPostId = `${now}.123456`;
+    const orphanedPostId = `${now - 100}.789012`; // Recent orphaned post
 
     const createPost = mock(() => Promise.resolve({
       id: createdPostId,
       userId: 'bot-user-123',
       message: 'content',
       channelId: 'channel1',
-      platformId: 'test-platform',
+      platformId: 'test-platform-bump',
     }));
     const updatePost = mock(() => Promise.reject(new Error('Post not found'))); // Force bump
     const pinPost = mock(() => Promise.resolve());
     const unpinPost = mock(() => Promise.resolve());
     const deletePost = mock(() => Promise.resolve());
     const getBotUser = mock(() => Promise.resolve({ id: 'bot-user-123', username: 'bot' }));
-    const getPinnedPosts = mock(() => Promise.resolve(['orphaned-post', createdPostId]));
+    const getPinnedPosts = mock(() => Promise.resolve([orphanedPostId, createdPostId]));
     const getPost = mock((postId: string) => Promise.resolve({
       id: postId,
       userId: 'bot-user-123',
       message: 'content',
       channelId: 'channel1',
-      platformId: 'test-platform',
+      platformId: 'test-platform-bump',
     }));
     const getFormatter = mock(() => mockFormatter);
 
     const platform = {
-      ...createMockPlatform('test-platform'),
+      ...createMockPlatform('test-platform-bump'),
       createPost,
       updatePost,
       pinPost,
@@ -847,8 +854,8 @@ describe('updateStickyMessage with bump', () => {
     initialize(mockSessionStore as any);
 
     // Set up existing sticky and mark for bump
-    setStickyPostId('test-platform', 'old-sticky-post');
-    markNeedsBump('test-platform');
+    setStickyPostId('test-platform-bump', 'old-sticky-post');
+    markNeedsBump('test-platform-bump');
 
     await updateStickyMessage(platform, sessions, testConfig);
 

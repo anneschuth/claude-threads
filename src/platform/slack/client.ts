@@ -238,7 +238,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       throw new Error(`Slack API error: ${data.error}`);
     }
 
-    log.debug(`API ${method} ${endpoint} -> ok`);
     return data;
   }
 
@@ -1002,11 +1001,11 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Get a post by ID.
+   * Note: This makes an API call per post. For bulk operations, prefer getPinnedPosts
+   * which returns all pinned post IDs in a single call.
    */
   async getPost(postId: string): Promise<PlatformPost | null> {
     try {
-      log.debug(`Fetching post ${postId.substring(0, 12)}`);
-
       // Use conversations.history with latest/oldest to get a specific message
       const response = await this.api<ConversationsHistoryResponse>(
         'GET',
