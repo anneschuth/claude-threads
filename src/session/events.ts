@@ -567,6 +567,53 @@ async function handleExitPlanMode(
 // ---------------------------------------------------------------------------
 
 /**
+ * Clean up orphaned task posts in a thread.
+ * Task posts are identified by content starting with the task header pattern.
+ * Only removes posts that are NOT the current active task post.
+ *
+ * This handles the case where duplicate task posts exist from:
+ * - Previous sessions that weren't properly cleaned up
+ * - Race conditions during session resume
+ * - Manual deletion and recreation of task posts
+ */
+async function cleanupOrphanedTaskPosts(
+  session: Session,
+  currentTaskPostId: string
+): Promise<void> {
+  try {
+    // Get recent thread history (limit to avoid scanning entire thread)
+    const history = await session.platform.getThreadHistory(session.threadId, { limit: 50 });
+
+    // Pattern to identify task posts: starts with horizontal rule + task emoji
+    // Matches: "---\n📋", "___\n📋", "***\n📋", or just "📋" at start
+    const taskPostPattern = /^(?:(?:---|___|\*\*\*|—+)\s*\n)?📋/;
+
+    let cleanedCount = 0;
+    for (const msg of history) {
+      // Skip the current active task post
+      if (msg.id === currentTaskPostId) continue;
+
+      // Skip if not a task post (check content pattern)
+      if (!taskPostPattern.test(msg.message)) continue;
+
+      sessionLog(session).info(`Cleaning up orphaned task post ${msg.id.substring(0, 8)}`);
+
+      // Unpin and delete the orphaned post
+      await session.platform.unpinPost(msg.id).catch(() => {});
+      await session.platform.deletePost(msg.id).catch(() => {});
+      cleanedCount++;
+    }
+
+    if (cleanedCount > 0) {
+      sessionLog(session).info(`Cleaned up ${cleanedCount} orphaned task post(s)`);
+    }
+  } catch (err) {
+    // Don't fail the main operation if cleanup fails
+    sessionLog(session).debug(`Task cleanup failed: ${err}`);
+  }
+}
+
+/**
  * Handle TodoWrite tool use - update task list display.
  *
  * Uses an atomic promise-based lock to prevent race conditions when multiple
@@ -706,11 +753,20 @@ async function handleTodoWriteWithLock(
   // Note: We already hold the lock from handleTodoWrite, so this is safe
   const existingTasksPostId = session.tasksPostId;
   if (existingTasksPostId) {
-    await withErrorHandling(
+    // Try to update existing post - if it fails (e.g., post deleted), clear the ID
+    const updated = await withErrorHandling(
       () => session.platform.updatePost(existingTasksPostId, displayMessage),
       { action: 'Update tasks', session }
     );
-  } else {
+    if (updated === undefined) {
+      // Update failed - post may have been deleted. Clear the stale ID.
+      sessionLog(session).warn(`Task post ${existingTasksPostId.substring(0, 8)} update failed, will create new one`);
+      session.tasksPostId = null;
+    }
+  }
+
+  // Create new task post if we don't have one (either never had, or cleared above)
+  if (!session.tasksPostId) {
     // Create with toggle emoji reaction so users can click to collapse.
     const post = await withErrorHandling(
       () => session.platform.createInteractivePost(
@@ -728,6 +784,8 @@ async function handleTodoWriteWithLock(
       updateLastMessage(session, post);
       // Pin the task post for easy access
       await session.platform.pinPost(post.id).catch(() => {});
+      // Clean up any orphaned task posts from previous sessions
+      await cleanupOrphanedTaskPosts(session, post.id);
     }
   }
   // Update sticky message with new task progress
