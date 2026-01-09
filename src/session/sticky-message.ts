@@ -544,7 +544,7 @@ export async function buildStickyMessage(
     }
 
     lines.push('');
-    lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('npm i -g claude-threads')}`);
+    lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
 
     return lines.join('\n');
   }
@@ -629,7 +629,7 @@ export async function buildStickyMessage(
   }
 
   lines.push('');
-  lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('npm i -g claude-threads')}`);
+  lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
 
   return lines.join('\n');
 }
