@@ -489,6 +489,10 @@ async function main() {
       for (const client of platforms.values()) {
         client.disconnect();
       }
+
+      // Clear screen and restore cursor before daemon restarts us
+      process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
+      process.stdout.write('\x1b[?25h');       // Restore cursor visibility
     },
   });
 

@@ -282,6 +282,11 @@ export class AutoUpdateManager extends EventEmitter {
 
       // Exit with special code to signal restart needed
       log.info(`🔄 Restarting for update to v${updateInfo.latestVersion}`);
+
+      // Clear screen for clean restart (in case prepareForRestart didn't)
+      process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
+      process.stdout.write('\x1b[?25h');       // Restore cursor visibility
+
       process.exit(RESTART_EXIT_CODE);
     } else {
       const errorMsg = result.error ?? 'Unknown error';
