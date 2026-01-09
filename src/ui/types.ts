@@ -74,6 +74,7 @@ export interface ToggleState {
   chromeEnabled: boolean;    // Default for new sessions
   keepAliveEnabled: boolean;
   updateModalVisible: boolean;  // Whether the update modal is shown
+  logsFocused: boolean;  // Whether logs panel is focused for scrolling
 }
 
 /**

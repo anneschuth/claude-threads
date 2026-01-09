@@ -54,6 +54,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     chromeEnabled: config.chromeEnabled,
     keepAliveEnabled: config.keepAliveEnabled,
     updateModalVisible: false,
+    logsFocused: false,
   });
 
   // Update panel state - tracks auto-update status
@@ -100,6 +101,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   // Update modal toggle handler
   const handleUpdateModalToggle = React.useCallback(() => {
     setToggles(prev => ({ ...prev, updateModalVisible: !prev.updateModalVisible }));
+  }, []);
+
+  // Logs focus toggle handler
+  const handleLogsFocusToggle = React.useCallback(() => {
+    setToggles(prev => ({ ...prev, logsFocused: !prev.logsFocused }));
   }, []);
 
   // Platform toggle handler - toggles enabled state and calls callback
@@ -152,8 +158,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     onChromeToggle: handleChromeToggle,
     onKeepAliveToggle: handleKeepAliveToggle,
     onUpdateModalToggle: handleUpdateModalToggle,
+    onLogsFocusToggle: handleLogsFocusToggle,
     onForceUpdate: toggleCallbacks?.onForceUpdate,
     updateModalVisible: toggles.updateModalVisible,
+    logsFocused: toggles.logsFocused,
   });
 
 
@@ -176,38 +184,53 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         {(item) => <Box key={item.id}>{item.element}</Box>}
       </Static>
 
-      {/* Platforms - dynamic, updates on connect/disconnect */}
+      {/* Platforms section */}
+      <Box marginTop={1}>
+        <Text dimColor>{'─'.repeat(50)}</Text>
+      </Box>
+      <Box>
+        <Text dimColor bold>Platforms</Text>
+        <Text dimColor> ({state.platforms.size})</Text>
+      </Box>
       <Platforms platforms={state.platforms} />
 
-      {/* Global logs (system messages, keep-alive, etc.) */}
-      {hasLogs && (
-        <>
-          <Box marginTop={1}>
-            <Text dimColor>{'─'.repeat(50)}</Text>
-          </Box>
-          <LogPanel logs={globalLogs} maxLines={10} />
-        </>
+      {/* Global logs section */}
+      <Box marginTop={1}>
+        <Text dimColor>{'─'.repeat(50)}</Text>
+      </Box>
+      <Box>
+        <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
+          Logs
+        </Text>
+        <Text dimColor> ({globalLogs.length})</Text>
+        {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
+      </Box>
+      {hasLogs ? (
+        <LogPanel logs={globalLogs} maxLines={10} focused={toggles.logsFocused} />
+      ) : (
+        <Text dimColor italic>  No logs yet</Text>
       )}
 
       {/* Sessions section */}
-      {hasSessions && (
-        <>
-          <Box marginTop={1}>
-            <Text dimColor>{'─'.repeat(50)}</Text>
-          </Box>
-          <Box marginTop={0}>
-            <Text dimColor>Sessions ({state.sessions.size})</Text>
-          </Box>
-          {Array.from(state.sessions.entries()).map(([id, session], index) => (
-            <CollapsibleSession
-              key={id}
-              session={session}
-              logs={getLogsForSession(id)}
-              expanded={state.expandedSessions.has(id)}
-              sessionNumber={index + 1}
-            />
-          ))}
-        </>
+      <Box marginTop={1}>
+        <Text dimColor>{'─'.repeat(50)}</Text>
+      </Box>
+      <Box>
+        <Text dimColor bold>Threads</Text>
+        <Text dimColor> ({state.sessions.size})</Text>
+      </Box>
+      {hasSessions ? (
+        Array.from(state.sessions.entries()).map(([id, session], index) => (
+          <CollapsibleSession
+            key={id}
+            session={session}
+            logs={getLogsForSession(id)}
+            expanded={state.expandedSessions.has(id)}
+            sessionNumber={index + 1}
+          />
+        ))
+      ) : (
+        <Text dimColor italic>  No active threads</Text>
       )}
 
       <StatusLine

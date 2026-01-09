@@ -154,6 +154,7 @@ export function StatusLine({
             <ToggleKey keyChar="p" label="erms" enabled={!toggles.skipPermissions} />
             <ToggleKey keyChar="c" label="hrome" enabled={toggles.chromeEnabled} />
             <ToggleKey keyChar="k" label="eep-alive" enabled={toggles.keepAliveEnabled} />
+            <ToggleKey keyChar="l" label="ogs" enabled={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : 'gray'} />
             <Box gap={0}>
               <ToggleKey keyChar="u" label="pdate" enabled={updateState?.status === 'available'} color={updateColor} />
               {updateIndicator && <Text>{updateIndicator}</Text>}
