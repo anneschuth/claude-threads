@@ -116,6 +116,9 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
+  // Clear screen for a clean start
+  process.stdout.write('\x1b[2J\x1b[H');
+
   // Determine if we should use auto-restart daemon wrapper
   // Priority: --no-auto-restart (off) > --auto-restart (on) > config.autoUpdate.enabled
   // Note: Commander.js converts --no-auto-restart to opts.autoRestart = false
