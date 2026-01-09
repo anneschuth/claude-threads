@@ -241,8 +241,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   const headerHeight = 5; // Logo (3 lines + border)
   const footerHeight = 2; // Separator + status row
   const tabBarHeight = 2; // Tab bar + separator
-  const topHalfHeight = Math.floor((terminalRows - headerHeight - footerHeight - tabBarHeight) * 0.4);
-  const bottomHalfHeight = terminalRows - headerHeight - footerHeight - tabBarHeight - topHalfHeight;
+  const separatorLines = 3; // 3 separator lines in the layout
+  const availableHeight = terminalRows - headerHeight - footerHeight - tabBarHeight - separatorLines;
+  const topHalfHeight = Math.max(5, Math.floor(availableHeight * 0.35)); // 35% for platforms + logs
+  const bottomHalfHeight = Math.max(5, availableHeight - topHalfHeight); // 65% for session content
 
   // Build the header content
   const headerContent = (
@@ -294,30 +296,28 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     >
       {/* Main content area */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden">
-        {/* Top half: Platforms | Logs (side by side) */}
-        <Box height={topHalfHeight} overflow="hidden">
-          <Text dimColor>{'─'.repeat(80)}</Text>
-        </Box>
+        {/* Separator */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+
+        {/* Top section: Platforms | Logs (side by side) */}
         <SplitPanel
           left={platformsPanel}
           right={logsPanel}
-          leftWidth={30}
+          leftWidth={38}
           height={topHalfHeight}
         />
 
-        {/* Tab bar for sessions */}
-        <Box flexDirection="column" overflow="hidden">
-          <Text dimColor>{'─'.repeat(80)}</Text>
-          <TabBar
-            sessions={sessionsArray}
-            selectedId={state.selectedSessionId}
-            onSelect={selectSession}
-          />
-        </Box>
+        {/* Separator + Tab bar for sessions */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+        <TabBar
+          sessions={sessionsArray}
+          selectedId={state.selectedSessionId}
+          onSelect={selectSession}
+        />
 
-        {/* Bottom half: Selected session content */}
-        <Box flexDirection="column" overflow="hidden">
-          <Text dimColor>{'─'.repeat(80)}</Text>
+        {/* Separator + Bottom section: Selected session content */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+        <Box flexDirection="column" flexGrow={1} overflow="hidden">
           {selectedSession ? (
             <SessionContent
               session={selectedSession}
