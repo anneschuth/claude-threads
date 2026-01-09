@@ -11,6 +11,7 @@ export type {
   PendingQuestionSet,
   PendingMessageApproval,
   PendingExistingWorktreePrompt,
+  PendingWorktreeFailurePrompt,
 } from './types.js';
 export type { PendingContextPrompt } from './context-prompt.js';
 
