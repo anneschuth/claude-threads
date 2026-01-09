@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.16] - 2026-01-09
+
+### Added
+- **Scrollable logs panel** - Logs are now scrollable with keyboard navigation (↑↓ arrows, g/G for top/bottom). Press `[l]` to focus logs panel for scrolling (#146)
+- **Section headings** - Added clear section headings (Platforms, Logs, Threads) with counts
+- **Numbered platforms and threads** - Each platform and thread now shows its number for quick reference
+- **Clear screen at startup** - Terminal clears at startup for a clean UI
+
+### Changed
+- **StatusLine pinned to bottom** - Status bar now stays at the bottom of the terminal
+- **Dynamic log height** - Logs section uses available terminal space
+
 ## [0.48.15] - 2026-01-09
 
 ### Fixed
