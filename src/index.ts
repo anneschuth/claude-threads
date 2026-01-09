@@ -438,18 +438,29 @@ async function main() {
   );
   const disabledCount = platforms.size - enabledPlatforms.length;
   ui.addLog({ level: 'info', component: 'init', message: `Connecting ${enabledPlatforms.length} platform(s)...${disabledCount > 0 ? ` (${disabledCount} disabled)` : ''}` });
-  await Promise.all(
+  const connectionResults = await Promise.allSettled(
     enabledPlatforms.map(async ([id, client]) => {
       ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
       try {
         await client.connect();
         ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
+        return { id, success: true };
       } catch (err) {
         ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
-        throw err;
+        // Mark the platform as disabled so we don't try to use it
+        platformEnabledState.set(id, false);
+        return { id, success: false, error: err };
       }
     })
   );
+
+  // Check if at least one platform connected successfully
+  const successfulConnections = connectionResults.filter(
+    (r) => r.status === 'fulfilled' && r.value.success
+  );
+  if (successfulConnections.length === 0) {
+    throw new Error('No platforms connected successfully. Check your configuration and credentials.');
+  }
 
   // Resume any persisted sessions from before restart
   await session.initialize();
