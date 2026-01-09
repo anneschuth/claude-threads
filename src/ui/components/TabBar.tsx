@@ -67,9 +67,9 @@ function Tab({
         {index + 1}
       </Text>
       <Text dimColor> </Text>
-      <Text>{platformIcon}</Text>
       <Text color={statusColor}>{statusIcon}</Text>
-      <Text dimColor> </Text>
+      <Text> </Text>
+      <Text>{platformIcon}</Text>
       <Text
         color={isSelected ? 'cyan' : undefined}
         bold={isSelected}
