@@ -122,6 +122,7 @@ function createTestSession(platform: PlatformClient): Session {
     statusBarTimer: null,
     hasClaudeResponded: false,
     isProcessing: false,
+    recentEvents: [],
   };
 }
 

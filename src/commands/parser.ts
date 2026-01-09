@@ -30,6 +30,7 @@ export interface ParsedCommand {
 export const CLAUDE_ALLOWED_COMMANDS = new Set([
   'cd',              // Change directory - restarts Claude (no result returned)
   'worktree list',   // List worktrees - returns result to Claude
+  'bug',             // Report a bug - Claude can report issues it encounters
 ]);
 
 /**
@@ -65,6 +66,9 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
 
   // Emergency
   ['kill', /^!kill\s*$/i],
+
+  // Bug reporting
+  ['bug', /^!bug(?:\s+(.+))?$/i],
 ];
 
 // =============================================================================
@@ -121,6 +125,16 @@ export function parseClaudeCommand(text: string): ParsedCommand | null {
       command: 'worktree list',
       args: undefined,
       match: worktreeListMatch[0].trimEnd(),
+    };
+  }
+
+  // Check for !bug command
+  const bugMatch = text.match(/^!bug\s+(.+)$/m);
+  if (bugMatch && CLAUDE_ALLOWED_COMMANDS.has('bug')) {
+    return {
+      command: 'bug',
+      args: bugMatch[1].trim(),
+      match: bugMatch[0].trimEnd(),
     };
   }
 

@@ -130,6 +130,7 @@ export async function handleMessage(
                 [code('!escape'), 'Interrupt current task (session stays active)'],
                 [code('!stop'), 'Stop this session'],
                 [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
+                [code('!bug <description>'), 'Report a bug (creates GitHub issue)'],
               ]
             );
             await client.createPost(
@@ -236,6 +237,13 @@ export async function handleMessage(
             if (isAllowed) {
               const claudeCommand = '/' + parsed.command;
               await session.sendFollowUp(threadRoot, claudeCommand);
+            }
+            return;
+
+          case 'bug':
+            // Bug reporting
+            if (isAllowed) {
+              await session.reportBug(threadRoot, parsed.args, username);
             }
             return;
 

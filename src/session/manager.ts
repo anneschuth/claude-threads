@@ -533,6 +533,18 @@ export class SessionManager extends EventEmitter {
       await reactions.handleTaskToggleReaction(session, action, this.getContext());
       return;
     }
+
+    // Handle bug report emoji reaction on error posts (only on add)
+    if (action === 'added' && session.lastError?.postId === postId) {
+      const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
+      if (handled) return;
+    }
+
+    // Handle bug report approval reactions (only on add)
+    if (action === 'added' && session.pendingBugReport?.postId === postId) {
+      const handled = await reactions.handleBugApprovalReaction(session, postId, emojiName, username, this.getContext());
+      if (handled) return;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1158,6 +1170,12 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.enableInteractivePermissions(session, username, this.getContext());
+  }
+
+  async reportBug(threadId: string, description: string | undefined, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.reportBug(session, description, username, this.getContext());
   }
 
   async showUpdateStatus(threadId: string, _username: string): Promise<void> {

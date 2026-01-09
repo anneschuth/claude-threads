@@ -25,8 +25,9 @@ import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
-import { changeDirectory } from './commands.js';
+import { changeDirectory, reportBug } from './commands.js';
 import { buildWorktreeListMessage } from './worktree.js';
+import { trackEvent } from './bug-report.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
 import { postInfo, postError } from './post-helpers.js';
 
@@ -217,6 +218,11 @@ async function executeClaudeCommand(
       }
       break;
     }
+
+    case 'bug':
+      // Claude can report bugs it encounters
+      await reportBug(session, args, session.startedBy, ctx);
+      break;
   }
 }
 
@@ -426,6 +432,8 @@ function formatEvent(
       if (tool.id) {
         session.activeToolStarts.set(tool.id, Date.now());
       }
+      // Track event for bug reporting context
+      trackEvent(session, 'tool_use', tool.name);
       const worktreeInfo = session.worktreeInfo ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch } : undefined;
       return sharedFormatToolUse(tool.name, tool.input || {}, session.platform.getFormatter(), { detailed: true, worktreeInfo }) || null;
     }
@@ -444,7 +452,11 @@ function formatEvent(
           session.activeToolStarts.delete(result.tool_use_id);
         }
       }
-      if (result.is_error) return `  ↳ ❌ Error${elapsed}`;
+      // Track tool errors for bug reporting context
+      if (result.is_error) {
+        trackEvent(session, 'tool_error', 'Tool execution failed');
+        return `  ↳ ❌ Error${elapsed}`;
+      }
       if (elapsed) return `  ↳ ✓${elapsed}`;
       return null;
     }
@@ -465,7 +477,11 @@ function formatEvent(
       return null;
     }
     case 'system': {
-      if (e.subtype === 'error') return `❌ ${e.error}`;
+      if (e.subtype === 'error') {
+        // Track system errors for bug reporting context
+        trackEvent(session, 'system_error', String(e.error).substring(0, 80));
+        return `❌ ${e.error}`;
+      }
       // Note: Compaction events (status: 'compacting' and compact_boundary) are handled
       // specially in handleEvent to support post repurposing - they never reach here.
       return null;

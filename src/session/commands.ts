@@ -20,6 +20,15 @@ import {
   DENIAL_EMOJIS,
   ALLOW_ALL_EMOJIS,
 } from '../utils/emoji.js';
+import {
+  collectBugReportContext,
+  formatIssueBody,
+  generateIssueTitle,
+  formatBugPreview,
+  checkGitHubCli,
+  createGitHubIssue,
+  type ErrorContext,
+} from './bug-report.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
@@ -783,4 +792,139 @@ export async function deferUpdate(
     `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
     formatter.formatItalic('Use !update now to apply earlier')
   );
+}
+
+// ---------------------------------------------------------------------------
+// Bug reporting
+// ---------------------------------------------------------------------------
+
+/**
+ * Report a bug and create a GitHub issue.
+ * Can be triggered by !bug command or by reacting to an error message.
+ */
+export async function reportBug(
+  session: Session,
+  description: string | undefined,
+  username: string,
+  ctx: SessionContext,
+  errorContext?: ErrorContext,
+  _attachmentFileIds?: string[]
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+
+  // If no description and no error context, show usage
+  if (!description && !errorContext) {
+    await postInfo(session,
+      `Usage: ${formatter.formatCode('!bug <description>')}\n` +
+      `Example: ${formatter.formatCode('!bug Session crashed when uploading large image')}\n\n` +
+      `Or react with 🐛 on any error message to report it.`
+    );
+    return;
+  }
+
+  // Check if gh CLI is available first
+  const ghStatus = checkGitHubCli();
+  if (!ghStatus.installed || !ghStatus.authenticated) {
+    await postError(session, ghStatus.error || 'GitHub CLI not configured');
+    return;
+  }
+
+  // Use error message as description if triggered by reaction
+  // At this point either description or errorContext must exist (checked above)
+  const bugDescription = description || (errorContext ? `Error: ${errorContext.message.substring(0, 200)}` : 'Unknown error');
+
+  // Collect context
+  const context = await collectBugReportContext(session, errorContext);
+
+  // Generate issue content
+  const title = generateIssueTitle(bugDescription);
+  const body = formatIssueBody(context, bugDescription);
+
+  // Create preview message
+  const preview = formatBugPreview(title, bugDescription, context, [], formatter);
+  const previewMessage = `🐛 ${preview}`;
+
+  // Post preview with approval reactions
+  const post = await session.platform.createInteractivePost(
+    previewMessage,
+    [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
+    session.threadId
+  );
+
+  // Store pending bug report
+  session.pendingBugReport = {
+    postId: post.id,
+    title,
+    body,
+    userDescription: bugDescription,
+    attachments: [],
+    errorContext,
+  };
+
+  // Register post for reaction routing
+  ctx.ops.registerPost(post.id, session.threadId);
+  updateLastMessage(session, post);
+
+  sessionLog(session).info(`🐛 Bug report preview created by @${username}: ${title}`);
+}
+
+/**
+ * Handle approval/denial of a pending bug report.
+ * Called from reactions.ts when user reacts to the preview.
+ */
+export async function handleBugReportApproval(
+  session: Session,
+  isApproved: boolean,
+  username: string
+): Promise<void> {
+  const pending = session.pendingBugReport;
+  if (!pending) return;
+
+  const formatter = session.platform.getFormatter();
+
+  if (isApproved) {
+    try {
+      // Create the GitHub issue
+      const issueUrl = await createGitHubIssue(
+        pending.title,
+        pending.body,
+        pending.attachments,
+        session.workingDir
+      );
+
+      // Update the approval post to show success
+      await withErrorHandling(
+        () => session.platform.updatePost(
+          pending.postId,
+          `✅ ${formatter.formatBold('Bug report submitted')}: ${issueUrl}`
+        ),
+        { action: 'Update bug report post', session }
+      );
+
+      sessionLog(session).info(`🐛 Bug report created by @${username}: ${issueUrl}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      await withErrorHandling(
+        () => session.platform.updatePost(
+          pending.postId,
+          `❌ ${formatter.formatBold('Failed to create bug report')}: ${errorMessage}`
+        ),
+        { action: 'Update bug report post', session }
+      );
+      sessionLog(session).error(`Failed to create bug report: ${errorMessage}`);
+    }
+  } else {
+    // Cancelled
+    await withErrorHandling(
+      () => session.platform.updatePost(
+        pending.postId,
+        `🚫 ${formatter.formatBold('Bug report cancelled')} by ${formatter.formatUserMention(username)}`
+      ),
+      { action: 'Update bug report post', session }
+    );
+    sessionLog(session).info(`🐛 Bug report cancelled by @${username}`);
+  }
+
+  // Clear pending bug report
+  session.pendingBugReport = undefined;
 }

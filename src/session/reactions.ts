@@ -13,11 +13,13 @@ import {
   isAllowAllEmoji,
   getNumberEmojiIndex,
   TASK_TOGGLE_EMOJIS,
+  isBugReportEmoji,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { shortenPath } from '../utils/tool-formatter.js';
+import { reportBug, handleBugReportApproval } from './commands.js';
 
 const log = createLogger('reactions');
 
@@ -425,6 +427,83 @@ export async function handleUpdateReaction(
 
     sessionLog(session).info(`⏸️ @${username} deferred update for 1 hour`);
   }
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Bug report reaction handling
+// ---------------------------------------------------------------------------
+
+/**
+ * Handle a bug report emoji reaction on an error post.
+ * Triggers the bug report flow with the error context.
+ * Returns true if the reaction was handled, false otherwise.
+ */
+export async function handleBugReportReaction(
+  session: Session,
+  postId: string,
+  emojiName: string,
+  username: string,
+  ctx: SessionContext
+): Promise<boolean> {
+  // Only handle bug emoji reactions
+  if (!isBugReportEmoji(emojiName)) {
+    return false;
+  }
+
+  // Check if this is the error post we tracked
+  if (!session.lastError || session.lastError.postId !== postId) {
+    return false;
+  }
+
+  // Only session owner or allowed users can report bugs
+  if (session.startedBy !== username &&
+      !session.platform.isUserAllowed(username) &&
+      !session.sessionAllowedUsers.has(username)) {
+    return false;
+  }
+
+  sessionLog(session).info(`🐛 @${username} triggered bug report from error reaction`);
+
+  // Trigger bug report flow with the error context
+  await reportBug(session, undefined, username, ctx, session.lastError);
+
+  return true;
+}
+
+/**
+ * Handle a reaction on a bug report approval post (thumbs up/down).
+ * Returns true if the reaction was handled, false otherwise.
+ */
+export async function handleBugApprovalReaction(
+  session: Session,
+  postId: string,
+  emojiName: string,
+  username: string,
+  _ctx: SessionContext
+): Promise<boolean> {
+  const pending = session.pendingBugReport;
+  if (!pending || pending.postId !== postId) {
+    return false;
+  }
+
+  // Only session owner or allowed users can approve
+  if (session.startedBy !== username &&
+      !session.platform.isUserAllowed(username) &&
+      !session.sessionAllowedUsers.has(username)) {
+    return false;
+  }
+
+  const isApprove = isApprovalEmoji(emojiName);
+  const isDeny = isDenialEmoji(emojiName);
+
+  if (!isApprove && !isDeny) {
+    return false;
+  }
+
+  // Handle the approval/denial
+  await handleBugReportApproval(session, isApprove, username);
 
   return true;
 }

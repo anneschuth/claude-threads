@@ -332,6 +332,7 @@ export async function startSession(
     messageCount: 0,  // Will be incremented when first message is sent
     isProcessing: true,  // Starts as true since we're sending initial prompt
     statusBarTimer: null,  // Will be started after first result event
+    recentEvents: [],  // Bug report context: recent tool uses/errors
   };
 
   // Register session
@@ -549,6 +550,7 @@ export async function resumeSession(
     isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
+    recentEvents: [],  // Bug report context: recent tool uses/errors (cleared on resume)
   };
 
   // Register session

@@ -7,6 +7,7 @@ import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
+import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -231,6 +232,11 @@ export interface Session {
 
   // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
   taskListCreationPromise?: Promise<void>;
+
+  // Bug reporting support
+  pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
+  recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
+  lastError?: ErrorContext;               // Most recent error for bug reaction
 }
 
 // =============================================================================
