@@ -1,29 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 100" fill="none">
-  <!-- ASCII art logo from logo.ts:
-    ✴ ▄█▀ ███ ✴
-   ✴  █▀   █   ✴
-    ✴ ▀█▄  █  ✴
-  -->
-
-  <!-- Use a more reliable monospace font stack and pre element style -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 950 250" fill="none">
   <style>
-    .logo-text { font-family: 'Menlo', 'Monaco', 'Courier New', monospace; font-size: 20px; white-space: pre; }
-    .sparkle { fill: #eab308; }
-    .ct { fill: #3b82f6; }
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400&amp;display=swap');
+    .logo {
+      font-family: 'JetBrains Mono', 'Menlo', 'SF Mono', monospace;
+      font-size: 72px;
+      white-space: pre;
+    }
+    .sparkle { fill: #b8a04a; }
+    .ct { fill: #6b8a9e; }
   </style>
 
-  <!-- Row 1 -->
-  <text x="20" y="30" class="logo-text sparkle">✴</text>
-  <text x="50" y="30" class="logo-text ct">▄█▀ ███</text>
-  <text x="180" y="30" class="logo-text sparkle">✴</text>
+  <!-- Row 1:  ✴ ▄█▀ ███ ✴ -->
+  <text x="120" y="80" class="logo">
+    <tspan class="sparkle">✴</tspan><tspan class="ct"> ▄█▀ ███ </tspan><tspan class="sparkle">✴</tspan>
+  </text>
 
-  <!-- Row 2 -->
-  <text x="8" y="55" class="logo-text sparkle">✴</text>
-  <text x="56" y="55" class="logo-text ct">█▀   █</text>
-  <text x="192" y="55" class="logo-text sparkle">✴</text>
+  <!-- Row 2: ✴ █▀    █   ✴ -->
+  <text x="94" y="160" class="logo">
+    <tspan class="sparkle">✴</tspan><tspan class="ct"> █▀    █   </tspan><tspan class="sparkle">✴</tspan>
+  </text>
 
-  <!-- Row 3 -->
-  <text x="20" y="80" class="logo-text sparkle">✴</text>
-  <text x="50" y="80" class="logo-text ct">▀█▄  █</text>
-  <text x="180" y="80" class="logo-text sparkle">✴</text>
+  <!-- Row 3:  ✴ ▀█▄  █  ✴ -->
+  <text x="120" y="240" class="logo">
+    <tspan class="sparkle">✴</tspan><tspan class="ct"> ▀█▄  █  </tspan><tspan class="sparkle">✴</tspan>
+  </text>
 </svg>
