@@ -2,7 +2,7 @@
  * Main App component - root of the Ink UI
  */
 import React from 'react';
-import { Box, Static, Text } from 'ink';
+import { Box, Static, Text, useStdout } from 'ink';
 import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
@@ -46,6 +46,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
 
   // Resize counter to force re-render on terminal resize
   const [resizeCount, setResizeCount] = React.useState(0);
+
+  // Get terminal dimensions for pinning StatusLine to bottom
+  const { stdout } = useStdout();
+  const terminalRows = stdout?.rows ?? 24;
 
   // Runtime toggle state - initialized from config
   const [toggles, setToggles] = React.useState<ToggleState>({
@@ -177,6 +181,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   const hasLogs = globalLogs.length > 0;
   const hasSessions = state.sessions.size > 0;
 
+  // Calculate height for main area (terminal height minus header lines and status line)
+  // Header is about 5 lines, StatusLine is 2 lines
+  const mainAreaHeight = Math.max(10, terminalRows - 7);
+
   return (
     <Box flexDirection="column">
       {/* Static header - renders once, never re-renders */}
@@ -184,55 +192,66 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         {(item) => <Box key={item.id}>{item.element}</Box>}
       </Static>
 
-      {/* Platforms section */}
-      <Box marginTop={1}>
-        <Text dimColor>{'─'.repeat(50)}</Text>
-      </Box>
-      <Box>
-        <Text dimColor bold>Platforms</Text>
-        <Text dimColor> ({state.platforms.size})</Text>
-      </Box>
-      <Platforms platforms={state.platforms} />
+      {/* Main content area with fixed height to push StatusLine to bottom */}
+      <Box flexDirection="column" height={mainAreaHeight}>
+        {/* Platforms section */}
+        <Box marginTop={1}>
+          <Text dimColor>{'─'.repeat(50)}</Text>
+        </Box>
+        <Box>
+          <Text dimColor bold>Platforms</Text>
+          <Text dimColor> ({state.platforms.size})</Text>
+        </Box>
+        <Platforms platforms={state.platforms} />
 
-      {/* Global logs section */}
-      <Box marginTop={1}>
-        <Text dimColor>{'─'.repeat(50)}</Text>
-      </Box>
-      <Box>
-        <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
-          Logs
-        </Text>
-        <Text dimColor> ({globalLogs.length})</Text>
-        {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
-      </Box>
-      {hasLogs ? (
-        <LogPanel logs={globalLogs} maxLines={10} focused={toggles.logsFocused} />
-      ) : (
-        <Text dimColor italic>  No logs yet</Text>
-      )}
+        {/* Global logs section */}
+        <Box marginTop={1}>
+          <Text dimColor>{'─'.repeat(50)}</Text>
+        </Box>
+        <Box>
+          <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
+            Logs
+          </Text>
+          <Text dimColor> ({globalLogs.length})</Text>
+          {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
+        </Box>
+        {hasLogs ? (
+          <LogPanel logs={globalLogs} maxLines={10} focused={toggles.logsFocused} fillAvailable />
+        ) : (
+          <Text dimColor italic>  No logs yet</Text>
+        )}
 
-      {/* Sessions section */}
-      <Box marginTop={1}>
-        <Text dimColor>{'─'.repeat(50)}</Text>
-      </Box>
-      <Box>
-        <Text dimColor bold>Threads</Text>
-        <Text dimColor> ({state.sessions.size})</Text>
-      </Box>
-      {hasSessions ? (
-        Array.from(state.sessions.entries()).map(([id, session], index) => (
-          <CollapsibleSession
-            key={id}
-            session={session}
-            logs={getLogsForSession(id)}
-            expanded={state.expandedSessions.has(id)}
-            sessionNumber={index + 1}
-          />
-        ))
-      ) : (
-        <Text dimColor italic>  No active threads</Text>
-      )}
+        {/* Sessions section */}
+        <Box marginTop={1}>
+          <Text dimColor>{'─'.repeat(50)}</Text>
+        </Box>
+        <Box>
+          <Text dimColor bold>Threads</Text>
+          <Text dimColor> ({state.sessions.size})</Text>
+        </Box>
+        {hasSessions ? (
+          Array.from(state.sessions.entries()).map(([id, session], index) => (
+            <CollapsibleSession
+              key={id}
+              session={session}
+              logs={getLogsForSession(id)}
+              expanded={state.expandedSessions.has(id)}
+              sessionNumber={index + 1}
+            />
+          ))
+        ) : (
+          <Text dimColor italic>  No active threads</Text>
+        )}
 
+        {/* Update modal overlay */}
+        {toggles.updateModalVisible && (
+          <Box marginTop={1} justifyContent="center">
+            <UpdateModal state={updateState} />
+          </Box>
+        )}
+      </Box>
+
+      {/* StatusLine pinned to bottom */}
       <StatusLine
         ready={state.ready}
         shuttingDown={state.shuttingDown}
@@ -241,13 +260,6 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         platforms={state.platforms}
         updateState={updateState}
       />
-
-      {/* Update modal overlay */}
-      {toggles.updateModalVisible && (
-        <Box marginTop={1} justifyContent="center">
-          <UpdateModal state={updateState} />
-        </Box>
-      )}
     </Box>
   );
 }

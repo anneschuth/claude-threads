@@ -12,6 +12,7 @@ interface LogPanelProps {
   logs: LogEntry[];
   maxLines?: number;
   focused?: boolean;
+  fillAvailable?: boolean;  // If true, expand to fill available space
 }
 
 function getLevelColor(level: LogEntry['level']): string {
@@ -33,7 +34,7 @@ function padComponent(name: string): string {
   return name.padEnd(COMPONENT_WIDTH);
 }
 
-export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps) {
+export function LogPanel({ logs, maxLines = 10, focused = false, fillAvailable = false }: LogPanelProps) {
   const scrollRef = React.useRef<ScrollViewRef>(null);
   const { stdout } = useStdout();
 
@@ -88,11 +89,16 @@ export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps
     return null;
   }
 
-  // Calculate display height
+  // Calculate display height (used when not filling available space)
   const displayHeight = Math.min(visibleLogs.length, dynamicMaxLines);
 
+  // Use flexGrow to fill available space, or fixed height
+  const boxProps = fillAvailable
+    ? { flexDirection: 'column' as const, flexGrow: 1, minHeight: maxLines }
+    : { flexDirection: 'column' as const, height: displayHeight };
+
   return (
-    <Box flexDirection="column" height={displayHeight}>
+    <Box {...boxProps}>
       <ScrollView ref={scrollRef}>
         {visibleLogs.map((log) => (
           <Box key={log.id}>
