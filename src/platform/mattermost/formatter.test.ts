@@ -166,5 +166,21 @@ describe('MattermostFormatter', () => {
       const input = '```javascript\nconst x = 1;\n```';
       expect(formatter.formatMarkdown(input)).toBe(input);
     });
+
+    it('adds newline after code block closing when followed by text', () => {
+      // This is the fix for the bug where ``` was followed by text on the same line
+      const input = '```javascript\nconst x = 1;\n```More text here';
+      expect(formatter.formatMarkdown(input)).toBe('```javascript\nconst x = 1;\n```\nMore text here');
+    });
+
+    it('does not add extra newline when code block already has newline after closing', () => {
+      const input = '```javascript\nconst x = 1;\n```\nMore text here';
+      expect(formatter.formatMarkdown(input)).toBe(input);
+    });
+
+    it('handles multiple code blocks with text after them', () => {
+      const input = '```js\ncode1\n```Text1\n```js\ncode2\n```Text2';
+      expect(formatter.formatMarkdown(input)).toBe('```js\ncode1\n```\nText1\n```js\ncode2\n```\nText2');
+    });
   });
 });
