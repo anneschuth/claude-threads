@@ -1219,7 +1219,7 @@ export class SessionManager extends EventEmitter {
   async showUpdateStatus(threadId: string, _username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.showUpdateStatus(session, this.autoUpdateManager);
+    await commands.showUpdateStatus(session, this.autoUpdateManager, this.getContext());
   }
 
   async forceUpdateNow(threadId: string, username: string): Promise<void> {
