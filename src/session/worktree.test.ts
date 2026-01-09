@@ -118,6 +118,7 @@ function createMockOptions() {
   return {
     skipPermissions: true,
     chromeEnabled: false,
+    worktreeMode: 'prompt' as const,
     handleEvent: mock(() => {}),
     handleExit: mock(() => Promise.resolve()),
     updateSessionHeader: mock(() => Promise.resolve()),
@@ -274,7 +275,7 @@ describe('Worktree Module', () => {
     });
 
     describe('when worktree creation fails', () => {
-      it('clears pending state and continues without worktree', async () => {
+      it('shows failure prompt with retry option (prompt mode)', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,
           worktreePromptPostId: 'prompt-post-1',
@@ -289,27 +290,22 @@ describe('Worktree Module', () => {
 
         await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
 
-        // Should clear pending state
-        expect(session.pendingWorktreePrompt).toBe(false);
-        expect(session.worktreePromptPostId).toBeUndefined();
-        expect(session.queuedPrompt).toBeUndefined();
+        // Should keep pending state so user can retry or skip
+        expect(session.pendingWorktreePrompt).toBe(true);
+        expect(session.pendingWorktreeFailurePrompt).toBeDefined();
+        expect(session.pendingWorktreeFailurePrompt?.failedBranch).toBe('new-branch');
 
-        // Should update the prompt post with failure message
-        expect(session.platform.updatePost).toHaveBeenCalled();
+        // Should create interactive post with retry prompt
+        expect(session.platform.createInteractivePost).toHaveBeenCalled();
+
+        // Should NOT have sent the queued prompt yet (waiting for user decision)
+        expect(options.offerContextPrompt).not.toHaveBeenCalled();
 
         // Should persist session
         expect(options.persistSession).toHaveBeenCalled();
-
-        // Should still offer context prompt with queued message
-        expect(options.offerContextPrompt).toHaveBeenCalledWith(
-          session,
-          'do something',
-          undefined,  // queuedFiles
-          undefined   // excludePostId
-        );
       });
 
-      it('removes the x reaction from the prompt post after failure', async () => {
+      it('removes the x reaction from the original prompt post after failure', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,
           worktreePromptPostId: 'prompt-post-1',
@@ -324,17 +320,17 @@ describe('Worktree Module', () => {
 
         await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
 
-        // Should remove the x reaction from the prompt post
+        // Should remove the x reaction from the original prompt post
         expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
       });
 
-      it('does not leave session stuck in pending state', async () => {
+      it('shows retry-only prompt in require mode (no skip option)', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,
           worktreePromptPostId: 'prompt-post-1',
           queuedPrompt: 'my prompt',
         });
-        const options = createMockOptions();
+        const options = { ...createMockOptions(), worktreeMode: 'require' as const };
 
         mockCreateWorktree.mockImplementation(() =>
           Promise.reject(new Error('git worktree add failed'))
@@ -342,11 +338,112 @@ describe('Worktree Module', () => {
 
         await worktree.createAndSwitchToWorktree(session, 'broken-branch', 'testuser', options);
 
-        // Session should not be stuck
-        expect(session.pendingWorktreePrompt).toBe(false);
+        // Should remain in pending state for retry
+        expect(session.pendingWorktreePrompt).toBe(true);
 
-        // The queued prompt should have been sent
-        expect(options.offerContextPrompt).toHaveBeenCalled();
+        // Should create interactive post asking for retry
+        expect(session.platform.createInteractivePost).toHaveBeenCalledWith(
+          expect.stringContaining('Worktree required but creation failed'),
+          [],  // No skip option in require mode
+          expect.any(String)
+        );
+
+        // The queued prompt should NOT have been sent yet
+        expect(options.offerContextPrompt).not.toHaveBeenCalled();
+      });
+
+      it('allows user to skip and continue in main repo after failure', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const persistSession = mock(() => {});
+        const offerContextPrompt = mock(() => Promise.resolve(false));
+
+        await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+        // Should clear pending state after skip
+        expect(session.pendingWorktreePrompt).toBe(false);
+        expect(session.pendingWorktreeFailurePrompt).toBeUndefined();
+
+        // Should send the queued prompt
+        expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined);
+      });
+
+      it('allows user to retry with different branch name after failure', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'failure-prompt-post',
+          queuedPrompt: 'do something',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        let createAndSwitchCalled = false;
+        const createAndSwitch = mock(async () => {
+          createAndSwitchCalled = true;
+        });
+
+        const result = await worktree.handleWorktreeBranchResponse(
+          session,
+          'new-branch-name',
+          'testuser',
+          'response-post-id',
+          createAndSwitch
+        );
+
+        // Should handle the response
+        expect(result).toBe(true);
+
+        // Should clear the failure prompt state
+        expect(session.pendingWorktreeFailurePrompt).toBeUndefined();
+
+        // Should call createAndSwitch with the new branch name
+        expect(createAndSwitchCalled).toBe(true);
+        expect(createAndSwitch).toHaveBeenCalledWith(
+          session.threadId,
+          'new-branch-name',
+          'testuser'
+        );
+      });
+
+      it('handles retry response even when not in initial pending state', async () => {
+        // Session has failure prompt but pendingWorktreePrompt is false
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Not in initial pending state
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const createAndSwitch = mock(async () => {});
+
+        const result = await worktree.handleWorktreeBranchResponse(
+          session,
+          'retry-branch',
+          'testuser',
+          'response-post-id',
+          createAndSwitch
+        );
+
+        // Should still handle the response due to failure prompt
+        expect(result).toBe(true);
+        expect(createAndSwitch).toHaveBeenCalled();
       });
     });
 

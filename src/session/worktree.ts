@@ -36,6 +36,73 @@ function sessionLog(session: Session) {
 }
 
 /**
+ * Parse git worktree errors and return a user-friendly message.
+ * Common errors include:
+ * - Branch already checked out in another worktree
+ * - Invalid branch name
+ * - Permission denied
+ * - Disk space issues
+ */
+function parseWorktreeError(error: unknown): { summary: string; suggestion: string } {
+  const message = error instanceof Error ? error.message : String(error);
+  const lowerMessage = message.toLowerCase();
+
+  // Branch already checked out
+  if (lowerMessage.includes('already checked out') || lowerMessage.includes('is already checked out')) {
+    return {
+      summary: 'Branch is already checked out in another worktree',
+      suggestion: 'Try a different branch name, or use `!worktree list` to see existing worktrees',
+    };
+  }
+
+  // Branch already exists as worktree
+  if (lowerMessage.includes('already exists')) {
+    return {
+      summary: 'A worktree or branch with this name already exists',
+      suggestion: 'Try a different branch name',
+    };
+  }
+
+  // Permission denied
+  if (lowerMessage.includes('permission denied') || lowerMessage.includes('access denied')) {
+    return {
+      summary: 'Permission denied when creating worktree directory',
+      suggestion: 'Check file system permissions for ~/.claude-threads/worktrees/',
+    };
+  }
+
+  // Disk space
+  if (lowerMessage.includes('no space') || lowerMessage.includes('disk full')) {
+    return {
+      summary: 'Not enough disk space to create worktree',
+      suggestion: 'Free up disk space and try again',
+    };
+  }
+
+  // Lock file issues
+  if (lowerMessage.includes('lock') || lowerMessage.includes('.lock')) {
+    return {
+      summary: 'Git lock file conflict',
+      suggestion: 'Another git operation may be in progress. Wait a moment and try again',
+    };
+  }
+
+  // Invalid ref / branch not found
+  if (lowerMessage.includes('invalid ref') || lowerMessage.includes('not a valid ref')) {
+    return {
+      summary: 'Invalid branch reference',
+      suggestion: 'Make sure the branch name is valid and doesn\'t contain special characters',
+    };
+  }
+
+  // Generic fallback
+  return {
+    summary: 'Failed to create worktree',
+    suggestion: 'Try a different branch name or check the git repository state',
+  };
+}
+
+/**
  * Check if we should prompt the user to create a worktree.
  * Returns the reason for prompting, or null if we shouldn't prompt.
  */
@@ -121,6 +188,7 @@ export async function postWorktreePrompt(
 
 /**
  * Handle user providing a branch name in response to worktree prompt.
+ * This handles both the initial worktree prompt and the failure retry prompt.
  * Returns true if handled (whether successful or not).
  */
 export async function handleWorktreeBranchResponse(
@@ -130,7 +198,10 @@ export async function handleWorktreeBranchResponse(
   responsePostId: string,
   createAndSwitch: (threadId: string, branch: string, username: string) => Promise<void>
 ): Promise<boolean> {
-  if (!session.pendingWorktreePrompt) return false;
+  // Check if we're handling a failure retry prompt or the initial worktree prompt
+  const isFailurePrompt = !!session.pendingWorktreeFailurePrompt;
+
+  if (!session.pendingWorktreePrompt && !isFailurePrompt) return false;
 
   // Only session owner can respond
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
@@ -144,6 +215,11 @@ export async function handleWorktreeBranchResponse(
     return true; // We handled it, but need another response
   }
 
+  // Clear failure prompt state if this is a retry
+  if (isFailurePrompt) {
+    session.pendingWorktreeFailurePrompt = undefined;
+  }
+
   // Store the response post ID so we can exclude it from context prompt
   session.worktreeResponsePostId = responsePostId;
 
@@ -154,6 +230,7 @@ export async function handleWorktreeBranchResponse(
 
 /**
  * Handle ❌ reaction on worktree prompt - skip worktree and continue in main repo.
+ * This handles both the initial worktree prompt and the failure retry prompt.
  */
 export async function handleWorktreeSkip(
   session: Session,
@@ -161,7 +238,10 @@ export async function handleWorktreeSkip(
   persistSession: (session: Session) => void,
   offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>
 ): Promise<void> {
-  if (!session.pendingWorktreePrompt) return;
+  // Check if we're handling a failure retry prompt or the initial worktree prompt
+  const isFailurePrompt = !!session.pendingWorktreeFailurePrompt;
+
+  if (!session.pendingWorktreePrompt && !isFailurePrompt) return;
 
   // Only session owner can skip
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
@@ -169,11 +249,17 @@ export async function handleWorktreeSkip(
   }
 
   // Update the prompt post
-  const promptPostId = session.worktreePromptPostId;
+  const promptPostId = isFailurePrompt
+    ? session.pendingWorktreeFailurePrompt?.postId
+    : session.worktreePromptPostId;
+
   if (promptPostId) {
+    const message = isFailurePrompt
+      ? `✅ Continuing in main repo after worktree failure (by @${username})`
+      : `✅ Continuing in main repo (skipped by @${username})`;
+
     await withErrorHandling(
-      () => session.platform.updatePost(promptPostId,
-        `✅ Continuing in main repo (skipped by @${username})`),
+      () => session.platform.updatePost(promptPostId, message),
       { action: 'Update worktree prompt', session }
     );
     // Remove the ❌ reaction option since the action is complete
@@ -186,6 +272,7 @@ export async function handleWorktreeSkip(
   // Clear pending state
   session.pendingWorktreePrompt = false;
   session.worktreePromptPostId = undefined;
+  session.pendingWorktreeFailurePrompt = undefined;
   const queuedPrompt = session.queuedPrompt;
   const queuedFiles = session.queuedFiles;
   session.queuedPrompt = undefined;
@@ -210,6 +297,7 @@ export async function createAndSwitchToWorktree(
   options: {
     skipPermissions: boolean;
     chromeEnabled: boolean;
+    worktreeMode: WorktreeMode;
     handleEvent: (sessionId: string, event: ClaudeEvent) => void;
     handleExit: (sessionId: string, code: number) => Promise<void>;
     updateSessionHeader: (session: Session) => Promise<void>;
@@ -504,40 +592,69 @@ export async function createAndSwitchToWorktree(
   } catch (err) {
     await logAndNotify(err, { action: 'Create worktree', session });
 
-    // On failure, clear pending state and continue without worktree
     const fmt = session.platform.getFormatter();
+    const { summary, suggestion } = parseWorktreeError(err);
+
+    // Update the original worktree prompt post if it exists
     const worktreePromptId = session.worktreePromptPostId;
     if (worktreePromptId) {
       await withErrorHandling(
         () => session.platform.updatePost(worktreePromptId,
-          `❌ Failed to create worktree for ${fmt.formatCode(branch)} - continuing in main repo`),
+          `❌ ${fmt.formatBold(summary)}: ${fmt.formatCode(branch)}`),
         { action: 'Update worktree prompt after failure', session }
       );
-      // Remove the ❌ reaction option since the action is resolved
+      // Remove the ❌ reaction option since we'll show a new prompt
       await withErrorHandling(
         () => session.platform.removeReaction(worktreePromptId, 'x'),
         { action: 'Remove x reaction from worktree prompt', session }
       );
     }
 
-    // Clear pending state
-    const wasPending = session.pendingWorktreePrompt;
-    session.pendingWorktreePrompt = false;
-    session.worktreePromptPostId = undefined;
-    const queuedPrompt = session.queuedPrompt;
-    const queuedFiles = session.queuedFiles;
-    session.queuedPrompt = undefined;
-    session.queuedFiles = undefined;
+    // If worktreeMode is 'require', we can't fall back to main repo - must retry
+    if (options.worktreeMode === 'require') {
+      // Show error with retry prompt
+      const post = await session.platform.createInteractivePost(
+        `⚠️ ${fmt.formatBold('Worktree required but creation failed')}\n\n` +
+        `${suggestion}\n\n` +
+        `Reply with a different branch name to try again.`,
+        [],  // No skip option in require mode
+        session.threadId
+      );
 
-    // Persist updated state
+      // Keep pending state but update the prompt post ID
+      session.worktreePromptPostId = post.id;
+      options.registerPost(post.id, session.threadId);
+      updateLastMessage(session, post);
+      options.persistSession(session);
+
+      sessionLog(session).info(`🌿 Worktree creation failed (require mode), waiting for retry: ${branch}`);
+      return;
+    }
+
+    // For 'prompt' mode, offer choices: retry with different branch or continue in main repo
+    const post = await session.platform.createInteractivePost(
+      `⚠️ ${fmt.formatBold('Worktree creation failed')}\n\n` +
+      `${suggestion}\n\n` +
+      `Reply with a different branch name to try again, or react with ❌ to continue in the main repo.`,
+      ['x'],  // Allow skipping in prompt mode
+      session.threadId
+    );
+
+    // Store pending state for handling the user's response
+    session.pendingWorktreeFailurePrompt = {
+      postId: post.id,
+      failedBranch: branch,
+      errorMessage: summary,
+      username,
+    };
+
+    // Keep the worktree prompt in pending state so the session waits for response
+    session.worktreePromptPostId = post.id;
+    options.registerPost(post.id, session.threadId);
+    updateLastMessage(session, post);
     options.persistSession(session);
 
-    // Send the queued prompt to Claude without worktree
-    if (wasPending && queuedPrompt && session.claude.isRunning()) {
-      const excludePostId = session.worktreeResponsePostId;
-      await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
-      session.worktreeResponsePostId = undefined;
-    }
+    sessionLog(session).info(`🌿 Worktree creation failed, waiting for user decision: ${branch}`);
   }
 }
 

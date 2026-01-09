@@ -1261,6 +1261,7 @@ export class SessionManager extends EventEmitter {
     await worktreeModule.createAndSwitchToWorktree(session, branch, username, {
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
+      worktreeMode: this.worktreeMode,
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),

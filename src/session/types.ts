@@ -94,6 +94,16 @@ export interface PendingExistingWorktreePrompt {
 }
 
 /**
+ * Pending prompt after worktree creation failed, asking user what to do
+ */
+export interface PendingWorktreeFailurePrompt {
+  postId: string;
+  failedBranch: string;
+  errorMessage: string;
+  username: string;  // User who triggered the original request
+}
+
+/**
  * Pending update prompt asking user to update now or defer
  */
 export interface PendingUpdatePrompt {
@@ -193,6 +203,7 @@ export interface Session {
   worktreeResponsePostId?: string;          // Post ID of user's worktree branch response (to exclude from context)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
   pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt; // Waiting for user to confirm joining existing worktree
+  pendingWorktreeFailurePrompt?: PendingWorktreeFailurePrompt;  // Waiting for user to decide after worktree creation failed
 
   // Thread context prompt support
   pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
