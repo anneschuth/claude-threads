@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.15] - 2026-01-09
+
+### Fixed
+- **Clean screen on normal shutdown** - Screen now clears on Ctrl+C / quit, not just on update restart (#145)
+
 ## [0.48.14] - 2026-01-09
 
 ### Fixed
