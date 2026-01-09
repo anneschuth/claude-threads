@@ -31,6 +31,7 @@ export interface MattermostPost {
   message: string;
   type: string;
   props: Record<string, unknown>;
+  file_ids?: string[];  // File IDs (present in WebSocket events, metadata.files may be missing)
   metadata?: {
     embeds?: unknown[];
     files?: MattermostFile[];
