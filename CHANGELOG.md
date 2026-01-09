@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.10] - 2026-01-09
+
+### Changed
+- **Support Claude CLI 2.1.x** - Updated version compatibility range from `>=2.0.74 <=2.1.1` to `>=2.0.74 <2.2.0` to support all 2.1.x releases
+
 ## [0.48.9] - 2026-01-08
 
 ### Added

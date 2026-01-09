@@ -22,12 +22,14 @@ describe('version-check', () => {
       expect(isVersionCompatible('2.0.76')).toBe(true);
       expect(isVersionCompatible('2.1.0')).toBe(true);
       expect(isVersionCompatible('2.1.1')).toBe(true);
+      expect(isVersionCompatible('2.1.2')).toBe(true);
+      expect(isVersionCompatible('2.1.99')).toBe(true);
     });
 
     it('returns false for versions outside the range', () => {
       expect(isVersionCompatible('2.0.73')).toBe(false);
-      expect(isVersionCompatible('2.1.2')).toBe(false);
       expect(isVersionCompatible('2.2.0')).toBe(false);
+      expect(isVersionCompatible('3.0.0')).toBe(false);
       expect(isVersionCompatible('1.0.17')).toBe(false);
     });
 
