@@ -807,8 +807,64 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      // Should have posted to both active threads plus whatever else
+      // Should have posted: 1 confirmation to the kill thread + 2 notifications to active threads
+      expect(client.createPost).toHaveBeenCalledTimes(3);
+      // First call is the confirmation to the thread where !kill was issued
+      expect((client.createPost as any).mock.calls[0][0]).toContain('EMERGENCY SHUTDOWN');
+      expect((client.createPost as any).mock.calls[0][0]).toContain('killing 2 active sessions');
+      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+    });
+
+    test('posts confirmation even with no active sessions', async () => {
+      const onKill = mock(() => {});
+      options.onKill = onKill;
+      (session.getActiveThreadIds as any).mockReturnValue([]);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!kill',
+        rootId: '',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should have posted confirmation even with no active sessions
+      expect(client.createPost).toHaveBeenCalledTimes(1);
+      expect((client.createPost as any).mock.calls[0][0]).toContain('killing 0 active sessions');
+      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+    });
+
+    test('does not duplicate notification when kill issued from active session thread', async () => {
+      const onKill = mock(() => {});
+      options.onKill = onKill;
+      // The kill is issued from thread1, which is also an active session
+      (session.getActiveThreadIds as any).mockReturnValue(['thread1', 'thread2']);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!kill',
+        rootId: 'thread1', // Kill issued from within an active session
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should have posted: 1 confirmation to thread1 + 1 notification to thread2 (not thread1 again)
       expect(client.createPost).toHaveBeenCalledTimes(2);
+      // First call is the confirmation (includes session count)
+      expect((client.createPost as any).mock.calls[0][0]).toContain('killing 2 active sessions');
+      expect((client.createPost as any).mock.calls[0][1]).toBe('thread1');
+      // Second call is notification to thread2 only
+      expect((client.createPost as any).mock.calls[1][1]).toBe('thread2');
       expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
     });
 
