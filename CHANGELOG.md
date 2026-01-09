@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.1] - 2026-01-09
+
+### Fixed
+- **Bug report image upload error** - Fixed `downloadFile` method losing `this` context when passed as callback, causing "undefined is not an object" error (#163)
+
 ## [0.52.0] - 2026-01-09
 
 ### Fixed
