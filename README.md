@@ -6,6 +6,10 @@
  ✴ ▀█▄  █  ✴
 ```
 
+<p align="center">
+  <a href="https://claude-threads.run"><strong>claude-threads.run</strong></a>
+</p>
+
 [![npm version](https://img.shields.io/npm/v/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![npm downloads](https://img.shields.io/npm/dm/claude-threads.svg)](https://www.npmjs.com/package/claude-threads)
 [![CI](https://github.com/anneschuth/claude-threads/actions/workflows/ci.yml/badge.svg)](https://github.com/anneschuth/claude-threads/actions/workflows/ci.yml)
