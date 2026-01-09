@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.11] - 2026-01-09
+
+### Reverted
+- **Sticky plan approval message** - Reverted #142 due to plan mode issues
+
 ## [0.48.10] - 2026-01-09
 
 ### Changed
