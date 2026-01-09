@@ -34,13 +34,13 @@ export function SessionLog({ logs, maxLines = 20 }: SessionLogProps) {
   }
 
   return (
-    <Box flexDirection="column">
+    <Box flexDirection="column" flexShrink={0}>
       {displayLogs.map((log) => (
-        <Box key={log.id}>
-          <Text color={getColorForLevel(log.level)} dimColor>
+        <Box key={log.id} flexShrink={0}>
+          <Text color={getColorForLevel(log.level)} dimColor wrap="truncate">
             [{padComponent(log.component)}]
           </Text>
-          <Text color={getColorForLevel(log.level)}>
+          <Text color={getColorForLevel(log.level)} wrap="truncate">
             {' '}{log.message}
           </Text>
         </Box>
