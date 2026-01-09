@@ -728,6 +728,13 @@ export class SessionManager extends EventEmitter {
 
   private async updateSessionHeader(session: Session): Promise<void> {
     await commands.updateSessionHeader(session, this.getContext());
+    // Also emit UI update for fields that may have changed (worktree, directory, etc.)
+    this.emitSessionUpdate(session.sessionId, {
+      workingDir: session.workingDir,
+      worktreeBranch: session.worktreeInfo?.branch,
+      title: session.sessionTitle,
+      description: session.sessionDescription,
+    });
   }
 
   // ---------------------------------------------------------------------------

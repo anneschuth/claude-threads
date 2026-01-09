@@ -1,17 +1,31 @@
 /**
  * Main App component - root of the Ink UI
+ *
+ * Layout:
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │ HEADER (logo, version, working dir)                             │
+ * ├─────────────────────────────┬───────────────────────────────────┤
+ * │ Platforms                   │ Logs                              │
+ * │ 1. 𝓜 ● @bot on Main         │ [lifecycle] Session started       │
+ * │ 2. 🆂 ● @slack on Work       │ [error] Connection timeout        │
+ * ├─────────────────────────────┴───────────────────────────────────┤
+ * │ [1 ● Fix auth] [2 ● Feature] [3 ○ Review]     ← tab bar         │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │ Fix authentication bug                        ← session content │
+ * │ @alice · 2m · fix-auth                                          │
+ * │ ─────────────────────────────────────────────────────────────── │
+ * │ [Session] ▶ Starting Claude...                                  │
+ * │ [Claude]  I'll help fix the authentication bug...               │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │ ✓ Ready | [d]ebug [p]erms [1-3] tabs | [q]uit      ← footer     │
+ * └─────────────────────────────────────────────────────────────────┘
  */
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
-import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
-
-// Memoized separator to prevent flickering
-const SEPARATOR = '─'.repeat(50);
-const Separator = React.memo(() => (
-  <Box marginTop={1}>
-    <Text dimColor>{SEPARATOR}</Text>
-  </Box>
-));
+import { Header, Platforms, LogPanel, TabBar, SessionContent } from './components/index.js';
+import { RootLayout, Panel, SplitPanel } from './layouts/index.js';
+import { Footer } from './components/Footer.js';
+import { OverlayModal } from './components/OverlayModal.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState } from './types.js';
@@ -45,20 +59,20 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     updateSession,
     removeSession,
     addLog,
-    toggleSession,
+    selectSession,
     setPlatformStatus,
     togglePlatformEnabled,
     getLogsForSession,
     getGlobalLogs,
   } = useAppState(config);
 
+  // Get terminal dimensions for calculating available height
+  const { stdout } = useStdout();
+  const terminalRows = stdout?.rows ?? 24;
+
   // Resize counter to force re-render on terminal resize (value used indirectly)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [resizeCount, setResizeCount] = React.useState(0);
-
-  // Get terminal dimensions for pinning StatusLine to bottom
-  const { stdout } = useStdout();
-  const terminalRows = stdout?.rows ?? 24;
 
   // Runtime toggle state - initialized from config
   const [toggles, setToggles] = React.useState<ToggleState>({
@@ -75,6 +89,9 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     status: 'idle',
     currentVersion: config.version,
   });
+
+  // Active modal state for RootLayout
+  const [activeModal, setActiveModal] = React.useState<React.ReactNode | null>(null);
 
   // Toggle handlers - update state and call callbacks
   const handleDebugToggle = React.useCallback(() => {
@@ -111,10 +128,25 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     });
   }, [toggleCallbacks]);
 
-  // Update modal toggle handler
+  // Update modal toggle handler - manages both toggle state and modal content
   const handleUpdateModalToggle = React.useCallback(() => {
-    setToggles(prev => ({ ...prev, updateModalVisible: !prev.updateModalVisible }));
-  }, []);
+    setToggles(prev => {
+      const newVisible = !prev.updateModalVisible;
+      if (newVisible) {
+        setActiveModal(
+          <OverlayModal
+            title="Update Status"
+            hint={getUpdateHint(updateState)}
+          >
+            <UpdateModalContent state={updateState} />
+          </OverlayModal>
+        );
+      } else {
+        setActiveModal(null);
+      }
+      return { ...prev, updateModalVisible: newVisible };
+    });
+  }, [updateState]);
 
   // Logs focus toggle handler
   const handleLogsFocusToggle = React.useCallback(() => {
@@ -153,6 +185,20 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     }
   }, [onResizeReady]);
 
+  // Keep modal content in sync with updateState changes when modal is visible
+  React.useEffect(() => {
+    if (toggles.updateModalVisible) {
+      setActiveModal(
+        <OverlayModal
+          title="Update Status"
+          hint={getUpdateHint(updateState)}
+        >
+          <UpdateModalContent state={updateState} />
+        </OverlayModal>
+      );
+    }
+  }, [updateState, toggles.updateModalVisible]);
+
   // Get session IDs for keyboard handling
   const sessionIds = Array.from(state.sessions.keys());
 
@@ -163,7 +209,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   useKeyboard({
     sessionIds,
     platformIds,
-    onToggle: toggleSession,
+    onSelect: selectSession,
     onPlatformToggle: handlePlatformToggle,
     onQuit,
     onDebugToggle: handleDebugToggle,
@@ -176,84 +222,237 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     updateModalVisible: toggles.updateModalVisible,
     logsFocused: toggles.logsFocused,
   });
+
   // Get global logs (not associated with a session)
   const globalLogs = getGlobalLogs();
-  const hasLogs = globalLogs.length > 0;
-  const hasSessions = state.sessions.size > 0;
 
-  // Calculate fixed heights for stable layout (prevents flickering)
-  // Header: 5 (bordered box), Config: 4, Separator+Platforms: 3 + count,
-  // Separator+Logs header: 3, Separator+Threads: 3 + count, StatusLine: 3
-  const platformCount = Math.max(1, state.platforms.size);
-  const sessionCount = Math.max(1, state.sessions.size);
-  const fixedOverhead = 5 + 4 + 3 + platformCount + 3 + 3 + sessionCount + 3;
-  const logHeight = Math.max(3, terminalRows - fixedOverhead);
+  // Get sessions as array for TabBar
+  const sessionsArray = Array.from(state.sessions.values());
 
-  return (
-    <Box flexDirection="column" height={terminalRows}>
-      {/* Fixed header at top */}
-      <Header version={config.version} />
-      <ConfigSummary config={config} />
+  // Get selected session and its logs
+  const selectedSession = state.selectedSessionId
+    ? state.sessions.get(state.selectedSessionId)
+    : null;
+  const selectedSessionLogs = state.selectedSessionId
+    ? getLogsForSession(state.selectedSessionId)
+    : [];
 
-      {/* Platforms section */}
-      <Separator />
-      <Box>
-        <Text dimColor bold>Platforms</Text>
-        <Text dimColor> ({state.platforms.size})</Text>
-      </Box>
+  // Calculate heights for the layout
+  const headerHeight = 5; // Logo (3 lines + border)
+  const footerHeight = 2; // Separator + status row
+  const tabBarHeight = 2; // Tab bar + separator
+  const separatorLines = 3; // 3 separator lines in the layout
+  const availableHeight = terminalRows - headerHeight - footerHeight - tabBarHeight - separatorLines;
+  const topHalfHeight = Math.max(5, Math.floor(availableHeight * 0.35)); // 35% for platforms + logs
+  const bottomHalfHeight = Math.max(5, availableHeight - topHalfHeight); // 65% for session content
+
+  // Build the header content
+  const headerContent = (
+    <Header
+      version={config.version}
+      workingDir={config.workingDir}
+      claudeVersion={config.claudeVersion}
+    />
+  );
+
+  // Build the footer content
+  const footerContent = (
+    <Footer
+      ready={state.ready}
+      shuttingDown={state.shuttingDown}
+      sessionCount={state.sessions.size}
+      toggles={toggles}
+      platforms={state.platforms}
+      updateState={updateState}
+    />
+  );
+
+  // Left panel: Platforms
+  const platformsPanel = (
+    <Panel title="Platforms" count={state.platforms.size}>
       <Platforms platforms={state.platforms} />
+    </Panel>
+  );
 
-      {/* Global logs section - fixed height to prevent flickering */}
-      <Separator />
-      <Box>
-        <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
-          Logs
-        </Text>
-        <Text dimColor> ({globalLogs.length})</Text>
-        {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
-      </Box>
-      {hasLogs ? (
-        <LogPanel logs={globalLogs} maxLines={logHeight} focused={toggles.logsFocused} />
+  // Right panel: Logs
+  const logsPanel = (
+    <Panel
+      title="Logs"
+      count={globalLogs.length}
+      focused={toggles.logsFocused}
+      hint={toggles.logsFocused ? 'up/down scroll, g/G top/bottom, [l] unfocus' : undefined}
+    >
+      {globalLogs.length > 0 ? (
+        <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
       ) : (
         <Text dimColor italic>  No logs yet</Text>
       )}
+    </Panel>
+  );
 
-      {/* Sessions section */}
-      <Separator />
-      <Box>
-        <Text dimColor bold>Threads</Text>
-        <Text dimColor> ({state.sessions.size})</Text>
+  return (
+    <RootLayout
+      header={headerContent}
+      footer={footerContent}
+      modal={activeModal}
+    >
+      {/* Main content area */}
+      <Box flexDirection="column" flexGrow={1} overflow="hidden">
+        {/* Separator */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+
+        {/* Top section: Platforms | Logs (side by side) */}
+        <SplitPanel
+          left={platformsPanel}
+          right={logsPanel}
+          leftWidth={38}
+          height={topHalfHeight}
+        />
+
+        {/* Separator + Tab bar for sessions */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+        <TabBar
+          sessions={sessionsArray}
+          selectedId={state.selectedSessionId}
+          onSelect={selectSession}
+        />
+
+        {/* Separator + Bottom section: Selected session content */}
+        <Text dimColor>{'─'.repeat(100)}</Text>
+        <Box flexDirection="column" flexGrow={1} overflow="hidden">
+          {selectedSession ? (
+            <SessionContent
+              session={selectedSession}
+              logs={selectedSessionLogs}
+              height={bottomHalfHeight}
+            />
+          ) : (
+            <Box flexDirection="column" alignItems="center" paddingTop={1}>
+              <Text dimColor>No session selected</Text>
+              <Text dimColor italic>@mention the bot to start a session</Text>
+            </Box>
+          )}
+        </Box>
       </Box>
-      {hasSessions ? (
-        Array.from(state.sessions.entries()).map(([id, session], index) => (
-          <CollapsibleSession
-            key={id}
-            session={session}
-            logs={getLogsForSession(id)}
-            expanded={state.expandedSessions.has(id)}
-            sessionNumber={index + 1}
-          />
-        ))
-      ) : (
-        <Text dimColor italic>  No active threads</Text>
-      )}
+    </RootLayout>
+  );
+}
 
-      {/* Update modal overlay */}
-      {toggles.updateModalVisible && (
-        <Box marginTop={1} justifyContent="center">
-          <UpdateModal state={updateState} />
+/**
+ * Helper function to get the hint text for the update modal
+ */
+function getUpdateHint(state: UpdatePanelState): string {
+  const canUpdate = state.status === 'available' || state.status === 'deferred';
+  if (canUpdate) {
+    return 'Press [Shift+U] to update now  |  [u] or [Esc] to close';
+  }
+  return 'Press [u] or [Esc] to close';
+}
+
+/**
+ * Update modal content component - extracted for use with OverlayModal
+ */
+function UpdateModalContent({ state }: { state: UpdatePanelState }) {
+  return (
+    <Box flexDirection="column">
+      {/* Version info */}
+      <Box flexDirection="column" gap={0}>
+        <Box>
+          <Text dimColor>Current version: </Text>
+          <Text bold>v{state.currentVersion}</Text>
+        </Box>
+
+        {state.latestVersion && state.latestVersion !== state.currentVersion && (
+          <Box>
+            <Text dimColor>Latest version:  </Text>
+            <Text bold color="green">v{state.latestVersion}</Text>
+          </Box>
+        )}
+      </Box>
+
+      {/* Status line */}
+      <Box marginTop={1}>
+        <StatusIcon state={state} />
+      </Box>
+
+      {/* Additional info based on status */}
+      {state.status === 'scheduled' && state.scheduledRestartAt && (
+        <Box marginTop={1}>
+          <Text dimColor>Restart at: </Text>
+          <Text>{formatTime(state.scheduledRestartAt)}</Text>
         </Box>
       )}
 
-      {/* StatusLine pinned to bottom */}
-      <StatusLine
-        ready={state.ready}
-        shuttingDown={state.shuttingDown}
-        sessionCount={state.sessions.size}
-        toggles={toggles}
-        platforms={state.platforms}
-        updateState={updateState}
-      />
+      {state.status === 'deferred' && state.deferredUntil && (
+        <Box marginTop={1}>
+          <Text dimColor>Deferred until: </Text>
+          <Text>{formatTime(state.deferredUntil)}</Text>
+        </Box>
+      )}
+
+      {state.status === 'failed' && state.errorMessage && (
+        <Box marginTop={1} flexDirection="column">
+          <Text color="red">Error:</Text>
+          <Text dimColor>{state.errorMessage}</Text>
+        </Box>
+      )}
     </Box>
   );
+}
+
+/**
+ * Status icon component for the update modal
+ */
+function StatusIcon({ state }: { state: UpdatePanelState }) {
+  const { icon, label, color } = getStatusDisplay(state);
+
+  if (state.status === 'installing') {
+    return (
+      <Box gap={1}>
+        <Text color={color}>{label}</Text>
+      </Box>
+    );
+  }
+
+  return (
+    <Box gap={1}>
+      <Text>{icon}</Text>
+      <Text color={color}>{label}</Text>
+    </Box>
+  );
+}
+
+/**
+ * Get status display info based on update state
+ */
+function getStatusDisplay(state: UpdatePanelState): {
+  icon: string;
+  label: string;
+  color: string;
+} {
+  switch (state.status) {
+    case 'idle':
+      return { icon: '\u2713', label: 'Up to date', color: 'green' };
+    case 'available':
+      return { icon: '\uD83C\uDD95', label: 'Update available', color: 'green' };
+    case 'scheduled':
+      return { icon: '\u23F0', label: 'Restart scheduled', color: 'yellow' };
+    case 'installing':
+      return { icon: '\uD83D\uDCE6', label: 'Installing...', color: 'cyan' };
+    case 'pending_restart':
+      return { icon: '\uD83D\uDD04', label: 'Restarting...', color: 'yellow' };
+    case 'failed':
+      return { icon: '\u274C', label: 'Update failed', color: 'red' };
+    case 'deferred':
+      return { icon: '\u23F8\uFE0F', label: 'Update deferred', color: 'gray' };
+    default:
+      return { icon: '?', label: 'Unknown', color: 'gray' };
+  }
+}
+
+/**
+ * Format a date for display
+ */
+function formatTime(date: Date): string {
+  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }

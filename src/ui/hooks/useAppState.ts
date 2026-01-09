@@ -12,7 +12,7 @@ export function useAppState(initialConfig: AppConfig) {
     platforms: new Map(),
     sessions: new Map(),
     logs: [],
-    expandedSessions: new Set(),
+    selectedSessionId: null,  // Currently selected session tab
     ready: false,
     shuttingDown: false,
   });
@@ -29,12 +29,9 @@ export function useAppState(initialConfig: AppConfig) {
     setState((prev) => {
       const sessions = new Map(prev.sessions);
       sessions.set(session.id, session);
-      // Auto-expand the first session, or new sessions
-      const expandedSessions = new Set(prev.expandedSessions);
-      if (sessions.size === 1 || !expandedSessions.has(session.id)) {
-        expandedSessions.add(session.id);
-      }
-      return { ...prev, sessions, expandedSessions };
+      // Auto-select the first session or newly added sessions
+      const selectedSessionId = sessions.size === 1 ? session.id : prev.selectedSessionId ?? session.id;
+      return { ...prev, sessions, selectedSessionId };
     });
   }, []);
 
@@ -53,9 +50,13 @@ export function useAppState(initialConfig: AppConfig) {
     setState((prev) => {
       const sessions = new Map(prev.sessions);
       sessions.delete(sessionId);
-      const expandedSessions = new Set(prev.expandedSessions);
-      expandedSessions.delete(sessionId);
-      return { ...prev, sessions, expandedSessions };
+      // If we removed the selected session, select the first remaining session
+      let selectedSessionId = prev.selectedSessionId;
+      if (selectedSessionId === sessionId) {
+        const remaining = Array.from(sessions.keys());
+        selectedSessionId = remaining.length > 0 ? remaining[0] : null;
+      }
+      return { ...prev, sessions, selectedSessionId };
     });
   }, []);
 
@@ -72,15 +73,13 @@ export function useAppState(initialConfig: AppConfig) {
     });
   }, []);
 
-  const toggleSession = useCallback((sessionId: string) => {
+  const selectSession = useCallback((sessionId: string) => {
     setState((prev) => {
-      const expandedSessions = new Set(prev.expandedSessions);
-      if (expandedSessions.has(sessionId)) {
-        expandedSessions.delete(sessionId);
-      } else {
-        expandedSessions.add(sessionId);
+      // Only select if session exists
+      if (prev.sessions.has(sessionId)) {
+        return { ...prev, selectedSessionId: sessionId };
       }
-      return { ...prev, expandedSessions };
+      return prev;
     });
   }, []);
 
@@ -133,7 +132,7 @@ export function useAppState(initialConfig: AppConfig) {
     updateSession,
     removeSession,
     addLog,
-    toggleSession,
+    selectSession,
     setPlatformStatus,
     togglePlatformEnabled,
     getLogsForSession,

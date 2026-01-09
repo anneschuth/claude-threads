@@ -13,14 +13,14 @@ interface PlatformsProps {
 export function Platforms({ platforms }: PlatformsProps) {
   if (platforms.size === 0) {
     return (
-      <Box marginTop={1}>
+      <Box>
         <Spinner label="Connecting to platforms..." type="dots" />
       </Box>
     );
   }
 
   return (
-    <Box flexDirection="column" marginTop={1}>
+    <Box flexDirection="column">
       {Array.from(platforms.values()).map((platform, index) => (
         <Box key={platform.id} gap={1}>
           {/* Platform number */}

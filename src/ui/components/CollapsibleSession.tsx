@@ -43,15 +43,15 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
   const displayTitle = session.title || `Session ${shortId}`;
 
   return (
-    <Box flexDirection="column" marginTop={0}>
+    <Box flexDirection="column" marginTop={0} overflow="hidden">
       {/* Header line: number + platform + arrow + title + user + status + branch */}
-      <Box gap={1}>
+      <Box gap={1} overflow="hidden">
         <Text dimColor>{sessionNumber}.</Text>
         <Text>{platformIcon}</Text>
         <Text dimColor>{arrow}</Text>
-        <Text color={session.title ? 'cyan' : 'white'} bold>{displayTitle}</Text>
+        <Text color={session.title ? 'cyan' : 'white'} bold wrap="truncate">{displayTitle}</Text>
         <Text dimColor>·</Text>
-        <Text color="yellow">{session.startedBy}</Text>
+        <Text color="yellow" wrap="truncate">{session.startedBy}</Text>
         {timeAgo && (
           <>
             <Text dimColor>·</Text>
@@ -62,15 +62,15 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
         {session.worktreeBranch && (
           <>
             <Text dimColor>│</Text>
-            <Text color="magenta">{session.worktreeBranch}</Text>
+            <Text color="magenta" wrap="truncate">{session.worktreeBranch}</Text>
           </>
         )}
       </Box>
 
       {/* Description line (if available, shown when collapsed too) */}
       {session.description && (
-        <Box paddingLeft={2}>
-          <Text dimColor italic>{session.description}</Text>
+        <Box paddingLeft={2} overflow="hidden">
+          <Text dimColor italic wrap="truncate">{session.description}</Text>
         </Box>
       )}
 

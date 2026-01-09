@@ -11,7 +11,7 @@
  * - deferred: Shows deferred until time
  */
 import { Box, Text } from 'ink';
-import { Modal } from './Modal.js';
+import { OverlayModal } from './OverlayModal.js';
 import { Spinner } from './Spinner.js';
 import type { UpdatePanelState } from '../types.js';
 
@@ -70,7 +70,7 @@ export function UpdateModal({ state }: UpdateModalProps) {
   const hint = getHint(state);
 
   return (
-    <Modal title="Update Status" hint={hint}>
+    <OverlayModal title="Update Status" hint={hint}>
       {/* Version info */}
       <Box flexDirection="column" gap={0}>
         <Box>
@@ -122,6 +122,6 @@ export function UpdateModal({ state }: UpdateModalProps) {
           <Text dimColor>{state.errorMessage}</Text>
         </Box>
       )}
-    </Modal>
+    </OverlayModal>
   );
 }
