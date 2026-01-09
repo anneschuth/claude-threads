@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.49.0] - 2026-01-09
+
+### Added
+- **Tabbed session interface** - Sessions now display as tabs with status indicators (●/○/◌), replacing the collapsible list. Press `1-9` to switch between session tabs (#149)
+- **Split-screen layout** - New layout with platforms and logs side-by-side in the top section, session tabs and content in the bottom section
+- **Stylized platform icons** - New distinctive icons: `𝓜` for Mattermost, `🆂` for Slack
+- **Headless mode support** - Bot can now run without a TTY (e.g., in Docker, systemd) with automatic detection and graceful fallback
+- **Panel system** - New layout components with priority-based space distribution
+- **Modal overlay system** - Update status modal with proper overlay rendering
+
+### Changed
+- **Session selection** - Changed from expand/collapse (`expandedSessions: Set`) to tab selection (`selectedSessionId: string`)
+- **Typing indicator position** - Moved from floating at bottom to inline in session header title line
+- **Panel hints** - Logs panel hints now appear inline with title (e.g., `Logs (19) · up/down scroll...`)
+
+### Fixed
+- **Layout spacing** - Fixed duplicate height allocation and adjusted proportions (35% top, 65% bottom)
+- **Platform name wrapping** - Increased panel width to prevent "Mattermost" from wrapping
+
 ## [0.48.17] - 2026-01-09
 
 ### Fixed
