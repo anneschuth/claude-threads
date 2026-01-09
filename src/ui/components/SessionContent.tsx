@@ -61,14 +61,16 @@ function SessionHeader({ session }: { session: SessionInfo }) {
   const platformIcon = getPlatformIcon(session.platformType || 'mattermost');
   const timeAgo = session.lastActivity ? formatRelativeTimeShort(session.lastActivity) : '';
   const displayTitle = session.title || 'Untitled session';
+  const isTyping = session.isTyping || session.status === 'starting';
 
   return (
     <Box flexDirection="column" marginBottom={0}>
-      {/* Title line */}
+      {/* Title line with typing indicator */}
       <Box gap={1} overflow="hidden">
         <Text>{platformIcon}</Text>
         <Text color="cyan" bold wrap="truncate">{displayTitle}</Text>
         <Text color={color}>{icon}</Text>
+        {isTyping && <Spinner type="simpleDots" />}
       </Box>
 
       {/* Metadata line */}
@@ -106,15 +108,14 @@ export function SessionContent({ session, logs, height }: SessionContentProps) {
     return <EmptyState />;
   }
 
-  // Calculate log area height (total - header lines - typing indicator)
+  // Calculate log area height (total - header lines - separator)
   const headerLines = session.description ? 3 : 2;
-  const footerLines = 1; // For typing indicator
   const separatorLines = 1;
-  const logHeight = height ? height - headerLines - footerLines - separatorLines : undefined;
+  const logHeight = height ? height - headerLines - separatorLines : undefined;
 
   return (
     <Box flexDirection="column" height={height} overflow="hidden">
-      {/* Session header */}
+      {/* Session header (includes typing indicator) */}
       <SessionHeader session={session} />
 
       {/* Separator */}
@@ -125,15 +126,6 @@ export function SessionContent({ session, logs, height }: SessionContentProps) {
       {/* Log area - takes remaining space */}
       <Box flexDirection="column" flexGrow={1} overflow="hidden" height={logHeight}>
         <SessionLog logs={logs} maxLines={logHeight} />
-      </Box>
-
-      {/* Typing/loading indicator at bottom */}
-      <Box height={1}>
-        {session.status === 'starting' ? (
-          <Spinner label="Starting Claude..." type="dots" />
-        ) : session.isTyping ? (
-          <Spinner label="Typing..." type="simpleDots" />
-        ) : null}
       </Box>
     </Box>
   );
