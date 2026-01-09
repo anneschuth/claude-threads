@@ -843,14 +843,14 @@ export async function reportBug(
   let imageUrls: string[] = [];
   let imageErrors: string[] = [];
 
-  const downloadFile = session.platform.downloadFile;
+  const downloadFile = session.platform.downloadFile?.bind(session.platform);
   if (attachedFiles && attachedFiles.length > 0 && downloadFile) {
     // Show upload progress
     await postInfo(session, `📤 Uploading ${attachedFiles.length} image(s)...`);
 
     const uploadResults = await uploadImages(
       attachedFiles,
-      (fileId) => downloadFile(fileId)
+      downloadFile
     );
 
     imageUrls = uploadResults
