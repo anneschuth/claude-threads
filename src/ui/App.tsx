@@ -180,64 +180,70 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   const hasLogs = globalLogs.length > 0;
   const hasSessions = state.sessions.size > 0;
 
+  // Calculate fixed heights for stable layout (prevents flickering)
+  // Header: 5, Config: 3, Platforms: 2 + count, Logs header: 2, Threads: 2 + count, StatusLine: 3
+  const platformCount = Math.max(1, state.platforms.size);
+  const sessionCount = Math.max(1, state.sessions.size);
+  const fixedOverhead = 5 + 3 + 2 + platformCount + 2 + 2 + sessionCount + 3;
+  const logHeight = Math.max(5, terminalRows - fixedOverhead);
+
   return (
     <Box flexDirection="column" height={terminalRows}>
       {/* Fixed header at top */}
       <Header version={config.version} />
       <ConfigSummary config={config} />
 
-      {/* Main content area - fills available space */}
-      <Box flexDirection="column" flexGrow={1}>
-        {/* Platforms section */}
-        <Separator />
-        <Box>
-          <Text dimColor bold>Platforms</Text>
-          <Text dimColor> ({state.platforms.size})</Text>
-        </Box>
-        <Platforms platforms={state.platforms} />
+      {/* Platforms section */}
+      <Separator />
+      <Box>
+        <Text dimColor bold>Platforms</Text>
+        <Text dimColor> ({state.platforms.size})</Text>
+      </Box>
+      <Platforms platforms={state.platforms} />
 
-        {/* Global logs section */}
-        <Separator />
-        <Box>
-          <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
-            Logs
-          </Text>
-          <Text dimColor> ({globalLogs.length})</Text>
-          {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
-        </Box>
+      {/* Global logs section - fixed height to prevent flickering */}
+      <Separator />
+      <Box>
+        <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
+          Logs
+        </Text>
+        <Text dimColor> ({globalLogs.length})</Text>
+        {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
+      </Box>
+      <Box height={logHeight}>
         {hasLogs ? (
-          <LogPanel logs={globalLogs} maxLines={10} focused={toggles.logsFocused} fillAvailable />
+          <LogPanel logs={globalLogs} maxLines={logHeight} focused={toggles.logsFocused} />
         ) : (
           <Text dimColor italic>  No logs yet</Text>
         )}
-
-        {/* Sessions section */}
-        <Separator />
-        <Box>
-          <Text dimColor bold>Threads</Text>
-          <Text dimColor> ({state.sessions.size})</Text>
-        </Box>
-        {hasSessions ? (
-          Array.from(state.sessions.entries()).map(([id, session], index) => (
-            <CollapsibleSession
-              key={id}
-              session={session}
-              logs={getLogsForSession(id)}
-              expanded={state.expandedSessions.has(id)}
-              sessionNumber={index + 1}
-            />
-          ))
-        ) : (
-          <Text dimColor italic>  No active threads</Text>
-        )}
-
-        {/* Update modal overlay */}
-        {toggles.updateModalVisible && (
-          <Box marginTop={1} justifyContent="center">
-            <UpdateModal state={updateState} />
-          </Box>
-        )}
       </Box>
+
+      {/* Sessions section */}
+      <Separator />
+      <Box>
+        <Text dimColor bold>Threads</Text>
+        <Text dimColor> ({state.sessions.size})</Text>
+      </Box>
+      {hasSessions ? (
+        Array.from(state.sessions.entries()).map(([id, session], index) => (
+          <CollapsibleSession
+            key={id}
+            session={session}
+            logs={getLogsForSession(id)}
+            expanded={state.expandedSessions.has(id)}
+            sessionNumber={index + 1}
+          />
+        ))
+      ) : (
+        <Text dimColor italic>  No active threads</Text>
+      )}
+
+      {/* Update modal overlay */}
+      {toggles.updateModalVisible && (
+        <Box marginTop={1} justifyContent="center">
+          <UpdateModal state={updateState} />
+        </Box>
+      )}
 
       {/* StatusLine pinned to bottom */}
       <StatusLine
