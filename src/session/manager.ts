@@ -720,6 +720,7 @@ export class SessionManager extends EventEmitter {
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
+      isPaused: session.isPaused,
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
       pullRequestUrl: session.pullRequestUrl,
@@ -1050,9 +1051,30 @@ export class SessionManager extends EventEmitter {
     log.info(`📂 Loaded ${persisted.size} session(s) from persistence`);
 
     if (persisted.size > 0) {
-      log.info(`🔄 Attempting to resume ${persisted.size} persisted session(s)...`);
+      // Split sessions into active (to resume) and paused (to skip)
+      // Sessions with isPaused=true were already paused (timeout/interrupt) before bot restart
+      const activeToResume: PersistedSession[] = [];
+      const pausedToSkip: PersistedSession[] = [];
+
       for (const state of persisted.values()) {
-        await lifecycle.resumeSession(state, this.getContext());
+        if (state.isPaused) {
+          // Session was paused (timeout or interrupt) - don't auto-resume
+          pausedToSkip.push(state);
+        } else {
+          // Session was active when bot shut down - resume it
+          activeToResume.push(state);
+        }
+      }
+
+      if (pausedToSkip.length > 0) {
+        log.info(`⏸️ ${pausedToSkip.length} session(s) remain paused (waiting for user message)`);
+      }
+
+      if (activeToResume.length > 0) {
+        log.info(`🔄 Attempting to resume ${activeToResume.length} active session(s)...`);
+        for (const state of activeToResume) {
+          await lifecycle.resumeSession(state, this.getContext());
+        }
       }
     }
 

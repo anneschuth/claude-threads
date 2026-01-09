@@ -311,6 +311,7 @@ export function resetSessionActivity(session: Session): void {
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
   session.lifecyclePostId = undefined;
+  session.isPaused = undefined;
 }
 
 /**
