@@ -131,6 +131,55 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     };
   }
 
+  /**
+   * Process a post from WebSocket and emit it as an event.
+   * If the post has file_ids but no metadata.files, fetches file info from API.
+   * This is needed because WebSocket events may not include full file metadata.
+   */
+  private async processAndEmitPost(post: MattermostPost): Promise<void> {
+    // Check if we need to fetch file metadata
+    // WebSocket events include file_ids but may not include metadata.files
+    const hasFileIds = post.file_ids && post.file_ids.length > 0;
+    const hasFileMetadata = post.metadata?.files && post.metadata.files.length > 0;
+
+    if (hasFileIds && !hasFileMetadata) {
+      log.debug(`Post ${post.id.substring(0, 8)} has ${post.file_ids!.length} file(s), fetching metadata`);
+      try {
+        // Fetch file info for each file_id
+        const files: MattermostFile[] = [];
+        for (const fileId of post.file_ids!) {
+          try {
+            const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
+            files.push(file);
+          } catch (err) {
+            log.warn(`Failed to fetch file info for ${fileId}: ${err}`);
+          }
+        }
+
+        // Add the file metadata to the post
+        if (files.length > 0) {
+          post.metadata = {
+            ...post.metadata,
+            files,
+          };
+          log.debug(`Enriched post ${post.id.substring(0, 8)} with ${files.length} file(s)`);
+        }
+      } catch (err) {
+        log.warn(`Failed to fetch file metadata for post ${post.id.substring(0, 8)}: ${err}`);
+      }
+    }
+
+    // Get user info and emit
+    const user = await this.getUser(post.user_id);
+    const normalizedPost = this.normalizePlatformPost(post);
+    this.emit('message', normalizedPost, user);
+
+    // Also emit channel_post for top-level posts (not thread replies)
+    if (!post.root_id) {
+      this.emit('channel_post', normalizedPost, user);
+    }
+  }
+
   // Maximum number of retry attempts for transient errors
   private readonly MAX_RETRIES = 3;
   private readonly RETRY_DELAY_MS = 500;
@@ -537,16 +586,8 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         // Track last processed post for message recovery after disconnection
         this.lastProcessedPostId = post.id;
 
-        // Get user info and emit (with normalized types)
-        this.getUser(post.user_id).then((user) => {
-          const normalizedPost = this.normalizePlatformPost(post);
-          this.emit('message', normalizedPost, user);
-
-          // Also emit channel_post for top-level posts (not thread replies)
-          if (!post.root_id) {
-            this.emit('channel_post', normalizedPost, user);
-          }
-        });
+        // Process the post (potentially enriching with file metadata)
+        this.processAndEmitPost(post);
       } catch (err) {
         wsLogger.warn(`Failed to parse post: ${err}`);
       }
