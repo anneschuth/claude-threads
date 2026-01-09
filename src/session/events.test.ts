@@ -60,6 +60,10 @@ function createMockPlatform() {
     unpinPost: mock(async (_postId: string): Promise<void> => {}),
     sendTyping: mock(() => {}),
     getFormatter: () => createMockFormatter(),
+    getThreadHistory: mock(async (_threadId: string, _options?: { limit?: number }) => {
+      // Return empty array by default - tests that need specific history can override
+      return [];
+    }),
     posts,
   };
 
@@ -457,6 +461,111 @@ describe('handleEvent with TodoWrite', () => {
 
     // The bump function should have been called
     expect(bumpCalled).toBe(true);
+  });
+
+  test('creates new task post when updatePost fails (e.g., post was deleted)', async () => {
+    // Simulate having a task post that no longer exists
+    session.tasksPostId = 'deleted_task_post';
+    session.lastTasksContent = '📋 **Tasks** (0/1)\n○ Task 1';
+
+    // Make updatePost fail (simulating the post was deleted)
+    let updatePostCalled = false;
+    let createPostCalled = false;
+    (platform as any).updatePost = mock(async (_postId: string, _message: string) => {
+      updatePostCalled = true;
+      throw new Error('Post not found');
+    });
+    const originalCreateInteractivePost = platform.createInteractivePost;
+    (platform as any).createInteractivePost = mock(async (message: string, reactions: string[], threadId?: string) => {
+      createPostCalled = true;
+      return originalCreateInteractivePost.call(platform, message, reactions, threadId);
+    });
+
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'TodoWrite',
+            id: 'tool_update_fail',
+            input: {
+              todos: [
+                { content: 'Task 1', status: 'in_progress', activeForm: 'Doing task 1' },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // updatePost should have been attempted
+    expect(updatePostCalled).toBe(true);
+    // Since update failed, a new post should be created
+    expect(createPostCalled).toBe(true);
+    // tasksPostId should now point to the new post
+    expect(session.tasksPostId).toBeTruthy();
+    expect(session.tasksPostId).not.toBe('deleted_task_post');
+  });
+
+  test('cleanupOrphanedTaskPosts removes old task posts when creating new one', async () => {
+    // No existing task post
+    session.tasksPostId = null;
+
+    // Track which posts get deleted
+    const deletedPosts: string[] = [];
+    (platform as any).deletePost = mock(async (postId: string) => {
+      deletedPosts.push(postId);
+    });
+
+    // Mock getThreadHistory to return some old task posts
+    (platform as any).getThreadHistory = mock(async (_threadId: string, _options?: { limit?: number }) => {
+      return [
+        { id: 'orphaned_task_1', message: '---\n📋 **Tasks** (1/2 · 50%)\n○ Old task', username: 'bot' },
+        { id: 'orphaned_task_2', message: '📋 **Tasks** (0/1)\n○ Another old task', username: 'bot' },
+        { id: 'regular_post', message: 'This is a regular message', username: 'user' },
+        { id: 'new_task_post', message: '---\n📋 **Tasks** (0/1)\n○ Current task', username: 'bot' },
+      ];
+    });
+
+    // Override createInteractivePost to return the 'new_task_post' id
+    (platform as any).createInteractivePost = mock(async (_message: string, _reactions: string[], _threadId?: string) => {
+      return { id: 'new_task_post', message: _message };
+    });
+
+    const event = {
+      type: 'assistant' as const,
+      message: {
+        content: [
+          {
+            type: 'tool_use',
+            name: 'TodoWrite',
+            id: 'tool_cleanup_test',
+            input: {
+              todos: [
+                { content: 'Current task', status: 'pending', activeForm: 'Current task' },
+              ],
+            },
+          },
+        ],
+      },
+    };
+
+    handleEvent(session, event, ctx);
+
+    // Wait for async operations (including cleanup)
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    // The orphaned task posts should be deleted, but not the new one or regular posts
+    expect(deletedPosts).toContain('orphaned_task_1');
+    expect(deletedPosts).toContain('orphaned_task_2');
+    expect(deletedPosts).not.toContain('new_task_post');
+    expect(deletedPosts).not.toContain('regular_post');
   });
 });
 
