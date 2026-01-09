@@ -17,7 +17,6 @@ import type { UpdatePanelState } from '../types.js';
 
 interface UpdateModalProps {
   state: UpdatePanelState;
-  onClose?: () => void;
 }
 
 /**
@@ -66,7 +65,7 @@ function getHint(state: UpdatePanelState): string {
   return 'Press [u] or [Esc] to close';
 }
 
-export function UpdateModal({ state, onClose }: UpdateModalProps) {
+export function UpdateModal({ state }: UpdateModalProps) {
   const statusDisplay = getStatusDisplay(state);
   const hint = getHint(state);
 
