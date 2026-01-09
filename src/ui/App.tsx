@@ -181,11 +181,12 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   const hasSessions = state.sessions.size > 0;
 
   // Calculate fixed heights for stable layout (prevents flickering)
-  // Header: 5, Config: 3, Platforms: 2 + count, Logs header: 2, Threads: 2 + count, StatusLine: 3
+  // Header: 5 (bordered box), Config: 4, Separator+Platforms: 3 + count,
+  // Separator+Logs header: 3, Separator+Threads: 3 + count, StatusLine: 3
   const platformCount = Math.max(1, state.platforms.size);
   const sessionCount = Math.max(1, state.sessions.size);
-  const fixedOverhead = 5 + 3 + 2 + platformCount + 2 + 2 + sessionCount + 3;
-  const logHeight = Math.max(5, terminalRows - fixedOverhead);
+  const fixedOverhead = 5 + 4 + 3 + platformCount + 3 + 3 + sessionCount + 3;
+  const logHeight = Math.max(3, terminalRows - fixedOverhead);
 
   return (
     <Box flexDirection="column" height={terminalRows}>
@@ -210,13 +211,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         <Text dimColor> ({globalLogs.length})</Text>
         {toggles.logsFocused && <Text dimColor> - ↑↓ scroll, g/G top/bottom, [l] unfocus</Text>}
       </Box>
-      <Box height={logHeight}>
-        {hasLogs ? (
-          <LogPanel logs={globalLogs} maxLines={logHeight} focused={toggles.logsFocused} />
-        ) : (
-          <Text dimColor italic>  No logs yet</Text>
-        )}
-      </Box>
+      {hasLogs ? (
+        <LogPanel logs={globalLogs} maxLines={logHeight} focused={toggles.logsFocused} />
+      ) : (
+        <Text dimColor italic>  No logs yet</Text>
+      )}
 
       {/* Sessions section */}
       <Separator />

@@ -12,7 +12,6 @@ interface LogPanelProps {
   logs: LogEntry[];
   maxLines?: number;
   focused?: boolean;
-  fillAvailable?: boolean;  // If true, expand to fill available space
 }
 
 function getLevelColor(level: LogEntry['level']): string {
@@ -34,7 +33,7 @@ function padComponent(name: string): string {
   return name.padEnd(COMPONENT_WIDTH);
 }
 
-export function LogPanel({ logs, maxLines = 10, focused = false, fillAvailable = false }: LogPanelProps) {
+export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps) {
   const scrollRef = React.useRef<ScrollViewRef>(null);
   const { stdout } = useStdout();
 
@@ -42,13 +41,8 @@ export function LogPanel({ logs, maxLines = 10, focused = false, fillAvailable =
   const isDebug = process.env.DEBUG === '1';
   const displayLogs = logs.filter(log => isDebug || log.level !== 'debug');
 
-  // Calculate dynamic height based on terminal size
-  // Use about 30% of terminal height for logs (always use dynamic sizing)
-  const terminalRows = stdout?.rows ?? 24;
-  const dynamicMaxLines = Math.max(maxLines, Math.floor(terminalRows * 0.3));
-
-  // Get the logs to display (last N entries)
-  const visibleLogs = displayLogs.slice(-Math.max(dynamicMaxLines * 3, 100)); // Keep more in scroll buffer
+  // Keep more logs in scroll buffer for history
+  const visibleLogs = displayLogs.slice(-Math.max(maxLines * 3, 100));
 
   // Handle terminal resize
   React.useEffect(() => {
@@ -89,16 +83,8 @@ export function LogPanel({ logs, maxLines = 10, focused = false, fillAvailable =
     return null;
   }
 
-  // Calculate display height (used when not filling available space)
-  const displayHeight = Math.min(visibleLogs.length, dynamicMaxLines);
-
-  // Use flexGrow to fill available space, or fixed height
-  const boxProps = fillAvailable
-    ? { flexDirection: 'column' as const, flexGrow: 1, minHeight: maxLines }
-    : { flexDirection: 'column' as const, height: displayHeight };
-
   return (
-    <Box {...boxProps}>
+    <Box flexDirection="column" height={maxLines} overflow="hidden">
       <ScrollView ref={scrollRef}>
         {visibleLogs.map((log) => (
           <Box key={log.id}>
