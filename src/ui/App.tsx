@@ -276,10 +276,12 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
 
   // Right panel: Logs
   const logsPanel = (
-    <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
-      {toggles.logsFocused && (
-        <Text dimColor> - up/down scroll, g/G top/bottom, [l] unfocus</Text>
-      )}
+    <Panel
+      title="Logs"
+      count={globalLogs.length}
+      focused={toggles.logsFocused}
+      hint={toggles.logsFocused ? 'up/down scroll, g/G top/bottom, [l] unfocus' : undefined}
+    >
       {globalLogs.length > 0 ? (
         <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
       ) : (

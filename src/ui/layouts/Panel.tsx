@@ -12,6 +12,8 @@ interface PanelProps {
   title?: string;
   /** Optional count to display as "Title (count)" */
   count?: number;
+  /** Optional hint text displayed on the right side of the title line */
+  hint?: string;
   /** Fixed height for the panel (optional - defaults to filling parent) */
   height?: number;
   /** Whether this panel is focused (highlights title) */
@@ -29,6 +31,7 @@ interface PanelProps {
 export function Panel({
   title,
   count,
+  hint,
   height,
   focused,
   children,
@@ -37,11 +40,14 @@ export function Panel({
   return (
     <Box flexDirection="column" height={height} flexGrow={1} overflow="hidden">
       {title && (
-        <Box flexShrink={0}>
-          <Text dimColor bold={focused} color={focused ? 'cyan' : undefined}>
-            {title}
-          </Text>
-          {count !== undefined && <Text dimColor> ({count})</Text>}
+        <Box flexShrink={0} justifyContent="space-between">
+          <Box>
+            <Text dimColor bold={focused} color={focused ? 'cyan' : undefined}>
+              {title}
+            </Text>
+            {count !== undefined && <Text dimColor> ({count})</Text>}
+          </Box>
+          {hint && <Text dimColor>{hint}</Text>}
         </Box>
       )}
       <Box flexDirection="column" overflow="hidden" flexGrow={1}>
