@@ -27,8 +27,10 @@ import {
   formatBugPreview,
   checkGitHubCli,
   createGitHubIssue,
+  uploadImages,
   type ErrorContext,
 } from './bug-report.js';
+import type { PlatformFile } from '../platform/types.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
@@ -808,7 +810,7 @@ export async function reportBug(
   username: string,
   ctx: SessionContext,
   errorContext?: ErrorContext,
-  _attachmentFileIds?: string[]
+  attachedFiles?: PlatformFile[]
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
 
@@ -817,6 +819,7 @@ export async function reportBug(
     await postInfo(session,
       `Usage: ${formatter.formatCode('!bug <description>')}\n` +
       `Example: ${formatter.formatCode('!bug Session crashed when uploading large image')}\n\n` +
+      `You can also attach screenshots to the !bug message.\n` +
       `Or react with 🐛 on any error message to report it.`
     );
     return;
@@ -836,12 +839,35 @@ export async function reportBug(
   // Collect context
   const context = await collectBugReportContext(session, errorContext);
 
-  // Generate issue content
+  // Upload any attached images to Catbox.moe
+  let imageUrls: string[] = [];
+  let imageErrors: string[] = [];
+
+  const downloadFile = session.platform.downloadFile;
+  if (attachedFiles && attachedFiles.length > 0 && downloadFile) {
+    // Show upload progress
+    await postInfo(session, `📤 Uploading ${attachedFiles.length} image(s)...`);
+
+    const uploadResults = await uploadImages(
+      attachedFiles,
+      (fileId) => downloadFile(fileId)
+    );
+
+    imageUrls = uploadResults
+      .filter((r): r is typeof r & { url: string } => r.success && typeof r.url === 'string')
+      .map(r => r.url);
+
+    imageErrors = uploadResults
+      .filter(r => !r.success)
+      .map(r => `${r.originalFile.name}: ${r.error}`);
+  }
+
+  // Generate issue content (include uploaded images)
   const title = generateIssueTitle(bugDescription);
-  const body = formatIssueBody(context, bugDescription);
+  const body = formatIssueBody(context, bugDescription, imageUrls);
 
   // Create preview message
-  const preview = formatBugPreview(title, bugDescription, context, [], formatter);
+  const preview = formatBugPreview(title, bugDescription, context, imageUrls, imageErrors, formatter);
   const previewMessage = `🐛 ${preview}`;
 
   // Post preview with approval reactions
@@ -857,7 +883,8 @@ export async function reportBug(
     title,
     body,
     userDescription: bugDescription,
-    attachments: [],
+    imageUrls,
+    imageErrors,
     errorContext,
   };
 
@@ -884,11 +911,10 @@ export async function handleBugReportApproval(
 
   if (isApproved) {
     try {
-      // Create the GitHub issue
+      // Create the GitHub issue (images are already embedded in the body as URLs)
       const issueUrl = await createGitHubIssue(
         pending.title,
         pending.body,
-        pending.attachments,
         session.workingDir
       );
 

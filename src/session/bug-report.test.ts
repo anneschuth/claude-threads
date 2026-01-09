@@ -12,10 +12,12 @@ import {
   getRecentEvents,
   formatBugPreview,
   checkGitHubCli,
+  uploadImages,
   type BugReportContext,
   type RecentEvent,
 } from './bug-report.js';
 import type { Session } from './types.js';
+import type { PlatformFile } from '../platform/types.js';
 
 // =============================================================================
 // sanitizePath tests
@@ -296,18 +298,18 @@ describe('formatBugPreview', () => {
   };
 
   test('includes title', () => {
-    const preview = formatBugPreview('Test title', 'Test desc', mockContext, [], mockFormatter);
+    const preview = formatBugPreview('Test title', 'Test desc', mockContext, [], [], mockFormatter);
     expect(preview).toContain('**Title:**');
     expect(preview).toContain('Test title');
   });
 
   test('includes description as blockquote', () => {
-    const preview = formatBugPreview('Title', 'Bug description', mockContext, [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Bug description', mockContext, [], [], mockFormatter);
     expect(preview).toContain('> Bug description');
   });
 
   test('includes environment info', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Desc', mockContext, [], [], mockFormatter);
     expect(preview).toContain('v0.49.0');
     expect(preview).toContain('2.0.76');
     expect(preview).toContain('mattermost');
@@ -315,17 +317,23 @@ describe('formatBugPreview', () => {
   });
 
   test('includes approval instructions', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Desc', mockContext, [], [], mockFormatter);
     expect(preview).toContain('👍');
     expect(preview).toContain('👎');
     expect(preview).toContain('GitHub issue');
     expect(preview).toContain('cancel');
   });
 
-  test('notes attachments when present', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, ['/tmp/screenshot.png'], mockFormatter);
-    expect(preview).toContain('Attachments');
-    expect(preview).toContain('1 file(s)');
+  test('shows uploaded images count', () => {
+    const preview = formatBugPreview('Title', 'Desc', mockContext, ['https://files.catbox.moe/abc.png'], [], mockFormatter);
+    expect(preview).toContain('Screenshots');
+    expect(preview).toContain('1 image(s) uploaded');
+  });
+
+  test('shows image upload errors', () => {
+    const preview = formatBugPreview('Title', 'Desc', mockContext, [], ['screenshot.png: Upload failed'], mockFormatter);
+    expect(preview).toContain('Screenshots');
+    expect(preview).toContain('1 image(s) failed');
   });
 });
 
@@ -348,5 +356,99 @@ describe('checkGitHubCli', () => {
       expect(result.error).toBeDefined();
       expect(result.error).toContain('GitHub CLI');
     }
+  });
+});
+
+// =============================================================================
+// uploadImages tests
+// =============================================================================
+
+describe('uploadImages', () => {
+  test('filters non-image files', async () => {
+    const files: PlatformFile[] = [
+      { id: '1', name: 'doc.pdf', size: 1000, mimeType: 'application/pdf' },
+      { id: '2', name: 'text.txt', size: 100, mimeType: 'text/plain' },
+    ];
+
+    const mockDownload = async (_id: string) => Buffer.from('test');
+    const results = await uploadImages(files, mockDownload);
+
+    expect(results).toHaveLength(2);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toBe('Not an image file');
+    expect(results[1].success).toBe(false);
+    expect(results[1].error).toBe('Not an image file');
+  });
+
+  test('handles download errors gracefully', async () => {
+    const files: PlatformFile[] = [
+      { id: '1', name: 'image.png', size: 1000, mimeType: 'image/png' },
+    ];
+
+    const mockDownload = async (_id: string): Promise<Buffer> => {
+      throw new Error('Download failed');
+    };
+    const results = await uploadImages(files, mockDownload);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].success).toBe(false);
+    expect(results[0].error).toContain('Download failed');
+    expect(results[0].originalFile.name).toBe('image.png');
+  });
+
+  test('preserves original file info in results', async () => {
+    const files: PlatformFile[] = [
+      { id: 'file123', name: 'screenshot.jpg', size: 5000, mimeType: 'image/jpeg' },
+    ];
+
+    // This will fail because we can't actually upload, but it tests the structure
+    const mockDownload = async (_id: string): Promise<Buffer> => {
+      throw new Error('Mock error');
+    };
+    const results = await uploadImages(files, mockDownload);
+
+    expect(results[0].originalFile.id).toBe('file123');
+    expect(results[0].originalFile.name).toBe('screenshot.jpg');
+    expect(results[0].originalFile.mimeType).toBe('image/jpeg');
+  });
+});
+
+// =============================================================================
+// formatIssueBody with images tests
+// =============================================================================
+
+describe('formatIssueBody with images', () => {
+  const mockContext: BugReportContext = {
+    version: '0.50.0',
+    claudeCliVersion: '2.0.76',
+    platform: 'Test',
+    platformType: 'mattermost',
+    nodeVersion: 'v20.0.0',
+    osVersion: 'darwin arm64',
+    sessionId: 'test:thread',
+    claudeSessionId: 'uuid-12345678',
+    workingDir: '~/project',
+    branch: 'main',
+    recentEvents: [],
+  };
+
+  test('includes screenshots section when images provided', () => {
+    const body = formatIssueBody(mockContext, 'Bug description', ['https://files.catbox.moe/abc.png']);
+    expect(body).toContain('## Screenshots');
+    expect(body).toContain('![Screenshot 1](https://files.catbox.moe/abc.png)');
+  });
+
+  test('includes multiple screenshots', () => {
+    const body = formatIssueBody(mockContext, 'Bug', [
+      'https://files.catbox.moe/a.png',
+      'https://files.catbox.moe/b.png',
+    ]);
+    expect(body).toContain('![Screenshot 1](https://files.catbox.moe/a.png)');
+    expect(body).toContain('![Screenshot 2](https://files.catbox.moe/b.png)');
+  });
+
+  test('omits screenshots section when no images', () => {
+    const body = formatIssueBody(mockContext, 'Bug description', []);
+    expect(body).not.toContain('## Screenshots');
   });
 });
