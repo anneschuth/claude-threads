@@ -84,7 +84,7 @@ export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps
   }
 
   return (
-    <Box flexDirection="column" height={maxLines} overflow="hidden">
+    <Box flexDirection="column" flexGrow={1} overflow="hidden">
       <ScrollView ref={scrollRef}>
         {visibleLogs.map((log) => (
           <Box key={log.id}>
