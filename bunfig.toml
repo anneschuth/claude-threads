@@ -1,0 +1,10 @@
+[test]
+# Exclude files from coverage that contain mainly untestable code
+# (external process spawning, integration-only code)
+coveragePathIgnorePatterns = [
+  # quick-query.ts spawns external Claude CLI processes - can only be integration tested
+  "src/claude/quick-query.ts",
+  # branch-suggest.ts spawns git commands and uses quick-query - can only be integration tested
+  # The testable parts (parseBranchSuggestions, buildSuggestionPrompt) are tested in branch-suggest.test.ts
+  "src/session/branch-suggest.ts"
+]
