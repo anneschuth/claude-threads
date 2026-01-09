@@ -70,6 +70,7 @@ function Tab({
       <Text color={statusColor}>{statusIcon}</Text>
       <Text> </Text>
       <Text>{platformIcon}</Text>
+      <Text> </Text>
       <Text
         color={isSelected ? 'cyan' : undefined}
         bold={isSelected}
