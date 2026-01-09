@@ -61,6 +61,7 @@ export interface PersistedSession {
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
   // Resume support
   lifecyclePostId?: string;                        // Post ID of timeout/shutdown message (for resume via reaction or restart)
+  isPaused?: boolean;                              // True if session was paused (timeout/interrupt) - won't auto-resume on restart
   // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
   sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)

@@ -591,8 +591,9 @@ export async function resumeSession(
         () => session.platform.updatePost(postId, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
       );
-      // Clear the lifecyclePostId since we're no longer in timeout/shutdown state
+      // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
+      session.isPaused = undefined;
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
@@ -776,8 +777,25 @@ export async function handleExit(
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+
+    // Notify user first, then persist with the lifecyclePostId
+    // This ensures the session won't auto-resume on bot restart
+    const message = session.hasClaudeResponded
+      ? `ℹ️ Session paused. Send a new message to continue.`
+      : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
+    const pausePost = await withErrorHandling(
+      () => postInfo(session, message),
+      { action: 'Post session pause notification', session }
+    );
+
     // Only persist if Claude actually responded (otherwise there's nothing to resume)
     if (session.hasClaudeResponded) {
+      // Mark as paused so it won't auto-resume on bot restart
+      session.isPaused = true;
+      if (pausePost) {
+        session.lifecyclePostId = pausePost.id;
+        ctx.ops.registerPost(pausePost.id, session.threadId);
+      }
       ctx.ops.persistSession(session);
     }
     ctx.ops.emitSessionRemove(session.sessionId);
@@ -785,14 +803,6 @@ export async function handleExit(
     cleanupPostIndex(ctx, session.threadId);
     // Notify keep-alive that a session ended
     keepAlive.sessionEnded();
-    // Notify user
-    const message = session.hasClaudeResponded
-      ? `ℹ️ Session paused. Send a new message to continue.`
-      : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
-    await withErrorHandling(
-      () => postInfo(session, message),
-      { action: 'Post session pause notification', session }
-    );
     sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
@@ -1044,6 +1054,8 @@ export async function cleanupIdleSessions(
           ctx.ops.registerPost(timeoutPost.id, session.threadId);
         }
       }
+      // Mark as paused so it won't auto-resume on bot restart
+      session.isPaused = true;
       ctx.ops.persistSession(session);
 
       // Kill without unpersisting to allow resume

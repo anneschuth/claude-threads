@@ -148,6 +148,16 @@ describe('resetSessionActivity', () => {
 
     expect(session.lifecyclePostId).toBeUndefined();
   });
+
+  it('clears isPaused', () => {
+    const session = createMockSession({
+      sessionOverrides: { isPaused: true },
+    });
+
+    resetSessionActivity(session);
+
+    expect(session.isPaused).toBeUndefined();
+  });
 });
 
 describe('updateLastMessage', () => {

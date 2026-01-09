@@ -203,6 +203,7 @@ export interface Session {
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
+  isPaused?: boolean;        // True if session is paused (timeout/interrupt) - won't auto-resume on restart
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)
