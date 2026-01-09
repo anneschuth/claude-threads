@@ -26,10 +26,10 @@ export interface MessageHandlerOptions {
   platformId: string;
   logger?: MessageHandlerLogger;
   /**
-   * Called when !kill command is executed. In production this calls process.exit(1).
+   * Called when !kill command is executed. In production this calls process.exit(0).
    * In tests this can just disconnect without exiting.
    */
-  onKill?: (username: string) => void;
+  onKill?: (username: string) => void | Promise<void>;
 }
 
 /**
@@ -83,10 +83,10 @@ export async function handleMessage(
         }
       }
       logger?.error(`EMERGENCY SHUTDOWN initiated by @${username}`);
-      session.killAllSessionsAndUnpersist();
+      await session.killAllSessions();
       client.disconnect();
       // Call the kill callback (production calls process.exit, tests just return)
-      onKill?.(username);
+      await onKill?.(username);
       return;
     }
 
