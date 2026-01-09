@@ -4,6 +4,14 @@
 import React from 'react';
 import { Box, Text, useStdout } from 'ink';
 import { Header, ConfigSummary, Platforms, CollapsibleSession, StatusLine, LogPanel, UpdateModal } from './components/index.js';
+
+// Memoized separator to prevent flickering
+const SEPARATOR = '─'.repeat(50);
+const Separator = React.memo(() => (
+  <Box marginTop={1}>
+    <Text dimColor>{SEPARATOR}</Text>
+  </Box>
+));
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState } from './types.js';
@@ -181,9 +189,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       {/* Main content area - fills available space */}
       <Box flexDirection="column" flexGrow={1}>
         {/* Platforms section */}
-        <Box marginTop={1}>
-          <Text dimColor>{'─'.repeat(50)}</Text>
-        </Box>
+        <Separator />
         <Box>
           <Text dimColor bold>Platforms</Text>
           <Text dimColor> ({state.platforms.size})</Text>
@@ -191,9 +197,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         <Platforms platforms={state.platforms} />
 
         {/* Global logs section */}
-        <Box marginTop={1}>
-          <Text dimColor>{'─'.repeat(50)}</Text>
-        </Box>
+        <Separator />
         <Box>
           <Text dimColor bold={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : undefined}>
             Logs
@@ -208,9 +212,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
         )}
 
         {/* Sessions section */}
-        <Box marginTop={1}>
-          <Text dimColor>{'─'.repeat(50)}</Text>
-        </Box>
+        <Separator />
         <Box>
           <Text dimColor bold>Threads</Text>
           <Text dimColor> ({state.sessions.size})</Text>
