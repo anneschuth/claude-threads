@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.53.0] - 2026-01-09
+
+### Added
+- **Claude-powered branch suggestions** - When creating a worktree, Claude (Haiku) now suggests 2-3 branch names based on your task. React with number emojis to select, type your own, or skip (#170)
+- **!kill confirmation message** - The `!kill` command now posts a confirmation showing how many sessions are being killed (#167)
+
+### Changed
+- **!kill preserves sessions** - Sessions are now preserved on `!kill` so they can resume after manual restart. Uses exit code 0 to prevent daemon auto-restart (#169)
+
+### Fixed
+- **Worktree creation failure handling** - Instead of silently falling back to main repo, now shows an interactive prompt with user-friendly error messages and retry option (#168)
+- **Bug report images** - Fixed images not appearing in GitHub issues created via `!bug` (#171)
+
 ## [0.52.1] - 2026-01-09
 
 ### Fixed
