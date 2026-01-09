@@ -99,7 +99,7 @@ describe('buildStickyMessage', () => {
     expect(result).toContain('Active Claude Threads');
     expect(result).toContain('No active sessions');
     expect(result).toContain('Mention me to start a session');
-    expect(result).toContain('npm i -g claude-threads');
+    expect(result).toContain('bun install -g claude-threads');
   });
 
   it('shows status bar with version and session count', async () => {
