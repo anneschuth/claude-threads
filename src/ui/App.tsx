@@ -230,16 +230,21 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       shuttingDown={state.shuttingDown}
       sessionCount={state.sessions.size}
       toggles={toggles}
+      platforms={state.platforms}
       updateState={updateState}
     />
   );
 
   // Build panel configurations for the middle content
+  // Space distribution: platforms (small, fixed), logs (medium), sessions (grows)
+  const platformCount = Math.max(1, state.platforms.size);
+  const numSessions = state.sessions.size;
+
   const panels: PanelConfig[] = [
     {
       id: 'platforms',
-      minHeight: 2,
-      maxHeight: 5,
+      minHeight: 1 + platformCount, // Title + one line per platform
+      maxHeight: 1 + platformCount, // Fixed size
       priority: 1,
       content: (
         <Panel title="Platforms" count={state.platforms.size}>
@@ -249,8 +254,8 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     },
     {
       id: 'logs',
-      minHeight: 3,
-      maxHeight: undefined, // Can grow
+      minHeight: 4, // Title + at least 3 log lines
+      maxHeight: 10, // Don't let logs dominate
       priority: 2,
       content: (
         <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
@@ -267,10 +272,10 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     },
     {
       id: 'sessions',
-      minHeight: 3,
-      priority: 3, // Highest - sessions get space first
+      minHeight: 1 + Math.max(1, numSessions), // Title + at least 1 line per session
+      priority: 3, // Highest - sessions get remaining space
       content: (
-        <Panel title="Threads" count={state.sessions.size}>
+        <Panel title="Threads" count={numSessions}>
           {hasSessions ? (
             Array.from(state.sessions.entries()).map(([id, session], index) => (
               <CollapsibleSession

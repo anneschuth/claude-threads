@@ -2,18 +2,18 @@
  * Footer component - bot status bar at the bottom
  *
  * Shows the overall bot status, runtime toggles, and keyboard hints.
- * Simplified version of StatusLine for the redesigned UI.
  */
 import React from 'react';
 import { Box, Text } from 'ink';
 import { Spinner } from './Spinner.js';
-import type { ToggleState, UpdatePanelState } from '../types.js';
+import type { ToggleState, PlatformStatus, UpdatePanelState } from '../types.js';
 
 interface FooterProps {
   ready: boolean;
   shuttingDown?: boolean;
   sessionCount: number;
   toggles: ToggleState;
+  platforms: Map<string, PlatformStatus>;
   updateState?: UpdatePanelState;
 }
 
@@ -37,13 +37,45 @@ function ToggleKey({ keyChar, label, enabled, color }: {
   );
 }
 
+/**
+ * Render a platform toggle with status indicator
+ */
+function PlatformToggle({ index, platform }: { index: number; platform: PlatformStatus }) {
+  let color: string;
+  if (!platform.enabled) {
+    color = 'gray';
+  } else if (platform.reconnecting) {
+    color = 'yellow';
+  } else if (platform.connected) {
+    color = 'green';
+  } else {
+    color = 'red';
+  }
+
+  const shortName = platform.displayName.length > 8
+    ? platform.displayName.slice(0, 7) + '…'
+    : platform.displayName;
+
+  return (
+    <Box gap={0}>
+      <Text dimColor>[⇧</Text>
+      <Text color={color} bold>{index + 1}</Text>
+      <Text dimColor>]</Text>
+      <Text color={color}>{shortName}</Text>
+    </Box>
+  );
+}
+
 export function Footer({
   ready,
   shuttingDown,
   sessionCount,
   toggles,
+  platforms,
   updateState,
 }: FooterProps) {
+  const platformList = Array.from(platforms.values());
+
   return (
     <Box flexDirection="column">
       {/* Separator line */}
@@ -85,6 +117,16 @@ export function Footer({
               enabled={updateState?.status === 'available'}
               color={updateState?.status === 'available' ? 'green' : 'gray'}
             />
+
+            {/* Platform toggles */}
+            {platformList.length > 0 && (
+              <>
+                <Text dimColor>│</Text>
+                {platformList.slice(0, 9).map((platform, index) => (
+                  <PlatformToggle key={platform.id} index={index} platform={platform} />
+                ))}
+              </>
+            )}
 
             {/* Session count */}
             {sessionCount > 0 && (
