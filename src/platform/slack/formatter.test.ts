@@ -235,5 +235,21 @@ Check [the docs](https://docs.com) for info.`;
       expect(result).toContain('━━━━━━━━━━━━━━━━━━━━');
       expect(result).toContain('<https://docs.com|the docs>');
     });
+
+    it('adds newline after code block closing when followed by text', () => {
+      // This is the fix for the bug where ``` was followed by text on the same line
+      const input = '```\nconst x = 1;\n```More text here';
+      expect(formatter.formatMarkdown(input)).toBe('```\nconst x = 1;\n```\nMore text here');
+    });
+
+    it('does not add extra newline when code block already has newline after closing', () => {
+      const input = '```\nconst x = 1;\n```\nMore text here';
+      expect(formatter.formatMarkdown(input)).toBe(input);
+    });
+
+    it('handles multiple code blocks with text after them', () => {
+      const input = '```\ncode1\n```Text1\n```\ncode2\n```Text2';
+      expect(formatter.formatMarkdown(input)).toBe('```\ncode1\n```\nText1\n```\ncode2\n```\nText2');
+    });
   });
 });

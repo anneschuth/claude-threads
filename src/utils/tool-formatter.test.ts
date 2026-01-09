@@ -262,6 +262,31 @@ describe('formatToolUse', () => {
       }, formatter, { worktreeInfo });
       expect(result).toBe('✏️ **Edit** `[refactor/cleanup]/src/utils.ts`');
     });
+
+    it('escapes triple backticks in diff content to prevent breaking outer code block', () => {
+      // When editing code that contains ```, the diff preview should escape it
+      // to prevent the inner ``` from prematurely closing the outer code block
+      // Create string with exactly 3 backticks: ```
+      const tripleBackticks = '`'.repeat(3);
+      const result = formatToolUse(
+        'Edit',
+        {
+          file_path: '/Users/testuser/formatter.ts',
+          old_string: 'return "old";',
+          new_string: `return ${tripleBackticks}diff\\n-old\\n+new\\n${tripleBackticks};`,
+        },
+        formatter,
+        { detailed: true }
+      );
+      // The ``` should be escaped to ` `` (with space)
+      expect(result).toContain('` ``');
+      // Extract the inner content of the diff code block
+      const match = result!.match(/```diff\n([\s\S]*)\n```\n$/);
+      expect(match).not.toBeNull();
+      const innerContent = match![1];
+      // Should NOT contain unescaped ``` anywhere in the diff content
+      expect(innerContent).not.toContain('```');
+    });
   });
 
   describe('Write tool', () => {
@@ -328,6 +353,28 @@ describe('formatToolUse', () => {
         content: 'hello',
       }, formatter, { worktreeInfo });
       expect(result).toBe('📝 **Write** `[fix/bug-123]/src/new-file.ts`');
+    });
+
+    it('escapes triple backticks in preview content to prevent breaking outer code block', () => {
+      // When writing code that contains ```, the preview should escape it
+      // Create string with exactly 3 backticks: ```
+      const tripleBackticks = '`'.repeat(3);
+      const result = formatToolUse(
+        'Write',
+        {
+          file_path: '/Users/testuser/formatter.ts',
+          content: `const codeBlock = ${tripleBackticks}javascript\\ncode\\n${tripleBackticks};`,
+        },
+        formatter,
+        { detailed: true }
+      );
+      // The ``` should be escaped to ` `` (with space)
+      expect(result).toContain('` ``');
+      // Should NOT contain unescaped ``` anywhere except the outer code block markers
+      const match = result!.match(/```\n([\s\S]*)\n```\n$/);
+      expect(match).not.toBeNull();
+      const innerContent = match![1];
+      expect(innerContent).not.toContain('```');
     });
   });
 

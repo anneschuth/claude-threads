@@ -137,14 +137,18 @@ export function formatToolUse(
           const lines = change.value.replace(/\n$/, '').split('\n');
           for (const line of lines) {
             if (lineCount >= maxLines) break;
+            // Escape triple backticks in diff content to prevent breaking the outer code block
+            // We replace ``` with ` `` (space between first and second backtick) which displays
+            // similarly but doesn't break markdown parsing
+            const escapedLine = line.replace(/```/g, '` ``');
             if (change.added) {
-              diffLines.push(`+ ${line}`);
+              diffLines.push(`+ ${escapedLine}`);
               lineCount++;
             } else if (change.removed) {
-              diffLines.push(`- ${line}`);
+              diffLines.push(`- ${escapedLine}`);
               lineCount++;
             } else {
-              diffLines.push(`  ${line}`);
+              diffLines.push(`  ${escapedLine}`);
               lineCount++;
             }
           }
@@ -178,7 +182,8 @@ export function formatToolUse(
       // Show preview if detailed mode
       if (detailed && content && lineCount > 0) {
         const maxLines = 6;
-        const previewLines = lines.slice(0, maxLines);
+        // Escape triple backticks in preview content to prevent breaking the outer code block
+        const previewLines = lines.slice(0, maxLines).map(line => line.replace(/```/g, '` ``'));
         let preview = `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)} ${formatter.formatItalic(`(${lineCount} lines)`)}\n`;
         if (lineCount > maxLines) {
           preview += formatter.formatCodeBlock(
