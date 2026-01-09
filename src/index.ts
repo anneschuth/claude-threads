@@ -459,7 +459,7 @@ async function main() {
     (r) => r.status === 'fulfilled' && r.value.success
   );
   if (successfulConnections.length === 0) {
-    throw new Error('No platforms connected successfully. Check your configuration and credentials.');
+    ui.addLog({ level: 'error', component: 'init', message: '⚠️ No platforms connected. Check your configuration and credentials.' });
   }
 
   // Resume any persisted sessions from before restart

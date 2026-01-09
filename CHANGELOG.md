@@ -7,10 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.13] - 2026-01-09
+
+### Fixed
+- **Don't crash when no platforms connect** - Improved 0.48.12 fix to log error instead of throwing when all platforms fail to connect, allowing the bot to stay running so users can fix configuration
+
 ## [0.48.12] - 2026-01-09
 
 ### Fixed
-- **Graceful platform connection failures** - Bot no longer crashes when one platform fails to connect. Failed platforms are automatically disabled and the bot continues with remaining platforms. Only crashes if ALL platforms fail to connect.
+- **Graceful platform connection failures** - Bot no longer crashes when one platform fails to connect. Failed platforms are automatically disabled and the bot continues with remaining platforms
 
 ## [0.48.11] - 2026-01-09
 
