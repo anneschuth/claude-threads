@@ -236,60 +236,75 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   );
 
   // Build panel configurations for the middle content
-  // Space distribution: platforms (small, fixed), logs (medium), sessions (grows)
+  // Space distribution: platforms (fixed), logs (grows to fill), sessions (fixed based on content)
   const platformCount = Math.max(1, state.platforms.size);
   const numSessions = state.sessions.size;
+
+  // Calculate session panel height based on expanded state
+  // Each collapsed session = 1 line, expanded = ~4 lines (header + description + 2 log lines)
+  const expandedCount = state.expandedSessions.size;
+  const collapsedCount = numSessions - expandedCount;
+  const sessionPanelHeight = 2 + collapsedCount + (expandedCount * 4); // Title + separator + sessions
 
   const panels: PanelConfig[] = [
     {
       id: 'platforms',
-      minHeight: 1 + platformCount, // Title + one line per platform
-      maxHeight: 1 + platformCount, // Fixed size
+      minHeight: 2 + platformCount, // Separator + title + platforms
+      maxHeight: 2 + platformCount, // Fixed size
       priority: 1,
       content: (
-        <Panel title="Platforms" count={state.platforms.size}>
-          <Platforms platforms={state.platforms} />
-        </Panel>
+        <Box flexDirection="column">
+          <Text dimColor>{'─'.repeat(50)}</Text>
+          <Panel title="Platforms" count={state.platforms.size}>
+            <Platforms platforms={state.platforms} />
+          </Panel>
+        </Box>
       ),
     },
     {
       id: 'logs',
-      minHeight: 4, // Title + at least 3 log lines
-      maxHeight: 10, // Don't let logs dominate
-      priority: 2,
+      minHeight: 5, // Separator + title + at least 3 log lines
+      priority: 3, // Highest - logs gets remaining space (grows to fill)
       content: (
-        <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
-          {toggles.logsFocused && (
-            <Text dimColor> - up/down scroll, g/G top/bottom, [l] unfocus</Text>
-          )}
-          {globalLogs.length > 0 ? (
-            <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
-          ) : (
-            <Text dimColor italic>  No logs yet</Text>
-          )}
-        </Panel>
+        <Box flexDirection="column" flexGrow={1}>
+          <Text dimColor>{'─'.repeat(50)}</Text>
+          <Panel title="Logs" count={globalLogs.length} focused={toggles.logsFocused}>
+            {toggles.logsFocused && (
+              <Text dimColor> - up/down scroll, g/G top/bottom, [l] unfocus</Text>
+            )}
+            {globalLogs.length > 0 ? (
+              <LogPanel logs={globalLogs} focused={toggles.logsFocused} />
+            ) : (
+              <Text dimColor italic>  No logs yet</Text>
+            )}
+          </Panel>
+        </Box>
       ),
     },
     {
       id: 'sessions',
-      minHeight: 1 + Math.max(1, numSessions), // Title + at least 1 line per session
-      priority: 3, // Highest - sessions get remaining space
+      minHeight: Math.max(3, sessionPanelHeight), // Separator + title + sessions
+      maxHeight: Math.max(10, sessionPanelHeight), // Cap to prevent taking all space
+      priority: 2,
       content: (
-        <Panel title="Threads" count={numSessions}>
-          {hasSessions ? (
-            Array.from(state.sessions.entries()).map(([id, session], index) => (
-              <CollapsibleSession
-                key={id}
-                session={session}
-                logs={getLogsForSession(id)}
-                expanded={state.expandedSessions.has(id)}
-                sessionNumber={index + 1}
-              />
-            ))
-          ) : (
-            <Text dimColor italic>  No active threads</Text>
-          )}
-        </Panel>
+        <Box flexDirection="column">
+          <Text dimColor>{'─'.repeat(50)}</Text>
+          <Panel title="Threads" count={numSessions}>
+            {hasSessions ? (
+              Array.from(state.sessions.entries()).map(([id, session], index) => (
+                <CollapsibleSession
+                  key={id}
+                  session={session}
+                  logs={getLogsForSession(id)}
+                  expanded={state.expandedSessions.has(id)}
+                  sessionNumber={index + 1}
+                />
+              ))
+            ) : (
+              <Text dimColor italic>  No active threads</Text>
+            )}
+          </Panel>
+        </Box>
       ),
     },
   ];
