@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.51.0] - 2026-01-09
+
+### Added
+- **Image upload for bug reports** - Bug reports can now include screenshots uploaded to Catbox.moe. Use `!bug <description>` with an attached image or paste a screenshot (#153)
+
+### Fixed
+- **Duplicate task lists** - Fixed issue where multiple task lists would appear in threads due to race conditions (#152, #151)
+- **Code block rendering** - Fixed issues with code blocks not rendering correctly, including improved handling of language tags and empty blocks (#154)
+- **Website logo rendering** - Improved SVG logo rendering on the project website (#155)
+
 ## [0.50.0] - 2026-01-09
 
 ### Added
