@@ -185,11 +185,14 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   private readonly RETRY_DELAY_MS = 500;
 
   // REST API helper with retry logic for transient errors
+  // Options:
+  //   silent: array of status codes to not log warnings for (for expected failures)
   private async api<T>(
     method: string,
     path: string,
     body?: unknown,
-    retryCount = 0
+    retryCount = 0,
+    options?: { silent?: number[] }
   ): Promise<T> {
     const url = `${this.url}/api/v4${path}`;
     log.debug(`API ${method} ${path}`);
@@ -211,10 +214,16 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
         const delay = this.RETRY_DELAY_MS * Math.pow(2, retryCount); // Exponential backoff
         log.warn(`API ${method} ${path} failed with 500, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
         await new Promise((resolve) => setTimeout(resolve, delay));
-        return this.api<T>(method, path, body, retryCount + 1);
+        return this.api<T>(method, path, body, retryCount + 1, options);
       }
 
-      log.warn(`API ${method} ${path} failed: ${response.status} ${text.substring(0, 100)}`);
+      // Log at debug level for expected failures, warn for unexpected ones
+      const isSilent = options?.silent?.includes(response.status);
+      if (isSilent) {
+        log.debug(`API ${method} ${path} failed: ${response.status} (expected)`);
+      } else {
+        log.warn(`API ${method} ${path} failed: ${response.status} ${text.substring(0, 100)}`);
+      }
       throw new Error(`Mattermost API error ${response.status}: ${text}`);
     }
 
@@ -385,9 +394,23 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   // Unpin a post from the channel
+  // Silently handles 403/404 errors - these are expected when the bot
+  // doesn't have permission to unpin posts, the post was never pinned, or the post is deleted
   async unpinPost(postId: string): Promise<void> {
     log.debug(`Unpinning post ${postId.substring(0, 8)}`);
-    await this.api('POST', `/posts/${postId}/unpin`);
+    try {
+      // Use silent option to suppress warning logs for expected failures
+      await this.api('POST', `/posts/${postId}/unpin`, undefined, 0, { silent: [403, 404] });
+    } catch (err) {
+      // Swallow 403/404 errors - these are expected when:
+      // - Bot doesn't have unpin permission
+      // - Post was never pinned
+      // - Post was deleted
+      if (err instanceof Error && (err.message.includes('403') || err.message.includes('404'))) {
+        return;
+      }
+      throw err;
+    }
   }
 
   // Get all pinned posts in the channel

@@ -581,6 +581,10 @@ async function cleanupOrphanedTaskPosts(
   currentTaskPostId: string
 ): Promise<void> {
   try {
+    // Get bot user ID to filter messages (only delete bot's own posts)
+    const botUser = await session.platform.getBotUser();
+    const botUserId = botUser.id;
+
     // Get recent thread history (limit to avoid scanning entire thread)
     const history = await session.platform.getThreadHistory(session.threadId, { limit: 50 });
 
@@ -592,6 +596,9 @@ async function cleanupOrphanedTaskPosts(
     for (const msg of history) {
       // Skip the current active task post
       if (msg.id === currentTaskPostId) continue;
+
+      // Only delete bot's own posts (never touch user messages)
+      if (msg.userId !== botUserId) continue;
 
       // Skip if not a task post (check content pattern)
       if (!taskPostPattern.test(msg.message)) continue;
