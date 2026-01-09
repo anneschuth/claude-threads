@@ -16,9 +16,9 @@ interface SpinnerProps {
 
 export function Spinner({ label, type = 'simpleDots' }: SpinnerProps) {
   return (
-    <Box gap={1}>
+    <Box gap={1} flexShrink={0}>
+      {label && <Text dimColor wrap="truncate">{label}</Text>}
       <InkSpinner type={type} />
-      {label && <Text dimColor>{label}</Text>}
     </Box>
   );
 }
