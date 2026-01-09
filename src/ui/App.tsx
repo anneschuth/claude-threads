@@ -52,7 +52,8 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     getGlobalLogs,
   } = useAppState(config);
 
-  // Resize counter to force re-render on terminal resize
+  // Resize counter to force re-render on terminal resize (value used indirectly)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [resizeCount, setResizeCount] = React.useState(0);
 
   // Get terminal dimensions for pinning StatusLine to bottom
