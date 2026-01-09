@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.52.0] - 2026-01-09
+
+### Fixed
+- **Image attachments in bug reports** - Fixed image attachments not appearing in bug reports by uploading to Catbox before generating the report (#158)
+- **Sticky message install command** - Fixed npm/bun string issue in sticky message and added website link (#159)
+- **Paused sessions auto-resuming** - Fixed paused sessions incorrectly auto-resuming on bot restart by persisting paused state (#160)
+- **403 permission errors** - Fixed 403 errors when unpinning/updating stale task posts by handling channel post deletion gracefully (#161)
+
 ## [0.51.0] - 2026-01-09
 
 ### Added
