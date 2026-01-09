@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.50.0] - 2026-01-09
+
+### Added
+- **Bug reporting feature** - Users can now report bugs with `!bug <description>` command. The bot collects recent conversation context, session state, and system info into a markdown report posted as a file attachment (#150)
+
 ## [0.49.0] - 2026-01-09
 
 ### Added
