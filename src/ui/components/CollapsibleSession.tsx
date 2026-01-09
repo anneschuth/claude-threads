@@ -32,8 +32,7 @@ function getStatusIndicator(status: SessionInfo['status']): { icon: string; colo
 }
 
 export function CollapsibleSession(props: CollapsibleSessionProps) {
-  const { session, logs, expanded } = props;
-  // Note: sessionNumber is available in props if needed in the future
+  const { session, logs, expanded, sessionNumber } = props;
   const { icon, color } = getStatusIndicator(session.status);
   const platformIcon = getPlatformIcon(session.platformType || 'mattermost');
   const arrow = expanded ? '▼' : '▶';
@@ -45,8 +44,9 @@ export function CollapsibleSession(props: CollapsibleSessionProps) {
 
   return (
     <Box flexDirection="column" marginTop={0}>
-      {/* Header line: platform + arrow + title + user + status + branch */}
+      {/* Header line: number + platform + arrow + title + user + status + branch */}
       <Box gap={1}>
+        <Text dimColor>{sessionNumber}.</Text>
         <Text>{platformIcon}</Text>
         <Text dimColor>{arrow}</Text>
         <Text color={session.title ? 'cyan' : 'white'} bold>{displayTitle}</Text>

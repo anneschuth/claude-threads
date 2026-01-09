@@ -42,11 +42,9 @@ export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps
   const displayLogs = logs.filter(log => isDebug || log.level !== 'debug');
 
   // Calculate dynamic height based on terminal size
-  // Use about 30% of terminal height for logs when focused, otherwise use maxLines
+  // Use about 30% of terminal height for logs (always use dynamic sizing)
   const terminalRows = stdout?.rows ?? 24;
-  const dynamicMaxLines = focused
-    ? Math.max(maxLines, Math.floor(terminalRows * 0.4))
-    : maxLines;
+  const dynamicMaxLines = Math.max(maxLines, Math.floor(terminalRows * 0.3));
 
   // Get the logs to display (last N entries)
   const visibleLogs = displayLogs.slice(-Math.max(dynamicMaxLines * 3, 100)); // Keep more in scroll buffer

@@ -21,8 +21,10 @@ export function Platforms({ platforms }: PlatformsProps) {
 
   return (
     <Box flexDirection="column" marginTop={1}>
-      {Array.from(platforms.values()).map((platform) => (
+      {Array.from(platforms.values()).map((platform, index) => (
         <Box key={platform.id} gap={1}>
+          {/* Platform number */}
+          <Text dimColor>{index + 1}.</Text>
           {/* Platform type icon */}
           <Text>{getPlatformIcon(platform.platformType || 'mattermost')}</Text>
 
