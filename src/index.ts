@@ -106,6 +106,7 @@ program
   .option('--skip-version-check', 'Skip Claude CLI version compatibility check')
   .option('--auto-restart', 'Enable auto-restart on updates (default when autoUpdate enabled)')
   .option('--no-auto-restart', 'Disable auto-restart on updates')
+  .option('--headless', 'Run without interactive UI (logs to stdout)')
   .parse();
 
 const opts = program.opts();
@@ -116,8 +117,13 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 }
 
 async function main() {
-  // Clear screen for a clean start
-  process.stdout.write('\x1b[2J\x1b[H');
+  // Determine headless mode: explicit flag or auto-detect when no TTY
+  const isHeadless = opts.headless || !process.stdout.isTTY;
+
+  // Clear screen for a clean start (only in interactive mode)
+  if (!isHeadless) {
+    process.stdout.write('\x1b[2J\x1b[H');
+  }
 
   // Determine if we should use auto-restart daemon wrapper
   // Priority: --no-auto-restart (off) > --auto-restart (on) > config.autoUpdate.enabled
@@ -277,7 +283,7 @@ async function main() {
   // Session store for persistence (created early so toggle callbacks can use it)
   const sessionStore = new SessionStore();
 
-  // Start the Ink UI
+  // Start the UI (Ink TUI or headless depending on mode)
   const ui: UIInstance = await startUI({
     config: {
       version: VERSION,
@@ -288,6 +294,7 @@ async function main() {
       chromeEnabled: runtimeConfig.chromeEnabled,
       keepAliveEnabled: runtimeConfig.keepAliveEnabled,
     },
+    headless: isHeadless,
     onQuit: () => {
       if (triggerShutdown) triggerShutdown();
     },
@@ -493,9 +500,11 @@ async function main() {
         client.disconnect();
       }
 
-      // Clear screen and restore cursor before daemon restarts us
-      process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
-      process.stdout.write('\x1b[?25h');       // Restore cursor visibility
+      // Clear screen and restore cursor before daemon restarts us (only in interactive mode)
+      if (!isHeadless) {
+        process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
+        process.stdout.write('\x1b[?25h');       // Restore cursor visibility
+      }
     },
   });
 
@@ -601,9 +610,11 @@ async function main() {
       client.disconnect();
     }
 
-    // Clear screen and restore cursor for clean exit
-    process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
-    process.stdout.write('\x1b[?25h');       // Restore cursor visibility
+    // Clear screen and restore cursor for clean exit (only in interactive mode)
+    if (!isHeadless) {
+      process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
+      process.stdout.write('\x1b[?25h');       // Restore cursor visibility
+    }
     // Don't call process.exit() here - let the signal handler do it after we resolve
   };
 
