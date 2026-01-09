@@ -12,6 +12,102 @@ import { join } from 'path';
 import { VERSION } from '../version.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
 import type { Session } from './types.js';
+import type { PlatformFile } from '../platform/types.js';
+
+// =============================================================================
+// Image Upload (Catbox.moe)
+// =============================================================================
+
+const CATBOX_API_URL = 'https://catbox.moe/user/api.php';
+
+/**
+ * Result of uploading an image to Catbox.moe
+ */
+export interface ImageUploadResult {
+  success: boolean;
+  url?: string;
+  error?: string;
+  originalFile: PlatformFile;
+}
+
+/**
+ * Upload an image buffer to Catbox.moe for permanent hosting.
+ * Returns the URL of the uploaded image.
+ */
+export async function uploadImageToCatbox(
+  imageBuffer: Buffer,
+  filename: string
+): Promise<string> {
+  // Create form data with the image
+  // Convert Buffer to ArrayBuffer for Blob compatibility
+  const arrayBuffer = imageBuffer.buffer.slice(
+    imageBuffer.byteOffset,
+    imageBuffer.byteOffset + imageBuffer.byteLength
+  ) as ArrayBuffer;
+  const formData = new FormData();
+  formData.append('reqtype', 'fileupload');
+  formData.append('fileToUpload', new Blob([arrayBuffer]), filename);
+
+  const response = await fetch(CATBOX_API_URL, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Catbox upload failed: ${response.status} ${response.statusText}`);
+  }
+
+  const responseText = await response.text();
+
+  // Catbox returns the URL directly as plain text on success
+  // On error, it returns an error message
+  if (responseText.startsWith('https://')) {
+    return responseText.trim();
+  }
+
+  throw new Error(`Catbox upload failed: ${responseText}`);
+}
+
+/**
+ * Upload multiple images and return results.
+ * Continues even if some uploads fail.
+ */
+export async function uploadImages(
+  files: PlatformFile[],
+  downloadFile: (fileId: string) => Promise<Buffer>
+): Promise<ImageUploadResult[]> {
+  const results: ImageUploadResult[] = [];
+
+  for (const file of files) {
+    // Only process image files
+    if (!file.mimeType.startsWith('image/')) {
+      results.push({
+        success: false,
+        error: 'Not an image file',
+        originalFile: file,
+      });
+      continue;
+    }
+
+    try {
+      const buffer = await downloadFile(file.id);
+      const url = await uploadImageToCatbox(buffer, file.name);
+      results.push({
+        success: true,
+        url,
+        originalFile: file,
+      });
+    } catch (err) {
+      results.push({
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+        originalFile: file,
+      });
+    }
+  }
+
+  return results;
+}
 
 // =============================================================================
 // Types
@@ -43,7 +139,10 @@ export interface PendingBugReport {
   title: string;
   body: string;
   userDescription: string;
-  attachments: string[];
+  /** URLs of uploaded images (to Catbox.moe) */
+  imageUrls: string[];
+  /** Upload errors for any failed images */
+  imageErrors: string[];
   errorContext?: ErrorContext;
 }
 
@@ -292,12 +391,21 @@ function formatRecentEvents(events: RecentEvent[]): string {
  */
 export function formatIssueBody(
   context: BugReportContext,
-  userDescription: string
+  userDescription: string,
+  imageUrls: string[] = []
 ): string {
   const sections: string[] = [];
 
   // Description
   sections.push(`## Description\n\n${sanitizeText(userDescription)}`);
+
+  // Screenshots/images if any
+  if (imageUrls.length > 0) {
+    const imageSection = imageUrls.map((url, i) =>
+      `![Screenshot ${i + 1}](${url})`
+    ).join('\n\n');
+    sections.push(`## Screenshots\n\n${imageSection}`);
+  }
 
   // Environment table
   sections.push(`## Environment
@@ -405,11 +513,13 @@ export function checkGitHubCli(): { installed: boolean; authenticated: boolean; 
 /**
  * Create a GitHub issue using the gh CLI.
  * Returns the issue URL on success, throws on failure.
+ *
+ * Note: Images should be uploaded to Catbox.moe first and their URLs
+ * embedded in the body markdown before calling this function.
  */
 export async function createGitHubIssue(
   title: string,
   body: string,
-  _attachments: string[],
   workingDir: string
 ): Promise<string> {
   // Check gh CLI first
@@ -434,13 +544,7 @@ export async function createGitHubIssue(
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    const issueUrl = result.trim();
-
-    // Note: gh CLI doesn't support attaching images directly to issues
-    // If attachments were provided, we could add a comment noting they exist
-    // For now, the preview warns users about this limitation
-
-    return issueUrl;
+    return result.trim();
   } finally {
     // Clean up temp file
     try {
@@ -458,7 +562,8 @@ export function formatBugPreview(
   title: string,
   description: string,
   context: BugReportContext,
-  attachments: string[],
+  imageUrls: string[],
+  imageErrors: string[],
   formatter: {
     formatBold: (text: string) => string;
     formatCode: (text: string) => string;
@@ -496,10 +601,16 @@ export function formatBugPreview(
     }
   }
 
-  if (attachments.length > 0) {
+  // Show image upload status
+  if (imageUrls.length > 0 || imageErrors.length > 0) {
     lines.push('');
-    lines.push(formatter.formatBold('Attachments:'));
-    lines.push(formatter.formatListItem(`${attachments.length} file(s) - will be noted in issue (manual upload required)`));
+    lines.push(formatter.formatBold('Screenshots:'));
+    if (imageUrls.length > 0) {
+      lines.push(formatter.formatListItem(`✅ ${imageUrls.length} image(s) uploaded successfully`));
+    }
+    if (imageErrors.length > 0) {
+      lines.push(formatter.formatListItem(`⚠️ ${imageErrors.length} image(s) failed: ${imageErrors[0]}`));
+    }
   }
 
   lines.push('');

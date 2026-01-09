@@ -1172,10 +1172,10 @@ export class SessionManager extends EventEmitter {
     await commands.enableInteractivePermissions(session, username, this.getContext());
   }
 
-  async reportBug(threadId: string, description: string | undefined, username: string): Promise<void> {
+  async reportBug(threadId: string, description: string | undefined, username: string, files?: PlatformFile[]): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.reportBug(session, description, username, this.getContext());
+    await commands.reportBug(session, description, username, this.getContext(), undefined, files);
   }
 
   async showUpdateStatus(threadId: string, _username: string): Promise<void> {

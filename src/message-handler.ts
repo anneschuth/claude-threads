@@ -241,9 +241,10 @@ export async function handleMessage(
             return;
 
           case 'bug':
-            // Bug reporting
+            // Bug reporting - pass any attached images
             if (isAllowed) {
-              await session.reportBug(threadRoot, parsed.args, username);
+              const files = post.metadata?.files;
+              await session.reportBug(threadRoot, parsed.args, username, files);
             }
             return;
 
