@@ -128,6 +128,7 @@ function createTestSession(platform: PlatformClient): Session {
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     statusBarTimer: null,
+    recentEvents: [],
   };
 }
 

@@ -31,6 +31,9 @@ export const RESUME_EMOJIS = ['arrows_counterclockwise', 'arrow_forward', 'repea
 /** Emojis for toggling task list visibility (minimize/expand) */
 export const TASK_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_down'] as const;
 
+/** Bug report emoji for quick error reporting */
+export const BUG_REPORT_EMOJI = 'bug' as const;
+
 /**
  * Check if the emoji indicates approval (thumbs up)
  */
@@ -78,6 +81,13 @@ export function isResumeEmoji(emoji: string): boolean {
  */
 export function isTaskToggleEmoji(emoji: string): boolean {
   return (TASK_TOGGLE_EMOJIS as readonly string[]).includes(emoji);
+}
+
+/**
+ * Check if the emoji is the bug report emoji
+ */
+export function isBugReportEmoji(emoji: string): boolean {
+  return emoji === BUG_REPORT_EMOJI || emoji === '🐛';
 }
 
 /** Unicode number emoji variants that also map to indices */

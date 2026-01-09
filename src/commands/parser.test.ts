@@ -156,6 +156,23 @@ describe('parseCommand', () => {
     });
   });
 
+  describe('bug reporting commands', () => {
+    test('parses !bug with description', () => {
+      const result = parseCommand('!bug Session crashed when uploading');
+      expect(result).toEqual({ command: 'bug', args: 'Session crashed when uploading', match: '!bug Session crashed when uploading' });
+    });
+
+    test('parses !bug without description', () => {
+      const result = parseCommand('!bug');
+      expect(result).toEqual({ command: 'bug', args: undefined, match: '!bug' });
+    });
+
+    test('parses !bug case-insensitive', () => {
+      const result = parseCommand('!BUG test');
+      expect(result).toEqual({ command: 'bug', args: 'test', match: '!BUG test' });
+    });
+  });
+
   describe('non-commands', () => {
     test('returns null for regular text', () => {
       expect(parseCommand('hello world')).toBeNull();
@@ -269,6 +286,10 @@ describe('isClaudeAllowedCommand', () => {
   test('kill is not allowed', () => {
     expect(isClaudeAllowedCommand('kill')).toBe(false);
   });
+
+  test('bug is allowed', () => {
+    expect(isClaudeAllowedCommand('bug')).toBe(true);
+  });
 });
 
 describe('removeCommandFromText', () => {
@@ -293,6 +314,7 @@ describe('CLAUDE_ALLOWED_COMMANDS', () => {
     // Safe commands that Claude can execute
     expect(CLAUDE_ALLOWED_COMMANDS.has('cd')).toBe(true);
     expect(CLAUDE_ALLOWED_COMMANDS.has('worktree list')).toBe(true);
-    expect(CLAUDE_ALLOWED_COMMANDS.size).toBe(2);
+    expect(CLAUDE_ALLOWED_COMMANDS.has('bug')).toBe(true);
+    expect(CLAUDE_ALLOWED_COMMANDS.size).toBe(3);
   });
 });

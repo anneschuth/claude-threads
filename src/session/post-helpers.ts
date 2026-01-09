@@ -16,6 +16,7 @@ import type { Session } from './types.js';
 import type { PlatformPost, PlatformFormatter } from '../platform/index.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
+import { BUG_REPORT_EMOJI } from '../utils/emoji.js';
 
 const log = createLogger('post-helpers');
 
@@ -75,12 +76,35 @@ export async function postWarning(session: Session, message: string): Promise<Pl
 
 /**
  * Post an error message (with ❌ prefix).
+ * Adds a bug reaction for quick error reporting.
  * @param session - The session to post to
  * @param message - The message content (without emoji)
+ * @param addBugReaction - Whether to add bug reaction for quick reporting (default: true)
  * @returns The created post
  */
-export async function postError(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `❌ ${message}`);
+export async function postError(
+  session: Session,
+  message: string,
+  addBugReaction = true
+): Promise<PlatformPost> {
+  const post = await createPostAndTrack(session, `❌ ${message}`);
+
+  // Add bug reaction for quick error reporting
+  if (addBugReaction) {
+    try {
+      await session.platform.addReaction(post.id, BUG_REPORT_EMOJI);
+      // Store error context for potential bug report
+      session.lastError = {
+        postId: post.id,
+        message,
+        timestamp: new Date(),
+      };
+    } catch {
+      // Ignore if reaction fails - not critical
+    }
+  }
+
+  return post;
 }
 
 /**

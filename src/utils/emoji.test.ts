@@ -6,6 +6,7 @@ import {
   isCancelEmoji,
   isEscapeEmoji,
   isResumeEmoji,
+  isBugReportEmoji,
   getNumberEmojiIndex,
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
@@ -198,6 +199,22 @@ describe('emoji helpers', () => {
       for (let i = 0; i < NUMBER_EMOJIS.length; i++) {
         expect(getNumberEmojiIndex(NUMBER_EMOJIS[i])).toBe(i);
       }
+    });
+  });
+
+  describe('isBugReportEmoji', () => {
+    it('returns true for "bug" emoji name', () => {
+      expect(isBugReportEmoji('bug')).toBe(true);
+    });
+
+    it('returns true for 🐛 unicode emoji', () => {
+      expect(isBugReportEmoji('🐛')).toBe(true);
+    });
+
+    it('returns false for other emojis', () => {
+      expect(isBugReportEmoji('+1')).toBe(false);
+      expect(isBugReportEmoji('heart')).toBe(false);
+      expect(isBugReportEmoji('x')).toBe(false);
     });
   });
 });
