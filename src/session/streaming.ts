@@ -513,12 +513,23 @@ async function bumpTasksToBottomWithContent(
     // Unpin the old task post before repurposing it
     await session.platform.unpinPost(oldTasksPostId).catch(() => {});
 
-    // Repurpose the task list post for the new content
-    await withErrorHandling(
-      () => session.platform.updatePost(oldTasksPostId, contentToPost),
-      { action: 'Repurpose task post', session }
-    );
-    registerPost(oldTasksPostId, session.threadId);
+    // Try to repurpose the task list post for the new content
+    // If update fails (e.g., stale post ID from persistence, deleted post, or permission issue),
+    // fall back to creating a new post
+    let repurposedPostId: string | null = null;
+    try {
+      await session.platform.updatePost(oldTasksPostId, contentToPost);
+      repurposedPostId = oldTasksPostId;
+      registerPost(oldTasksPostId, session.threadId);
+    } catch (err) {
+      // Update failed - log at debug level (this is expected for stale persisted task posts)
+      sessionLog(session).debug(`Could not repurpose task post (creating new): ${err}`);
+      // Create a new post instead
+      const newPost = await session.platform.createPost(contentToPost, session.threadId);
+      repurposedPostId = newPost.id;
+      registerPost(newPost.id, session.threadId);
+      updateLastMessage(session, newPost);
+    }
 
     // Create a new task list post at the bottom (if we have content to show)
     if (oldTasksContent) {
@@ -544,7 +555,9 @@ async function bumpTasksToBottomWithContent(
       session.tasksPostId = null;
     }
 
-    return oldTasksPostId;
+    // Return the ID of the post that now contains the repurposed content
+    // (either the original post if update succeeded, or the new post if fallback was used)
+    return repurposedPostId || oldTasksPostId;
   } finally {
     // Release the lock so other callers can proceed
     releaseLock();

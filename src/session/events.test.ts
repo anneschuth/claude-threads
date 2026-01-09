@@ -15,6 +15,11 @@ function createMockPlatform() {
   let postIdCounter = 1;
 
   const mockPlatform = {
+    getBotUser: mock(async () => ({
+      id: 'bot',
+      username: 'bot',
+      displayName: 'Bot',
+    })),
     createPost: mock(async (message: string, _threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);
@@ -524,12 +529,13 @@ describe('handleEvent with TodoWrite', () => {
     });
 
     // Mock getThreadHistory to return some old task posts
+    // Note: userId must match the bot user ID for posts to be considered for cleanup
     (platform as any).getThreadHistory = mock(async (_threadId: string, _options?: { limit?: number }) => {
       return [
-        { id: 'orphaned_task_1', message: '---\n📋 **Tasks** (1/2 · 50%)\n○ Old task', username: 'bot' },
-        { id: 'orphaned_task_2', message: '📋 **Tasks** (0/1)\n○ Another old task', username: 'bot' },
-        { id: 'regular_post', message: 'This is a regular message', username: 'user' },
-        { id: 'new_task_post', message: '---\n📋 **Tasks** (0/1)\n○ Current task', username: 'bot' },
+        { id: 'orphaned_task_1', userId: 'bot', message: '---\n📋 **Tasks** (1/2 · 50%)\n○ Old task', username: 'bot', createAt: 1000 },
+        { id: 'orphaned_task_2', userId: 'bot', message: '📋 **Tasks** (0/1)\n○ Another old task', username: 'bot', createAt: 2000 },
+        { id: 'regular_post', userId: 'user', message: 'This is a regular message', username: 'user', createAt: 3000 },
+        { id: 'new_task_post', userId: 'bot', message: '---\n📋 **Tasks** (0/1)\n○ Current task', username: 'bot', createAt: 4000 },
       ];
     });
 
