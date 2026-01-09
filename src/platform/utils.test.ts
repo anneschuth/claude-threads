@@ -22,17 +22,17 @@ import {
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
-  it('returns 🆂 for slack', () => {
-    expect(getPlatformIcon('slack')).toBe('🆂');
+  it('returns 🆂 with space for slack', () => {
+    expect(getPlatformIcon('slack')).toBe('🆂 ');
   });
 
-  it('returns 𝓜 for mattermost', () => {
-    expect(getPlatformIcon('mattermost')).toBe('𝓜');
+  it('returns 𝓜 with space for mattermost', () => {
+    expect(getPlatformIcon('mattermost')).toBe('𝓜 ');
   });
 
-  it('returns 💬 as default for unknown platforms', () => {
-    expect(getPlatformIcon('unknown')).toBe('💬');
-    expect(getPlatformIcon('')).toBe('💬');
+  it('returns 💬 with space as default for unknown platforms', () => {
+    expect(getPlatformIcon('unknown')).toBe('💬 ');
+    expect(getPlatformIcon('')).toBe('💬 ');
   });
 });
 
