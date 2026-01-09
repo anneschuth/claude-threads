@@ -174,6 +174,15 @@ const pausedPlatforms: Map<string, boolean> = new Map();
 // Track bot shutdown state
 let isShuttingDown = false;
 
+// Track last cleanup time per platform (for throttling)
+const lastCleanupTime: Map<string, number> = new Map();
+
+// Cleanup throttle: only run cleanup once per 5 minutes per platform
+const CLEANUP_THROTTLE_MS = 5 * 60 * 1000;
+
+// Only clean up posts from the last hour (older orphans are rare and not worth the API calls)
+const CLEANUP_MAX_AGE_MS = 60 * 60 * 1000;
+
 /**
  * Initialize the sticky message module with the session store for persistence.
  */
@@ -751,7 +760,7 @@ async function updateStickyMessageImpl(
     log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
 
     // Clean up any orphaned pinned posts from the bot (in case previous delete failed)
-    // This runs in the background to not block the sticky message update
+    // This is throttled (max once per 5 min) and only checks recent posts (last hour)
     const botUser = await platform.getBotUser();
     cleanupOldStickyMessages(platform, botUser.id).catch(err => {
       log.debug(`Background cleanup failed: ${err}`);
@@ -815,32 +824,76 @@ export function markNeedsBump(platformId: string): void {
 }
 
 /**
+ * Check if a post ID represents a recent post (within CLEANUP_MAX_AGE_MS).
+ * Works for both Slack (timestamp like "1767720773.723249") and Mattermost (alphanumeric IDs).
+ * For Mattermost, we can't determine age from ID, so we always return true to check it.
+ */
+function isRecentPost(postId: string): boolean {
+  // Try to parse as Slack timestamp (seconds.microseconds)
+  const match = postId.match(/^(\d+)\.\d+$/);
+  if (match) {
+    const postTimestamp = parseInt(match[1], 10) * 1000; // Convert to milliseconds
+    const age = Date.now() - postTimestamp;
+    return age < CLEANUP_MAX_AGE_MS;
+  }
+  // For non-Slack IDs, we can't determine age, so assume recent
+  return true;
+}
+
+/**
  * Clean up old pinned sticky messages from the bot.
  * Unpins and deletes any pinned posts from the bot except the current sticky.
- * Should be called at startup.
+ *
+ * Optimizations:
+ * - Throttled: only runs once per CLEANUP_THROTTLE_MS per platform
+ * - Filters by age: only checks posts from the last CLEANUP_MAX_AGE_MS
+ * - Skips known current sticky
+ *
+ * @param forceRun - If true, bypasses throttle (used at startup)
  */
 export async function cleanupOldStickyMessages(
   platform: PlatformClient,
-  botUserId: string
+  botUserId: string,
+  forceRun = false
 ): Promise<void> {
-  const currentStickyId = stickyPostIds.get(platform.platformId);
+  const platformId = platform.platformId;
+  const now = Date.now();
+
+  // Check throttle (unless forced)
+  if (!forceRun) {
+    const lastRun = lastCleanupTime.get(platformId) || 0;
+    if (now - lastRun < CLEANUP_THROTTLE_MS) {
+      log.debug(`Cleanup throttled for ${platformId} (last run ${Math.round((now - lastRun) / 1000)}s ago)`);
+      return;
+    }
+  }
+
+  // Update last cleanup time
+  lastCleanupTime.set(platformId, now);
+
+  const currentStickyId = stickyPostIds.get(platformId);
 
   try {
     // Get all pinned posts in the channel
     const pinnedPostIds = await platform.getPinnedPosts();
-    log.debug(`Found ${pinnedPostIds.length} pinned posts, current sticky: ${currentStickyId?.substring(0, 8) || '(none)'}`);
 
-    for (const postId of pinnedPostIds) {
-      // Skip the current sticky
-      if (postId === currentStickyId) continue;
+    // Filter to only recent posts (reduces API calls significantly)
+    const recentPinnedIds = pinnedPostIds.filter(id => id !== currentStickyId && isRecentPost(id));
 
+    if (recentPinnedIds.length === 0) {
+      log.debug(`No recent pinned posts to check (${pinnedPostIds.length} total, current: ${currentStickyId?.substring(0, 8) || '(none)'})`);
+      return;
+    }
+
+    log.debug(`Checking ${recentPinnedIds.length} recent pinned posts (of ${pinnedPostIds.length} total)`);
+
+    for (const postId of recentPinnedIds) {
       // Get post details to check if it's from the bot
       try {
         const post = await platform.getPost(postId);
         if (!post) continue;
 
         // Check if this post is from our bot (match user ID)
-        // The post's userId should match botUserId if it's ours
         if (post.userId === botUserId) {
           log.debug(`Cleaning up old sticky: ${postId.substring(0, 8)}...`);
           try {

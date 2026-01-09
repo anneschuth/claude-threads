@@ -1003,13 +1003,15 @@ export class SessionManager extends EventEmitter {
     await this.cleanupOrphanedWorktrees();
 
     // Clean up old sticky messages from the bot (from failed/crashed runs)
+    // Run in background - no need to block startup. forceRun=true bypasses throttle.
     for (const platform of this.platforms.values()) {
-      try {
-        const botUser = await platform.getBotUser();
-        await stickyMessage.cleanupOldStickyMessages(platform, botUser.id);
-      } catch (err) {
-        log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
-      }
+      platform.getBotUser().then(botUser => {
+        stickyMessage.cleanupOldStickyMessages(platform, botUser.id, true).catch(err => {
+          log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
+        });
+      }).catch(err => {
+        log.warn(`Failed to get bot user for cleanup on ${platform.platformId}: ${err}`);
+      });
     }
 
     // Clean up stale sessions that timed out while bot was down
