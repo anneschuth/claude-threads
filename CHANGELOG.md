@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.48.17] - 2026-01-09
+
+### Fixed
+- **Typing indicator overflow** - Fixed text wrapping issue showing "eTyping..." on separate line, moved spinner after label (#147)
+- **Excessive Slack logging** - Reduced API logging from sticky message cleanup with throttling (max once per 5 min) and time-based filtering (#148)
+
 ## [0.48.16] - 2026-01-09
 
 ### Added
