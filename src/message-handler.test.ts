@@ -45,7 +45,7 @@ function createMockSessionManager() {
     isUserAllowedInSession: mock(() => true),
     getActiveThreadIds: mock(() => []),
     getPersistedSession: mock(() => undefined),
-    killAllSessionsAndUnpersist: mock(() => {}),
+    killAllSessions: mock(async () => {}),
     cancelSession: mock(async () => {}),
     interruptSession: mock(async () => {}),
     inviteUser: mock(async () => {}),
@@ -103,7 +103,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
       expect(client.disconnect).toHaveBeenCalled();
       expect(onKill).toHaveBeenCalledWith('admin');
     });
@@ -122,7 +122,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.killAllSessionsAndUnpersist).not.toHaveBeenCalled();
+      expect(session.killAllSessions).not.toHaveBeenCalled();
       expect(client.createPost).toHaveBeenCalled();
     });
 
@@ -143,7 +143,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
     });
   });
 
@@ -812,7 +812,7 @@ describe('handleMessage', () => {
       // First call is the confirmation to the thread where !kill was issued
       expect((client.createPost as any).mock.calls[0][0]).toContain('EMERGENCY SHUTDOWN');
       expect((client.createPost as any).mock.calls[0][0]).toContain('killing 2 active sessions');
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
     });
 
     test('posts confirmation even with no active sessions', async () => {
@@ -836,7 +836,7 @@ describe('handleMessage', () => {
       // Should have posted confirmation even with no active sessions
       expect(client.createPost).toHaveBeenCalledTimes(1);
       expect((client.createPost as any).mock.calls[0][0]).toContain('killing 0 active sessions');
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
     });
 
     test('does not duplicate notification when kill issued from active session thread', async () => {
@@ -865,7 +865,7 @@ describe('handleMessage', () => {
       expect((client.createPost as any).mock.calls[0][1]).toBe('thread1');
       // Second call is notification to thread2 only
       expect((client.createPost as any).mock.calls[1][1]).toBe('thread2');
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
     });
 
     test('continues kill even if notifying a thread fails', async () => {
@@ -896,7 +896,7 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       // Kill should still proceed
-      expect(session.killAllSessionsAndUnpersist).toHaveBeenCalled();
+      expect(session.killAllSessions).toHaveBeenCalled();
       expect(onKill).toHaveBeenCalledWith('admin');
     });
   });

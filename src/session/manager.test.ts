@@ -229,15 +229,8 @@ describe('SessionManager', () => {
   });
 
   describe('killAllSessions', () => {
-    test('does nothing when no sessions', async () => {
-      await manager.killAllSessions();
-      // Should not throw
-    });
-  });
-
-  describe('killAllSessionsAndUnpersist', () => {
     test('does nothing when no sessions', () => {
-      manager.killAllSessionsAndUnpersist();
+      manager.killAllSessions();
       // Should not throw
     });
   });

@@ -224,13 +224,11 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       logger: debug ? {
         error: (msg) => console.error('[test-bot]', msg),
       } : undefined,
-      onKill: () => {
+      onKill: async () => {
         // In tests, just disconnect without exiting the process
-        sessionManager.killAllSessionsAndUnpersist();
+        await sessionManager.killAllSessions();
         platformClient.disconnect();
-        // Clear environment (same as stop())
-        delete process.env.CLAUDE_PATH;
-        delete process.env.CLAUDE_SCENARIO;
+        // Note: Don't delete CLAUDE_PATH/CLAUDE_SCENARIO here - can cause race conditions
       },
     });
   });
@@ -260,15 +258,15 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       if (debug) {
         console.log('[test-bot] Stopping...');
       }
-      // Kill all sessions and unpersist
-      sessionManager.killAllSessionsAndUnpersist();
+      // Kill all sessions
+      await sessionManager.killAllSessions();
       // Disconnect from platform
       platformClient.disconnect();
       // Wait a bit for processes to terminate fully
       await new Promise((r) => setTimeout(r, 100));
-      // Clear environment AFTER processes are terminated
-      delete process.env.CLAUDE_PATH;
-      delete process.env.CLAUDE_SCENARIO;
+      // Note: Don't delete CLAUDE_PATH/CLAUDE_SCENARIO here - the next test will
+      // set them anyway, and deleting them can cause race conditions with async
+      // operations that are still running.
       delete process.env.CLAUDE_THREADS_SESSIONS_PATH;
       if (debug) {
         console.log('[test-bot] Stopped');
@@ -286,10 +284,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       platformClient.disconnect();
       // Wait a bit for processes to terminate fully
       await new Promise((r) => setTimeout(r, 100));
-      // Clear environment AFTER processes are terminated
-      // NOTE: Keep CLAUDE_THREADS_SESSIONS_PATH so the next bot instance uses the same file
-      delete process.env.CLAUDE_PATH;
-      delete process.env.CLAUDE_SCENARIO;
+      // Note: Keep all env vars - CLAUDE_PATH/CLAUDE_SCENARIO will be set by next test,
+      // and CLAUDE_THREADS_SESSIONS_PATH needs to persist for session resume testing
       if (debug) {
         console.log('[test-bot] Stopped (sessions preserved)');
       }

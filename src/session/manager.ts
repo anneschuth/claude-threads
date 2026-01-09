@@ -1377,16 +1377,6 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  killAllSessionsAndUnpersist(): void {
-    for (const session of this.sessions.values()) {
-      this.stopTyping(session);
-      session.claude.kill();
-      this.unpersistSession(session.sessionId);
-    }
-    this.sessions.clear();
-    this.postIndex.clear();
-  }
-
   isUserAllowedInSession(threadId: string, username: string): boolean {
     const session = this.findSessionByThreadId(threadId);
     if (!session) {

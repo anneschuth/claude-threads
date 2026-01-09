@@ -60,7 +60,8 @@ function wirePlatformEvents(
       },
       onKill: (username) => {
         ui.addLog({ level: 'error', component: '🔴', message: `EMERGENCY SHUTDOWN initiated by @${username}` });
-        process.exit(1);
+        // Exit with code 0 so daemon doesn't restart us
+        process.exit(0);
       },
     });
   });
