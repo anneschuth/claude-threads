@@ -153,7 +153,6 @@ function createSessionContext(): SessionContext {
       registerWorktreeUser: mock(() => {}),
       unregisterWorktreeUser: mock(() => {}),
       hasOtherSessionsUsingWorktree: mock(() => false),
-      bumpAllStickyPosts: mock(async () => {}),
     },
   };
 }

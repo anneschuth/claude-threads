@@ -18,8 +18,8 @@ import {
 import {
   shouldFlushEarly,
   MIN_BREAK_THRESHOLD,
+  acquireTaskListLock,
 } from './streaming.js';
-import { acquireStickyLock } from './sticky-thread.js';
 import { withErrorHandling } from './error-handler.js';
 import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
@@ -518,10 +518,9 @@ async function handleExitPlanMode(
   session.currentPostId = null;
   session.pendingContent = '';
 
-  // Build approval message with horizontal rule for visual separation
+  // Post approval message with reactions
   const formatter = session.platform.getFormatter();
   const message =
-    `${formatter.formatHorizontalRule()}\n` +
     `✅ ${formatter.formatBold('Plan ready for approval')}\n\n` +
     `👍 Approve and start building\n` +
     `👎 Request changes\n\n` +
@@ -541,8 +540,7 @@ async function handleExitPlanMode(
   // Track this for reaction handling
   // Note: toolUseId is stored but not used - Claude Code CLI handles ExitPlanMode internally,
   // so we send a user message instead of a tool_result when the user approves
-  // Store content for recreation when bumping to keep approval at bottom
-  session.pendingApproval = { postId: post.id, type: 'plan', toolUseId, content: message };
+  session.pendingApproval = { postId: post.id, type: 'plan', toolUseId };
 
   // Stop typing while waiting
   ctx.ops.stopTyping(session);
@@ -568,7 +566,7 @@ async function handleTodoWrite(
   // Acquire the lock atomically at the start - this prevents race conditions
   // where multiple concurrent calls could both see tasksPostId as null and
   // both proceed to create task posts.
-  const releaseLock = await acquireStickyLock(session);
+  const releaseLock = await acquireTaskListLock(session);
 
   try {
     await handleTodoWriteWithLock(session, input, ctx);
