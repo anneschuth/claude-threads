@@ -40,14 +40,12 @@ export function Panel({
   return (
     <Box flexDirection="column" height={height} flexGrow={1} overflow="hidden">
       {title && (
-        <Box flexShrink={0} justifyContent="space-between">
-          <Box>
-            <Text dimColor bold={focused} color={focused ? 'cyan' : undefined}>
-              {title}
-            </Text>
-            {count !== undefined && <Text dimColor> ({count})</Text>}
-          </Box>
-          {hint && <Text dimColor>{hint}</Text>}
+        <Box flexShrink={0}>
+          <Text dimColor bold={focused} color={focused ? 'cyan' : undefined}>
+            {title}
+          </Text>
+          {count !== undefined && <Text dimColor> ({count})</Text>}
+          {hint && <Text dimColor> · {hint}</Text>}
         </Box>
       )}
       <Box flexDirection="column" overflow="hidden" flexGrow={1}>
