@@ -40,99 +40,6 @@ function sessionLog(session: Session) {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Metadata extraction configuration
- */
-interface MetadataConfig {
-  marker: string;       // e.g., 'SESSION_TITLE'
-  minLength: number;
-  maxLength: number;
-  placeholder: string;  // e.g., '<short title>'
-}
-
-/**
- * Extract and validate session metadata (title or description) from text.
- * Updates session if valid and different from current value.
- * Returns the text with the marker removed.
- */
-function extractAndUpdateMetadata(
-  text: string,
-  session: Session,
-  config: MetadataConfig,
-  sessionField: 'sessionTitle' | 'sessionDescription',
-  ctx: SessionContext
-): string {
-  const regex = new RegExp(`\\[${config.marker}:\\s*([^\\]]+)\\]`);
-  const match = text.match(regex);
-
-  // Debug: Log extraction attempt for title
-  if (sessionField === 'sessionTitle') {
-    const textPreview = text.substring(0, 200).replace(/\n/g, '\\n');
-    log.forSession(session.sessionId).debug(
-      `Title extraction: match=${match ? `"${match[1]}"` : 'null'}, text="${textPreview}${text.length > 200 ? '...' : ''}"`
-    );
-  }
-
-  if (match) {
-    const newValue = match[1].trim();
-    // Validate: reject placeholders, too short/long, dots-only
-    const isValid = newValue.length >= config.minLength &&
-      newValue.length <= config.maxLength &&
-      !/^\.+$/.test(newValue) &&
-      !/^…+$/.test(newValue) &&
-      newValue !== config.placeholder &&
-      !newValue.startsWith('...');
-
-    // Debug: Log validation result
-    if (sessionField === 'sessionTitle') {
-      log.forSession(session.sessionId).debug(
-        `Title validation: value="${newValue}", len=${newValue.length}, isValid=${isValid}, current="${session[sessionField]}"`
-      );
-    }
-
-    if (isValid && newValue !== session[sessionField]) {
-      session[sessionField] = newValue;
-      log.forSession(session.sessionId).debug(`Setting ${sessionField} to "${newValue}"`);
-      // Persist and update UI (async, don't wait)
-      ctx.ops.persistSession(session);
-      ctx.ops.updateStickyMessage().catch((err) => {
-        log.forSession(session.sessionId).error(`Failed to update sticky message: ${err}`);
-      });
-      ctx.ops.updateSessionHeader(session).catch((err) => {
-        log.forSession(session.sessionId).error(`Failed to update session header: ${err}`);
-      });
-      // Update CLI UI with new title/description
-      const updates: Record<string, string> = {};
-      if (sessionField === 'sessionTitle') updates.title = newValue;
-      if (sessionField === 'sessionDescription') updates.description = newValue;
-      ctx.ops.emitSessionUpdate(session.sessionId, updates);
-    }
-  }
-
-  // Always remove the marker from displayed text (even if validation failed)
-  const removeRegex = new RegExp(`\\[${config.marker}:\\s*[^\\]]+\\]\\s*`, 'g');
-  return text.replace(removeRegex, '').trim();
-}
-
-// Metadata configs for title and description
-const TITLE_CONFIG: MetadataConfig = {
-  marker: 'SESSION_TITLE',
-  minLength: 3,
-  maxLength: 50,
-  placeholder: '<short title>',
-};
-
-const DESCRIPTION_CONFIG: MetadataConfig = {
-  marker: 'SESSION_DESCRIPTION',
-  minLength: 5,
-  maxLength: 100,
-  placeholder: '<brief description>',
-};
-
-// ---------------------------------------------------------------------------
 // Claude command detection
 // ---------------------------------------------------------------------------
 
@@ -388,11 +295,8 @@ function formatEvent(
           // Filter out <thinking> tags that may appear in text content
           let text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
 
-          // Extract and update session title if present
-          text = extractAndUpdateMetadata(text, session, TITLE_CONFIG, 'sessionTitle', ctx);
-
-          // Extract and update session description if present
-          text = extractAndUpdateMetadata(text, session, DESCRIPTION_CONFIG, 'sessionDescription', ctx);
+          // Note: Session title/description are now generated out-of-band via quickQuery
+          // (see lifecycle.ts fireMetadataSuggestions and firePeriodicReclassification)
 
           // Detect and store pull request URLs
           extractAndUpdatePullRequest(text, session, ctx);

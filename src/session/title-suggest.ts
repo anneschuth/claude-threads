@@ -37,23 +37,93 @@ export interface SessionMetadata {
   description: string;
 }
 
+/** Maximum length for the original task in the prompt */
+const MAX_ORIGINAL_TASK_LENGTH = 1000;
+
+/** Maximum length for recent context in the prompt */
+const MAX_RECENT_CONTEXT_LENGTH = 500;
+
+/**
+ * Context for title/description generation.
+ * Allows for both initial (single message) and reclassification (multi-message) scenarios.
+ */
+export interface TitleContext {
+  /** The original/first task that started the session (most important for stability) */
+  originalTask: string;
+  /** Optional recent context to capture session evolution */
+  recentContext?: string;
+  /** Optional current title - if provided, only suggest changes if significantly different */
+  currentTitle?: string;
+}
+
 /**
  * Build the prompt for session title/description suggestions.
+ *
+ * For stability, the prompt prioritizes the original task over recent context.
+ * This prevents title thrashing when the conversation evolves.
+ *
  * Exported for testing.
  */
-export function buildTitlePrompt(userMessage: string): string {
-  // Truncate very long messages to keep prompt small
-  const truncatedMessage =
-    userMessage.length > 500 ? userMessage.substring(0, 500) + '...' : userMessage;
+export function buildTitlePrompt(context: string | TitleContext): string {
+  // Handle legacy single-string input
+  if (typeof context === 'string') {
+    const truncated = context.length > MAX_ORIGINAL_TASK_LENGTH
+      ? context.substring(0, MAX_ORIGINAL_TASK_LENGTH) + '...'
+      : context;
 
-  return `Generate a session title and description for this task.
+    return `Generate a session title and description for this task.
 
-Task: "${truncatedMessage}"
+Task: "${truncated}"
 
 Rules for title:
 - 3-7 words, imperative form (e.g., "Fix login bug", "Add dark mode")
 - No quotes or punctuation at end
 - Capture the main intent
+
+Rules for description:
+- 1-2 sentences, under 100 characters total
+- Explain what will be accomplished
+
+Output format (exactly two lines):
+TITLE: <title here>
+DESC: <description here>`;
+  }
+
+  // Structured context with original task and optional recent context
+  const { originalTask, recentContext, currentTitle } = context;
+
+  // Truncate original task (most important - keep more of it)
+  const truncatedOriginal = originalTask.length > MAX_ORIGINAL_TASK_LENGTH
+    ? originalTask.substring(0, MAX_ORIGINAL_TASK_LENGTH) + '...'
+    : originalTask;
+
+  // Truncate recent context (supplementary - keep less)
+  const truncatedRecent = recentContext && recentContext.length > MAX_RECENT_CONTEXT_LENGTH
+    ? recentContext.substring(0, MAX_RECENT_CONTEXT_LENGTH) + '...'
+    : recentContext;
+
+  // Build the context section
+  let contextSection = `Original task (PRIMARY - base the title on this): "${truncatedOriginal}"`;
+
+  if (truncatedRecent) {
+    contextSection += `\n\nRecent activity (SECONDARY - only incorporate if the session focus has fundamentally shifted): "${truncatedRecent}"`;
+  }
+
+  // Add stability instruction if there's a current title
+  const stabilityInstruction = currentTitle
+    ? `\n\nCurrent title: "${currentTitle}"\nIMPORTANT: Only suggest a different title if the session focus has FUNDAMENTALLY changed. Minor variations in activity should NOT change the title. Prefer keeping the current title if it still captures the main goal.`
+    : '';
+
+  return `Generate a session title and description based on the following context.
+${stabilityInstruction}
+
+${contextSection}
+
+Rules for title:
+- 3-7 words, imperative form (e.g., "Fix login bug", "Add dark mode")
+- No quotes or punctuation at end
+- Capture the MAIN intent from the original task
+- Only deviate from original task if recent activity shows a fundamental change in direction
 
 Rules for description:
 - 1-2 sentences, under 100 characters total
@@ -109,21 +179,33 @@ export function parseMetadata(response: string): SessionMetadata | null {
  * Uses Claude Haiku for fast, low-cost suggestions.
  * Returns null on any failure (silent fallback).
  *
- * @param userMessage - The user's task description
+ * @param context - The user's task description (string) or structured context (TitleContext)
  * @returns Session metadata or null on failure
  *
  * @example
+ * // Simple usage (initial title)
  * const metadata = await suggestSessionMetadata('fix the login button not working');
  * // { title: 'Fix login button bug', description: 'Debugging and fixing the non-functional login button.' }
+ *
+ * @example
+ * // Structured context (reclassification with stability)
+ * const metadata = await suggestSessionMetadata({
+ *   originalTask: 'fix the login button not working',
+ *   recentContext: 'now working on the signup form',
+ *   currentTitle: 'Fix login button bug'
+ * });
  */
 export async function suggestSessionMetadata(
-  userMessage: string
+  context: string | TitleContext
 ): Promise<SessionMetadata | null> {
-  log.debug(`Suggesting title for: "${userMessage.substring(0, 50)}..."`);
+  const logContext = typeof context === 'string'
+    ? context.substring(0, 50)
+    : context.originalTask.substring(0, 50);
+  log.debug(`Suggesting title for: "${logContext}..."`);
 
   try {
     const result = await quickQuery({
-      prompt: buildTitlePrompt(userMessage),
+      prompt: buildTitlePrompt(context),
       model: 'haiku',
       timeout: SUGGESTION_TIMEOUT,
     });

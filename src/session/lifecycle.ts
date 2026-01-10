@@ -187,6 +187,9 @@ function fireMetadataSuggestions(
  * Called periodically (every N messages) to update title/tags.
  * This is fire-and-forget - it never blocks and never throws.
  *
+ * Uses structured context with original task as anchor to prevent
+ * title thrashing from minor conversation variations.
+ *
  * @param session - The session to potentially re-classify
  * @param currentMessage - The latest user message (used for context)
  * @param ctx - Session context for persistence and UI updates
@@ -201,15 +204,27 @@ function firePeriodicReclassification(
     try {
       const sessionId = session.sessionId;
 
-      // Build context from current message (session might have evolved)
-      const contextPrompt = session.firstPrompt
-        ? `Original task: ${session.firstPrompt}\n\nCurrent message: ${currentMessage}`
+      // Use structured context for stability:
+      // - Original task is PRIMARY (anchor for title)
+      // - Recent message is SECONDARY (only matters if focus fundamentally changed)
+      // - Current title helps LLM maintain stability
+      const titleContext = session.firstPrompt
+        ? {
+            originalTask: session.firstPrompt,
+            recentContext: currentMessage,
+            currentTitle: session.sessionTitle,
+          }
+        : currentMessage;  // Fallback to simple string if no firstPrompt
+
+      // For tags, still use combined context (tags are less sensitive to thrashing)
+      const tagContext = session.firstPrompt
+        ? `Original task: ${session.firstPrompt}\n\nRecent activity: ${currentMessage}`
         : currentMessage;
 
       // Run title/description and tags in parallel
       const [metadata, tags] = await Promise.all([
-        suggestSessionMetadata(contextPrompt),
-        suggestSessionTags(contextPrompt),
+        suggestSessionMetadata(titleContext),
+        suggestSessionTags(tagContext),
       ]);
 
       // Check if session still exists
@@ -220,13 +235,20 @@ function firePeriodicReclassification(
       }
 
       // Update metadata if we got valid results
+      // Note: With structured context, the LLM is instructed to prefer keeping
+      // the current title unless there's a fundamental focus shift
       let updated = false;
 
       if (metadata) {
-        currentSession.sessionTitle = metadata.title;
-        currentSession.sessionDescription = metadata.description;
-        sessionLog(currentSession).debug(`Updated title: "${metadata.title}"`);
-        updated = true;
+        // Only update if title actually changed (LLM may return same title for stability)
+        if (metadata.title !== currentSession.sessionTitle) {
+          currentSession.sessionTitle = metadata.title;
+          currentSession.sessionDescription = metadata.description;
+          sessionLog(currentSession).debug(`Updated title: "${metadata.title}"`);
+          updated = true;
+        } else {
+          sessionLog(currentSession).debug('Title unchanged (stable)');
+        }
       }
 
       if (tags.length > 0) {
