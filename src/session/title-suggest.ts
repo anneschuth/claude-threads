@@ -12,7 +12,7 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('title-suggest');
 
 /** Default timeout for title suggestions (ms) */
-const SUGGESTION_TIMEOUT = 3000;
+const SUGGESTION_TIMEOUT = 15000;
 
 /** Minimum title length */
 const MIN_TITLE_LENGTH = 3;
