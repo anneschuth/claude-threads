@@ -111,6 +111,7 @@ function createTestSession(platform: PlatformClient): Session {
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
+    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: false,

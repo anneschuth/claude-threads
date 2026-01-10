@@ -74,6 +74,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
+    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: false,

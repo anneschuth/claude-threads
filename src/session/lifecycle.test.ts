@@ -67,6 +67,9 @@ function createMockSession(overrides?: Partial<Session>): Session {
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
     activeSubagents: new Map(),
+    updateTimer: null,
+    typingTimer: null,
+    subagentUpdateTimer: null,
     isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
@@ -273,11 +276,30 @@ describe('Session State Management', () => {
 
     expect(session.activeSubagents.size).toBe(0);
 
-    session.activeSubagents.set('tool-1', 'post-1');
-    session.activeSubagents.set('tool-2', 'post-2');
+    const subagent1 = {
+      postId: 'post-1',
+      startTime: Date.now(),
+      description: 'Test task 1',
+      subagentType: 'general',
+      isMinimized: false,
+      isComplete: false,
+      lastUpdateTime: Date.now(),
+    };
+    const subagent2 = {
+      postId: 'post-2',
+      startTime: Date.now(),
+      description: 'Test task 2',
+      subagentType: 'Explore',
+      isMinimized: false,
+      isComplete: false,
+      lastUpdateTime: Date.now(),
+    };
+
+    session.activeSubagents.set('tool-1', subagent1);
+    session.activeSubagents.set('tool-2', subagent2);
 
     expect(session.activeSubagents.size).toBe(2);
-    expect(session.activeSubagents.get('tool-1')).toBe('post-1');
+    expect(session.activeSubagents.get('tool-1')?.postId).toBe('post-1');
   });
 
   it('tracks session allowed users', () => {

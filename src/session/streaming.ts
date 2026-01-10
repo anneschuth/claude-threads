@@ -9,7 +9,7 @@ import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platfor
 import { truncateMessageSafely } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ContentBlock } from '../claude/cli.js';
-import { TASK_TOGGLE_EMOJIS } from '../utils/emoji.js';
+import { MINIMIZE_TOGGLE_EMOJIS } from '../utils/emoji.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
 import { updateLastMessage } from './post-helpers.js';
@@ -505,7 +505,7 @@ async function bumpTasksToBottomWithContent(
 
     // Remove the toggle emoji from the old task post before repurposing it
     try {
-      await session.platform.removeReaction(oldTasksPostId, TASK_TOGGLE_EMOJIS[0]);
+      await session.platform.removeReaction(oldTasksPostId, MINIMIZE_TOGGLE_EMOJIS[0]);
     } catch (err) {
       sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
     }
@@ -539,7 +539,7 @@ async function bumpTasksToBottomWithContent(
 
       const newTasksPost = await session.platform.createInteractivePost(
         displayContent,
-        [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
+        [MINIMIZE_TOGGLE_EMOJIS[0]], // Always add toggle emoji
         session.threadId
       );
       session.tasksPostId = newTasksPost.id;
@@ -614,7 +614,7 @@ export async function bumpTasksToBottom(
 
     const newPost = await session.platform.createInteractivePost(
       displayContent,
-      [TASK_TOGGLE_EMOJIS[0]], // Always add toggle emoji
+      [MINIMIZE_TOGGLE_EMOJIS[0]], // Always add toggle emoji
       session.threadId
     );
     session.tasksPostId = newPost.id;

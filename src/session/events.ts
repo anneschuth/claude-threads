@@ -5,7 +5,7 @@
  * tool results, tasks, questions, and plan approvals.
  */
 
-import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
+import type { Session, SessionUsageStats, ModelTokenUsage, ActiveSubagent } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { formatToolUse as sharedFormatToolUse, shortenPath } from '../utils/tool-formatter.js';
@@ -13,8 +13,9 @@ import {
   NUMBER_EMOJIS,
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
-  TASK_TOGGLE_EMOJIS,
+  MINIMIZE_TOGGLE_EMOJIS,
 } from '../utils/emoji.js';
+import { formatDuration } from '../utils/format.js';
 import {
   shouldFlushEarly,
   MIN_BREAK_THRESHOLD,
@@ -316,9 +317,9 @@ export function handleEvent(
     };
     for (const block of msg?.content || []) {
       if (block.type === 'tool_result' && block.tool_use_id) {
-        const postId = session.activeSubagents.get(block.tool_use_id);
-        if (postId) {
-          handleTaskComplete(session, block.tool_use_id, postId);
+        const subagent = session.activeSubagents.get(block.tool_use_id);
+        if (subagent) {
+          handleTaskComplete(session, block.tool_use_id, subagent.postId);
         }
       }
     }
@@ -778,7 +779,7 @@ async function handleTodoWriteWithLock(
     const post = await withErrorHandling(
       () => session.platform.createInteractivePost(
         displayMessage,
-        [TASK_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
+        [MINIMIZE_TOGGLE_EMOJIS[0]], // 🔽 arrow_down_small
         session.threadId
       ),
       { action: 'Create tasks post', session }
@@ -799,8 +800,79 @@ async function handleTodoWriteWithLock(
   ctx.ops.updateStickyMessage().catch(() => {});
 }
 
+// ---------------------------------------------------------------------------
+// Subagent display helpers
+// ---------------------------------------------------------------------------
+
+/** Update interval for subagent elapsed time (5 seconds) */
+const SUBAGENT_UPDATE_INTERVAL_MS = 5000;
+
 /**
- * Handle Task (subagent) start - post status message.
+ * Format a subagent post with elapsed time and collapsible prompt.
+ */
+function formatSubagentPost(
+  session: Session,
+  subagent: ActiveSubagent
+): string {
+  const formatter = session.platform.getFormatter();
+  const elapsed = formatDuration(Date.now() - subagent.startTime);
+
+  // Header with elapsed time
+  let header = `🤖 ${formatter.formatBold('Subagent')} ${formatter.formatItalic(`(${subagent.subagentType})`)}`;
+  header += subagent.isComplete ? ` ✅ ${elapsed}` : ` ⏳ ${elapsed}`;
+
+  if (subagent.isMinimized) {
+    return `${header} 🔽`;
+  }
+
+  // Expanded: show prompt
+  return `${header}\n📋 ${formatter.formatBold('Prompt:')}\n${formatter.formatBlockquote(subagent.description)}\n🔽`;
+}
+
+/**
+ * Start the subagent update timer if not already running.
+ * Updates all active subagent posts with elapsed time.
+ */
+function startSubagentUpdateTimer(session: Session): void {
+  if (session.subagentUpdateTimer) return;
+
+  session.subagentUpdateTimer = setInterval(() => {
+    updateAllSubagentPosts(session);
+  }, SUBAGENT_UPDATE_INTERVAL_MS);
+}
+
+/**
+ * Stop the subagent update timer.
+ */
+function stopSubagentUpdateTimer(session: Session): void {
+  if (session.subagentUpdateTimer) {
+    clearInterval(session.subagentUpdateTimer);
+    session.subagentUpdateTimer = null;
+  }
+}
+
+/**
+ * Update all active (non-complete) subagent posts with current elapsed time.
+ */
+async function updateAllSubagentPosts(session: Session): Promise<void> {
+  const now = Date.now();
+
+  for (const [_toolUseId, subagent] of session.activeSubagents) {
+    // Skip completed subagents and recently updated ones (debounce)
+    if (subagent.isComplete) continue;
+    if (now - subagent.lastUpdateTime < SUBAGENT_UPDATE_INTERVAL_MS - 500) continue;
+
+    const message = formatSubagentPost(session, subagent);
+    await withErrorHandling(
+      () => session.platform.updatePost(subagent.postId, message),
+      { action: 'Update subagent elapsed time', session }
+    );
+    subagent.lastUpdateTime = now;
+  }
+}
+
+/**
+ * Handle Task (subagent) start - post status message with toggle emoji.
  */
 async function handleTaskStart(
   session: Session,
@@ -816,41 +888,115 @@ async function handleTaskStart(
   session.currentPostId = null;
   session.pendingContent = '';
 
-  // Post subagent status
-  const formatter = session.platform.getFormatter();
-  const message = `🤖 ${formatter.formatBold('Subagent')} ${formatter.formatItalic(`(${subagentType})`)}\n` +
-    `${formatter.formatBlockquote(description)}\n` + `⏳ Running...`;
+  const now = Date.now();
 
+  // Create subagent metadata
+  const subagent: ActiveSubagent = {
+    postId: '', // Will be set after post creation
+    startTime: now,
+    description,
+    subagentType,
+    isMinimized: false, // Start expanded
+    isComplete: false,
+    lastUpdateTime: now,
+  };
+
+  // Format and post initial message with toggle emoji
+  const message = formatSubagentPost(session, subagent);
   const post = await withErrorHandling(
-    () => session.platform.createPost(message, session.threadId),
+    () => session.platform.createInteractivePost(
+      message,
+      [MINIMIZE_TOGGLE_EMOJIS[0]], // 🔽 toggle (reuses task list emoji)
+      session.threadId
+    ),
     { action: 'Post subagent status', session }
   );
+
   if (post) {
-    session.activeSubagents.set(toolUseId, post.id);
+    subagent.postId = post.id;
+    session.activeSubagents.set(toolUseId, subagent);
     // Track for jump-to-bottom links
     updateLastMessage(session, post);
+
+    // Start update timer if this is the first active subagent
+    const hasActiveSubagents = Array.from(session.activeSubagents.values()).some(s => !s.isComplete);
+    if (hasActiveSubagents && !session.subagentUpdateTimer) {
+      startSubagentUpdateTimer(session);
+    }
+
     // Bump task list to stay below subagent messages
     await ctx.ops.bumpTasksToBottom(session);
   }
 }
 
 /**
- * Handle Task (subagent) completion - update status message.
+ * Handle Task (subagent) completion - update status message with final elapsed time.
  */
 async function handleTaskComplete(
   session: Session,
   toolUseId: string,
-  postId: string
+  _postId: string  // Unused - we get postId from the subagent metadata
 ): Promise<void> {
-  const formatter = session.platform.getFormatter();
-  const completionMessage = session.activeSubagents.has(toolUseId)
-    ? `🤖 ${formatter.formatBold('Subagent')} ✅ ${formatter.formatItalic('completed')}`
-    : `🤖 ${formatter.formatBold('Subagent')} ✅`;
+  const subagent = session.activeSubagents.get(toolUseId);
+  if (!subagent) {
+    // Fallback for old-style string entries (shouldn't happen after migration)
+    return;
+  }
+
+  // Mark as complete and update the post with final elapsed time
+  subagent.isComplete = true;
+  const message = formatSubagentPost(session, subagent);
+
   await withErrorHandling(
-    () => session.platform.updatePost(postId, completionMessage),
+    () => session.platform.updatePost(subagent.postId, message),
     { action: 'Update subagent completion', session }
   );
-  session.activeSubagents.delete(toolUseId);
+
+  // Stop the update timer if no more active subagents
+  const hasActiveSubagents = Array.from(session.activeSubagents.values()).some(s => !s.isComplete);
+  if (!hasActiveSubagents) {
+    stopSubagentUpdateTimer(session);
+  }
+
+  // Note: We don't delete from activeSubagents immediately so toggle still works
+  // The entry will be cleaned up when the session ends
+}
+
+/**
+ * Handle a reaction on a subagent post to minimize/expand.
+ * State-based: user adds their reaction = minimized, user removes = expanded.
+ * Returns true if the toggle was handled, false otherwise.
+ */
+export async function handleSubagentToggleReaction(
+  session: Session,
+  postId: string,
+  action: 'added' | 'removed'
+): Promise<boolean> {
+  // Find the subagent by postId
+  for (const [_toolUseId, subagent] of session.activeSubagents) {
+    if (subagent.postId === postId) {
+      // State-based: user adds reaction = minimize, user removes = expand
+      const shouldMinimize = action === 'added';
+
+      // Skip if already in desired state
+      if (subagent.isMinimized === shouldMinimize) {
+        return true;
+      }
+
+      subagent.isMinimized = shouldMinimize;
+      sessionLog(session).debug(`🔽 Subagent ${subagent.isMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
+
+      // Update the post with new state
+      const message = formatSubagentPost(session, subagent);
+      await withErrorHandling(
+        () => session.platform.updatePost(postId, message),
+        { action: 'Update subagent toggle', session }
+      );
+
+      return true;
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

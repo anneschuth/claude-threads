@@ -68,6 +68,7 @@ function createMockSession(): Session {
     // Timers
     updateTimer: null,
     typingTimer: null,
+    subagentUpdateTimer: null,
 
     // Flags
     timeoutWarningPosted: false,
