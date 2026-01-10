@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.58.0] - 2026-01-10
+
+### Improved
+- **More stable session titles** - Titles now stay consistent throughout the session by anchoring on the original task rather than constantly changing based on recent messages (#189)
+  - Original task is used as the PRIMARY anchor for title generation
+  - Recent context only matters if the session focus fundamentally changed
+  - Existing title is preserved unless there's a major direction shift
+
+### Removed
+- **Dead code cleanup** - Removed obsolete marker-based metadata extraction from events.ts (title/description now generated out-of-band via quickQuery)
+
 ## [0.57.0] - 2026-01-10
 
 ### Added
