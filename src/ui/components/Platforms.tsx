@@ -42,16 +42,17 @@ export function Platforms({ platforms }: PlatformsProps) {
           {/* Bot name */}
           <Text color={platform.enabled ? "cyan" : undefined} dimColor={!platform.enabled}>@{platform.botName}</Text>
 
-          {/* Platform display name */}
-          <Text dimColor>on</Text>
-          <Text dimColor={!platform.enabled}>{platform.displayName}</Text>
-
-          {/* Reconnecting indicator with spinner */}
-          {platform.reconnecting && (
-            <Box gap={1}>
+          {/* Platform display name - show reconnecting status inline if reconnecting */}
+          {platform.reconnecting ? (
+            <>
               <Spinner type="dots" />
               <Text color="yellow">reconnecting ({platform.reconnectAttempts})</Text>
-            </Box>
+            </>
+          ) : (
+            <>
+              <Text dimColor>on</Text>
+              <Text dimColor={!platform.enabled}>{platform.displayName}</Text>
+            </>
           )}
         </Box>
       ))}
