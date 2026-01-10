@@ -9,8 +9,14 @@ import { execSync } from 'child_process';
 import { writeFileSync, unlinkSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { Redactor } from '@redactpii/node';
+
+// Create a single redactor instance with aggressive mode for enhanced PII detection
+// Aggressive mode catches obfuscated patterns like "user [at] example [dot] com"
+const piiRedactor = new Redactor({ aggressive: true });
 import { VERSION } from '../version.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
+import { getLogFilePath, readRecentLogEntries, type LogEntry } from '../persistence/thread-logger.js';
 import type { Session } from './types.js';
 import type { PlatformFile } from '../platform/types.js';
 
@@ -175,6 +181,10 @@ export interface BugReportContext {
   // Recent activity
   recentEvents: RecentEvent[];
 
+  // Audit log
+  logFilePath?: string;
+  recentLogEntries?: LogEntry[];
+
   // Error details (if triggered by error reaction)
   errorContext?: ErrorContext;
 }
@@ -246,13 +256,19 @@ export function sanitizePath(path: string): string {
 }
 
 /**
- * Sanitize text to remove potential secrets.
- * - API keys (sk_..., xoxb-..., ghp_..., etc.)
- * - Tokens
- * - Full paths with usernames
+ * Sanitize text to remove potential secrets and PII.
+ *
+ * Uses a two-layer approach:
+ * 1. Custom regex patterns for technical secrets (API keys, tokens, etc.)
+ * 2. @redactpii/node library for general PII (phone numbers, SSNs, credit cards, names)
+ *
+ * This hybrid approach ensures comprehensive coverage:
+ * - Our patterns catch technical secrets that PII libraries may miss
+ * - The PII library catches personal data that our patterns may miss
  */
 export function sanitizeText(text: string): string {
-  return text
+  // Layer 1: Custom patterns for technical secrets
+  let sanitized = text
     // Slack tokens
     .replace(/xoxb-[\w-]+/gi, '[SLACK_TOKEN]')
     .replace(/xoxp-[\w-]+/gi, '[SLACK_TOKEN]')
@@ -269,12 +285,39 @@ export function sanitizeText(text: string): string {
     .replace(/pk_test_[\w]+/gi, '[STRIPE_KEY]')
     // AWS keys
     .replace(/AKIA[\w]{16}/g, '[AWS_KEY]')
+    .replace(/aws_access_key_id\s*[=:]\s*['"]?[\w]+['"]?/gi, '[AWS_KEY]')
+    .replace(/aws_secret_access_key\s*[=:]\s*['"]?[\w/+=]+['"]?/gi, '[AWS_SECRET]')
+    // OpenAI / Anthropic API keys
+    .replace(/sk-[a-zA-Z0-9]{20,}/g, '[API_KEY]')
+    .replace(/sk-ant-[\w-]+/gi, '[ANTHROPIC_KEY]')
+    // Bearer tokens
+    .replace(/Bearer\s+[\w.-]+/gi, '[BEARER_TOKEN]')
+    // Basic auth in URLs (user:pass@host)
+    .replace(/:\/\/[^:]+:[^@]+@/g, '://[CREDENTIALS]@')
+    // Note: Email addresses are handled by @redactpii/node (including obfuscated like "user [at] example [dot] com")
+    // SSH private keys
+    .replace(/-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/g, '[SSH_PRIVATE_KEY]')
+    // Database connection strings
+    .replace(/(?:mongodb|postgres|mysql|redis):\/\/[^\s]+/gi, '[DATABASE_URL]')
     // Generic API keys (long alphanumeric strings that look like keys)
-    .replace(/['"]?[a-zA-Z_]*(?:api[_-]?key|secret|token|password|credential)['":]?\s*['"]?[\w-]{20,}['"]?/gi, '[REDACTED_KEY]')
+    .replace(/['"]?[a-zA-Z_]*(?:api[_-]?key|secret|token|password|credential|auth)['":]?\s*['"]?[\w-]{20,}['"]?/gi, '[REDACTED_KEY]')
+    // JWT tokens (three base64 segments separated by dots)
+    .replace(/eyJ[\w-]+\.eyJ[\w-]+\.[\w-]+/g, '[JWT_TOKEN]')
     // Home directory paths
     .replace(/\/Users\/[\w.-]+/g, '~')
     .replace(/\/home\/[\w.-]+/g, '~')
     .replace(/C:\\Users\\[\w.-]+/gi, '~');
+
+  // Layer 2: Use @redactpii/node for general PII (emails, phones, SSNs, credit cards, names)
+  // This catches patterns our regex might miss, including obfuscated formats
+  try {
+    sanitized = piiRedactor.redact(sanitized);
+  } catch {
+    // If redaction fails for any reason, continue with what we have
+    // This ensures we don't lose data due to library issues
+  }
+
+  return sanitized;
 }
 
 // =============================================================================
@@ -297,6 +340,9 @@ async function getCurrentBranch(workingDir: string): Promise<string | null> {
     return null;
   }
 }
+
+/** Number of recent log entries to include in bug reports */
+const BUG_REPORT_LOG_ENTRIES = 50;
 
 /**
  * Collect all context needed for a bug report.
@@ -321,6 +367,13 @@ export async function collectBugReportContext(
     };
   }
 
+  // Get log file path and recent entries
+  // Extract platformId and threadId from session
+  const platformId = session.platform.platformId;
+  const threadId = session.threadId;
+  const logFilePath = sanitizePath(getLogFilePath(platformId, threadId));
+  const recentLogEntries = readRecentLogEntries(platformId, threadId, BUG_REPORT_LOG_ENTRIES);
+
   return {
     // Environment
     version: VERSION,
@@ -342,6 +395,10 @@ export async function collectBugReportContext(
 
     // Recent activity
     recentEvents: getRecentEvents(session),
+
+    // Audit log
+    logFilePath,
+    recentLogEntries,
 
     // Error context
     errorContext,
@@ -387,6 +444,110 @@ function formatRecentEvents(events: RecentEvent[]): string {
 }
 
 /**
+ * Anonymizer for usernames in bug reports.
+ * Maps real usernames to generic labels (User1, User2, etc.)
+ */
+class UsernameAnonymizer {
+  private usernameMap = new Map<string, string>();
+  private counter = 0;
+
+  anonymize(username: string | undefined): string {
+    if (!username) return '[unknown]';
+
+    if (!this.usernameMap.has(username)) {
+      this.counter++;
+      this.usernameMap.set(username, `User${this.counter}`);
+    }
+    return this.usernameMap.get(username)!;
+  }
+}
+
+/**
+ * Format log entries for bug report (summarized and anonymized view)
+ * - Usernames are replaced with User1, User2, etc.
+ * - User message content is redacted (only shows "[message]")
+ * - Command arguments that might contain usernames are anonymized
+ */
+function formatLogEntries(entries: LogEntry[]): string {
+  if (entries.length === 0) {
+    return '_No log entries available_';
+  }
+
+  const anonymizer = new UsernameAnonymizer();
+
+  return entries
+    .map(entry => {
+      const time = new Date(entry.ts).toISOString().substring(11, 19);
+      let summary: string;
+
+      switch (entry.type) {
+        case 'lifecycle':
+          summary = `lifecycle:${entry.action}${entry.username ? ` by ${anonymizer.anonymize(entry.username)}` : ''}`;
+          break;
+        case 'user_message':
+          // Redact message content entirely - it could contain sensitive info
+          summary = `user_message: ${anonymizer.anonymize(entry.username)} - [message redacted]`;
+          break;
+        case 'command': {
+          // Anonymize usernames in command args (e.g., !invite @user, !kick @user)
+          let args = entry.args || '';
+          if (entry.command === 'invite' || entry.command === 'kick') {
+            // The arg is a username - anonymize it
+            args = args ? anonymizer.anonymize(args.replace('@', '')) : '';
+          } else if (entry.command === 'cd') {
+            // Sanitize paths
+            args = args ? sanitizePath(args) : '';
+          }
+          summary = `command: !${entry.command}${args ? ' ' + args : ''} by ${anonymizer.anonymize(entry.username)}`;
+          break;
+        }
+        case 'permission':
+          summary = `permission:${entry.action}${entry.permission ? ` (${sanitizePath(entry.permission)})` : ''}${entry.username ? ` by ${anonymizer.anonymize(entry.username)}` : ''}`;
+          break;
+        case 'reaction':
+          summary = `reaction:${entry.action} by ${anonymizer.anonymize(entry.username)}${entry.emoji ? ` (${entry.emoji})` : ''}`;
+          break;
+        case 'claude_event': {
+          const eventType = entry.eventType;
+          if (eventType === 'assistant') {
+            // Don't include Claude's text output - it could contain user's proprietary
+            // code, secrets being discussed, or other sensitive information
+            const msg = entry.event as { message?: { content?: Array<{ type: string; text?: string; name?: string }> } };
+            const content = msg.message?.content?.[0];
+            if (content?.type === 'text') {
+              summary = `assistant: [text response]`;
+            } else if (content?.type === 'tool_use') {
+              // Only show tool name, not arguments (which could contain sensitive data)
+              summary = `tool_use: ${content.name}`;
+            } else {
+              summary = `assistant: [${content?.type || 'response'}]`;
+            }
+          } else if (eventType === 'user') {
+            // Tool results - never show content (could contain file contents, command output, etc.)
+            summary = `tool_result`;
+          } else if (eventType === 'system') {
+            const sysEvent = entry.event as { subtype?: string };
+            summary = `system:${sysEvent.subtype || 'init'}`;
+          } else if (eventType === 'result') {
+            summary = `result: session completed`;
+          } else {
+            summary = `claude_event:${eventType}`;
+          }
+          break;
+        }
+        default: {
+          // Exhaustive check - this handles any future log entry types
+          const unknownEntry = entry as { type: string };
+          summary = `${unknownEntry.type}`;
+        }
+      }
+
+      return `[${time}] ${summary}`;
+    })
+    .join('\n');
+}
+
+/**
  * Format the bug report as a GitHub issue body.
  */
 export function formatIssueBody(
@@ -426,7 +587,8 @@ export function formatIssueBody(
 | Session ID | \`${context.claudeSessionId.substring(0, 8)}\` |
 | Working Dir | \`${context.workingDir}\` |
 | Branch | ${context.branch || 'N/A'} |
-| Worktree | ${context.worktreeBranch || 'N/A'} |`);
+| Worktree | ${context.worktreeBranch || 'N/A'} |
+| Log File | \`${context.logFilePath || 'N/A'}\` |`);
 
   // Usage stats if available
   if (context.usageStats) {
@@ -437,12 +599,26 @@ export function formatIssueBody(
 - **Cost:** $${context.usageStats.cost}`);
   }
 
-  // Recent events
-  sections.push(`## Recent Events
+  // Recent events (in-memory buffer)
+  sections.push(`## Recent Events (In-Memory)
 
 \`\`\`
 ${formatRecentEvents(context.recentEvents)}
 \`\`\``);
+
+  // Audit log entries (from disk)
+  if (context.recentLogEntries && context.recentLogEntries.length > 0) {
+    sections.push(`## Audit Log (Last ${context.recentLogEntries.length} entries)
+
+<details>
+<summary>Click to expand log entries</summary>
+
+\`\`\`
+${formatLogEntries(context.recentLogEntries)}
+\`\`\`
+
+</details>`);
+  }
 
   // Error details if present
   if (context.errorContext) {

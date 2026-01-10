@@ -290,7 +290,7 @@ export async function handleMessage(
       // Get any attached files (images)
       const files = post.metadata?.files;
 
-      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files);
+      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
       return;
     }
 

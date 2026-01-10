@@ -5,7 +5,7 @@
  * Each line is a JSON object representing an event with timestamp.
  */
 
-import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync, rmdirSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync, rmdirSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -448,4 +448,49 @@ export function cleanupOldLogs(retentionDays: number = 30): number {
  */
 export function getLogFilePath(platformId: string, threadId: string): string {
   return join(LOGS_BASE_DIR, platformId, `${threadId}.jsonl`);
+}
+
+/**
+ * Read the last N lines from a log file.
+ * Returns an array of parsed log entries (most recent last).
+ *
+ * @param platformId - Platform identifier
+ * @param threadId - Thread identifier
+ * @param maxLines - Maximum number of lines to read (default: 50)
+ * @returns Array of log entries, or empty array if file doesn't exist
+ */
+export function readRecentLogEntries(
+  platformId: string,
+  threadId: string,
+  maxLines: number = 50
+): LogEntry[] {
+  const logPath = getLogFilePath(platformId, threadId);
+
+  if (!existsSync(logPath)) {
+    return [];
+  }
+
+  try {
+    const content = readFileSync(logPath, 'utf8');
+    const lines = content.trim().split('\n');
+
+    // Take last N lines
+    const recentLines = lines.slice(-maxLines);
+
+    // Parse each line as JSON
+    const entries: LogEntry[] = [];
+    for (const line of recentLines) {
+      if (!line.trim()) continue;
+      try {
+        entries.push(JSON.parse(line));
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    return entries;
+  } catch (err) {
+    log.error(`Failed to read log file: ${err}`);
+    return [];
+  }
 }

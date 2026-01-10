@@ -55,6 +55,9 @@ export async function handleQuestionReaction(
   question.answer = selectedOption.label;
   sessionLog(session).debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
 
+  // Log the reaction
+  session.threadLogger?.logReaction('question_answer', username, emojiName, selectedOption.label);
+
   // Update the post to show answer
   const formatter = session.platform.getFormatter();
   await withErrorHandling(
@@ -113,6 +116,9 @@ export async function handleApprovalReaction(
   const { postId } = session.pendingApproval;
   // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
   sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
+
+  // Log the reaction
+  session.threadLogger?.logReaction(isApprove ? 'plan_approve' : 'plan_reject', username, emojiName);
 
   // Update the post to show the decision
   const formatter = session.platform.getFormatter();
@@ -183,6 +189,7 @@ export async function handleMessageApprovalReaction(
     session.lastActivityAt = new Date();
     ctx.ops.startTyping(session);
     sessionLog(session).info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
+    session.threadLogger?.logReaction('message_approve', approver, emoji);
   } else if (isInvite) {
     // Invite user to session
     session.sessionAllowedUsers.add(pending.fromUser);
@@ -202,6 +209,7 @@ export async function handleMessageApprovalReaction(
       `❌ Message from ${formatter.formatUserMention(pending.fromUser)} denied by ${formatter.formatUserMention(approver)}`
     );
     sessionLog(session).info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
+    session.threadLogger?.logReaction('message_reject', approver, emoji);
   }
 
   session.pendingMessageApproval = null;

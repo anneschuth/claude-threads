@@ -356,7 +356,7 @@ export async function startSession(
   const existingSession = mutableSessions(ctx).get(existingSessionId);
   if (existingSession && existingSession.claude.isRunning()) {
     // Send as follow-up instead
-    await sendFollowUp(existingSession, options.prompt, options.files, ctx);
+    await sendFollowUp(existingSession, options.prompt, options.files, ctx, username, displayName);
     return;
   }
 
@@ -784,9 +784,19 @@ export async function sendFollowUp(
   session: Session,
   message: string,
   files: PlatformFile[] | undefined,
-  ctx: SessionContext
+  ctx: SessionContext,
+  username?: string,
+  displayName?: string
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
+
+  // Log the user message
+  session.threadLogger?.logUserMessage(
+    username || session.startedBy,
+    message,
+    displayName,
+    files && files.length > 0
+  );
 
   // Flush any pending content before starting new message
   // This ensures code blocks and other structures are properly closed

@@ -355,7 +355,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'please help me with this code', undefined);
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'please help me with this code', undefined, 'allowed-user', 'User');
     });
 
     test('requests approval for unauthorized user', async () => {
@@ -994,7 +994,7 @@ describe('handleMessage', () => {
 
       expect(session.handleWorktreeBranchResponse).toHaveBeenCalled();
       // Should fall through to sendFollowUp
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'not a valid branch response', undefined);
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'not a valid branch response', undefined, 'allowed-user', 'User');
     });
 
     test('does not handle branch response for unauthorized user', async () => {
