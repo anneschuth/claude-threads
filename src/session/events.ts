@@ -15,7 +15,7 @@ import {
   DENIAL_EMOJIS,
   MINIMIZE_TOGGLE_EMOJIS,
 } from '../utils/emoji.js';
-import { formatDuration } from '../utils/format.js';
+import { formatDuration, truncateAtWord } from '../utils/format.js';
 import {
   shouldFlushEarly,
   MIN_BREAK_THRESHOLD,
@@ -406,14 +406,7 @@ function formatEvent(
         } else if (block.type === 'thinking' && block.thinking) {
           // Extended thinking - show abbreviated version in blockquote
           const thinking = block.thinking as string;
-          const maxLength = 200;
-          let preview = thinking;
-          if (thinking.length > maxLength) {
-            // Cut at word boundary
-            const truncated = thinking.substring(0, maxLength);
-            const lastSpace = truncated.lastIndexOf(' ');
-            preview = (lastSpace > maxLength * 0.7 ? truncated.substring(0, lastSpace) : truncated) + '...';
-          }
+          const preview = truncateAtWord(thinking, 200);
           // Use blockquote for better formatting
           const formatter = session.platform.getFormatter();
           parts.push(formatter.formatBlockquote(`💭 ${formatter.formatItalic(preview)}`));

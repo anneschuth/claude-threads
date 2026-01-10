@@ -10,6 +10,7 @@ import {
   formatPercent,
   formatBytes,
   truncate,
+  truncateAtWord,
   pluralize,
   logSessionAction,
   sessionLog,
@@ -168,6 +169,44 @@ describe('truncate', () => {
   it('truncates with ellipsis when over limit', () => {
     expect(truncate('hello world', 8)).toBe('hello w…');
     expect(truncate('abcdefghij', 5)).toBe('abcd…');
+  });
+});
+
+describe('truncateAtWord', () => {
+  it('returns original string if within limit', () => {
+    expect(truncateAtWord('hello', 10)).toBe('hello');
+    expect(truncateAtWord('hello world', 20)).toBe('hello world');
+  });
+
+  it('breaks at word boundary when space is far enough', () => {
+    // 'hello world foo' = 15 chars, limit 12
+    // truncated to 11 chars = 'hello world', lastSpace at 5
+    // 5 > 12 * 0.7 (8.4) = false, so hard truncate
+    expect(truncateAtWord('hello world foo', 12)).toBe('hello world…');
+  });
+
+  it('breaks at word boundary for longer text', () => {
+    // 'hello there world' at limit 15
+    // truncated to 14 chars = 'hello there wo', lastSpace at 11
+    // 11 > 15 * 0.7 (10.5) = true, so break at word
+    const result = truncateAtWord('hello there world', 15);
+    expect(result).toBe('hello there…');
+  });
+
+  it('falls back to hard truncation when space is too early', () => {
+    // 'abcdefghijklmnop' has no spaces, will hard truncate
+    expect(truncateAtWord('abcdefghijklmnop', 10)).toBe('abcdefghi…');
+  });
+
+  it('hard truncates when only space is very early', () => {
+    // 'a bcdefghijklmnop' - space at position 1, much less than 70% of 12
+    const result = truncateAtWord('a bcdefghijklmnop', 12);
+    expect(result).toBe('a bcdefghij…');
+  });
+
+  it('includes ellipsis in output', () => {
+    const result = truncateAtWord('hello world foo bar', 15);
+    expect(result).toContain('…');
   });
 });
 

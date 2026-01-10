@@ -357,6 +357,30 @@ export function truncate(str: string, maxLength: number): string {
 }
 
 /**
+ * Truncate a string at a word boundary with ellipsis.
+ * Tries to break at the last space, but falls back to hard truncation
+ * if the last space is too early (< 70% of maxLength).
+ *
+ * @param str - The string to truncate
+ * @param maxLength - Maximum length including ellipsis
+ * @returns Truncated string with ellipsis if truncated
+ */
+export function truncateAtWord(str: string, maxLength: number): string {
+  if (str.length <= maxLength) return str;
+
+  const truncated = str.substring(0, maxLength - 1); // Leave room for ellipsis
+  const lastSpace = truncated.lastIndexOf(' ');
+
+  // Break at word boundary if the last space is reasonably far into the string (>70%)
+  if (lastSpace > maxLength * 0.7) {
+    return truncated.substring(0, lastSpace) + '…';
+  }
+
+  // Fall back to hard truncation
+  return truncated + '…';
+}
+
+/**
  * Pluralize a word based on count.
  *
  * @param count - The count
