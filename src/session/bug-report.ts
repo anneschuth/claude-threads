@@ -368,8 +368,8 @@ export async function collectBugReportContext(
   }
 
   // Get log file path and recent entries
-  // Extract platformId and threadId from session
-  const platformId = session.platform.platformId;
+  // Use session.platformId (not session.platform.platformId) to match where ThreadLogger stores logs
+  const platformId = session.platformId;
   const threadId = session.threadId;
   const logFilePath = sanitizePath(getLogFilePath(platformId, threadId));
   const recentLogEntries = readRecentLogEntries(platformId, threadId, BUG_REPORT_LOG_ENTRIES);
