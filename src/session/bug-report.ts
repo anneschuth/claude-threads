@@ -484,10 +484,14 @@ function formatLogEntries(entries: LogEntry[]): string {
         case 'lifecycle':
           summary = `lifecycle:${entry.action}${entry.username ? ` by ${anonymizer.anonymize(entry.username)}` : ''}`;
           break;
-        case 'user_message':
-          // Redact message content entirely - it could contain sensitive info
-          summary = `user_message: ${anonymizer.anonymize(entry.username)} - [message redacted]`;
+        case 'user_message': {
+          // Show sanitized preview of message (first 50 chars) - secrets are redacted by sanitizeText
+          const msgPreview = entry.message
+            ? sanitizeText(entry.message.slice(0, 50)) + (entry.message.length > 50 ? '...' : '')
+            : '[empty]';
+          summary = `${anonymizer.anonymize(entry.username)}: ${msgPreview}`;
           break;
+        }
         case 'command': {
           // Anonymize usernames in command args (e.g., !invite @user, !kick @user)
           let args = entry.args || '';
@@ -510,30 +514,40 @@ function formatLogEntries(entries: LogEntry[]): string {
         case 'claude_event': {
           const eventType = entry.eventType;
           if (eventType === 'assistant') {
-            // Don't include Claude's text output - it could contain user's proprietary
-            // code, secrets being discussed, or other sensitive information
-            const msg = entry.event as { message?: { content?: Array<{ type: string; text?: string; name?: string }> } };
+            // Show content type and size, but not actual content (could contain sensitive data)
+            const msg = entry.event as { message?: { content?: Array<{ type: string; text?: string; name?: string; thinking?: string }> } };
             const content = msg.message?.content?.[0];
             if (content?.type === 'text') {
-              summary = `assistant: [text]`;
+              const len = content.text?.length || 0;
+              summary = `text (${len} chars)`;
             } else if (content?.type === 'tool_use') {
-              // Only show tool name, not arguments (which could contain sensitive data)
+              // Show tool name (arguments could contain sensitive data)
               summary = `tool_use: ${content.name}`;
             } else if (content?.type === 'thinking') {
-              summary = `assistant: [thinking]`;
+              const len = content.thinking?.length || 0;
+              summary = `thinking (${len} chars)`;
             } else {
               summary = `assistant: [${content?.type || 'response'}]`;
             }
           } else if (eventType === 'user') {
-            // Tool results - never show content (could contain file contents, command output, etc.)
-            summary = `tool_result`;
+            // Tool results - show status but not content
+            const toolResult = entry.event as { message?: { content?: Array<{ type: string; is_error?: boolean }> } };
+            const content = toolResult.message?.content?.[0];
+            if (content?.is_error) {
+              summary = `tool_result: error`;
+            } else {
+              summary = `tool_result: ok`;
+            }
           } else if (eventType === 'system') {
             const sysEvent = entry.event as { subtype?: string };
-            summary = `system:${sysEvent.subtype || 'init'}`;
+            summary = `system: ${sysEvent.subtype || 'init'}`;
           } else if (eventType === 'result') {
-            summary = `result: completed`;
+            const resultEvent = entry.event as { cost_usd?: number; duration_ms?: number };
+            const cost = resultEvent.cost_usd ? `$${resultEvent.cost_usd.toFixed(3)}` : '';
+            const duration = resultEvent.duration_ms ? `${Math.round(resultEvent.duration_ms / 1000)}s` : '';
+            summary = `result: completed${cost ? ` ${cost}` : ''}${duration ? ` [${duration}]` : ''}`;
           } else {
-            summary = `claude_event:${eventType}`;
+            summary = `claude: ${eventType}`;
           }
           break;
         }
