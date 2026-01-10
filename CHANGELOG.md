@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.55.0] - 2026-01-10
+
+### Added
+- **Enhanced subagent display with live elapsed time** - Subagent boxes now show live elapsed time during execution, and can be toggled between expanded/collapsed views with reaction emojis (#177)
+- **Preserve runtime settings across daemon auto-restarts** - Permission mode, working directory, and session number are now preserved when the daemon auto-restarts after updates (#180)
+
+### Fixed
+- **Title and tag suggestions timing out** - Increased timeout to 15s and improved error handling to prevent silent failures when generating session titles and tags (#178)
+- **Stale questions after plan approval/rejection** - Questions are now automatically cleared when a plan is approved or rejected to prevent stale state (#179)
+
 ## [0.54.0] - 2026-01-10
 
 ### Added
