@@ -757,13 +757,17 @@ export async function forceUpdateNow(
     return;
   }
 
-  if (!updateManager.hasUpdate()) {
+  // Check for updates first (same as !update does) to ensure we have fresh data
+  // This fixes the inconsistency where !update finds updates but !update now doesn't
+  const updateInfo = await updateManager.checkNow();
+
+  if (!updateInfo || !updateInfo.available) {
     await postInfo(session, `No update available to install`);
     return;
   }
 
   await postInfo(session,
-    `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...\n` +
+    `🔄 ${formatter.formatBold('Forcing update')} to v${updateInfo.latestVersion} - restarting shortly...\n` +
     formatter.formatItalic('Sessions will resume automatically')
   );
 
