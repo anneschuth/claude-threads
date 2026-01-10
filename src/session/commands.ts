@@ -678,7 +678,8 @@ export interface AutoUpdateManagerInterface {
  */
 export async function showUpdateStatus(
   session: Session,
-  updateManager: AutoUpdateManagerInterface | null
+  updateManager: AutoUpdateManagerInterface | null,
+  ctx: SessionContext
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
 
@@ -727,6 +728,8 @@ export async function showUpdateStatus(
 
   // Store pending update prompt for reaction handling
   session.pendingUpdatePrompt = { postId: post.id };
+  // Register post in index so reactions can find the session
+  ctx.ops.registerPost(post.id, session.threadId);
 }
 
 /**
