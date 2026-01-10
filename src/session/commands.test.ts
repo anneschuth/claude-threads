@@ -450,4 +450,30 @@ describe('approvePendingPlan', () => {
     expect(session.claude.sendMessage).not.toHaveBeenCalled();
     expect(ctx.ops.startTyping).not.toHaveBeenCalled();
   });
+
+  it('clears stale pendingQuestionSet when approving plan', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+      // Simulate a stale question from plan mode
+      pendingQuestionSet: {
+        toolUseId: 'oldTool',
+        questions: [{ header: 'Stale', question: 'Old?', options: [{ label: 'A', description: 'Desc' }], answer: null }],
+        currentIndex: 0,
+        currentPostId: 'oldPost',
+      },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    // Should clear pending approval
+    expect(session.pendingApproval).toBeNull();
+    // Should clear stale questions
+    expect(session.pendingQuestionSet).toBeNull();
+    // Should mark as approved
+    expect(session.planApproved).toBe(true);
+  });
 });

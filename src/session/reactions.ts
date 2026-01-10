@@ -126,6 +126,8 @@ export async function handleApprovalReaction(
 
   // Clear pending approval and mark as approved
   session.pendingApproval = null;
+  // Also clear any stale questions from plan mode - they're no longer relevant
+  session.pendingQuestionSet = null;
   if (isApprove) {
     session.planApproved = true;
   }
