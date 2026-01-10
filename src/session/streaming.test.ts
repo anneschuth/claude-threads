@@ -264,7 +264,33 @@ describe('bumpTasksToBottom', () => {
     expect(session.tasksPostId).toBe('post_1');
   });
 
-  test('handles errors gracefully', async () => {
+  test('handles deletePost 404 gracefully and continues', async () => {
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 Tasks';
+
+    // Make deletePost reject with a 404 error (post already gone)
+    (platform.deletePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
+      return Promise.reject(new Error('Mattermost API error 404: post not found'));
+    });
+
+    // Should not throw
+    await bumpTasksToBottom(session);
+
+    // deletePost was called but failed
+    expect(platform.deletePost).toHaveBeenCalledWith('tasks_post');
+
+    // Should still create a new post despite deletePost failure
+    expect(platform.createInteractivePost).toHaveBeenCalledWith(
+      '📋 Tasks',
+      ['arrow_down_small'],
+      'thread1'
+    );
+
+    // tasksPostId should be updated to the new post
+    expect(session.tasksPostId).toBe('post_1');
+  });
+
+  test('handles createInteractivePost errors gracefully', async () => {
     session.tasksPostId = 'tasks_post';
     session.lastTasksContent = '📋 Tasks';
 
@@ -272,10 +298,12 @@ describe('bumpTasksToBottom', () => {
     const originalConsoleError = console.error;
     console.error = mock(() => {});
 
-    // Make deletePost throw an error
-    (platform.deletePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      throw new Error('Network error');
-    });
+    // Make createInteractivePost throw an error (after deletePost succeeds)
+    (platform.createInteractivePost as ReturnType<typeof mock>).mockImplementationOnce(
+      () => {
+        throw new Error('Network error');
+      }
+    );
 
     // Should not throw
     await bumpTasksToBottom(session);
