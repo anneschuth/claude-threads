@@ -10,7 +10,7 @@ import { dirname, resolve } from 'path';
 import { homedir } from 'os';
 import { createLogger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
-import type { PersistedUpdateState, UpdateInfo } from './types.js';
+import type { PersistedUpdateState, RuntimeSettings, UpdateInfo } from './types.js';
 import { UPDATE_STATE_FILENAME } from './types.js';
 
 const log = createLogger('installer');
@@ -85,6 +85,32 @@ export function checkJustUpdated(): { previousVersion: string; currentVersion: s
   }
 
   return null;
+}
+
+/**
+ * Save runtime settings (to restore after daemon restart).
+ */
+export function saveRuntimeSettings(settings: RuntimeSettings): void {
+  const state = loadUpdateState();
+  saveUpdateState({ ...state, runtimeSettings: settings });
+}
+
+/**
+ * Get saved runtime settings.
+ */
+export function getRuntimeSettings(): RuntimeSettings | undefined {
+  return loadUpdateState().runtimeSettings;
+}
+
+/**
+ * Clear runtime settings (after restoring them on daemon restart).
+ */
+export function clearRuntimeSettings(): void {
+  const state = loadUpdateState();
+  if (state.runtimeSettings) {
+    delete state.runtimeSettings;
+    saveUpdateState(state);
+  }
 }
 
 /**

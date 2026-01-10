@@ -23,6 +23,12 @@ import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
 import { AutoUpdateManager } from './auto-update/index.js';
+import {
+  loadUpdateState,
+  saveRuntimeSettings,
+  getRuntimeSettings,
+  clearRuntimeSettings,
+} from './auto-update/installer.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -267,12 +273,25 @@ async function main() {
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
 
+  // Check if this is a daemon restart after update - restore runtime settings if so
+  const updateState = loadUpdateState();
+  const restoredSettings = updateState.justUpdated ? updateState.runtimeSettings : undefined;
+  if (restoredSettings) {
+    // Clear settings after reading so next manual start uses config defaults
+    clearRuntimeSettings();
+    // Restore debug mode if it was enabled
+    if (restoredSettings.debugEnabled) {
+      process.env.DEBUG = '1';
+    }
+  }
+
   // Mutable runtime config (can be changed via keyboard toggles)
   // These affect new sessions and sticky message display
+  // On daemon restart, restore previous settings; otherwise use config defaults
   const runtimeConfig = {
-    skipPermissions: initialSkipPermissions,
-    chromeEnabled: config.chrome ?? false,
-    keepAliveEnabled,
+    skipPermissions: restoredSettings?.skipPermissions ?? initialSkipPermissions,
+    chromeEnabled: restoredSettings?.chromeEnabled ?? (config.chrome ?? false),
+    keepAliveEnabled: restoredSettings?.keepAliveEnabled ?? keepAliveEnabled,
   };
 
   // Session manager reference (set after UI is ready)
@@ -302,12 +321,16 @@ async function main() {
     toggleCallbacks: {
       onDebugToggle: (enabled) => {
         // process.env.DEBUG is already updated in App.tsx
+        // Persist for daemon restart
+        saveRuntimeSettings({ ...getRuntimeSettings(), debugEnabled: enabled });
         ui.addLog({ level: 'info', component: 'toggle', message: `Debug mode ${enabled ? 'enabled' : 'disabled'}` });
         // Trigger sticky message update to reflect debug state
         sessionManager?.updateAllStickyMessages();
       },
       onPermissionsToggle: (skipPermissions) => {
         runtimeConfig.skipPermissions = skipPermissions;
+        // Persist for daemon restart
+        saveRuntimeSettings({ ...getRuntimeSettings(), skipPermissions });
         // Update ALL platform configs so new sessions use this setting
         for (const platformConfig of config.platforms) {
           (platformConfig as MattermostPlatformConfig | SlackPlatformConfig).skipPermissions = skipPermissions;
@@ -320,6 +343,8 @@ async function main() {
       onChromeToggle: (enabled) => {
         runtimeConfig.chromeEnabled = enabled;
         config.chrome = enabled;
+        // Persist for daemon restart
+        saveRuntimeSettings({ ...getRuntimeSettings(), chromeEnabled: enabled });
         // Update SessionManager's internal state for sticky message
         sessionManager?.setChromeEnabled(enabled);
         ui.addLog({ level: 'info', component: 'toggle', message: `Chrome integration ${enabled ? 'enabled' : 'disabled'} for new sessions` });
@@ -328,6 +353,8 @@ async function main() {
       onKeepAliveToggle: (enabled) => {
         runtimeConfig.keepAliveEnabled = enabled;
         keepAlive.setEnabled(enabled);
+        // Persist for daemon restart
+        saveRuntimeSettings({ ...getRuntimeSettings(), keepAliveEnabled: enabled });
         ui.addLog({ level: 'info', component: 'toggle', message: `Keep-alive ${enabled ? 'enabled' : 'disabled'}` });
         sessionManager?.updateAllStickyMessages();
       },
