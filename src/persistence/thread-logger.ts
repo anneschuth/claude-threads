@@ -465,14 +465,17 @@ export function readRecentLogEntries(
   maxLines: number = 50
 ): LogEntry[] {
   const logPath = getLogFilePath(platformId, threadId);
+  log.debug(`Reading log entries from: ${logPath}`);
 
   if (!existsSync(logPath)) {
+    log.debug(`Log file does not exist: ${logPath}`);
     return [];
   }
 
   try {
     const content = readFileSync(logPath, 'utf8');
     const lines = content.trim().split('\n');
+    log.debug(`Log file has ${lines.length} lines`);
 
     // Take last N lines
     const recentLines = lines.slice(-maxLines);
@@ -488,6 +491,7 @@ export function readRecentLogEntries(
       }
     }
 
+    log.debug(`Parsed ${entries.length} log entries`);
     return entries;
   } catch (err) {
     log.error(`Failed to read log file: ${err}`);
