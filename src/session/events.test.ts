@@ -106,6 +106,7 @@ function createTestSession(platform: PlatformClient): Session {
     activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
+    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isResumed: false,
@@ -1412,5 +1413,219 @@ describe('handleEvent with assistant messages containing tool_use and text', () 
     // The code block should end with proper newline separation
     expect(content).toMatch(/```\n+.*I created a new file/s);
     expect(content).not.toMatch(/```I created/);
+  });
+});
+
+// =============================================================================
+// Subagent Display Tests
+// =============================================================================
+
+import { handleSubagentToggleReaction } from './events.js';
+
+describe('Subagent display', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+  let ctx: SessionContext;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+    ctx = createSessionContext();
+  });
+
+  describe('handleEvent with Task tool', () => {
+    test('creates subagent post with description and type', async () => {
+      const event = {
+        type: 'assistant' as const,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Task',
+              id: 'task_1',
+              input: {
+                description: 'Exploring codebase',
+                subagent_type: 'Explore',
+              },
+            },
+          ],
+        },
+      };
+
+      handleEvent(session, event, ctx);
+
+      // Wait for async operations
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Should have created a post
+      expect(platform.createInteractivePost).toHaveBeenCalled();
+      const call = (platform.createInteractivePost as any).mock.calls[0];
+      const message = call[0];
+
+      // Check message contains key elements
+      expect(message).toContain('Subagent');
+      expect(message).toContain('Explore');
+      expect(message).toContain('Exploring codebase');
+      expect(message).toContain('🤖');
+    });
+
+    test('stores ActiveSubagent metadata', async () => {
+      const event = {
+        type: 'assistant' as const,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Task',
+              id: 'task_1',
+              input: {
+                description: 'Test prompt',
+                subagent_type: 'general-purpose',
+              },
+            },
+          ],
+        },
+      };
+
+      handleEvent(session, event, ctx);
+
+      // Wait for async operations
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Should have stored subagent metadata
+      expect(session.activeSubagents.size).toBe(1);
+      const subagent = session.activeSubagents.get('task_1');
+      expect(subagent).toBeDefined();
+      expect(subagent?.description).toBe('Test prompt');
+      expect(subagent?.subagentType).toBe('general-purpose');
+      expect(subagent?.isMinimized).toBe(false);
+      expect(subagent?.isComplete).toBe(false);
+      expect(subagent?.startTime).toBeGreaterThan(0);
+    });
+
+    test('handles Task completion and marks as complete', async () => {
+      // First create a subagent
+      const startEvent = {
+        type: 'assistant' as const,
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'Task',
+              id: 'task_1',
+              input: {
+                description: 'Test task',
+                subagent_type: 'Explore',
+              },
+            },
+          ],
+        },
+      };
+
+      handleEvent(session, startEvent, ctx);
+
+      // Wait for async operations
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Get the subagent
+      const subagent = session.activeSubagents.get('task_1');
+      expect(subagent).toBeDefined();
+      expect(subagent?.isComplete).toBe(false);
+
+      // Now complete it
+      const completeEvent = {
+        type: 'user' as const,
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'task_1',
+              content: 'Task completed',
+            },
+          ],
+        },
+      };
+
+      handleEvent(session, completeEvent, ctx);
+
+      // Wait for async operations
+      await new Promise(resolve => setTimeout(resolve, 10));
+
+      // Should be marked as complete
+      expect(subagent?.isComplete).toBe(true);
+
+      // Post should be updated with completion message
+      expect(platform.updatePost).toHaveBeenCalled();
+      const updateCall = (platform.updatePost as any).mock.calls[0];
+      expect(updateCall[1]).toContain('✅');
+    });
+  });
+
+  describe('handleSubagentToggleReaction', () => {
+    beforeEach(async () => {
+      // Set up a subagent in the session
+      session.activeSubagents.set('task_1', {
+        postId: 'subagent_post_1',
+        startTime: Date.now() - 5000,
+        description: 'Test prompt for subagent',
+        subagentType: 'general-purpose',
+        isMinimized: false,
+        isComplete: false,
+        lastUpdateTime: Date.now(),
+      });
+    });
+
+    test('returns false for non-subagent post', async () => {
+      const result = await handleSubagentToggleReaction(session, 'other_post', 'added');
+      expect(result).toBe(false);
+    });
+
+    test('minimizes subagent on reaction added', async () => {
+      const subagent = session.activeSubagents.get('task_1')!;
+      expect(subagent.isMinimized).toBe(false);
+
+      const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
+
+      expect(result).toBe(true);
+      expect(subagent.isMinimized).toBe(true);
+      expect(platform.updatePost).toHaveBeenCalled();
+    });
+
+    test('expands subagent on reaction removed', async () => {
+      const subagent = session.activeSubagents.get('task_1')!;
+      subagent.isMinimized = true;
+
+      const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'removed');
+
+      expect(result).toBe(true);
+      expect(subagent.isMinimized).toBe(false);
+      expect(platform.updatePost).toHaveBeenCalled();
+    });
+
+    test('skips update if already in desired state', async () => {
+      const subagent = session.activeSubagents.get('task_1')!;
+      subagent.isMinimized = true;
+
+      const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
+
+      expect(result).toBe(true);
+      // Should not call updatePost since state didn't change
+      expect(platform.updatePost).not.toHaveBeenCalled();
+    });
+
+    test('works on completed subagent', async () => {
+      const subagent = session.activeSubagents.get('task_1')!;
+      subagent.isComplete = true;
+      subagent.isMinimized = false;
+
+      const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
+
+      expect(result).toBe(true);
+      expect(subagent.isMinimized).toBe(true);
+      // Update should include completion indicator
+      expect(platform.updatePost).toHaveBeenCalled();
+      const updateCall = (platform.updatePost as any).mock.calls[0];
+      expect(updateCall[1]).toContain('✅');
+    });
   });
 });

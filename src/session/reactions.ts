@@ -12,7 +12,7 @@ import {
   isDenialEmoji,
   isAllowAllEmoji,
   getNumberEmojiIndex,
-  TASK_TOGGLE_EMOJIS,
+  MINIMIZE_TOGGLE_EMOJIS,
   isBugReportEmoji,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
@@ -266,7 +266,7 @@ export async function handleTaskToggleReaction(
 
   // Ensure the toggle emoji is present (may have been removed during toggle)
   try {
-    await session.platform.addReaction(tasksPostId, TASK_TOGGLE_EMOJIS[0]);
+    await session.platform.addReaction(tasksPostId, MINIMIZE_TOGGLE_EMOJIS[0]);
   } catch {
     // Ignore errors - emoji may already exist or reaction failed
   }

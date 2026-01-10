@@ -23,7 +23,7 @@ import {
   isCancelEmoji,
   isEscapeEmoji,
   isResumeEmoji,
-  isTaskToggleEmoji,
+  isMinimizeToggleEmoji,
   getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
@@ -545,9 +545,16 @@ export class SessionManager extends EventEmitter {
     }
 
     // Handle task list toggle reactions (minimize/expand) - state-based on both add and remove
-    if (session.tasksPostId === postId && isTaskToggleEmoji(emojiName)) {
+    if (session.tasksPostId === postId && isMinimizeToggleEmoji(emojiName)) {
       await reactions.handleTaskToggleReaction(session, action, this.getContext());
       return;
+    }
+
+    // Handle subagent toggle reactions (minimize/expand) - state-based on both add and remove
+    // Uses same emoji as task toggle (🔽)
+    if (isMinimizeToggleEmoji(emojiName)) {
+      const handled = await events.handleSubagentToggleReaction(session, postId, action);
+      if (handled) return;
     }
 
     // Handle bug report emoji reaction on error posts (only on add)

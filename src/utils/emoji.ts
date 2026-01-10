@@ -28,8 +28,8 @@ export const ESCAPE_EMOJIS = ['double_vertical_bar', 'pause_button', 'pause'] as
 /** Emojis for resuming a timed-out session */
 export const RESUME_EMOJIS = ['arrows_counterclockwise', 'arrow_forward', 'repeat'] as const;
 
-/** Emojis for toggling task list visibility (minimize/expand) */
-export const TASK_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_down'] as const;
+/** Emojis for toggling visibility (minimize/expand) - used for task lists and subagents */
+export const MINIMIZE_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_down'] as const;
 
 /** Bug report emoji for quick error reporting */
 export const BUG_REPORT_EMOJI = 'bug' as const;
@@ -77,10 +77,10 @@ export function isResumeEmoji(emoji: string): boolean {
 }
 
 /**
- * Check if the emoji indicates task list toggle (minimize/expand)
+ * Check if the emoji indicates minimize/expand toggle (used for tasks and subagents)
  */
-export function isTaskToggleEmoji(emoji: string): boolean {
-  return (TASK_TOGGLE_EMOJIS as readonly string[]).includes(emoji);
+export function isMinimizeToggleEmoji(emoji: string): boolean {
+  return (MINIMIZE_TOGGLE_EMOJIS as readonly string[]).includes(emoji);
 }
 
 /**
