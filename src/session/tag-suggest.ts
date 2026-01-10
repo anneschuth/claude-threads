@@ -12,7 +12,7 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('tag-suggest');
 
 /** Default timeout for tag suggestions (ms) */
-const SUGGESTION_TIMEOUT = 2000;
+const SUGGESTION_TIMEOUT = 15000;
 
 /** Maximum number of tags per session */
 const MAX_TAGS = 3;

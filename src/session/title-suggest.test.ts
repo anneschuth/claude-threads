@@ -376,7 +376,7 @@ describe('suggestSessionMetadata', () => {
     expect(mockQuickQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'haiku',
-        timeout: 3000,
+        timeout: 15000,
       })
     );
     // Check prompt contains the user message

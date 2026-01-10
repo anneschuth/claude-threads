@@ -340,7 +340,7 @@ describe('suggestSessionTags', () => {
     expect(mockQuickQuery).toHaveBeenCalledWith(
       expect.objectContaining({
         model: 'haiku',
-        timeout: 2000,
+        timeout: 15000,
       })
     );
     // Check prompt contains the user message
