@@ -10,6 +10,7 @@ import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import type { PersistedSession } from '../persistence/session-store.js';
+import { createThreadLogger } from '../persistence/thread-logger.js';
 import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
 import { randomUUID } from 'crypto';
@@ -71,6 +72,20 @@ function cleanupSessionTimers(session: Session): void {
   if (session.subagentUpdateTimer) {
     clearInterval(session.subagentUpdateTimer);
     session.subagentUpdateTimer = null;
+  }
+}
+
+/**
+ * Close the thread logger for a session.
+ * Call this before removing a session from the map.
+ */
+async function closeThreadLogger(session: Session, action?: string, details?: Record<string, unknown>): Promise<void> {
+  if (session.threadLogger) {
+    // Log the lifecycle event before closing
+    if (action) {
+      session.threadLogger.logLifecycle(action as 'exit' | 'timeout' | 'interrupt' | 'kill', details);
+    }
+    await session.threadLogger.close();
   }
 }
 
@@ -442,7 +457,17 @@ export async function startSession(
     isProcessing: true,  // Starts as true since we're sending initial prompt
     statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors
+    // Thread logger for persisting events to disk
+    threadLogger: createThreadLogger(platformId, actualThreadId, claudeSessionId, {
+      enabled: ctx.config.threadLogsEnabled ?? true,
+    }),
   };
+
+  // Log session start
+  session.threadLogger?.logLifecycle('start', {
+    username,
+    workingDir: ctx.config.workingDir,
+  });
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
@@ -660,7 +685,17 @@ export async function resumeSession(
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
     statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors (cleared on resume)
+    // Thread logger for persisting events to disk (appends to existing log)
+    threadLogger: createThreadLogger(platformId, state.threadId, state.claudeSessionId, {
+      enabled: ctx.config.threadLogsEnabled ?? true,
+    }),
   };
+
+  // Log session resume
+  session.threadLogger?.logLifecycle('resume', {
+    username: state.startedBy,
+    workingDir: state.workingDir,
+  });
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
@@ -874,6 +909,7 @@ export async function handleExit(
     sessionLog(session).debug(`Bot shutting down, preserving persistence`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    await closeThreadLogger(session, 'exit', { reason: 'shutdown', exitCode: code });
     ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     // Notify keep-alive that a session ended
@@ -886,6 +922,7 @@ export async function handleExit(
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    await closeThreadLogger(session, 'interrupt', { exitCode: code });
 
     // Notify user first, then persist with the lifecyclePostId
     // This ensures the session won't auto-resume on bot restart
@@ -923,6 +960,7 @@ export async function handleExit(
     sessionLog(session).debug(`Exited before Claude responded, not persisting`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
+    await closeThreadLogger(session, 'exit', { reason: 'early_exit', exitCode: code });
     ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     cleanupPostIndex(ctx, session.threadId);
@@ -1005,6 +1043,7 @@ export async function handleExit(
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
+  await closeThreadLogger(session, 'exit', { exitCode: code });
 
   // Unpin task post on session exit
   if (session.tasksPostId) {
@@ -1061,6 +1100,7 @@ export async function killSession(
   }
 
   ctx.ops.stopTyping(session);
+  await closeThreadLogger(session, 'kill', { unpersist });
   session.claude.kill();
 
   // Unpin task post on session kill

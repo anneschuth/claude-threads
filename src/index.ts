@@ -421,7 +421,17 @@ async function main() {
   keepAlive.setEnabled(keepAliveEnabled);
 
   // Create session manager (shared across all platforms)
-  const session = new SessionManager(workingDir, initialSkipPermissions, config.chrome, config.worktreeMode);
+  const threadLogsEnabled = config.threadLogs?.enabled ?? true;
+  const threadLogsRetentionDays = config.threadLogs?.retentionDays ?? 30;
+  const session = new SessionManager(
+    workingDir,
+    initialSkipPermissions,
+    config.chrome,
+    config.worktreeMode,
+    undefined,  // sessionsPath - use default
+    threadLogsEnabled,
+    threadLogsRetentionDays
+  );
 
   // Set reference for toggle callbacks
   sessionManager = session;

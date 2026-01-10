@@ -267,6 +267,9 @@ export function handleEvent(
   event: ClaudeEvent,
   ctx: SessionContext
 ): void {
+  // Log raw event to thread logger (first thing, before any processing)
+  session.threadLogger?.logEvent(event);
+
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
   // Note: compactionPostId is NOT cleared here because compaction events come in sequence
   // and we need to preserve the ID between start and completion events

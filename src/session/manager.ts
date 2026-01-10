@@ -17,6 +17,7 @@ import { join } from 'path';
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
+import { cleanupOldLogs } from '../persistence/thread-logger.js';
 import { WorktreeMode } from '../config.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
@@ -77,6 +78,8 @@ export class SessionManager extends EventEmitter {
   private skipPermissions: boolean;
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
+  private threadLogsEnabled: boolean;
+  private threadLogsRetentionDays: number;
   // Debug is a getter so it reads current process.env.DEBUG (can be toggled at runtime)
   private get debug(): boolean {
     return process.env.DEBUG === '1' || process.argv.includes('--debug');
@@ -107,14 +110,26 @@ export class SessionManager extends EventEmitter {
     skipPermissions = false,
     chromeEnabled = false,
     worktreeMode: WorktreeMode = 'prompt',
-    sessionsPath?: string
+    sessionsPath?: string,
+    threadLogsEnabled = true,
+    threadLogsRetentionDays = 30
   ) {
     super();
     this.workingDir = workingDir;
     this.skipPermissions = skipPermissions;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
+    this.threadLogsEnabled = threadLogsEnabled;
+    this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.sessionStore = new SessionStore(sessionsPath);
+
+    // Clean up old thread logs on startup (if enabled)
+    if (this.threadLogsEnabled) {
+      const deletedLogs = cleanupOldLogs(this.threadLogsRetentionDays);
+      if (deletedLogs > 0) {
+        log.info(`🗑️ Cleaned up ${deletedLogs} old thread log(s)`);
+      }
+    }
 
     // Start periodic cleanup and sticky refresh
     this.cleanupTimer = setInterval(() => {
@@ -223,6 +238,8 @@ export class SessionManager extends EventEmitter {
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
       maxSessions: MAX_SESSIONS,
+      threadLogsEnabled: this.threadLogsEnabled,
+      threadLogsRetentionDays: this.threadLogsRetentionDays,
     };
 
     const state: SessionState = {

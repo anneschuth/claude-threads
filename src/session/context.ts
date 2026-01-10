@@ -35,6 +35,10 @@ export interface SessionConfig {
   debug: boolean;
   /** Maximum concurrent sessions allowed */
   maxSessions: number;
+  /** Whether thread logging is enabled (default: true) */
+  threadLogsEnabled?: boolean;
+  /** Thread log retention in days (default: 30) */
+  threadLogsRetentionDays?: number;
 }
 
 // =============================================================================
