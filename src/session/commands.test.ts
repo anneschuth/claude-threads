@@ -84,6 +84,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     forceInteractivePermissions: false,
     planApproved: false,
     isRestarting: false,
+    isCancelled: false,
     wasInterrupted: false,
     pendingApproval: null,
     pendingQuestionSet: null,
@@ -306,6 +307,7 @@ describe('cancelSession', () => {
 
     await commands.cancelSession(session, 'testuser', ctx);
 
+    expect(session.isCancelled).toBe(true);
     expect(mockPlatform.createPost).toHaveBeenCalledWith(
       expect.stringContaining('Session cancelled'),
       session.threadId

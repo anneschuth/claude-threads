@@ -197,6 +197,9 @@ export interface Session {
   // Flag to suppress exit message during intentional restart (e.g., !cd)
   isRestarting: boolean;
 
+  // Flag to mark session as cancelled (via !stop or ❌) - prevents re-persistence on exit
+  isCancelled: boolean;
+
   // Flag to track if this session was resumed after bot restart
   isResumed: boolean;
 

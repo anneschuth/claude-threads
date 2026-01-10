@@ -630,3 +630,42 @@ describe('sendFollowUp', () => {
     expect(session.messageCount).toBe(6);
   });
 });
+
+describe('handleExit', () => {
+  it('skips cleanup when session is cancelled', async () => {
+    const session = createMockSession({ isCancelled: true, isResumed: true });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // handleExit should return early for cancelled sessions
+    await lifecycle.handleExit('test-platform:thread-123', 1, ctx);
+
+    // persistSession should NOT be called for cancelled sessions
+    // (cancelled sessions are handled by killSession, not handleExit)
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+  });
+
+  it('returns early when session is not found', async () => {
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+
+    // Should not throw when session doesn't exist
+    await lifecycle.handleExit('nonexistent-session', 1, ctx);
+
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+  });
+
+  it('skips cleanup when session is restarting', async () => {
+    const session = createMockSession({ isRestarting: true });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', 1, ctx);
+
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+    // isRestarting should be reset
+    expect(session.isRestarting).toBe(false);
+  });
+});

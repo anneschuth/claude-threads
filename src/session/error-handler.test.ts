@@ -73,6 +73,7 @@ function createMockSession(): Session {
     // Flags
     timeoutWarningPosted: false,
     isRestarting: false,
+    isCancelled: false,
     isResumed: false,
     wasInterrupted: false,
 

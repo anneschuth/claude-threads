@@ -114,6 +114,7 @@ function createTestSession(platform: PlatformClient): Session {
     subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
+    isCancelled: false,
     isResumed: false,
     resumeFailCount: 0,
     wasInterrupted: false,
