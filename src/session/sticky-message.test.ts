@@ -77,6 +77,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
+    isCancelled: false,
     isResumed: false,
     wasInterrupted: false,
     inProgressTaskStart: null,

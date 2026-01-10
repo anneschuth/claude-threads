@@ -446,6 +446,7 @@ export async function startSession(
     subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
+    isCancelled: false,
     isResumed: false,
     resumeFailCount: 0,
     wasInterrupted: false,
@@ -662,6 +663,7 @@ export async function resumeSession(
     subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
+    isCancelled: false,
     isResumed: true,
     resumeFailCount: state.resumeFailCount ?? 0,
     wasInterrupted: false,
@@ -911,6 +913,13 @@ export async function handleExit(
   if (session.isRestarting) {
     sessionLog(session).debug(`Restarting, skipping cleanup`);
     session.isRestarting = false;
+    return;
+  }
+
+  // If session was cancelled (via !stop or ❌), don't clean up or re-persist
+  // The killSession function handles all cleanup - we just exit early here
+  if (session.isCancelled) {
+    sessionLog(session).debug(`Cancelled, skipping cleanup (handled by killSession)`);
     return;
   }
 

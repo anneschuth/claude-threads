@@ -160,6 +160,9 @@ export async function cancelSession(
   sessionLog(session).info(`🛑 Cancelled by @${username}`);
   session.threadLogger?.logCommand('stop', undefined, username);
 
+  // Mark as cancelled BEFORE killing to prevent re-persistence in handleExit
+  session.isCancelled = true;
+
   const formatter = session.platform.getFormatter();
   await postCancelled(session, `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
 
