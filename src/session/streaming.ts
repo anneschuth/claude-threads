@@ -605,8 +605,8 @@ export async function bumpTasksToBottom(
     // Unpin the old task post before deleting
     await session.platform.unpinPost(session.tasksPostId).catch(() => {});
 
-    // Delete the old task post
-    await session.platform.deletePost(session.tasksPostId);
+    // Delete the old task post (ignore 404 - post may already be gone)
+    await session.platform.deletePost(session.tasksPostId).catch(() => {});
 
     // Create a new task post at the bottom, preserving minimized state for content
     // but always adding the toggle emoji (it's always present as a clickable button)
