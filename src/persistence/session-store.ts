@@ -65,6 +65,7 @@ export interface PersistedSession {
   // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
   sessionDescription?: string;                   // Longer description of what's happening (1-2 sentences)
+  sessionTags?: string[];                        // Auto-generated classification tags (e.g., 'bug-fix', 'feature')
   // Pull request URL
   pullRequestUrl?: string;                       // Full URL to PR (GitHub, GitLab, Bitbucket, Azure DevOps, etc.)
   // Message counter

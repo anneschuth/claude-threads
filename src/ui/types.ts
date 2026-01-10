@@ -17,6 +17,7 @@ export interface SessionInfo {
   // Rich session metadata
   title?: string;
   description?: string;
+  tags?: string[];
   lastActivity?: Date;
   // Typing indicator state (for spinner display)
   isTyping?: boolean;

@@ -354,7 +354,15 @@ function formatHistoryEntry(
 
   // Add description on next line if available
   if (session.sessionDescription) {
-    lines.push(`     ${formatter.formatItalic(session.sessionDescription)}`);
+    // Add tag badges inline with description if available
+    const tagBadges = session.sessionTags?.length
+      ? ' ' + session.sessionTags.map(t => formatter.formatCode(t)).join(' ')
+      : '';
+    lines.push(`     ${formatter.formatItalic(session.sessionDescription)}${tagBadges}`);
+  } else if (session.sessionTags?.length) {
+    // Show tags alone if no description
+    const tagBadges = session.sessionTags.map(t => formatter.formatCode(t)).join(' ');
+    lines.push(`     ${tagBadges}`);
   }
 
   return lines;
@@ -592,7 +600,15 @@ export async function buildStickyMessage(
 
     // Add description on next line if available
     if (session.sessionDescription) {
-      lines.push(`   ${formatter.formatItalic(session.sessionDescription)}`);
+      // Add tag badges inline with description if available
+      const tagBadges = session.sessionTags?.length
+        ? ' ' + session.sessionTags.map(t => formatter.formatCode(t)).join(' ')
+        : '';
+      lines.push(`   ${formatter.formatItalic(session.sessionDescription)}${tagBadges}`);
+    } else if (session.sessionTags?.length) {
+      // Show tags alone if no description
+      const tagBadges = session.sessionTags.map(t => formatter.formatCode(t)).join(' ');
+      lines.push(`   ${tagBadges}`);
     }
 
     // Add pending prompts if any (awaiting user input)
