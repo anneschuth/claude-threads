@@ -515,10 +515,12 @@ function formatLogEntries(entries: LogEntry[]): string {
             const msg = entry.event as { message?: { content?: Array<{ type: string; text?: string; name?: string }> } };
             const content = msg.message?.content?.[0];
             if (content?.type === 'text') {
-              summary = `assistant: [text response]`;
+              summary = `assistant: [text]`;
             } else if (content?.type === 'tool_use') {
               // Only show tool name, not arguments (which could contain sensitive data)
               summary = `tool_use: ${content.name}`;
+            } else if (content?.type === 'thinking') {
+              summary = `assistant: [thinking]`;
             } else {
               summary = `assistant: [${content?.type || 'response'}]`;
             }
@@ -529,7 +531,7 @@ function formatLogEntries(entries: LogEntry[]): string {
             const sysEvent = entry.event as { subtype?: string };
             summary = `system:${sysEvent.subtype || 'init'}`;
           } else if (eventType === 'result') {
-            summary = `result: session completed`;
+            summary = `result: completed`;
           } else {
             summary = `claude_event:${eventType}`;
           }
