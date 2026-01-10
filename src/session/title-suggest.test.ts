@@ -4,6 +4,7 @@
 
 import { describe, expect, test, mock, beforeEach } from 'bun:test';
 import { buildTitlePrompt, parseMetadata, suggestSessionMetadata } from './title-suggest.js';
+import type { TitleContext } from './title-suggest.js';
 import type { QuickQueryResult } from '../claude/quick-query.js';
 
 // Mock quickQuery for suggestSessionMetadata tests
@@ -54,39 +55,39 @@ describe('buildTitlePrompt', () => {
     expect(prompt).toContain('DESC: <description here>');
   });
 
-  test('truncates long messages at 500 characters', () => {
-    const longMessage = 'a'.repeat(600);
+  test('truncates long messages at 1000 characters', () => {
+    const longMessage = 'a'.repeat(1200);
     const prompt = buildTitlePrompt(longMessage);
 
-    // Should contain truncated message (500 chars + '...')
-    expect(prompt).toContain('a'.repeat(500) + '...');
-    // Should NOT contain the full 600 character string
-    expect(prompt).not.toContain('a'.repeat(600));
+    // Should contain truncated message (1000 chars + '...')
+    expect(prompt).toContain('a'.repeat(1000) + '...');
+    // Should NOT contain the full 1200 character string
+    expect(prompt).not.toContain('a'.repeat(1200));
   });
 
-  test('does not truncate messages under 500 characters', () => {
-    const shortMessage = 'a'.repeat(400);
+  test('does not truncate messages under 1000 characters', () => {
+    const shortMessage = 'a'.repeat(800);
     const prompt = buildTitlePrompt(shortMessage);
 
     expect(prompt).toContain(shortMessage);
     expect(prompt).not.toContain('...');
   });
 
-  test('truncates message exactly at 500 characters boundary', () => {
-    const exactMessage = 'a'.repeat(500);
+  test('truncates message exactly at 1000 characters boundary', () => {
+    const exactMessage = 'a'.repeat(1000);
     const prompt = buildTitlePrompt(exactMessage);
 
-    // 500 chars exactly should NOT be truncated
+    // 1000 chars exactly should NOT be truncated
     expect(prompt).toContain(exactMessage);
     expect(prompt).not.toContain('...');
   });
 
-  test('truncates message at 501 characters', () => {
-    const overMessage = 'a'.repeat(501);
+  test('truncates message at 1001 characters', () => {
+    const overMessage = 'a'.repeat(1001);
     const prompt = buildTitlePrompt(overMessage);
 
-    expect(prompt).toContain('a'.repeat(500) + '...');
-    expect(prompt).not.toContain('a'.repeat(501));
+    expect(prompt).toContain('a'.repeat(1000) + '...');
+    expect(prompt).not.toContain('a'.repeat(1001));
   });
 
   test('handles empty message', () => {
@@ -109,6 +110,89 @@ describe('buildTitlePrompt', () => {
     const prompt = buildTitlePrompt(message);
 
     expect(prompt).toContain(message);
+  });
+});
+
+describe('buildTitlePrompt with TitleContext', () => {
+  test('builds prompt with structured context (original task only)', () => {
+    const context: TitleContext = {
+      originalTask: 'fix the login button not working',
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('fix the login button not working');
+    expect(prompt).toContain('Original task (PRIMARY');
+    expect(prompt).toContain('TITLE:');
+    expect(prompt).toContain('DESC:');
+  });
+
+  test('builds prompt with original task and recent context', () => {
+    const context: TitleContext = {
+      originalTask: 'fix the login button not working',
+      recentContext: 'now debugging the authentication flow',
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('fix the login button not working');
+    expect(prompt).toContain('now debugging the authentication flow');
+    expect(prompt).toContain('Original task (PRIMARY');
+    expect(prompt).toContain('Recent activity (SECONDARY');
+  });
+
+  test('builds prompt with current title for stability', () => {
+    const context: TitleContext = {
+      originalTask: 'fix the login button not working',
+      recentContext: 'now debugging the authentication flow',
+      currentTitle: 'Fix login button bug',
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('Current title: "Fix login button bug"');
+    expect(prompt).toContain('Only suggest a different title if the session focus has FUNDAMENTALLY changed');
+    expect(prompt).toContain('Prefer keeping the current title');
+  });
+
+  test('does not include stability instruction when no current title', () => {
+    const context: TitleContext = {
+      originalTask: 'fix the login button',
+      recentContext: 'now on auth flow',
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).not.toContain('Current title:');
+    expect(prompt).not.toContain('FUNDAMENTALLY changed');
+  });
+
+  test('truncates original task at 1000 characters', () => {
+    const context: TitleContext = {
+      originalTask: 'a'.repeat(1200),
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('a'.repeat(1000) + '...');
+    expect(prompt).not.toContain('a'.repeat(1200));
+  });
+
+  test('truncates recent context at 500 characters', () => {
+    const context: TitleContext = {
+      originalTask: 'fix the login',
+      recentContext: 'b'.repeat(600),
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('b'.repeat(500) + '...');
+    expect(prompt).not.toContain('b'.repeat(600));
+  });
+
+  test('emphasizes MAIN intent from original task in rules', () => {
+    const context: TitleContext = {
+      originalTask: 'implement user authentication',
+      recentContext: 'testing edge cases',
+    };
+    const prompt = buildTitlePrompt(context);
+
+    expect(prompt).toContain('Capture the MAIN intent from the original task');
+    expect(prompt).toContain('Only deviate from original task if recent activity shows a fundamental change');
   });
 });
 
@@ -410,5 +494,46 @@ describe('suggestSessionMetadata', () => {
     // Check prompt contains the user message
     const call = mockQuickQuery.mock.calls[0] as unknown as [{ prompt: string }];
     expect(call[0].prompt).toContain('implement dark mode');
+  });
+
+  test('handles TitleContext input with original task', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'TITLE: Fix login bug\nDESC: Debugging the login issue.',
+      durationMs: 100,
+    });
+
+    const context: TitleContext = {
+      originalTask: 'fix the login button not working',
+    };
+    const metadata = await suggestSessionMetadata(context);
+
+    expect(metadata).not.toBeNull();
+    expect(metadata?.title).toBe('Fix login bug');
+    // Check prompt uses structured context format
+    const call = mockQuickQuery.mock.calls[0] as unknown as [{ prompt: string }];
+    expect(call[0].prompt).toContain('Original task (PRIMARY');
+    expect(call[0].prompt).toContain('fix the login button not working');
+  });
+
+  test('handles TitleContext with recent context for stability', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'TITLE: Fix login bug\nDESC: Still working on login.',
+      durationMs: 100,
+    });
+
+    const context: TitleContext = {
+      originalTask: 'fix the login button',
+      recentContext: 'now testing edge cases',
+      currentTitle: 'Fix login bug',
+    };
+    const metadata = await suggestSessionMetadata(context);
+
+    expect(metadata).not.toBeNull();
+    // Check prompt includes stability instruction
+    const call = mockQuickQuery.mock.calls[0] as unknown as [{ prompt: string }];
+    expect(call[0].prompt).toContain('Current title: "Fix login bug"');
+    expect(call[0].prompt).toContain('FUNDAMENTALLY changed');
   });
 });

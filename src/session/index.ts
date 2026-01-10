@@ -21,6 +21,6 @@ export { getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
 
 // Session metadata suggestion utilities (quickQuery-based)
 export { suggestSessionMetadata } from './title-suggest.js';
-export type { SessionMetadata } from './title-suggest.js';
+export type { SessionMetadata, TitleContext } from './title-suggest.js';
 export { suggestSessionTags, VALID_TAGS, isValidTag } from './tag-suggest.js';
 export type { SessionTag } from './tag-suggest.js';
