@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.57.0] - 2026-01-10
+
+### Added
+- **Enhanced audit logging** - Comprehensive logging for user messages, commands, reactions, and permissions (#184)
+- **Audit logs in bug reports** - Last 50 log entries are now included in `!bug` GitHub issues for better debugging (#184)
+- **Username anonymization** - Usernames in bug reports are replaced with User1, User2, etc. to protect privacy (#184)
+- **PII/secret redaction** - Added `@redactpii/node` library for comprehensive redaction of emails, phone numbers, SSNs, credit cards, API keys, tokens, and more (#184)
+- **Log file path in session header** - Session header now shows the path to the JSONL log file (#184)
+
 ## [0.56.0] - 2026-01-10
 
 ### Added
