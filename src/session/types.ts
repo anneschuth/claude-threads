@@ -8,6 +8,7 @@ import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
+import type { ThreadLogger } from '../persistence/thread-logger.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -273,6 +274,9 @@ export interface Session {
   pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
   lastError?: ErrorContext;               // Most recent error for bug reaction
+
+  // Thread logging
+  threadLogger?: ThreadLogger;            // Logger for persisting events to disk
 }
 
 // =============================================================================

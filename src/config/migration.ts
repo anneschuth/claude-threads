@@ -15,6 +15,14 @@ export type WorktreeMode = 'off' | 'prompt' | 'require';
 // Re-export auto-update types for convenience
 export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
 
+/**
+ * Thread logging configuration
+ */
+export interface ThreadLogsConfig {
+  enabled?: boolean;        // Default: true
+  retentionDays?: number;   // Default: 30 - days to keep logs after session ends
+}
+
 export interface NewConfig {
   version: number;
   workingDir: string;
@@ -22,6 +30,7 @@ export interface NewConfig {
   worktreeMode: WorktreeMode;
   keepAlive?: boolean; // Optional, defaults to true when undefined
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
+  threadLogs?: ThreadLogsConfig; // Optional thread logging configuration
   platforms: PlatformInstanceConfig[];
 }
 

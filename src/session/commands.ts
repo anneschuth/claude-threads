@@ -157,6 +157,7 @@ export async function cancelSession(
   ctx: SessionContext
 ): Promise<void> {
   sessionLog(session).info(`🛑 Cancelled by @${username}`);
+  session.threadLogger?.logCommand('stop', undefined, username);
 
   const formatter = session.platform.getFormatter();
   await postCancelled(session, `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
@@ -183,6 +184,7 @@ export async function interruptSession(
 
   if (interrupted) {
     sessionLog(session).info(`⏸️ Interrupted by @${username}`);
+    session.threadLogger?.logCommand('escape', undefined, username);
     const formatter = session.platform.getFormatter();
     await postInterrupt(session, `${formatter.formatBold('Interrupted')} by ${formatter.formatUserMention(username)}`);
   }
@@ -277,6 +279,7 @@ export async function changeDirectory(
     : undefined;
   const shortDir = shortenPath(absoluteDir, undefined, worktreeContext);
   sessionLog(session).info(`📂 Changing directory to ${shortDir}`);
+  session.threadLogger?.logCommand('cd', absoluteDir, username);
 
   // Update session working directory
   session.workingDir = absoluteDir;
@@ -347,6 +350,7 @@ export async function inviteUser(
   session.sessionAllowedUsers.add(invitedUser);
   await postSuccess(session, `${formatter.formatUserMention(invitedUser)} can now participate in this session (invited by ${formatter.formatUserMention(invitedBy)})`);
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
+  session.threadLogger?.logCommand('invite', invitedUser, invitedBy);
   await updateSessionHeader(session, ctx);
   ctx.ops.persistSession(session);
 }
@@ -391,6 +395,7 @@ export async function kickUser(
   if (session.sessionAllowedUsers.delete(kickedUser)) {
     await postUser(session, `${formatter.formatUserMention(kickedUser)} removed from this session by ${formatter.formatUserMention(kickedBy)}`);
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
+    session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
     ctx.ops.persistSession(session);
   } else {
@@ -434,6 +439,7 @@ export async function enableInteractivePermissions(
   session.forceInteractivePermissions = true;
 
   sessionLog(session).info(`🔐 Enabling interactive permissions`);
+  session.threadLogger?.logCommand('permissions', 'interactive', username);
 
   // Create new CLI options with interactive permissions
   const cliOptions: ClaudeCliOptions = {
