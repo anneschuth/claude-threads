@@ -112,6 +112,21 @@ export type UpdateStatus =
   | 'failed'          // Installation failed
   | 'deferred';       // User deferred the update
 
+/** Runtime settings that can be toggled via UI */
+export interface RuntimeSettings {
+  /** Skip permission prompts (auto-approve) */
+  skipPermissions?: boolean;
+
+  /** Enable Claude in Chrome integration */
+  chromeEnabled?: boolean;
+
+  /** Enable keep-alive pings */
+  keepAliveEnabled?: boolean;
+
+  /** Enable debug logging */
+  debugEnabled?: boolean;
+}
+
 /** Persisted update state (survives restarts) */
 export interface PersistedUpdateState {
   /** Previous version before update (for rollback instructions) */
@@ -131,6 +146,9 @@ export interface PersistedUpdateState {
 
   /** Deferred until this time (ISO string) */
   deferredUntil?: string;
+
+  /** Runtime settings to restore after daemon restart */
+  runtimeSettings?: RuntimeSettings;
 }
 
 /** Runtime update state (in-memory) */
