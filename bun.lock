@@ -7,6 +7,7 @@
       "dependencies": {
         "@inkjs/ui": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.25.1",
+        "@redactpii/node": "^1.0.16",
         "cli-spinners": "^3.3.0",
         "commander": "^14.0.2",
         "diff": "^8.0.2",
@@ -76,6 +77,8 @@
     "@pnpm/network.ca-file": ["@pnpm/network.ca-file@1.0.2", "", { "dependencies": { "graceful-fs": "4.2.10" } }, "sha512-YcPQ8a0jwYU9bTdJDpXjMi7Brhkr1mXsXrUJvjqM2mQDgkRiz8jFaQGOdaLxgjtUfQgZhKy/O3cG/YwmgKaxLA=="],
 
     "@pnpm/npm-conf": ["@pnpm/npm-conf@2.3.1", "", { "dependencies": { "@pnpm/config.env-replace": "^1.1.0", "@pnpm/network.ca-file": "^1.0.1", "config-chain": "^1.1.11" } }, "sha512-c83qWb22rNRuB0UaVCI0uRPNRr8Z0FWnEIvT47jiHAmOIUHbBOg5XvV7pM5x+rKn9HRpjxquDbXYSXr3fAKFcw=="],
+
+    "@redactpii/node": ["@redactpii/node@1.0.16", "", {}, "sha512-8gVDlnmyAyqMbA3yjiKIFgT6hzMzKJzBLJZQbX6Jv8Qxe3axT3CQQq5ar8kI3vQvSB8VbTisL66Hg4eHJRycqQ=="],
 
     "@types/bun": ["@types/bun@1.3.5", "", { "dependencies": { "bun-types": "1.3.5" } }, "sha512-RnygCqNrd3srIPEWBd5LFeUYG7plCoH2Yw9WaZGyNmdTEei+gWaHqydbaIRkIkcbXwhBT94q78QljxN0Sk838w=="],
 

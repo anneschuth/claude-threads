@@ -41,6 +41,7 @@ import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
 import { shortenPath } from '../utils/tool-formatter.js';
+import { getLogFilePath } from '../persistence/thread-logger.js';
 
 const log = createLogger('commands');
 
@@ -640,6 +641,11 @@ export async function updateSessionHeader(
   }
 
   items.push(['🆔', 'Session ID', formatter.formatCode(session.claudeSessionId.substring(0, 8))]);
+
+  // Show log file path (sanitized)
+  const logPath = getLogFilePath(session.platform.platformId, session.threadId);
+  const shortLogPath = logPath.replace(process.env.HOME || '', '~');
+  items.push(['📋', 'Log File', formatter.formatCode(shortLogPath)]);
 
   // Check for available updates
   const updateInfo = getUpdateInfo();

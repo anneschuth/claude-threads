@@ -1154,10 +1154,10 @@ export class SessionManager extends EventEmitter {
     return undefined;
   }
 
-  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
+  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session || !session.claude.isRunning()) return;
-    await lifecycle.sendFollowUp(session, message, files, this.getContext());
+    await lifecycle.sendFollowUp(session, message, files, this.getContext(), username, displayName);
   }
 
   isSessionActive(): boolean {

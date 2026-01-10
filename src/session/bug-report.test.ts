@@ -94,6 +94,54 @@ describe('sanitizeText', () => {
     const result = sanitizeText(text);
     expect(result).toBe('Token [SLACK_TOKEN] at ~/project/config');
   });
+
+  // Tests for @redactpii/node integration (PII redaction)
+  test('redacts email addresses', () => {
+    const result = sanitizeText('Contact me at john.doe@example.com');
+    expect(result).not.toContain('john.doe@example.com');
+    expect(result).toContain('EMAIL_ADDRESS'); // @redactpii format
+  });
+
+  test('redacts phone numbers', () => {
+    const result = sanitizeText('Call me at (555) 123-4567');
+    expect(result).not.toContain('555');
+    expect(result).not.toContain('123-4567');
+  });
+
+  test('redacts credit card numbers', () => {
+    const result = sanitizeText('Card: 4111-1111-1111-1111');
+    expect(result).not.toContain('4111');
+    expect(result).toContain('CREDIT_CARD'); // @redactpii format
+  });
+
+  test('redacts SSNs', () => {
+    const result = sanitizeText('SSN: 123-45-6789');
+    expect(result).not.toContain('123-45-6789');
+  });
+
+  test('redacts obfuscated emails in aggressive mode', () => {
+    // Aggressive mode catches patterns like "user [at] example [dot] com"
+    const result = sanitizeText('Email: user [at] example [dot] com');
+    expect(result).not.toContain('user [at] example');
+  });
+
+  test('redacts names in greetings', () => {
+    const result = sanitizeText('Hello John Smith, how can I help?');
+    // Note: Name redaction may or may not trigger depending on pattern
+    // The important thing is that if it contains a name pattern, it gets redacted
+    expect(result).not.toMatch(/Hello\s+John\s+Smith/);
+  });
+
+  test('handles combined technical secrets and PII', () => {
+    const text = 'API key sk-ant-12345 belongs to john@example.com at /Users/anne/project';
+    const result = sanitizeText(text);
+    expect(result).not.toContain('sk-ant-12345');
+    expect(result).not.toContain('john@example.com');
+    expect(result).not.toContain('/Users/anne');
+    expect(result).toContain('[ANTHROPIC_KEY]');
+    expect(result).toContain('EMAIL_ADDRESS');
+    expect(result).toContain('~/project');
+  });
 });
 
 // =============================================================================
