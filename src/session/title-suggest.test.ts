@@ -198,12 +198,27 @@ describe('parseMetadata', () => {
     expect(metadata?.title).toBe('Fix');
   });
 
-  test('returns null when title is too long (more than 50 chars)', () => {
-    const longTitle = 'a'.repeat(51);
+  test('truncates title at word boundary when too long (more than 50 chars)', () => {
+    // Title with words that exceeds 50 chars
+    const longTitle = 'Fix the authentication bug in the login system now please';
     const response = `TITLE: ${longTitle}\nDESC: Valid description here.`;
     const metadata = parseMetadata(response);
 
-    expect(metadata).toBeNull();
+    expect(metadata).not.toBeNull();
+    expect(metadata?.title.length).toBeLessThanOrEqual(50);
+    expect(metadata?.title).toContain('…');
+    // Should break at word boundary, not mid-word
+    expect(metadata?.title).toBe('Fix the authentication bug in the login system…');
+  });
+
+  test('hard truncates title when no good word boundary', () => {
+    const longTitle = 'a'.repeat(60);
+    const response = `TITLE: ${longTitle}\nDESC: Valid description here.`;
+    const metadata = parseMetadata(response);
+
+    expect(metadata).not.toBeNull();
+    expect(metadata?.title.length).toBe(50);
+    expect(metadata?.title).toContain('…');
   });
 
   test('accepts title at maximum length (50 chars)', () => {
@@ -215,7 +230,7 @@ describe('parseMetadata', () => {
     expect(metadata?.title).toBe(maxTitle);
   });
 
-  // Description length validation tests (MIN_DESC_LENGTH = 5, MAX_DESC_LENGTH = 100)
+  // Description length validation tests (MIN_DESC_LENGTH = 5, MAX_DESC_LENGTH = 200)
   test('returns null when description is too short (less than 5 chars)', () => {
     const response = 'TITLE: Valid title\nDESC: Test';
     const metadata = parseMetadata(response);
@@ -231,16 +246,29 @@ describe('parseMetadata', () => {
     expect(metadata?.description).toBe('Tests');
   });
 
-  test('returns null when description is too long (more than 100 chars)', () => {
-    const longDesc = 'a'.repeat(101);
+  test('truncates description at word boundary when too long (more than 200 chars)', () => {
+    // Description with words that exceeds 200 chars
+    const longDesc = 'This is a very long description that explains what will be accomplished in great detail including all the steps and actions that need to be taken to complete the task successfully with all requirements met and all tests passing';
     const response = `TITLE: Valid title\nDESC: ${longDesc}`;
     const metadata = parseMetadata(response);
 
-    expect(metadata).toBeNull();
+    expect(metadata).not.toBeNull();
+    expect(metadata?.description.length).toBeLessThanOrEqual(200);
+    expect(metadata?.description).toContain('…');
   });
 
-  test('accepts description at maximum length (100 chars)', () => {
-    const maxDesc = 'a'.repeat(100);
+  test('hard truncates description when no good word boundary', () => {
+    const longDesc = 'a'.repeat(250);
+    const response = `TITLE: Valid title\nDESC: ${longDesc}`;
+    const metadata = parseMetadata(response);
+
+    expect(metadata).not.toBeNull();
+    expect(metadata?.description.length).toBe(200);
+    expect(metadata?.description).toContain('…');
+  });
+
+  test('accepts description at maximum length (200 chars)', () => {
+    const maxDesc = 'a'.repeat(200);
     const response = `TITLE: Valid title\nDESC: ${maxDesc}`;
     const metadata = parseMetadata(response);
 

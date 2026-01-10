@@ -8,6 +8,7 @@
 
 import { quickQuery } from '../claude/quick-query.js';
 import { createLogger } from '../utils/logger.js';
+import { truncateAtWord } from '../utils/format.js';
 
 const log = createLogger('title-suggest');
 
@@ -24,7 +25,7 @@ const MAX_TITLE_LENGTH = 50;
 const MIN_DESC_LENGTH = 5;
 
 /** Maximum description length */
-const MAX_DESC_LENGTH = 100;
+const MAX_DESC_LENGTH = 200;
 
 /**
  * Session metadata returned by the suggestion function.
@@ -32,7 +33,7 @@ const MAX_DESC_LENGTH = 100;
 export interface SessionMetadata {
   /** Short title (3-7 words, imperative form) */
   title: string;
-  /** Brief description (1-2 sentences, under 100 chars) */
+  /** Brief description (1-2 sentences, truncated to 200 chars max) */
   description: string;
 }
 
@@ -76,19 +77,27 @@ export function parseMetadata(response: string): SessionMetadata | null {
     return null;
   }
 
-  const title = titleMatch[1].trim();
-  const description = descMatch[1].trim();
+  let title = titleMatch[1].trim();
+  let description = descMatch[1].trim();
 
-  // Validate title
-  if (title.length < MIN_TITLE_LENGTH || title.length > MAX_TITLE_LENGTH) {
-    log.debug(`Title length invalid: ${title.length} chars`);
+  // Validate title - reject if too short, truncate at word boundary if too long
+  if (title.length < MIN_TITLE_LENGTH) {
+    log.debug(`Title too short: ${title.length} chars`);
     return null;
   }
+  if (title.length > MAX_TITLE_LENGTH) {
+    log.debug(`Title too long (${title.length} chars), truncating`);
+    title = truncateAtWord(title, MAX_TITLE_LENGTH);
+  }
 
-  // Validate description
-  if (description.length < MIN_DESC_LENGTH || description.length > MAX_DESC_LENGTH) {
-    log.debug(`Description length invalid: ${description.length} chars`);
+  // Validate description - reject if too short, truncate at word boundary if too long
+  if (description.length < MIN_DESC_LENGTH) {
+    log.debug(`Description too short: ${description.length} chars`);
     return null;
+  }
+  if (description.length > MAX_DESC_LENGTH) {
+    log.debug(`Description too long (${description.length} chars), truncating`);
+    description = truncateAtWord(description, MAX_DESC_LENGTH);
   }
 
   return { title, description };
