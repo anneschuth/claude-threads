@@ -739,6 +739,7 @@ export class SessionManager extends EventEmitter {
       isPaused: session.isPaused,
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
+      sessionTags: session.sessionTags,
       pullRequestUrl: session.pullRequestUrl,
       messageCount: session.messageCount,
       resumeFailCount: session.resumeFailCount,

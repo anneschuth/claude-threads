@@ -19,6 +19,8 @@ import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
 import type { SessionContext } from './context.js';
+import { suggestSessionMetadata } from './title-suggest.js';
+import { suggestSessionTags } from './tag-suggest.js';
 
 const log = createLogger('lifecycle');
 
@@ -98,6 +100,136 @@ function findPersistedByThreadId(
 }
 
 // ---------------------------------------------------------------------------
+// Out-of-band metadata suggestions (fire-and-forget)
+// ---------------------------------------------------------------------------
+
+/**
+ * Fire metadata suggestions (title, description, tags) in the background.
+ * This is fire-and-forget - it never blocks session startup and never throws.
+ *
+ * @param session - The session to update
+ * @param prompt - The user's initial prompt
+ * @param ctx - Session context for persistence and UI updates
+ */
+function fireMetadataSuggestions(
+  session: Session,
+  prompt: string,
+  ctx: SessionContext
+): void {
+  // Fire immediately without awaiting
+  void (async () => {
+    try {
+      const sessionId = session.sessionId;
+
+      // Run title/description and tags in parallel
+      const [metadata, tags] = await Promise.all([
+        suggestSessionMetadata(prompt),
+        suggestSessionTags(prompt),
+      ]);
+
+      // Check if session still exists (might have been cleaned up while we awaited)
+      const currentSession = (ctx.state.sessions as Map<string, Session>).get(sessionId);
+      if (!currentSession) {
+        sessionLog(session).debug('Session gone before metadata suggestions completed');
+        return;
+      }
+
+      // Only update if we got results and session doesn't already have metadata
+      let updated = false;
+
+      if (metadata && !currentSession.sessionTitle) {
+        currentSession.sessionTitle = metadata.title;
+        currentSession.sessionDescription = metadata.description;
+        sessionLog(currentSession).debug(`Set title: "${metadata.title}"`);
+        updated = true;
+      }
+
+      if (tags.length > 0 && (!currentSession.sessionTags || currentSession.sessionTags.length === 0)) {
+        currentSession.sessionTags = tags;
+        sessionLog(currentSession).debug(`Set tags: ${tags.join(', ')}`);
+        updated = true;
+      }
+
+      // Update persistence and UI if anything changed
+      if (updated) {
+        ctx.ops.persistSession(currentSession);
+        await ctx.ops.updateStickyMessage();
+        await ctx.ops.updateSessionHeader(currentSession);
+      }
+    } catch (err) {
+      // Fire-and-forget: log but never throw
+      sessionLog(session).debug(`Metadata suggestion error: ${err}`);
+    }
+  })();
+}
+
+/**
+ * Fire periodic re-classification if session focus might have shifted.
+ * Called periodically (every N messages) to update title/tags.
+ * This is fire-and-forget - it never blocks and never throws.
+ *
+ * @param session - The session to potentially re-classify
+ * @param currentMessage - The latest user message (used for context)
+ * @param ctx - Session context for persistence and UI updates
+ */
+function firePeriodicReclassification(
+  session: Session,
+  currentMessage: string,
+  ctx: SessionContext
+): void {
+  // Fire immediately without awaiting
+  void (async () => {
+    try {
+      const sessionId = session.sessionId;
+
+      // Build context from current message (session might have evolved)
+      const contextPrompt = session.firstPrompt
+        ? `Original task: ${session.firstPrompt}\n\nCurrent message: ${currentMessage}`
+        : currentMessage;
+
+      // Run title/description and tags in parallel
+      const [metadata, tags] = await Promise.all([
+        suggestSessionMetadata(contextPrompt),
+        suggestSessionTags(contextPrompt),
+      ]);
+
+      // Check if session still exists
+      const currentSession = (ctx.state.sessions as Map<string, Session>).get(sessionId);
+      if (!currentSession) {
+        sessionLog(session).debug('Session gone before reclassification completed');
+        return;
+      }
+
+      // Update metadata if we got valid results
+      let updated = false;
+
+      if (metadata) {
+        currentSession.sessionTitle = metadata.title;
+        currentSession.sessionDescription = metadata.description;
+        sessionLog(currentSession).debug(`Updated title: "${metadata.title}"`);
+        updated = true;
+      }
+
+      if (tags.length > 0) {
+        currentSession.sessionTags = tags;
+        sessionLog(currentSession).debug(`Updated tags: ${tags.join(', ')}`);
+        updated = true;
+      }
+
+      // Update persistence and UI if anything changed
+      if (updated) {
+        ctx.ops.persistSession(currentSession);
+        await ctx.ops.updateStickyMessage();
+        await ctx.ops.updateSessionHeader(currentSession);
+      }
+    } catch (err) {
+      // Fire-and-forget: log but never throw
+      sessionLog(session).debug(`Reclassification error: ${err}`);
+    }
+  })();
+}
+
+// ---------------------------------------------------------------------------
 // System prompt for chat platform context
 // ---------------------------------------------------------------------------
 
@@ -154,60 +286,32 @@ Available commands:
 Commands you should NOT use (counterproductive):
 - \`!stop\`, \`!escape\` - Would kill/interrupt your own session
 - \`!invite\`, \`!kick\`, \`!permissions\` - User decisions, not yours
-
-SESSION METADATA: At the START of your first response, include metadata about this session:
-
-[SESSION_TITLE: <short title>]
-[SESSION_DESCRIPTION: <brief description>]
-
-Title requirements:
-- 3-7 words maximum
-- Descriptive of the main task/topic
-- Written in imperative form (e.g., "Fix login bug", "Add dark mode")
-- Do NOT include quotes
-
-Description requirements:
-- 1-2 sentences explaining what you're helping with
-- Summarize the current work or goal
-- Keep it under 100 characters
-
-You can update both later if the session focus changes significantly.
-
-Example: If the user asks "help me debug why the tests are failing", respond with:
-[SESSION_TITLE: Debug failing tests]
-[SESSION_DESCRIPTION: Investigating test failures and fixing broken assertions in the test suite.]
-
-Then continue with your normal response.
 `.trim();
 
 /**
- * Reminder to update session metadata, injected periodically into user messages.
+ * How often to fire periodic reclassification (every N messages).
  */
-const SESSION_METADATA_REMINDER = `
-<system-reminder>
-If the session topic has shifted or evolved significantly, update the session metadata:
-[SESSION_TITLE: <current focus>]
-[SESSION_DESCRIPTION: <what you're working on now>]
-</system-reminder>
-`.trim();
+const RECLASSIFICATION_INTERVAL = 5;
 
 /**
- * How often to inject the metadata reminder (every N messages).
- */
-const METADATA_REMINDER_INTERVAL = 5;
-
-/**
- * Check if a metadata reminder should be injected for this message.
- * Returns the message with reminder appended if needed, otherwise returns original.
+ * Check if periodic reclassification should be triggered for this message.
+ * Fires out-of-band re-classification of title/tags at regular intervals.
+ * Always returns the original message unchanged (no longer injects reminders
+ * since we now handle metadata out-of-band via quickQuery).
  */
 export function maybeInjectMetadataReminder(
   message: string,
-  session: { messageCount: number }
+  session: { messageCount: number },
+  ctx?: SessionContext,
+  fullSession?: Session
 ): string {
-  // Only inject after the first message, at regular intervals
-  if (session.messageCount > 1 && session.messageCount % METADATA_REMINDER_INTERVAL === 0) {
-    return message + '\n\n' + SESSION_METADATA_REMINDER;
+  // Fire out-of-band re-classification periodically
+  if (session.messageCount > 1 && session.messageCount % RECLASSIFICATION_INTERVAL === 0) {
+    if (ctx && fullSession) {
+      firePeriodicReclassification(fullSession, message, ctx);
+    }
   }
+  // Always return the message unchanged
   return message;
 }
 
@@ -341,6 +445,9 @@ export async function startSession(
   ctx.ops.emitSessionAdd(session);
   sessionLog(session).info(`▶ Session started by @${username}`);
 
+  // Fire out-of-band title/tag suggestions (don't block session startup)
+  fireMetadataSuggestions(session, options.prompt, ctx);
+
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
 
@@ -473,14 +580,9 @@ export async function resumeSession(
   const skipPerms = ctx.config.skipPermissions && !state.forceInteractivePermissions;
   const platformMcpConfig = platform.getMcpConfig();
 
-  // Include system prompt if session doesn't have a title yet
-  // This ensures Claude will generate a title on its next response
-  const needsTitlePrompt = !state.sessionTitle;
-  let appendSystemPrompt: string | undefined;
-  if (needsTitlePrompt) {
-    const sessionContext = buildSessionContext(platform, state.workingDir);
-    appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
-  }
+  // Include system prompt for resumed sessions (provides platform context and command info)
+  const sessionContext = buildSessionContext(platform, state.workingDir);
+  const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
@@ -545,6 +647,7 @@ export async function resumeSession(
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
     sessionTitle: state.sessionTitle,
     sessionDescription: state.sessionDescription,
+    sessionTags: state.sessionTags || [],
     pullRequestUrl: state.pullRequestUrl,
     messageCount: state.messageCount ?? 0,
     isProcessing: false,  // Resumed sessions are idle until user sends a message
@@ -673,9 +776,9 @@ export async function sendFollowUp(
   // Increment message counter
   session.messageCount++;
 
-  // Inject metadata reminder periodically
+  // Inject metadata reminder periodically (also fires re-classification)
   const messageToSend = typeof content === 'string'
-    ? maybeInjectMetadataReminder(content, session)
+    ? maybeInjectMetadataReminder(content, session, ctx, session)
     : content;
 
   // Mark as processing and update UI
@@ -718,9 +821,9 @@ export async function resumePausedSession(
 
     const content = await ctx.ops.buildMessageContent(message, session.platform, files);
 
-    // Inject metadata reminder periodically
+    // Inject metadata reminder periodically (also fires re-classification)
     const messageToSend = typeof content === 'string'
-      ? maybeInjectMetadataReminder(content, session)
+      ? maybeInjectMetadataReminder(content, session, ctx, session)
       : content;
 
     session.claude.sendMessage(messageToSend);

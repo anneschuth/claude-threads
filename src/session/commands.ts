@@ -586,6 +586,9 @@ export async function updateSessionHeader(
   if (session.sessionDescription) {
     items.push(['📄', 'Summary', formatter.formatItalic(session.sessionDescription)]);
   }
+  if (session.sessionTags?.length) {
+    items.push(['🏷️', 'Tags', session.sessionTags.map(t => formatter.formatCode(t)).join(' ')]);
+  }
 
   items.push(['📂', 'Directory', formatter.formatCode(shortDir)]);
   items.push(['👤', 'Started by', formatter.formatUserMention(session.startedBy)]);

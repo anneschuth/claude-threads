@@ -315,24 +315,29 @@ describe('CHAT_PLATFORM_PROMPT', () => {
     expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('!permissions');
   });
 
-  it('contains session metadata format', () => {
-    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('[SESSION_TITLE:');
-    expect(lifecycle.CHAT_PLATFORM_PROMPT).toContain('[SESSION_DESCRIPTION:');
+  it('does not contain session metadata instructions (now handled out-of-band)', () => {
+    // Session metadata (title, description) is now generated out-of-band via quickQuery
+    // so Claude no longer needs to output [SESSION_TITLE:] markers
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).not.toContain('[SESSION_TITLE:');
+    expect(lifecycle.CHAT_PLATFORM_PROMPT).not.toContain('[SESSION_DESCRIPTION:');
   });
 });
 
 describe('maybeInjectMetadataReminder', () => {
-  it('does not inject reminder on first message', () => {
+  // Note: This function no longer injects reminders into messages.
+  // It now just fires out-of-band reclassification and returns the message unchanged.
+  // Session metadata (title, description) is generated via quickQuery, not Claude output markers.
+
+  it('returns message unchanged for first message', () => {
     const message = 'Hello';
     const session = { messageCount: 1 };
 
     const result = lifecycle.maybeInjectMetadataReminder(message, session);
 
     expect(result).toBe('Hello');
-    expect(result).not.toContain('system-reminder');
   });
 
-  it('does not inject reminder on second message', () => {
+  it('returns message unchanged for second message', () => {
     const message = 'Hello';
     const session = { messageCount: 2 };
 
@@ -341,27 +346,26 @@ describe('maybeInjectMetadataReminder', () => {
     expect(result).toBe('Hello');
   });
 
-  it('injects reminder at interval (every 5 messages)', () => {
+  it('returns message unchanged at reclassification interval (every 5 messages)', () => {
     const message = 'Hello';
 
-    // 5th message - should inject
+    // 5th message - still returns unchanged (just fires reclassification in background)
     const result5 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 5 });
-    expect(result5).toContain('system-reminder');
-    expect(result5).toContain('SESSION_TITLE');
+    expect(result5).toBe('Hello');
 
-    // 10th message - should inject
+    // 10th message - same behavior
     const result10 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 10 });
-    expect(result10).toContain('system-reminder');
+    expect(result10).toBe('Hello');
 
-    // 15th message - should inject
+    // 15th message - same behavior
     const result15 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 15 });
-    expect(result15).toContain('system-reminder');
+    expect(result15).toBe('Hello');
   });
 
-  it('does not inject reminder at non-interval messages', () => {
+  it('returns message unchanged at all message counts', () => {
     const message = 'Hello';
 
-    // 3rd, 4th, 6th, 7th messages - should not inject
+    // All messages should return unchanged
     expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
     expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
     expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
