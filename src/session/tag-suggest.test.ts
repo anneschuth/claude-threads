@@ -1,13 +1,19 @@
 /**
  * Tests for session tag suggestion parsing and validation
- *
- * Note: These tests focus on the buildTagPrompt, parseTags, and isValidTag functions.
- * Integration tests for the full suggestSessionTags flow would require
- * the Claude CLI, so they belong in the integration test suite.
  */
 
-import { describe, expect, it } from 'bun:test';
-import { buildTagPrompt, parseTags, isValidTag, VALID_TAGS } from './tag-suggest.js';
+import { describe, expect, it, mock, beforeEach } from 'bun:test';
+import { buildTagPrompt, parseTags, isValidTag, VALID_TAGS, suggestSessionTags } from './tag-suggest.js';
+import type { QuickQueryResult } from '../claude/quick-query.js';
+
+// Mock quickQuery for suggestSessionTags tests
+const mockQuickQuery = mock(
+  (): Promise<QuickQueryResult> =>
+    Promise.resolve({ success: true, response: 'bug-fix', durationMs: 100 })
+);
+mock.module('../claude/quick-query.js', () => ({
+  quickQuery: mockQuickQuery,
+}));
 
 describe('isValidTag', () => {
   it('returns true for all valid tags', () => {
@@ -268,5 +274,77 @@ describe('buildTagPrompt', () => {
     const prompt = buildTagPrompt('fix the bug');
 
     expect(prompt).toContain('Task: "fix the bug"');
+  });
+});
+
+describe('suggestSessionTags', () => {
+  beforeEach(() => {
+    mockQuickQuery.mockClear();
+  });
+
+  it('returns parsed tags on successful query', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'bug-fix, feature',
+      durationMs: 100,
+    });
+
+    const tags = await suggestSessionTags('fix the login button');
+
+    expect(tags).toContain('bug-fix');
+    expect(tags).toContain('feature');
+    expect(mockQuickQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns empty array when query fails', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: false,
+      error: 'timeout',
+      durationMs: 2000,
+    });
+
+    const tags = await suggestSessionTags('some task');
+
+    expect(tags).toEqual([]);
+  });
+
+  it('returns empty array when response is empty', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: '',
+      durationMs: 100,
+    });
+
+    const tags = await suggestSessionTags('some task');
+
+    expect(tags).toEqual([]);
+  });
+
+  it('returns empty array on exception', async () => {
+    mockQuickQuery.mockRejectedValueOnce(new Error('Network error'));
+
+    const tags = await suggestSessionTags('some task');
+
+    expect(tags).toEqual([]);
+  });
+
+  it('passes correct parameters to quickQuery', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'bug-fix',
+      durationMs: 100,
+    });
+
+    await suggestSessionTags('fix login issue');
+
+    expect(mockQuickQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'haiku',
+        timeout: 2000,
+      })
+    );
+    // Check prompt contains the user message
+    const call = mockQuickQuery.mock.calls[0] as unknown as [{ prompt: string }];
+    expect(call[0].prompt).toContain('fix login issue');
   });
 });

@@ -1,13 +1,23 @@
 /**
  * Tests for session title and description suggestion parsing
- *
- * Note: These tests focus on the buildTitlePrompt and parseMetadata functions.
- * Integration tests for the full suggestSessionMetadata flow would require
- * the Claude CLI, so they belong in the integration test suite.
  */
 
-import { describe, expect, test } from 'bun:test';
-import { buildTitlePrompt, parseMetadata } from './title-suggest.js';
+import { describe, expect, test, mock, beforeEach } from 'bun:test';
+import { buildTitlePrompt, parseMetadata, suggestSessionMetadata } from './title-suggest.js';
+import type { QuickQueryResult } from '../claude/quick-query.js';
+
+// Mock quickQuery for suggestSessionMetadata tests
+const mockQuickQuery = mock(
+  (): Promise<QuickQueryResult> =>
+    Promise.resolve({
+      success: true,
+      response: 'TITLE: Fix login bug\nDESC: Debugging the login issue.',
+      durationMs: 100,
+    })
+);
+mock.module('../claude/quick-query.js', () => ({
+  quickQuery: mockQuickQuery,
+}));
 
 describe('buildTitlePrompt', () => {
   test('builds prompt with user message', () => {
@@ -287,5 +297,90 @@ describe('parseMetadata', () => {
 
     expect(metadata).not.toBeNull();
     expect(metadata?.description).toBe('Note: this updates documentation.');
+  });
+});
+
+describe('suggestSessionMetadata', () => {
+  beforeEach(() => {
+    mockQuickQuery.mockClear();
+  });
+
+  test('returns parsed metadata on successful query', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'TITLE: Fix login bug\nDESC: Debugging the login issue.',
+      durationMs: 100,
+    });
+
+    const metadata = await suggestSessionMetadata('fix the login button');
+
+    expect(metadata).not.toBeNull();
+    expect(metadata?.title).toBe('Fix login bug');
+    expect(metadata?.description).toBe('Debugging the login issue.');
+    expect(mockQuickQuery).toHaveBeenCalledTimes(1);
+  });
+
+  test('returns null when query fails', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: false,
+      error: 'timeout',
+      durationMs: 3000,
+    });
+
+    const metadata = await suggestSessionMetadata('some task');
+
+    expect(metadata).toBeNull();
+  });
+
+  test('returns null when response is empty', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: '',
+      durationMs: 100,
+    });
+
+    const metadata = await suggestSessionMetadata('some task');
+
+    expect(metadata).toBeNull();
+  });
+
+  test('returns null when response cannot be parsed', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'Invalid response without TITLE or DESC',
+      durationMs: 100,
+    });
+
+    const metadata = await suggestSessionMetadata('some task');
+
+    expect(metadata).toBeNull();
+  });
+
+  test('returns null on exception', async () => {
+    mockQuickQuery.mockRejectedValueOnce(new Error('Network error'));
+
+    const metadata = await suggestSessionMetadata('some task');
+
+    expect(metadata).toBeNull();
+  });
+
+  test('passes correct parameters to quickQuery', async () => {
+    mockQuickQuery.mockResolvedValueOnce({
+      success: true,
+      response: 'TITLE: Test title\nDESC: Test description here.',
+      durationMs: 100,
+    });
+
+    await suggestSessionMetadata('implement dark mode');
+
+    expect(mockQuickQuery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'haiku',
+        timeout: 3000,
+      })
+    );
+    // Check prompt contains the user message
+    const call = mockQuickQuery.mock.calls[0] as unknown as [{ prompt: string }];
+    expect(call[0].prompt).toContain('implement dark mode');
   });
 });
