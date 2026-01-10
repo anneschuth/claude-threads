@@ -290,6 +290,40 @@ describe('handleApprovalReaction', () => {
 
     expect(session.pendingApproval).not.toBeNull();
   });
+
+  test('clears stale pendingQuestionSet when plan is approved', async () => {
+    session.pendingApproval = { postId: 'post1', toolUseId: 'tool1', type: 'plan' };
+    // Simulate a stale question from plan mode
+    session.pendingQuestionSet = {
+      toolUseId: 'oldTool',
+      questions: [{ header: 'Stale', question: 'Old?', options: [{ label: 'A', description: 'Desc' }], answer: null }],
+      currentIndex: 0,
+      currentPostId: 'oldPost',
+    };
+
+    await handleApprovalReaction(session, '+1', 'testuser', ctx);
+
+    expect(session.pendingApproval).toBeNull();
+    expect(session.pendingQuestionSet).toBeNull();
+    expect(session.planApproved).toBe(true);
+  });
+
+  test('clears stale pendingQuestionSet when plan is rejected', async () => {
+    session.pendingApproval = { postId: 'post1', toolUseId: 'tool1', type: 'plan' };
+    // Simulate a stale question from plan mode
+    session.pendingQuestionSet = {
+      toolUseId: 'oldTool',
+      questions: [{ header: 'Stale', question: 'Old?', options: [{ label: 'A', description: 'Desc' }], answer: null }],
+      currentIndex: 0,
+      currentPostId: 'oldPost',
+    };
+
+    await handleApprovalReaction(session, '-1', 'testuser', ctx);
+
+    expect(session.pendingApproval).toBeNull();
+    expect(session.pendingQuestionSet).toBeNull();
+    expect(session.planApproved).toBe(false);
+  });
 });
 
 describe('handleMessageApprovalReaction', () => {

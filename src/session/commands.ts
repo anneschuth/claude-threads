@@ -217,6 +217,8 @@ export async function approvePendingPlan(
 
   // Clear pending approval and mark as approved
   session.pendingApproval = null;
+  // Also clear any stale questions from plan mode - they're no longer relevant
+  session.pendingQuestionSet = null;
   session.planApproved = true;
 
   // Send user message to Claude - NOT a tool_result
