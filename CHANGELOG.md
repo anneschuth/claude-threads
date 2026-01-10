@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.56.0] - 2026-01-10
+
+### Added
+- **Persist Claude threads to disk** - Conversation history is now saved to JSONL files for debugging and auditing purposes (#183)
+
+### Fixed
+- **Truncate long titles/descriptions** - Long auto-generated titles and descriptions are now truncated instead of being rejected (#182)
+- **!update now consistency** - The `!update now` command now checks for updates consistently with `!update` (#181)
+
 ## [0.55.0] - 2026-01-10
 
 ### Added
