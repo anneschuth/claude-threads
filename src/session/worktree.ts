@@ -27,7 +27,7 @@ import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
 import { postWarning, postError, postSuccess, postInfo, resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
-import { shortenPath } from '../utils/tool-formatter.js';
+import { shortenPath } from '../operations/index.js';
 
 const log = createLogger('worktree');
 

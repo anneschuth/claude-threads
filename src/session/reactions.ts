@@ -18,7 +18,7 @@ import {
 import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
-import { shortenPath } from '../utils/tool-formatter.js';
+import { shortenPath } from '../operations/index.js';
 import { reportBug, handleBugReportApproval } from './commands.js';
 
 const log = createLogger('reactions');

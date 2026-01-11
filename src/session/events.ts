@@ -8,7 +8,7 @@
 import type { Session, SessionUsageStats, ModelTokenUsage, ActiveSubagent } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
-import { formatToolUse as sharedFormatToolUse, shortenPath } from '../utils/tool-formatter.js';
+import { formatToolUse as sharedFormatToolUse, shortenPath } from '../operations/index.js';
 import {
   NUMBER_EMOJIS,
   APPROVAL_EMOJIS,

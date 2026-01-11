@@ -40,7 +40,7 @@ import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
 import { getClaudeCliVersion } from '../claude/version-check.js';
-import { shortenPath } from '../utils/tool-formatter.js';
+import { shortenPath } from '../operations/index.js';
 import { getLogFilePath } from '../persistence/thread-logger.js';
 
 const log = createLogger('commands');

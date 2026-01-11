@@ -9,7 +9,6 @@
 
 // Content breaking utilities
 export {
-  ContentBreaker,
   DefaultContentBreaker,
   defaultContentBreaker,
   getCodeBlockState,
@@ -22,6 +21,7 @@ export {
 } from './content-breaker.js';
 
 export type {
+  ContentBreaker,
   BreakpointType,
   CodeBlockInfo,
   BreakpointResult,
@@ -47,6 +47,8 @@ export {
   toolFormatterRegistry,
   shortenPath,
   parseMcpToolName,
+  formatToolUse,
+  formatToolForPermission,
 } from './tool-formatters/index.js';
 
 export type {
@@ -56,6 +58,7 @@ export type {
   ToolFormatter,
   ToolFormatterRegistryInterface,
   WorktreeContext,
+  FormatOptions,
 } from './tool-formatters/index.js';
 
 // Operation types
