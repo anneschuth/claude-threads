@@ -7,13 +7,17 @@
 
 import type { WorktreeMode as WorktreeModeType } from './config/migration.js';
 
-// Re-export types only - functions are imported directly from migration.ts
+// Re-export types and functions
 export type {
   NewConfig,
+  Config,
   PlatformInstanceConfig,
   MattermostPlatformConfig,
   WorktreeMode,
+  LimitsConfig,
 } from './config/migration.js';
+
+export { resolveLimits, LIMITS_DEFAULTS } from './config/migration.js';
 
 /**
  * CLI arguments that can override config

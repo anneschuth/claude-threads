@@ -14,7 +14,7 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { WorktreeMode } from '../config.js';
+import { WorktreeMode, type LimitsConfig, resolveLimits } from '../config.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
   isCancelEmoji,
@@ -53,7 +53,7 @@ import {
 } from './context.js';
 
 // Import constants for internal use
-import { MAX_SESSIONS, SESSION_TIMEOUT_MS, SESSION_WARNING_MS, getSessionStatus } from './types.js';
+import { getSessionStatus } from './types.js';
 
 /**
  * SessionManager - Main orchestrator for Claude Code sessions
@@ -72,6 +72,8 @@ export class SessionManager extends EventEmitter {
   private worktreeMode: WorktreeMode;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
+  // Resolved limits configuration
+  private readonly limits: Required<LimitsConfig>;
   // Debug is a getter so it reads current process.env.DEBUG (can be toggled at runtime)
   private get debug(): boolean {
     return process.env.DEBUG === '1' || process.argv.includes('--debug');
@@ -105,7 +107,8 @@ export class SessionManager extends EventEmitter {
     worktreeMode: WorktreeMode = 'prompt',
     sessionsPath?: string,
     threadLogsEnabled = true,
-    threadLogsRetentionDays = 30
+    threadLogsRetentionDays = 30,
+    limits?: LimitsConfig
   ) {
     super();
     this.workingDir = workingDir;
@@ -114,12 +117,13 @@ export class SessionManager extends EventEmitter {
     this.worktreeMode = worktreeMode;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
+    this.limits = resolveLimits(limits);
     this.sessionStore = new SessionStore(sessionsPath);
 
     // Create background tasks (started in initialize())
     this.sessionMonitor = new SessionMonitor({
-      sessionTimeoutMs: SESSION_TIMEOUT_MS,
-      sessionWarningMs: SESSION_WARNING_MS,
+      sessionTimeoutMs: this.limits.sessionTimeoutMinutes * 60 * 1000,
+      sessionWarningMs: this.limits.sessionWarningMinutes * 60 * 1000,
       getContext: () => this.getContext(),
       getSessionCount: () => this.sessions.size,
       updateStickyMessage: () => this.updateStickyMessage(),
@@ -129,6 +133,9 @@ export class SessionManager extends EventEmitter {
       sessionStore: this.sessionStore,
       threadLogsEnabled: this.threadLogsEnabled,
       logRetentionDays: this.threadLogsRetentionDays,
+      intervalMs: this.limits.cleanupIntervalMinutes * 60 * 1000,
+      maxWorktreeAgeMs: this.limits.maxWorktreeAgeHours * 60 * 60 * 1000,
+      cleanupWorktrees: this.limits.cleanupWorktrees,
     });
   }
 
@@ -226,9 +233,10 @@ export class SessionManager extends EventEmitter {
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
-      maxSessions: MAX_SESSIONS,
+      maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,
       threadLogsRetentionDays: this.threadLogsRetentionDays,
+      permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
     };
 
     const state: SessionState = {
@@ -427,7 +435,7 @@ export class SessionManager extends EventEmitter {
     }
 
     // Check max sessions limit
-    if (this.sessions.size >= MAX_SESSIONS) {
+    if (this.sessions.size >= this.limits.maxSessions) {
       if (platform) {
         const fmt = platform.getFormatter();
         await platform.createPost(
@@ -786,7 +794,7 @@ export class SessionManager extends EventEmitter {
 
   private async updateStickyMessage(): Promise<void> {
     await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions, {
-      maxSessions: MAX_SESSIONS,
+      maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
       skipPermissions: this.skipPermissions,
       worktreeMode: this.worktreeMode,
@@ -961,7 +969,8 @@ export class SessionManager extends EventEmitter {
 
     // Clean up stale sessions that timed out while bot was down
     // Use 2x timeout to be generous (bot might have been down for a while)
-    const staleIds = this.sessionStore.cleanStale(SESSION_TIMEOUT_MS * 2);
+    const sessionTimeoutMs = this.limits.sessionTimeoutMinutes * 60 * 1000;
+    const staleIds = this.sessionStore.cleanStale(sessionTimeoutMs * 2);
     if (staleIds.length > 0) {
       log.info(`🧹 Soft-deleted ${staleIds.length} stale session(s) (kept for history)`);
     }
@@ -1187,6 +1196,7 @@ export class SessionManager extends EventEmitter {
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
       worktreeMode: this.worktreeMode,
+      permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),

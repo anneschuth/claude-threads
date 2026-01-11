@@ -13,6 +13,7 @@
         "diff": "^8.0.2",
         "ink": "^6.6.0",
         "ink-scroll-view": "^0.3.5",
+        "js-yaml": "^4.1.1",
         "prompts": "^2.4.2",
         "react": "^19.2.3",
         "react-devtools-core": "^7.0.1",
@@ -23,6 +24,7 @@
       "devDependencies": {
         "@eslint/js": "^9.39.2",
         "@types/bun": "latest",
+        "@types/js-yaml": "^4.0.9",
         "@types/node": "^25.0.3",
         "@types/prompts": "^2.4.9",
         "@types/react": "^19.2.7",
@@ -85,6 +87,8 @@
     "@types/configstore": ["@types/configstore@6.0.2", "", {}, "sha512-OS//b51j9uyR3zvwD04Kfs5kHpve2qalQ18JhY/ho3voGYUTPLEG90/ocfKPI48hyHH8T04f7KEEbK6Ue60oZQ=="],
 
     "@types/estree": ["@types/estree@1.0.8", "", {}, "sha512-dWHzHa2WqEXI/O1E9OjrocMTKJl2mSrEolh1Iomrv6U+JuNwaHXsXx9bLu5gG7BUWFIN0skIQJQ/L1rIex4X6w=="],
+
+    "@types/js-yaml": ["@types/js-yaml@4.0.9", "", {}, "sha512-k4MGaQl5TGo/iipqb2UDG2UwjXziSWkh0uysQelTlJpX1qGlpUZYm8PnO4DxG1qBomtJUdYJ6qR6xdIah10JLg=="],
 
     "@types/json-schema": ["@types/json-schema@7.0.15", "", {}, "sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA=="],
 

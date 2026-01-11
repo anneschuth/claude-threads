@@ -48,7 +48,7 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .map(u => u.trim())
   .filter(u => u.length > 0);
 
-const PERMISSION_TIMEOUT_MS = 120000; // 2 minutes
+const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120000', 10);
 
 // =============================================================================
 // Permission API Instance

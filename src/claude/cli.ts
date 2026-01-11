@@ -109,6 +109,7 @@ export interface ClaudeCliOptions {
   platformConfig?: PlatformMcpConfig;  // Platform-specific config for MCP server
   appendSystemPrompt?: string;  // Additional system prompt to append
   logSessionId?: string;  // Session ID for log routing (platformId:threadId)
+  permissionTimeoutMs?: number;  // Timeout for permission approval (default: 120000)
 }
 
 export class ClaudeCli extends EventEmitter {
@@ -243,6 +244,7 @@ export class ClaudeCli extends EventEmitter {
         PLATFORM_THREAD_ID: this.options.threadId || '',
         ALLOWED_USERS: platformConfig.allowedUsers.join(','),
         DEBUG: this.debug ? '1' : '',
+        PERMISSION_TIMEOUT_MS: String(this.options.permissionTimeoutMs ?? 120000),
       };
 
       // Add Slack-specific app token if present (needed for Socket Mode)

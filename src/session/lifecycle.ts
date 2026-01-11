@@ -431,6 +431,7 @@ export async function startSession(
     platformConfig: platformMcpConfig,
     appendSystemPrompt: systemPrompt,
     logSessionId: sessionId,  // Route logs to session panel
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -647,6 +648,7 @@ export async function resumeSession(
     platformConfig: platformMcpConfig,
     appendSystemPrompt,
     logSessionId: sessionId,  // Route logs to session panel
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
   };
   const claude = new ClaudeCli(cliOptions);
 

@@ -5,10 +5,12 @@ import { fileURLToPath } from 'url';
 import {
   CONFIG_PATH,
   saveConfig,
+  LIMITS_DEFAULTS,
   type NewConfig,
   type PlatformInstanceConfig,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
+  type LimitsConfig,
 } from './config/migration.js';
 import { bold, dim, green } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
@@ -477,6 +479,7 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
     // Add new/done options
     choices.push(
       { title: '+ Add new platform', value: 'add-new' },
+      { title: '⚙️ Advanced settings', value: 'advanced', description: 'Timeouts, limits, cleanup' },
       { title: '✓ Done (save and exit)', value: 'done' }
     );
 
@@ -568,6 +571,42 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
 
       config.platforms.push(newPlatform);
       console.log(green(`  ✓ Added ${newPlatform.displayName}`));
+    } else if (action === 'advanced') {
+      // Configure advanced settings (limits, timeouts, cleanup, thread logs, keepAlive)
+      const advancedResult = await configureAdvancedSettings({
+        limits: config.limits,
+        threadLogsEnabled: config.threadLogs?.enabled,
+        threadLogsRetentionDays: config.threadLogs?.retentionDays,
+        keepAlive: config.keepAlive,
+      });
+
+      // Update limits
+      config.limits = advancedResult.limits;
+
+      // Update threadLogs (only if non-default values)
+      if (advancedResult.threadLogsEnabled === false || advancedResult.threadLogsRetentionDays !== undefined) {
+        config.threadLogs = {
+          ...config.threadLogs,
+          enabled: advancedResult.threadLogsEnabled ?? config.threadLogs?.enabled,
+          retentionDays: advancedResult.threadLogsRetentionDays ?? config.threadLogs?.retentionDays,
+        };
+        // Clean up undefined values
+        if (config.threadLogs.enabled === undefined) delete config.threadLogs.enabled;
+        if (config.threadLogs.retentionDays === undefined) delete config.threadLogs.retentionDays;
+        // Remove section if empty
+        if (Object.keys(config.threadLogs).length === 0) {
+          delete config.threadLogs;
+        }
+      }
+
+      // Update keepAlive (only save if disabled, default is true)
+      if (advancedResult.keepAlive === false) {
+        config.keepAlive = false;
+      } else {
+        delete config.keepAlive;
+      }
+
+      console.log(green('  ✓ Advanced settings updated'));
     } else if (action.startsWith('platform-')) {
       // Edit or remove existing platform
       const platformIndex = parseInt(action.replace('platform-', ''));
@@ -682,6 +721,50 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
       console.log(dim(`      Auto-approve: ${slack.skipPermissions ? 'Yes' : 'No (interactive)'}`));
     }
   }
+
+  // Show advanced settings if any are configured
+  const hasAdvancedSettings = config.limits || config.threadLogs || config.keepAlive === false;
+  if (hasAdvancedSettings) {
+    console.log('');
+    console.log(dim('  Advanced Settings:'));
+
+    if (config.limits) {
+      if (config.limits.maxSessions !== undefined) {
+        console.log(dim(`    Max Sessions: ${config.limits.maxSessions}`));
+      }
+      if (config.limits.sessionTimeoutMinutes !== undefined) {
+        console.log(dim(`    Session Timeout: ${config.limits.sessionTimeoutMinutes} min`));
+      }
+      if (config.limits.sessionWarningMinutes !== undefined) {
+        console.log(dim(`    Warning Before Timeout: ${config.limits.sessionWarningMinutes} min`));
+      }
+      if (config.limits.permissionTimeoutSeconds !== undefined) {
+        console.log(dim(`    Permission Timeout: ${config.limits.permissionTimeoutSeconds} sec`));
+      }
+      if (config.limits.cleanupIntervalMinutes !== undefined) {
+        console.log(dim(`    Cleanup Interval: ${config.limits.cleanupIntervalMinutes} min`));
+      }
+      if (config.limits.cleanupWorktrees !== undefined) {
+        console.log(dim(`    Cleanup Worktrees: ${config.limits.cleanupWorktrees ? 'Yes' : 'No'}`));
+      }
+      if (config.limits.maxWorktreeAgeHours !== undefined) {
+        console.log(dim(`    Max Worktree Age: ${config.limits.maxWorktreeAgeHours} hours`));
+      }
+    }
+
+    if (config.threadLogs) {
+      if (config.threadLogs.enabled === false) {
+        console.log(dim('    Thread Logging: Disabled'));
+      } else if (config.threadLogs.retentionDays !== undefined) {
+        console.log(dim(`    Log Retention: ${config.threadLogs.retentionDays} days`));
+      }
+    }
+
+    if (config.keepAlive === false) {
+      console.log(dim('    Keep Alive: Disabled'));
+    }
+  }
+
   console.log('');
   console.log(dim('  ─────────────────────────────────────────────────────'));
   console.log('');
@@ -699,6 +782,169 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
     process.exit(0);
   }
 }
+
+// ============================================================================
+// Advanced Settings Configuration
+// ============================================================================
+
+interface AdvancedSettingsInput {
+  limits?: LimitsConfig;
+  threadLogsEnabled?: boolean;
+  threadLogsRetentionDays?: number;
+  keepAlive?: boolean;
+}
+
+interface AdvancedSettingsOutput {
+  limits?: LimitsConfig;
+  threadLogsEnabled?: boolean;
+  threadLogsRetentionDays?: number;
+  keepAlive?: boolean;
+}
+
+async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promise<AdvancedSettingsOutput> {
+  console.log('');
+  console.log(bold('  Advanced Settings'));
+  console.log(dim('  ─────────────────────────────────────────────────────'));
+  console.log('');
+  console.log(dim('  These settings have sensible defaults. Only change if needed.'));
+  console.log(dim('  Press Enter to keep current/default values.'));
+  console.log('');
+
+  // Session settings
+  console.log(dim('  Session Limits:'));
+  const sessionSettings = await prompts([
+    {
+      type: 'number',
+      name: 'maxSessions',
+      message: 'Max concurrent sessions',
+      initial: existing.limits?.maxSessions ?? LIMITS_DEFAULTS.maxSessions,
+      min: 1,
+      max: 50,
+      hint: `default: ${LIMITS_DEFAULTS.maxSessions}`,
+    },
+    {
+      type: 'number',
+      name: 'sessionTimeoutMinutes',
+      message: 'Session idle timeout (minutes)',
+      initial: existing.limits?.sessionTimeoutMinutes ?? LIMITS_DEFAULTS.sessionTimeoutMinutes,
+      min: 1,
+      max: 1440,
+      hint: `default: ${LIMITS_DEFAULTS.sessionTimeoutMinutes}`,
+    },
+    {
+      type: 'number',
+      name: 'sessionWarningMinutes',
+      message: 'Warn before timeout (minutes)',
+      initial: existing.limits?.sessionWarningMinutes ?? LIMITS_DEFAULTS.sessionWarningMinutes,
+      min: 1,
+      max: 30,
+      hint: `default: ${LIMITS_DEFAULTS.sessionWarningMinutes}`,
+    },
+    {
+      type: 'number',
+      name: 'permissionTimeoutSeconds',
+      message: 'Permission approval timeout (seconds)',
+      initial: existing.limits?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
+      min: 30,
+      max: 600,
+      hint: `default: ${LIMITS_DEFAULTS.permissionTimeoutSeconds}`,
+    },
+    {
+      type: 'confirm',
+      name: 'keepAlive',
+      message: 'Prevent system sleep while sessions active?',
+      initial: existing.keepAlive !== false,
+      hint: 'default: yes',
+    },
+  ], { onCancel });
+
+  // Cleanup settings
+  console.log('');
+  console.log(dim('  Cleanup Settings:'));
+  const cleanupSettings = await prompts([
+    {
+      type: 'number',
+      name: 'cleanupIntervalMinutes',
+      message: 'Background cleanup interval (minutes)',
+      initial: existing.limits?.cleanupIntervalMinutes ?? LIMITS_DEFAULTS.cleanupIntervalMinutes,
+      min: 5,
+      max: 1440,
+      hint: `default: ${LIMITS_DEFAULTS.cleanupIntervalMinutes}`,
+    },
+    {
+      type: 'confirm',
+      name: 'cleanupWorktrees',
+      message: 'Auto-cleanup orphaned worktrees?',
+      initial: existing.limits?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
+      hint: `default: ${LIMITS_DEFAULTS.cleanupWorktrees ? 'yes' : 'no'}`,
+    },
+    {
+      type: (prev) => prev === true ? 'number' : null,
+      name: 'maxWorktreeAgeHours',
+      message: 'Max worktree age before cleanup (hours)',
+      initial: existing.limits?.maxWorktreeAgeHours ?? LIMITS_DEFAULTS.maxWorktreeAgeHours,
+      min: 1,
+      max: 168,
+      hint: `default: ${LIMITS_DEFAULTS.maxWorktreeAgeHours}`,
+    },
+    {
+      type: 'confirm',
+      name: 'threadLogsEnabled',
+      message: 'Enable thread logging?',
+      initial: existing.threadLogsEnabled ?? true,
+      hint: 'Logs conversation history to disk',
+    },
+    {
+      type: (prev) => prev === true ? 'number' : null,
+      name: 'threadLogsRetentionDays',
+      message: 'Log retention (days)',
+      initial: existing.threadLogsRetentionDays ?? 30,
+      min: 1,
+      max: 365,
+      hint: 'default: 30',
+    },
+  ], { onCancel });
+
+  // Build limits object, only including values that differ from defaults
+  const limits: LimitsConfig = {};
+
+  if (sessionSettings.maxSessions !== LIMITS_DEFAULTS.maxSessions) {
+    limits.maxSessions = sessionSettings.maxSessions;
+  }
+  if (sessionSettings.sessionTimeoutMinutes !== LIMITS_DEFAULTS.sessionTimeoutMinutes) {
+    limits.sessionTimeoutMinutes = sessionSettings.sessionTimeoutMinutes;
+  }
+  if (sessionSettings.sessionWarningMinutes !== LIMITS_DEFAULTS.sessionWarningMinutes) {
+    limits.sessionWarningMinutes = sessionSettings.sessionWarningMinutes;
+  }
+  if (sessionSettings.permissionTimeoutSeconds !== LIMITS_DEFAULTS.permissionTimeoutSeconds) {
+    limits.permissionTimeoutSeconds = sessionSettings.permissionTimeoutSeconds;
+  }
+  if (cleanupSettings.cleanupIntervalMinutes !== LIMITS_DEFAULTS.cleanupIntervalMinutes) {
+    limits.cleanupIntervalMinutes = cleanupSettings.cleanupIntervalMinutes;
+  }
+  if (cleanupSettings.cleanupWorktrees !== LIMITS_DEFAULTS.cleanupWorktrees) {
+    limits.cleanupWorktrees = cleanupSettings.cleanupWorktrees;
+  }
+  // Only save maxWorktreeAgeHours if worktree cleanup is enabled
+  if (cleanupSettings.cleanupWorktrees && cleanupSettings.maxWorktreeAgeHours !== LIMITS_DEFAULTS.maxWorktreeAgeHours) {
+    limits.maxWorktreeAgeHours = cleanupSettings.maxWorktreeAgeHours;
+  }
+
+  return {
+    limits: Object.keys(limits).length > 0 ? limits : undefined,
+    threadLogsEnabled: cleanupSettings.threadLogsEnabled === false ? false : undefined,
+    threadLogsRetentionDays: cleanupSettings.threadLogsEnabled && cleanupSettings.threadLogsRetentionDays !== 30
+      ? cleanupSettings.threadLogsRetentionDays
+      : undefined,
+    // Only save keepAlive if disabled (default is true)
+    keepAlive: sessionSettings.keepAlive === false ? false : undefined,
+  };
+}
+
+// ============================================================================
+// Platform Setup Functions
+// ============================================================================
 
 async function setupMattermostPlatform(
   id: string,

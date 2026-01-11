@@ -39,6 +39,10 @@ export interface CleanupSchedulerOptions {
   threadLogsEnabled?: boolean;
   /** Session store for checking active worktrees */
   sessionStore: SessionStore;
+  /** Max age for worktrees before cleanup in ms (default: 24 hours) */
+  maxWorktreeAgeMs?: number;
+  /** Enable worktree cleanup (default: true) */
+  cleanupWorktrees?: boolean;
 }
 
 export interface CleanupStats {
@@ -60,6 +64,8 @@ export class CleanupScheduler {
   private readonly logRetentionDays: number;
   private readonly threadLogsEnabled: boolean;
   private readonly sessionStore: SessionStore;
+  private readonly maxWorktreeAgeMs: number;
+  private readonly cleanupWorktrees: boolean;
 
   private timer: ReturnType<typeof setInterval> | null = null;
   private isRunning = false;
@@ -69,6 +75,8 @@ export class CleanupScheduler {
     this.logRetentionDays = options.logRetentionDays ?? 30;
     this.threadLogsEnabled = options.threadLogsEnabled ?? true;
     this.sessionStore = options.sessionStore;
+    this.maxWorktreeAgeMs = options.maxWorktreeAgeMs ?? MAX_WORKTREE_AGE_MS;
+    this.cleanupWorktrees = options.cleanupWorktrees ?? true;
   }
 
   /**
@@ -125,16 +133,27 @@ export class CleanupScheduler {
     };
 
     // Run cleanup tasks in parallel where possible
-    const [logStats, worktreeStats] = await Promise.all([
+    const cleanupTasks: Promise<unknown>[] = [
       this.cleanupLogs().catch(err => {
         stats.errors.push(`Log cleanup: ${err}`);
         return 0;
       }),
-      this.cleanupOrphanedWorktrees().catch(err => {
-        stats.errors.push(`Worktree cleanup: ${err}`);
-        return { cleaned: 0, metadata: 0 };
-      }),
-    ]);
+    ];
+
+    // Only run worktree cleanup if enabled
+    if (this.cleanupWorktrees) {
+      cleanupTasks.push(
+        this.cleanupOrphanedWorktrees().catch(err => {
+          stats.errors.push(`Worktree cleanup: ${err}`);
+          return { cleaned: 0, metadata: 0 };
+        })
+      );
+    }
+
+    const [logStats, worktreeStats = { cleaned: 0, metadata: 0 }] = await Promise.all(cleanupTasks) as [
+      number,
+      { cleaned: number; metadata: number }?
+    ];
 
     stats.logsDeleted = logStats;
     stats.worktreesCleaned = worktreeStats.cleaned;
@@ -233,7 +252,7 @@ export class CleanupScheduler {
           if (merged) {
             shouldCleanup = true;
             cleanupReason = `branch "${meta.branch}" was merged`;
-          } else if (age >= MAX_WORKTREE_AGE_MS) {
+          } else if (age >= this.maxWorktreeAgeMs) {
             shouldCleanup = true;
             cleanupReason = `inactive for ${Math.round(age / 3600000)}h`;
           } else {
