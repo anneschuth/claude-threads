@@ -38,42 +38,6 @@ function sessionLog(session: Session) {
 }
 
 // ---------------------------------------------------------------------------
-// Task list lock utilities
-// ---------------------------------------------------------------------------
-
-/**
- * Acquire the task list lock in an atomic manner.
- *
- * This function solves the race condition where multiple concurrent calls
- * could both see `taskListCreationPromise` as undefined and both proceed
- * to create task lists.
- */
-export async function acquireTaskListLock(session: Session): Promise<() => void> {
-  let resolveCreation: (() => void) | undefined;
-
-  const newPromise = new Promise<void>((resolve) => {
-    resolveCreation = resolve;
-  });
-
-  const existingPromise = session.taskListCreationPromise;
-
-  // CRITICAL: Immediately set the new promise so any subsequent callers will wait
-  session.taskListCreationPromise = existingPromise
-    ? existingPromise.then(() => newPromise)
-    : newPromise;
-
-  if (existingPromise) {
-    await existingPromise;
-  }
-
-  return () => {
-    if (resolveCreation) {
-      resolveCreation();
-    }
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Task display helpers
 // ---------------------------------------------------------------------------
 
@@ -210,6 +174,9 @@ export function stopTyping(session: Session): void {
  *
  * Call this when a user sends a follow-up message to keep the task list
  * below user messages. Deletes the old task post and creates a new one.
+ *
+ * NOTE: Ordering is now handled by MessageManager's operation queue,
+ * so no manual locking is needed here.
  */
 export async function bumpTasksToBottom(
   session: Session,
@@ -227,14 +194,7 @@ export async function bumpTasksToBottom(
     return;
   }
 
-  const releaseLock = await acquireTaskListLock(session);
-
   try {
-    // Re-check conditions after acquiring lock
-    if (!session.tasksPostId || !session.lastTasksContent || session.tasksCompleted) {
-      sessionLog(session).debug('Task list state changed while waiting for lock');
-      return;
-    }
     const oldPostId = session.tasksPostId;
     sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
 
@@ -264,8 +224,6 @@ export async function bumpTasksToBottom(
     await session.platform.pinPost(newPost.id).catch(() => {});
   } catch (err) {
     sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
-  } finally {
-    releaseLock();
   }
 }
 
@@ -275,78 +233,75 @@ export async function bumpTasksToBottom(
  * When we need to create a new post and a task list exists, we:
  * 1. Update the task list post with the new content (repurposing it)
  * 2. Create a fresh task list post at the bottom
+ *
+ * NOTE: Ordering is now handled by MessageManager's operation queue,
+ * so no manual locking is needed here.
  */
 export async function bumpTasksToBottomWithContent(
   session: Session,
   newContent: string,
   registerPost: (postId: string, threadId: string) => void
 ): Promise<string> {
-  const releaseLock = await acquireTaskListLock(session);
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const oldTasksPostId = session.tasksPostId!;
+  const oldTasksContent = session.lastTasksContent;
 
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
-    const oldTasksPostId = session.tasksPostId!;
-    const oldTasksContent = session.lastTasksContent;
+  sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
 
-    sessionLog(session).debug(`Bumping tasks to bottom, repurposing post ${oldTasksPostId.substring(0, 8)}`);
+  const { maxLength: MAX_POST_LENGTH } = session.platform.getMessageLimits();
 
-    const { maxLength: MAX_POST_LENGTH } = session.platform.getMessageLimits();
-
-    let contentToPost = newContent;
-    if (contentToPost.length > MAX_POST_LENGTH) {
-      sessionLog(session).warn(`Content too long for repurposed post (${contentToPost.length}), truncating`);
-      const formatter = session.platform.getFormatter();
-      contentToPost = truncateMessageSafely(
-        contentToPost,
-        MAX_POST_LENGTH,
-        formatter.formatItalic('... (truncated)')
-      );
-    }
-
-    // Remove the toggle emoji from the old task post
-    try {
-      await session.platform.removeReaction(oldTasksPostId, MINIMIZE_TOGGLE_EMOJIS[0]);
-    } catch (err) {
-      sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
-    }
-
-    await session.platform.unpinPost(oldTasksPostId).catch(() => {});
-
-    let repurposedPostId: string | null = null;
-    try {
-      await session.platform.updatePost(oldTasksPostId, contentToPost);
-      repurposedPostId = oldTasksPostId;
-      registerPost(oldTasksPostId, session.threadId);
-    } catch (err) {
-      sessionLog(session).debug(`Could not repurpose task post (creating new): ${err}`);
-      const newPost = await session.platform.createPost(contentToPost, session.threadId);
-      repurposedPostId = newPost.id;
-      registerPost(newPost.id, session.threadId);
-      updateLastMessage(session, newPost);
-    }
-
-    // Create a new task list post at the bottom
-    if (oldTasksContent) {
-      const displayContent = getTaskDisplayContent(session);
-
-      const newTasksPost = await session.platform.createInteractivePost(
-        displayContent,
-        [MINIMIZE_TOGGLE_EMOJIS[0]],
-        session.threadId
-      );
-      session.tasksPostId = newTasksPost.id;
-      sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
-      registerPost(newTasksPost.id, session.threadId);
-      updateLastMessage(session, newTasksPost);
-      await session.platform.pinPost(newTasksPost.id).catch(() => {});
-    } else {
-      session.tasksPostId = null;
-    }
-
-    return repurposedPostId || oldTasksPostId;
-  } finally {
-    releaseLock();
+  let contentToPost = newContent;
+  if (contentToPost.length > MAX_POST_LENGTH) {
+    sessionLog(session).warn(`Content too long for repurposed post (${contentToPost.length}), truncating`);
+    const formatter = session.platform.getFormatter();
+    contentToPost = truncateMessageSafely(
+      contentToPost,
+      MAX_POST_LENGTH,
+      formatter.formatItalic('... (truncated)')
+    );
   }
+
+  // Remove the toggle emoji from the old task post
+  try {
+    await session.platform.removeReaction(oldTasksPostId, MINIMIZE_TOGGLE_EMOJIS[0]);
+  } catch (err) {
+    sessionLog(session).debug(`Could not remove toggle emoji: ${err}`);
+  }
+
+  await session.platform.unpinPost(oldTasksPostId).catch(() => {});
+
+  let repurposedPostId: string | null = null;
+  try {
+    await session.platform.updatePost(oldTasksPostId, contentToPost);
+    repurposedPostId = oldTasksPostId;
+    registerPost(oldTasksPostId, session.threadId);
+  } catch (err) {
+    sessionLog(session).debug(`Could not repurpose task post (creating new): ${err}`);
+    const newPost = await session.platform.createPost(contentToPost, session.threadId);
+    repurposedPostId = newPost.id;
+    registerPost(newPost.id, session.threadId);
+    updateLastMessage(session, newPost);
+  }
+
+  // Create a new task list post at the bottom
+  if (oldTasksContent) {
+    const displayContent = getTaskDisplayContent(session);
+
+    const newTasksPost = await session.platform.createInteractivePost(
+      displayContent,
+      [MINIMIZE_TOGGLE_EMOJIS[0]],
+      session.threadId
+    );
+    session.tasksPostId = newTasksPost.id;
+    sessionLog(session).debug(`Created new task post ${newTasksPost.id.substring(0, 8)}`);
+    registerPost(newTasksPost.id, session.threadId);
+    updateLastMessage(session, newTasksPost);
+    await session.platform.pinPost(newTasksPost.id).catch(() => {});
+  } else {
+    session.tasksPostId = null;
+  }
+
+  return repurposedPostId || oldTasksPostId;
 }
 
 // ---------------------------------------------------------------------------

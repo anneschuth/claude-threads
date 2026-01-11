@@ -271,9 +271,6 @@ export interface Session {
   lastMessageId?: string;
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
-  // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
-  taskListCreationPromise?: Promise<void>;
-
   // Bug reporting support
   pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
