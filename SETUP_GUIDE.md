@@ -1,25 +1,14 @@
 # claude-threads Setup Guide
 
-This guide walks you through setting up claude-threads to connect to Mattermost and/or Slack.
+> **💡 Quick Start:** Run `claude-threads` and the interactive wizard will guide you through setup.
+> Use this guide when you need help creating bot accounts on Mattermost or Slack.
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Mattermost Setup](#mattermost-setup)
-3. [Slack Setup](#slack-setup)
-4. [Running the Onboarding](#running-the-onboarding)
-5. [Troubleshooting](#troubleshooting)
-
-## Prerequisites
-
-Before you begin, make sure you have:
-
-- **Admin access** to your Mattermost server or Slack workspace (or someone who can create bot accounts for you)
-- **Node.js and Bun** installed on the machine where you'll run claude-threads
-- **Claude Code CLI** installed (`npm install -g @anthropic-ai/claude-code@2.0.76`)
-- **Anthropic API key** configured (claude-threads uses Claude Code, which requires an API key)
-
-**Time estimate**: 10-15 minutes per platform
+1. [Mattermost Setup](#mattermost-setup) - Create bot account and get credentials
+2. [Slack Setup](#slack-setup) - Create Slack app with Socket Mode
+3. [Running the Onboarding](#running-the-onboarding) - Interactive wizard walkthrough
+4. [Troubleshooting](#troubleshooting) - Common issues and solutions
 
 ---
 
@@ -211,39 +200,35 @@ If you want to restrict who can use the bot, prepare a comma-separated list of S
 
 ## Running the Onboarding
 
-### First Time Setup (Recommended)
+### First Time Setup
 
-> **✅ Use the interactive wizard - it validates everything for you!**
+**Just run the tool - it will guide you:**
 
-1. **Install claude-threads**:
-   ```bash
-   npm install -g claude-threads
-   ```
+```bash
+# Install
+bun install -g claude-threads
 
-2. **Run the onboarding wizard**:
-   ```bash
-   claude-threads
-   ```
+# Run the wizard
+cd /your/project
+claude-threads
+```
 
-   **The wizard will:**
-   - ✅ Guide you through each configuration step
-   - ✅ Validate your credentials in real-time
-   - ✅ Test bot permissions and channel access
-   - ✅ Provide specific error messages if something's wrong
-   - ✅ Show bot username and channel name on success
+**The wizard will:**
+- ✅ Walk you through global settings (working directory, Chrome, git)
+- ✅ Show you platform checklists (what you need before adding a platform)
+- ✅ Guide you through adding Mattermost and/or Slack platforms
+- ✅ Validate credentials in real-time and test permissions
+- ✅ Show a configuration summary before saving
 
-   **It will ask for:**
-   - Default working directory (where Claude Code will run)
-   - Chrome integration (optional - requires Claude in Chrome extension)
-   - Git worktree mode (how to handle git branches)
-   - Platform configuration (Mattermost/Slack credentials)
+**When prompted for platform credentials:**
+- Use the [Mattermost Setup](#mattermost-setup) or [Slack Setup](#slack-setup) sections above to create your bot
+- The wizard will wait while you gather the required information
+- Come back and enter the credentials when ready
 
-3. **Follow the prompts** and enter the information you gathered above
-
-4. **Add multiple platforms** (optional):
-   - After configuring the first platform, you'll be asked "Add another platform?"
-   - Say "yes" to connect to multiple Mattermost/Slack instances simultaneously
-   - Each platform gets a unique ID (e.g., `mattermost-main`, `slack-eng`)
+**Multiple platforms:**
+- You can connect to multiple Mattermost/Slack instances
+- Each platform gets a unique ID (e.g., `mattermost-main`, `slack-eng`)
+- Add platforms one at a time, or add more later with `--reconfigure`
 
 ### Reconfiguring
 

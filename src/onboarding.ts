@@ -43,14 +43,16 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   // First-time setup: show welcome and prerequisites
   console.log('  Welcome! Let\'s configure claude-threads.');
   console.log('');
-  console.log(dim('  Before you begin, make sure you have:'));
-  console.log(dim('    • Admin access to create bot accounts'));
-  console.log(dim('    • Claude Code CLI installed (npm install -g @anthropic-ai/claude-code)'));
-  console.log(dim('    • Anthropic API key configured'));
+  console.log(dim('  This wizard will guide you through:'));
+  console.log(dim('    1. Global settings (working directory, Chrome, git)'));
+  console.log(dim('    2. Platform setup (Mattermost/Slack bot credentials)'));
+  console.log(dim('    3. Credential validation and testing'));
   console.log('');
-  console.log(dim('  📖 For detailed setup instructions, see:'));
-  console.log(dim('     https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md'));
+  console.log(dim('  Prerequisites:'));
+  console.log(dim('    • Claude Code CLI installed and working (test: claude --version)'));
+  console.log(dim('    • Admin access to create bot accounts on your chat platform'));
   console.log('');
+  console.log(dim('  📖 Need help creating a bot? See: SETUP_GUIDE.md'));
   console.log(dim('  ⏱️  Estimated time: 10-15 minutes per platform'));
   console.log('');
 
@@ -109,20 +111,18 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
   console.log(bold('  Platform Setup'));
   console.log('');
-  console.log(dim('  Before adding platforms, make sure you have completed setup on at least one platform:'));
+  console.log(dim('  To add a platform, you\'ll need bot credentials. Here\'s what to gather:'));
   console.log('');
-  console.log(dim('  📋 Mattermost checklist:'));
-  console.log(dim('     • Created bot account (Main Menu → Integrations → Bot Accounts)'));
-  console.log(dim('     • Copied bot token (you won\'t see it again!)'));
-  console.log(dim('     • Got channel ID (Channel → View Info → copy from URL)'));
+  console.log(dim('  📋 For Mattermost:'));
+  console.log(dim('     • Bot token (create at: Main Menu → Integrations → Bot Accounts)'));
+  console.log(dim('     • Channel ID (get from: Channel → View Info → copy from URL)'));
   console.log('');
-  console.log(dim('  📋 Slack checklist:'));
-  console.log(dim('     • Created Slack app (api.slack.com/apps)'));
-  console.log(dim('     • Enabled Socket Mode with app token'));
-  console.log(dim('     • Added OAuth scopes and installed to workspace'));
-  console.log(dim('     • Invited bot to channel (/invite @botname)'));
+  console.log(dim('  📋 For Slack:'));
+  console.log(dim('     • Bot token (xoxb-...) and App token (xapp-...)'));
+  console.log(dim('     • Channel ID (right-click channel → View details)'));
   console.log('');
-  console.log(dim('  📖 Need help? See: SETUP_GUIDE.md'));
+  console.log(dim('  📖 Detailed instructions: SETUP_GUIDE.md'));
+  console.log(dim('  💡 Tip: You can add platforms now or later with --reconfigure'));
   console.log('');
 
   const { readyForPlatforms } = await prompts({

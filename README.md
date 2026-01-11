@@ -37,27 +37,29 @@
 
 ## Quick Start
 
-### Prerequisites
-
-1. **Claude Code CLI** installed and authenticated (`claude --version`)
-2. **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
-3. **Bot account** - See [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack
-
 ### Install & Run
 
 ```bash
+# Install
 bun install -g claude-threads
+
+# Run the setup wizard
 cd /your/project
 claude-threads
 ```
 
-On first run, an **interactive setup wizard** guides you through configuration with:
-- Real-time credential validation
-- Platform-specific troubleshooting
-- Automatic permission testing
-- Clear error messages if something's wrong
+The **interactive setup wizard** will guide you through everything:
+- Configure Claude Code CLI (if needed)
+- Set up your Mattermost or Slack bot
+- Test credentials and permissions
+- Get you up and running in minutes
 
-**Don't create config files manually** - use the wizard!
+**Need help with platform setup?** See the [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack bot creation.
+
+### Prerequisites
+
+- **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
+- **Claude Code CLI working** - test with `claude --version` (needs API key or subscription)
 
 ### Use
 
