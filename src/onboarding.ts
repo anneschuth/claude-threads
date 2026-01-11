@@ -32,34 +32,41 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     } catch {
       console.log(dim('  Could not load existing config, starting fresh.'));
     }
-  } else {
-    // First-time setup: show welcome and prerequisites
-    console.log('  Welcome! Let\'s configure claude-threads.');
-    console.log('');
-    console.log(dim('  Before you begin, make sure you have:'));
-    console.log(dim('    • Admin access to create bot accounts'));
-    console.log(dim('    • Claude Code CLI installed (npm install -g @anthropic-ai/claude-code)'));
-    console.log(dim('    • Anthropic API key configured'));
-    console.log('');
-    console.log(dim('  📖 For detailed setup instructions, see:'));
-    console.log(dim('     https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md'));
-    console.log('');
-    console.log(dim('  ⏱️  Estimated time: 10-15 minutes per platform'));
-    console.log('');
-
-    const { ready } = await prompts({
-      type: 'confirm',
-      name: 'ready',
-      message: 'Ready to begin?',
-      initial: true,
-    }, { onCancel });
-
-    if (!ready) {
-      console.log('');
-      console.log(dim('  Setup cancelled. Run `claude-threads` when ready.'));
-      process.exit(0);
-    }
   }
+
+  // If reconfiguring with existing config, use the improved reconfigure flow
+  if (reconfigure && existingConfig) {
+    await runReconfigureFlow(existingConfig);
+    return;
+  }
+
+  // First-time setup: show welcome and prerequisites
+  console.log('  Welcome! Let\'s configure claude-threads.');
+  console.log('');
+  console.log(dim('  Before you begin, make sure you have:'));
+  console.log(dim('    • Admin access to create bot accounts'));
+  console.log(dim('    • Claude Code CLI installed (npm install -g @anthropic-ai/claude-code)'));
+  console.log(dim('    • Anthropic API key configured'));
+  console.log('');
+  console.log(dim('  📖 For detailed setup instructions, see:'));
+  console.log(dim('     https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md'));
+  console.log('');
+  console.log(dim('  ⏱️  Estimated time: 10-15 minutes per platform'));
+  console.log('');
+
+  const { ready } = await prompts({
+    type: 'confirm',
+    name: 'ready',
+    message: 'Ready to begin?',
+    initial: true,
+  }, { onCancel });
+
+  if (!ready) {
+    console.log('');
+    console.log(dim('  Setup cancelled. Run `claude-threads` when ready.'));
+    process.exit(0);
+  }
+
   console.log('');
 
   // Step 1: Global settings
@@ -76,16 +83,16 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       name: 'chrome',
       message: 'Enable Chrome integration?',
       initial: existingConfig?.chrome || false,
-      hint: 'Requires Claude in Chrome extension',
+      hint: 'Control Chrome browser for web tasks (requires Claude in Chrome extension)',
     },
     {
       type: 'select',
       name: 'worktreeMode',
       message: 'Git worktree mode',
       choices: [
-        { title: 'Prompt', value: 'prompt', description: 'Ask when starting sessions' },
-        { title: 'Off', value: 'off', description: 'Never use worktrees' },
-        { title: 'Require', value: 'require', description: 'Always require branch name' },
+        { title: 'Prompt', value: 'prompt', description: 'Ask when starting each session' },
+        { title: 'Off', value: 'off', description: 'Never create worktrees (work on current branch)' },
+        { title: 'Require', value: 'require', description: 'Always require branch name before starting' },
       ],
       initial: existingConfig?.worktreeMode === 'off' ? 1 :
                existingConfig?.worktreeMode === 'require' ? 2 : 0,
@@ -98,7 +105,40 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     platforms: [],
   };
 
-  // Step 2: Add platforms (loop)
+  // Step 2: Show platform setup checklists
+  console.log('');
+  console.log(bold('  Platform Setup'));
+  console.log('');
+  console.log(dim('  Before adding platforms, make sure you have completed setup on at least one platform:'));
+  console.log('');
+  console.log(dim('  📋 Mattermost checklist:'));
+  console.log(dim('     • Created bot account (Main Menu → Integrations → Bot Accounts)'));
+  console.log(dim('     • Copied bot token (you won\'t see it again!)'));
+  console.log(dim('     • Got channel ID (Channel → View Info → copy from URL)'));
+  console.log('');
+  console.log(dim('  📋 Slack checklist:'));
+  console.log(dim('     • Created Slack app (api.slack.com/apps)'));
+  console.log(dim('     • Enabled Socket Mode with app token'));
+  console.log(dim('     • Added OAuth scopes and installed to workspace'));
+  console.log(dim('     • Invited bot to channel (/invite @botname)'));
+  console.log('');
+  console.log(dim('  📖 Need help? See: SETUP_GUIDE.md'));
+  console.log('');
+
+  const { readyForPlatforms } = await prompts({
+    type: 'confirm',
+    name: 'readyForPlatforms',
+    message: 'Ready to add platforms?',
+    initial: true,
+  }, { onCancel });
+
+  if (!readyForPlatforms) {
+    console.log('');
+    console.log(dim('  Setup cancelled. Complete platform setup and run `claude-threads` when ready.'));
+    process.exit(0);
+  }
+
+  // Step 3: Add platforms (loop)
   console.log('');
   console.log(dim('  Now let\'s add your platform connections.'));
   console.log('');
@@ -108,7 +148,6 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
 
   while (addMore) {
     const isFirst = platformNumber === 1;
-    const existingPlatform = existingConfig?.platforms[platformNumber - 1];
 
     // Ask what platform type
     const { platformType } = await prompts({
@@ -120,7 +159,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
         { title: 'Slack', value: 'slack' },
         ...(isFirst ? [] : [{ title: '(Done - finish setup)', value: 'done' }]),
       ],
-      initial: existingPlatform?.type === 'slack' ? 1 : 0,
+      initial: 0,
     }, { onCancel });
 
     if (platformType === 'done') {
@@ -129,13 +168,15 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     }
 
     // Get platform ID and name
+    const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
+    const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
+
     const { platformId, displayName } = await prompts([
       {
         type: 'text',
         name: 'platformId',
         message: 'Platform ID',
-        initial: existingPlatform?.id ||
-                 (config.platforms.length === 0 ? 'default' : `${platformType}-${platformNumber}`),
+        initial: suggestedId,
         hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
         validate: (v: string) => {
           if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
@@ -147,18 +188,17 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
         type: 'text',
         name: 'displayName',
         message: 'Display name',
-        initial: existingPlatform?.displayName ||
-                 (platformType === 'mattermost' ? 'Mattermost' : 'Slack'),
+        initial: platformType === 'mattermost' ? 'Mattermost' : 'Slack',
         hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
       },
     ], { onCancel });
 
     // Configure the platform
     if (platformType === 'mattermost') {
-      const platform = await setupMattermostPlatform(platformId, displayName, existingPlatform);
+      const platform = await setupMattermostPlatform(platformId, displayName, undefined);
       config.platforms.push(platform);
     } else {
-      const platform = await setupSlackPlatform(platformId, displayName, existingPlatform);
+      const platform = await setupSlackPlatform(platformId, displayName, undefined);
       config.platforms.push(platform);
     }
 
@@ -171,7 +211,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
         type: 'confirm',
         name: 'addAnother',
         message: 'Add another platform?',
-        initial: (existingConfig?.platforms.length || 0) > 1,
+        initial: false,
       }, { onCancel });
 
       addMore = addAnother;
@@ -187,17 +227,15 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     process.exit(1);
   }
 
+  // Show summary and confirm
+  await showConfigSummary(config);
+
   // Save config
   saveConfig(config);
 
   console.log('');
   console.log(green('  ✓ Configuration saved!'));
   console.log(dim(`    ${CONFIG_PATH}`));
-  console.log('');
-  console.log(dim(`  Configured ${config.platforms.length} platform(s):`));
-  for (const platform of config.platforms) {
-    console.log(dim(`    • ${platform.displayName} (${platform.type})`));
-  }
   console.log('');
   console.log(bold('  🎉 Setup complete!'));
   console.log('');
@@ -222,6 +260,271 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
 }
 
+// ============================================================================
+// Reconfigure Flow - Improved UX for editing existing config
+// ============================================================================
+
+async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
+  let config = { ...existingConfig, platforms: [...existingConfig.platforms] };
+  let keepReconfiguring = true;
+
+  while (keepReconfiguring) {
+    console.log('');
+    console.log(bold('  What would you like to reconfigure?'));
+    console.log('');
+
+    // Build choices menu
+    const choices: Array<{ title: string; value: string; description?: string }> = [
+      {
+        title: 'Global settings',
+        value: 'global',
+        description: `workingDir, chrome, worktreeMode`
+      },
+    ];
+
+    // Add existing platforms
+    for (let i = 0; i < config.platforms.length; i++) {
+      const platform = config.platforms[i];
+      choices.push({
+        title: `${platform.displayName} (${platform.type})`,
+        value: `platform-${i}`,
+        description: `Edit or remove this platform`,
+      });
+    }
+
+    // Add new/done options
+    choices.push(
+      { title: '+ Add new platform', value: 'add-new' },
+      { title: '✓ Done (save and exit)', value: 'done' }
+    );
+
+    const { action } = await prompts({
+      type: 'select',
+      name: 'action',
+      message: 'Select what to reconfigure',
+      choices,
+    }, { onCancel });
+
+    if (action === 'done') {
+      keepReconfiguring = false;
+      break;
+    }
+
+    if (action === 'global') {
+      // Reconfigure global settings
+      const globalSettings = await prompts([
+        {
+          type: 'text',
+          name: 'workingDir',
+          message: 'Default working directory',
+          initial: config.workingDir,
+          hint: 'Where Claude Code runs by default',
+        },
+        {
+          type: 'confirm',
+          name: 'chrome',
+          message: 'Enable Chrome integration?',
+          initial: config.chrome,
+          hint: 'Control Chrome browser for web tasks (requires Claude in Chrome extension)',
+        },
+        {
+          type: 'select',
+          name: 'worktreeMode',
+          message: 'Git worktree mode',
+          choices: [
+            { title: 'Prompt', value: 'prompt', description: 'Ask when starting each session' },
+            { title: 'Off', value: 'off', description: 'Never create worktrees (work on current branch)' },
+            { title: 'Require', value: 'require', description: 'Always require branch name before starting' },
+          ],
+          initial: config.worktreeMode === 'off' ? 1 :
+                   config.worktreeMode === 'require' ? 2 : 0,
+        },
+      ], { onCancel });
+
+      config = { ...config, ...globalSettings };
+      console.log(green('  ✓ Global settings updated'));
+    } else if (action === 'add-new') {
+      // Add new platform
+      console.log('');
+      console.log(dim('  Adding new platform...'));
+
+      const { platformType } = await prompts({
+        type: 'select',
+        name: 'platformType',
+        message: 'Platform type',
+        choices: [
+          { title: 'Mattermost', value: 'mattermost' },
+          { title: 'Slack', value: 'slack' },
+        ],
+      }, { onCancel });
+
+      const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
+      const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
+
+      const { platformId, displayName } = await prompts([
+        {
+          type: 'text',
+          name: 'platformId',
+          message: 'Platform ID',
+          initial: suggestedId,
+          hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
+          validate: (v: string) => {
+            if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
+            if (config.platforms.some(p => p.id === v)) return 'ID already in use';
+            return true;
+          },
+        },
+        {
+          type: 'text',
+          name: 'displayName',
+          message: 'Display name',
+          initial: platformType === 'mattermost' ? 'Mattermost' : 'Slack',
+          hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
+        },
+      ], { onCancel });
+
+      let newPlatform: PlatformInstanceConfig;
+      if (platformType === 'mattermost') {
+        newPlatform = await setupMattermostPlatform(platformId, displayName, undefined);
+      } else {
+        newPlatform = await setupSlackPlatform(platformId, displayName, undefined);
+      }
+
+      config.platforms.push(newPlatform);
+      console.log(green(`  ✓ Added ${displayName}`));
+    } else if (action.startsWith('platform-')) {
+      // Edit or remove existing platform
+      const platformIndex = parseInt(action.replace('platform-', ''));
+      const platform = config.platforms[platformIndex];
+
+      console.log('');
+      const { platformAction } = await prompts({
+        type: 'select',
+        name: 'platformAction',
+        message: `${platform.displayName} (${platform.type})`,
+        choices: [
+          { title: 'Edit configuration', value: 'edit' },
+          { title: 'Remove this platform', value: 'remove' },
+          { title: '← Back', value: 'back' },
+        ],
+      }, { onCancel });
+
+      if (platformAction === 'remove') {
+        const { confirmRemove } = await prompts({
+          type: 'confirm',
+          name: 'confirmRemove',
+          message: `Remove ${platform.displayName}?`,
+          initial: false,
+        }, { onCancel });
+
+        if (confirmRemove) {
+          config.platforms.splice(platformIndex, 1);
+          console.log(green(`  ✓ Removed ${platform.displayName}`));
+        }
+      } else if (platformAction === 'edit') {
+        let updatedPlatform: PlatformInstanceConfig;
+        if (platform.type === 'mattermost') {
+          updatedPlatform = await setupMattermostPlatform(
+            platform.id,
+            platform.displayName,
+            platform as MattermostPlatformConfig
+          );
+        } else {
+          updatedPlatform = await setupSlackPlatform(
+            platform.id,
+            platform.displayName,
+            platform as SlackPlatformConfig
+          );
+        }
+        config.platforms[platformIndex] = updatedPlatform;
+        console.log(green(`  ✓ Updated ${platform.displayName}`));
+      }
+    }
+  }
+
+  // Validate at least one platform
+  if (config.platforms.length === 0) {
+    console.log('');
+    console.log(dim('  ⚠️  No platforms configured. At least one platform is required.'));
+    console.log(dim('  Setup cancelled.'));
+    process.exit(1);
+  }
+
+  // Show summary and confirm
+  await showConfigSummary(config);
+
+  // Save config
+  saveConfig(config);
+
+  console.log('');
+  console.log(green('  ✓ Configuration updated!'));
+  console.log(dim(`    ${CONFIG_PATH}`));
+  console.log('');
+  console.log(dim('  Restart claude-threads to apply changes.'));
+  console.log('');
+}
+
+// ============================================================================
+// Configuration Summary
+// ============================================================================
+
+async function showConfigSummary(config: NewConfig): Promise<void> {
+  console.log('');
+  console.log(bold('  Configuration Summary'));
+  console.log(dim('  ─────────────────────────────────────────────────────'));
+  console.log('');
+  console.log(dim('  Global Settings:'));
+  console.log(dim(`    Working Directory: ${config.workingDir}`));
+  console.log(dim(`    Chrome Integration: ${config.chrome ? 'Enabled' : 'Disabled'}`));
+  console.log(dim(`    Worktree Mode: ${config.worktreeMode}`));
+  console.log('');
+  console.log(dim(`  Platforms (${config.platforms.length}):`));
+  for (const platform of config.platforms) {
+    console.log('');
+    console.log(dim(`    ${platform.displayName} (${platform.type})`));
+    console.log(dim(`      ID: ${platform.id}`));
+
+    if (platform.type === 'mattermost') {
+      const mm = platform as MattermostPlatformConfig;
+      console.log(dim(`      Server: ${mm.url}`));
+      console.log(dim(`      Channel: ${mm.channelId}`));
+      console.log(dim(`      Bot: @${mm.botName}`));
+
+      const allowedUsers = mm.allowedUsers.length > 0
+        ? mm.allowedUsers.join(', ')
+        : 'ANYONE (⚠️  no restrictions)';
+      console.log(dim(`      Allowed Users: ${allowedUsers}`));
+      console.log(dim(`      Auto-approve: ${mm.skipPermissions ? 'Yes' : 'No (interactive)'}`));
+    } else {
+      const slack = platform as SlackPlatformConfig;
+      console.log(dim(`      Channel: ${slack.channelId}`));
+      console.log(dim(`      Bot: @${slack.botName}`));
+
+      const allowedUsers = slack.allowedUsers.length > 0
+        ? slack.allowedUsers.join(', ')
+        : 'ANYONE (⚠️  no restrictions)';
+      console.log(dim(`      Allowed Users: ${allowedUsers}`));
+      console.log(dim(`      Auto-approve: ${slack.skipPermissions ? 'Yes' : 'No (interactive)'}`));
+    }
+  }
+  console.log('');
+  console.log(dim('  ─────────────────────────────────────────────────────'));
+  console.log('');
+
+  const { confirm } = await prompts({
+    type: 'confirm',
+    name: 'confirm',
+    message: 'Save this configuration?',
+    initial: true,
+  }, { onCancel });
+
+  if (!confirm) {
+    console.log('');
+    console.log(dim('  Setup cancelled.'));
+    process.exit(0);
+  }
+}
+
 async function setupMattermostPlatform(
   id: string,
   displayName: string,
@@ -230,17 +533,6 @@ async function setupMattermostPlatform(
   console.log('');
   console.log(dim('  Mattermost setup:'));
   console.log('');
-
-  if (!existing) {
-    console.log(dim('  📖 Need help? See the setup guide:'));
-    console.log(dim('     SETUP_GUIDE.md#mattermost-setup'));
-    console.log('');
-    console.log(dim('  Quick checklist:'));
-    console.log(dim('    ✓ Created bot account (Integrations > Bot Accounts)'));
-    console.log(dim('    ✓ Copied bot token'));
-    console.log(dim('    ✓ Got channel ID (View Info in channel)'));
-    console.log('');
-  }
 
   const existingMattermost = existing?.type === 'mattermost' ? existing as MattermostPlatformConfig : undefined;
 
@@ -295,14 +587,14 @@ async function setupMattermostPlatform(
       name: 'allowedUsers',
       message: 'Allowed usernames (optional)',
       initial: existingMattermost?.allowedUsers?.join(',') || '',
-      hint: 'Comma-separated (e.g., alice,bob) - leave empty to allow ANYONE (⚠️ security risk)',
+      hint: '⚠️  Leave empty to allow ANYONE (security risk) - or enter: alice,bob,charlie',
     },
     {
       type: 'confirm',
-      name: 'skipPermissions',
-      message: 'Auto-approve all Claude actions?',
-      initial: existingMattermost?.skipPermissions || false,
-      hint: 'No = you approve via reactions (recommended for safety)',
+      name: 'requireApproval',
+      message: 'Require approval for Claude actions?',
+      initial: existingMattermost ? !existingMattermost.skipPermissions : true,
+      hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
     },
   ], { onCancel });
 
@@ -314,17 +606,16 @@ async function setupMattermostPlatform(
     process.exit(1);
   }
 
-  // Warn if allowedUsers is empty (security risk)
-  if (!response.allowedUsers || response.allowedUsers.trim() === '') {
-    console.log('');
-    console.log(dim('  ⚠️  No user restrictions configured!'));
-    console.log(dim('     Anyone in the channel can use the bot.'));
-    console.log('');
+  // Parse allowed users
+  const allowedUsers = response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
 
+  // Confirm if no user restrictions (security risk)
+  if (allowedUsers.length === 0) {
+    console.log('');
     const { confirmOpen } = await prompts({
       type: 'confirm',
       name: 'confirmOpen',
-      message: 'Allow ANYONE in the channel to use the bot?',
+      message: '⚠️  Allow ANYONE in the channel to use the bot?',
       initial: false,
     }, { onCancel });
 
@@ -394,8 +685,8 @@ async function setupMattermostPlatform(
     token: finalToken,
     channelId: response.channelId,
     botName: response.botName,
-    allowedUsers: response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [],
-    skipPermissions: response.skipPermissions,
+    allowedUsers,
+    skipPermissions: !response.requireApproval, // Invert: requireApproval=true means skipPermissions=false
   };
 }
 
@@ -558,22 +849,6 @@ async function setupSlackPlatform(
   console.log(dim('  Slack setup (requires Socket Mode):'));
   console.log('');
 
-  if (!existing) {
-    console.log(dim('  📖 Need help? See the setup guide:'));
-    console.log(dim('     SETUP_GUIDE.md#slack-setup'));
-    console.log('');
-    console.log(dim('  Quick checklist:'));
-    console.log(dim('    ✓ Created Slack app (api.slack.com/apps)'));
-    console.log(dim('    ✓ Enabled Socket Mode with app token'));
-    console.log(dim('    ✓ Added OAuth scopes and installed to workspace'));
-    console.log(dim('    ✓ Subscribed to events (message.channels, reaction_*)'));
-    console.log(dim('    ✓ Invited bot to channel (/invite @botname)'));
-    console.log('');
-    console.log(dim('  Required scopes: channels:history, channels:read, chat:write,'));
-    console.log(dim('                   files:read, reactions:read, reactions:write, users:read'));
-    console.log('');
-  }
-
   const existingSlack = existing?.type === 'slack' ? existing as SlackPlatformConfig : undefined;
 
   const response = await prompts([
@@ -610,10 +885,10 @@ async function setupSlackPlatform(
       name: 'channelId',
       message: 'Channel ID',
       initial: existingSlack?.channelId || '',
-      hint: 'Right-click channel > View details > Copy ID (C...)',
+      hint: 'Right-click channel > View details > Copy ID (starts with C, e.g. C0123456789)',
       validate: (v: string) => {
         if (!v) return 'Channel ID is required';
-        if (!v.startsWith('C')) return 'Channel ID typically starts with C';
+        if (!v.startsWith('C') && !v.startsWith('G')) return 'Channel ID should start with C (public) or G (private)';
         return true;
       },
     },
@@ -629,14 +904,14 @@ async function setupSlackPlatform(
       name: 'allowedUsers',
       message: 'Allowed usernames (optional)',
       initial: existingSlack?.allowedUsers?.join(',') || '',
-      hint: 'Slack usernames (comma-separated) - leave empty to allow ANYONE (⚠️ security risk)',
+      hint: '⚠️  Leave empty to allow ANYONE - or enter usernames: alice.smith,bob.jones (find: profile > More > Copy member ID)',
     },
     {
       type: 'confirm',
-      name: 'skipPermissions',
-      message: 'Auto-approve all Claude actions?',
-      initial: existingSlack?.skipPermissions || false,
-      hint: 'No = you approve via reactions (recommended for safety)',
+      name: 'requireApproval',
+      message: 'Require approval for Claude actions?',
+      initial: existingSlack ? !existingSlack.skipPermissions : true,
+      hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
     },
   ], { onCancel });
 
@@ -650,17 +925,16 @@ async function setupSlackPlatform(
     process.exit(1);
   }
 
-  // Warn if allowedUsers is empty (security risk)
-  if (!response.allowedUsers || response.allowedUsers.trim() === '') {
-    console.log('');
-    console.log(dim('  ⚠️  No user restrictions configured!'));
-    console.log(dim('     Anyone in the channel can use the bot.'));
-    console.log('');
+  // Parse allowed users
+  const allowedUsers = response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
 
+  // Confirm if no user restrictions (security risk)
+  if (allowedUsers.length === 0) {
+    console.log('');
     const { confirmOpen } = await prompts({
       type: 'confirm',
       name: 'confirmOpen',
-      message: 'Allow ANYONE in the channel to use the bot?',
+      message: '⚠️  Allow ANYONE in the channel to use the bot?',
       initial: false,
     }, { onCancel });
 
@@ -694,7 +968,7 @@ async function setupSlackPlatform(
       console.log(dim('    • Enable Socket Mode in app settings'));
       console.log(dim('    • Generate app-level token with connections:write scope'));
     } else if (validationResult.error?.includes('missing_scope')) {
-      console.log(dim('    • Add required OAuth scopes (see checklist above)'));
+      console.log(dim('    • Add required OAuth scopes'));
       console.log(dim('    • Reinstall app after adding scopes'));
     } else if (validationResult.error?.includes('channel')) {
       console.log(dim('    • Invite bot to channel: /invite @botname'));
@@ -735,7 +1009,7 @@ async function setupSlackPlatform(
     appToken: finalAppToken,
     channelId: response.channelId,
     botName: response.botName,
-    allowedUsers: response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [],
-    skipPermissions: response.skipPermissions,
+    allowedUsers,
+    skipPermissions: !response.requireApproval, // Invert: requireApproval=true means skipPermissions=false
   };
 }
