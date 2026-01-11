@@ -366,10 +366,11 @@ function formatEvent(
       ctx.ops.stopTyping(session);
       // Flush any remaining content. The flush() function handles clearing
       // pendingContent via clearFlushedContent() after successful post.
-      // We also reset currentPostId and pendingContent after flush completes
-      // to ensure the next message starts fresh.
+      // We also reset currentPostId, currentPostContent, and pendingContent after
+      // flush completes to ensure the next message starts fresh.
       ctx.ops.flush(session).then(() => {
         session.currentPostId = null;
+        session.currentPostContent = '';
         session.pendingContent = '';
       });
 

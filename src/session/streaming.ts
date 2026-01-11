@@ -847,7 +847,14 @@ export async function flush(
   if (session.currentPostId) {
     const postId = session.currentPostId;
     try {
-      await session.platform.updatePost(postId, content);
+      // Combine existing content with new content for the update.
+      // updatePost replaces content, so we need to include what's already posted.
+      const combinedContent = session.currentPostContent
+        ? session.currentPostContent + content
+        : content;
+      await session.platform.updatePost(postId, combinedContent);
+      // Track what we've posted for future updates
+      session.currentPostContent = combinedContent;
       // Clear the flushed content, preserving any content added during the async operation
       clearFlushedContent(session, pendingAtFlushStart);
     } catch {
@@ -855,6 +862,7 @@ export async function flush(
       // so the next flush will create a new post instead of retrying.
       sessionLog(session).debug('Update failed, will create new post on next flush');
       session.currentPostId = null;
+      session.currentPostContent = '';
     }
   } else {
     // Need to create a new post
@@ -863,6 +871,7 @@ export async function flush(
     if (hasActiveTasks) {
       const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
       session.currentPostId = postId;
+      session.currentPostContent = content;
       // Clear the flushed content, preserving any content added during the async operation
       clearFlushedContent(session, pendingAtFlushStart);
     } else {
@@ -872,6 +881,7 @@ export async function flush(
       );
       if (post) {
         session.currentPostId = post.id;
+        session.currentPostContent = content;
         sessionLog(session).debug(`Created post ${post.id.substring(0, 8)}`);
         // Register post for reaction routing
         registerPost(post.id, session.threadId);

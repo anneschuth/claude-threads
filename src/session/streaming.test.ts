@@ -255,23 +255,20 @@ describe('flush', () => {
   // See: fix/slack-flush-accumulation - without clearing, each flush would re-post
   // all previous content plus new content, causing messages to grow indefinitely
   test('clears pendingContent after successful updatePost', async () => {
+    // Simulate a post that already has content (from previous flush)
     session.currentPostId = 'existing_post';
-    session.pendingContent = 'First message';
+    session.currentPostContent = 'Previous content';
+    session.pendingContent = 'New chunk';
 
     await flush(session, registerPost);
 
     // pendingContent must be cleared after successful flush
     expect(session.pendingContent).toBe('');
+    // currentPostContent should have the combined content
+    expect(session.currentPostContent).toBe('Previous contentNew chunk');
 
-    // Simulate appending new content (like appendContent does)
-    session.pendingContent = 'Second message';
-
-    await flush(session, registerPost);
-
-    // Verify only the new content was posted, not accumulated
-    // (If pendingContent wasn't cleared, this would be 'First messageSecond message')
-    expect(platform.updatePost).toHaveBeenLastCalledWith('existing_post', 'Second message');
-    expect(session.pendingContent).toBe('');
+    // The update should have combined previous + new content
+    expect(platform.updatePost).toHaveBeenLastCalledWith('existing_post', 'Previous contentNew chunk');
   });
 
   test('clears pendingContent after successful createPost', async () => {
@@ -300,30 +297,56 @@ describe('flush', () => {
     expect(session.pendingContent).toBe('');
   });
 
-  test('prevents content accumulation across multiple flushes', async () => {
-    // This is the exact scenario that caused the Slack accumulation bug:
-    // Without clearing pendingContent, each flush would include all previous content
+  test('combines content when updating the same post', async () => {
+    // When updating an existing post, we combine currentPostContent with new content
+    // because updatePost REPLACES content (doesn't append).
     session.currentPostId = null;
     session.pendingContent = 'Message 1';
 
     await flush(session, registerPost);
     expect(session.pendingContent).toBe('');
+    expect(session.currentPostContent).toBe('Message 1');
 
-    // Simulate new content being appended
+    // Simulate new content being appended to the same message
     session.pendingContent = 'Message 2';
     await flush(session, registerPost);
 
-    // The second updatePost should only contain 'Message 2', not 'Message 1Message 2'
-    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 2');
+    // The updatePost should contain combined content
+    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 1Message 2');
     expect(session.pendingContent).toBe('');
+    expect(session.currentPostContent).toBe('Message 1Message 2');
 
-    // Third message
+    // Third chunk
     session.pendingContent = 'Message 3';
     await flush(session, registerPost);
 
-    // Should only contain 'Message 3'
-    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 3');
+    // Should contain all combined content
+    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 1Message 2Message 3');
     expect(session.pendingContent).toBe('');
+    expect(session.currentPostContent).toBe('Message 1Message 2Message 3');
+  });
+
+  test('starts fresh post after clearing currentPostId', async () => {
+    // This verifies that when we want to start a new message (after result event),
+    // clearing currentPostId and currentPostContent makes the next flush create a new post
+    session.currentPostId = null;
+    session.currentPostContent = '';
+    session.pendingContent = 'First message';
+
+    await flush(session, registerPost);
+    expect(session.currentPostId).not.toBeNull();
+    expect(session.currentPostContent).toBe('First message');
+
+    // Simulate result event clearing state to start fresh
+    session.currentPostId = null;
+    session.currentPostContent = '';
+    session.pendingContent = 'Second message';
+
+    await flush(session, registerPost);
+
+    // Should create a new post (createPost called again), not update the old one
+    expect(platform.createPost).toHaveBeenCalledTimes(2);
+    expect(session.currentPostContent).toBe('Second message');
   });
 
   // Regression test: content added during async flush operation must be preserved
