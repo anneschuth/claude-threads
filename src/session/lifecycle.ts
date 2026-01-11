@@ -13,6 +13,7 @@ import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
 import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
+import { generateChatPlatformPrompt, buildSessionContext } from '../commands/index.js';
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
@@ -275,59 +276,13 @@ function firePeriodicReclassification(
 // ---------------------------------------------------------------------------
 
 /**
- * Build a context line for the system prompt with session metadata.
- */
-function buildSessionContext(platform: { platformType: string; displayName: string }, workingDir: string): string {
-  const platformName = platform.platformType.charAt(0).toUpperCase() + platform.platformType.slice(1);
-  return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir}`;
-}
-
-/**
  * System prompt that gives Claude context about running in a chat platform.
  * This is appended to Claude's system prompt via --append-system-prompt.
+ *
+ * GENERATED from the unified command registry in src/commands/registry.ts.
+ * Edit the registry to update this prompt - do not edit this constant directly.
  */
-export const CHAT_PLATFORM_PROMPT = `
-You are running inside a chat platform (like Mattermost or Slack). Users interact with you through chat messages in a thread.
-
-**Claude Threads Version:** ${VERSION}
-
-## How This Works
-- You are Claude Code running as a bot via "Claude Threads"
-- Your responses appear as messages in a chat thread
-- Keep responses concise - very long responses are split across multiple messages
-- Multiple users may participate in a session (the owner can invite others)
-
-## Permissions & Interactions
-- Permission requests (file writes, commands, etc.) appear as messages with emoji options
-- Users approve with 👍 or deny with 👎 by reacting to the message
-- Plan approvals and questions also use emoji reactions (👍/👎 for plans, number emoji for choices)
-- Users can also type \`!approve\` or \`!yes\` to approve pending plans
-
-## User Commands
-Users can control sessions with these commands:
-- \`!stop\` or ❌ reaction: End the current operation
-- \`!escape\` or ⏸️ reaction: Interrupt without ending the session
-- \`!approve\` or 👍 reaction: Approve pending plan
-- \`!invite @user\`: Allow another user to send messages in this session
-- \`!kick @user\`: Remove a user from the session
-- \`!cd /path\`: Change working directory (restarts the session)
-- \`!permissions interactive|skip\`: Toggle permission prompts
-- \`!update\`: Show auto-update status
-- \`!update now\`: Apply pending update immediately
-- \`!update defer\`: Defer pending update for 1 hour
-
-## Commands You Can Execute
-You can execute certain commands by writing them on their own line in your response.
-The bot intercepts these and executes them, then sends results back to you.
-
-Available commands:
-- \`!worktree list\` - List all worktrees. Result is sent back to you in a <command-result> tag.
-- \`!cd /path\` - Change working directory. WARNING: This spawns a NEW Claude instance - you won't remember this conversation!
-
-Commands you should NOT use (counterproductive):
-- \`!stop\`, \`!escape\` - Would kill/interrupt your own session
-- \`!invite\`, \`!kick\`, \`!permissions\` - User decisions, not yours
-`.trim();
+export const CHAT_PLATFORM_PROMPT = generateChatPlatformPrompt();
 
 /**
  * How often to fire periodic reclassification (every N messages).

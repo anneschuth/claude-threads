@@ -5,6 +5,8 @@
  * Centralizes the definition of available commands and their parsing.
  */
 
+import { buildClaudeAllowedCommandsSet } from './registry.js';
+
 // =============================================================================
 // Command Definitions
 // =============================================================================
@@ -25,13 +27,13 @@ export interface ParsedCommand {
  * Commands that Claude is allowed to execute from its output.
  * Only safe commands that don't modify access control or security settings.
  *
- * Commands marked with 'returns_result' will have their output sent back to Claude.
+ * This is derived from the unified command registry where commands have
+ * `claudeCanExecute: true` set.
+ *
+ * Commands marked with `returnsResultToClaude: true` will have their output
+ * sent back to Claude in a <command-result> tag.
  */
-export const CLAUDE_ALLOWED_COMMANDS = new Set([
-  'cd',              // Change directory - restarts Claude (no result returned)
-  'worktree list',   // List worktrees - returns result to Claude
-  'bug',             // Report a bug - Claude can report issues it encounters
-]);
+export const CLAUDE_ALLOWED_COMMANDS = buildClaudeAllowedCommandsSet();
 
 /**
  * All available commands and their patterns.
