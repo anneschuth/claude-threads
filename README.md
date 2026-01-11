@@ -37,21 +37,29 @@
 
 ## Quick Start
 
-### Prerequisites
-
-1. **Claude Code CLI** installed and authenticated (`claude --version`)
-2. **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
-3. **Bot account** - [Mattermost](docs/MATTERMOST_SETUP.md) or [Slack](docs/SLACK_SETUP.md)
-
 ### Install & Run
 
 ```bash
+# Install
 bun install -g claude-threads
+
+# Run the setup wizard
 cd /your/project
 claude-threads
 ```
 
-On first run, an interactive setup wizard guides you through configuration.
+The **interactive setup wizard** will guide you through everything:
+- Configure Claude Code CLI (if needed)
+- Set up your Mattermost or Slack bot
+- Test credentials and permissions
+- Get you up and running in minutes
+
+**Need help with platform setup?** See the [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack bot creation.
+
+### Prerequisites
+
+- **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
+- **Claude Code CLI working** - test with `claude --version` (needs API key or subscription)
 
 ### Use
 
@@ -114,21 +122,14 @@ Or mid-session: `!worktree feature/add-auth`
 
 ## Access Control
 
-Set `allowedUsers` in config to restrict who can use the bot:
+Restrict who can use the bot during setup (or reconfigure later with `claude-threads --setup`).
 
-```yaml
-platforms:
-  - id: slack-team
-    allowedUsers: [alice, bob, carol]
-```
-
-Empty list = anyone can use (be careful!)
+Leave the allowed users list empty to let anyone in the channel use the bot (be careful!)
 
 ## Documentation
 
-- **[Mattermost Setup](docs/MATTERMOST_SETUP.md)** - Bot account setup for Mattermost
-- **[Slack Setup](docs/SLACK_SETUP.md)** - Slack app setup with Socket Mode
-- **[Configuration Reference](docs/CONFIGURATION.md)** - All settings and options
+- **[Setup Guide](SETUP_GUIDE.md)** - Step-by-step setup for Mattermost and Slack
+- **[Configuration Reference](CLAUDE.md)** - Technical details and architecture
 
 ## Updates
 

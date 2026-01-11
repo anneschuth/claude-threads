@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { homedir } from 'os';
 import type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow } from '../auto-update/types.js';
@@ -80,14 +80,28 @@ export function loadConfigWithMigration(): NewConfig | null {
 }
 
 /**
- * Save config to YAML file
+ * Save config to YAML file with secure permissions
+ * - Directory: 0o700 (only owner can access)
+ * - File: 0o600 (only owner can read/write)
+ * This is important because the config contains API tokens
+ *
+ * @param config - The configuration to save
+ * @param path - Optional custom path (for testing), defaults to CONFIG_PATH
  */
-export function saveConfig(config: NewConfig): void {
-  const configDir = dirname(CONFIG_PATH);
+export function saveConfig(config: NewConfig, path: string = CONFIG_PATH): void {
+  const configDir = dirname(path);
   if (!existsSync(configDir)) {
-    mkdirSync(configDir, { recursive: true });
+    mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(CONFIG_PATH, Bun.YAML.stringify(config), 'utf-8');
+  writeFileSync(path, Bun.YAML.stringify(config), { encoding: 'utf-8', mode: 0o600 });
+
+  // Also fix permissions on existing files (in case they were created with wrong permissions)
+  try {
+    chmodSync(configDir, 0o700);
+    chmodSync(path, 0o600);
+  } catch {
+    // Ignore permission errors (might happen on some systems)
+  }
 }
 
 /**
