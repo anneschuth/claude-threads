@@ -84,10 +84,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     };
 
     describe('Tool Use Display', () => {
-      // TODO: Investigate why this test fails intermittently after pendingContent clearing fix
-      // The second test in this describe block passes with the same scenario, suggesting
-      // this might be a timing/ordering issue rather than a real bug
-      it.skip('should display tool_use information when Claude uses a tool', async () => {
+      it('should display tool_use information when Claude uses a tool', async () => {
         // Start bot - skipPermissions allows tool execution without prompts
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'permission-request',
