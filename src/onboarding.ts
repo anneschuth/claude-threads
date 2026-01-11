@@ -721,6 +721,50 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
       console.log(dim(`      Auto-approve: ${slack.skipPermissions ? 'Yes' : 'No (interactive)'}`));
     }
   }
+
+  // Show advanced settings if any are configured
+  const hasAdvancedSettings = config.limits || config.threadLogs || config.keepAlive === false;
+  if (hasAdvancedSettings) {
+    console.log('');
+    console.log(dim('  Advanced Settings:'));
+
+    if (config.limits) {
+      if (config.limits.maxSessions !== undefined) {
+        console.log(dim(`    Max Sessions: ${config.limits.maxSessions}`));
+      }
+      if (config.limits.sessionTimeoutMinutes !== undefined) {
+        console.log(dim(`    Session Timeout: ${config.limits.sessionTimeoutMinutes} min`));
+      }
+      if (config.limits.sessionWarningMinutes !== undefined) {
+        console.log(dim(`    Warning Before Timeout: ${config.limits.sessionWarningMinutes} min`));
+      }
+      if (config.limits.permissionTimeoutSeconds !== undefined) {
+        console.log(dim(`    Permission Timeout: ${config.limits.permissionTimeoutSeconds} sec`));
+      }
+      if (config.limits.cleanupIntervalMinutes !== undefined) {
+        console.log(dim(`    Cleanup Interval: ${config.limits.cleanupIntervalMinutes} min`));
+      }
+      if (config.limits.cleanupWorktrees !== undefined) {
+        console.log(dim(`    Cleanup Worktrees: ${config.limits.cleanupWorktrees ? 'Yes' : 'No'}`));
+      }
+      if (config.limits.maxWorktreeAgeHours !== undefined) {
+        console.log(dim(`    Max Worktree Age: ${config.limits.maxWorktreeAgeHours} hours`));
+      }
+    }
+
+    if (config.threadLogs) {
+      if (config.threadLogs.enabled === false) {
+        console.log(dim('    Thread Logging: Disabled'));
+      } else if (config.threadLogs.retentionDays !== undefined) {
+        console.log(dim(`    Log Retention: ${config.threadLogs.retentionDays} days`));
+      }
+    }
+
+    if (config.keepAlive === false) {
+      console.log(dim('    Keep Alive: Disabled'));
+    }
+  }
+
   console.log('');
   console.log(dim('  ─────────────────────────────────────────────────────'));
   console.log('');
