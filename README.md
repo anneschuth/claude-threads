@@ -122,7 +122,7 @@ Or mid-session: `!worktree feature/add-auth`
 
 ## Access Control
 
-Restrict who can use the bot during setup (or reconfigure later with `claude-threads --reconfigure`).
+Restrict who can use the bot during setup (or reconfigure later with `claude-threads --setup`).
 
 Leave the allowed users list empty to let anyone in the channel use the bot (be careful!)
 

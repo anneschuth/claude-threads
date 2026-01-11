@@ -228,14 +228,14 @@ claude-threads
 **Multiple platforms:**
 - You can connect to multiple Mattermost/Slack instances
 - Each platform gets a unique ID (e.g., `mattermost-main`, `slack-eng`)
-- Add platforms one at a time, or add more later with `--reconfigure`
+- Add platforms one at a time, or add more later with `--setup`
 
 ### Reconfiguring
 
 To modify your configuration:
 
 ```bash
-claude-threads --reconfigure
+claude-threads --setup
 ```
 
 This will reload your existing config and let you update settings.

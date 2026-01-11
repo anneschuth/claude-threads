@@ -18,6 +18,150 @@ const onCancel = () => {
 };
 
 /**
+ * Copy text to clipboard (cross-platform)
+ * Returns true if successful, false otherwise
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  const platform = process.platform;
+
+  let command: string[];
+  if (platform === 'darwin') {
+    command = ['pbcopy'];
+  } else if (platform === 'win32') {
+    command = ['clip'];
+  } else {
+    // Linux - try xclip first, fall back to xsel
+    command = ['xclip', '-selection', 'clipboard'];
+  }
+
+  try {
+    const proc = Bun.spawn(command, { stdin: 'pipe' });
+    proc.stdin.write(text);
+    proc.stdin.end();
+    const exitCode = await proc.exited;
+    return exitCode === 0;
+  } catch {
+    // On Linux, try xsel as fallback
+    if (platform === 'linux') {
+      try {
+        const proc = Bun.spawn(['xsel', '--clipboard', '--input'], { stdin: 'pipe' });
+        proc.stdin.write(text);
+        proc.stdin.end();
+        const exitCode = await proc.exited;
+        return exitCode === 0;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }
+}
+
+/**
+ * Show platform-specific setup instructions
+ */
+async function showPlatformInstructions(platformType: 'mattermost' | 'slack'): Promise<void> {
+  if (platformType === 'mattermost') {
+    console.log('');
+    console.log(bold('  📋 Mattermost Setup - What You\'ll Need:'));
+    console.log('');
+    console.log(dim('  1. Bot Token:'));
+    console.log(dim('     • Go to Main Menu → Integrations → Bot Accounts'));
+    console.log(dim('     • Click "Add Bot Account"'));
+    console.log(dim('     • Give it a username (e.g., claude-bot) and display name'));
+    console.log(dim('     • Enable "post:all" permission'));
+    console.log(dim('     • Copy the generated token'));
+    console.log('');
+    console.log(dim('  2. Channel ID:'));
+    console.log(dim('     • Open the channel where the bot should listen'));
+    console.log(dim('     • Click the channel name → "View Info"'));
+    console.log(dim('     • Copy the ID from the URL (26-character string)'));
+    console.log('');
+    console.log(dim('  3. Add bot to channel:'));
+    console.log(dim('     • In the channel, type: /invite @your-bot-name'));
+    console.log('');
+  } else {
+    const manifest = `display_information:
+  name: Claude Bot
+features:
+  bot_user:
+    display_name: Claude Bot
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - app_mentions:read
+      - channels:history
+      - channels:read
+      - chat:write
+      - reactions:read
+      - reactions:write
+      - users:read
+      - files:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - app_mention
+      - message.channels
+      - reaction_added
+  interactivity:
+    is_enabled: true
+  socket_mode_enabled: true`;
+
+    console.log('');
+    console.log(bold('  📋 Slack Setup - What You\'ll Need:'));
+    console.log('');
+    console.log(dim('  Easiest: Use the App Manifest'));
+    console.log(dim('  ─────────────────────────────'));
+    console.log(dim('  1. Go to https://api.slack.com/apps'));
+    console.log(dim('  2. Click "Create New App" → "From an app manifest"'));
+    console.log(dim('  3. Select your workspace'));
+    console.log(dim('  4. Switch to the "YAML" tab (important!)'));
+    console.log(dim('  5. Paste the manifest'));
+    console.log(dim('  6. Click "Create" and "Install to Workspace"'));
+    console.log('');
+    console.log(dim('  Then get your tokens:'));
+    console.log(dim('  ─────────────────────'));
+    console.log(dim('  • Bot Token: OAuth & Permissions → Bot User OAuth Token (xoxb-...)'));
+    console.log(dim('  • App Token: Basic Information → App-Level Tokens → Generate'));
+    console.log(dim('    (add "connections:write" scope, copy the xapp-... token)'));
+    console.log('');
+    console.log(dim('  Finally:'));
+    console.log(dim('  ────────'));
+    console.log(dim('  • Channel ID: Right-click channel → View details → Copy ID (starts with C)'));
+    console.log(dim('  • Add bot: In the channel, type /invite @claude-bot'));
+    console.log('');
+
+    // Offer to copy manifest to clipboard
+    const { copyManifest } = await prompts({
+      type: 'confirm',
+      name: 'copyManifest',
+      message: 'Copy Slack app manifest to clipboard?',
+      initial: true,
+    }, { onCancel });
+
+    if (copyManifest) {
+      const copied = await copyToClipboard(manifest);
+      if (copied) {
+        console.log(green('  ✓ Manifest copied to clipboard!'));
+        console.log(dim('    Paste it at: https://api.slack.com/apps → Create New App → From manifest → YAML tab'));
+      } else {
+        // Fallback: show the manifest
+        console.log('');
+        console.log(dim('  Could not copy to clipboard. Here\'s the manifest:'));
+        console.log('');
+        console.log(dim('  ───────────────────────────────────────'));
+        for (const line of manifest.split('\n')) {
+          console.log(dim(`  ${line}`));
+        }
+        console.log(dim('  ───────────────────────────────────────'));
+      }
+    }
+    console.log('');
+  }
+}
+
+/**
  * Derive a nice display name from a Mattermost server URL
  * Extracts the first subdomain and converts it to title case.
  *
@@ -174,40 +318,11 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     platforms: [],
   };
 
-  // Step 2: Show platform setup checklists
+  // Step 2: Add platforms (loop)
   console.log('');
   console.log(bold('  Platform Setup'));
   console.log('');
-  console.log(dim('  To add a platform, you\'ll need bot credentials. Here\'s what to gather:'));
-  console.log('');
-  console.log(dim('  📋 For Mattermost:'));
-  console.log(dim('     • Bot token (create at: Main Menu → Integrations → Bot Accounts)'));
-  console.log(dim('     • Channel ID (get from: Channel → View Info → copy from URL)'));
-  console.log('');
-  console.log(dim('  📋 For Slack:'));
-  console.log(dim('     • Bot token (xoxb-...) and App token (xapp-...)'));
-  console.log(dim('     • Channel ID (right-click channel → View details)'));
-  console.log('');
-  console.log(dim('  📖 Detailed instructions: SETUP_GUIDE.md'));
-  console.log(dim('  💡 Tip: You can add platforms now or later with --reconfigure'));
-  console.log('');
-
-  const { readyForPlatforms } = await prompts({
-    type: 'confirm',
-    name: 'readyForPlatforms',
-    message: 'Ready to add platforms?',
-    initial: true,
-  }, { onCancel });
-
-  if (!readyForPlatforms) {
-    console.log('');
-    console.log(dim('  Setup cancelled. Complete platform setup and run `claude-threads` when ready.'));
-    process.exit(0);
-  }
-
-  // Step 3: Add platforms (loop)
-  console.log('');
-  console.log(dim('  Now let\'s add your platform connections.'));
+  console.log(dim('  💡 Tip: You can add more platforms later with --setup'));
   console.log('');
 
   let platformNumber = 1;
@@ -222,8 +337,8 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       name: 'platformType',
       message: isFirst ? 'First platform' : `Platform #${platformNumber}`,
       choices: [
-        { title: 'Mattermost', value: 'mattermost' },
         { title: 'Slack', value: 'slack' },
+        { title: 'Mattermost', value: 'mattermost' },
         ...(isFirst ? [] : [{ title: '(Done - finish setup)', value: 'done' }]),
       ],
       initial: 0,
@@ -234,22 +349,32 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       break;
     }
 
-    // Get platform ID
-    const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
-    const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
+    // Show platform-specific setup instructions
+    await showPlatformInstructions(platformType);
 
-    const { platformId } = await prompts({
-      type: 'text',
-      name: 'platformId',
-      message: 'Platform ID',
-      initial: suggestedId,
-      hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
-      validate: (v: string) => {
-        if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
-        if (config.platforms.some(p => p.id === v)) return 'ID already in use';
-        return true;
-      },
-    }, { onCancel });
+    // Get platform ID (auto-generate for first of each type, ask only for duplicates)
+    const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
+    let platformId: string;
+
+    if (typeCount === 1) {
+      // First of this type - just use the type name
+      platformId = platformType;
+    } else {
+      // Multiple of same type - ask for a unique ID
+      const result = await prompts({
+        type: 'text',
+        name: 'platformId',
+        message: 'Platform ID',
+        initial: `${platformType}-${typeCount}`,
+        hint: 'You have multiple ' + platformType + ' platforms - give this one a unique ID',
+        validate: (v: string) => {
+          if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
+          if (config.platforms.some(p => p.id === v)) return 'ID already in use';
+          return true;
+        },
+      }, { onCancel });
+      platformId = result.platformId;
+    }
 
     // Configure the platform (will ask for displayName with smart defaults)
     let platform: PlatformInstanceConfig;
@@ -312,7 +437,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log(dim('  Troubleshooting:'));
   console.log(dim('    • Run with debug logs: DEBUG=1 claude-threads'));
   console.log(dim('    • Check the setup guide: SETUP_GUIDE.md'));
-  console.log(dim('    • Reconfigure anytime: claude-threads --reconfigure'));
+  console.log(dim('    • Reconfigure anytime: claude-threads --setup'));
   console.log('');
   console.log(dim('  Starting claude-threads...'));
   console.log('');
@@ -411,10 +536,13 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
         name: 'platformType',
         message: 'Platform type',
         choices: [
-          { title: 'Mattermost', value: 'mattermost' },
           { title: 'Slack', value: 'slack' },
+          { title: 'Mattermost', value: 'mattermost' },
         ],
       }, { onCancel });
+
+      // Show platform-specific setup instructions
+      await showPlatformInstructions(platformType);
 
       const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
       const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
@@ -576,19 +704,29 @@ async function setupMattermostPlatform(
   id: string,
   existing?: PlatformInstanceConfig
 ): Promise<MattermostPlatformConfig> {
-  console.log('');
-  console.log(dim('  Mattermost setup:'));
-  console.log('');
-
   const existingMattermost = existing?.type === 'mattermost' ? existing as MattermostPlatformConfig : undefined;
 
-  const response = await prompts([
-    {
+  // Track last entered values for prefilling on retry
+  let lastUrl = existingMattermost?.url || 'https://chat.example.com';
+  let lastDisplayName = existingMattermost?.displayName || '';
+  let lastToken = existingMattermost?.token || '';
+  let lastChannelId = existingMattermost?.channelId || '';
+  let lastBotName = existingMattermost?.botName || 'claude-code';
+  let lastAllowedUsers = existingMattermost?.allowedUsers?.join(',') || '';
+  let lastRequireApproval = existingMattermost ? !existingMattermost.skipPermissions : true;
+
+  // Main loop - allows retrying when validation fails
+  while (true) {
+    console.log('');
+    console.log(dim('  Now enter your Mattermost credentials:'));
+    console.log('');
+
+    // Collect settings one by one with visible hints
+    const { url } = await prompts({
       type: 'text',
       name: 'url',
-      message: 'Server URL',
-      initial: existingMattermost?.url || 'https://chat.example.com',
-      hint: 'Your Mattermost base URL (e.g., https://chat.company.com)',
+      message: 'Server URL (e.g., https://chat.company.com)',
+      initial: lastUrl,
       validate: (v: string) => {
         if (!v.startsWith('http')) return 'Must start with http:// or https://';
         try {
@@ -598,149 +736,188 @@ async function setupMattermostPlatform(
           return 'Invalid URL format';
         }
       },
-    },
-    {
+    }, { onCancel });
+
+    const { displayName } = await prompts({
       type: 'text',
       name: 'displayName',
       message: 'Display name',
-      initial: (existingMattermost?.displayName) || ((prev: string) => deriveDisplayName(prev)),
-      hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
-    },
-    {
+      initial: lastDisplayName || deriveDisplayName(url),
+    }, { onCancel });
+
+    if (!lastToken) {
+      console.log('');
+      console.log(dim('  Bot Token: Main Menu → Integrations → Bot Accounts → Create'));
+    }
+    const { token } = await prompts({
       type: 'password',
       name: 'token',
-      message: 'Bot token',
-      initial: existingMattermost?.token,
-      hint: existingMattermost?.token
-        ? 'Press Enter to keep existing, or paste new token'
-        : 'From: Main Menu > Integrations > Bot Accounts > Create',
+      message: lastToken ? 'Bot token' : 'Paste it here',
+      initial: lastToken,
       validate: (v: string) => {
-        // Allow empty if we have existing token
-        if (!v && existingMattermost?.token) return true;
+        if (!v && lastToken) return true;
         return v.length > 0 ? true : 'Token is required';
       },
-    },
-    {
+    }, { onCancel });
+
+    if (!lastChannelId) {
+      console.log('');
+      console.log(dim('  Channel ID: Click channel name → View Info → copy ID from URL'));
+    }
+    const { channelId } = await prompts({
       type: 'text',
       name: 'channelId',
-      message: 'Channel ID',
-      initial: existingMattermost?.channelId || '',
-      hint: 'Click channel name > View Info > copy from URL',
+      message: lastChannelId ? 'Channel ID' : 'Paste it here',
+      initial: lastChannelId,
       validate: (v: string) => v.length > 0 ? true : 'Channel ID is required',
-    },
-    {
+    }, { onCancel });
+
+    console.log('');
+    const { botName } = await prompts({
       type: 'text',
       name: 'botName',
-      message: 'Bot username',
-      initial: existingMattermost?.botName || 'claude-code',
-      hint: 'The username you chose when creating the bot',
-    },
-    {
-      type: 'text',
-      name: 'allowedUsers',
-      message: 'Allowed usernames (optional)',
-      initial: existingMattermost?.allowedUsers?.join(',') || '',
-      hint: '⚠️  Leave empty to allow ANYONE (security risk) - or enter: alice,bob,charlie',
-    },
-    {
+      message: 'Bot username (the one you created)',
+      initial: lastBotName,
+    }, { onCancel });
+
+    const basicSettings = { url, displayName, token, channelId, botName };
+
+    // Use existing token if user left it empty
+    const finalToken = basicSettings.token || lastToken;
+    if (!finalToken) {
+      console.log('');
+      console.log(dim('  ⚠️  Token is required. Setup cancelled.'));
+      process.exit(1);
+    }
+
+    // Now handle allowed users with loop for re-entry
+    let allowedUsers: string[] = [];
+    let allowedUsersConfirmed = false;
+
+    while (!allowedUsersConfirmed) {
+      console.log('');
+      console.log(dim('  Who can use the bot? Enter usernames separated by commas.'));
+      console.log(dim('  Leave empty to allow anyone (you\'ll be asked to confirm).'));
+      const { allowedUsersInput } = await prompts({
+        type: 'text',
+        name: 'allowedUsersInput',
+        message: 'Allowed usernames',
+        initial: lastAllowedUsers,
+      }, { onCancel });
+
+      allowedUsers = allowedUsersInput?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
+
+      // If empty, confirm they really want to allow anyone
+      if (allowedUsers.length === 0) {
+        console.log('');
+        const { confirmOpen } = await prompts({
+          type: 'confirm',
+          name: 'confirmOpen',
+          message: '⚠️  Allow ANYONE in the channel to use the bot?',
+          initial: false,
+        }, { onCancel });
+
+        if (confirmOpen) {
+          allowedUsersConfirmed = true;
+        } else {
+          console.log('');
+          console.log(dim('  Let\'s add some allowed usernames.'));
+          // Loop continues - will re-prompt for usernames
+        }
+      } else {
+        allowedUsersConfirmed = true;
+      }
+    }
+
+    // Now ask about approval (after user access is settled)
+    const { requireApproval } = await prompts({
       type: 'confirm',
       name: 'requireApproval',
       message: 'Require approval for Claude actions?',
-      initial: existingMattermost ? !existingMattermost.skipPermissions : true,
+      initial: lastRequireApproval,
       hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
-    },
-  ], { onCancel });
-
-  // Use existing token if user left it empty
-  const finalToken = response.token || existingMattermost?.token;
-  if (!finalToken) {
-    console.log('');
-    console.log(dim('  ⚠️  Token is required. Setup cancelled.'));
-    process.exit(1);
-  }
-
-  // Parse allowed users
-  const allowedUsers = response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
-
-  // Confirm if no user restrictions (security risk)
-  if (allowedUsers.length === 0) {
-    console.log('');
-    const { confirmOpen } = await prompts({
-      type: 'confirm',
-      name: 'confirmOpen',
-      message: '⚠️  Allow ANYONE in the channel to use the bot?',
-      initial: false,
     }, { onCancel });
 
-    if (!confirmOpen) {
+    // Save entered values for potential retry
+    lastUrl = basicSettings.url;
+    lastDisplayName = basicSettings.displayName;
+    lastToken = finalToken;
+    lastChannelId = basicSettings.channelId;
+    lastBotName = basicSettings.botName;
+    lastAllowedUsers = allowedUsers.join(',');
+    lastRequireApproval = requireApproval;
+
+    // Validate credentials
+    console.log('');
+    console.log(dim('  Validating credentials...'));
+    const validationResult = await validateMattermostCredentials(
+      basicSettings.url,
+      finalToken,
+      basicSettings.channelId
+    );
+
+    if (!validationResult.success) {
       console.log('');
-      console.log(dim('  Setup cancelled. Please specify allowed usernames.'));
-      console.log(dim('  Run `claude-threads --reconfigure` to try again.'));
-      process.exit(1);
-    }
-  }
+      console.log(dim(`  ❌ Validation failed: ${validationResult.error}`));
+      console.log('');
+      console.log(dim('  Troubleshooting tips:'));
+      if (validationResult.error?.includes('401') || validationResult.error?.includes('auth')) {
+        console.log(dim('    • Check that the bot token is correct'));
+        console.log(dim('    • Verify the token is for this Mattermost instance'));
+        console.log(dim('    • Try creating a new bot and token'));
+      } else if (validationResult.error?.includes('channel') || validationResult.error?.includes('403')) {
+        console.log(dim('    • Verify the channel ID is correct'));
+        console.log(dim('    • Add the bot to the channel (@botname)'));
+        console.log(dim('    • Check bot has "Post:All" permission'));
+      } else {
+        console.log(dim('    • Check server URL is accessible'));
+        console.log(dim('    • Verify network connectivity'));
+      }
+      console.log('');
 
-  // Validate credentials
-  console.log('');
-  console.log(dim('  Validating credentials...'));
-  const validationResult = await validateMattermostCredentials(
-    response.url,
-    finalToken,
-    response.channelId
-  );
+      const { action } = await prompts({
+        type: 'select',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: [
+          { title: 'Re-enter credentials', value: 'retry' },
+          { title: 'Save anyway (may not work)', value: 'save' },
+          { title: 'Cancel setup', value: 'cancel' },
+        ],
+      }, { onCancel });
 
-  if (!validationResult.success) {
-    console.log('');
-    console.log(dim(`  ❌ Validation failed: ${validationResult.error}`));
-    console.log('');
-    console.log(dim('  Troubleshooting tips:'));
-    if (validationResult.error?.includes('401') || validationResult.error?.includes('auth')) {
-      console.log(dim('    • Check that the bot token is correct'));
-      console.log(dim('    • Verify the token is for this Mattermost instance'));
-      console.log(dim('    • Try creating a new bot and token'));
-    } else if (validationResult.error?.includes('channel') || validationResult.error?.includes('403')) {
-      console.log(dim('    • Verify the channel ID is correct'));
-      console.log(dim('    • Add the bot to the channel (@botname)'));
-      console.log(dim('    • Check bot has "Post:All" permission'));
+      if (action === 'retry') {
+        console.log('');
+        console.log(dim('  Let\'s try again...'));
+        continue; // Loop back to re-enter credentials
+      } else if (action === 'cancel') {
+        console.log('');
+        console.log(dim('  Setup cancelled.'));
+        process.exit(1);
+      }
+      // action === 'save' falls through to return
     } else {
-      console.log(dim('    • Check server URL is accessible'));
-      console.log(dim('    • Verify network connectivity'));
+      console.log(green('  ✓ Credentials validated successfully!'));
+      if (validationResult.botUsername) {
+        console.log(dim(`    Bot: @${validationResult.botUsername}`));
+      }
+      if (validationResult.channelName) {
+        console.log(dim(`    Channel: ${validationResult.channelName}`));
+      }
     }
-    console.log('');
 
-    const { continueAnyway } = await prompts({
-      type: 'confirm',
-      name: 'continueAnyway',
-      message: 'Save configuration anyway?',
-      initial: false,
-    }, { onCancel });
-
-    if (!continueAnyway) {
-      console.log('');
-      console.log(dim('  Setup cancelled.'));
-      process.exit(1);
-    }
-  } else {
-    console.log(green('  ✓ Credentials validated successfully!'));
-    if (validationResult.botUsername) {
-      console.log(dim(`    Bot: @${validationResult.botUsername}`));
-    }
-    if (validationResult.channelName) {
-      console.log(dim(`    Channel: ${validationResult.channelName}`));
-    }
+    return {
+      id,
+      type: 'mattermost',
+      displayName: basicSettings.displayName,
+      url: basicSettings.url,
+      token: finalToken,
+      channelId: basicSettings.channelId,
+      botName: basicSettings.botName,
+      allowedUsers,
+      skipPermissions: !requireApproval,
+    };
   }
-
-  return {
-    id,
-    type: 'mattermost',
-    displayName: response.displayName,
-    url: response.url,
-    token: finalToken,
-    channelId: response.channelId,
-    botName: response.botName,
-    allowedUsers,
-    skipPermissions: !response.requireApproval, // Invert: requireApproval=true means skipPermissions=false
-  };
 }
 
 // ============================================================================
@@ -909,178 +1086,231 @@ async function setupSlackPlatform(
   id: string,
   existing?: PlatformInstanceConfig
 ): Promise<SlackPlatformConfig> {
-  console.log('');
-  console.log(dim('  Slack setup (requires Socket Mode):'));
-  console.log('');
-
   const existingSlack = existing?.type === 'slack' ? existing as SlackPlatformConfig : undefined;
 
-  const response = await prompts([
-    {
+  // Track last entered values for prefilling on retry
+  let lastDisplayName = existingSlack?.displayName || 'Slack';
+  let lastBotToken = existingSlack?.botToken || '';
+  let lastAppToken = existingSlack?.appToken || '';
+  let lastChannelId = existingSlack?.channelId || '';
+  let lastBotName = existingSlack?.botName || 'claude';
+  let lastAllowedUsers = existingSlack?.allowedUsers?.join(',') || '';
+  let lastRequireApproval = existingSlack ? !existingSlack.skipPermissions : true;
+
+  // Main loop - allows retrying when validation fails
+  while (true) {
+    console.log('');
+    console.log(dim('  Now enter your Slack credentials:'));
+    console.log('');
+
+    // Collect settings one by one with visible hints printed before each prompt
+    const { displayName } = await prompts({
       type: 'text',
       name: 'displayName',
       message: 'Display name',
-      initial: existingSlack?.displayName || 'Slack',
-      hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
-    },
-    {
+      initial: lastDisplayName,
+    }, { onCancel });
+
+    if (!lastBotToken) {
+      console.log('');
+      console.log(dim('  Bot Token: OAuth & Permissions → Bot User OAuth Token'));
+    }
+    const { botToken } = await prompts({
       type: 'password',
       name: 'botToken',
-      message: 'Bot User OAuth Token',
-      initial: existingSlack?.botToken,
-      hint: existingSlack?.botToken
-        ? 'Press Enter to keep existing, or paste new token'
-        : 'From: OAuth & Permissions > Bot User OAuth Token (xoxb-...)',
+      message: lastBotToken ? 'Bot Token (xoxb-...)' : 'Paste it here',
+      initial: lastBotToken,
       validate: (v: string) => {
-        if (!v && existingSlack?.botToken) return true;
+        if (!v && lastBotToken) return true;
         if (!v) return 'Bot token is required';
-        return v.startsWith('xoxb-') ? true : 'Bot token must start with xoxb-';
+        return v.startsWith('xoxb-') ? true : 'Must start with xoxb-';
       },
-    },
-    {
+    }, { onCancel });
+
+    if (!lastAppToken) {
+      console.log('');
+      console.log(dim('  App Token: Basic Information → App-Level Tokens → Generate'));
+      console.log(dim('             (create with "connections:write" scope)'));
+    }
+    const { appToken } = await prompts({
       type: 'password',
       name: 'appToken',
-      message: 'App-Level Token',
-      initial: existingSlack?.appToken,
-      hint: existingSlack?.appToken
-        ? 'Press Enter to keep existing, or paste new token'
-        : 'From: Socket Mode > Generate token (xapp-...)',
+      message: lastAppToken ? 'App Token (xapp-...)' : 'Paste it here',
+      initial: lastAppToken,
       validate: (v: string) => {
-        if (!v && existingSlack?.appToken) return true;
+        if (!v && lastAppToken) return true;
         if (!v) return 'App token is required';
-        return v.startsWith('xapp-') ? true : 'App token must start with xapp-';
+        return v.startsWith('xapp-') ? true : 'Must start with xapp-';
       },
-    },
-    {
+    }, { onCancel });
+
+    if (!lastChannelId) {
+      console.log('');
+      console.log(dim('  Channel ID: Right-click channel → View details → Copy ID at bottom'));
+    }
+    const { channelId } = await prompts({
       type: 'text',
       name: 'channelId',
-      message: 'Channel ID',
-      initial: existingSlack?.channelId || '',
-      hint: 'Right-click channel > View details > Copy ID (starts with C, e.g. C0123456789)',
+      message: lastChannelId ? 'Channel ID (C...)' : 'Paste it here',
+      initial: lastChannelId,
       validate: (v: string) => {
         if (!v) return 'Channel ID is required';
-        if (!v.startsWith('C') && !v.startsWith('G')) return 'Channel ID should start with C (public) or G (private)';
+        if (!v.startsWith('C') && !v.startsWith('G')) return 'Should start with C (public) or G (private)';
         return true;
       },
-    },
-    {
+    }, { onCancel });
+
+    console.log('');
+    const { botName } = await prompts({
       type: 'text',
       name: 'botName',
-      message: 'Bot username',
-      initial: existingSlack?.botName || 'claude',
-      hint: 'The display name of your Slack app',
-    },
-    {
-      type: 'text',
-      name: 'allowedUsers',
-      message: 'Allowed usernames (optional)',
-      initial: existingSlack?.allowedUsers?.join(',') || '',
-      hint: '⚠️  Leave empty to allow ANYONE - or enter usernames: alice.smith,bob.jones (find: profile > More > Copy member ID)',
-    },
-    {
+      message: 'Bot username (for display)',
+      initial: lastBotName,
+    }, { onCancel });
+
+    const basicSettings = { displayName, botToken, appToken, channelId, botName };
+
+    // Use existing tokens if user left them empty
+    const finalBotToken = basicSettings.botToken || lastBotToken;
+    const finalAppToken = basicSettings.appToken || lastAppToken;
+
+    if (!finalBotToken || !finalAppToken) {
+      console.log('');
+      console.log(dim('  ⚠️  Both tokens are required. Setup cancelled.'));
+      process.exit(1);
+    }
+
+    // Now handle allowed users with loop for re-entry
+    let allowedUsers: string[] = [];
+    let allowedUsersConfirmed = false;
+
+    while (!allowedUsersConfirmed) {
+      console.log('');
+      console.log(dim('  Who can use the bot? Enter Slack usernames separated by commas.'));
+      console.log(dim('  Leave empty to allow anyone (you\'ll be asked to confirm).'));
+      const { allowedUsersInput } = await prompts({
+        type: 'text',
+        name: 'allowedUsersInput',
+        message: 'Allowed usernames',
+        initial: lastAllowedUsers,
+      }, { onCancel });
+
+      allowedUsers = allowedUsersInput?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
+
+      // If empty, confirm they really want to allow anyone
+      if (allowedUsers.length === 0) {
+        console.log('');
+        const { confirmOpen } = await prompts({
+          type: 'confirm',
+          name: 'confirmOpen',
+          message: '⚠️  Allow ANYONE in the channel to use the bot?',
+          initial: false,
+        }, { onCancel });
+
+        if (confirmOpen) {
+          allowedUsersConfirmed = true;
+        } else {
+          console.log('');
+          console.log(dim('  Let\'s add some allowed usernames.'));
+          // Loop continues - will re-prompt for usernames
+        }
+      } else {
+        allowedUsersConfirmed = true;
+      }
+    }
+
+    // Now ask about approval (after user access is settled)
+    const { requireApproval } = await prompts({
       type: 'confirm',
       name: 'requireApproval',
       message: 'Require approval for Claude actions?',
-      initial: existingSlack ? !existingSlack.skipPermissions : true,
+      initial: lastRequireApproval,
       hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
-    },
-  ], { onCancel });
-
-  // Use existing tokens if user left them empty
-  const finalBotToken = response.botToken || existingSlack?.botToken;
-  const finalAppToken = response.appToken || existingSlack?.appToken;
-
-  if (!finalBotToken || !finalAppToken) {
-    console.log('');
-    console.log(dim('  ⚠️  Both tokens are required. Setup cancelled.'));
-    process.exit(1);
-  }
-
-  // Parse allowed users
-  const allowedUsers = response.allowedUsers?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
-
-  // Confirm if no user restrictions (security risk)
-  if (allowedUsers.length === 0) {
-    console.log('');
-    const { confirmOpen } = await prompts({
-      type: 'confirm',
-      name: 'confirmOpen',
-      message: '⚠️  Allow ANYONE in the channel to use the bot?',
-      initial: false,
     }, { onCancel });
 
-    if (!confirmOpen) {
+    // Save entered values for potential retry
+    lastDisplayName = basicSettings.displayName;
+    lastBotToken = finalBotToken;
+    lastAppToken = finalAppToken;
+    lastChannelId = basicSettings.channelId;
+    lastBotName = basicSettings.botName;
+    lastAllowedUsers = allowedUsers.join(',');
+    lastRequireApproval = requireApproval;
+
+    // Validate credentials
+    console.log('');
+    console.log(dim('  Validating credentials...'));
+    const validationResult = await validateSlackCredentials(
+      finalBotToken,
+      finalAppToken,
+      basicSettings.channelId
+    );
+
+    if (!validationResult.success) {
       console.log('');
-      console.log(dim('  Setup cancelled. Please specify allowed usernames.'));
-      console.log(dim('  Run `claude-threads --reconfigure` to try again.'));
-      process.exit(1);
-    }
-  }
+      console.log(dim(`  ❌ Validation failed: ${validationResult.error}`));
+      console.log('');
+      console.log(dim('  Troubleshooting tips:'));
+      if (validationResult.error?.includes('invalid_auth') || validationResult.error?.includes('token')) {
+        console.log(dim('    • Verify bot token starts with xoxb-'));
+        console.log(dim('    • Verify app token starts with xapp-'));
+        console.log(dim('    • Reinstall app to workspace if needed'));
+      } else if (validationResult.error?.includes('Socket Mode')) {
+        console.log(dim('    • Enable Socket Mode in app settings'));
+        console.log(dim('    • Generate app-level token with connections:write scope'));
+      } else if (validationResult.error?.includes('missing_scope')) {
+        console.log(dim('    • Add required OAuth scopes'));
+        console.log(dim('    • Reinstall app after adding scopes'));
+      } else if (validationResult.error?.includes('channel')) {
+        console.log(dim('    • Invite bot to channel: /invite @botname'));
+        console.log(dim('    • Verify channel ID is correct'));
+      } else {
+        console.log(dim('    • Check network connectivity'));
+        console.log(dim('    • See SETUP_GUIDE.md for detailed troubleshooting'));
+      }
+      console.log('');
 
-  // Validate credentials
-  console.log('');
-  console.log(dim('  Validating credentials...'));
-  const validationResult = await validateSlackCredentials(
-    finalBotToken,
-    finalAppToken,
-    response.channelId
-  );
+      const { action } = await prompts({
+        type: 'select',
+        name: 'action',
+        message: 'What would you like to do?',
+        choices: [
+          { title: 'Re-enter credentials', value: 'retry' },
+          { title: 'Save anyway (may not work)', value: 'save' },
+          { title: 'Cancel setup', value: 'cancel' },
+        ],
+      }, { onCancel });
 
-  if (!validationResult.success) {
-    console.log('');
-    console.log(dim(`  ❌ Validation failed: ${validationResult.error}`));
-    console.log('');
-    console.log(dim('  Troubleshooting tips:'));
-    if (validationResult.error?.includes('invalid_auth') || validationResult.error?.includes('token')) {
-      console.log(dim('    • Verify bot token starts with xoxb-'));
-      console.log(dim('    • Verify app token starts with xapp-'));
-      console.log(dim('    • Reinstall app to workspace if needed'));
-    } else if (validationResult.error?.includes('Socket Mode')) {
-      console.log(dim('    • Enable Socket Mode in app settings'));
-      console.log(dim('    • Generate app-level token with connections:write scope'));
-    } else if (validationResult.error?.includes('missing_scope')) {
-      console.log(dim('    • Add required OAuth scopes'));
-      console.log(dim('    • Reinstall app after adding scopes'));
-    } else if (validationResult.error?.includes('channel')) {
-      console.log(dim('    • Invite bot to channel: /invite @botname'));
-      console.log(dim('    • Verify channel ID is correct'));
+      if (action === 'retry') {
+        console.log('');
+        console.log(dim('  Let\'s try again...'));
+        continue; // Loop back to re-enter credentials
+      } else if (action === 'cancel') {
+        console.log('');
+        console.log(dim('  Setup cancelled.'));
+        process.exit(1);
+      }
+      // action === 'save' falls through to return
     } else {
-      console.log(dim('    • Check network connectivity'));
-      console.log(dim('    • See SETUP_GUIDE.md for detailed troubleshooting'));
+      console.log(green('  ✓ Credentials validated successfully!'));
+      if (validationResult.botUsername) {
+        console.log(dim(`    Bot: @${validationResult.botUsername}`));
+      }
+      if (validationResult.teamName) {
+        console.log(dim(`    Team: ${validationResult.teamName}`));
+      }
     }
-    console.log('');
 
-    const { continueAnyway } = await prompts({
-      type: 'confirm',
-      name: 'continueAnyway',
-      message: 'Save configuration anyway?',
-      initial: false,
-    }, { onCancel });
-
-    if (!continueAnyway) {
-      console.log('');
-      console.log(dim('  Setup cancelled.'));
-      process.exit(1);
-    }
-  } else {
-    console.log(green('  ✓ Credentials validated successfully!'));
-    if (validationResult.botUsername) {
-      console.log(dim(`    Bot: @${validationResult.botUsername}`));
-    }
-    if (validationResult.teamName) {
-      console.log(dim(`    Team: ${validationResult.teamName}`));
-    }
+    return {
+      id,
+      type: 'slack',
+      displayName: basicSettings.displayName,
+      botToken: finalBotToken,
+      appToken: finalAppToken,
+      channelId: basicSettings.channelId,
+      botName: basicSettings.botName,
+      allowedUsers,
+      skipPermissions: !requireApproval,
+    };
   }
-
-  return {
-    id,
-    type: 'slack',
-    displayName: response.displayName,
-    botToken: finalBotToken,
-    appToken: finalAppToken,
-    channelId: response.channelId,
-    botName: response.botName,
-    allowedUsers,
-    skipPermissions: !response.requireApproval, // Invert: requireApproval=true means skipPermissions=false
-  };
 }
