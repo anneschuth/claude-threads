@@ -25,8 +25,10 @@ const onCancel = () => {
  *   https://acme-corp.mattermost.com → "Acme Corp"
  *   https://team-chat.example.com → "Team Chat"
  *   https://digilab.overheid.nl → "Digilab"
+ *
+ * @internal Exported for testing
  */
-function deriveDisplayName(url: string): string {
+export function deriveDisplayName(url: string): string {
   try {
     const hostname = new URL(url).hostname;
     // Get first part before first dot (e.g., "acme-corp" from "acme-corp.mattermost.com")
