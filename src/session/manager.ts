@@ -236,6 +236,7 @@ export class SessionManager extends EventEmitter {
       maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,
       threadLogsRetentionDays: this.threadLogsRetentionDays,
+      permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
     };
 
     const state: SessionState = {
@@ -1195,6 +1196,7 @@ export class SessionManager extends EventEmitter {
       skipPermissions: this.skipPermissions,
       chromeEnabled: this.chromeEnabled,
       worktreeMode: this.worktreeMode,
+      permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),

@@ -384,6 +384,7 @@ export async function createAndSwitchToWorktree(
     skipPermissions: boolean;
     chromeEnabled: boolean;
     worktreeMode: WorktreeMode;
+    permissionTimeoutMs?: number;
     handleEvent: (sessionId: string, event: ClaudeEvent) => void;
     handleExit: (sessionId: string, code: number) => Promise<void>;
     updateSessionHeader: (session: Session) => Promise<void>;
@@ -487,6 +488,7 @@ export async function createAndSwitchToWorktree(
           platformConfig: session.platform.getMcpConfig(),
           appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
           logSessionId: session.sessionId,
+          permissionTimeoutMs: options.permissionTimeoutMs,
         };
         session.claude = new ClaudeCli(cliOptions);
 
@@ -633,6 +635,7 @@ export async function createAndSwitchToWorktree(
         platformConfig: session.platform.getMcpConfig(),
         appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
         logSessionId: session.sessionId,  // Route logs to session panel
+        permissionTimeoutMs: options.permissionTimeoutMs,
       };
       session.claude = new ClaudeCli(cliOptions);
 

@@ -301,6 +301,7 @@ export async function changeDirectory(
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,  // Route logs to session panel
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
   };
 
   // Restart Claude with new options
@@ -455,6 +456,7 @@ export async function enableInteractivePermissions(
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,  // Route logs to session panel
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
   };
 
   // Restart Claude with new options

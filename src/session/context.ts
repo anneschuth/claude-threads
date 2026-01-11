@@ -39,6 +39,8 @@ export interface SessionConfig {
   threadLogsEnabled?: boolean;
   /** Thread log retention in days (default: 30) */
   threadLogsRetentionDays?: number;
+  /** Permission approval timeout in ms (default: 120000) */
+  permissionTimeoutMs?: number;
 }
 
 // =============================================================================

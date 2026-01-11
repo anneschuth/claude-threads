@@ -572,11 +572,12 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
       config.platforms.push(newPlatform);
       console.log(green(`  ✓ Added ${newPlatform.displayName}`));
     } else if (action === 'advanced') {
-      // Configure advanced settings (limits, timeouts, cleanup, thread logs)
+      // Configure advanced settings (limits, timeouts, cleanup, thread logs, keepAlive)
       const advancedResult = await configureAdvancedSettings({
         limits: config.limits,
         threadLogsEnabled: config.threadLogs?.enabled,
         threadLogsRetentionDays: config.threadLogs?.retentionDays,
+        keepAlive: config.keepAlive,
       });
 
       // Update limits
@@ -596,6 +597,13 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
         if (Object.keys(config.threadLogs).length === 0) {
           delete config.threadLogs;
         }
+      }
+
+      // Update keepAlive (only save if disabled, default is true)
+      if (advancedResult.keepAlive === false) {
+        config.keepAlive = false;
+      } else {
+        delete config.keepAlive;
       }
 
       console.log(green('  ✓ Advanced settings updated'));
@@ -739,12 +747,14 @@ interface AdvancedSettingsInput {
   limits?: LimitsConfig;
   threadLogsEnabled?: boolean;
   threadLogsRetentionDays?: number;
+  keepAlive?: boolean;
 }
 
 interface AdvancedSettingsOutput {
   limits?: LimitsConfig;
   threadLogsEnabled?: boolean;
   threadLogsRetentionDays?: number;
+  keepAlive?: boolean;
 }
 
 async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promise<AdvancedSettingsOutput> {
@@ -794,6 +804,13 @@ async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promi
       min: 30,
       max: 600,
       hint: `default: ${LIMITS_DEFAULTS.permissionTimeoutSeconds}`,
+    },
+    {
+      type: 'confirm',
+      name: 'keepAlive',
+      message: 'Prevent system sleep while sessions active?',
+      initial: existing.keepAlive !== false,
+      hint: 'default: yes',
     },
   ], { onCancel });
 
@@ -876,6 +893,8 @@ async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promi
     threadLogsRetentionDays: cleanupSettings.threadLogsEnabled && cleanupSettings.threadLogsRetentionDays !== 30
       ? cleanupSettings.threadLogsRetentionDays
       : undefined,
+    // Only save keepAlive if disabled (default is true)
+    keepAlive: sessionSettings.keepAlive === false ? false : undefined,
   };
 }
 
