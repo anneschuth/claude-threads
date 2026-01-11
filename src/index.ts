@@ -18,7 +18,7 @@ import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
 import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
-import { startUI, type UIInstance } from './ui/index.js';
+import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
@@ -55,7 +55,7 @@ function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
   session: SessionManager,
-  ui: UIInstance
+  ui: UIProvider
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -304,7 +304,7 @@ async function main() {
   const sessionStore = new SessionStore();
 
   // Start the UI (Ink TUI or headless depending on mode)
-  const ui: UIInstance = await startUI({
+  const ui: UIProvider = await startUI({
     config: {
       version: VERSION,
       workingDir,

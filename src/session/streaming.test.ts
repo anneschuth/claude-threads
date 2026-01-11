@@ -6,15 +6,17 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
   flush,
   bumpTasksToBottom,
+  clearFlushedContent,
+} from './streaming.js';
+import {
   findLogicalBreakpoint,
   shouldFlushEarly,
   endsAtBreakpoint,
   getCodeBlockState,
-  clearFlushedContent,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
-} from './streaming.js';
+} from '../operations/content-breaker.js';
 import type { Session } from './types.js';
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';

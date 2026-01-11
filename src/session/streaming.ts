@@ -2,10 +2,6 @@
  * Message streaming utilities
  *
  * Handles typing indicators, image attachments, and task list positioning.
- *
- * NOTE: Content flushing and message breaking is now handled by MessageManager
- * and ContentExecutor. This module contains utilities that are still needed
- * for session-level operations.
  */
 
 import type { PlatformClient, PlatformFile, PlatformFormatter } from '../platform/index.js';
@@ -16,19 +12,6 @@ import { MINIMIZE_TOGGLE_EMOJIS } from '../utils/emoji.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
 import { updateLastMessage } from './post-helpers.js';
-
-// Re-export content breaking utilities for backward compatibility
-export {
-  getCodeBlockState,
-  findLogicalBreakpoint,
-  shouldFlushEarly,
-  endsAtBreakpoint,
-  SOFT_BREAK_THRESHOLD,
-  MIN_BREAK_THRESHOLD,
-  MAX_LINES_BEFORE_BREAK,
-} from '../operations/content-breaker.js';
-
-export type { BreakpointType, CodeBlockInfo } from '../operations/content-breaker.js';
 
 const log = createLogger('streaming');
 
