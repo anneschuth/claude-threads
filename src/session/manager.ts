@@ -11,13 +11,9 @@
  */
 
 import { EventEmitter } from 'events';
-import { existsSync } from 'fs';
-import { readdir, rm } from 'fs/promises';
-import { join } from 'path';
 import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { cleanupOldLogs } from '../persistence/thread-logger.js';
 import { WorktreeMode } from '../config.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
@@ -28,12 +24,8 @@ import {
   getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
-import {
-  getWorktreesDir,
-  readWorktreeMetadata,
-  removeWorktree as removeGitWorktree,
-  isBranchMerged,
-} from '../git/worktree.js';
+import { CleanupScheduler } from '../cleanup/index.js';
+import { SessionMonitor } from './monitor.js';
 
 // Import extracted modules
 import * as streaming from './streaming.js';
@@ -96,8 +88,9 @@ export class SessionManager extends EventEmitter {
   // Persistence
   private sessionStore: SessionStore;
 
-  // Cleanup
-  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+  // Background tasks
+  private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
+  private backgroundCleanup: CleanupScheduler | null = null;  // Logs + worktrees cleanup (1 hour)
 
   // Shutdown flag
   private isShuttingDown = false;
@@ -123,24 +116,20 @@ export class SessionManager extends EventEmitter {
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.sessionStore = new SessionStore(sessionsPath);
 
-    // Clean up old thread logs on startup (if enabled)
-    if (this.threadLogsEnabled) {
-      const deletedLogs = cleanupOldLogs(this.threadLogsRetentionDays);
-      if (deletedLogs > 0) {
-        log.info(`🗑️ Cleaned up ${deletedLogs} old thread log(s)`);
-      }
-    }
+    // Create background tasks (started in initialize())
+    this.sessionMonitor = new SessionMonitor({
+      sessionTimeoutMs: SESSION_TIMEOUT_MS,
+      sessionWarningMs: SESSION_WARNING_MS,
+      getContext: () => this.getContext(),
+      getSessionCount: () => this.sessions.size,
+      updateStickyMessage: () => this.updateStickyMessage(),
+    });
 
-    // Start periodic cleanup and sticky refresh
-    this.cleanupTimer = setInterval(() => {
-      lifecycle.cleanupIdleSessions(SESSION_TIMEOUT_MS, SESSION_WARNING_MS, this.getContext())
-        .catch(err => log.error(`Error during idle session cleanup: ${err}`));
-      // Refresh sticky message to keep relative times current (only if there are active sessions)
-      if (this.sessions.size > 0) {
-        this.updateStickyMessage()
-          .catch(err => log.error(`Error during periodic refresh: ${err}`));
-      }
-    }, 60000);
+    this.backgroundCleanup = new CleanupScheduler({
+      sessionStore: this.sessionStore,
+      threadLogsEnabled: this.threadLogsEnabled,
+      logRetentionDays: this.threadLogsRetentionDays,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -947,112 +936,6 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Worktree Orphan Cleanup
-  // ---------------------------------------------------------------------------
-
-  /**
-   * Clean up orphaned worktrees on startup.
-   * Orphan = worktree in ~/.claude-threads/worktrees/ with no active session using it.
-   * Also removes worktrees older than 24 hours regardless of metadata.
-   */
-  private async cleanupOrphanedWorktrees(): Promise<void> {
-    const worktreesDir = getWorktreesDir();
-
-    if (!existsSync(worktreesDir)) {
-      log.debug('No worktrees directory exists, nothing to clean');
-      return;
-    }
-
-    // Get list of worktrees currently in use by persisted sessions
-    const persisted = this.sessionStore.load();
-    const activeWorktrees = new Set<string>();
-    for (const session of persisted.values()) {
-      if (session.worktreeInfo?.worktreePath) {
-        activeWorktrees.add(session.worktreeInfo.worktreePath);
-      }
-    }
-
-    const MAX_WORKTREE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
-    const now = Date.now();
-    let cleanedCount = 0;
-
-    try {
-      const entries = await readdir(worktreesDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-
-        const worktreePath = join(worktreesDir, entry.name);
-
-        // Skip worktrees that are in use by persisted sessions
-        if (activeWorktrees.has(worktreePath)) {
-          log.debug(`Worktree in use by persisted session, skipping: ${entry.name}`);
-          continue;
-        }
-
-        // Check metadata for age-based and merged-branch cleanup
-        const meta = await readWorktreeMetadata(worktreePath);
-        let shouldCleanup = false;
-        let cleanupReason = '';
-
-        if (meta) {
-          const lastActivity = new Date(meta.lastActivityAt).getTime();
-          const age = now - lastActivity;
-
-          // Check if branch was merged
-          const merged = await isBranchMerged(meta.repoRoot, meta.branch).catch(() => false);
-          if (merged) {
-            shouldCleanup = true;
-            cleanupReason = `branch "${meta.branch}" was merged`;
-          } else if (age >= MAX_WORKTREE_AGE_MS) {
-            shouldCleanup = true;
-            cleanupReason = `inactive for ${Math.round(age / 3600000)}h`;
-          } else {
-            log.debug(`Worktree recent (${Math.round(age / 60000)}min old), skipping: ${entry.name}`);
-            continue;
-          }
-        } else {
-          // No metadata = truly orphaned
-          shouldCleanup = true;
-          cleanupReason = 'no metadata';
-        }
-
-        if (!shouldCleanup) continue;
-
-        // Orphaned, old, or merged worktree - clean it up
-        log.info(`🗑️ Cleaning worktree (${cleanupReason}): ${entry.name}`);
-
-        try {
-          // Try git worktree remove first (proper cleanup)
-          // We need to find the repo root from metadata
-          if (meta?.repoRoot) {
-            await removeGitWorktree(meta.repoRoot, worktreePath);
-          } else {
-            // No metadata, just remove the directory
-            await rm(worktreePath, { recursive: true, force: true });
-          }
-          cleanedCount++;
-        } catch (err) {
-          log.warn(`Failed to clean orphaned worktree ${entry.name}: ${err}`);
-          // Try force remove as fallback
-          try {
-            await rm(worktreePath, { recursive: true, force: true });
-            cleanedCount++;
-          } catch (rmErr) {
-            log.error(`Failed to force remove worktree ${entry.name}: ${rmErr}`);
-          }
-        }
-      }
-    } catch (err) {
-      log.warn(`Failed to scan worktrees directory: ${err}`);
-    }
-
-    if (cleanedCount > 0) {
-      log.info(`🧹 Cleaned ${cleanedCount} orphaned worktree(s)`);
-    }
-  }
-
-  // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
@@ -1060,8 +943,9 @@ export class SessionManager extends EventEmitter {
     // Initialize sticky message module with session store for persistence
     stickyMessage.initialize(this.sessionStore);
 
-    // Clean up orphaned worktrees from previous runs
-    await this.cleanupOrphanedWorktrees();
+    // Start background tasks
+    this.sessionMonitor?.start();
+    this.backgroundCleanup?.start();
 
     // Clean up old sticky messages from the bot (from failed/crashed runs)
     // Run in background - no need to block startup. forceRun=true bypasses throttle.
@@ -1550,10 +1434,9 @@ export class SessionManager extends EventEmitter {
   async shutdown(message?: string): Promise<void> {
     this.isShuttingDown = true;
 
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
+    // Stop background tasks
+    this.sessionMonitor?.stop();
+    this.backgroundCleanup?.stop();
 
     // Post shutdown message to all active sessions
     if (message) {
