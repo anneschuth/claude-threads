@@ -41,7 +41,7 @@
 
 1. **Claude Code CLI** installed and authenticated (`claude --version`)
 2. **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
-3. **Bot account** - [Mattermost](docs/MATTERMOST_SETUP.md) or [Slack](docs/SLACK_SETUP.md)
+3. **Bot account** - See [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack
 
 ### Install & Run
 
@@ -126,9 +126,8 @@ Empty list = anyone can use (be careful!)
 
 ## Documentation
 
-- **[Mattermost Setup](docs/MATTERMOST_SETUP.md)** - Bot account setup for Mattermost
-- **[Slack Setup](docs/SLACK_SETUP.md)** - Slack app setup with Socket Mode
-- **[Configuration Reference](docs/CONFIGURATION.md)** - All settings and options
+- **[Setup Guide](SETUP_GUIDE.md)** - Step-by-step setup for Mattermost and Slack
+- **[Configuration Reference](CLAUDE.md)** - Technical details and architecture
 
 ## Updates
 
