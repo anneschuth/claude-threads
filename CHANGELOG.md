@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.0] - 2026-01-11
+
+### Fixed
+- **Worktree aggressive pruning** - Fix multiple bugs causing worktrees to be deleted shortly after creation (#194)
+  - `isBranchMerged()` no longer detects new branches as merged (main cause of immediate deletion)
+  - Only check for merged branches on worktrees older than 24 hours
+  - Added race condition protection for worktrees with session IDs
+  - Call `updateWorktreeActivity()` on session activity to prevent long-running sessions from having their worktrees pruned
+
+### Added
+- **Unified command registry** - Single source of truth for all commands and reactions (#195)
+  - `src/commands/registry.ts` - Central command definitions with categories, audiences, and Claude execution permissions
+  - `src/commands/help-generator.ts` - Generates `!help` message from registry
+  - `src/commands/system-prompt-generator.ts` - Generates Claude's system prompt from registry
+  - `claudeCanExecute` and `returnsResultToClaude` flags to identify which commands Claude can use
+  - Help message and system prompt are now always in sync
+
 ## [0.61.0] - 2026-01-11
 
 ### Added
