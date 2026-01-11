@@ -9,6 +9,7 @@ import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
+import type { MessageManager } from '../operations/message-manager.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -280,6 +281,9 @@ export interface Session {
 
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
+
+  // Message manager - orchestrates content, tasks, questions, subagents
+  messageManager?: MessageManager;
 }
 
 // =============================================================================

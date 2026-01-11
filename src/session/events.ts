@@ -267,6 +267,114 @@ export function handleEvent(
 }
 
 // ---------------------------------------------------------------------------
+// Pre/Post Processing for MessageManager integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Pre-processing for events when using MessageManager.
+ * Handles session-specific side effects that should run BEFORE the main event handling.
+ */
+export function handleEventPreProcessing(
+  session: Session,
+  event: ClaudeEvent,
+  ctx: SessionContext
+): void {
+  // Log raw event to thread logger (first thing, before any processing)
+  session.threadLogger?.logEvent(event);
+
+  // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
+  resetSessionActivity(session);
+
+  // On first meaningful response from Claude, mark session as safe to resume and persist
+  if (!session.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
+    session.hasClaudeResponded = true;
+    ctx.ops.persistSession(session);
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
+  }
+
+  // Handle compaction events specially
+  if (event.type === 'system') {
+    const e = event as ClaudeEvent & { subtype?: string; status?: string; compact_metadata?: unknown };
+    if (e.subtype === 'status' && e.status === 'compacting') {
+      handleCompactionStart(session, ctx);
+    }
+    if (e.subtype === 'compact_boundary') {
+      handleCompactionComplete(session, e.compact_metadata, ctx);
+    }
+  }
+
+  // Track tool use events for bug reporting context
+  if (event.type === 'tool_use') {
+    const tool = event.tool_use as { name: string };
+    trackEvent(session, 'tool_use', tool.name);
+  }
+}
+
+/**
+ * Post-processing for events when using MessageManager.
+ * Handles session-specific side effects that should run AFTER the main event handling.
+ */
+export function handleEventPostProcessing(
+  session: Session,
+  event: ClaudeEvent,
+  ctx: SessionContext
+): void {
+  // Handle assistant events - extract PR URLs, detect commands
+  if (event.type === 'assistant') {
+    const msg = event.message as {
+      content?: Array<{ type: string; text?: string }>;
+    };
+    for (const block of msg?.content || []) {
+      if (block.type === 'text' && block.text) {
+        // Detect and store pull request URLs
+        extractAndUpdatePullRequest(block.text, session, ctx);
+        // Detect and execute Claude commands (e.g., !cd)
+        detectAndExecuteClaudeCommands(block.text, session, ctx);
+      }
+    }
+  }
+
+  // Handle result events - stop typing, update UI, extract usage
+  if (event.type === 'result') {
+    ctx.ops.stopTyping(session);
+    session.isProcessing = false;
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
+    updateUsageStats(session, event, ctx);
+  }
+
+  // Track tool errors for bug reporting context
+  if (event.type === 'tool_result') {
+    const result = event.tool_result as { is_error?: boolean };
+    if (result.is_error) {
+      trackEvent(session, 'tool_error', 'Tool execution failed');
+    }
+  }
+
+  // Handle system errors
+  if (event.type === 'system') {
+    const e = event as ClaudeEvent & { subtype?: string; error?: string };
+    if (e.subtype === 'error') {
+      trackEvent(session, 'system_error', String(e.error).substring(0, 80));
+    }
+  }
+
+  // Handle user events for subagent completion tracking
+  if (event.type === 'user') {
+    const msg = event.message as {
+      content?: Array<{ type: string; tool_use_id?: string }>;
+    };
+    for (const block of msg?.content || []) {
+      if (block.type === 'tool_result' && block.tool_use_id) {
+        const subagent = session.activeSubagents.get(block.tool_use_id);
+        if (subagent) {
+          handleTaskComplete(session, block.tool_use_id, subagent.postId);
+        }
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Event formatters
 // ---------------------------------------------------------------------------
 

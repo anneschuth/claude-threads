@@ -4,10 +4,11 @@
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { ContentExecutor } from './content.js';
-import type { ExecutorContext, RegisterPostOptions } from './types.js';
+import type { ExecutorContext } from './types.js';
 import type { PlatformClient, PlatformFormatter, PlatformPost } from '../../platform/index.js';
-import { PostTracker } from '../post-tracker.js';
+import { PostTracker, type RegisterPostOptions } from '../post-tracker.js';
 import { DefaultContentBreaker } from '../content-breaker.js';
+import { createAppendContentOp, createFlushOp } from '../types.js';
 
 // Mock formatter
 const mockFormatter: PlatformFormatter = {
@@ -57,7 +58,7 @@ describe('ContentExecutor', () => {
   let platform: PlatformClient;
   let postTracker: PostTracker;
   let contentBreaker: DefaultContentBreaker;
-  let registeredPosts: Map<string, RegisterPostOptions>;
+  let registeredPosts: Map<string, RegisterPostOptions | undefined>;
   let lastMessage: PlatformPost | null;
 
   beforeEach(() => {
@@ -69,7 +70,7 @@ describe('ContentExecutor', () => {
 
     executor = new ContentExecutor({
       registerPost: (postId, options) => {
-        registeredPosts.set(postId, options);
+        registeredPosts.set(postId, options ?? { type: 'content' });
       },
       updateLastMessage: (post) => {
         lastMessage = post;
@@ -97,7 +98,7 @@ describe('ContentExecutor', () => {
     });
 
     it('resets state correctly', async () => {
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, getContext());
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), getContext());
       executor.reset();
 
       const state = executor.getState();
@@ -108,15 +109,15 @@ describe('ContentExecutor', () => {
   describe('Append Content', () => {
     it('appends content to pending', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
 
       expect(executor.getState().pendingContent).toBe('Hello');
     });
 
     it('accumulates multiple appends', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello ' }, ctx);
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'World' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello '), ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'World'), ctx);
 
       expect(executor.getState().pendingContent).toBe('Hello World');
     });
@@ -125,15 +126,15 @@ describe('ContentExecutor', () => {
   describe('Flush', () => {
     it('does nothing when no pending content', async () => {
       const ctx = getContext();
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).not.toHaveBeenCalled();
     });
 
     it('creates post when flushing content', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello World' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello World'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).toHaveBeenCalledWith('Hello World', 'thread-123');
       expect(executor.getState().currentPostId).toBe('post_1');
@@ -144,13 +145,13 @@ describe('ContentExecutor', () => {
       const ctx = getContext();
 
       // First flush creates a post
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello\n' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello\n'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       // Second flush updates the same post
       // Content is trimmed during formatting, but newlines create separation
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'World' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'World'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).toHaveBeenCalledTimes(1);
       expect(platform.updatePost).toHaveBeenCalledTimes(1);
@@ -160,8 +161,8 @@ describe('ContentExecutor', () => {
 
     it('registers post for reaction routing', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(registeredPosts.has('post_1')).toBe(true);
       expect(registeredPosts.get('post_1')?.type).toBe('content');
@@ -169,8 +170,8 @@ describe('ContentExecutor', () => {
 
     it('updates lastMessage after creating post', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(lastMessage).not.toBeNull();
       expect(lastMessage?.id).toBe('post_1');
@@ -178,8 +179,8 @@ describe('ContentExecutor', () => {
 
     it('clears pending content after flush', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(executor.getState().pendingContent).toBe('');
     });
@@ -194,13 +195,13 @@ describe('ContentExecutor', () => {
         // Add more content during the async createPost call
         if (!addedDuringFlush) {
           addedDuringFlush = true;
-          await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: ' extra' }, ctx);
+          await executor.executeAppend(createAppendContentOp('test', ' extra'), ctx);
         }
         return originalCreatePost(content, threadId);
       });
 
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       // The extra content should be preserved
       expect(executor.getState().pendingContent).toBe(' extra');
@@ -210,7 +211,7 @@ describe('ContentExecutor', () => {
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
       executor.scheduleFlush(ctx, 10);
 
       expect(executor.getState().updateTimer).not.toBeNull();
@@ -224,7 +225,7 @@ describe('ContentExecutor', () => {
 
     it('does not double-schedule', async () => {
       const ctx = getContext();
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
 
       executor.scheduleFlush(ctx, 100);
       const timer1 = executor.getState().updateTimer;
@@ -244,7 +245,7 @@ describe('ContentExecutor', () => {
     it('uses bumped post ID when onBumpTaskList returns one', async () => {
       const executorWithBump = new ContentExecutor({
         registerPost: (postId, options) => {
-          registeredPosts.set(postId, options);
+          registeredPosts.set(postId, options ?? { type: 'content' });
         },
         updateLastMessage: (post) => {
           lastMessage = post;
@@ -253,8 +254,8 @@ describe('ContentExecutor', () => {
       });
 
       const ctx = getContext();
-      await executorWithBump.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executorWithBump.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executorWithBump.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executorWithBump.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(executorWithBump.getState().currentPostId).toBe('bumped_task_post_id');
       // createPost should not be called since we reused the task list post
@@ -264,7 +265,7 @@ describe('ContentExecutor', () => {
     it('creates new post when onBumpTaskList returns null', async () => {
       const executorWithBump = new ContentExecutor({
         registerPost: (postId, options) => {
-          registeredPosts.set(postId, options);
+          registeredPosts.set(postId, options ?? { type: 'content' });
         },
         updateLastMessage: (post) => {
           lastMessage = post;
@@ -273,8 +274,8 @@ describe('ContentExecutor', () => {
       });
 
       const ctx = getContext();
-      await executorWithBump.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executorWithBump.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executorWithBump.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executorWithBump.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).toHaveBeenCalled();
     });
@@ -285,8 +286,8 @@ describe('ContentExecutor', () => {
       const ctx = getContext();
 
       // First flush creates a post
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: 'Hello' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       // Make updatePost fail
       (platform.updatePost as ReturnType<typeof mock>) = mock(async () => {
@@ -294,8 +295,8 @@ describe('ContentExecutor', () => {
       });
 
       // Second flush should handle the error
-      await executor.executeAppend({ type: 'append_content', sessionId: 'test', content: ' World' }, ctx);
-      await executor.executeFlush({ type: 'flush', sessionId: 'test', reason: 'explicit' }, ctx);
+      await executor.executeAppend(createAppendContentOp('test', ' World'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       // currentPostId should be cleared after failure
       expect(executor.getState().currentPostId).toBeNull();

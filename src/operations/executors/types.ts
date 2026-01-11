@@ -6,7 +6,7 @@
  */
 
 import type { PlatformClient, PlatformPost } from '../../platform/index.js';
-import type { PostTracker } from '../post-tracker.js';
+import type { PostTracker, RegisterPostOptions } from '../post-tracker.js';
 import type { ContentBreaker } from '../content-breaker.js';
 import type { MessageOperation } from '../types.js';
 
@@ -149,11 +149,7 @@ export interface ExecutionResult {
  */
 export type RegisterPostCallback = (
   postId: string,
-  options?: {
-    type?: string;
-    interactionType?: string;
-    toolUseId?: string;
-  }
+  options?: RegisterPostOptions
 ) => void;
 
 /**

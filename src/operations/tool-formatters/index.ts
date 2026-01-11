@@ -73,6 +73,7 @@ toolFormatterRegistry.register(webToolsFormatter);
 // ---------------------------------------------------------------------------
 
 import type { PlatformFormatter } from '../../platform/formatter.js';
+import type { ToolInput } from './types.js';
 
 export interface FormatOptions {
   /** Include detailed previews (diffs, file content). Default: false */
@@ -139,5 +140,5 @@ export function formatToolForPermission(
     worktreeInfo: options.worktreeInfo,
   });
 
-  return result.permissionText;
+  return result.permissionText ?? toolName;
 }
