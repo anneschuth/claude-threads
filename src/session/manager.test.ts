@@ -66,6 +66,7 @@ function createMockPlatform(platformId = 'test-platform') {
     removeReaction: mock(async (_postId: string, _emoji: string): Promise<void> => {}),
     pinPost: mock(async (_postId: string): Promise<void> => {}),
     unpinPost: mock(async (_postId: string): Promise<void> => {}),
+    getPinnedPosts: mock(async (): Promise<string[]> => []),
     sendTyping: mock(() => {}),
     getFormatter: () => createMockFormatter(),
     isUserAllowed: mock((username: string) => username === 'admin' || username === 'allowed-user'),

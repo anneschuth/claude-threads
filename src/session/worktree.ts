@@ -27,7 +27,7 @@ import { randomUUID } from 'crypto';
 import { withErrorHandling, logAndNotify } from './error-handler.js';
 import { postWarning, postError, postSuccess, postInfo, resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
-import { shortenPath } from '../utils/tool-formatter.js';
+import { shortenPath } from '../operations/index.js';
 
 const log = createLogger('worktree');
 
@@ -470,7 +470,6 @@ export async function createAndSwitchToWorktree(
         // Flush any pending content
         await options.flush(session);
         session.currentPostId = null;
-        session.pendingContent = '';
 
         // Generate new session ID for fresh start in new directory
         const newSessionId = randomUUID();
@@ -613,7 +612,6 @@ export async function createAndSwitchToWorktree(
       // Flush any pending content
       await options.flush(session);
       session.currentPostId = null;
-      session.pendingContent = '';
 
       // Generate new session ID for fresh start in new directory
       // (Claude CLI sessions are tied to working directory, can't resume across directories)

@@ -19,10 +19,11 @@ import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
-import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
+import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { suggestSessionMetadata } from './title-suggest.js';
 import { suggestSessionTags } from './tag-suggest.js';
+import { MessageManager, PostTracker } from '../operations/index.js';
 
 const log = createLogger('lifecycle');
 
@@ -58,7 +59,7 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
 }
 
 /**
- * Clean up session timers (updateTimer, statusBarTimer, subagentUpdateTimer).
+ * Clean up session timers (updateTimer, statusBarTimer).
  * Call this before removing a session from the map.
  */
 function cleanupSessionTimers(session: Session): void {
@@ -69,10 +70,6 @@ function cleanupSessionTimers(session: Session): void {
   if (session.statusBarTimer) {
     clearInterval(session.statusBarTimer);
     session.statusBarTimer = null;
-  }
-  if (session.subagentUpdateTimer) {
-    clearInterval(session.subagentUpdateTimer);
-    session.subagentUpdateTimer = null;
   }
 }
 
@@ -117,6 +114,45 @@ function findPersistedByThreadId(
     }
   }
   return undefined;
+}
+
+/**
+ * Create a MessageManager for a session.
+ * Handles all content, task list, question, and subagent operations.
+ */
+function createMessageManager(
+  session: Session,
+  ctx: SessionContext
+): MessageManager {
+  const postTracker = new PostTracker();
+
+  return new MessageManager({
+    platform: session.platform,
+    postTracker,
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    worktreePath: session.worktreeInfo?.worktreePath,
+    worktreeBranch: session.worktreeInfo?.branch,
+    registerPost: (postId, options) => {
+      ctx.ops.registerPost(postId, session.threadId);
+      postTracker.register(postId, session.threadId, session.sessionId, options);
+    },
+    updateLastMessage: (post) => {
+      updateLastMessage(session, post);
+    },
+    onQuestionComplete: (toolUseId, answers) => {
+      // Send answers back to Claude
+      const answerJson = JSON.stringify(answers);
+      session.claude.sendMessage(answerJson);
+    },
+    onApprovalComplete: (toolUseId, approved) => {
+      // Send approval/denial back to Claude
+      const response = approved ? 'approved' : 'denied';
+      session.claude.sendMessage(response);
+    },
+    // onBumpTaskList callback not implemented - task list bumping is handled separately
+    // via the legacy streaming.ts path during the transition period
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +442,6 @@ export async function startSession(
     claude,
     currentPostId: null,
     currentPostContent: '',
-    pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,
     pendingMessageApproval: null,
@@ -418,10 +453,8 @@ export async function startSession(
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,
@@ -441,6 +474,9 @@ export async function startSession(
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+
+  // Create MessageManager for this session
+  session.messageManager = createMessageManager(session, ctx);
 
   // Log session start
   session.threadLogger?.logLifecycle('start', {
@@ -624,7 +660,6 @@ export async function resumeSession(
     claude,
     currentPostId: null,
     currentPostContent: '',
-    pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,
     pendingMessageApproval: null,
@@ -636,10 +671,8 @@ export async function resumeSession(
     lastTasksContent: state.lastTasksContent ?? null,
     tasksCompleted: state.tasksCompleted ?? false,
     tasksMinimized: state.tasksMinimized ?? false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,
@@ -671,6 +704,17 @@ export async function resumeSession(
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+
+  // Create MessageManager for this session
+  session.messageManager = createMessageManager(session, ctx);
+
+  // Hydrate MessageManager with persisted task state
+  session.messageManager.hydrateTaskListState({
+    tasksPostId: state.tasksPostId,
+    lastTasksContent: state.lastTasksContent,
+    tasksCompleted: state.tasksCompleted,
+    tasksMinimized: state.tasksMinimized,
+  });
 
   // Log session resume
   session.threadLogger?.logLifecycle('resume', {

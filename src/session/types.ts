@@ -9,6 +9,7 @@ import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
+import type { MessageManager } from '../operations/message-manager.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -119,19 +120,6 @@ export interface PendingUpdatePrompt {
   postId: string;
 }
 
-/**
- * Active subagent tracking with extended metadata for display
- */
-export interface ActiveSubagent {
-  postId: string;           // Post ID in chat
-  startTime: number;        // Date.now() when started
-  description: string;      // Full prompt text
-  subagentType: string;     // 'general-purpose', 'Explore', etc.
-  isMinimized: boolean;     // Toggle state (like tasksMinimized)
-  isComplete: boolean;      // True when subagent has finished
-  lastUpdateTime: number;   // Last time we updated the post (for debouncing)
-}
-
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -161,10 +149,9 @@ export interface Session {
   // Claude process
   claude: ClaudeCli;
 
-  // Post state for streaming updates
+  // Post state for streaming updates (legacy - used by SessionManager for non-event content)
   currentPostId: string | null;
   currentPostContent: string;  // Tracks what content has been posted to currentPostId (for error recovery)
-  pendingContent: string;
 
   // Interactive state
   pendingApproval: PendingApproval | null;
@@ -184,12 +171,10 @@ export interface Session {
   lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
   tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
   tasksMinimized: boolean;  // True when task list is minimized (show only progress)
-  activeSubagents: Map<string, ActiveSubagent>;  // toolUseId -> subagent metadata
 
   // Timers (per-session)
   updateTimer: ReturnType<typeof setTimeout> | null;
   typingTimer: ReturnType<typeof setInterval> | null;
-  subagentUpdateTimer: ReturnType<typeof setInterval> | null;  // For updating elapsed time
 
   // Timeout warning state
   timeoutWarningPosted: boolean;
@@ -270,9 +255,6 @@ export interface Session {
   lastMessageId?: string;
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
-  // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
-  taskListCreationPromise?: Promise<void>;
-
   // Bug reporting support
   pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
@@ -280,6 +262,9 @@ export interface Session {
 
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
+
+  // Message manager - orchestrates content, tasks, questions, subagents
+  messageManager?: MessageManager;
 }
 
 // =============================================================================
@@ -295,29 +280,3 @@ export function getSessionStatus(session: Session): SessionInfo['status'] {
   }
   return 'idle';
 }
-
-// =============================================================================
-// Configuration Constants (Legacy - prefer using LimitsConfig from config/types.ts)
-// =============================================================================
-
-import { LIMITS_DEFAULTS } from '../config/types.js';
-
-/**
- * @deprecated Use resolveLimits(config.limits).maxSessions instead
- * Kept for backward compatibility with env var support
- */
-export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || String(LIMITS_DEFAULTS.maxSessions), 10);
-
-/**
- * @deprecated Use resolveLimits(config.limits).sessionTimeoutMinutes instead
- * Kept for backward compatibility with env var support
- */
-export const SESSION_TIMEOUT_MS = parseInt(
-  process.env.SESSION_TIMEOUT_MS || String(LIMITS_DEFAULTS.sessionTimeoutMinutes * 60 * 1000),
-  10
-);
-
-/**
- * @deprecated Use resolveLimits(config.limits).sessionWarningMinutes instead
- */
-export const SESSION_WARNING_MS = LIMITS_DEFAULTS.sessionWarningMinutes * 60 * 1000;

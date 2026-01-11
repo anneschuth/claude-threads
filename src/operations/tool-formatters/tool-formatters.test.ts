@@ -1,0 +1,402 @@
+/**
+ * Tests for ToolFormatterRegistry and built-in formatters
+ */
+
+import { describe, it, expect, beforeEach } from 'bun:test';
+import {
+  ToolFormatterRegistry,
+  fileToolsFormatter,
+  bashToolFormatter,
+  taskToolsFormatter,
+  chromeToolsFormatter,
+  webToolsFormatter,
+  shortenPath,
+  parseMcpToolName,
+} from './index.js';
+import type { PlatformFormatter } from '../../platform/formatter.js';
+
+// Mock formatter for testing
+const mockFormatter: PlatformFormatter = {
+  formatBold: (text: string) => `**${text}**`,
+  formatItalic: (text: string) => `_${text}_`,
+  formatCode: (text: string) => `\`${text}\``,
+  formatCodeBlock: (text: string, lang?: string) =>
+    lang ? `\`\`\`${lang}\n${text}\n\`\`\`` : `\`\`\`\n${text}\n\`\`\``,
+  formatLink: (text: string, url: string) => `[${text}](${url})`,
+  formatStrikethrough: (text: string) => `~~${text}~~`,
+  formatMarkdown: (text: string) => text,
+  formatUserMention: (userId: string) => `@${userId}`,
+  formatHorizontalRule: () => '---',
+  formatBlockquote: (text: string) => `> ${text}`,
+  formatListItem: (text: string) => `- ${text}`,
+  formatNumberedListItem: (n: number, text: string) => `${n}. ${text}`,
+  formatHeading: (text: string, level: number) => `${'#'.repeat(level)} ${text}`,
+  escapeText: (text: string) => text,
+  formatTable: (_headers: string[], _rows: string[][]) => '',
+  formatKeyValueList: (_items: [string, string, string][]) => '',
+};
+
+describe('ToolFormatterRegistry', () => {
+  let registry: ToolFormatterRegistry;
+
+  beforeEach(() => {
+    registry = new ToolFormatterRegistry();
+  });
+
+  describe('register and format', () => {
+    it('registers a formatter and uses it', () => {
+      registry.register(fileToolsFormatter);
+
+      const result = registry.format('Read', { file_path: '/test/file.ts' }, { formatter: mockFormatter });
+
+      expect(result.display).toContain('Read');
+      expect(result.display).toContain('file.ts');
+    });
+
+    it('falls back to generic format for unknown tools', () => {
+      const result = registry.format('UnknownTool', {}, { formatter: mockFormatter });
+
+      expect(result.display).toContain('UnknownTool');
+    });
+
+    it('handles wildcard patterns', () => {
+      registry.register(chromeToolsFormatter);
+
+      const result = registry.format(
+        'mcp__claude-in-chrome__computer',
+        { action: 'screenshot' },
+        { formatter: mockFormatter }
+      );
+
+      expect(result.display).toContain('Chrome');
+      expect(result.display).toContain('screenshot');
+    });
+
+    it('hasFormatter returns true for registered tools', () => {
+      registry.register(fileToolsFormatter);
+
+      expect(registry.hasFormatter('Read')).toBe(true);
+      expect(registry.hasFormatter('Unknown')).toBe(false);
+    });
+  });
+
+  describe('generic MCP formatting', () => {
+    it('formats unknown MCP tools generically', () => {
+      const result = registry.format(
+        'mcp__custom-server__custom-tool',
+        {},
+        { formatter: mockFormatter }
+      );
+
+      expect(result.display).toContain('custom-tool');
+      expect(result.display).toContain('custom-server');
+    });
+  });
+});
+
+describe('File Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  describe('Read', () => {
+    it('formats Read tool', () => {
+      const result = fileToolsFormatter.format('Read', { file_path: '/path/to/file.ts' }, options);
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('📄');
+      expect(result!.display).toContain('Read');
+      expect(result!.display).toContain('file.ts');
+    });
+
+    it('shortens home directory paths', () => {
+      const home = process.env.HOME || '/home/user';
+      const result = fileToolsFormatter.format('Read', { file_path: `${home}/test.ts` }, options);
+
+      expect(result!.display).toContain('~');
+    });
+  });
+
+  describe('Edit', () => {
+    it('formats Edit tool without diff', () => {
+      const result = fileToolsFormatter.format('Edit', { file_path: '/path/file.ts' }, options);
+
+      expect(result!.display).toContain('✏️');
+      expect(result!.display).toContain('Edit');
+      expect(result!.isDestructive).toBe(true);
+    });
+
+    it('includes diff when detailed mode is on', () => {
+      const result = fileToolsFormatter.format(
+        'Edit',
+        {
+          file_path: '/path/file.ts',
+          old_string: 'const x = 1;',
+          new_string: 'const x = 2;',
+        },
+        { ...options, detailed: true }
+      );
+
+      expect(result!.display).toContain('diff');
+      expect(result!.display).toContain('-');
+      expect(result!.display).toContain('+');
+    });
+  });
+
+  describe('Write', () => {
+    it('formats Write tool', () => {
+      const result = fileToolsFormatter.format('Write', { file_path: '/path/file.ts' }, options);
+
+      expect(result!.display).toContain('📝');
+      expect(result!.display).toContain('Write');
+      expect(result!.isDestructive).toBe(true);
+    });
+
+    it('includes preview when detailed mode is on', () => {
+      const result = fileToolsFormatter.format(
+        'Write',
+        {
+          file_path: '/path/file.ts',
+          content: 'line1\nline2\nline3',
+        },
+        { ...options, detailed: true }
+      );
+
+      expect(result!.display).toContain('3 lines');
+      expect(result!.display).toContain('line1');
+    });
+  });
+
+  describe('Glob', () => {
+    it('formats Glob tool', () => {
+      const result = fileToolsFormatter.format('Glob', { pattern: '**/*.ts' }, options);
+
+      expect(result!.display).toContain('🔍');
+      expect(result!.display).toContain('Glob');
+      expect(result!.display).toContain('**/*.ts');
+    });
+  });
+
+  describe('Grep', () => {
+    it('formats Grep tool', () => {
+      const result = fileToolsFormatter.format('Grep', { pattern: 'TODO' }, options);
+
+      expect(result!.display).toContain('🔎');
+      expect(result!.display).toContain('Grep');
+      expect(result!.display).toContain('TODO');
+    });
+  });
+});
+
+describe('Bash Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats Bash command', () => {
+    const result = bashToolFormatter.format('Bash', { command: 'ls -la' }, options);
+
+    expect(result!.display).toContain('💻');
+    expect(result!.display).toContain('Bash');
+    expect(result!.display).toContain('ls -la');
+    expect(result!.isDestructive).toBe(true);
+  });
+
+  it('truncates long commands', () => {
+    const longCommand = 'x'.repeat(100);
+    const result = bashToolFormatter.format('Bash', { command: longCommand }, options);
+
+    expect(result!.display).toContain('...');
+    expect(result!.display!.length).toBeLessThan(longCommand.length);
+  });
+
+  it('shortens worktree paths in commands', () => {
+    const result = bashToolFormatter.format(
+      'Bash',
+      { command: 'cat /path/to/worktree/file.ts' },
+      {
+        ...options,
+        worktreeInfo: { path: '/path/to/worktree', branch: 'feature' },
+      }
+    );
+
+    expect(result!.display).toContain('[feature]');
+  });
+});
+
+describe('Task Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('hides TodoWrite', () => {
+    const result = taskToolsFormatter.format('TodoWrite', {}, options);
+
+    expect(result!.display).toBeNull();
+    expect(result!.hidden).toBe(true);
+  });
+
+  it('hides Task', () => {
+    const result = taskToolsFormatter.format('Task', {}, options);
+
+    expect(result!.display).toBeNull();
+    expect(result!.hidden).toBe(true);
+  });
+
+  it('formats EnterPlanMode', () => {
+    const result = taskToolsFormatter.format('EnterPlanMode', {}, options);
+
+    expect(result!.display).toContain('📋');
+    expect(result!.display).toContain('Planning');
+  });
+
+  it('hides ExitPlanMode', () => {
+    const result = taskToolsFormatter.format('ExitPlanMode', {}, options);
+
+    expect(result!.display).toBeNull();
+    expect(result!.hidden).toBe(true);
+  });
+
+  it('hides AskUserQuestion', () => {
+    const result = taskToolsFormatter.format('AskUserQuestion', {}, options);
+
+    expect(result!.display).toBeNull();
+    expect(result!.hidden).toBe(true);
+  });
+});
+
+describe('Chrome Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats computer screenshot', () => {
+    const result = chromeToolsFormatter.format(
+      'mcp__claude-in-chrome__computer',
+      { action: 'screenshot' },
+      options
+    );
+
+    expect(result!.display).toContain('🌐');
+    expect(result!.display).toContain('Chrome');
+    expect(result!.display).toContain('screenshot');
+  });
+
+  it('formats computer click with coordinates', () => {
+    const result = chromeToolsFormatter.format(
+      'mcp__claude-in-chrome__computer',
+      { action: 'left_click', coordinate: [100, 200] },
+      options
+    );
+
+    expect(result!.display).toContain('left_click');
+    expect(result!.display).toContain('100');
+    expect(result!.display).toContain('200');
+  });
+
+  it('formats navigate', () => {
+    const result = chromeToolsFormatter.format(
+      'mcp__claude-in-chrome__navigate',
+      { url: 'https://example.com/page' },
+      options
+    );
+
+    expect(result!.display).toContain('navigate');
+    expect(result!.display).toContain('example.com');
+  });
+
+  it('formats read_page', () => {
+    const result = chromeToolsFormatter.format(
+      'mcp__claude-in-chrome__read_page',
+      { filter: 'interactive' },
+      options
+    );
+
+    expect(result!.display).toContain('read_page');
+    expect(result!.display).toContain('interactive');
+  });
+
+  it('formats find', () => {
+    const result = chromeToolsFormatter.format(
+      'mcp__claude-in-chrome__find',
+      { query: 'login button' },
+      options
+    );
+
+    expect(result!.display).toContain('find');
+    expect(result!.display).toContain('login button');
+  });
+});
+
+describe('Web Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats WebFetch', () => {
+    const result = webToolsFormatter.format(
+      'WebFetch',
+      { url: 'https://example.com/api' },
+      options
+    );
+
+    expect(result!.display).toContain('🌐');
+    expect(result!.display).toContain('Fetching');
+    expect(result!.display).toContain('example.com');
+  });
+
+  it('formats WebSearch', () => {
+    const result = webToolsFormatter.format(
+      'WebSearch',
+      { query: 'typescript best practices' },
+      options
+    );
+
+    expect(result!.display).toContain('🔍');
+    expect(result!.display).toContain('Searching');
+    expect(result!.display).toContain('typescript');
+  });
+});
+
+describe('Utility Functions', () => {
+  describe('shortenPath', () => {
+    it('replaces home directory with ~', () => {
+      const home = process.env.HOME || '/home/user';
+      const result = shortenPath(`${home}/documents/file.ts`);
+
+      expect(result).toStartWith('~');
+      expect(result).toContain('documents/file.ts');
+    });
+
+    it('uses worktree context when provided', () => {
+      const result = shortenPath('/worktree/path/src/file.ts', undefined, {
+        path: '/worktree/path',
+        branch: 'feature-branch',
+      });
+
+      expect(result).toBe('[feature-branch]/src/file.ts');
+    });
+
+    it('handles empty path', () => {
+      expect(shortenPath('')).toBe('');
+    });
+  });
+
+  describe('parseMcpToolName', () => {
+    it('parses valid MCP tool names', () => {
+      const result = parseMcpToolName('mcp__server__tool');
+
+      expect(result).not.toBeNull();
+      expect(result!.server).toBe('server');
+      expect(result!.tool).toBe('tool');
+    });
+
+    it('handles tool names with multiple underscores', () => {
+      const result = parseMcpToolName('mcp__server__tool__with__underscores');
+
+      expect(result).not.toBeNull();
+      expect(result!.server).toBe('server');
+      expect(result!.tool).toBe('tool__with__underscores');
+    });
+
+    it('returns null for non-MCP tools', () => {
+      expect(parseMcpToolName('Read')).toBeNull();
+      expect(parseMcpToolName('Bash')).toBeNull();
+    });
+
+    it('returns null for malformed MCP names', () => {
+      expect(parseMcpToolName('mcp__')).toBeNull();
+      expect(parseMcpToolName('mcp__server')).toBeNull();
+    });
+  });
+});

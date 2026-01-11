@@ -2,7 +2,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { saveConfig, loadConfigWithMigration, configExists, CONFIG_PATH, type NewConfig } from './migration.js';
+import { saveConfig, loadConfigWithMigration, configExists, CONFIG_PATH, type Config } from './migration.js';
 
 describe('saveConfig', () => {
   let testDir: string;
@@ -23,7 +23,7 @@ describe('saveConfig', () => {
     }
   });
 
-  const createTestConfig = (): NewConfig => ({
+  const createTestConfig = (): Config => ({
     version: 2,
     workingDir: '/test/path',
     chrome: false,
@@ -64,7 +64,7 @@ describe('saveConfig', () => {
   });
 
   test('writes valid YAML content', () => {
-    const config: NewConfig = {
+    const config: Config = {
       version: 2,
       workingDir: '/home/user/project',
       chrome: true,
@@ -81,7 +81,7 @@ describe('saveConfig', () => {
     saveConfig(config, testConfigPath);
 
     const content = readFileSync(testConfigPath, 'utf-8');
-    const parsed = Bun.YAML.parse(content) as NewConfig;
+    const parsed = Bun.YAML.parse(content) as Config;
 
     expect(parsed.version).toBe(2);
     expect(parsed.workingDir).toBe('/home/user/project');
@@ -126,7 +126,7 @@ describe('saveConfig', () => {
     mkdirSync(testDir, { recursive: true });
     writeFileSync(testConfigPath, 'old: content\n');
 
-    const config: NewConfig = {
+    const config: Config = {
       version: 2,
       workingDir: '/new/path',
       chrome: false,
@@ -142,7 +142,7 @@ describe('saveConfig', () => {
   });
 
   test('handles platforms with sensitive tokens', () => {
-    const config: NewConfig = {
+    const config: Config = {
       version: 2,
       workingDir: '/test',
       chrome: false,

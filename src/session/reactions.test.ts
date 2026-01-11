@@ -7,7 +7,6 @@ import {
   handleQuestionReaction,
   handleApprovalReaction,
   handleMessageApprovalReaction,
-  handleTaskToggleReaction,
   handleExistingWorktreeReaction,
   handleUpdateReaction,
   type UpdateReactionHandler,
@@ -89,7 +88,6 @@ function createTestSession(platform: PlatformClient): Session {
     } as any,
     currentPostId: null,
     currentPostContent: '',
-    pendingContent: '',
     pendingApproval: null,
     pendingQuestionSet: null,
     pendingMessageApproval: null,
@@ -101,10 +99,8 @@ function createTestSession(platform: PlatformClient): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,
@@ -156,7 +152,6 @@ function createMockContext(): SessionContext {
       findSessionByThreadId: () => undefined,
       registerPost: mock(() => {}),
       flush: mock(async () => {}),
-      appendContent: mock(() => {}),
       startTyping: mock(() => {}),
       stopTyping: mock(() => {}),
       buildMessageContent: mock(async (text) => text),
@@ -410,77 +405,10 @@ describe('handleMessageApprovalReaction', () => {
   });
 });
 
-describe('handleTaskToggleReaction', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let ctx: SessionContext;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    ctx = createMockContext();
-  });
-
-  test('returns false if no tasks post', async () => {
-    session.tasksPostId = null;
-    const result = await handleTaskToggleReaction(session, 'added', ctx);
-    expect(result).toBe(false);
-  });
-
-  test('returns false if no last tasks content', async () => {
-    session.tasksPostId = 'tasks1';
-    session.lastTasksContent = null;
-    const result = await handleTaskToggleReaction(session, 'added', ctx);
-    expect(result).toBe(false);
-  });
-
-  test('minimizes tasks on reaction added', async () => {
-    session.tasksPostId = 'tasks1';
-    session.lastTasksContent = '---\n📋 **Tasks** (2/5 · 40%)\n- Task 1\n- Task 2';
-    session.tasksMinimized = false;
-
-    const result = await handleTaskToggleReaction(session, 'added', ctx);
-
-    expect(result).toBe(true);
-    expect(session.tasksMinimized).toBe(true);
-    expect(platform.updatePost).toHaveBeenCalled();
-  });
-
-  test('expands tasks on reaction removed', async () => {
-    session.tasksPostId = 'tasks1';
-    session.lastTasksContent = '---\n📋 **Tasks** (2/5 · 40%)\n- Task 1\n- Task 2';
-    session.tasksMinimized = true;
-
-    const result = await handleTaskToggleReaction(session, 'removed', ctx);
-
-    expect(result).toBe(true);
-    expect(session.tasksMinimized).toBe(false);
-    expect(platform.updatePost).toHaveBeenCalled();
-  });
-
-  test('skips update if already in desired state', async () => {
-    session.tasksPostId = 'tasks1';
-    session.lastTasksContent = '---\n📋 **Tasks** (2/5 · 40%)\n- Task 1';
-    session.tasksMinimized = true;
-
-    const result = await handleTaskToggleReaction(session, 'added', ctx);
-
-    expect(result).toBe(true);
-    expect(platform.updatePost).not.toHaveBeenCalled();
-  });
-
-  test('parses in-progress task for minimized display', async () => {
-    session.tasksPostId = 'tasks1';
-    session.lastTasksContent = '---\n📋 **Tasks** (1/3 · 33%)\n🔄 **Running tests** (15s)';
-    session.tasksMinimized = false;
-
-    await handleTaskToggleReaction(session, 'added', ctx);
-
-    const updateCall = (platform.updatePost as any).mock.calls[0];
-    expect(updateCall[1]).toContain('Running tests');
-    expect(updateCall[1]).toContain('15s');
-  });
-});
+// NOTE: Task list toggle tests have been moved.
+// Task toggle is now handled by MessageManager.handleTaskListToggle() which
+// delegates to TaskListExecutor.toggleMinimize().
+// See src/operations/executors/task-list.ts for the implementation.
 
 describe('handleExistingWorktreeReaction', () => {
   let platform: PlatformClient & { posts: Map<string, string> };

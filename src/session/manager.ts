@@ -257,7 +257,6 @@ export class SessionManager extends EventEmitter {
 
       // Streaming & content
       flush: (s) => this.flush(s),
-      appendContent: (s, t) => this.appendContent(s, t),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
@@ -558,17 +557,16 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
-    // Handle task list toggle reactions (minimize/expand) - state-based on both add and remove
-    if (session.tasksPostId === postId && isMinimizeToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, action, this.getContext());
-      return;
-    }
+    // Handle task list and subagent toggle reactions (minimize/expand) - state-based on both add and remove
+    // Uses same emoji (🔽) for both task list and subagent toggles
+    if (isMinimizeToggleEmoji(emojiName) && session.messageManager) {
+      // Try task list toggle first
+      const taskHandled = await session.messageManager.handleTaskListToggle(postId, action);
+      if (taskHandled) return;
 
-    // Handle subagent toggle reactions (minimize/expand) - state-based on both add and remove
-    // Uses same emoji as task toggle (🔽)
-    if (isMinimizeToggleEmoji(emojiName)) {
-      const handled = await events.handleSubagentToggleReaction(session, postId, action);
-      if (handled) return;
+      // Try subagent toggle
+      const subagentHandled = await session.messageManager.handleSubagentToggle(postId, action);
+      if (subagentHandled) return;
     }
 
     // Handle bug report emoji reaction on error posts (only on add)
@@ -621,13 +619,21 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Event Handling (delegates to events module)
+  // Event Handling (delegates to MessageManager)
   // ---------------------------------------------------------------------------
 
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
-    events.handleEvent(session, event, this.getContext());
+    if (!session || !session.messageManager) return;
+
+    // Pre-processing: session-specific side effects
+    events.handleEventPreProcessing(session, event, this.getContext());
+
+    // Main event handling via MessageManager
+    void session.messageManager.handleEvent(event);
+
+    // Post-processing: session-specific side effects
+    events.handleEventPostProcessing(session, event, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -642,16 +648,12 @@ export class SessionManager extends EventEmitter {
   // Streaming utilities (delegates to streaming module)
   // ---------------------------------------------------------------------------
 
-  private appendContent(session: Session, text: string): void {
-    if (!text) return;
-    // Use double newlines for proper visual separation between content blocks
-    // This ensures code blocks, tool results, and text are properly separated
-    session.pendingContent += text + '\n\n';
-    streaming.scheduleUpdate(session, (s) => this.flush(s));
-  }
-
   private async flush(session: Session): Promise<void> {
-    await streaming.flush(session, (pid, tid) => this.registerPost(pid, tid));
+    // Delegate to MessageManager (source of truth for content flushing)
+    if (session.messageManager) {
+      await session.messageManager.flush();
+    }
+    // If no messageManager, nothing to flush - content is managed by MessageManager
   }
 
   private startTyping(session: Session): void {
@@ -681,7 +683,7 @@ export class SessionManager extends EventEmitter {
   }
 
   private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
+    return streaming.bumpTasksToBottom(session);
   }
 
   // ---------------------------------------------------------------------------
@@ -729,6 +731,9 @@ export class SessionManager extends EventEmitter {
       };
     }
 
+    // Get task list state from MessageManager (source of truth)
+    const taskState = session.messageManager?.getTaskListState();
+
     const state: PersistedSession = {
       platformId: session.platformId,
       threadId: session.threadId,
@@ -743,10 +748,11 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
-      tasksPostId: session.tasksPostId,
-      lastTasksContent: session.lastTasksContent,
-      tasksCompleted: session.tasksCompleted,
-      tasksMinimized: session.tasksMinimized,
+      // Task state from MessageManager (or fallback to Session for backward compat)
+      tasksPostId: taskState?.postId ?? session.tasksPostId,
+      lastTasksContent: taskState?.content ?? session.lastTasksContent,
+      tasksCompleted: taskState?.isCompleted ?? session.tasksCompleted,
+      tasksMinimized: taskState?.isMinimized ?? session.tasksMinimized,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,

@@ -236,7 +236,6 @@ describe('context-prompt', () => {
       buffer: '',
       sessionAllowedUsers: new Set(['testuser']),
       workingDir: '/test',
-      activeSubagents: new Map(),
       isResumed: false,
       messageCount: 0,
       skipPermissions: true,

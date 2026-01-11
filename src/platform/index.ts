@@ -14,7 +14,6 @@ export type {
   PermissionApiConfig,
   MattermostPermissionApiConfig,
   SlackPermissionApiConfig,
-  LegacyPermissionApiConfig,
   ReactionEvent,
   PostedMessage,
 } from './permission-api.js';

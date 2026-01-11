@@ -240,14 +240,28 @@ export function getShuttingDown(): boolean {
 
 
 /**
- * Extract task progress from session's lastTasksContent.
+ * Get task content from MessageManager (or fall back to Session for backward compat).
+ */
+function getTaskContent(session: Session): string | null {
+  // Prefer MessageManager state (source of truth)
+  const taskState = session.messageManager?.getTaskListState();
+  if (taskState?.content) {
+    return taskState.content;
+  }
+  // Fallback to Session for backward compatibility
+  return session.lastTasksContent;
+}
+
+/**
+ * Extract task progress from task content.
  * Returns string like "3/7" or null if no tasks.
  */
 function getTaskProgress(session: Session): string | null {
-  if (!session.lastTasksContent) return null;
+  const content = getTaskContent(session);
+  if (!content) return null;
 
   // Parse progress from format: "📋 **Tasks** (3/7 · 43%)"
-  const match = session.lastTasksContent.match(/\((\d+)\/(\d+)/);
+  const match = content.match(/\((\d+)\/(\d+)/);
   if (match) {
     return `${match[1]}/${match[2]}`;
   }
@@ -255,19 +269,20 @@ function getTaskProgress(session: Session): string | null {
 }
 
 /**
- * Extract the active (in-progress) task name from session's lastTasksContent.
+ * Extract the active (in-progress) task name from task content.
  * Returns the task activeForm or null if no task is in progress.
  *
  * Task format in lastTasksContent:
  * 🔄 **Task name** (12s)
  */
 function getActiveTask(session: Session): string | null {
-  if (!session.lastTasksContent) return null;
+  const content = getTaskContent(session);
+  if (!content) return null;
 
   // Parse in-progress task from format: "🔄 **Task name** (12s)" or "🔄 *Task name*"
   // The activeForm is wrapped in ** (Mattermost) or * (Slack) and may have elapsed time
   // Regex matches both: \*{1,2} matches 1 or 2 asterisks
-  const match = session.lastTasksContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}/);
+  const match = content.match(/🔄 \*{1,2}([^*]+)\*{1,2}/);
   if (match) {
     return match[1].trim();
   }

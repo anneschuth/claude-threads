@@ -66,14 +66,11 @@ function createMockSession(overrides?: Partial<Session>): Session {
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
-    pendingContent: '',
     timeoutWarningPosted: false,
     tasksCompleted: false,
     tasksMinimized: false,
@@ -123,7 +120,6 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       startTyping: mock(() => {}),
       stopTyping: mock(() => {}),
       flush: mock(() => Promise.resolve()),
-      appendContent: mock(() => {}),
       updateStickyMessage: mock(() => Promise.resolve()),
       updateSessionHeader: mock(() => Promise.resolve()),
       persistSession: mock(() => {}),
@@ -271,36 +267,8 @@ describe('Lifecycle Module', () => {
 });
 
 describe('Session State Management', () => {
-  it('tracks active subagents', () => {
-    const session = createMockSession();
-
-    expect(session.activeSubagents.size).toBe(0);
-
-    const subagent1 = {
-      postId: 'post-1',
-      startTime: Date.now(),
-      description: 'Test task 1',
-      subagentType: 'general',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    };
-    const subagent2 = {
-      postId: 'post-2',
-      startTime: Date.now(),
-      description: 'Test task 2',
-      subagentType: 'Explore',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    };
-
-    session.activeSubagents.set('tool-1', subagent1);
-    session.activeSubagents.set('tool-2', subagent2);
-
-    expect(session.activeSubagents.size).toBe(2);
-    expect(session.activeSubagents.get('tool-1')?.postId).toBe('post-1');
-  });
+  // NOTE: Subagent tracking tests moved to subagent.test.ts since SubagentExecutor
+  // now manages subagent state via MessageManager
 
   it('tracks session allowed users', () => {
     const session = createMockSession();
@@ -312,15 +280,6 @@ describe('Session State Management', () => {
     expect(session.sessionAllowedUsers.has('otheruser')).toBe(true);
   });
 
-  it('tracks pending content buffer', () => {
-    const session = createMockSession();
-
-    session.pendingContent = '';
-    session.pendingContent += 'Hello ';
-    session.pendingContent += 'World';
-
-    expect(session.pendingContent).toBe('Hello World');
-  });
 });
 
 describe('CHAT_PLATFORM_PROMPT', () => {
@@ -567,7 +526,6 @@ describe('sendFollowUp', () => {
     const session = createMockSession({
       currentPostId: 'old-post-id',
       currentPostContent: 'old content',
-      pendingContent: 'pending text',
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);

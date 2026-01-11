@@ -102,11 +102,8 @@ export interface SessionOperations {
   // Streaming & Content
   // ---------------------------------------------------------------------------
 
-  /** Flush pending content to chat */
+  /** Flush pending content to chat (delegates to MessageManager when available) */
   flush(session: Session): Promise<void>;
-
-  /** Append content to session's pending buffer */
-  appendContent(session: Session, text: string): void;
 
   /** Start typing indicator for session */
   startTyping(session: Session): void;
@@ -224,9 +221,9 @@ export interface SessionOperations {
  *
  * Usage in modules:
  * ```typescript
- * export function handleEvent(session: Session, event: ClaudeEvent, ctx: SessionContext): void {
- *   ctx.ops.appendContent(session, formatted);
- *   ctx.ops.flush(session);
+ * export async function handleEvent(session: Session, event: ClaudeEvent, ctx: SessionContext): Promise<void> {
+ *   // Content is now handled via MessageManager events
+ *   await ctx.ops.flush(session);
  * }
  * ```
  */

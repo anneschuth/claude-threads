@@ -103,16 +103,3 @@ export interface SlackPermissionApiConfig {
  * Union type for permission API config
  */
 export type PermissionApiConfig = MattermostPermissionApiConfig | SlackPermissionApiConfig;
-
-/**
- * Legacy config for backward compatibility
- * @deprecated Use MattermostPermissionApiConfig or SlackPermissionApiConfig
- */
-export interface LegacyPermissionApiConfig {
-  url: string;
-  token: string;
-  channelId: string;
-  threadId?: string;
-  allowedUsers: string[];
-  debug?: boolean;
-}

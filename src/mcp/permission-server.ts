@@ -29,9 +29,9 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { isApprovalEmoji, isAllowAllEmoji, APPROVAL_EMOJIS, ALLOW_ALL_EMOJIS, DENIAL_EMOJIS } from '../utils/emoji.js';
-import { formatToolForPermission } from '../utils/tool-formatter.js';
+import { formatToolForPermission } from '../operations/index.js';
 import { mcpLogger } from '../utils/logger.js';
-import type { PermissionApi, LegacyPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
+import type { PermissionApi, MattermostPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
 import { createPermissionApi } from '../platform/permission-api-factory.js';
 
 // =============================================================================
@@ -53,7 +53,7 @@ const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120
 // =============================================================================
 // Permission API Instance
 // =============================================================================
-const apiConfig: LegacyPermissionApiConfig | SlackPermissionApiConfig =
+const apiConfig: MattermostPermissionApiConfig | SlackPermissionApiConfig =
   PLATFORM_TYPE === 'slack'
     ? {
         platformType: 'slack',
@@ -65,6 +65,7 @@ const apiConfig: LegacyPermissionApiConfig | SlackPermissionApiConfig =
         debug: process.env.DEBUG === '1',
       }
     : {
+        platformType: 'mattermost',
         url: PLATFORM_URL,
         token: PLATFORM_TOKEN,
         channelId: PLATFORM_CHANNEL_ID,

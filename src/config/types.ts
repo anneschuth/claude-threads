@@ -88,9 +88,6 @@ export interface Config {
   platforms: PlatformInstanceConfig[];
 }
 
-/** @deprecated Use Config instead */
-export type NewConfig = Config;
-
 export interface PlatformInstanceConfig {
   id: string;
   type: 'mattermost' | 'slack';
