@@ -747,7 +747,11 @@ async function setupMattermostPlatform(
 // Credential Validation Functions
 // ============================================================================
 
-interface ValidationResult {
+/**
+ * Result of credential validation
+ * @internal Exported for testing
+ */
+export interface ValidationResult {
   success: boolean;
   error?: string;
   botUsername?: string;
@@ -755,7 +759,11 @@ interface ValidationResult {
   teamName?: string;
 }
 
-async function validateMattermostCredentials(
+/**
+ * Validate Mattermost credentials by making test API calls
+ * @internal Exported for testing
+ */
+export async function validateMattermostCredentials(
   url: string,
   token: string,
   channelId: string
@@ -818,7 +826,11 @@ async function validateMattermostCredentials(
   }
 }
 
-async function validateSlackCredentials(
+/**
+ * Validate Slack credentials by making test API calls
+ * @internal Exported for testing
+ */
+export async function validateSlackCredentials(
   botToken: string,
   appToken: string,
   channelId: string
