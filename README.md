@@ -51,7 +51,13 @@ cd /your/project
 claude-threads
 ```
 
-On first run, an interactive setup wizard guides you through configuration.
+On first run, an **interactive setup wizard** guides you through configuration with:
+- Real-time credential validation
+- Platform-specific troubleshooting
+- Automatic permission testing
+- Clear error messages if something's wrong
+
+**Don't create config files manually** - use the wizard!
 
 ### Use
 

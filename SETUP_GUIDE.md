@@ -211,7 +211,9 @@ If you want to restrict who can use the bot, prepare a comma-separated list of S
 
 ## Running the Onboarding
 
-### First Time Setup
+### First Time Setup (Recommended)
+
+> **✅ Use the interactive wizard - it validates everything for you!**
 
 1. **Install claude-threads**:
    ```bash
@@ -223,7 +225,14 @@ If you want to restrict who can use the bot, prepare a comma-separated list of S
    claude-threads
    ```
 
-   On first run, you'll be guided through an interactive setup that asks for:
+   **The wizard will:**
+   - ✅ Guide you through each configuration step
+   - ✅ Validate your credentials in real-time
+   - ✅ Test bot permissions and channel access
+   - ✅ Provide specific error messages if something's wrong
+   - ✅ Show bot username and channel name on success
+
+   **It will ask for:**
    - Default working directory (where Claude Code will run)
    - Chrome integration (optional - requires Claude in Chrome extension)
    - Git worktree mode (how to handle git branches)
@@ -246,9 +255,22 @@ claude-threads --reconfigure
 
 This will reload your existing config and let you update settings.
 
-### Manual Configuration
+### Manual Configuration (Advanced)
 
-Alternatively, you can manually edit the config file:
+> **⚠️ Not recommended for first-time setup!**
+>
+> The interactive wizard (`claude-threads`) is the recommended way to configure claude-threads because it:
+> - Validates your credentials in real-time
+> - Provides helpful error messages and troubleshooting
+> - Ensures correct YAML format
+> - Tests bot permissions and channel access
+>
+> **Only edit manually if you:**
+> - Need to quickly update a token or setting
+> - Are an experienced user comfortable with YAML
+> - Have already run the wizard at least once
+
+If you still want to manually edit the config:
 
 ```bash
 # Config is stored at:
@@ -256,9 +278,11 @@ Alternatively, you can manually edit the config file:
 
 # Edit with your favorite editor:
 nano ~/.config/claude-threads/config.yaml
+
+# Then restart claude-threads to apply changes
 ```
 
-**Example config.yaml:**
+**Reference config.yaml:**
 
 ```yaml
 version: 2
