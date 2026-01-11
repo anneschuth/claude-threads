@@ -95,7 +95,7 @@ async function showPlatformInstructions(platformType: 'mattermost' | 'slack'): P
       // Fallback if file not found (shouldn't happen in normal installs)
       console.log('');
       console.log(dim('  ⚠️  Could not find Slack manifest file.'));
-      console.log(dim('  📖 See SETUP_GUIDE.md for manual setup instructions.'));
+      console.log(dim('  📖 See https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md for manual setup instructions.'));
       console.log('');
       return;
     }
@@ -149,7 +149,7 @@ async function showPlatformInstructions(platformType: 'mattermost' | 'slack'): P
         console.log(dim('  ───────────────────────────────────────'));
       }
     } else {
-      console.log(dim('  📖 See SETUP_GUIDE.md for the full manifest and manual setup instructions.'));
+      console.log(dim('  📖 See https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md for the full manifest and manual setup instructions.'));
     }
     console.log('');
   }
@@ -257,7 +257,8 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   }
 
   console.log('');
-  console.log(dim('  📖 Need help creating a bot? See: SETUP_GUIDE.md'));
+  console.log(dim('  📖 Need help creating a bot?'));
+  console.log(dim('     ' + 'https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md'));
   console.log(dim('  ⏱️  Estimated time: 10-15 minutes per platform'));
   console.log('');
 
@@ -431,7 +432,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
   console.log(dim('  Troubleshooting:'));
   console.log(dim('    • Run with debug logs: DEBUG=1 claude-threads'));
-  console.log(dim('    • Check the setup guide: SETUP_GUIDE.md'));
+  console.log(dim('    • Check the setup guide: https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md'));
   console.log(dim('    • Reconfigure anytime: claude-threads --setup'));
   console.log('');
   console.log(dim('  Starting claude-threads...'));
@@ -1262,7 +1263,7 @@ async function setupSlackPlatform(
         console.log(dim('    • Verify channel ID is correct'));
       } else {
         console.log(dim('    • Check network connectivity'));
-        console.log(dim('    • See SETUP_GUIDE.md for detailed troubleshooting'));
+        console.log(dim('    • See https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md for detailed troubleshooting'));
       }
       console.log('');
 
