@@ -621,28 +621,21 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Event Handling (delegates to MessageManager or events module)
+  // Event Handling (delegates to MessageManager)
   // ---------------------------------------------------------------------------
 
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
     const session = this.sessions.get(sessionId);
-    if (!session) return;
+    if (!session || !session.messageManager) return;
 
-    // If session has a MessageManager, use it for event handling
-    // but keep session-specific side effects in events module
-    if (session.messageManager) {
-      // Pre-processing: session-specific side effects
-      events.handleEventPreProcessing(session, event, this.getContext());
+    // Pre-processing: session-specific side effects
+    events.handleEventPreProcessing(session, event, this.getContext());
 
-      // Main event handling via MessageManager
-      void session.messageManager.handleEvent(event);
+    // Main event handling via MessageManager
+    void session.messageManager.handleEvent(event);
 
-      // Post-processing: session-specific side effects
-      events.handleEventPostProcessing(session, event, this.getContext());
-    } else {
-      // Legacy path: use events module directly
-      events.handleEvent(session, event, this.getContext());
-    }
+    // Post-processing: session-specific side effects
+    events.handleEventPostProcessing(session, event, this.getContext());
   }
 
   // ---------------------------------------------------------------------------

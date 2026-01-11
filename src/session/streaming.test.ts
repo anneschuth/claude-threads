@@ -736,123 +736,9 @@ describe('acquireTaskListLock', () => {
   });
 });
 
-describe('flush with continuation (message splitting)', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let registerPost: ReturnType<typeof mock>;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    registerPost = mock((_postId: string, _threadId: string) => {});
-  });
-
-  test('splits long content into multiple posts', async () => {
-    // Create content that exceeds CONTINUATION_THRESHOLD (14000 chars)
-    const longContent = 'A'.repeat(15000);
-    session.currentPostId = 'current_post';
-    session.pendingContent = longContent;
-
-    await flush(session, registerPost);
-
-    // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalled();
-    const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
-    expect(updateCall[0]).toBe('current_post');
-
-    // Should create continuation post
-    expect(platform.createPost).toHaveBeenCalled();
-  });
-
-  test('bumps task list when creating continuation post', async () => {
-    // Set up task list
-    session.tasksPostId = 'tasks_post';
-    session.lastTasksContent = '📋 Tasks';
-
-    // Create content that exceeds threshold
-    const longContent = 'B'.repeat(15000);
-    session.currentPostId = 'current_post';
-    session.pendingContent = longContent;
-
-    await flush(session, registerPost);
-
-    // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('BBBB'));
-
-    // Should repurpose tasks post for continuation
-    expect(platform.updatePost).toHaveBeenCalledWith('tasks_post', expect.stringContaining('BBBB'));
-
-    // Should create new tasks post with toggle emoji
-    expect(platform.createInteractivePost).toHaveBeenCalledWith('📋 Tasks', ['arrow_down_small'], 'thread1');
-  });
-
-  test('does not bump completed task list when creating continuation post', async () => {
-    // Set up completed task list
-    session.tasksPostId = 'tasks_post';
-    session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
-    session.tasksCompleted = true;
-
-    // Create content that exceeds threshold
-    const longContent = 'C'.repeat(15000);
-    session.currentPostId = 'current_post';
-    session.pendingContent = longContent;
-
-    await flush(session, registerPost);
-
-    // Should update current post with first part
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('CCCC'));
-
-    // Should NOT repurpose tasks post - create new post instead
-    expect(platform.createPost).toHaveBeenCalledWith(expect.stringContaining('CCCC'), 'thread1');
-
-    // Tasks post should remain unchanged
-    expect(session.tasksPostId).toBe('tasks_post');
-  });
-
-  test('splits before code block instead of inside it', async () => {
-    // Create content with text followed by a large code block
-    // The code block should move entirely to the next message
-    const textBefore = 'Here is some introductory text.\n\n';
-    const codeBlock = '```typescript\n' + 'x'.repeat(14000) + '\n```';
-    const longContent = textBefore + codeBlock;
-
-    session.currentPostId = 'current_post';
-    session.pendingContent = longContent;
-
-    await flush(session, registerPost);
-
-    // Should have updated and created posts
-    expect(platform.updatePost).toHaveBeenCalled();
-    expect(platform.createPost).toHaveBeenCalled();
-
-    // First part should contain the intro text but NOT the code block
-    const updateCall = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0];
-    const firstPart = updateCall[1] as string;
-    expect(firstPart).toContain('introductory text');
-    expect(firstPart).not.toContain('```typescript');
-
-    // Second part (continuation) should contain the entire code block
-    const createCall = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
-    const secondPart = createCall[0] as string;
-    expect(secondPart).toContain('```typescript');
-    expect(secondPart).toContain('```'); // closing backticks
-  });
-
-  test('does not split when code block starts at beginning', async () => {
-    // Code block at the very start - can't split before it
-    const codeBlock = '```typescript\n' + 'y'.repeat(15000) + '\n```';
-
-    session.currentPostId = 'current_post';
-    session.pendingContent = codeBlock;
-
-    await flush(session, registerPost);
-
-    // Should just update the current post without creating continuation
-    expect(platform.updatePost).toHaveBeenCalledWith('current_post', expect.stringContaining('```typescript'));
-    // Should NOT create a new post since we can't split before the code block
-    expect(platform.createPost).not.toHaveBeenCalled();
-  });
-});
+// NOTE: Message splitting/continuation tests have been moved to
+// src/operations/executors/content.test.ts since that logic is now
+// handled by ContentExecutor.
 
 describe('flush with completed tasks', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
@@ -1034,48 +920,9 @@ describe('endsAtBreakpoint', () => {
   });
 });
 
-describe('flush with smart breaking', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let registerPost: ReturnType<typeof mock>;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    registerPost = mock((_postId: string, _threadId: string) => {});
-  });
-
-  test('breaks at logical breakpoint when exceeding soft threshold', async () => {
-    // Create content that exceeds soft threshold with a logical breakpoint
-    const firstPart = 'X'.repeat(SOFT_BREAK_THRESHOLD);
-    const content = firstPart + '\n  ↳ ✓\nRemaining content after tool result';
-
-    session.currentPostId = 'existing_post';
-    session.pendingContent = content;
-
-    await flush(session, registerPost);
-
-    // Should have updated existing post with first part
-    expect(platform.updatePost).toHaveBeenCalled();
-
-    // Should have created continuation post
-    expect(platform.createPost).toHaveBeenCalled();
-  });
-
-  test('does not break when under minimum threshold', async () => {
-    // Short content - should not break even with breakpoints
-    const content = 'Short\n  ↳ ✓\nMore';
-
-    session.currentPostId = 'existing_post';
-    session.pendingContent = content;
-
-    await flush(session, registerPost);
-
-    // Should just update the existing post
-    expect(platform.updatePost).toHaveBeenCalledWith('existing_post', content);
-    expect(platform.createPost).not.toHaveBeenCalled();
-  });
-});
+// NOTE: Smart breaking tests have been moved to
+// src/operations/executors/content.test.ts since that logic is now
+// handled by ContentExecutor.
 
 describe('threshold constants', () => {
   test('SOFT_BREAK_THRESHOLD is reasonable', () => {
