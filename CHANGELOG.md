@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.2] - 2026-01-11
+
+### Fixed
+- **Message content lost on update** - Fixed race condition where first assistant message content was being overwritten by subsequent content (#197)
+  - Root cause: When `result` event triggered `flush()`, it was clearing `currentPostId` synchronously before the async flush completed
+  - This caused subsequent flushes to UPDATE the same post with only new content, overwriting the original
+  - Fix: Track what content has been posted in `currentPostContent` and combine with new content when updating
+  - Now properly defers clearing `currentPostId`, `currentPostContent`, and `pendingContent` until after flush completes
+
 ## [0.62.1] - 2026-01-11
 
 ### Fixed
