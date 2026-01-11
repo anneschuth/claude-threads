@@ -247,8 +247,20 @@ export class CleanupScheduler {
           const lastActivity = new Date(meta.lastActivityAt).getTime();
           const age = now - lastActivity;
 
-          // Check if branch was merged
-          const merged = await isBranchMerged(meta.repoRoot, meta.branch).catch(() => false);
+          // If metadata has a sessionId, the worktree is potentially in use.
+          // Only clean up if it's been inactive for the max age (session may have crashed).
+          // This provides extra protection against race conditions where the session
+          // hasn't been persisted yet but the worktree was already created.
+          if (meta.sessionId && age < this.maxWorktreeAgeMs) {
+            log.debug(`Worktree has active session (${Math.round(age / 60000)}min old), skipping: ${entry.name}`);
+            continue;
+          }
+
+          // Check if branch was merged (only if old enough - merged branches may still be in use)
+          const merged = age >= this.maxWorktreeAgeMs
+            ? await isBranchMerged(meta.repoRoot, meta.branch).catch(() => false)
+            : false;
+
           if (merged) {
             shouldCleanup = true;
             cleanupReason = `branch "${meta.branch}" was merged`;

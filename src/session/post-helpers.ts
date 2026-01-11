@@ -17,6 +17,7 @@ import type { PlatformPost, PlatformFormatter } from '../platform/index.js';
 import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
 import { BUG_REPORT_EMOJI } from '../utils/emoji.js';
+import { updateWorktreeActivity } from '../git/worktree.js';
 
 const log = createLogger('helpers');
 
@@ -304,6 +305,8 @@ export async function postWithReactionsAndRegister(
 /**
  * Reset session activity state and clear duo-post tracking.
  * Call this when activity occurs to prevent updating stale posts in long threads.
+ * Also updates worktree metadata to prevent the cleanup scheduler from
+ * pruning actively-used worktrees.
  *
  * @param session - The session to reset activity for
  */
@@ -312,6 +315,12 @@ export function resetSessionActivity(session: Session): void {
   session.timeoutWarningPosted = false;
   session.lifecyclePostId = undefined;
   session.isPaused = undefined;
+
+  // Update worktree metadata to prevent aggressive cleanup of active worktrees.
+  // This is fire-and-forget - we don't want to block session activity on disk I/O.
+  if (session.worktreeInfo?.worktreePath) {
+    void updateWorktreeActivity(session.worktreeInfo.worktreePath, session.sessionId);
+  }
 }
 
 /**
