@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.62.1] - 2026-01-11
+
+### Fixed
+- **Slack/Mattermost message accumulation** - Fixed bug where `pendingContent` was not cleared after flushing, causing messages to accumulate all previous content (#196)
+  - Introduced `clearFlushedContent()` helper to safely remove only flushed content while preserving content added during async operations
+  - Added race condition protection: content appended during `createPost`/`updatePost` is no longer lost
+  - Added comprehensive regression tests for the accumulation bug and race condition scenarios
+
 ## [0.62.0] - 2026-01-11
 
 ### Fixed
