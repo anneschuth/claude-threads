@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.59.0] - 2026-01-11
+
+### Added
+- **Comprehensive setup guide** - New consolidated SETUP_GUIDE.md with step-by-step instructions for Mattermost and Slack bot creation (#190)
+- **Slack app manifest in onboarding** - Option to copy Slack app manifest to clipboard for quick setup (#190)
+- **Smart display name defaults** - Automatically derive display names from Mattermost server URLs (e.g., "acme-corp.mattermost.com" → "Acme Corp") (#190)
+- **Claude CLI validation** - Onboarding now checks for Claude CLI installation and compatible version before continuing (#190)
+- **Credential validation** - Real-time validation of Mattermost and Slack credentials with helpful error messages (#190)
+- **Secure config file permissions** - Config file now saved with 0o600 permissions (owner-only) since it contains API tokens (#190)
+
+### Improved
+- **Dramatically improved onboarding UX** - Complete rewrite of the setup wizard with better prompts, contextual hints, and retry loops (#190)
+- **Reconfigure flow** - New smart reconfigure mode that shows existing config and lets you edit specific sections (#190)
+- **Security warnings** - Warning when allowing anyone in the channel to use the bot (#190)
+- **Platform instructions shown inline** - Setup instructions for each platform shown after selecting it, reducing need to consult external docs (#190)
+
+### Removed
+- **Legacy setup docs** - Removed docs/MATTERMOST_SETUP.md and docs/SLACK_SETUP.md in favor of consolidated SETUP_GUIDE.md (#190)
+
 ## [0.58.0] - 2026-01-10
 
 ### Improved
