@@ -1,5 +1,7 @@
 import prompts from 'prompts';
 import { existsSync, readFileSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import {
   CONFIG_PATH,
   saveConfig,
@@ -10,6 +12,10 @@ import {
 } from './config/migration.js';
 import { bold, dim, green } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
+
+// Get the path to the Slack app manifest file
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const SLACK_MANIFEST_PATH = join(__dirname, '..', 'docs', 'slack-app-manifest.yaml');
 
 const onCancel = () => {
   console.log('');
@@ -81,32 +87,18 @@ async function showPlatformInstructions(platformType: 'mattermost' | 'slack'): P
     console.log(dim('     • In the channel, type: /invite @your-bot-name'));
     console.log('');
   } else {
-    const manifest = `display_information:
-  name: Claude Bot
-features:
-  bot_user:
-    display_name: Claude Bot
-    always_online: true
-oauth_config:
-  scopes:
-    bot:
-      - app_mentions:read
-      - channels:history
-      - channels:read
-      - chat:write
-      - reactions:read
-      - reactions:write
-      - users:read
-      - files:read
-settings:
-  event_subscriptions:
-    bot_events:
-      - app_mention
-      - message.channels
-      - reaction_added
-  interactivity:
-    is_enabled: true
-  socket_mode_enabled: true`;
+    // Read manifest from file (single source of truth)
+    let manifest: string;
+    try {
+      manifest = readFileSync(SLACK_MANIFEST_PATH, 'utf-8');
+    } catch {
+      // Fallback if file not found (shouldn't happen in normal installs)
+      console.log('');
+      console.log(dim('  ⚠️  Could not find Slack manifest file.'));
+      console.log(dim('  📖 See SETUP_GUIDE.md for manual setup instructions.'));
+      console.log('');
+      return;
+    }
 
     console.log('');
     console.log(bold('  📋 Slack Setup - What You\'ll Need:'));
