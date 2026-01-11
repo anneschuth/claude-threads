@@ -5,7 +5,7 @@ import * as fs from 'fs/promises';
 import { homedir } from 'os';
 import { createLogger } from '../utils/logger.js';
 
-const log = createLogger('git-worktree');
+const log = createLogger('git-wt');
 
 /** Centralized worktree location for easy cleanup */
 const WORKTREES_DIR = path.join(homedir(), '.claude-threads', 'worktrees');

@@ -14,7 +14,7 @@
 import { spawn } from 'child_process';
 import { createLogger } from '../utils/logger.js';
 
-const log = createLogger('quick-query');
+const log = createLogger('query');
 
 export interface QuickQueryOptions {
   /** The prompt to send to Claude */

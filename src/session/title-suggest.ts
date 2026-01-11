@@ -10,7 +10,7 @@ import { quickQuery } from '../claude/quick-query.js';
 import { createLogger } from '../utils/logger.js';
 import { truncateAtWord } from '../utils/format.js';
 
-const log = createLogger('title-suggest');
+const log = createLogger('title');
 
 /** Default timeout for title suggestions (ms) */
 const SUGGESTION_TIMEOUT = 15000;

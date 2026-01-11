@@ -9,7 +9,7 @@
 import { quickQuery } from '../claude/quick-query.js';
 import { createLogger } from '../utils/logger.js';
 
-const log = createLogger('tag-suggest');
+const log = createLogger('tags');
 
 /** Default timeout for tag suggestions (ms) */
 const SUGGESTION_TIMEOUT = 15000;
