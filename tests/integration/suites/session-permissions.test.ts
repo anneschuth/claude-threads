@@ -108,6 +108,12 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const allPosts = await getThreadPosts(ctx, rootPost.id);
         const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
 
+        // Debug: Log all bot posts to understand what's happening
+        console.log(`[TEST DEBUG] Found ${botPosts.length} bot posts:`);
+        botPosts.forEach((p, i) => {
+          console.log(`[TEST DEBUG] Post ${i}: ${p.message.substring(0, 200)}...`);
+        });
+
         // Verify we have meaningful responses
         expect(botPosts.length).toBeGreaterThanOrEqual(2);
 
@@ -115,6 +121,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const hasToolContent = botPosts.some((p) =>
           p.message.includes('Write') || p.message.includes('write') || p.message.includes('file')
         );
+        console.log(`[TEST DEBUG] hasToolContent: ${hasToolContent}`);
         expect(hasToolContent).toBe(true);
 
         // Check that completion message was posted
