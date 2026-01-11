@@ -88,7 +88,25 @@ If you want to restrict who can use the bot, prepare a comma-separated list of M
 
 ## Slack Setup
 
-### Step 1: Create a Slack App
+### Quick Setup with App Manifest (Recommended)
+
+**Fastest way**: Use the pre-configured app manifest to set up everything automatically.
+
+1. **Go to** https://api.slack.com/apps
+2. Click **Create New App**
+3. Select **From an app manifest**
+4. Choose your workspace
+5. **Paste the manifest** from `docs/slack-app-manifest.yaml`:
+   - View it here: https://github.com/anneschuth/claude-threads/blob/main/docs/slack-app-manifest.yaml
+   - Or copy from your local installation: `~/.bun/install/global/node_modules/claude-threads/docs/slack-app-manifest.yaml`
+6. Click **Create**
+7. **Skip to Step 2** below (Socket Mode will already be configured)
+
+### Manual Setup (Alternative)
+
+If you prefer to configure manually, follow these steps:
+
+#### Step 1: Create a Slack App
 
 1. **Go to** https://api.slack.com/apps
 2. Click **Create New App**
@@ -97,7 +115,7 @@ If you want to restrict who can use the bot, prepare a comma-separated list of M
 5. **Workspace**: Select your workspace
 6. Click **Create App**
 
-### Step 2: Enable Socket Mode
+#### Step 2: Enable Socket Mode
 
 Socket Mode allows real-time communication without exposing a public URL.
 
@@ -110,7 +128,7 @@ Socket Mode allows real-time communication without exposing a public URL.
 4. **⚠️ Copy the App-Level Token** (starts with `xapp-`)
    - You won't see this again!
 
-### Step 3: Configure OAuth Scopes
+#### Step 3: Configure OAuth Scopes
 
 1. Go to **Features** → **OAuth & Permissions** (left sidebar)
 2. Scroll to **Scopes** → **Bot Token Scopes**
@@ -125,7 +143,7 @@ Socket Mode allows real-time communication without exposing a public URL.
    - `reactions:write` - Add/remove emoji reactions
    - `users:read` - View users in the workspace
 
-### Step 4: Install App to Workspace
+#### Step 4: Install App to Workspace
 
 1. Scroll to the top of **OAuth & Permissions** page
 2. Click **Install to Workspace**
@@ -134,7 +152,7 @@ Socket Mode allows real-time communication without exposing a public URL.
    - This will be shown after installation
    - You can also find it later under **OAuth & Permissions** → **Bot User OAuth Token**
 
-### Step 5: Subscribe to Events
+#### Step 5: Subscribe to Events
 
 1. Go to **Features** → **Event Subscriptions** (left sidebar)
 2. Toggle **Enable Events** to ON
@@ -145,7 +163,9 @@ Socket Mode allows real-time communication without exposing a public URL.
    - `reaction_removed` - Listen to emoji reactions being removed
 5. Click **Save Changes**
 
-### Step 6: Get Channel ID
+### Finishing Steps (All Setup Methods)
+
+#### Get Channel ID
 
 1. **Open Slack** in your browser or desktop app
 2. **Right-click** the channel where you want the bot to operate
@@ -162,14 +182,14 @@ Socket Mode allows real-time communication without exposing a public URL.
                                           Channel ID
      ```
 
-### Step 7: Invite Bot to Channel
+#### Invite Bot to Channel
 
 1. In Slack, go to the channel where you want the bot
 2. Type `/invite @your-bot-name` (use the display name you chose)
 3. Press Enter
 4. The bot should join the channel
 
-### Step 8: Required Information Summary
+### Required Information Summary
 
 You'll need these during onboarding:
 

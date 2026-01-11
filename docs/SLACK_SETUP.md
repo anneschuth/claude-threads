@@ -1,119 +1,54 @@
 # Slack Setup Guide
 
-This guide covers setting up a Slack app for claude-threads with Socket Mode.
+> **📖 This guide has been superseded by the comprehensive [Setup Guide](../SETUP_GUIDE.md).**
+>
+> **For detailed Slack setup instructions, see:**
+> **[SETUP_GUIDE.md#slack-setup](../SETUP_GUIDE.md#slack-setup)**
 
-## Quick Setup (Recommended)
+---
 
-Use the app manifest to configure everything automatically:
+## Quick Reference
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
-2. Choose **From an app manifest**
-3. Select your workspace
-4. Paste the contents of [`slack-app-manifest.yaml`](slack-app-manifest.yaml)
-5. Click **Create**
-6. Go to **Basic Information** → **App-Level Tokens** → **Generate Token**
-   - Name it (e.g., "socket-mode") and add the `connections:write` scope
-   - Save this token - it starts with `xapp-`
-7. Go to **Install App** → **Install to Workspace** and authorize
-8. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
-9. Continue to [Get Channel ID](#6-get-channel-id) below
+The new setup guide includes:
 
-## Manual Setup
+- ✅ **Quick setup with app manifest** ([slack-app-manifest.yaml](slack-app-manifest.yaml))
+- ✅ Manual setup instructions
+- ✅ Required OAuth scopes with explanations
+- ✅ Socket Mode configuration
+- ✅ Event subscription setup
+- ✅ Channel ID discovery
+- ✅ Credential validation during onboarding
+- ✅ Platform-specific troubleshooting
 
-If you prefer to configure manually, follow these steps:
+**Start here:** [SETUP_GUIDE.md → Slack Setup](../SETUP_GUIDE.md#slack-setup)
 
-### 1. Create Slack App
+---
 
-1. Go to [api.slack.com/apps](https://api.slack.com/apps) and click **Create New App**
-2. Choose **From scratch**
-3. Name your app (e.g., "Claude Code") and select your workspace
+## App Manifest Quick Setup
 
-### 2. Enable Socket Mode
+**Fastest way to get started:**
 
-1. Go to **Socket Mode** in the left sidebar
-2. Toggle **Enable Socket Mode** to On
-3. Create an **App-Level Token** with the `connections:write` scope
-4. Save this token - it starts with `xapp-`
+1. Go to [api.slack.com/apps](https://api.slack.com/apps)
+2. Create New App → **From an app manifest**
+3. Paste [`slack-app-manifest.yaml`](slack-app-manifest.yaml)
+4. Generate App-Level Token (Socket Mode)
+5. Install to workspace and copy tokens
 
-### 3. Add Bot Scopes
+The manifest automatically configures all required scopes and events.
 
-Go to **OAuth & Permissions** and add these **Bot Token Scopes**:
+**Full details:** [SETUP_GUIDE.md#slack-setup](../SETUP_GUIDE.md#slack-setup)
 
-| Scope | Purpose |
-|-------|---------|
-| `channels:history` | Read messages in channels |
-| `channels:read` | View basic channel info |
-| `chat:write` | Send messages |
-| `files:read` | Read file uploads (for image attachments) |
-| `pins:read` | Read pinned messages |
-| `pins:write` | Pin/unpin messages |
-| `reactions:read` | Read emoji reactions |
-| `reactions:write` | Add emoji reactions |
-| `users:read` | View users and their info |
+---
 
-### 4. Enable Events
+## Required OAuth Scopes
 
-1. Go to **Event Subscriptions**
-2. Toggle **Enable Events** to On
-3. Under **Subscribe to bot events**, add:
-   - `message.channels` - Messages in public channels
-   - `reaction_added` - Reaction added to messages
-   - `reaction_removed` - Reaction removed from messages
+If setting up manually, you need these scopes:
 
-### 5. Install to Workspace
+- `channels:history` - Read messages
+- `channels:read` - View channel info
+- `chat:write` - Send messages
+- `files:read` - Read file uploads
+- `reactions:read` / `reactions:write` - Handle reactions
+- `users:read` - View user info
 
-1. Go to **Install App**
-2. Click **Install to Workspace** and authorize
-3. Copy the **Bot User OAuth Token** (starts with `xoxb-`)
-
-## 6. Get Channel ID
-
-1. In Slack, right-click the channel name → **View channel details**
-2. At the bottom, copy the **Channel ID** (starts with `C`)
-
-## 7. Add Bot to Channel
-
-In Slack, type `/invite @YourBotName` in the channel, or click channel name → **Integrations** → **Add apps**
-
-## Configuration
-
-Add to your `~/.config/claude-threads/config.yaml`:
-
-```yaml
-platforms:
-  - id: slack-eng
-    type: slack
-    displayName: Engineering
-    botToken: xoxb-your-bot-token
-    appToken: xapp-your-app-token
-    channelId: C0123456789
-    botName: claude
-    allowedUsers: [alice, bob]
-    skipPermissions: false
-```
-
-| Setting | Description |
-|---------|-------------|
-| `botToken` | Bot User OAuth Token (`xoxb-...`) |
-| `appToken` | App-Level Token for Socket Mode (`xapp-...`) |
-| `channelId` | Channel ID (e.g., `C0123456789`) |
-| `botName` | Mention name (default: `claude`) |
-| `allowedUsers` | List of Slack usernames |
-| `skipPermissions` | Auto-approve actions (`true`/`false`) |
-
-## Troubleshooting
-
-**"not_authed" or "invalid_auth" errors:**
-- Verify `botToken` starts with `xoxb-`
-- Verify `appToken` starts with `xapp-`
-- Make sure the app is installed to your workspace
-
-**Bot not responding to messages:**
-- Check that Socket Mode is enabled
-- Verify `message.channels` event is subscribed
-- Make sure bot is invited to the channel
-- Check that username is in `allowedUsers`
-
-**Reactions not working:**
-- Verify `reactions:read` and `reactions:write` scopes are added
-- Check that `reaction_added` event is subscribed
+**Full setup steps:** [See the complete guide](../SETUP_GUIDE.md#slack-setup)

@@ -1,49 +1,34 @@
 # Mattermost Setup Guide
 
-This guide covers setting up a Mattermost bot account for claude-threads.
+> **📖 This guide has been superseded by the comprehensive [Setup Guide](../SETUP_GUIDE.md).**
+>
+> **For detailed Mattermost setup instructions, see:**
+> **[SETUP_GUIDE.md#mattermost-setup](../SETUP_GUIDE.md#mattermost-setup)**
 
-## Create Bot Account
+---
 
-1. Go to **Integrations > Bot Accounts > Add Bot Account**
-2. Give it a username (e.g., `claude-code`) and display name
-3. Create a **Personal Access Token** for the bot
-4. Add the bot to the channel where it should listen
+## Quick Reference
 
-## Required Permissions
+The new setup guide includes:
 
-The bot needs permissions to:
-- Post messages
-- Add reactions
-- Read channel messages
+- ✅ Step-by-step bot account creation
+- ✅ Token management and security
+- ✅ Channel ID discovery instructions
+- ✅ Credential validation during onboarding
+- ✅ Troubleshooting common issues
+- ✅ Platform-specific error messages
 
-## Get Channel ID
+**Start here:** [SETUP_GUIDE.md → Mattermost Setup](../SETUP_GUIDE.md#mattermost-setup)
 
-1. In Mattermost, click the channel name
-2. Select **View Info**
-3. Copy the Channel ID from the URL or info panel
+---
 
-## Configuration
+## Quick Summary (Legacy)
 
-Add to your `~/.config/claude-threads/config.yaml`:
+If you just need a quick reminder:
 
-```yaml
-platforms:
-  - id: mattermost-main
-    type: mattermost
-    displayName: Main Team
-    url: https://chat.example.com
-    token: your-bot-token
-    channelId: abc123
-    botName: claude-code
-    allowedUsers: [alice, bob]
-    skipPermissions: false
-```
+1. **Create bot account**: Main Menu → Integrations → Bot Accounts → Create
+2. **Save the token** (you won't see it again!)
+3. **Get channel ID**: Click channel → View Info → copy from URL
+4. **Run** `claude-threads` and follow the interactive wizard
 
-| Setting | Description |
-|---------|-------------|
-| `url` | Mattermost server URL |
-| `token` | Bot access token |
-| `channelId` | Channel to listen in |
-| `botName` | Mention name (default: `claude-code`) |
-| `allowedUsers` | List of usernames who can use the bot |
-| `skipPermissions` | Auto-approve actions (`true`/`false`) |
+For full details, troubleshooting, and validation: [See the complete guide](../SETUP_GUIDE.md#mattermost-setup)
