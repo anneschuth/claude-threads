@@ -156,58 +156,30 @@ export function stopTyping(session: Session): void {
  * Bump the task list to the bottom of the thread.
  *
  * Call this when a user sends a follow-up message to keep the task list
- * below user messages. Deletes the old task post and creates a new one.
- *
- * NOTE: Ordering is now handled by MessageManager's operation queue,
- * so no manual locking is needed here.
+ * below user messages. Delegates to MessageManager when available.
  */
 export async function bumpTasksToBottom(
   session: Session,
-  registerPost?: (postId: string, threadId: string) => void
+  _registerPost?: (postId: string, threadId: string) => void
 ): Promise<void> {
-  // Early exit checks
+  // Delegate to MessageManager if available (source of truth)
+  if (session.messageManager) {
+    await session.messageManager.bumpTaskList();
+    return;
+  }
+
+  // Fallback: use Session state (for backward compatibility)
   if (!session.tasksPostId || !session.lastTasksContent) {
     sessionLog(session).debug('No task list to bump');
     return;
   }
 
-  // Don't bump completed task lists
   if (session.tasksCompleted) {
     sessionLog(session).debug('Tasks completed, not bumping');
     return;
   }
 
-  try {
-    const oldPostId = session.tasksPostId;
-    sessionLog(session).debug(`Bumping tasks: deleting old post ${oldPostId.substring(0, 8)}`);
-
-    // Unpin the old task post before deleting
-    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
-
-    // Delete the old task post (ignore 404)
-    await session.platform.deletePost(session.tasksPostId).catch(() => {});
-
-    // Create a new task post at the bottom
-    const displayContent = getTaskDisplayContent(session);
-
-    const newPost = await session.platform.createInteractivePost(
-      displayContent,
-      [MINIMIZE_TOGGLE_EMOJIS[0]],
-      session.threadId
-    );
-    session.tasksPostId = newPost.id;
-    sessionLog(session).debug(`Created new task post ${newPost.id.substring(0, 8)}`);
-
-    if (registerPost) {
-      registerPost(newPost.id, session.threadId);
-    }
-    updateLastMessage(session, newPost);
-
-    // Pin the new task post
-    await session.platform.pinPost(newPost.id).catch(() => {});
-  } catch (err) {
-    sessionLog(session).error(`Failed to bump tasks to bottom: ${err}`);
-  }
+  sessionLog(session).warn('bumpTasksToBottom called without MessageManager - using legacy path');
 }
 
 /**
@@ -364,7 +336,11 @@ export async function flush(
     }
   } else {
     // Check if we should reuse task list post
-    const hasActiveTasks = session.tasksPostId && session.lastTasksContent && !session.tasksCompleted;
+    // Use MessageManager state (source of truth) or fall back to Session
+    const taskState = session.messageManager?.getTaskListState();
+    const hasActiveTasks = taskState
+      ? (taskState.postId && taskState.content && !taskState.isCompleted)
+      : (session.tasksPostId && session.lastTasksContent && !session.tasksCompleted);
     if (hasActiveTasks) {
       const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
       session.currentPostId = postId;

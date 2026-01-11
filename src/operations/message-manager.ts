@@ -356,10 +356,10 @@ export class MessageManager {
   /**
    * Handle a task list toggle reaction
    */
-  async handleTaskListToggle(_postId: string, _action: 'added' | 'removed'): Promise<boolean> {
-    // Toggle minimize state on the task list
+  async handleTaskListToggle(postId: string, _action: 'added' | 'removed'): Promise<boolean> {
+    // Check if this is the task list post
     const state = this.taskListExecutor.getState();
-    if (!state.tasksPostId) {
+    if (!state.tasksPostId || state.tasksPostId !== postId) {
       return false;
     }
     await this.taskListExecutor.toggleMinimize(this.getExecutorContext());
@@ -402,7 +402,7 @@ export class MessageManager {
   }
 
   /**
-   * Get task list state
+   * Get task list state for persistence
    */
   getTaskListState(): {
     postId: string | null;
@@ -417,6 +417,19 @@ export class MessageManager {
       isMinimized: state.tasksMinimized,
       isCompleted: state.tasksCompleted,
     };
+  }
+
+  /**
+   * Hydrate task list state from persisted session data.
+   * Called during session resume to restore task list state.
+   */
+  hydrateTaskListState(persisted: {
+    tasksPostId?: string | null;
+    lastTasksContent?: string | null;
+    tasksCompleted?: boolean;
+    tasksMinimized?: boolean;
+  }): void {
+    this.taskListExecutor.hydrateState(persisted);
   }
 
   /**

@@ -432,7 +432,27 @@ describe('bumpTasksToBottom', () => {
     session = createTestSession(platform);
   });
 
-  test('does nothing when no task list exists', async () => {
+  test('delegates to MessageManager when available', async () => {
+    const bumpTaskListMock = mock(async () => {});
+    session.messageManager = {
+      bumpTaskList: bumpTaskListMock,
+    } as any;
+
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 Tasks';
+
+    await bumpTasksToBottom(session);
+
+    // Should delegate to MessageManager
+    expect(bumpTaskListMock).toHaveBeenCalled();
+
+    // Should NOT use legacy platform calls
+    expect(platform.deletePost).not.toHaveBeenCalled();
+    expect(platform.createInteractivePost).not.toHaveBeenCalled();
+  });
+
+  test('does nothing when no task list exists (legacy fallback)', async () => {
+    // No messageManager, testing legacy fallback
     session.tasksPostId = null;
     session.lastTasksContent = null;
 
@@ -442,7 +462,8 @@ describe('bumpTasksToBottom', () => {
     expect(platform.createPost).not.toHaveBeenCalled();
   });
 
-  test('does nothing when tasksPostId exists but no content', async () => {
+  test('does nothing when tasksPostId exists but no content (legacy fallback)', async () => {
+    // No messageManager, testing legacy fallback
     session.tasksPostId = 'tasks_post';
     session.lastTasksContent = null;
 
@@ -452,7 +473,8 @@ describe('bumpTasksToBottom', () => {
     expect(platform.createPost).not.toHaveBeenCalled();
   });
 
-  test('does nothing when task list is completed', async () => {
+  test('does nothing when task list is completed (legacy fallback)', async () => {
+    // No messageManager, testing legacy fallback
     session.tasksPostId = 'tasks_post';
     session.lastTasksContent = '📋 ~~Tasks~~ *(completed)*';
     session.tasksCompleted = true;
@@ -465,78 +487,10 @@ describe('bumpTasksToBottom', () => {
     expect(session.tasksPostId).toBe('tasks_post');
   });
 
-  test('deletes old task post and creates new one at bottom', async () => {
-    session.tasksPostId = 'old_tasks_post';
-    session.lastTasksContent = '📋 **Tasks** (1/2)\n✅ Done\n○ Pending';
-
-    await bumpTasksToBottom(session);
-
-    // Should delete the old post
-    expect(platform.deletePost).toHaveBeenCalledWith('old_tasks_post');
-    // Should create new post with same content and toggle emoji
-    expect(platform.createInteractivePost).toHaveBeenCalledWith(
-      '📋 **Tasks** (1/2)\n✅ Done\n○ Pending',
-      ['arrow_down_small'],
-      'thread1'
-    );
-    // tasksPostId should be updated to new post
-    expect(session.tasksPostId).toBe('post_1');
-  });
-
-  test('handles deletePost 404 gracefully and continues', async () => {
-    session.tasksPostId = 'tasks_post';
-    session.lastTasksContent = '📋 Tasks';
-
-    // Make deletePost reject with a 404 error (post already gone)
-    (platform.deletePost as ReturnType<typeof mock>).mockImplementationOnce(() => {
-      return Promise.reject(new Error('Mattermost API error 404: post not found'));
-    });
-
-    // Should not throw
-    await bumpTasksToBottom(session);
-
-    // deletePost was called but failed
-    expect(platform.deletePost).toHaveBeenCalledWith('tasks_post');
-
-    // Should still create a new post despite deletePost failure
-    expect(platform.createInteractivePost).toHaveBeenCalledWith(
-      '📋 Tasks',
-      ['arrow_down_small'],
-      'thread1'
-    );
-
-    // tasksPostId should be updated to the new post
-    expect(session.tasksPostId).toBe('post_1');
-  });
-
-  test('handles createInteractivePost errors gracefully', async () => {
-    session.tasksPostId = 'tasks_post';
-    session.lastTasksContent = '📋 Tasks';
-
-    // Mock console.error to suppress expected error output
-    const originalConsoleError = console.error;
-    console.error = mock(() => {});
-
-    // Make createInteractivePost throw an error (after deletePost succeeds)
-    (platform.createInteractivePost as ReturnType<typeof mock>).mockImplementationOnce(
-      () => {
-        throw new Error('Network error');
-      }
-    );
-
-    // Should not throw
-    await bumpTasksToBottom(session);
-
-    // tasksPostId should remain unchanged due to error
-    expect(session.tasksPostId).toBe('tasks_post');
-
-    // Verify error was logged
-    expect(console.error).toHaveBeenCalled();
-
-    // Restore console.error
-    console.error = originalConsoleError;
-  });
-
+  // NOTE: Legacy tests for delete/create behavior removed.
+  // The legacy path now just logs a warning and does nothing.
+  // All actual task list bumping is done by MessageManager/TaskListExecutor.
+  // See src/operations/executors/task-list.test.ts for those tests.
 });
 
 // NOTE: Lock-related tests (acquireTaskListLock, concurrent bumping) have been removed.

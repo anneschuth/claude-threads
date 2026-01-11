@@ -64,6 +64,25 @@ export class TaskListExecutor {
   }
 
   /**
+   * Hydrate state from persisted session data.
+   * Used when resuming a session after bot restart.
+   */
+  hydrateState(persisted: {
+    tasksPostId?: string | null;
+    lastTasksContent?: string | null;
+    tasksCompleted?: boolean;
+    tasksMinimized?: boolean;
+  }): void {
+    this.state = {
+      tasksPostId: persisted.tasksPostId ?? null,
+      lastTasksContent: persisted.lastTasksContent ?? null,
+      tasksCompleted: persisted.tasksCompleted ?? false,
+      tasksMinimized: persisted.tasksMinimized ?? false,
+      inProgressTaskStart: null, // Not persisted
+    };
+  }
+
+  /**
    * Get current tasks post ID (for bumping from content executor).
    */
   getTasksPostId(): string | null {

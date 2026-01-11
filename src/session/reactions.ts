@@ -12,7 +12,6 @@ import {
   isDenialEmoji,
   isAllowAllEmoji,
   getNumberEmojiIndex,
-  MINIMIZE_TOGGLE_EMOJIS,
   isBugReportEmoji,
 } from '../utils/emoji.js';
 import { postCurrentQuestion } from './events.js';
@@ -215,74 +214,8 @@ export async function handleMessageApprovalReaction(
   session.pendingMessageApproval = null;
 }
 
-// ---------------------------------------------------------------------------
-// Task list toggle reaction handling
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a reaction on the task list post to minimize/expand.
- * State-based: user adds their reaction = minimized, user removes = expanded.
- * (The bot's emoji is always present as a clickable toggle button.)
- * Returns true if the toggle was handled, false otherwise.
- */
-export async function handleTaskToggleReaction(
-  session: Session,
-  action: 'added' | 'removed',
-  _ctx: SessionContext
-): Promise<boolean> {
-  if (!session.tasksPostId || !session.lastTasksContent) {
-    return false;
-  }
-
-  // State-based: user adds reaction = minimize, user removes reaction = expand
-  // (The bot's emoji is always there; user clicks it to add their reaction = minimize)
-  const shouldMinimize = action === 'added';
-
-  // Skip if already in desired state
-  if (session.tasksMinimized === shouldMinimize) {
-    return true;
-  }
-
-  session.tasksMinimized = shouldMinimize;
-
-  sessionLog(session).debug(`🔽 Tasks ${session.tasksMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
-
-  // Compute the display message
-  // Parse progress from lastTasksContent (format: "📋 **Tasks** (X/Y · Z%)")
-  const progressMatch = session.lastTasksContent.match(/\((\d+)\/(\d+) · (\d+)%\)/);
-  const completed = progressMatch ? parseInt(progressMatch[1], 10) : 0;
-  const total = progressMatch ? parseInt(progressMatch[2], 10) : 0;
-  const pct = progressMatch ? parseInt(progressMatch[3], 10) : 0;
-
-  // Find current in-progress task from lastTasksContent
-  // Match both ** (Mattermost) and * (Slack) bold formatting
-  const inProgressMatch = session.lastTasksContent.match(/🔄 \*{1,2}([^*]+)\*{1,2}(?:\s*\((\d+)s\))?/);
-  let currentTaskText = '';
-  if (inProgressMatch) {
-    const taskName = inProgressMatch[1];
-    const elapsed = inProgressMatch[2] ? ` (${inProgressMatch[2]}s)` : '';
-    currentTaskText = ` · 🔄 ${taskName}${elapsed}`;
-  }
-
-  const formatter = session.platform.getFormatter();
-  const minimizedMessage = `${formatter.formatHorizontalRule()}\n📋 ${formatter.formatBold('Tasks')} (${completed}/${total} · ${pct}%)${currentTaskText} 🔽`;
-  const displayMessage = session.tasksMinimized ? minimizedMessage : session.lastTasksContent;
-  const tasksPostId = session.tasksPostId;
-
-  await withErrorHandling(
-    () => session.platform.updatePost(tasksPostId, displayMessage),
-    { action: 'Toggle tasks display', session }
-  );
-
-  // Ensure the toggle emoji is present (may have been removed during toggle)
-  try {
-    await session.platform.addReaction(tasksPostId, MINIMIZE_TOGGLE_EMOJIS[0]);
-  } catch {
-    // Ignore errors - emoji may already exist or reaction failed
-  }
-
-  return true;
-}
+// NOTE: Task list toggle reaction handling has been moved to TaskListExecutor.
+// It's now handled via MessageManager.handleTaskListToggle() in manager.ts
 
 // ---------------------------------------------------------------------------
 // Existing worktree join prompt reaction handling

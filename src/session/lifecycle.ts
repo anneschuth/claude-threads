@@ -710,6 +710,14 @@ export async function resumeSession(
   // Create MessageManager for this session
   session.messageManager = createMessageManager(session, ctx);
 
+  // Hydrate MessageManager with persisted task state
+  session.messageManager.hydrateTaskListState({
+    tasksPostId: state.tasksPostId,
+    lastTasksContent: state.lastTasksContent,
+    tasksCompleted: state.tasksCompleted,
+    tasksMinimized: state.tasksMinimized,
+  });
+
   // Log session resume
   session.threadLogger?.logLifecycle('resume', {
     username: state.startedBy,

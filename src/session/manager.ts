@@ -558,17 +558,16 @@ export class SessionManager extends EventEmitter {
       return;
     }
 
-    // Handle task list toggle reactions (minimize/expand) - state-based on both add and remove
-    if (session.tasksPostId === postId && isMinimizeToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, action, this.getContext());
-      return;
-    }
-
-    // Handle subagent toggle reactions (minimize/expand) - state-based on both add and remove
-    // Uses same emoji as task toggle (🔽)
+    // Handle task list and subagent toggle reactions (minimize/expand) - state-based on both add and remove
+    // Uses same emoji (🔽) for both task list and subagent toggles
     if (isMinimizeToggleEmoji(emojiName) && session.messageManager) {
-      const handled = await session.messageManager.handleSubagentToggle(postId, action);
-      if (handled) return;
+      // Try task list toggle first
+      const taskHandled = await session.messageManager.handleTaskListToggle(postId, action);
+      if (taskHandled) return;
+
+      // Try subagent toggle
+      const subagentHandled = await session.messageManager.handleSubagentToggle(postId, action);
+      if (subagentHandled) return;
     }
 
     // Handle bug report emoji reaction on error posts (only on add)
@@ -737,6 +736,9 @@ export class SessionManager extends EventEmitter {
       };
     }
 
+    // Get task list state from MessageManager (source of truth)
+    const taskState = session.messageManager?.getTaskListState();
+
     const state: PersistedSession = {
       platformId: session.platformId,
       threadId: session.threadId,
@@ -751,10 +753,11 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
-      tasksPostId: session.tasksPostId,
-      lastTasksContent: session.lastTasksContent,
-      tasksCompleted: session.tasksCompleted,
-      tasksMinimized: session.tasksMinimized,
+      // Task state from MessageManager (or fallback to Session for backward compat)
+      tasksPostId: taskState?.postId ?? session.tasksPostId,
+      lastTasksContent: taskState?.content ?? session.lastTasksContent,
+      tasksCompleted: taskState?.isCompleted ?? session.tasksCompleted,
+      tasksMinimized: taskState?.isMinimized ?? session.tasksMinimized,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
