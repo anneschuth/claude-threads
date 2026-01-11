@@ -350,6 +350,31 @@ export function endsAtBreakpoint(content: string): BreakpointType {
 }
 
 // ---------------------------------------------------------------------------
+// Content appending
+// ---------------------------------------------------------------------------
+
+/**
+ * Append content to session's pending content buffer with proper newline separation.
+ *
+ * Ensures each content block starts on a new line by adding a leading newline
+ * if existing content doesn't already end with one. Also adds trailing double
+ * newlines for visual separation between blocks.
+ *
+ * @param session - The session to append content to
+ * @param text - The text to append
+ */
+export function appendContent(session: Session, text: string): void {
+  if (!text) return;
+  // If there's existing content that doesn't end with a newline, add one first
+  // This ensures each content block (especially tool uses) starts on its own line
+  if (session.pendingContent && !session.pendingContent.endsWith('\n')) {
+    session.pendingContent += '\n';
+  }
+  // Add the new content with trailing double newlines for visual separation
+  session.pendingContent += text + '\n\n';
+}
+
+// ---------------------------------------------------------------------------
 // Scheduled updates
 // ---------------------------------------------------------------------------
 
