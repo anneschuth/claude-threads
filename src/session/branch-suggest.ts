@@ -12,7 +12,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 
 const execAsync = promisify(exec);
-const log = createLogger('branch-suggest');
+const log = createLogger('branch');
 
 /** Default timeout for branch suggestions (ms) */
 const SUGGESTION_TIMEOUT = 15000;

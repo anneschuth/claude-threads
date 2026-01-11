@@ -26,7 +26,7 @@ import type { PlatformFormatter } from '../platform/formatter.js';
 /** Message builder function that takes a formatter and returns the formatted message */
 export type MessageBuilder = (formatter: PlatformFormatter) => string;
 
-const log = createLogger('auto-update');
+const log = createLogger('updater');
 
 /** Callbacks for integrating with the session manager and chat platforms */
 export interface AutoUpdateCallbacks {

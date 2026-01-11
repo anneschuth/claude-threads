@@ -18,7 +18,7 @@ import { createLogger } from '../utils/logger.js';
 import { withErrorHandling } from './error-handler.js';
 import { BUG_REPORT_EMOJI } from '../utils/emoji.js';
 
-const log = createLogger('post-helpers');
+const log = createLogger('helpers');
 
 /** Get session-scoped logger for routing to correct UI panel */
 function sessionLog(session: Session) {
