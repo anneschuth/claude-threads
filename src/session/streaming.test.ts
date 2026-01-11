@@ -12,6 +12,7 @@ import {
   getCodeBlockState,
   acquireTaskListLock,
   clearFlushedContent,
+  appendContent,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -171,6 +172,65 @@ describe('clearFlushedContent', () => {
     clearFlushedContent(session, '');
     // Empty string is a prefix of everything, so this clears nothing
     expect(session.pendingContent).toBe('Some content');
+  });
+});
+
+describe('appendContent', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+  });
+
+  test('appends content with trailing double newlines', () => {
+    appendContent(session, 'Hello world');
+    expect(session.pendingContent).toBe('Hello world\n\n');
+  });
+
+  test('adds leading newline when existing content does not end with newline', () => {
+    session.pendingContent = 'Existing text';
+    appendContent(session, '📄 **Read** `file.txt`');
+    // Should add newline before new content since existing doesn't end with \n
+    expect(session.pendingContent).toBe('Existing text\n📄 **Read** `file.txt`\n\n');
+  });
+
+  test('does not add extra newline when existing content ends with newline', () => {
+    session.pendingContent = 'Existing text\n';
+    appendContent(session, '📄 **Read** `file.txt`');
+    // Should NOT add extra newline since existing ends with \n
+    expect(session.pendingContent).toBe('Existing text\n📄 **Read** `file.txt`\n\n');
+  });
+
+  test('does not add extra newline when existing content ends with double newline', () => {
+    session.pendingContent = 'Previous block\n\n';
+    appendContent(session, 'New block');
+    // Should NOT add extra newline since existing ends with \n
+    expect(session.pendingContent).toBe('Previous block\n\nNew block\n\n');
+  });
+
+  test('does nothing when text is empty', () => {
+    session.pendingContent = 'Existing';
+    appendContent(session, '');
+    expect(session.pendingContent).toBe('Existing');
+  });
+
+  test('handles multiple consecutive appends correctly', () => {
+    appendContent(session, 'First');
+    appendContent(session, 'Second');
+    appendContent(session, 'Third');
+    // Each append adds \n\n, so subsequent appends don't need leading newline
+    expect(session.pendingContent).toBe('First\n\nSecond\n\nThird\n\n');
+  });
+
+  test('tool uses start on new lines - regression test', () => {
+    // Simulate: text content followed by tool use (the bug scenario)
+    session.pendingContent = 'Some explanation text';
+    appendContent(session, '📄 **Read** `src/file.ts`');
+    // Tool use should be on its own line
+    expect(session.pendingContent).toContain('\n📄 **Read**');
+    expect(session.pendingContent).not.toContain('text📄'); // Should NOT be concatenated
   });
 });
 
