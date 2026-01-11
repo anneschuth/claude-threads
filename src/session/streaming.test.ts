@@ -158,12 +158,12 @@ describe('clearFlushedContent', () => {
     expect(session.pendingContent).toBe('Message 2\n\n');
   });
 
-  test('does not clear when pendingContent was replaced entirely', () => {
+  test('clears when pendingContent was replaced entirely', () => {
     // Edge case: pendingContent was completely replaced during async operation
+    // We clear it to prevent accumulation - safer than keeping stale content
     session.pendingContent = 'Completely different content';
     clearFlushedContent(session, 'Original content that was flushed');
-    // Should not modify - we don't know what happened, safer to keep everything
-    expect(session.pendingContent).toBe('Completely different content');
+    expect(session.pendingContent).toBe('');
   });
 
   test('handles empty flushed content', () => {

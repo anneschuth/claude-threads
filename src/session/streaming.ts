@@ -382,13 +382,11 @@ export function clearFlushedContent(session: Session, flushedContent: string): v
   // This handles the case where new content was appended during the async operation
   if (session.pendingContent.startsWith(flushedContent)) {
     session.pendingContent = session.pendingContent.slice(flushedContent.length);
-  } else if (session.pendingContent === flushedContent) {
-    // Exact match - clear everything
+  } else {
+    // Content changed unexpectedly - clear it all to prevent accumulation
+    // This is safer than leaving stale content that would accumulate
     session.pendingContent = '';
   }
-  // If pendingContent doesn't start with flushedContent, something unexpected happened
-  // (e.g., pendingContent was completely replaced). In this case, don't clear anything
-  // to avoid data loss.
 }
 
 /**
