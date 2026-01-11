@@ -17,6 +17,32 @@ const onCancel = () => {
   process.exit(0);
 };
 
+/**
+ * Derive a nice display name from a Mattermost server URL
+ * Extracts the first subdomain and converts it to title case.
+ *
+ * Examples:
+ *   https://acme-corp.mattermost.com → "Acme Corp"
+ *   https://team-chat.example.com → "Team Chat"
+ *   https://digilab.overheid.nl → "Digilab"
+ */
+function deriveDisplayName(url: string): string {
+  try {
+    const hostname = new URL(url).hostname;
+    // Get first part before first dot (e.g., "acme-corp" from "acme-corp.mattermost.com")
+    const firstPart = hostname.split('.')[0];
+    // Split on hyphens/underscores, capitalize each word
+    const words = firstPart.split(/[-_]/);
+    const titleCase = words.map(word =>
+      word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    ).join(' ');
+    return titleCase;
+  } catch {
+    // If URL parsing fails, return generic default
+    return 'Mattermost';
+  }
+}
+
 export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
   console.log(bold('  claude-threads setup'));
@@ -206,42 +232,33 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       break;
     }
 
-    // Get platform ID and name
+    // Get platform ID
     const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
     const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
 
-    const { platformId, displayName } = await prompts([
-      {
-        type: 'text',
-        name: 'platformId',
-        message: 'Platform ID',
-        initial: suggestedId,
-        hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
-        validate: (v: string) => {
-          if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
-          if (config.platforms.some(p => p.id === v)) return 'ID already in use';
-          return true;
-        },
+    const { platformId } = await prompts({
+      type: 'text',
+      name: 'platformId',
+      message: 'Platform ID',
+      initial: suggestedId,
+      hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
+      validate: (v: string) => {
+        if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
+        if (config.platforms.some(p => p.id === v)) return 'ID already in use';
+        return true;
       },
-      {
-        type: 'text',
-        name: 'displayName',
-        message: 'Display name',
-        initial: platformType === 'mattermost' ? 'Mattermost' : 'Slack',
-        hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
-      },
-    ], { onCancel });
+    }, { onCancel });
 
-    // Configure the platform
+    // Configure the platform (will ask for displayName with smart defaults)
+    let platform: PlatformInstanceConfig;
     if (platformType === 'mattermost') {
-      const platform = await setupMattermostPlatform(platformId, displayName, undefined);
-      config.platforms.push(platform);
+      platform = await setupMattermostPlatform(platformId, undefined);
     } else {
-      const platform = await setupSlackPlatform(platformId, displayName, undefined);
-      config.platforms.push(platform);
+      platform = await setupSlackPlatform(platformId, undefined);
     }
+    config.platforms.push(platform);
 
-    console.log(green(`  ✓ Added ${displayName}`));
+    console.log(green(`  ✓ Added ${platform.displayName}`));
     console.log('');
 
     // Ask to add more (after first one)
@@ -400,37 +417,28 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
       const typeCount = config.platforms.filter(p => p.type === platformType).length + 1;
       const suggestedId = typeCount === 1 ? platformType : `${platformType}-${typeCount}`;
 
-      const { platformId, displayName } = await prompts([
-        {
-          type: 'text',
-          name: 'platformId',
-          message: 'Platform ID',
-          initial: suggestedId,
-          hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
-          validate: (v: string) => {
-            if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
-            if (config.platforms.some(p => p.id === v)) return 'ID already in use';
-            return true;
-          },
+      const { platformId } = await prompts({
+        type: 'text',
+        name: 'platformId',
+        message: 'Platform ID',
+        initial: suggestedId,
+        hint: 'Unique identifier (e.g., mattermost-main, slack-eng)',
+        validate: (v: string) => {
+          if (!v.match(/^[a-z0-9-]+$/)) return 'Use lowercase letters, numbers, hyphens only';
+          if (config.platforms.some(p => p.id === v)) return 'ID already in use';
+          return true;
         },
-        {
-          type: 'text',
-          name: 'displayName',
-          message: 'Display name',
-          initial: platformType === 'mattermost' ? 'Mattermost' : 'Slack',
-          hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
-        },
-      ], { onCancel });
+      }, { onCancel });
 
       let newPlatform: PlatformInstanceConfig;
       if (platformType === 'mattermost') {
-        newPlatform = await setupMattermostPlatform(platformId, displayName, undefined);
+        newPlatform = await setupMattermostPlatform(platformId, undefined);
       } else {
-        newPlatform = await setupSlackPlatform(platformId, displayName, undefined);
+        newPlatform = await setupSlackPlatform(platformId, undefined);
       }
 
       config.platforms.push(newPlatform);
-      console.log(green(`  ✓ Added ${displayName}`));
+      console.log(green(`  ✓ Added ${newPlatform.displayName}`));
     } else if (action.startsWith('platform-')) {
       // Edit or remove existing platform
       const platformIndex = parseInt(action.replace('platform-', ''));
@@ -465,18 +473,16 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
         if (platform.type === 'mattermost') {
           updatedPlatform = await setupMattermostPlatform(
             platform.id,
-            platform.displayName,
             platform as MattermostPlatformConfig
           );
         } else {
           updatedPlatform = await setupSlackPlatform(
             platform.id,
-            platform.displayName,
             platform as SlackPlatformConfig
           );
         }
         config.platforms[platformIndex] = updatedPlatform;
-        console.log(green(`  ✓ Updated ${platform.displayName}`));
+        console.log(green(`  ✓ Updated ${updatedPlatform.displayName}`));
       }
     }
   }
@@ -566,7 +572,6 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
 
 async function setupMattermostPlatform(
   id: string,
-  displayName: string,
   existing?: PlatformInstanceConfig
 ): Promise<MattermostPlatformConfig> {
   console.log('');
@@ -591,6 +596,13 @@ async function setupMattermostPlatform(
           return 'Invalid URL format';
         }
       },
+    },
+    {
+      type: 'text',
+      name: 'displayName',
+      message: 'Display name',
+      initial: (existingMattermost?.displayName) || ((prev: string) => deriveDisplayName(prev)),
+      hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
     },
     {
       type: 'password',
@@ -719,7 +731,7 @@ async function setupMattermostPlatform(
   return {
     id,
     type: 'mattermost',
-    displayName,
+    displayName: response.displayName,
     url: response.url,
     token: finalToken,
     channelId: response.channelId,
@@ -881,7 +893,6 @@ async function validateSlackCredentials(
 
 async function setupSlackPlatform(
   id: string,
-  displayName: string,
   existing?: PlatformInstanceConfig
 ): Promise<SlackPlatformConfig> {
   console.log('');
@@ -891,6 +902,13 @@ async function setupSlackPlatform(
   const existingSlack = existing?.type === 'slack' ? existing as SlackPlatformConfig : undefined;
 
   const response = await prompts([
+    {
+      type: 'text',
+      name: 'displayName',
+      message: 'Display name',
+      initial: existingSlack?.displayName || 'Slack',
+      hint: 'Human-readable name (e.g., "Internal Team", "Engineering")',
+    },
     {
       type: 'password',
       name: 'botToken',
@@ -1043,7 +1061,7 @@ async function setupSlackPlatform(
   return {
     id,
     type: 'slack',
-    displayName,
+    displayName: response.displayName,
     botToken: finalBotToken,
     appToken: finalAppToken,
     channelId: response.channelId,
