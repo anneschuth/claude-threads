@@ -120,15 +120,9 @@ Or mid-session: `!worktree feature/add-auth`
 
 ## Access Control
 
-Set `allowedUsers` in config to restrict who can use the bot:
+Restrict who can use the bot during setup (or reconfigure later with `claude-threads --reconfigure`).
 
-```yaml
-platforms:
-  - id: slack-team
-    allowedUsers: [alice, bob, carol]
-```
-
-Empty list = anyone can use (be careful!)
+Leave the allowed users list empty to let anyone in the channel use the bot (be careful!)
 
 ## Documentation
 
