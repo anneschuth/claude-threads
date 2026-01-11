@@ -9,7 +9,7 @@ import type { PlatformClient, PlatformPost, PlatformUser } from './platform/inde
 import type { SessionManager } from './session/index.js';
 import { VERSION } from './version.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
-import { parseCommand } from './commands/index.js';
+import { parseCommand, generateHelpMessage } from './commands/index.js';
 
 /**
  * Logger interface for message handler
@@ -121,39 +121,9 @@ export async function handleMessage(
             return;
 
           case 'help': {
-            const code = formatter.formatCode.bind(formatter);
-            const commandTable = formatter.formatTable(
-              ['Command', 'Description'],
-              [
-                [code('!cd <path>'), 'Change working directory (restarts Claude)'],
-                [code('!worktree <branch>'), 'Create and switch to a git worktree'],
-                [code('!worktree list'), 'List all worktrees for the repo'],
-                [code('!worktree switch <branch>'), 'Switch to an existing worktree'],
-                [code('!worktree remove <branch>'), 'Remove a worktree'],
-                [code('!worktree cleanup'), 'Delete current worktree and switch back to repo'],
-                [code('!worktree off'), 'Disable worktree prompts for this session'],
-                [code('!invite @user'), 'Invite a user to this session'],
-                [code('!kick @user'), 'Remove an invited user'],
-                [code('!permissions interactive'), 'Enable interactive permissions'],
-                [code('!approve'), 'Approve pending plan (alternative to 👍 reaction)'],
-                [code('!update'), 'Show auto-update status'],
-                [code('!update now'), 'Apply pending update immediately'],
-                [code('!update defer'), 'Defer pending update for 1 hour'],
-                [code('!escape'), 'Interrupt current task (session stays active)'],
-                [code('!stop'), 'Stop this session'],
-                [code('!kill'), 'Emergency shutdown (kills ALL sessions, exits bot)'],
-                [code('!bug <description>'), 'Report a bug (creates GitHub issue)'],
-              ]
-            );
-            await client.createPost(
-              `${formatter.formatBold('Commands:')}\n\n` +
-                commandTable +
-                `\n\n${formatter.formatBold('Reactions:')}\n` +
-                `${formatter.formatListItem('👍 Approve action · ✅ Approve all · 👎 Deny')}\n` +
-                `${formatter.formatListItem('⏸️ Interrupt current task (session stays active)')}\n` +
-                `${formatter.formatListItem('❌ or 🛑 Stop session')}`,
-              threadRoot
-            );
+            // Generate help message from the unified command registry
+            const helpMessage = generateHelpMessage(formatter);
+            await client.createPost(helpMessage, threadRoot);
             return;
           }
 
