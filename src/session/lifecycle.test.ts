@@ -71,7 +71,6 @@ function createMockSession(overrides?: Partial<Session>): Session {
     isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
-    pendingContent: '',
     timeoutWarningPosted: false,
     tasksCompleted: false,
     tasksMinimized: false,
@@ -121,7 +120,6 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       startTyping: mock(() => {}),
       stopTyping: mock(() => {}),
       flush: mock(() => Promise.resolve()),
-      appendContent: mock(() => {}),
       updateStickyMessage: mock(() => Promise.resolve()),
       updateSessionHeader: mock(() => Promise.resolve()),
       persistSession: mock(() => {}),
@@ -282,15 +280,6 @@ describe('Session State Management', () => {
     expect(session.sessionAllowedUsers.has('otheruser')).toBe(true);
   });
 
-  it('tracks pending content buffer', () => {
-    const session = createMockSession();
-
-    session.pendingContent = '';
-    session.pendingContent += 'Hello ';
-    session.pendingContent += 'World';
-
-    expect(session.pendingContent).toBe('Hello World');
-  });
 });
 
 describe('CHAT_PLATFORM_PROMPT', () => {
@@ -537,7 +526,6 @@ describe('sendFollowUp', () => {
     const session = createMockSession({
       currentPostId: 'old-post-id',
       currentPostContent: 'old content',
-      pendingContent: 'pending text',
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);

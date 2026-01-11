@@ -45,7 +45,6 @@ function createMockSession(): Session {
     // Post state
     currentPostId: null,
     currentPostContent: '',
-    pendingContent: '',
 
     // Interactive state
     pendingApproval: null,
@@ -84,6 +83,12 @@ function createMockSession(): Session {
 
     // Status bar timer
     statusBarTimer: null,
+
+    // Resume support
+    resumeFailCount: 0,
+    hasClaudeResponded: false,
+    isProcessing: false,
+    recentEvents: [],
   } as Session;
 }
 

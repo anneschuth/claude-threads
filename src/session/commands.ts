@@ -73,7 +73,6 @@ async function restartClaudeSession(
   // Flush any pending content
   await ctx.ops.flush(session);
   session.currentPostId = null;
-  session.pendingContent = '';
 
   // Create new Claude CLI
   session.claude = new ClaudeCli(cliOptions);

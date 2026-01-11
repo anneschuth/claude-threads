@@ -261,7 +261,6 @@ async function handleCompactionStart(
   // Flush any pending content first to avoid mixing with compaction message
   await ctx.ops.flush(session);
   session.currentPostId = null;
-  session.pendingContent = '';
 
   // Create the compaction status post
   const formatter = session.platform.getFormatter();

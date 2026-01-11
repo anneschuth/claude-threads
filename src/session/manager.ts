@@ -257,7 +257,6 @@ export class SessionManager extends EventEmitter {
 
       // Streaming & content
       flush: (s) => this.flush(s),
-      appendContent: (s, t) => this.appendContent(s, t),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
@@ -649,16 +648,12 @@ export class SessionManager extends EventEmitter {
   // Streaming utilities (delegates to streaming module)
   // ---------------------------------------------------------------------------
 
-  private appendContent(session: Session, text: string): void {
-    if (!text) return;
-    // Use double newlines for proper visual separation between content blocks
-    // This ensures code blocks, tool results, and text are properly separated
-    session.pendingContent += text + '\n\n';
-    streaming.scheduleUpdate(session, (s) => this.flush(s));
-  }
-
   private async flush(session: Session): Promise<void> {
-    await streaming.flush(session, (pid, tid) => this.registerPost(pid, tid));
+    // Delegate to MessageManager (source of truth for content flushing)
+    if (session.messageManager) {
+      await session.messageManager.flush();
+    }
+    // If no messageManager, nothing to flush - content is managed by MessageManager
   }
 
   private startTyping(session: Session): void {
@@ -688,7 +683,7 @@ export class SessionManager extends EventEmitter {
   }
 
   private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
+    return streaming.bumpTasksToBottom(session);
   }
 
   // ---------------------------------------------------------------------------

@@ -149,10 +149,9 @@ export interface Session {
   // Claude process
   claude: ClaudeCli;
 
-  // Post state for streaming updates
+  // Post state for streaming updates (legacy - used by SessionManager for non-event content)
   currentPostId: string | null;
   currentPostContent: string;  // Tracks what content has been posted to currentPostId (for error recovery)
-  pendingContent: string;
 
   // Interactive state
   pendingApproval: PendingApproval | null;
