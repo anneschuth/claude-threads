@@ -11,6 +11,7 @@ import {
   endsAtBreakpoint,
   getCodeBlockState,
   acquireTaskListLock,
+  clearFlushedContent,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -128,6 +129,51 @@ function createTestSession(platform: PlatformClient): Session {
   };
 }
 
+describe('clearFlushedContent', () => {
+  let platform: PlatformClient & { posts: Map<string, string> };
+  let session: Session;
+
+  beforeEach(() => {
+    platform = createMockPlatform();
+    session = createTestSession(platform);
+  });
+
+  test('clears content when exact match', () => {
+    session.pendingContent = 'Hello world';
+    clearFlushedContent(session, 'Hello world');
+    expect(session.pendingContent).toBe('');
+  });
+
+  test('preserves content added after flushed content', () => {
+    // Simulate: flushed "A", then "B" was appended during async operation
+    session.pendingContent = 'AB';
+    clearFlushedContent(session, 'A');
+    expect(session.pendingContent).toBe('B');
+  });
+
+  test('preserves content with newlines added during async', () => {
+    // More realistic: flushed "Message 1", then "Message 2\n\n" was appended
+    session.pendingContent = 'Message 1Message 2\n\n';
+    clearFlushedContent(session, 'Message 1');
+    expect(session.pendingContent).toBe('Message 2\n\n');
+  });
+
+  test('does not clear when pendingContent was replaced entirely', () => {
+    // Edge case: pendingContent was completely replaced during async operation
+    session.pendingContent = 'Completely different content';
+    clearFlushedContent(session, 'Original content that was flushed');
+    // Should not modify - we don't know what happened, safer to keep everything
+    expect(session.pendingContent).toBe('Completely different content');
+  });
+
+  test('handles empty flushed content', () => {
+    session.pendingContent = 'Some content';
+    clearFlushedContent(session, '');
+    // Empty string is a prefix of everything, so this clears nothing
+    expect(session.pendingContent).toBe('Some content');
+  });
+});
+
 describe('flush', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;
@@ -203,6 +249,155 @@ describe('flush', () => {
     expect(platform.updatePost).toHaveBeenCalledWith('current_post', 'More content');
     expect(platform.createPost).not.toHaveBeenCalled();
     expect(session.tasksPostId).toBe('tasks_post'); // unchanged
+  });
+
+  // Regression test: pendingContent must be cleared after flush to prevent accumulation
+  // See: fix/slack-flush-accumulation - without clearing, each flush would re-post
+  // all previous content plus new content, causing messages to grow indefinitely
+  test('clears pendingContent after successful updatePost', async () => {
+    session.currentPostId = 'existing_post';
+    session.pendingContent = 'First message';
+
+    await flush(session, registerPost);
+
+    // pendingContent must be cleared after successful flush
+    expect(session.pendingContent).toBe('');
+
+    // Simulate appending new content (like appendContent does)
+    session.pendingContent = 'Second message';
+
+    await flush(session, registerPost);
+
+    // Verify only the new content was posted, not accumulated
+    // (If pendingContent wasn't cleared, this would be 'First messageSecond message')
+    expect(platform.updatePost).toHaveBeenLastCalledWith('existing_post', 'Second message');
+    expect(session.pendingContent).toBe('');
+  });
+
+  test('clears pendingContent after successful createPost', async () => {
+    session.currentPostId = null;
+    session.pendingContent = 'New post content';
+
+    await flush(session, registerPost);
+
+    // pendingContent must be cleared after successful flush
+    expect(session.pendingContent).toBe('');
+    // Verify a post was created
+    expect(session.currentPostId).not.toBeNull();
+  });
+
+  test('clears pendingContent after successful bumpTasksToBottomWithContent', async () => {
+    // Set up active task list (not completed)
+    session.tasksPostId = 'tasks_post';
+    session.lastTasksContent = '📋 **Tasks** (0/1)\n○ Do something';
+    session.tasksCompleted = false;
+    session.currentPostId = null;
+    session.pendingContent = 'Content to bump with';
+
+    await flush(session, registerPost);
+
+    // pendingContent must be cleared after successful flush
+    expect(session.pendingContent).toBe('');
+  });
+
+  test('prevents content accumulation across multiple flushes', async () => {
+    // This is the exact scenario that caused the Slack accumulation bug:
+    // Without clearing pendingContent, each flush would include all previous content
+    session.currentPostId = null;
+    session.pendingContent = 'Message 1';
+
+    await flush(session, registerPost);
+    expect(session.pendingContent).toBe('');
+
+    // Simulate new content being appended
+    session.pendingContent = 'Message 2';
+    await flush(session, registerPost);
+
+    // The second updatePost should only contain 'Message 2', not 'Message 1Message 2'
+    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 2');
+    expect(session.pendingContent).toBe('');
+
+    // Third message
+    session.pendingContent = 'Message 3';
+    await flush(session, registerPost);
+
+    // Should only contain 'Message 3'
+    expect(platform.updatePost).toHaveBeenLastCalledWith('post_1', 'Message 3');
+    expect(session.pendingContent).toBe('');
+  });
+
+  // Regression test: content added during async flush operation must be preserved
+  // This simulates the race condition where new events arrive while createPost/updatePost is in flight
+  test('preserves content added during async createPost operation', async () => {
+    session.currentPostId = null;
+    session.pendingContent = 'Initial content';
+
+    // Mock createPost to simulate async delay and content being added during that time
+    let resolveCreate: (post: any) => void;
+    const createPromise = new Promise<any>((resolve) => {
+      resolveCreate = resolve;
+    });
+    (platform.createPost as any).mockImplementationOnce(async () => {
+      // Simulate content being appended while we're awaiting createPost
+      session.pendingContent += 'Content added during async\n\n';
+      return createPromise;
+    });
+
+    // Start the flush (it will await createPost)
+    const flushPromise = flush(session, registerPost);
+
+    // Resolve the createPost
+    resolveCreate!({
+      id: 'async_post',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'bot',
+      message: 'Initial content',
+      rootId: 'thread1',
+      createAt: Date.now(),
+    });
+
+    await flushPromise;
+
+    // The content added during async should NOT be lost
+    // Only 'Initial content' was flushed, so 'Content added during async\n\n' should remain
+    expect(session.pendingContent).toBe('Content added during async\n\n');
+  });
+
+  test('preserves content added during async updatePost operation', async () => {
+    session.currentPostId = 'existing_post';
+    session.pendingContent = 'Update content';
+
+    // Mock updatePost to simulate async delay and content being added during that time
+    let resolveUpdate: (post: any) => void;
+    const updatePromise = new Promise<any>((resolve) => {
+      resolveUpdate = resolve;
+    });
+    (platform.updatePost as any).mockImplementationOnce(async () => {
+      // Simulate content being appended while we're awaiting updatePost
+      session.pendingContent += 'New event during update\n\n';
+      return updatePromise;
+    });
+
+    // Start the flush (it will await updatePost)
+    const flushPromise = flush(session, registerPost);
+
+    // Resolve the updatePost
+    resolveUpdate!({
+      id: 'existing_post',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'bot',
+      message: 'Update content',
+      rootId: '',
+      createAt: Date.now(),
+    });
+
+    await flushPromise;
+
+    // The content added during async should NOT be lost
+    // Only 'Update content' was flushed, so 'New event during update\n\n' should remain
+    expect(session.pendingContent).toBe('New event during update\n\n');
   });
 });
 

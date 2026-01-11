@@ -368,6 +368,30 @@ export function scheduleUpdate(session: Session, onFlush: (session: Session) => 
 }
 
 /**
+ * Clear flushed content from pendingContent, preserving any content added during the async flush.
+ *
+ * This is critical for avoiding race conditions: during async operations (createPost, updatePost),
+ * new content may be appended to pendingContent. We only want to clear what we actually posted,
+ * not content added during the async operation.
+ *
+ * @param session - The session to update
+ * @param flushedContent - The content that was captured at flush start and successfully posted
+ */
+export function clearFlushedContent(session: Session, flushedContent: string): void {
+  // If pendingContent still starts with exactly what we flushed, remove it
+  // This handles the case where new content was appended during the async operation
+  if (session.pendingContent.startsWith(flushedContent)) {
+    session.pendingContent = session.pendingContent.slice(flushedContent.length);
+  } else if (session.pendingContent === flushedContent) {
+    // Exact match - clear everything
+    session.pendingContent = '';
+  }
+  // If pendingContent doesn't start with flushedContent, something unexpected happened
+  // (e.g., pendingContent was completely replaced). In this case, don't clear anything
+  // to avoid data loss.
+}
+
+/**
  * Build message content for Claude, including images if present.
  * Returns either a string or an array of content blocks.
  *
@@ -657,10 +681,16 @@ export async function flush(
     return;  // No content to flush - silent return
   }
 
+  // Capture the pending content at the start of flush.
+  // This is critical: during async operations (createPost, updatePost), new content
+  // may be appended to pendingContent. We only want to clear what we actually posted,
+  // not content added during the async operation.
+  const pendingAtFlushStart = session.pendingContent;
+
   // Format markdown for the target platform
   // This converts standard markdown to the platform's native format
   const formatter = session.platform.getFormatter();
-  let content = formatter.formatMarkdown(session.pendingContent).trim();
+  let content = formatter.formatMarkdown(pendingAtFlushStart).trim();
 
   // Get platform-specific message size limits
   const { maxLength: MAX_POST_LENGTH, hardThreshold: HARD_CONTINUATION_THRESHOLD } =
@@ -820,6 +850,8 @@ export async function flush(
     const postId = session.currentPostId;
     try {
       await session.platform.updatePost(postId, content);
+      // Clear the flushed content, preserving any content added during the async operation
+      clearFlushedContent(session, pendingAtFlushStart);
     } catch {
       // Update failed - post may have been deleted. Clear the post ID
       // so the next flush will create a new post instead of retrying.
@@ -833,6 +865,8 @@ export async function flush(
     if (hasActiveTasks) {
       const postId = await bumpTasksToBottomWithContent(session, content, registerPost);
       session.currentPostId = postId;
+      // Clear the flushed content, preserving any content added during the async operation
+      clearFlushedContent(session, pendingAtFlushStart);
     } else {
       const post = await withErrorHandling(
         () => session.platform.createPost(content, session.threadId),
@@ -845,6 +879,8 @@ export async function flush(
         registerPost(post.id, session.threadId);
         // Track for jump-to-bottom links
         updateLastMessage(session, post);
+        // Clear the flushed content, preserving any content added during the async operation
+        clearFlushedContent(session, pendingAtFlushStart);
       }
     }
   }
