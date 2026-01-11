@@ -126,7 +126,12 @@ export async function getDefaultBranch(repoRoot: string): Promise<string> {
 
 /**
  * Check if a branch has been merged into the default branch (main/master)
- * Returns true if the branch's HEAD is an ancestor of the default branch
+ * Returns true if:
+ * 1. The branch has commits that were merged into the default branch, AND
+ * 2. The branch is not at the same commit as the default branch (i.e., it's not a fresh branch)
+ *
+ * This prevents accidentally deleting new branches that were just created from main
+ * but haven't had any commits yet.
  */
 export async function isBranchMerged(repoRoot: string, branchName: string): Promise<boolean> {
   try {
@@ -139,6 +144,16 @@ export async function isBranchMerged(repoRoot: string, branchName: string): Prom
 
     // Fetch to ensure we have latest refs (ignore errors - might be offline)
     await execGit(['fetch', 'origin', defaultBranch], repoRoot).catch(() => {});
+
+    // Get the commit hashes for both branches
+    const branchCommit = await execGit(['rev-parse', branchName], repoRoot);
+    const defaultCommit = await execGit(['rev-parse', `origin/${defaultBranch}`], repoRoot);
+
+    // If branch is at the same commit as default, it's a fresh branch - NOT merged
+    // This prevents deleting branches that were just created from main
+    if (branchCommit === defaultCommit) {
+      return false;
+    }
 
     // Check if branch commit is ancestor of default branch
     // merge-base --is-ancestor exits 0 if ancestor, 1 if not
