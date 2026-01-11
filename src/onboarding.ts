@@ -9,6 +9,7 @@ import {
   type SlackPlatformConfig,
 } from './config/migration.js';
 import { bold, dim, green } from './utils/colors.js';
+import { validateClaudeCli } from './claude/version-check.js';
 
 const onCancel = () => {
   console.log('');
@@ -48,9 +49,47 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log(dim('    2. Platform setup (Mattermost/Slack bot credentials)'));
   console.log(dim('    3. Credential validation and testing'));
   console.log('');
-  console.log(dim('  Prerequisites:'));
-  console.log(dim('    • Claude Code CLI installed and working (test: claude --version)'));
-  console.log(dim('    • Admin access to create bot accounts on your chat platform'));
+
+  // Validate Claude CLI before continuing
+  console.log(dim('  Checking prerequisites...'));
+  const claudeCheck = validateClaudeCli();
+
+  if (!claudeCheck.installed) {
+    console.log('');
+    console.log(dim('  ❌ Claude Code CLI not found'));
+    console.log('');
+    console.log(dim('  Install it with:'));
+    console.log(dim('    bun install -g @anthropic-ai/claude-code'));
+    console.log('');
+    console.log(dim('  Then run `claude-threads` again.'));
+    console.log('');
+    process.exit(1);
+  }
+
+  if (!claudeCheck.compatible) {
+    console.log('');
+    console.log(dim(`  ⚠️  Claude Code CLI ${claudeCheck.version} is not compatible`));
+    console.log('');
+    console.log(dim(`  Install a compatible version:`));
+    console.log(dim('    bun install -g @anthropic-ai/claude-code@2.0.76'));
+    console.log('');
+
+    const { continueAnyway } = await prompts({
+      type: 'confirm',
+      name: 'continueAnyway',
+      message: 'Continue anyway? (may not work correctly)',
+      initial: false,
+    }, { onCancel });
+
+    if (!continueAnyway) {
+      console.log('');
+      console.log(dim('  Setup cancelled.'));
+      process.exit(0);
+    }
+  } else {
+    console.log(dim(`  ✓ Claude Code CLI ${claudeCheck.version}`));
+  }
+
   console.log('');
   console.log(dim('  📖 Need help creating a bot? See: SETUP_GUIDE.md'));
   console.log(dim('  ⏱️  Estimated time: 10-15 minutes per platform'));
