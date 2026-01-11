@@ -364,9 +364,15 @@ function formatEvent(
     case 'result': {
       // Response complete - stop typing and start new post for next message
       ctx.ops.stopTyping(session);
-      ctx.ops.flush(session);
-      session.currentPostId = null;
-      session.pendingContent = '';
+      // Flush any remaining content. The flush() function handles clearing
+      // pendingContent via clearFlushedContent() after successful post.
+      // We also reset currentPostId, currentPostContent, and pendingContent after
+      // flush completes to ensure the next message starts fresh.
+      ctx.ops.flush(session).then(() => {
+        session.currentPostId = null;
+        session.currentPostContent = '';
+        session.pendingContent = '';
+      });
 
       // Mark as no longer processing and update UI
       session.isProcessing = false;
