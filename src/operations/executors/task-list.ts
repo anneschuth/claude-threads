@@ -220,6 +220,7 @@ export class TaskListExecutor {
 
   /**
    * Toggle minimized state.
+   * Public method for external toggle (e.g., from reaction handling).
    */
   async toggleMinimize(ctx: ExecutorContext): Promise<void> {
     if (!this.state.tasksPostId || !this.state.lastTasksContent) {

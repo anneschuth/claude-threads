@@ -102,6 +102,16 @@ export {
 export { transformEvent } from './transformer.js';
 export type { TransformContext } from './transformer.js';
 
+// Message manager
+export { MessageManager } from './message-manager.js';
+export type {
+  MessageManagerOptions,
+  QuestionCompleteCallback,
+  ApprovalCompleteCallback,
+  StatusUpdateCallback,
+  LifecycleCallback,
+} from './message-manager.js';
+
 // Executors
 export {
   ContentExecutor,
