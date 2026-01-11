@@ -430,7 +430,8 @@ async function main() {
     config.worktreeMode,
     undefined,  // sessionsPath - use default
     threadLogsEnabled,
-    threadLogsRetentionDays
+    threadLogsRetentionDays,
+    config.limits  // Resource limits (optional, has sensible defaults)
   );
 
   // Set reference for toggle callbacks

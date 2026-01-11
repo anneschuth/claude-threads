@@ -297,9 +297,27 @@ export function getSessionStatus(session: Session): SessionInfo['status'] {
 }
 
 // =============================================================================
-// Configuration Constants
+// Configuration Constants (Legacy - prefer using LimitsConfig from config/types.ts)
 // =============================================================================
 
-export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || '5', 10);
-export const SESSION_TIMEOUT_MS = parseInt(process.env.SESSION_TIMEOUT_MS || '1800000', 10); // 30 min
-export const SESSION_WARNING_MS = 5 * 60 * 1000; // Warn 5 minutes before timeout
+import { LIMITS_DEFAULTS } from '../config/types.js';
+
+/**
+ * @deprecated Use resolveLimits(config.limits).maxSessions instead
+ * Kept for backward compatibility with env var support
+ */
+export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || String(LIMITS_DEFAULTS.maxSessions), 10);
+
+/**
+ * @deprecated Use resolveLimits(config.limits).sessionTimeoutMinutes instead
+ * Kept for backward compatibility with env var support
+ */
+export const SESSION_TIMEOUT_MS = parseInt(
+  process.env.SESSION_TIMEOUT_MS || String(LIMITS_DEFAULTS.sessionTimeoutMinutes * 60 * 1000),
+  10
+);
+
+/**
+ * @deprecated Use resolveLimits(config.limits).sessionWarningMinutes instead
+ */
+export const SESSION_WARNING_MS = LIMITS_DEFAULTS.sessionWarningMinutes * 60 * 1000;

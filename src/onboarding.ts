@@ -5,10 +5,12 @@ import { fileURLToPath } from 'url';
 import {
   CONFIG_PATH,
   saveConfig,
+  LIMITS_DEFAULTS,
   type NewConfig,
   type PlatformInstanceConfig,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
+  type LimitsConfig,
 } from './config/migration.js';
 import { bold, dim, green } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
@@ -477,6 +479,7 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
     // Add new/done options
     choices.push(
       { title: '+ Add new platform', value: 'add-new' },
+      { title: '⚙️  Advanced settings', value: 'advanced', description: 'Timeouts, limits, cleanup' },
       { title: '✓ Done (save and exit)', value: 'done' }
     );
 
@@ -568,6 +571,10 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
 
       config.platforms.push(newPlatform);
       console.log(green(`  ✓ Added ${newPlatform.displayName}`));
+    } else if (action === 'advanced') {
+      // Configure advanced settings (limits, timeouts, cleanup)
+      config.limits = await configureAdvancedSettings(config.limits);
+      console.log(green('  ✓ Advanced settings updated'));
     } else if (action.startsWith('platform-')) {
       // Edit or remove existing platform
       const platformIndex = parseInt(action.replace('platform-', ''));
@@ -699,6 +706,116 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
     process.exit(0);
   }
 }
+
+// ============================================================================
+// Advanced Settings Configuration
+// ============================================================================
+
+async function configureAdvancedSettings(existing?: LimitsConfig): Promise<LimitsConfig> {
+  console.log('');
+  console.log(bold('  Advanced Settings'));
+  console.log(dim('  ─────────────────────────────────────────────────────'));
+  console.log('');
+  console.log(dim('  These settings have sensible defaults. Only change if needed.'));
+  console.log(dim('  Press Enter to keep current/default values.'));
+  console.log('');
+
+  const responses = await prompts([
+    {
+      type: 'number',
+      name: 'maxSessions',
+      message: 'Max concurrent sessions',
+      initial: existing?.maxSessions ?? LIMITS_DEFAULTS.maxSessions,
+      min: 1,
+      max: 50,
+      hint: `default: ${LIMITS_DEFAULTS.maxSessions}`,
+    },
+    {
+      type: 'number',
+      name: 'sessionTimeoutMinutes',
+      message: 'Session idle timeout (minutes)',
+      initial: existing?.sessionTimeoutMinutes ?? LIMITS_DEFAULTS.sessionTimeoutMinutes,
+      min: 1,
+      max: 1440, // 24 hours
+      hint: `default: ${LIMITS_DEFAULTS.sessionTimeoutMinutes}`,
+    },
+    {
+      type: 'number',
+      name: 'sessionWarningMinutes',
+      message: 'Warn before timeout (minutes)',
+      initial: existing?.sessionWarningMinutes ?? LIMITS_DEFAULTS.sessionWarningMinutes,
+      min: 1,
+      max: 30,
+      hint: `default: ${LIMITS_DEFAULTS.sessionWarningMinutes}`,
+    },
+    {
+      type: 'number',
+      name: 'cleanupIntervalMinutes',
+      message: 'Cleanup interval (minutes)',
+      initial: existing?.cleanupIntervalMinutes ?? LIMITS_DEFAULTS.cleanupIntervalMinutes,
+      min: 5,
+      max: 1440,
+      hint: `default: ${LIMITS_DEFAULTS.cleanupIntervalMinutes}`,
+    },
+    {
+      type: 'confirm',
+      name: 'cleanupWorktrees',
+      message: 'Auto-cleanup orphaned worktrees?',
+      initial: existing?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
+      hint: `default: ${LIMITS_DEFAULTS.cleanupWorktrees ? 'yes' : 'no'}`,
+    },
+    {
+      type: 'number',
+      name: 'maxWorktreeAgeHours',
+      message: 'Max worktree age before cleanup (hours)',
+      initial: existing?.maxWorktreeAgeHours ?? LIMITS_DEFAULTS.maxWorktreeAgeHours,
+      min: 1,
+      max: 168, // 1 week
+      hint: `default: ${LIMITS_DEFAULTS.maxWorktreeAgeHours}`,
+    },
+    {
+      type: 'number',
+      name: 'permissionTimeoutSeconds',
+      message: 'Permission approval timeout (seconds)',
+      initial: existing?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
+      min: 30,
+      max: 600,
+      hint: `default: ${LIMITS_DEFAULTS.permissionTimeoutSeconds}`,
+    },
+  ], { onCancel });
+
+  // Build limits object, only including values that differ from defaults
+  const limits: LimitsConfig = {};
+
+  if (responses.maxSessions !== LIMITS_DEFAULTS.maxSessions) {
+    limits.maxSessions = responses.maxSessions;
+  }
+  if (responses.sessionTimeoutMinutes !== LIMITS_DEFAULTS.sessionTimeoutMinutes) {
+    limits.sessionTimeoutMinutes = responses.sessionTimeoutMinutes;
+  }
+  if (responses.sessionWarningMinutes !== LIMITS_DEFAULTS.sessionWarningMinutes) {
+    limits.sessionWarningMinutes = responses.sessionWarningMinutes;
+  }
+  if (responses.cleanupIntervalMinutes !== LIMITS_DEFAULTS.cleanupIntervalMinutes) {
+    limits.cleanupIntervalMinutes = responses.cleanupIntervalMinutes;
+  }
+  if (responses.cleanupWorktrees !== LIMITS_DEFAULTS.cleanupWorktrees) {
+    limits.cleanupWorktrees = responses.cleanupWorktrees;
+  }
+  if (responses.maxWorktreeAgeHours !== LIMITS_DEFAULTS.maxWorktreeAgeHours) {
+    limits.maxWorktreeAgeHours = responses.maxWorktreeAgeHours;
+  }
+  if (responses.permissionTimeoutSeconds !== LIMITS_DEFAULTS.permissionTimeoutSeconds) {
+    limits.permissionTimeoutSeconds = responses.permissionTimeoutSeconds;
+  }
+
+  // Return undefined if all defaults (keeps config clean)
+  return Object.keys(limits).length > 0 ? limits : undefined as unknown as LimitsConfig;
+}
+
+// ============================================================================
+// Platform Setup Functions
+// ============================================================================
 
 async function setupMattermostPlatform(
   id: string,
