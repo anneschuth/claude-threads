@@ -295,7 +295,7 @@ async function setupMattermostPlatform(
       name: 'allowedUsers',
       message: 'Allowed usernames (optional)',
       initial: existingMattermost?.allowedUsers?.join(',') || '',
-      hint: 'Comma-separated (e.g., alice,bob) or empty for everyone',
+      hint: 'Comma-separated (e.g., alice,bob) - leave empty to allow ANYONE (⚠️ security risk)',
     },
     {
       type: 'confirm',
@@ -312,6 +312,28 @@ async function setupMattermostPlatform(
     console.log('');
     console.log(dim('  ⚠️  Token is required. Setup cancelled.'));
     process.exit(1);
+  }
+
+  // Warn if allowedUsers is empty (security risk)
+  if (!response.allowedUsers || response.allowedUsers.trim() === '') {
+    console.log('');
+    console.log(dim('  ⚠️  No user restrictions configured!'));
+    console.log(dim('     Anyone in the channel can use the bot.'));
+    console.log('');
+
+    const { confirmOpen } = await prompts({
+      type: 'confirm',
+      name: 'confirmOpen',
+      message: 'Allow ANYONE in the channel to use the bot?',
+      initial: false,
+    }, { onCancel });
+
+    if (!confirmOpen) {
+      console.log('');
+      console.log(dim('  Setup cancelled. Please specify allowed usernames.'));
+      console.log(dim('  Run `claude-threads --reconfigure` to try again.'));
+      process.exit(1);
+    }
   }
 
   // Validate credentials
@@ -607,7 +629,7 @@ async function setupSlackPlatform(
       name: 'allowedUsers',
       message: 'Allowed usernames (optional)',
       initial: existingSlack?.allowedUsers?.join(',') || '',
-      hint: 'Slack usernames (not display names), comma-separated, or empty for everyone',
+      hint: 'Slack usernames (comma-separated) - leave empty to allow ANYONE (⚠️ security risk)',
     },
     {
       type: 'confirm',
@@ -626,6 +648,28 @@ async function setupSlackPlatform(
     console.log('');
     console.log(dim('  ⚠️  Both tokens are required. Setup cancelled.'));
     process.exit(1);
+  }
+
+  // Warn if allowedUsers is empty (security risk)
+  if (!response.allowedUsers || response.allowedUsers.trim() === '') {
+    console.log('');
+    console.log(dim('  ⚠️  No user restrictions configured!'));
+    console.log(dim('     Anyone in the channel can use the bot.'));
+    console.log('');
+
+    const { confirmOpen } = await prompts({
+      type: 'confirm',
+      name: 'confirmOpen',
+      message: 'Allow ANYONE in the channel to use the bot?',
+      initial: false,
+    }, { onCancel });
+
+    if (!confirmOpen) {
+      console.log('');
+      console.log(dim('  Setup cancelled. Please specify allowed usernames.'));
+      console.log(dim('  Run `claude-threads --reconfigure` to try again.'));
+      process.exit(1);
+    }
   }
 
   // Validate credentials
