@@ -613,3 +613,244 @@ describe('validateSlackCredentials', () => {
     });
   });
 });
+
+describe('ValidationResult interface', () => {
+  test('successful validation has expected shape', async () => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes('/users/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ username: 'test-bot' }),
+        } as Response);
+      }
+      if (url.includes('/channels/')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ display_name: 'Test Channel' }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    });
+
+    const result = await validateMattermostCredentials(
+      'https://test.example.com',
+      'valid-token',
+      'channel123'
+    );
+
+    // Verify all expected properties exist
+    expect(result).toHaveProperty('success');
+    expect(result).toHaveProperty('botUsername');
+    expect(result).toHaveProperty('channelName');
+    expect(typeof result.success).toBe('boolean');
+    expect(typeof result.botUsername).toBe('string');
+    expect(typeof result.channelName).toBe('string');
+  });
+
+  test('failed validation has error property', async () => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock(() =>
+      Promise.resolve({
+        ok: false,
+        status: 401,
+        text: () => Promise.resolve('Unauthorized'),
+      } as Response)
+    );
+
+    const result = await validateMattermostCredentials(
+      'https://test.example.com',
+      'bad-token',
+      'channel123'
+    );
+
+    expect(result).toHaveProperty('success', false);
+    expect(result).toHaveProperty('error');
+    expect(typeof result.error).toBe('string');
+    expect(result.botUsername).toBeUndefined();
+    expect(result.channelName).toBeUndefined();
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+});
+
+describe('deriveDisplayName additional edge cases', () => {
+  test('handles IP address URL', () => {
+    expect(deriveDisplayName('https://192.168.1.100:8065')).toBe('192');
+  });
+
+  test('handles localhost', () => {
+    expect(deriveDisplayName('http://localhost:8065')).toBe('Localhost');
+  });
+
+  test('handles very long subdomain', () => {
+    const result = deriveDisplayName('https://very-long-subdomain-with-many-parts.example.com');
+    expect(result).toBe('Very Long Subdomain With Many Parts');
+  });
+
+  test('handles numbers in subdomain', () => {
+    expect(deriveDisplayName('https://team123.mattermost.com')).toBe('Team123');
+  });
+
+  test('handles single character subdomain', () => {
+    expect(deriveDisplayName('https://a.example.com')).toBe('A');
+  });
+});
+
+describe('validateMattermostCredentials URL handling', () => {
+  beforeEach(() => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock(() => Promise.resolve({ ok: true }));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('constructs correct API endpoints', async () => {
+    const fetchCalls: string[] = [];
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock((url: string) => {
+      fetchCalls.push(url);
+      if (url.includes('/users/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ username: 'bot' }),
+        } as Response);
+      }
+      if (url.includes('/channels/')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ name: 'channel' }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    });
+
+    await validateMattermostCredentials(
+      'https://chat.example.com',
+      'token123',
+      'abc123'
+    );
+
+    expect(fetchCalls).toContain('https://chat.example.com/api/v4/users/me');
+    expect(fetchCalls).toContain('https://chat.example.com/api/v4/channels/abc123');
+  });
+
+  test('handles URL with trailing slash', async () => {
+    const fetchCalls: string[] = [];
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock((url: string) => {
+      fetchCalls.push(url);
+      if (url.includes('/users/me')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ username: 'bot' }),
+        } as Response);
+      }
+      if (url.includes('/channels/')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ name: 'channel' }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    });
+
+    // Note: URL has trailing slash
+    await validateMattermostCredentials(
+      'https://chat.example.com/',
+      'token123',
+      'abc123'
+    );
+
+    // Should still make valid requests (may have double slash but should work)
+    expect(fetchCalls.length).toBe(2);
+  });
+});
+
+describe('validateSlackCredentials token validation', () => {
+  beforeEach(() => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock(() => Promise.resolve({ ok: true }));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  test('validates both xoxb and xapp token prefixes', async () => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes('auth.test')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ok: true,
+              user: 'bot',
+              team: 'Team',
+            }),
+        } as Response);
+      }
+      if (url.includes('conversations.info')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    });
+
+    // Valid tokens
+    const validResult = await validateSlackCredentials(
+      'xoxb-valid-token',
+      'xapp-valid-token',
+      'C12345'
+    );
+    expect(validResult.success).toBe(true);
+
+    // Invalid app token prefix
+    const invalidAppToken = await validateSlackCredentials(
+      'xoxb-valid-token',
+      'xoxa-wrong-prefix',
+      'C12345'
+    );
+    expect(invalidAppToken.success).toBe(false);
+    expect(invalidAppToken.error).toContain('xapp-');
+  });
+
+  test('handles channel starting with G for private channels', async () => {
+    // @ts-expect-error - Mock does not need full fetch type
+    globalThis.fetch = mock((url: string) => {
+      if (url.includes('auth.test')) {
+        return Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              ok: true,
+              user: 'bot',
+              team: 'Team',
+            }),
+        } as Response);
+      }
+      if (url.includes('conversations.info')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ ok: true }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: false, status: 404 } as Response);
+    });
+
+    // G prefix for private channels
+    const result = await validateSlackCredentials(
+      'xoxb-valid-token',
+      'xapp-valid-token',
+      'G0123456789'
+    );
+    expect(result.success).toBe(true);
+  });
+});

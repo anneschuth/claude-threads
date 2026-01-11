@@ -156,6 +156,8 @@ settings:
         }
         console.log(dim('  ───────────────────────────────────────'));
       }
+    } else {
+      console.log(dim('  📖 See SETUP_GUIDE.md for the full manifest and manual setup instructions.'));
     }
     console.log('');
   }
