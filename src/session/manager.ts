@@ -566,8 +566,8 @@ export class SessionManager extends EventEmitter {
 
     // Handle subagent toggle reactions (minimize/expand) - state-based on both add and remove
     // Uses same emoji as task toggle (🔽)
-    if (isMinimizeToggleEmoji(emojiName)) {
-      const handled = await events.handleSubagentToggleReaction(session, postId, action);
+    if (isMinimizeToggleEmoji(emojiName) && session.messageManager) {
+      const handled = await session.messageManager.handleSubagentToggle(postId, action);
       if (handled) return;
     }
 

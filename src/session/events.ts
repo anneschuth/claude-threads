@@ -2,17 +2,16 @@
  * Claude event handling module
  *
  * Handles pre/post processing of Claude events, session-specific side effects,
- * and specialized features like compaction handling and subagent toggle reactions.
+ * and specialized features like compaction handling.
  *
  * NOTE: Main event handling (formatting, tool handling) is done by MessageManager.
  * This module handles session-specific side effects that wrap MessageManager.
  */
 
-import type { Session, SessionUsageStats, ModelTokenUsage, ActiveSubagent } from './types.js';
+import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
 import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { shortenPath } from '../operations/index.js';
-import { formatDuration } from '../utils/format.js';
 import { withErrorHandling } from './error-handler.js';
 import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
 import type { SessionContext } from './context.js';
@@ -246,110 +245,6 @@ export function handleEventPostProcessing(
     }
   }
 
-  // Handle user events for subagent completion tracking
-  if (event.type === 'user') {
-    const msg = event.message as {
-      content?: Array<{ type: string; tool_use_id?: string }>;
-    };
-    for (const block of msg?.content || []) {
-      if (block.type === 'tool_result' && block.tool_use_id) {
-        const subagent = session.activeSubagents.get(block.tool_use_id);
-        if (subagent) {
-          handleTaskComplete(session, block.tool_use_id, subagent.postId);
-        }
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Subagent display helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Format a subagent post with elapsed time and collapsible prompt.
- */
-function formatSubagentPost(
-  session: Session,
-  subagent: ActiveSubagent
-): string {
-  const formatter = session.platform.getFormatter();
-  const elapsed = formatDuration(Date.now() - subagent.startTime);
-
-  // Header with elapsed time
-  let header = `🤖 ${formatter.formatBold('Subagent')} ${formatter.formatItalic(`(${subagent.subagentType})`)}`;
-  header += subagent.isComplete ? ` ✅ ${elapsed}` : ` ⏳ ${elapsed}`;
-
-  if (subagent.isMinimized) {
-    return `${header} 🔽`;
-  }
-
-  // Expanded: show prompt
-  return `${header}\n📋 ${formatter.formatBold('Prompt:')}\n${formatter.formatBlockquote(subagent.description)}\n🔽`;
-}
-
-/**
- * Handle Task (subagent) completion - update status message with final elapsed time.
- */
-async function handleTaskComplete(
-  session: Session,
-  toolUseId: string,
-  _postId: string  // Unused - we get postId from the subagent metadata
-): Promise<void> {
-  const subagent = session.activeSubagents.get(toolUseId);
-  if (!subagent) {
-    // Fallback for old-style string entries (shouldn't happen after migration)
-    return;
-  }
-
-  // Mark as complete and update the post with final elapsed time
-  subagent.isComplete = true;
-  const message = formatSubagentPost(session, subagent);
-
-  await withErrorHandling(
-    () => session.platform.updatePost(subagent.postId, message),
-    { action: 'Update subagent completion', session }
-  );
-
-  // Note: We don't delete from activeSubagents immediately so toggle still works
-  // The entry will be cleaned up when the session ends
-}
-
-/**
- * Handle a reaction on a subagent post to minimize/expand.
- * State-based: user adds their reaction = minimized, user removes = expanded.
- * Returns true if the toggle was handled, false otherwise.
- */
-export async function handleSubagentToggleReaction(
-  session: Session,
-  postId: string,
-  action: 'added' | 'removed'
-): Promise<boolean> {
-  // Find the subagent by postId
-  for (const [_toolUseId, subagent] of session.activeSubagents) {
-    if (subagent.postId === postId) {
-      // State-based: user adds reaction = minimize, user removes = expand
-      const shouldMinimize = action === 'added';
-
-      // Skip if already in desired state
-      if (subagent.isMinimized === shouldMinimize) {
-        return true;
-      }
-
-      subagent.isMinimized = shouldMinimize;
-      sessionLog(session).debug(`🔽 Subagent ${subagent.isMinimized ? 'minimized' : 'expanded'} (user ${action} reaction)`);
-
-      // Update the post with new state
-      const message = formatSubagentPost(session, subagent);
-      await withErrorHandling(
-        () => session.platform.updatePost(postId, message),
-        { action: 'Update subagent toggle', session }
-      );
-
-      return true;
-    }
-  }
-  return false;
 }
 
 // ---------------------------------------------------------------------------

@@ -59,7 +59,7 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
 }
 
 /**
- * Clean up session timers (updateTimer, statusBarTimer, subagentUpdateTimer).
+ * Clean up session timers (updateTimer, statusBarTimer).
  * Call this before removing a session from the map.
  */
 function cleanupSessionTimers(session: Session): void {
@@ -70,10 +70,6 @@ function cleanupSessionTimers(session: Session): void {
   if (session.statusBarTimer) {
     clearInterval(session.statusBarTimer);
     session.statusBarTimer = null;
-  }
-  if (session.subagentUpdateTimer) {
-    clearInterval(session.subagentUpdateTimer);
-    session.subagentUpdateTimer = null;
   }
 }
 
@@ -458,10 +454,8 @@ export async function startSession(
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,
@@ -679,10 +673,8 @@ export async function resumeSession(
     lastTasksContent: state.lastTasksContent ?? null,
     tasksCompleted: state.tasksCompleted ?? false,
     tasksMinimized: state.tasksMinimized ?? false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,

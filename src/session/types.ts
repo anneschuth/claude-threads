@@ -120,19 +120,6 @@ export interface PendingUpdatePrompt {
   postId: string;
 }
 
-/**
- * Active subagent tracking with extended metadata for display
- */
-export interface ActiveSubagent {
-  postId: string;           // Post ID in chat
-  startTime: number;        // Date.now() when started
-  description: string;      // Full prompt text
-  subagentType: string;     // 'general-purpose', 'Explore', etc.
-  isMinimized: boolean;     // Toggle state (like tasksMinimized)
-  isComplete: boolean;      // True when subagent has finished
-  lastUpdateTime: number;   // Last time we updated the post (for debouncing)
-}
-
 // =============================================================================
 // Session Type
 // =============================================================================
@@ -185,12 +172,10 @@ export interface Session {
   lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
   tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
   tasksMinimized: boolean;  // True when task list is minimized (show only progress)
-  activeSubagents: Map<string, ActiveSubagent>;  // toolUseId -> subagent metadata
 
   // Timers (per-session)
   updateTimer: ReturnType<typeof setTimeout> | null;
   typingTimer: ReturnType<typeof setInterval> | null;
-  subagentUpdateTimer: ReturnType<typeof setInterval> | null;  // For updating elapsed time
 
   // Timeout warning state
   timeoutWarningPosted: boolean;

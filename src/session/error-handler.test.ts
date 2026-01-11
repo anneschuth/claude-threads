@@ -63,12 +63,10 @@ function createMockSession(): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    activeSubagents: new Map(),
 
     // Timers
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
 
     // Flags
     timeoutWarningPosted: false,

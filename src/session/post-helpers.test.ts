@@ -68,7 +68,6 @@ function createMockSession(overrides?: Partial<{
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    activeSubagents: new Map(),
     isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',

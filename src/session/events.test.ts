@@ -10,7 +10,6 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
   handleEventPreProcessing,
   handleEventPostProcessing,
-  handleSubagentToggleReaction,
   postCurrentQuestion,
 } from './events.js';
 import type { SessionContext } from './context.js';
@@ -115,10 +114,8 @@ function createTestSession(platform: PlatformClient): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    activeSubagents: new Map(),
     updateTimer: null,
     typingTimer: null,
-    subagentUpdateTimer: null,
     timeoutWarningPosted: false,
     isRestarting: false,
     isCancelled: false,
@@ -282,111 +279,8 @@ describe('handleEventPostProcessing', () => {
     expect(session.pullRequestUrl).toBe('https://github.com/user/repo/pull/100');
   });
 
-  test('tracks subagent completion from user tool_result event', async () => {
-    // Set up a subagent
-    session.activeSubagents.set('task_1', {
-      postId: 'subagent_post_1',
-      startTime: Date.now() - 5000,
-      description: 'Test task',
-      subagentType: 'Explore',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    });
-
-    const event = {
-      type: 'user' as const,
-      message: {
-        content: [{
-          type: 'tool_result',
-          tool_use_id: 'task_1',
-          content: 'Done',
-        }],
-      },
-    };
-
-    handleEventPostProcessing(session, event, ctx);
-
-    // Wait for async
-    await new Promise(resolve => setTimeout(resolve, 10));
-
-    const subagent = session.activeSubagents.get('task_1');
-    expect(subagent?.isComplete).toBe(true);
-  });
-});
-
-describe('handleSubagentToggleReaction', () => {
-  let platform: PlatformClient;
-  let session: Session;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-
-    // Set up a subagent in the session
-    session.activeSubagents.set('task_1', {
-      postId: 'subagent_post_1',
-      startTime: Date.now() - 5000,
-      description: 'Test prompt for subagent',
-      subagentType: 'general-purpose',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    });
-  });
-
-  test('returns false for non-subagent post', async () => {
-    const result = await handleSubagentToggleReaction(session, 'other_post', 'added');
-    expect(result).toBe(false);
-  });
-
-  test('minimizes subagent on reaction added', async () => {
-    const subagent = session.activeSubagents.get('task_1')!;
-    expect(subagent.isMinimized).toBe(false);
-
-    const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
-
-    expect(result).toBe(true);
-    expect(subagent.isMinimized).toBe(true);
-    expect(platform.updatePost).toHaveBeenCalled();
-  });
-
-  test('expands subagent on reaction removed', async () => {
-    const subagent = session.activeSubagents.get('task_1')!;
-    subagent.isMinimized = true;
-
-    const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'removed');
-
-    expect(result).toBe(true);
-    expect(subagent.isMinimized).toBe(false);
-    expect(platform.updatePost).toHaveBeenCalled();
-  });
-
-  test('skips update if already in desired state', async () => {
-    const subagent = session.activeSubagents.get('task_1')!;
-    subagent.isMinimized = true;
-
-    const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
-
-    expect(result).toBe(true);
-    // Should not call updatePost since state didn't change
-    expect(platform.updatePost).not.toHaveBeenCalled();
-  });
-
-  test('works on completed subagent', async () => {
-    const subagent = session.activeSubagents.get('task_1')!;
-    subagent.isComplete = true;
-    subagent.isMinimized = false;
-
-    const result = await handleSubagentToggleReaction(session, 'subagent_post_1', 'added');
-
-    expect(result).toBe(true);
-    expect(subagent.isMinimized).toBe(true);
-    // Update should include completion indicator
-    expect(platform.updatePost).toHaveBeenCalled();
-    const updateCall = (platform.updatePost as any).mock.calls[0];
-    expect(updateCall[1]).toContain('✅');
-  });
+  // NOTE: Subagent toggle reaction tests have been moved to subagent.test.ts
+  // since that functionality is now handled by SubagentExecutor via MessageManager
 });
 
 describe('postCurrentQuestion', () => {

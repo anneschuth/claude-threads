@@ -70,7 +70,6 @@ function createMockSession(overrides?: Partial<Session>): Session {
     sessionNumber: 1,
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    activeSubagents: new Map(),
     isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
