@@ -411,8 +411,9 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   saveConfig(config);
 
   console.log('');
-  console.log(green('  ✓ Configuration saved!'));
+  console.log(green('  ✓ Configuration saved securely!'));
   console.log(dim(`    ${CONFIG_PATH}`));
+  console.log(dim('    (file permissions set to owner-only for token security)'));
   console.log('');
   console.log(bold('  🎉 Setup complete!'));
   console.log('');
@@ -626,8 +627,9 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
   saveConfig(config);
 
   console.log('');
-  console.log(green('  ✓ Configuration updated!'));
+  console.log(green('  ✓ Configuration updated securely!'));
   console.log(dim(`    ${CONFIG_PATH}`));
+  console.log(dim('    (file permissions set to owner-only for token security)'));
   console.log('');
   console.log(dim('  Restart claude-threads to apply changes.'));
   console.log('');
