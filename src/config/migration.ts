@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
 import { resolve, dirname } from 'path';
 import { homedir } from 'os';
+import yaml from 'js-yaml';
 
 // Re-export all types from types.ts for backward compatibility
 export type {
@@ -52,7 +53,14 @@ export function saveConfig(config: Config, path: string = CONFIG_PATH): void {
   if (!existsSync(configDir)) {
     mkdirSync(configDir, { recursive: true, mode: 0o700 });
   }
-  writeFileSync(path, Bun.YAML.stringify(config), { encoding: 'utf-8', mode: 0o600 });
+  // Use js-yaml with block style for readable YAML output
+  const yamlContent = yaml.dump(config, {
+    indent: 2,
+    lineWidth: 120,
+    noRefs: true,
+    sortKeys: false,
+  });
+  writeFileSync(path, yamlContent, { encoding: 'utf-8', mode: 0o600 });
 
   // Also fix permissions on existing files (in case they were created with wrong permissions)
   try {

@@ -70,6 +70,7 @@
     "diff": "^8.0.2",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
+    "js-yaml": "^4.1.1",
     "prompts": "^2.4.2",
     "react": "^19.2.3",
     "react-devtools-core": "^7.0.1",
@@ -79,8 +80,8 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
-    "prettier": "^3.4.2",
     "@types/bun": "latest",
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.0.3",
     "@types/prompts": "^2.4.9",
     "@types/react": "^19.2.7",
@@ -89,6 +90,7 @@
     "eslint": "^9.39.2",
     "husky": "^9.1.7",
     "lint-staged": "^16.2.7",
+    "prettier": "^3.4.2",
     "typescript": "^5.7.2",
     "typescript-eslint": "^8.50.1"
   },
