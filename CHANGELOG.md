@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.60.0] - 2026-01-11
+
+### Added
+- **Background cleanup scheduler** - Log cleanup and orphan worktree cleanup now run in the background (every hour) instead of blocking startup (#191)
+- **Session monitor class** - Idle session timeout check and sticky refresh now use a proper class with start/stop interface (#191)
+
+### Improved
+- **Faster bot startup** - Cleanup tasks run fire-and-forget instead of blocking initialization (#191)
+- **Consistent background task interface** - Both `SessionMonitor` and `CleanupScheduler` have matching `start()`/`stop()` methods (#191)
+- **Better naming** - Renamed `cleanupTimer` to `sessionMonitor` for clarity (#191)
+
 ## [0.59.0] - 2026-01-11
 
 ### Added
