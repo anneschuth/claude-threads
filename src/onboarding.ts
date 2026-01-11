@@ -479,7 +479,7 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
     // Add new/done options
     choices.push(
       { title: '+ Add new platform', value: 'add-new' },
-      { title: '⚙️  Advanced settings', value: 'advanced', description: 'Timeouts, limits, cleanup' },
+      { title: '⚙️ Advanced settings', value: 'advanced', description: 'Timeouts, limits, cleanup' },
       { title: '✓ Done (save and exit)', value: 'done' }
     );
 
@@ -572,8 +572,32 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
       config.platforms.push(newPlatform);
       console.log(green(`  ✓ Added ${newPlatform.displayName}`));
     } else if (action === 'advanced') {
-      // Configure advanced settings (limits, timeouts, cleanup)
-      config.limits = await configureAdvancedSettings(config.limits);
+      // Configure advanced settings (limits, timeouts, cleanup, thread logs)
+      const advancedResult = await configureAdvancedSettings({
+        limits: config.limits,
+        threadLogsEnabled: config.threadLogs?.enabled,
+        threadLogsRetentionDays: config.threadLogs?.retentionDays,
+      });
+
+      // Update limits
+      config.limits = advancedResult.limits;
+
+      // Update threadLogs (only if non-default values)
+      if (advancedResult.threadLogsEnabled === false || advancedResult.threadLogsRetentionDays !== undefined) {
+        config.threadLogs = {
+          ...config.threadLogs,
+          enabled: advancedResult.threadLogsEnabled ?? config.threadLogs?.enabled,
+          retentionDays: advancedResult.threadLogsRetentionDays ?? config.threadLogs?.retentionDays,
+        };
+        // Clean up undefined values
+        if (config.threadLogs.enabled === undefined) delete config.threadLogs.enabled;
+        if (config.threadLogs.retentionDays === undefined) delete config.threadLogs.retentionDays;
+        // Remove section if empty
+        if (Object.keys(config.threadLogs).length === 0) {
+          delete config.threadLogs;
+        }
+      }
+
       console.log(green('  ✓ Advanced settings updated'));
     } else if (action.startsWith('platform-')) {
       // Edit or remove existing platform
@@ -711,7 +735,19 @@ async function showConfigSummary(config: NewConfig): Promise<void> {
 // Advanced Settings Configuration
 // ============================================================================
 
-async function configureAdvancedSettings(existing?: LimitsConfig): Promise<LimitsConfig> {
+interface AdvancedSettingsInput {
+  limits?: LimitsConfig;
+  threadLogsEnabled?: boolean;
+  threadLogsRetentionDays?: number;
+}
+
+interface AdvancedSettingsOutput {
+  limits?: LimitsConfig;
+  threadLogsEnabled?: boolean;
+  threadLogsRetentionDays?: number;
+}
+
+async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promise<AdvancedSettingsOutput> {
   console.log('');
   console.log(bold('  Advanced Settings'));
   console.log(dim('  ─────────────────────────────────────────────────────'));
@@ -720,12 +756,14 @@ async function configureAdvancedSettings(existing?: LimitsConfig): Promise<Limit
   console.log(dim('  Press Enter to keep current/default values.'));
   console.log('');
 
-  const responses = await prompts([
+  // Session settings
+  console.log(dim('  Session Limits:'));
+  const sessionSettings = await prompts([
     {
       type: 'number',
       name: 'maxSessions',
       message: 'Max concurrent sessions',
-      initial: existing?.maxSessions ?? LIMITS_DEFAULTS.maxSessions,
+      initial: existing.limits?.maxSessions ?? LIMITS_DEFAULTS.maxSessions,
       min: 1,
       max: 50,
       hint: `default: ${LIMITS_DEFAULTS.maxSessions}`,
@@ -734,25 +772,40 @@ async function configureAdvancedSettings(existing?: LimitsConfig): Promise<Limit
       type: 'number',
       name: 'sessionTimeoutMinutes',
       message: 'Session idle timeout (minutes)',
-      initial: existing?.sessionTimeoutMinutes ?? LIMITS_DEFAULTS.sessionTimeoutMinutes,
+      initial: existing.limits?.sessionTimeoutMinutes ?? LIMITS_DEFAULTS.sessionTimeoutMinutes,
       min: 1,
-      max: 1440, // 24 hours
+      max: 1440,
       hint: `default: ${LIMITS_DEFAULTS.sessionTimeoutMinutes}`,
     },
     {
       type: 'number',
       name: 'sessionWarningMinutes',
       message: 'Warn before timeout (minutes)',
-      initial: existing?.sessionWarningMinutes ?? LIMITS_DEFAULTS.sessionWarningMinutes,
+      initial: existing.limits?.sessionWarningMinutes ?? LIMITS_DEFAULTS.sessionWarningMinutes,
       min: 1,
       max: 30,
       hint: `default: ${LIMITS_DEFAULTS.sessionWarningMinutes}`,
     },
     {
       type: 'number',
+      name: 'permissionTimeoutSeconds',
+      message: 'Permission approval timeout (seconds)',
+      initial: existing.limits?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
+      min: 30,
+      max: 600,
+      hint: `default: ${LIMITS_DEFAULTS.permissionTimeoutSeconds}`,
+    },
+  ], { onCancel });
+
+  // Cleanup settings
+  console.log('');
+  console.log(dim('  Cleanup Settings:'));
+  const cleanupSettings = await prompts([
+    {
+      type: 'number',
       name: 'cleanupIntervalMinutes',
-      message: 'Cleanup interval (minutes)',
-      initial: existing?.cleanupIntervalMinutes ?? LIMITS_DEFAULTS.cleanupIntervalMinutes,
+      message: 'Background cleanup interval (minutes)',
+      initial: existing.limits?.cleanupIntervalMinutes ?? LIMITS_DEFAULTS.cleanupIntervalMinutes,
       min: 5,
       max: 1440,
       hint: `default: ${LIMITS_DEFAULTS.cleanupIntervalMinutes}`,
@@ -761,56 +814,69 @@ async function configureAdvancedSettings(existing?: LimitsConfig): Promise<Limit
       type: 'confirm',
       name: 'cleanupWorktrees',
       message: 'Auto-cleanup orphaned worktrees?',
-      initial: existing?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
+      initial: existing.limits?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
       hint: `default: ${LIMITS_DEFAULTS.cleanupWorktrees ? 'yes' : 'no'}`,
     },
     {
-      type: 'number',
+      type: (prev) => prev === true ? 'number' : null,
       name: 'maxWorktreeAgeHours',
       message: 'Max worktree age before cleanup (hours)',
-      initial: existing?.maxWorktreeAgeHours ?? LIMITS_DEFAULTS.maxWorktreeAgeHours,
+      initial: existing.limits?.maxWorktreeAgeHours ?? LIMITS_DEFAULTS.maxWorktreeAgeHours,
       min: 1,
-      max: 168, // 1 week
+      max: 168,
       hint: `default: ${LIMITS_DEFAULTS.maxWorktreeAgeHours}`,
     },
     {
-      type: 'number',
-      name: 'permissionTimeoutSeconds',
-      message: 'Permission approval timeout (seconds)',
-      initial: existing?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
-      min: 30,
-      max: 600,
-      hint: `default: ${LIMITS_DEFAULTS.permissionTimeoutSeconds}`,
+      type: 'confirm',
+      name: 'threadLogsEnabled',
+      message: 'Enable thread logging?',
+      initial: existing.threadLogsEnabled ?? true,
+      hint: 'Logs conversation history to disk',
+    },
+    {
+      type: (prev) => prev === true ? 'number' : null,
+      name: 'threadLogsRetentionDays',
+      message: 'Log retention (days)',
+      initial: existing.threadLogsRetentionDays ?? 30,
+      min: 1,
+      max: 365,
+      hint: 'default: 30',
     },
   ], { onCancel });
 
   // Build limits object, only including values that differ from defaults
   const limits: LimitsConfig = {};
 
-  if (responses.maxSessions !== LIMITS_DEFAULTS.maxSessions) {
-    limits.maxSessions = responses.maxSessions;
+  if (sessionSettings.maxSessions !== LIMITS_DEFAULTS.maxSessions) {
+    limits.maxSessions = sessionSettings.maxSessions;
   }
-  if (responses.sessionTimeoutMinutes !== LIMITS_DEFAULTS.sessionTimeoutMinutes) {
-    limits.sessionTimeoutMinutes = responses.sessionTimeoutMinutes;
+  if (sessionSettings.sessionTimeoutMinutes !== LIMITS_DEFAULTS.sessionTimeoutMinutes) {
+    limits.sessionTimeoutMinutes = sessionSettings.sessionTimeoutMinutes;
   }
-  if (responses.sessionWarningMinutes !== LIMITS_DEFAULTS.sessionWarningMinutes) {
-    limits.sessionWarningMinutes = responses.sessionWarningMinutes;
+  if (sessionSettings.sessionWarningMinutes !== LIMITS_DEFAULTS.sessionWarningMinutes) {
+    limits.sessionWarningMinutes = sessionSettings.sessionWarningMinutes;
   }
-  if (responses.cleanupIntervalMinutes !== LIMITS_DEFAULTS.cleanupIntervalMinutes) {
-    limits.cleanupIntervalMinutes = responses.cleanupIntervalMinutes;
+  if (sessionSettings.permissionTimeoutSeconds !== LIMITS_DEFAULTS.permissionTimeoutSeconds) {
+    limits.permissionTimeoutSeconds = sessionSettings.permissionTimeoutSeconds;
   }
-  if (responses.cleanupWorktrees !== LIMITS_DEFAULTS.cleanupWorktrees) {
-    limits.cleanupWorktrees = responses.cleanupWorktrees;
+  if (cleanupSettings.cleanupIntervalMinutes !== LIMITS_DEFAULTS.cleanupIntervalMinutes) {
+    limits.cleanupIntervalMinutes = cleanupSettings.cleanupIntervalMinutes;
   }
-  if (responses.maxWorktreeAgeHours !== LIMITS_DEFAULTS.maxWorktreeAgeHours) {
-    limits.maxWorktreeAgeHours = responses.maxWorktreeAgeHours;
+  if (cleanupSettings.cleanupWorktrees !== LIMITS_DEFAULTS.cleanupWorktrees) {
+    limits.cleanupWorktrees = cleanupSettings.cleanupWorktrees;
   }
-  if (responses.permissionTimeoutSeconds !== LIMITS_DEFAULTS.permissionTimeoutSeconds) {
-    limits.permissionTimeoutSeconds = responses.permissionTimeoutSeconds;
+  // Only save maxWorktreeAgeHours if worktree cleanup is enabled
+  if (cleanupSettings.cleanupWorktrees && cleanupSettings.maxWorktreeAgeHours !== LIMITS_DEFAULTS.maxWorktreeAgeHours) {
+    limits.maxWorktreeAgeHours = cleanupSettings.maxWorktreeAgeHours;
   }
 
-  // Return undefined if all defaults (keeps config clean)
-  return Object.keys(limits).length > 0 ? limits : undefined as unknown as LimitsConfig;
+  return {
+    limits: Object.keys(limits).length > 0 ? limits : undefined,
+    threadLogsEnabled: cleanupSettings.threadLogsEnabled === false ? false : undefined,
+    threadLogsRetentionDays: cleanupSettings.threadLogsEnabled && cleanupSettings.threadLogsRetentionDays !== 30
+      ? cleanupSettings.threadLogsRetentionDays
+      : undefined,
+  };
 }
 
 // ============================================================================
