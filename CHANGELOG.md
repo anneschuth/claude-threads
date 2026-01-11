@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.61.0] - 2026-01-11
+
+### Added
+- **Configurable limits via config.yaml** - Session limits, timeouts, and cleanup intervals can now be configured in the `limits` section (#193)
+  - `maxSessions`, `sessionTimeoutMinutes`, `sessionWarningMinutes`
+  - `cleanupIntervalMinutes`, `maxWorktreeAgeHours`, `cleanupWorktrees`
+  - `permissionTimeoutSeconds` - now properly wired to MCP server (was broken)
+- **Advanced settings wizard** - `--setup` now includes "Advanced settings" option with grouped questions (#193)
+  - Session Limits: max sessions, timeouts, permission timeout, keepAlive toggle
+  - Cleanup Settings: intervals, worktree cleanup, thread log settings
+  - Conditional questions skip irrelevant settings (e.g., worktree age when cleanup disabled)
+- **keepAlive in advanced settings** - Prevent system sleep setting now configurable via wizard (#193)
+
+### Fixed
+- **Permission timeout bug** - `permissionTimeoutSeconds` was in config but not passed to MCP server (#193)
+- **Readable YAML config** - Config files now use proper block-style YAML instead of JSON-like flow style (#193)
+- **Config summary shows advanced settings** - Preview before saving now displays non-default advanced settings (#193)
+- **Aligned log output** - Shortened logger component names to prevent column misalignment (#192)
+  - `auto-update` → `updater`, `git-worktree` → `git-wt`, `post-helpers` → `post`, etc.
+
 ## [0.60.0] - 2026-01-11
 
 ### Added
