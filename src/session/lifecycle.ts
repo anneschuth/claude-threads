@@ -126,8 +126,9 @@ function createMessageManager(
 ): MessageManager {
   const postTracker = new PostTracker();
 
-  // Create the MessageManager with minimal options (no callbacks)
+  // Create the MessageManager with session reference and callbacks
   const messageManager = new MessageManager({
+    session, // Direct session access for Claude CLI, logger, etc.
     platform: session.platform,
     postTracker,
     threadId: session.threadId,
@@ -140,6 +141,18 @@ function createMessageManager(
     },
     updateLastMessage: (post) => {
       updateLastMessage(session, post);
+    },
+    // Callback to build message content (handles image attachments)
+    buildMessageContent: (text, platform, files) => {
+      return ctx.ops.buildMessageContent(text, platform, files);
+    },
+    // Callback to start typing indicator
+    startTyping: () => {
+      ctx.ops.startTyping(session);
+    },
+    // Callback to emit session update events
+    emitSessionUpdate: (updates) => {
+      ctx.ops.emitSessionUpdate(session.sessionId, updates);
     },
     // onBumpTaskList callback not implemented - task list bumping is handled separately
     // via the legacy streaming.ts path during the transition period
@@ -908,6 +921,10 @@ export async function resumeSession(
 
 /**
  * Send a follow-up message to an existing session.
+ *
+ * This function handles:
+ * - Context prompt flow (offering to include thread history)
+ * - Delegating to MessageManager.handleUserMessage() for the normal flow
  */
 export async function sendFollowUp(
   session: Session,
@@ -919,23 +936,17 @@ export async function sendFollowUp(
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
 
-  // Log the user message
-  session.threadLogger?.logUserMessage(
-    username || session.startedBy,
-    message,
-    displayName,
-    files && files.length > 0
-  );
-
-  // Prepare MessageManager for new message (flush, reset, bump task list)
-  await session.messageManager?.prepareForUserMessage();
-
-  const content = await ctx.ops.buildMessageContent(message, session.platform, files);
-  const messageText = typeof content === 'string' ? content : message;
-
   // Check if we need to offer context prompt (e.g., after !cd)
+  // This must happen BEFORE MessageManager handles the message
   if (session.needsContextPromptOnNextMessage) {
     session.needsContextPromptOnNextMessage = false;
+
+    // Prepare for message (flush, reset) but don't send yet
+    await session.messageManager?.prepareForUserMessage();
+
+    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
+    const messageText = typeof content === 'string' ? content : message;
+
     const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, files);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
@@ -945,21 +956,33 @@ export async function sendFollowUp(
     // No thread history or context prompt declined, fall through to send directly
   }
 
-  // Increment message counter
-  session.messageCount++;
+  // Delegate to MessageManager for the normal message flow
+  // MessageManager handles: logging, flush/reset/bump, send to Claude, typing indicator
+  if (session.messageManager) {
+    // Increment message counter
+    session.messageCount++;
 
-  // Inject metadata reminder periodically (also fires re-classification)
-  const messageToSend = typeof content === 'string'
-    ? maybeInjectMetadataReminder(content, session, ctx, session)
-    : content;
+    await session.messageManager.handleUserMessage(message, files, username, displayName);
+  } else {
+    // Fallback for sessions without MessageManager (shouldn't happen in normal operation)
+    sessionLog(session).warn('No MessageManager, using legacy path');
 
-  // Mark as processing and update UI
-  session.isProcessing = true;
-  ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
+    // Log the user message
+    session.threadLogger?.logUserMessage(
+      username || session.startedBy,
+      message,
+      displayName,
+      files && files.length > 0
+    );
 
-  session.claude.sendMessage(messageToSend);
-  session.lastActivityAt = new Date();
-  ctx.ops.startTyping(session);
+    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
+    session.messageCount++;
+    session.isProcessing = true;
+    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
+    session.claude.sendMessage(content);
+    session.lastActivityAt = new Date();
+    ctx.ops.startTyping(session);
+  }
 }
 
 /**
@@ -987,20 +1010,10 @@ export async function resumePausedSession(
 
   // Wait a moment for the session to be ready, then send the message
   const session = ctx.ops.findSessionByThreadId(threadId);
-  if (session && session.claude.isRunning()) {
-    // Increment message counter
+  if (session && session.claude.isRunning() && session.messageManager) {
+    // Increment message counter and delegate to MessageManager
     session.messageCount++;
-
-    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
-
-    // Inject metadata reminder periodically (also fires re-classification)
-    const messageToSend = typeof content === 'string'
-      ? maybeInjectMetadataReminder(content, session, ctx, session)
-      : content;
-
-    session.claude.sendMessage(messageToSend);
-    session.lastActivityAt = new Date();
-    ctx.ops.startTyping(session);
+    await session.messageManager.handleUserMessage(message, files, state.startedBy);
   } else {
     log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }

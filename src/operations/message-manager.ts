@@ -10,9 +10,9 @@
  * - Easy to add new event types by updating MessageManagerEventMap
  */
 
-import type { PlatformClient, PlatformPost } from '../platform/index.js';
-import type { PendingQuestionSet } from '../session/types.js';
-import type { ClaudeEvent } from '../claude/cli.js';
+import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/index.js';
+import type { PendingQuestionSet, Session } from '../session/types.js';
+import type { ClaudeEvent, ContentBlock } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
 import {
   ContentExecutor,
@@ -97,6 +97,25 @@ export type StatusUpdateCallback = (status: Partial<StatusUpdateOp>) => void;
 export type LifecycleCallback = (event: LifecycleOp['event']) => void;
 
 /**
+ * Callback to build message content (handles image attachments)
+ */
+export type BuildMessageContentCallback = (
+  text: string,
+  platform: PlatformClient,
+  files?: PlatformFile[]
+) => Promise<string | ContentBlock[]>;
+
+/**
+ * Callback to start typing indicator
+ */
+export type StartTypingCallback = () => void;
+
+/**
+ * Callback to emit session update events
+ */
+export type EmitSessionUpdateCallback = (updates: Record<string, unknown>) => void;
+
+/**
  * Options for creating a MessageManager
  *
  * Note: Event-based callbacks have been removed. Instead, subscribe to
@@ -108,6 +127,8 @@ export type LifecycleCallback = (event: LifecycleOp['event']) => void;
  * manager.events.on('approval:complete', ({ toolUseId, approved }) => { ... });
  */
 export interface MessageManagerOptions {
+  /** The session this MessageManager belongs to (for direct access to Claude CLI, logger, etc.) */
+  session: Session;
   platform: PlatformClient;
   postTracker: PostTracker;
   threadId: string;
@@ -117,6 +138,12 @@ export interface MessageManagerOptions {
   registerPost: RegisterPostCallback;
   updateLastMessage: UpdateLastMessageCallback;
   onBumpTaskList?: () => Promise<void>;
+  /** Callback to build message content (handles image attachments) */
+  buildMessageContent?: BuildMessageContentCallback;
+  /** Callback to start typing indicator */
+  startTyping?: StartTypingCallback;
+  /** Callback to emit session update events */
+  emitSessionUpdate?: EmitSessionUpdateCallback;
 }
 
 /**
@@ -132,6 +159,9 @@ export class MessageManager {
   private platform: PlatformClient;
   private postTracker: PostTracker;
   private contentBreaker: DefaultContentBreaker;
+
+  // Session reference for direct access to Claude CLI, logger, etc.
+  private session: Session;
 
   // Executors
   private contentExecutor: ContentExecutor;
@@ -152,6 +182,9 @@ export class MessageManager {
   // Callbacks (only structural, not event-based)
   private registerPost: RegisterPostCallback;
   private updateLastMessage: UpdateLastMessageCallback;
+  private buildMessageContentCallback?: BuildMessageContentCallback;
+  private startTypingCallback?: StartTypingCallback;
+  private emitSessionUpdateCallback?: EmitSessionUpdateCallback;
 
   // Tool start times for elapsed time calculation
   private toolStartTimes: Map<string, number> = new Map();
@@ -191,6 +224,7 @@ export class MessageManager {
   public readonly events: TypedEventEmitter;
 
   constructor(options: MessageManagerOptions) {
+    this.session = options.session;
     this.platform = options.platform;
     this.postTracker = options.postTracker;
     this.sessionId = options.sessionId;
@@ -199,6 +233,9 @@ export class MessageManager {
     this.worktreeBranch = options.worktreeBranch;
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
+    this.buildMessageContentCallback = options.buildMessageContent;
+    this.startTypingCallback = options.startTyping;
+    this.emitSessionUpdateCallback = options.emitSessionUpdate;
 
     // Create event emitter
     this.events = createMessageManagerEvents();
@@ -863,6 +900,79 @@ export class MessageManager {
 
     // Bump task list below the user's message
     await this.bumpTaskList();
+  }
+
+  /**
+   * Handle a user message.
+   * This is the main entry point for user messages in follow-up mode.
+   *
+   * The MessageManager handles:
+   * - Logging the user message
+   * - Preparing for the new message (flush, reset, bump tasks)
+   * - Building the message content (with images if provided)
+   * - Sending to Claude
+   * - Starting typing indicator
+   * - Updating activity time
+   *
+   * @param message - The user's message text
+   * @param files - Optional attached files (images)
+   * @param username - Username of the sender
+   * @param displayName - Display name of the sender (optional)
+   * @returns true if message was sent, false if Claude is not running
+   */
+  async handleUserMessage(
+    message: string,
+    files?: PlatformFile[],
+    username?: string,
+    displayName?: string
+  ): Promise<boolean> {
+    const logger = log.forSession(this.sessionId);
+
+    // Check if Claude is running
+    if (!this.session.claude.isRunning()) {
+      logger.debug('Claude not running, ignoring user message');
+      return false;
+    }
+
+    // Log the user message
+    this.session.threadLogger?.logUserMessage(
+      username || this.session.startedBy,
+      message,
+      displayName,
+      files && files.length > 0
+    );
+
+    // Prepare for the new message (flush, reset, bump tasks)
+    await this.prepareForUserMessage();
+
+    // Build message content (with images if provided)
+    let content: string | ContentBlock[] = message;
+    if (this.buildMessageContentCallback) {
+      content = await this.buildMessageContentCallback(message, this.platform, files);
+    }
+
+    // Send to Claude
+    this.session.claude.sendMessage(content);
+
+    // Update activity time
+    this.session.lastActivityAt = new Date();
+
+    // Mark as processing
+    this.session.isProcessing = true;
+    this.emitSessionUpdateCallback?.({ status: 'active', isTyping: true });
+
+    // Start typing indicator
+    this.startTypingCallback?.();
+
+    logger.debug('User message sent to Claude');
+    return true;
+  }
+
+  /**
+   * Get the session reference (for advanced use cases).
+   */
+  getSession(): Session {
+    return this.session;
   }
 
   // ---------------------------------------------------------------------------

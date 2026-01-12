@@ -113,6 +113,9 @@ export type {
   ApprovalCompleteCallback,
   StatusUpdateCallback,
   LifecycleCallback,
+  BuildMessageContentCallback,
+  StartTypingCallback,
+  EmitSessionUpdateCallback,
 } from './message-manager.js';
 
 // Message manager events (EventEmitter-based API)

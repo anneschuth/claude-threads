@@ -5,6 +5,7 @@
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { MessageManager } from './message-manager.js';
 import type { PlatformClient, PlatformFormatter, PlatformPost } from '../platform/index.js';
+import type { Session } from '../session/types.js';
 import { PostTracker } from './post-tracker.js';
 
 // Mock formatter
@@ -60,9 +61,49 @@ function createMockPlatform(): PlatformClient {
   } as unknown as PlatformClient;
 }
 
+// Create mock session for MessageManager
+function createMockSession(platform: PlatformClient): Session {
+  return {
+    sessionId: 'test:session-1',
+    platformId: 'test',
+    threadId: 'thread-123',
+    platform,
+    claude: {
+      isRunning: mock(() => true),
+      sendMessage: mock(() => {}),
+      on: mock(() => {}),
+      kill: mock(() => Promise.resolve()),
+      interrupt: mock(() => true),
+    },
+    claudeSessionId: 'claude-session-1',
+    startedBy: 'testuser',
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    sessionNumber: 1,
+    workingDir: '/test/working/dir',
+    planApproved: false,
+    sessionAllowedUsers: new Set(['testuser']),
+    forceInteractivePermissions: false,
+    sessionStartPostId: null,
+    tasksPostId: null,
+    lastTasksContent: null,
+    tasksCompleted: false,
+    tasksMinimized: false,
+    timers: { updateTimer: undefined, typingTimer: undefined, idleTimer: undefined },
+    lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: false },
+    timeoutWarningPosted: false,
+    inProgressTaskStart: null,
+    activeToolStarts: new Map(),
+    messageCount: 0,
+    isProcessing: false,
+    recentEvents: [],
+  } as unknown as Session;
+}
+
 describe('MessageManager', () => {
   let manager: MessageManager;
   let platform: PlatformClient;
+  let session: Session;
   let postTracker: PostTracker;
   let registeredPosts: Map<string, unknown>;
   let _lastMessage: PlatformPost | null;
@@ -71,6 +112,7 @@ describe('MessageManager', () => {
 
   beforeEach(() => {
     platform = createMockPlatform();
+    session = createMockSession(platform);
     postTracker = new PostTracker();
     registeredPosts = new Map();
     _lastMessage = null;
@@ -78,6 +120,7 @@ describe('MessageManager', () => {
     _approvalCompleted = null;
 
     manager = new MessageManager({
+      session,
       platform,
       postTracker,
       sessionId: 'test:session-1',

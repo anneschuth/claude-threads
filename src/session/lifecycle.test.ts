@@ -50,6 +50,7 @@ function createMockMessageManager() {
     handleEvent: mock(() => Promise.resolve()),
     flush: mock(() => Promise.resolve()),
     prepareForUserMessage: mock(() => Promise.resolve()),
+    handleUserMessage: mock(() => Promise.resolve(true)),
     getCurrentPostId: mock(() => null),
     getCurrentPostContent: mock(() => ''),
     hasPendingQuestions: mock(() => false),
@@ -595,8 +596,8 @@ describe('killAllSessions edge cases', () => {
 });
 
 describe('sendFollowUp', () => {
-  it('prepares message manager before sending new message', async () => {
-    // Mock messageManager with prepareForUserMessage
+  it('delegates to messageManager.handleUserMessage', async () => {
+    // Mock messageManager with handleUserMessage
     const mockMsgManager = createMockMessageManager();
     const session = createMockSession({
       messageManager: mockMsgManager as any,
@@ -604,10 +605,10 @@ describe('sendFollowUp', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx, 'user', 'User Name');
 
-    // Should have called prepareForUserMessage which handles flush, reset, bump
-    expect(mockMsgManager.prepareForUserMessage).toHaveBeenCalled();
+    // Should have delegated to handleUserMessage
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith('New message', undefined, 'user', 'User Name');
   });
 
   it('does not send if Claude is not running', async () => {
@@ -619,12 +620,17 @@ describe('sendFollowUp', () => {
 
     await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
 
-    // Should not have called sendMessage
-    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+    // Should not have called handleUserMessage (early return)
+    const mockMsgManager = session.messageManager as any;
+    expect(mockMsgManager.handleUserMessage).not.toHaveBeenCalled();
   });
 
   it('increments message counter', async () => {
-    const session = createMockSession({ messageCount: 5 });
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({
+      messageCount: 5,
+      messageManager: mockMsgManager as any,
+    });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
