@@ -40,7 +40,7 @@ import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
 import { SessionRegistry } from './registry.js';
-import { postInfo } from '../operations/post-helpers/index.js';
+import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('manager');
@@ -1353,7 +1353,7 @@ export class SessionManager extends EventEmitter {
       try {
         const formatter = session.platform.getFormatter();
         const message = messageBuilder(formatter);
-        await postInfo(session, message);
+        await post(session, 'info', message);
       } catch (err) {
         log.warn(`Failed to broadcast to session ${session.threadId}: ${err}`);
       }
@@ -1403,7 +1403,7 @@ export class SessionManager extends EventEmitter {
     if (message) {
       for (const session of this.registry.getAll()) {
         try {
-          await postInfo(session, message);
+          await post(session, 'info', message);
         } catch {
           // Ignore
         }

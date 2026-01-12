@@ -1,26 +1,16 @@
 import { describe, it, expect, mock } from 'bun:test';
 import {
-  // New preferred API
+  // Core API
   post,
   POST_TYPES,
-  // Legacy functions (still exported for compatibility)
+  // Error post with bug reaction behavior
+  postError,
+  // Utility functions
   formatBold,
   getPostId,
   resetSessionActivity,
   updateLastMessage,
-  postInfo,
-  postSuccess,
-  postWarning,
-  postError,
-  postSecure,
-  postCommand,
-  postCancelled,
-  postResume,
-  postTimeout,
-  postInterrupt,
-  postWorktree,
-  postContext,
-  postUser,
+  // Post with reactions
   postWithReactions,
   postApprovalPrompt,
   postAndRegister,
@@ -340,96 +330,41 @@ describe('updateLastMessage', () => {
   });
 });
 
-describe('Core post functions with mock session', () => {
-  it('postInfo creates a post without emoji prefix', async () => {
-    const session = createMockSession();
-    await postInfo(session, 'Hello world');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('Hello world', 'thread-123');
-  });
-
-  it('postSuccess adds ✅ prefix', async () => {
-    const session = createMockSession();
-    await postSuccess(session, 'Operation complete');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('✅ Operation complete', 'thread-123');
-  });
-
-  it('postWarning adds ⚠️ prefix', async () => {
-    const session = createMockSession();
-    await postWarning(session, 'Be careful');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('⚠️ Be careful', 'thread-123');
-  });
-
-  it('postError adds ❌ prefix', async () => {
+describe('postError with bug reaction', () => {
+  it('adds ❌ prefix and bug reaction by default', async () => {
     const session = createMockSession();
     await postError(session, 'Something failed');
 
     expect(session.platform.createPost).toHaveBeenCalledWith('❌ Something failed', 'thread-123');
+    expect(session.platform.addReaction).toHaveBeenCalledWith('post-123', 'bug');
+    expect(session.lastError).toEqual({
+      postId: 'post-123',
+      message: 'Something failed',
+      timestamp: expect.any(Date),
+    });
   });
 
-  it('postSecure adds 🔐 prefix', async () => {
+  it('skips bug reaction when addBugReaction is false', async () => {
     const session = createMockSession();
-    await postSecure(session, 'Permission granted');
+    await postError(session, 'Something failed', false);
 
-    expect(session.platform.createPost).toHaveBeenCalledWith('🔐 Permission granted', 'thread-123');
+    expect(session.platform.createPost).toHaveBeenCalledWith('❌ Something failed', 'thread-123');
+    expect(session.platform.addReaction).not.toHaveBeenCalled();
+    expect(session.lastError).toBeUndefined();
   });
 
-  it('postCommand adds ⚙️ prefix', async () => {
-    const session = createMockSession();
-    await postCommand(session, 'Executing action');
+  it('handles reaction errors gracefully', async () => {
+    const session = createMockSession({
+      platformOverrides: {
+        addReaction: mock(() => Promise.reject(new Error('Rate limited'))),
+      },
+    });
 
-    expect(session.platform.createPost).toHaveBeenCalledWith('⚙️ Executing action', 'thread-123');
-  });
+    // Should not throw even when addReaction fails
+    const result = await postError(session, 'Error message');
 
-  it('postCancelled adds 🛑 prefix', async () => {
-    const session = createMockSession();
-    await postCancelled(session, 'Session ended');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('🛑 Session ended', 'thread-123');
-  });
-
-  it('postResume adds 🔄 prefix', async () => {
-    const session = createMockSession();
-    await postResume(session, 'Resuming');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('🔄 Resuming', 'thread-123');
-  });
-
-  it('postTimeout adds ⏱️ prefix', async () => {
-    const session = createMockSession();
-    await postTimeout(session, 'Timed out');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('⏱️ Timed out', 'thread-123');
-  });
-
-  it('postInterrupt adds ⏸️ prefix', async () => {
-    const session = createMockSession();
-    await postInterrupt(session, 'Paused');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('⏸️ Paused', 'thread-123');
-  });
-
-  it('postWorktree adds 🌿 prefix', async () => {
-    const session = createMockSession();
-    await postWorktree(session, 'Created worktree');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('🌿 Created worktree', 'thread-123');
-  });
-
-  it('postContext adds 🧵 prefix', async () => {
-    const session = createMockSession();
-    await postContext(session, 'Including context');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('🧵 Including context', 'thread-123');
-  });
-
-  it('postUser adds 👤 prefix', async () => {
-    const session = createMockSession();
-    await postUser(session, 'User joined');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('👤 User joined', 'thread-123');
+    expect(result).toBeDefined();
+    expect(result.id).toBe('post-123');
   });
 });
 
@@ -540,24 +475,12 @@ describe('post helper functions', () => {
   it('exports all expected functions', async () => {
     const helpers = await import('./index.js');
 
-    // New preferred API
+    // Core API
     expect(typeof helpers.post).toBe('function');
     expect(typeof helpers.POST_TYPES).toBe('object');
 
-    // Legacy post functions (deprecated but still exported)
-    expect(typeof helpers.postInfo).toBe('function');
-    expect(typeof helpers.postSuccess).toBe('function');
-    expect(typeof helpers.postWarning).toBe('function');
+    // Error post with bug reaction behavior
     expect(typeof helpers.postError).toBe('function');
-    expect(typeof helpers.postSecure).toBe('function');
-    expect(typeof helpers.postCommand).toBe('function');
-    expect(typeof helpers.postCancelled).toBe('function');
-    expect(typeof helpers.postResume).toBe('function');
-    expect(typeof helpers.postTimeout).toBe('function');
-    expect(typeof helpers.postInterrupt).toBe('function');
-    expect(typeof helpers.postWorktree).toBe('function');
-    expect(typeof helpers.postContext).toBe('function');
-    expect(typeof helpers.postUser).toBe('function');
 
     // Post with reactions
     expect(typeof helpers.postWithReactions).toBe('function');

@@ -13,7 +13,7 @@ import { getSessionStatus, markClaudeResponded } from '../../session/types.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { shortenPath } from '../index.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
-import { resetSessionActivity, postInfo, postError, updatePost } from '../post-helpers/index.js';
+import { resetSessionActivity, post, postError, updatePost } from '../post-helpers/index.js';
 import type { SessionContext } from '../session-context/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
@@ -78,7 +78,7 @@ async function executeClaudeCommand(
   const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command}${shortArgs ? ' ' + shortArgs : ''}`)}`;
 
   await withErrorHandling(
-    () => postInfo(session, visibilityMessage),
+    () => post(session, 'info', visibilityMessage),
     { action: 'Post Claude command visibility', session }
   );
 
@@ -100,7 +100,7 @@ async function executeClaudeCommand(
           session.claude.sendMessage(`<command-result command="!worktree list">\nError: Current directory is not a git repository\n</command-result>`);
         }
       } else {
-        await postInfo(session, message);
+        await post(session, 'info', message);
         // Send the result back to Claude so it can see the worktree list
         if (session.claude?.isRunning()) {
           // Use plain text version for Claude (strip markdown formatting for clarity)
@@ -260,14 +260,14 @@ async function handleCompactionStart(
   // Create the compaction status post
   const formatter = session.platform.getFormatter();
   const message = `🗜️ ${formatter.formatBold('Compacting context...')} ${formatter.formatItalic('(freeing up memory)')}`;
-  const post = await withErrorHandling(
-    () => postInfo(session, message),
+  const compactionPost = await withErrorHandling(
+    () => post(session, 'info', message),
     { action: 'Post compaction start', session }
   );
 
-  if (post) {
-    session.compactionPostId = post.id;
-    // Note: postInfo already calls updateLastMessage internally
+  if (compactionPost) {
+    session.compactionPostId = compactionPost.id;
+    // Note: post() already calls updateLastMessage internally
   }
 }
 
@@ -296,9 +296,9 @@ async function handleCompactionComplete(
     session.compactionPostId = undefined;
   } else {
     // Fallback: create a new post if we don't have the original
-    // Note: postInfo already calls updateLastMessage internally
+    // Note: post() already calls updateLastMessage internally
     await withErrorHandling(
-      () => postInfo(session, completionMessage),
+      () => post(session, 'info', completionMessage),
       { action: 'Post compaction complete', session }
     );
   }

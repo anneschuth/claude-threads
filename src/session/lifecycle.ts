@@ -28,7 +28,7 @@ import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
 import { createSessionLog } from '../utils/session-log.js';
-import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from '../operations/post-helpers/index.js';
+import { post, postError, updateLastMessage } from '../operations/post-helpers/index.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import { suggestSessionMetadata } from '../operations/suggestions/title.js';
 import { suggestSessionTags } from '../operations/suggestions/tag.js';
@@ -562,21 +562,21 @@ export async function startSession(
       threadId: replyToPostId || '',
       sessionId: 'temp',
     } as Session;
-    await postWarning(tempSession, `${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`);
+    await post(tempSession, 'warning', `${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`);
     return;
   }
 
   // Post initial session message
   const startFormatter = platform.getFormatter();
-  const post = await withErrorHandling(
+  const startPost = await withErrorHandling(
     () => platform.createPost(
       `${getLogo(VERSION)}\n\n${startFormatter.formatItalic('Starting session...')}`,
       replyToPostId
     ),
     { action: 'Create session post' }
   );
-  if (!post) return;
-  const actualThreadId = replyToPostId || post.id;
+  if (!startPost) return;
+  const actualThreadId = replyToPostId || startPost.id;
   const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
   // Generate a unique session ID for this Claude session
@@ -620,7 +620,7 @@ export async function startSession(
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions: false,
-    sessionStartPostId: post.id,
+    sessionStartPostId: startPost.id,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
     timers: createSessionTimers(),
@@ -647,7 +647,7 @@ export async function startSession(
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
-  ctx.ops.registerPost(post.id, actualThreadId);
+  ctx.ops.registerPost(startPost.id, actualThreadId);
   ctx.ops.emitSessionAdd(session);
   sessionLog(session).info(`▶ Session started by @${username}`);
 
@@ -751,8 +751,8 @@ export async function resumeSession(
   }
 
   // Verify thread still exists
-  const post = await platform.getPost(state.threadId);
-  if (!post) {
+  const threadPost = await platform.getPost(state.threadId);
+  if (!threadPost) {
     log.warn(`Thread ${shortId}... deleted, skipping resume`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
@@ -776,7 +776,7 @@ export async function resumeSession(
       sessionId: `${state.platformId}:${state.threadId}`,
     } as Session;
     await withErrorHandling(
-      () => postWarning(tempSession, `${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`),
+      () => post(tempSession, 'warning', `${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`),
       { action: 'Post resume failure notification' }
     );
     return;
@@ -941,7 +941,7 @@ export async function resumeSession(
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
-      await postResume(session, restartMsg);
+      await post(session, 'resume', restartMsg);
     }
 
     // Update session header
@@ -961,7 +961,7 @@ export async function resumeSession(
     // Try to notify user
     const failFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => postWarning(session, `${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`),
+      () => post(session, 'warning', `${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`),
       { action: 'Post resume failure notification', session }
     );
 
@@ -1118,7 +1118,7 @@ export async function handleExit(
       ? `ℹ️ Session paused. Send a new message to continue.`
       : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
     const pausePost = await withErrorHandling(
-      () => postInfo(session, message),
+      () => post(session, 'info', message),
       { action: 'Post session pause notification', session }
     );
 
@@ -1150,7 +1150,7 @@ export async function handleExit(
     // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => postWarning(session, `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
+      () => post(session, 'warning', `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
       { action: 'Post early exit notification', session }
     );
     sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);
@@ -1210,7 +1210,7 @@ export async function handleExit(
       // Still have retries left - persist with updated fail count
       ctx.ops.persistSession(session);
       await withErrorHandling(
-        () => postWarning(session, `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
+        () => post(session, 'warning', `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
         { action: 'Post session resume failure', session }
       );
     }
@@ -1237,7 +1237,7 @@ export async function handleExit(
 
   if (code !== 0 && code !== null) {
     const exitFormatter = session.platform.getFormatter();
-    await postInfo(session, exitFormatter.formatBold(`[Exited: ${code}]`));
+    await post(session, 'info', exitFormatter.formatBold(`[Exited: ${code}]`));
   }
 
   // Unregister from worktree reference counting, but DON'T cleanup automatically
@@ -1369,7 +1369,7 @@ export async function cleanupIdleSessions(
       } else {
         // Create new timeout post (no warning was posted)
         const timeoutPost = await withErrorHandling(
-          () => postTimeout(session, timeoutMessage),
+          () => post(session, 'timeout', timeoutMessage),
           { action: 'Post session timeout', session }
         );
         if (timeoutPost) {
@@ -1397,7 +1397,7 @@ export async function cleanupIdleSessions(
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(
-        () => postTimeout(session, warningMessage),
+        () => post(session, 'timeout', warningMessage),
         { action: 'Post timeout warning', session }
       );
       if (warningPost) {

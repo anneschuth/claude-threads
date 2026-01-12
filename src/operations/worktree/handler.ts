@@ -27,10 +27,8 @@ import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
-  postWarning,
+  post,
   postError,
-  postSuccess,
-  postInfo,
   resetSessionActivity,
   postInteractiveAndRegister,
   updatePost,
@@ -216,15 +214,15 @@ export async function postWorktreePrompt(
     reactionOptions.push('x');
   }
 
-  const post = await postInteractiveAndRegister(session, message, reactionOptions, registerPost);
+  const worktreePost = await postInteractiveAndRegister(session, message, reactionOptions, registerPost);
 
   // Track the post for reaction handling
-  session.worktreePromptPostId = post.id;
+  session.worktreePromptPostId = worktreePost.id;
 
   // Store suggestions for reaction handling
   if (suggestions.length > 0) {
     session.pendingWorktreeSuggestions = {
-      postId: post.id,
+      postId: worktreePost.id,
       suggestions,
     };
   }
@@ -395,7 +393,7 @@ export async function createAndSwitchToWorktree(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
     sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to manage worktrees`);
     return;
   }
@@ -489,7 +487,7 @@ export async function createAndSwitchToWorktree(
       await options.updateSessionHeader(session);
 
       // Post confirmation
-      await postSuccess(session, `${fmt.formatBold('Joined existing worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortPath)}\n${fmt.formatItalic('Claude Code restarted in the worktree')}`);
+      await post(session, 'success', `${fmt.formatBold('Joined existing worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortPath)}\n${fmt.formatItalic('Claude Code restarted in the worktree')}`);
 
       // Reset activity and persist
       resetSessionActivity(session);
@@ -506,7 +504,7 @@ export async function createAndSwitchToWorktree(
     }
 
     // Otherwise, post interactive prompt asking if user wants to join the existing worktree
-    const post = await postInteractiveAndRegister(
+    const worktreePost = await postInteractiveAndRegister(
       session,
       `🌿 ${fmt.formatBold(`Worktree for branch ${fmt.formatCode(branch)} already exists`)} at ${fmt.formatCode(shortPath)}.\n` +
       `React with 👍 to join this worktree, or ❌ to continue in the current directory.`,
@@ -516,7 +514,7 @@ export async function createAndSwitchToWorktree(
 
     // Store the pending prompt for reaction handling
     session.messageManager?.setPendingExistingWorktreePrompt({
-      postId: post.id,
+      postId: worktreePost.id,
       branch,
       worktreePath: existing.path,
       username,
@@ -625,7 +623,7 @@ export async function createAndSwitchToWorktree(
     // Post confirmation
     const shortWorktreePath = shortenPath(worktreePath, undefined, { path: worktreePath, branch });
     const fmt = session.platform.getFormatter();
-    await postSuccess(session, `${fmt.formatBold('Created worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortWorktreePath)}\n${fmt.formatItalic('Claude Code restarted in the new worktree')}`);
+    await post(session, 'success', `${fmt.formatBold('Created worktree')} for branch ${fmt.formatCode(branch)}\n📁 Working directory: ${fmt.formatCode(shortWorktreePath)}\n${fmt.formatItalic('Claude Code restarted in the new worktree')}`);
 
     // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
     resetSessionActivity(session);
@@ -667,7 +665,7 @@ export async function createAndSwitchToWorktree(
     // If worktreeMode is 'require', we can't fall back to main repo - must retry
     if (options.worktreeMode === 'require') {
       // Show error with retry prompt
-      const post = await postInteractiveAndRegister(
+      const retryPrompt = await postInteractiveAndRegister(
         session,
         `⚠️ ${fmt.formatBold('Worktree required but creation failed')}\n\n` +
         `${suggestion}\n\n` +
@@ -677,7 +675,7 @@ export async function createAndSwitchToWorktree(
       );
 
       // Keep pending state but update the prompt post ID
-      session.worktreePromptPostId = post.id;
+      session.worktreePromptPostId = retryPrompt.id;
       options.persistSession(session);
 
       sessionLog(session).info(`🌿 Worktree creation failed (require mode), waiting for retry: ${branch}`);
@@ -685,7 +683,7 @@ export async function createAndSwitchToWorktree(
     }
 
     // For 'prompt' mode, offer choices: retry with different branch or continue in main repo
-    const post = await postInteractiveAndRegister(
+    const failurePrompt = await postInteractiveAndRegister(
       session,
       `⚠️ ${fmt.formatBold('Worktree creation failed')}\n\n` +
       `${suggestion}\n\n` +
@@ -696,14 +694,14 @@ export async function createAndSwitchToWorktree(
 
     // Store pending state for handling the user's response
     session.pendingWorktreeFailurePrompt = {
-      postId: post.id,
+      postId: failurePrompt.id,
       failedBranch: branch,
       errorMessage: summary,
       username,
     };
 
     // Keep the worktree prompt in pending state so the session waits for response
-    session.worktreePromptPostId = post.id;
+    session.worktreePromptPostId = failurePrompt.id;
     options.persistSession(session);
 
     sessionLog(session).info(`🌿 Worktree creation failed, waiting for user decision: ${branch}`);
@@ -721,7 +719,7 @@ export async function switchToWorktree(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
     sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to switch worktree`);
     return;
   }
@@ -806,7 +804,7 @@ export async function listWorktreesCommand(session: Session): Promise<void> {
     return;
   }
 
-  await postInfo(session, message);
+  await post(session, 'info', message);
 }
 
 /**
@@ -819,7 +817,7 @@ export async function removeWorktreeCommand(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
     sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to remove worktree`);
     return;
   }
@@ -859,7 +857,7 @@ export async function removeWorktreeCommand(
     await removeGitWorktree(repoRoot, target.path);
 
     const shortPath = shortenPath(target.path, undefined, { path: target.path, branch: target.branch });
-    await postSuccess(session, `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
+    await post(session, 'success', `Removed worktree \`${target.branch}\` at \`${shortPath}\``);
 
     sessionLog(session).info(`🗑️ Removed worktree ${target.branch} at ${shortPath}`);
   } catch (err) {
@@ -877,7 +875,7 @@ export async function disableWorktreePrompt(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
     sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to disable worktree prompts`);
     return;
   }
@@ -885,7 +883,7 @@ export async function disableWorktreePrompt(
   session.worktreePromptDisabled = true;
   persistSession(session);
 
-  await postSuccess(session, `Worktree prompts disabled for this session`);
+  await post(session, 'success', `Worktree prompts disabled for this session`);
   sessionLog(session).info(`🌿 Worktree prompts disabled`);
 }
 
@@ -916,14 +914,14 @@ export async function cleanupWorktreeCommand(
 ): Promise<void> {
   // Only session owner or admins can manage worktrees
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await postWarning(session, `Only @${session.startedBy} or allowed users can manage worktrees`);
+    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
     sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to cleanup worktree`);
     return;
   }
 
   // Check if we're in a worktree
   if (!session.worktreeInfo) {
-    await postWarning(session, `Not currently in a worktree. Nothing to clean up.`);
+    await post(session, 'warning', `Not currently in a worktree. Nothing to clean up.`);
     return;
   }
 
@@ -938,13 +936,13 @@ export async function cleanupWorktreeCommand(
 
   // Check for other sessions using this worktree
   if (hasOtherSessionsUsingWorktree(worktreePath, session.sessionId)) {
-    await postWarning(session, `Cannot cleanup: other sessions are still using this worktree`);
+    await post(session, 'warning', `Cannot cleanup: other sessions are still using this worktree`);
     sessionLog(session).info(`🌿 Skipping cleanup - other sessions using worktree`);
     return;
   }
 
   // Switch to original repo root first
-  await postInfo(session, `Switching back to \`${repoRoot}\` before cleanup...`);
+  await post(session, 'info', `Switching back to \`${repoRoot}\` before cleanup...`);
   await changeDirectory(session.threadId, repoRoot, username);
 
   // Clear worktree info from session
@@ -957,7 +955,7 @@ export async function cleanupWorktreeCommand(
     await removeGitWorktree(repoRoot, worktreePath);
 
     const shortPath = shortenPath(worktreePath, undefined, { path: worktreePath, branch });
-    await postSuccess(session, `Cleaned up worktree \`${branch}\` at \`${shortPath}\``);
+    await post(session, 'success', `Cleaned up worktree \`${branch}\` at \`${shortPath}\``);
     sessionLog(session).info(`✅ Worktree cleaned up successfully`);
   } catch (err) {
     await logAndNotify(err, { action: 'Cleanup worktree', session });

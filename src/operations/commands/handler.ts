@@ -37,15 +37,8 @@ import { formatUptime } from '../../utils/uptime.js';
 import { keepAlive } from '../../utils/keep-alive.js';
 import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
-  postCancelled,
-  postInfo,
-  postWarning,
+  post,
   postError,
-  postSuccess,
-  postSecure,
-  postInterrupt,
-  postCommand,
-  postUser,
   resetSessionActivity,
   postInteractiveAndRegister,
   updatePost,
@@ -117,7 +110,7 @@ async function requireSessionOwner(
 ): Promise<boolean> {
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
     const formatter = session.platform.getFormatter();
-    await postWarning(session, `Only ${formatter.formatUserMention(session.startedBy)} or allowed users can ${action}`);
+    await post(session, 'warning', `Only ${formatter.formatUserMention(session.startedBy)} or allowed users can ${action}`);
     sessionLog(session).warn(`Unauthorized: @${username} tried to ${action}`);
     return false;
   }
@@ -176,7 +169,7 @@ export async function cancelSession(
   transitionTo(session, 'cancelling');
 
   const formatter = session.platform.getFormatter();
-  await postCancelled(session, `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
+  await post(session, 'cancelled', `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
 
   await ctx.ops.killSession(session.threadId);
 }
@@ -189,7 +182,7 @@ export async function interruptSession(
   username: string
 ): Promise<void> {
   if (!session.claude.isRunning()) {
-    await postInfo(session, `Session is idle, nothing to interrupt`);
+    await post(session, 'info', `Session is idle, nothing to interrupt`);
     sessionLog(session).debug(`Interrupt requested but session is idle`);
     return;
   }
@@ -202,7 +195,7 @@ export async function interruptSession(
     sessionLog(session).info(`⏸️ Interrupted by @${username}`);
     session.threadLogger?.logCommand('escape', undefined, username);
     const formatter = session.platform.getFormatter();
-    await postInterrupt(session, `${formatter.formatBold('Interrupted')} by ${formatter.formatUserMention(username)}`);
+    await post(session, 'interrupt', `${formatter.formatBold('Interrupted')} by ${formatter.formatUserMention(username)}`);
   }
 }
 
@@ -218,7 +211,7 @@ export async function approvePendingPlan(
   // Check if there's a pending plan approval
   const pendingApproval = session.messageManager?.getPendingApproval();
   if (!pendingApproval || pendingApproval.type !== 'plan') {
-    await postInfo(session, `No pending plan to approve`);
+    await post(session, 'info', `No pending plan to approve`);
     sessionLog(session).debug(`Approve requested but no pending plan`);
     return;
   }
@@ -322,7 +315,7 @@ export async function changeDirectory(
   await updateSessionHeader(session, ctx);
 
   // Post confirmation
-  await postCommand(session, `${formatter.formatBold('Working directory changed')} to ${formatter.formatCode(shortDir)}\n${formatter.formatItalic('Claude Code restarted in new directory')}`);
+  await post(session, 'command', `${formatter.formatBold('Working directory changed')} to ${formatter.formatCode(shortDir)}\n${formatter.formatItalic('Claude Code restarted in new directory')}`);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
   resetSessionActivity(session);
@@ -357,13 +350,13 @@ export async function inviteUser(
   const user = await session.platform.getUserByUsername(invitedUser);
   const formatter = session.platform.getFormatter();
   if (!user) {
-    await postWarning(session, `User ${formatter.formatUserMention(invitedUser)} does not exist on this platform`);
+    await post(session, 'warning', `User ${formatter.formatUserMention(invitedUser)} does not exist on this platform`);
     sessionLog(session).warn(`👋 User @${invitedUser} not found`);
     return;
   }
 
   session.sessionAllowedUsers.add(invitedUser);
-  await postSuccess(session, `${formatter.formatUserMention(invitedUser)} can now participate in this session (invited by ${formatter.formatUserMention(invitedBy)})`);
+  await post(session, 'success', `${formatter.formatUserMention(invitedUser)} can now participate in this session (invited by ${formatter.formatUserMention(invitedBy)})`);
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
   session.threadLogger?.logCommand('invite', invitedUser, invitedBy);
   await updateSessionHeader(session, ctx);
@@ -388,33 +381,33 @@ export async function kickUser(
   const user = await session.platform.getUserByUsername(kickedUser);
   const formatter = session.platform.getFormatter();
   if (!user) {
-    await postWarning(session, `User ${formatter.formatUserMention(kickedUser)} does not exist on this platform`);
+    await post(session, 'warning', `User ${formatter.formatUserMention(kickedUser)} does not exist on this platform`);
     sessionLog(session).warn(`🚫 User @${kickedUser} not found`);
     return;
   }
 
   // Can't kick session owner
   if (kickedUser === session.startedBy) {
-    await postWarning(session, `Cannot kick session owner ${formatter.formatUserMention(session.startedBy)}`);
+    await post(session, 'warning', `Cannot kick session owner ${formatter.formatUserMention(session.startedBy)}`);
     sessionLog(session).warn(`🚫 Cannot kick session owner @${session.startedBy}`);
     return;
   }
 
   // Can't kick globally allowed users
   if (session.platform.isUserAllowed(kickedUser)) {
-    await postWarning(session, `${formatter.formatUserMention(kickedUser)} is globally allowed and cannot be kicked from individual sessions`);
+    await post(session, 'warning', `${formatter.formatUserMention(kickedUser)} is globally allowed and cannot be kicked from individual sessions`);
     sessionLog(session).warn(`🚫 Cannot kick globally allowed user @${kickedUser}`);
     return;
   }
 
   if (session.sessionAllowedUsers.delete(kickedUser)) {
-    await postUser(session, `${formatter.formatUserMention(kickedUser)} removed from this session by ${formatter.formatUserMention(kickedBy)}`);
+    await post(session, 'user', `${formatter.formatUserMention(kickedUser)} removed from this session by ${formatter.formatUserMention(kickedBy)}`);
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
     ctx.ops.persistSession(session);
   } else {
-    await postWarning(session, `${formatter.formatUserMention(kickedUser)} was not in this session`);
+    await post(session, 'warning', `${formatter.formatUserMention(kickedUser)} was not in this session`);
     sessionLog(session).warn(`🚫 @${kickedUser} was not in session`);
   }
 }
@@ -438,14 +431,14 @@ export async function enableInteractivePermissions(
 
   // Can only downgrade, not upgrade
   if (!ctx.config.skipPermissions) {
-    await postInfo(session, `Permissions are already interactive for this session`);
+    await post(session, 'info', `Permissions are already interactive for this session`);
     sessionLog(session).debug(`🔐 Permissions already interactive (global setting)`);
     return;
   }
 
   // Already enabled for this session
   if (session.forceInteractivePermissions) {
-    await postInfo(session, `Interactive permissions already enabled for this session`);
+    await post(session, 'info', `Interactive permissions already enabled for this session`);
     sessionLog(session).debug(`🔐 Permissions already interactive (session override)`);
     return;
   }
@@ -478,7 +471,7 @@ export async function enableInteractivePermissions(
 
   // Post confirmation
   const formatter = session.platform.getFormatter();
-  await postSecure(session, `${formatter.formatBold('Interactive permissions enabled')} for this session by ${formatter.formatUserMention(username)}\n${formatter.formatItalic('Claude Code restarted with permission prompts')}`);
+  await post(session, 'secure', `${formatter.formatBold('Interactive permissions enabled')} for this session by ${formatter.formatUserMention(username)}\n${formatter.formatItalic('Claude Code restarted with permission prompts')}`);
   sessionLog(session).info(`🔐 Interactive permissions enabled by @${username}`);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
@@ -513,7 +506,7 @@ export async function requestMessageApproval(
     `${formatter.formatBlockquote(displayMessage)}\n\n` +
     `React: 👍 Allow once | ✅ Invite to session | 👎 Deny`;
 
-  const post = await postInteractiveAndRegister(
+  const approvalPost = await postInteractiveAndRegister(
     session,
     approvalMessage,
     [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
@@ -521,7 +514,7 @@ export async function requestMessageApproval(
   );
 
   session.messageManager?.setPendingMessageApproval({
-    postId: post.id,
+    postId: approvalPost.id,
     originalMessage: message,
     fromUser: username,
   });
@@ -709,12 +702,12 @@ export async function showUpdateStatus(
   const formatter = session.platform.getFormatter();
 
   if (!updateManager) {
-    await postInfo(session, `Auto-update is not available`);
+    await post(session, 'info', `Auto-update is not available`);
     return;
   }
 
   if (!updateManager.isEnabled()) {
-    await postInfo(session, `Auto-update is disabled in configuration`);
+    await post(session, 'info', `Auto-update is disabled in configuration`);
     return;
   }
 
@@ -722,7 +715,7 @@ export async function showUpdateStatus(
   const updateInfo = await updateManager.checkNow();
 
   if (!updateInfo || !updateInfo.available) {
-    await postSuccess(session, `${formatter.formatBold('Up to date')} - no updates available`);
+    await post(session, 'success', `${formatter.formatBold('Up to date')} - no updates available`);
     return;
   }
 
@@ -745,7 +738,7 @@ export async function showUpdateStatus(
     `React: 👍 Update now | 👎 Defer for 1 hour`;
 
   // Create interactive post with reaction options
-  const post = await postInteractiveAndRegister(
+  const updatePromptPost = await postInteractiveAndRegister(
     session,
     message,
     [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
@@ -753,7 +746,7 @@ export async function showUpdateStatus(
   );
 
   // Store pending update prompt for reaction handling
-  session.messageManager?.setPendingUpdatePrompt({ postId: post.id });
+  session.messageManager?.setPendingUpdatePrompt({ postId: updatePromptPost.id });
 }
 
 /**
@@ -772,7 +765,7 @@ export async function forceUpdateNow(
   const formatter = session.platform.getFormatter();
 
   if (!updateManager) {
-    await postWarning(session, `Auto-update is not available`);
+    await post(session, 'warning', `Auto-update is not available`);
     return;
   }
 
@@ -781,11 +774,11 @@ export async function forceUpdateNow(
   const updateInfo = await updateManager.checkNow();
 
   if (!updateInfo || !updateInfo.available) {
-    await postInfo(session, `No update available to install`);
+    await post(session, 'info', `No update available to install`);
     return;
   }
 
-  await postInfo(session,
+  await post(session, 'info',
     `🔄 ${formatter.formatBold('Forcing update')} to v${updateInfo.latestVersion} - restarting shortly...\n` +
     formatter.formatItalic('Sessions will resume automatically')
   );
@@ -810,18 +803,18 @@ export async function deferUpdate(
   const formatter = session.platform.getFormatter();
 
   if (!updateManager) {
-    await postWarning(session, `Auto-update is not available`);
+    await post(session, 'warning', `Auto-update is not available`);
     return;
   }
 
   if (!updateManager.hasUpdate()) {
-    await postInfo(session, `No pending update to defer`);
+    await post(session, 'info', `No pending update to defer`);
     return;
   }
 
   updateManager.deferUpdate(60); // Defer for 1 hour
 
-  await postSuccess(session,
+  await post(session, 'success',
     `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
     formatter.formatItalic('Use !update now to apply earlier')
   );
@@ -847,7 +840,7 @@ export async function reportBug(
 
   // If no description and no error context, show usage
   if (!description && !errorContext) {
-    await postInfo(session,
+    await post(session, 'info',
       `Usage: ${formatter.formatCode('!bug <description>')}\n` +
       `Example: ${formatter.formatCode('!bug Session crashed when uploading large image')}\n\n` +
       `You can also attach screenshots to the !bug message.\n` +
@@ -877,7 +870,7 @@ export async function reportBug(
   const downloadFile = session.platform.downloadFile?.bind(session.platform);
   if (attachedFiles && attachedFiles.length > 0 && downloadFile) {
     // Show upload progress
-    await postInfo(session, `📤 Uploading ${attachedFiles.length} image(s)...`);
+    await post(session, 'info', `📤 Uploading ${attachedFiles.length} image(s)...`);
 
     const uploadResults = await uploadImages(
       attachedFiles,
@@ -902,7 +895,7 @@ export async function reportBug(
   const previewMessage = `🐛 ${preview}`;
 
   // Post preview with approval reactions
-  const post = await postInteractiveAndRegister(
+  const bugReportPost = await postInteractiveAndRegister(
     session,
     previewMessage,
     [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
@@ -911,7 +904,7 @@ export async function reportBug(
 
   // Store pending bug report
   session.messageManager?.setPendingBugReport({
-    postId: post.id,
+    postId: bugReportPost.id,
     title,
     body,
     userDescription: bugDescription,

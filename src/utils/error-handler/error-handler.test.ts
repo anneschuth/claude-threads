@@ -58,17 +58,9 @@ function createMockSession(): Session {
 
     // Display state
     sessionStartPostId: null,
-    tasksPostId: null,
-    lastTasksContent: null,
-    tasksCompleted: false,
-    tasksMinimized: false,
 
     // Flags
     timeoutWarningPosted: false,
-
-    // Task timing
-    inProgressTaskStart: null,
-    activeToolStarts: new Map(),
 
     // Message counter
     messageCount: 0,
