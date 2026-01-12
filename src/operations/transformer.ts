@@ -213,6 +213,11 @@ function transformToolResult(
   event: ClaudeEvent,
   ctx: TransformContext
 ): MessageOperation[] {
+  // Guard against undefined tool_result
+  if (!event.tool_result) {
+    return [];
+  }
+
   const result = event.tool_result as {
     tool_use_id?: string;
     is_error?: boolean;
