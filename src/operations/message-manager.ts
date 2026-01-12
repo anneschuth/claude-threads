@@ -642,6 +642,32 @@ export class MessageManager {
   }
 
   // ---------------------------------------------------------------------------
+  // User message handling
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Prepare the message manager for a new user message.
+   * This flushes any pending content, resets the content post state,
+   * and bumps the task list to below the user's message.
+   *
+   * Call this before sending a follow-up message to Claude.
+   */
+  async prepareForUserMessage(): Promise<void> {
+    const logger = log.forSession(this.sessionId);
+    logger.debug('Preparing for new user message');
+
+    // Flush any pending content before starting new message
+    // This ensures code blocks and other structures are properly closed
+    await this.flush();
+
+    // Reset current post so Claude's response starts in a new message
+    this.resetContentPost();
+
+    // Bump task list below the user's message
+    await this.bumpTaskList();
+  }
+
+  // ---------------------------------------------------------------------------
   // Unified reaction routing
   // ---------------------------------------------------------------------------
 

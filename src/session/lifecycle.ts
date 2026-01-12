@@ -905,15 +905,8 @@ export async function sendFollowUp(
     files && files.length > 0
   );
 
-  // Flush any pending content before starting new message
-  // This ensures code blocks and other structures are properly closed
-  await ctx.ops.flush(session);
-
-  // Reset current post so Claude's response starts in a new message
-  session.messageManager?.resetContentPost();
-
-  // Bump task list below the user's message
-  await ctx.ops.bumpTasksToBottom(session);
+  // Prepare MessageManager for new message (flush, reset, bump task list)
+  await session.messageManager?.prepareForUserMessage();
 
   const content = await ctx.ops.buildMessageContent(message, session.platform, files);
   const messageText = typeof content === 'string' ? content : message;

@@ -48,6 +48,7 @@ function createMockMessageManager() {
     resetContentPost: mock(() => {}),
     handleEvent: mock(() => Promise.resolve()),
     flush: mock(() => Promise.resolve()),
+    prepareForUserMessage: mock(() => Promise.resolve()),
     getCurrentPostId: mock(() => null),
     getCurrentPostContent: mock(() => ''),
     hasPendingQuestions: mock(() => false),
@@ -561,11 +562,9 @@ describe('killAllSessions edge cases', () => {
 });
 
 describe('sendFollowUp', () => {
-  it('flushes pending content before sending new message', async () => {
-    // Mock messageManager with current post state
+  it('prepares message manager before sending new message', async () => {
+    // Mock messageManager with prepareForUserMessage
     const mockMsgManager = createMockMessageManager();
-    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
-    (mockMsgManager.getCurrentPostContent as any).mockReturnValue('old content');
     const session = createMockSession({
       messageManager: mockMsgManager as any,
     });
@@ -574,42 +573,8 @@ describe('sendFollowUp', () => {
 
     await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
 
-    // Should have called flush
-    expect(ctx.ops.flush).toHaveBeenCalledWith(session);
-  });
-
-  it('resets content post state so response starts in new message', async () => {
-    // Mock messageManager with current post state
-    const mockMsgManager = createMockMessageManager();
-    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
-    (mockMsgManager.getCurrentPostContent as any).mockReturnValue('old content');
-    const session = createMockSession({
-      messageManager: mockMsgManager as any,
-    });
-    const sessions = new Map([['test-platform:thread-123', session]]);
-    const ctx = createMockSessionContext(sessions);
-
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
-
-    // messageManager.resetContentPost() should be called
-    expect(session.messageManager?.resetContentPost).toHaveBeenCalled();
-  });
-
-  it('bumps task list after resetting post state', async () => {
-    // Mock messageManager with current post state
-    const mockMsgManager = createMockMessageManager();
-    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
-    const session = createMockSession({
-      tasksPostId: 'tasks-post',
-      messageManager: mockMsgManager as any,
-    });
-    const sessions = new Map([['test-platform:thread-123', session]]);
-    const ctx = createMockSessionContext(sessions);
-
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
-
-    // Should bump tasks after flushing
-    expect(ctx.ops.bumpTasksToBottom).toHaveBeenCalledWith(session);
+    // Should have called prepareForUserMessage which handles flush, reset, bump
+    expect(mockMsgManager.prepareForUserMessage).toHaveBeenCalled();
   });
 
   it('does not send if Claude is not running', async () => {
