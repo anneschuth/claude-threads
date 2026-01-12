@@ -84,14 +84,6 @@ type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
   platformId?: string;
 }
 
-/**
- * Legacy session format (before lifecyclePostId rename in v0.33.7)
- * Used for migration from timeoutPostId to lifecyclePostId
- */
-type PersistedSessionLegacy = PersistedSession & {
-  timeoutPostId?: string;  // Old field name, renamed to lifecyclePostId
-}
-
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
@@ -170,23 +162,6 @@ export class SessionStore {
       } else if (data.version !== STORE_VERSION) {
         log.warn(`Sessions file version ${data.version} not supported, starting fresh`);
         return sessions;
-      }
-
-      // Migration: timeoutPostId → lifecyclePostId (v0.33.7)
-      // This is a field rename that doesn't require a version bump
-      let needsSave = false;
-      for (const session of Object.values(data.sessions)) {
-        const legacySession = session as PersistedSessionLegacy;
-        if (legacySession.timeoutPostId && !session.lifecyclePostId) {
-          session.lifecyclePostId = legacySession.timeoutPostId;
-          delete legacySession.timeoutPostId;
-          needsSave = true;
-          log.debug(`Migrated timeoutPostId to lifecyclePostId for session ${session.threadId.substring(0, 8)}...`);
-        }
-      }
-      if (needsSave) {
-        log.info('Migrated session(s) from timeoutPostId to lifecyclePostId');
-        this.writeAtomic(data);
       }
 
       // Load active sessions only (exclude soft-deleted)
@@ -329,10 +304,8 @@ export class SessionStore {
       }
 
       // Include timed-out sessions that are not currently active
-      // These have lifecyclePostId (or legacy timeoutPostId) set but no cleanedAt
-      const legacySession = session as PersistedSessionLegacy;
-      const hasLifecyclePost = session.lifecyclePostId || legacySession.timeoutPostId;
-      if (hasLifecyclePost && activeSessions && !activeSessions.has(sessionId)) {
+      // These have lifecyclePostId set but no cleanedAt
+      if (session.lifecyclePostId && activeSessions && !activeSessions.has(sessionId)) {
         historySessions.push(session);
       }
     }
@@ -447,7 +420,7 @@ export class SessionStore {
   }
 
   /**
-   * Find a persisted session by timeout post ID or session start post ID
+   * Find a persisted session by lifecycle post ID or session start post ID
    * Used for resuming sessions via emoji reaction
    * @param platformId - Platform instance ID
    * @param postId - Post ID to search for
@@ -457,14 +430,7 @@ export class SessionStore {
     const data = this.loadRaw();
     for (const session of Object.values(data.sessions)) {
       if (session.platformId !== platformId) continue;
-      // Check both lifecyclePostId and legacy timeoutPostId for compatibility
-      const legacySession = session as PersistedSessionLegacy;
-      const lifecycleId = session.lifecyclePostId || legacySession.timeoutPostId;
-      if (lifecycleId === postId || session.sessionStartPostId === postId) {
-        // Migrate the field if using legacy name
-        if (legacySession.timeoutPostId && !session.lifecyclePostId) {
-          session.lifecyclePostId = legacySession.timeoutPostId;
-        }
+      if (session.lifecyclePostId === postId || session.sessionStartPostId === postId) {
         return session;
       }
     }

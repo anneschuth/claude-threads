@@ -349,8 +349,7 @@ function formatHistoryEntry(
   // Determine if this is a timed-out (resumable) session or a completed session
   const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
   // Show when the user last worked on it, not when it was cleaned up
-  // Defensive: handle missing lastActivityAt (old persisted data)
-  const lastActivity = session.lastActivityAt ? new Date(session.lastActivityAt) : new Date();
+  const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);
 
   // Build PR link if available

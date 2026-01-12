@@ -808,22 +808,21 @@ export async function resumeSession(
   const claude = new ClaudeCli(cliOptions);
 
   // Rebuild Session object from persisted state
-  // Use defensive defaults for all fields to handle old/incomplete persisted data
   const session: Session = {
     platformId,
     threadId: state.threadId,
     sessionId,
     platform,
     claudeSessionId: state.claudeSessionId,
-    startedBy: state.startedBy || 'unknown',
+    startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
-    startedAt: state.startedAt ? new Date(state.startedAt) : new Date(),
+    startedAt: new Date(state.startedAt),
     lastActivityAt: new Date(),
     sessionNumber: state.sessionNumber ?? 1,
     workingDir: state.workingDir,
     claude,
     planApproved: state.planApproved ?? false,
-    sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
+    sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.

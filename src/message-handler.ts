@@ -283,8 +283,7 @@ export async function handleMessage(
       // Check if user is allowed in the paused session
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        // Defensive: handle missing sessionAllowedUsers (old Bristol data)
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
         if (!allowedUsers.has(username) && !client.isUserAllowed(username)) {
           // Not allowed - could request approval but that would require the session to be active
           await client.createPost(
