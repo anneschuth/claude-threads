@@ -259,15 +259,6 @@ export interface Session {
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
 
-  // DEPRECATED: Task state is now managed by MessageManager.
-  // These fields exist only for backward compatibility during persistence migration.
-  // Use session.messageManager?.getTaskListState() instead.
-  // TODO: Remove these fields once all persisted sessions have been migrated.
-  tasksPostId?: string | null;
-  lastTasksContent?: string | null;
-  tasksCompleted?: boolean;
-  tasksMinimized?: boolean;
-
   // Timer management (centralized)
   timers: SessionTimers;
 
@@ -276,12 +267,6 @@ export interface Session {
 
   // Timeout warning state
   timeoutWarningPosted: boolean;
-
-  // DEPRECATED: Task timing is now managed by MessageManager's TaskListExecutor.
-  // These fields exist only for backward compatibility during persistence migration.
-  // TODO: Remove these fields once all persisted sessions have been migrated.
-  inProgressTaskStart?: number | null;
-  activeToolStarts?: Map<string, number>;
 
   // Worktree support
   worktreeInfo?: WorktreeInfo;              // Active worktree info

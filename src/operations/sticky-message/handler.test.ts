@@ -102,12 +102,11 @@ function createMockMessageManager(overrides: Partial<{
 }
 
 // Create a mock session
-function createMockSession(overrides: Partial<Session> = {}): Session {
+function createMockSession(overrides: Partial<Session> = {}, taskContent: string | null = null): Session {
   const platform = createMockPlatform('test-platform');
-  // Extract lastTasksContent to pass to message manager
-  const lastTasksContent = overrides.lastTasksContent ?? null;
-  const messageManagerOverrides = lastTasksContent
-    ? { getTaskListState: mock(() => ({ postId: null, content: lastTasksContent, isMinimized: false, isCompleted: false })) }
+  // Create message manager override if task content is provided
+  const messageManagerOverrides = taskContent
+    ? { getTaskListState: mock(() => ({ postId: null, content: taskContent, isMinimized: false, isCompleted: false })) }
     : {};
   return {
     platformId: 'test-platform',
@@ -611,11 +610,12 @@ describe('buildStickyMessage', () => {
 
   it('hides active task when pending prompts are shown', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)';
     const mockMsgManager = createMockMessageManager({
       getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
     });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)',
       messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
