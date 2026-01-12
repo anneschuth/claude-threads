@@ -17,7 +17,7 @@ import type {
 import type { SessionTimers } from './timer-manager.js';
 
 // Re-export imported types for backward compatibility
-export type { QuestionOption, PendingExistingWorktreePrompt, PendingUpdatePrompt };
+export type { QuestionOption, PendingExistingWorktreePrompt, PendingUpdatePrompt, PendingBugReport };
 // Re-export timer types
 export type { SessionTimers };
 export { createSessionTimers, clearAllTimers, isTyping } from './timer-manager.js';
@@ -294,17 +294,11 @@ export interface Session {
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   worktreeResponsePostId?: string;          // Post ID of user's worktree branch response (to exclude from context)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
-  pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt; // Waiting for user to confirm joining existing worktree
   pendingWorktreeFailurePrompt?: PendingWorktreeFailurePrompt;  // Waiting for user to decide after worktree creation failed
   pendingWorktreeSuggestions?: PendingWorktreeSuggestions; // Branch suggestions for worktree prompt
 
   // Thread context prompt support
-  // NOTE: pendingContextPrompt state is now managed by MessageManager
-  // Access via session.messageManager?.getPendingContextPrompt()
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
-
-  // Update prompt support
-  pendingUpdatePrompt?: PendingUpdatePrompt; // Waiting for user to confirm update now/defer
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
@@ -334,7 +328,6 @@ export interface Session {
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
   // Bug reporting support
-  pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
   lastError?: ErrorContext;               // Most recent error for bug reaction
 

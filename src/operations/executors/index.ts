@@ -34,7 +34,7 @@ export { TaskListExecutor } from './task-list.js';
 export { SubagentExecutor } from './subagent.js';
 export { SystemExecutor } from './system.js';
 
-// New focused executors (split from InteractiveExecutor)
+// Focused executors for interactive operations
 export { QuestionApprovalExecutor } from './question-approval.js';
 export type {
   QuestionCompleteCallback,
@@ -62,12 +62,3 @@ export type {
   BugReportDecision,
   BugReportCallback,
 } from './bug-report.js';
-
-// Legacy export for backward compatibility - re-export InteractiveExecutor
-// This is deprecated and will be removed in a future version.
-// Use the focused executors instead:
-// - QuestionApprovalExecutor for questions and approvals
-// - MessageApprovalExecutor for message approvals
-// - PromptExecutor for context/worktree/update prompts
-// - BugReportExecutor for bug reports
-export { InteractiveExecutor } from './interactive.js';

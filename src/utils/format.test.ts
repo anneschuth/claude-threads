@@ -13,7 +13,7 @@ import {
   truncateAtWord,
   pluralize,
   logSessionAction,
-  sessionLog,
+  sessionLogActions,
   setSessionLogHandler,
 } from './format.js';
 
@@ -288,7 +288,7 @@ describe('logSessionAction', () => {
   });
 });
 
-describe('sessionLog', () => {
+describe('sessionLogActions', () => {
   let consoleLogSpy: ReturnType<typeof spyOn>;
   let consoleErrorSpy: ReturnType<typeof spyOn>;
 
@@ -306,7 +306,7 @@ describe('sessionLog', () => {
 
   describe('started', () => {
     it('logs session start with user and directory', () => {
-      sessionLog.started('thread123456789', 'alice', '/home/user/project');
+      sessionLogActions.started('thread123456789', 'alice', '/home/user/project');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '✅ Session started (thread12…) by @alice in /home/user/project'
       );
@@ -315,59 +315,59 @@ describe('sessionLog', () => {
 
   describe('cancelled', () => {
     it('logs session cancellation', () => {
-      sessionLog.cancelled('thread123', 'bob');
+      sessionLogActions.cancelled('thread123', 'bob');
       expect(consoleLogSpy).toHaveBeenCalledWith('🛑 Session cancelled (thread12…) by @bob');
     });
   });
 
   describe('timeout', () => {
     it('logs session timeout', () => {
-      sessionLog.timeout('thread123');
+      sessionLogActions.timeout('thread123');
       expect(consoleLogSpy).toHaveBeenCalledWith('⏱️ Session timed out (thread12…)');
     });
   });
 
   describe('resumed', () => {
     it('logs session resume with user', () => {
-      sessionLog.resumed('thread123', 'alice');
+      sessionLogActions.resumed('thread123', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith('🔄 Session resumed (thread12…) by @alice');
     });
 
     it('logs session resume without user', () => {
-      sessionLog.resumed('thread123');
+      sessionLogActions.resumed('thread123');
       expect(consoleLogSpy).toHaveBeenCalledWith('🔄 Session resumed (thread12…)');
     });
   });
 
   describe('interrupted', () => {
     it('logs session interrupt', () => {
-      sessionLog.interrupted('thread123', 'alice');
+      sessionLogActions.interrupted('thread123', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith('⏸️ Session interrupted (thread12…) by @alice');
     });
   });
 
   describe('exited', () => {
     it('logs successful exit with code 0', () => {
-      sessionLog.exited('thread123', 0);
+      sessionLogActions.exited('thread123', 0);
       expect(consoleLogSpy).toHaveBeenCalledWith('✅ Session (thread12…) exited with code 0');
     });
 
     it('logs unsuccessful exit with non-zero code', () => {
-      sessionLog.exited('thread123', 1);
+      sessionLogActions.exited('thread123', 1);
       expect(consoleLogSpy).toHaveBeenCalledWith('⚠️ Session (thread12…) exited with code 1');
     });
   });
 
   describe('error', () => {
     it('logs error to stderr', () => {
-      sessionLog.error('thread123', 'Something went wrong');
+      sessionLogActions.error('thread123', 'Something went wrong');
       expect(consoleErrorSpy).toHaveBeenCalledWith('⚠️ Session (thread12…): Something went wrong');
     });
   });
 
   describe('cdChanged', () => {
     it('logs directory change', () => {
-      sessionLog.cdChanged('thread123', '/new/path', 'alice');
+      sessionLogActions.cdChanged('thread123', '/new/path', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '📂 Session (thread12…) changed to /new/path by @alice'
       );
@@ -376,7 +376,7 @@ describe('sessionLog', () => {
 
   describe('invited', () => {
     it('logs user invitation', () => {
-      sessionLog.invited('thread123', 'bob', 'alice');
+      sessionLogActions.invited('thread123', 'bob', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '👤 @bob invited to session (thread12…) by @alice'
       );
@@ -385,7 +385,7 @@ describe('sessionLog', () => {
 
   describe('kicked', () => {
     it('logs user removal', () => {
-      sessionLog.kicked('thread123', 'bob', 'alice');
+      sessionLogActions.kicked('thread123', 'bob', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '👤 @bob removed from session (thread12…) by @alice'
       );
@@ -394,7 +394,7 @@ describe('sessionLog', () => {
 
   describe('worktreeCreated', () => {
     it('logs worktree creation', () => {
-      sessionLog.worktreeCreated('thread123', 'feature/new-feature');
+      sessionLogActions.worktreeCreated('thread123', 'feature/new-feature');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '🌿 Worktree created for branch "feature/new-feature" (thread12…)'
       );
@@ -403,19 +403,19 @@ describe('sessionLog', () => {
 
   describe('contextPrompt', () => {
     it('logs context prompt timeout', () => {
-      sessionLog.contextPrompt('thread123', 'timeout');
+      sessionLogActions.contextPrompt('thread123', 'timeout');
       expect(consoleLogSpy).toHaveBeenCalledWith('🧵 Session (thread12…) context: timed out');
     });
 
     it('logs no context selected', () => {
-      sessionLog.contextPrompt('thread123', 0, 'alice');
+      sessionLogActions.contextPrompt('thread123', 0, 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '🧵 Session (thread12…) context: no context selected by @alice'
       );
     });
 
     it('logs message count selected', () => {
-      sessionLog.contextPrompt('thread123', 5, 'alice');
+      sessionLogActions.contextPrompt('thread123', 5, 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '🧵 Session (thread12…) context: last 5 messages selected by @alice'
       );
@@ -424,14 +424,14 @@ describe('sessionLog', () => {
 
   describe('permissionMode', () => {
     it('logs interactive permission mode', () => {
-      sessionLog.permissionMode('thread123', 'interactive', 'alice');
+      sessionLogActions.permissionMode('thread123', 'interactive', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '🔐 Session (thread12…) permissions set to interactive by @alice'
       );
     });
 
     it('logs skip permission mode', () => {
-      sessionLog.permissionMode('thread123', 'skip', 'alice');
+      sessionLogActions.permissionMode('thread123', 'skip', 'alice');
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '⚡ Session (thread12…) permissions set to skip by @alice'
       );
@@ -443,7 +443,7 @@ describe('sessionLog', () => {
       const originalDebug = process.env.DEBUG;
       delete process.env.DEBUG;
 
-      sessionLog.debug('thread123', 'Debug message');
+      sessionLogActions.debug('thread123', 'Debug message');
       expect(consoleLogSpy).not.toHaveBeenCalled();
 
       process.env.DEBUG = originalDebug;
@@ -453,7 +453,7 @@ describe('sessionLog', () => {
       const originalDebug = process.env.DEBUG;
       process.env.DEBUG = '1';
 
-      sessionLog.debug('thread123', 'Debug message');
+      sessionLogActions.debug('thread123', 'Debug message');
       expect(consoleLogSpy).toHaveBeenCalledWith('[debug] Session (thread12…): Debug message');
 
       process.env.DEBUG = originalDebug;
@@ -480,7 +480,7 @@ describe('setSessionLogHandler', () => {
     const handler = mock(() => {});
     setSessionLogHandler(handler);
 
-    sessionLog.started('thread123', 'alice', '/path');
+    sessionLogActions.started('thread123', 'alice', '/path');
 
     expect(handler).toHaveBeenCalledWith(
       'info',
@@ -494,7 +494,7 @@ describe('setSessionLogHandler', () => {
     setSessionLogHandler(handler);
     setSessionLogHandler(null);
 
-    sessionLog.started('thread123', 'alice', '/path');
+    sessionLogActions.started('thread123', 'alice', '/path');
 
     expect(handler).not.toHaveBeenCalled();
     expect(consoleLogSpy).toHaveBeenCalled();

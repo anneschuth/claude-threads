@@ -9,7 +9,7 @@
  * - operations/worktree: Git worktree management
  *
  * User reactions are handled via MessageManager.handleReaction() which routes
- * to the appropriate executor (InteractiveExecutor, TaskListExecutor, etc.)
+ * to the appropriate executor (QuestionApprovalExecutor, TaskListExecutor, etc.)
  */
 
 import { EventEmitter } from 'events';

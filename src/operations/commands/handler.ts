@@ -932,8 +932,8 @@ export async function handleBugReportApproval(
   isApproved: boolean,
   username: string
 ): Promise<void> {
-  // Read from MessageManager (new location) or fallback to session (backward compat)
-  const pending = session.messageManager?.getPendingBugReport() ?? session.pendingBugReport;
+  // Read from MessageManager (sole source of truth)
+  const pending = session.messageManager?.getPendingBugReport();
   if (!pending) return;
 
   const formatter = session.platform.getFormatter();

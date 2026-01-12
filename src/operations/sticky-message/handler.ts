@@ -94,7 +94,7 @@ export function getPendingPrompts(session: Session): PendingPrompt[] {
   }
 
   // Existing worktree prompt (join existing?)
-  if (session.messageManager?.hasPendingExistingWorktreePrompt() || session.pendingExistingWorktreePrompt) {
+  if (session.messageManager?.hasPendingExistingWorktreePrompt()) {
     prompts.push({
       type: 'existing_worktree',
       label: 'Join worktree',

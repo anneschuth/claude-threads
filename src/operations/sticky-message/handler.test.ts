@@ -49,6 +49,7 @@ function createMockMessageManager(overrides: Partial<{
   getPendingQuestionSet: ReturnType<typeof mock>;
   getPendingMessageApproval: ReturnType<typeof mock>;
   getPendingContextPrompt: ReturnType<typeof mock>;
+  hasPendingExistingWorktreePrompt: ReturnType<typeof mock>;
 }> = {}) {
   return {
     resetContentPost: mock(() => {}),
@@ -65,7 +66,7 @@ function createMockMessageManager(overrides: Partial<{
     setPendingContextPrompt: mock(() => {}),
     clearPendingContextPrompt: mock(() => {}),
     hasPendingContextPrompt: mock(() => false),
-    hasPendingExistingWorktreePrompt: mock(() => false),
+    hasPendingExistingWorktreePrompt: overrides.hasPendingExistingWorktreePrompt ?? mock(() => false),
     getPendingExistingWorktreePrompt: mock(() => null),
     setPendingExistingWorktreePrompt: mock(() => {}),
     clearPendingExistingWorktreePrompt: mock(() => {}),
@@ -528,13 +529,11 @@ describe('buildStickyMessage', () => {
 
   it('shows pending existing worktree prompt', async () => {
     const sessions = new Map<string, Session>();
+    const mockMsgManager = createMockMessageManager({
+      hasPendingExistingWorktreePrompt: mock(() => true),
+    });
     const session = createMockSession({
-      pendingExistingWorktreePrompt: {
-        postId: 'post1',
-        branch: 'feature-branch',
-        worktreePath: '/path/to/worktree',
-        username: 'alice',
-      },
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -692,13 +691,11 @@ describe('getPendingPrompts', () => {
   });
 
   it('returns existing worktree prompt', () => {
+    const mockMsgManager = createMockMessageManager({
+      hasPendingExistingWorktreePrompt: mock(() => true),
+    });
     const session = createMockSession({
-      pendingExistingWorktreePrompt: {
-        postId: 'post1',
-        branch: 'feature-branch',
-        worktreePath: '/path/to/worktree',
-        username: 'alice',
-      },
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(1);

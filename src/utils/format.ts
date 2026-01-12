@@ -120,8 +120,12 @@ export function logSessionAction(
 /**
  * Pre-defined session log helpers for common actions.
  * Use these for consistent logging throughout the codebase.
+ *
+ * NOTE: This is named `sessionLogActions` to avoid confusion with
+ * `createSessionLog` from session-log.ts, which creates session-scoped loggers.
+ * This object provides pre-formatted log messages for common session events.
  */
-export const sessionLog = {
+export const sessionLogActions = {
   /**
    * Log session started
    */

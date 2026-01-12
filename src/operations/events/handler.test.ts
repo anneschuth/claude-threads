@@ -274,5 +274,5 @@ describe('handleEventPostProcessing', () => {
   // since that functionality is now handled by SubagentExecutor via MessageManager
 
   // NOTE: postCurrentQuestion tests have been removed - question posting now
-  // goes through InteractiveExecutor.postCurrentQuestion() in MessageManager
+  // goes through QuestionApprovalExecutor via MessageManager
 });

@@ -130,7 +130,6 @@ export type {
 export {
   ContentExecutor,
   TaskListExecutor,
-  InteractiveExecutor,
   SubagentExecutor,
   SystemExecutor,
 } from './executors/index.js';
