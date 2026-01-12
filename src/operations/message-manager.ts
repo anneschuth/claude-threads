@@ -16,8 +16,8 @@ import {
   SubagentExecutor,
   SystemExecutor,
 } from './executors/index.js';
-import type { MessageApprovalDecision, MessageApprovalCallback } from './executors/interactive.js';
-import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback, PendingMessageApproval } from './executors/types.js';
+import type { MessageApprovalDecision, MessageApprovalCallback, ContextPromptCallback, ContextPromptSelection } from './executors/interactive.js';
+import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback, PendingMessageApproval, PendingContextPrompt } from './executors/types.js';
 import { PostTracker } from './post-tracker.js';
 import { DefaultContentBreaker } from './content-breaker.js';
 import type {
@@ -84,6 +84,7 @@ export interface MessageManagerOptions {
   onQuestionComplete: QuestionCompleteCallback;
   onApprovalComplete: ApprovalCompleteCallback;
   onMessageApprovalComplete?: MessageApprovalCallback;
+  onContextPromptComplete?: ContextPromptCallback;
   onStatusUpdate?: StatusUpdateCallback;
   onLifecycleEvent?: LifecycleCallback;
   onBumpTaskList?: () => Promise<void>;
@@ -164,6 +165,7 @@ export class MessageManager {
       onQuestionComplete: options.onQuestionComplete,
       onApprovalComplete: options.onApprovalComplete,
       onMessageApprovalComplete: options.onMessageApprovalComplete,
+      onContextPromptComplete: options.onContextPromptComplete,
     });
 
     this.subagentExecutor = new SubagentExecutor({
@@ -470,6 +472,60 @@ export class MessageManager {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Context prompt delegation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending context prompt state.
+   * Called when prompting user for thread context inclusion.
+   */
+  setPendingContextPrompt(prompt: PendingContextPrompt): void {
+    this.interactiveExecutor.setPendingContextPrompt(prompt);
+  }
+
+  /**
+   * Get pending context prompt state.
+   */
+  getPendingContextPrompt(): PendingContextPrompt | null {
+    return this.interactiveExecutor.getPendingContextPrompt();
+  }
+
+  /**
+   * Check if there's a pending context prompt.
+   */
+  hasPendingContextPrompt(): boolean {
+    return this.interactiveExecutor.hasPendingContextPrompt();
+  }
+
+  /**
+   * Clear pending context prompt state.
+   */
+  clearPendingContextPrompt(): void {
+    this.interactiveExecutor.clearPendingContextPrompt();
+  }
+
+  /**
+   * Handle a context prompt response reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param selection - The context selection (number of messages, 0 for skip, or 'timeout')
+   * @param username - Username of the responder
+   */
+  async handleContextPromptResponse(
+    postId: string,
+    selection: ContextPromptSelection,
+    username: string
+  ): Promise<boolean> {
+    return this.interactiveExecutor.handleContextPromptResponse(
+      postId,
+      selection,
+      username,
+      this.getExecutorContext()
+    );
+  }
+
   /**
    * Get the current post ID being updated
    */
@@ -552,6 +608,7 @@ export class MessageManager {
       toolUseId: string;
     } | null;
     pendingMessageApproval?: PendingMessageApproval | null;
+    pendingContextPrompt?: PendingContextPrompt | null;
   }): void {
     this.interactiveExecutor.hydrateState(persisted);
   }

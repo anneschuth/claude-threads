@@ -154,7 +154,6 @@ function createTestSession(platform: PlatformClient): Session {
     worktreePromptDisabled: false,
     queuedPrompt: undefined,
     firstPrompt: 'test prompt',
-    pendingContextPrompt: undefined,
     needsContextPromptOnNextMessage: false,
     lifecyclePostId: undefined,
     sessionTitle: undefined,

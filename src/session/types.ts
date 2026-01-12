@@ -5,7 +5,6 @@
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
-import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
@@ -202,7 +201,8 @@ export interface Session {
   pendingWorktreeSuggestions?: PendingWorktreeSuggestions; // Branch suggestions for worktree prompt
 
   // Thread context prompt support
-  pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
+  // NOTE: pendingContextPrompt state is now managed by MessageManager
+  // Access via session.messageManager?.getPendingContextPrompt()
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
 
   // Update prompt support

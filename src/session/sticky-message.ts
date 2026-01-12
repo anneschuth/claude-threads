@@ -103,7 +103,7 @@ export function getPendingPrompts(session: Session): PendingPrompt[] {
   }
 
   // Context prompt (include previous messages?)
-  if (session.pendingContextPrompt) {
+  if (session.messageManager?.getPendingContextPrompt()) {
     prompts.push({
       type: 'context',
       label: 'Context selection',

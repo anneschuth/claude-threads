@@ -10,7 +10,7 @@
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
-import type { ExecutorContext, InteractiveState, PendingMessageApproval, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 
 /**
@@ -45,6 +45,26 @@ export type MessageApprovalCallback = (
   context: { fromUser: string; originalMessage: string }
 ) => Promise<void>;
 
+/**
+ * Context prompt selection result.
+ * - number > 0: Include that many messages as context
+ * - 0: No context (user explicitly skipped)
+ * - 'timeout': No context (prompt timed out)
+ */
+export type ContextPromptSelection = number | 'timeout';
+
+/**
+ * Callback for context prompt completion.
+ */
+export type ContextPromptCallback = (
+  selection: ContextPromptSelection,
+  context: {
+    queuedPrompt: string;
+    queuedFiles?: Array<{ id: string; name: string }>;
+    threadMessageCount: number;
+  }
+) => Promise<void>;
+
 export class InteractiveExecutor {
   private state: InteractiveState;
   private registerPost: RegisterPostCallback;
@@ -52,6 +72,7 @@ export class InteractiveExecutor {
   private onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
   private onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
   private onMessageApprovalComplete?: MessageApprovalCallback;
+  private onContextPromptComplete?: ContextPromptCallback;
 
   constructor(options: {
     registerPost: RegisterPostCallback;
@@ -59,17 +80,20 @@ export class InteractiveExecutor {
     onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
     onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
     onMessageApprovalComplete?: MessageApprovalCallback;
+    onContextPromptComplete?: ContextPromptCallback;
   }) {
     this.state = {
       pendingQuestionSet: null,
       pendingApproval: null,
       pendingMessageApproval: null,
+      pendingContextPrompt: null,
     };
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
     this.onQuestionComplete = options.onQuestionComplete;
     this.onApprovalComplete = options.onApprovalComplete;
     this.onMessageApprovalComplete = options.onMessageApprovalComplete;
+    this.onContextPromptComplete = options.onContextPromptComplete;
   }
 
   /**
@@ -86,6 +110,9 @@ export class InteractiveExecutor {
       pendingMessageApproval: this.state.pendingMessageApproval
         ? { ...this.state.pendingMessageApproval }
         : null,
+      pendingContextPrompt: this.state.pendingContextPrompt
+        ? { ...this.state.pendingContextPrompt }
+        : null,
     };
   }
 
@@ -97,6 +124,7 @@ export class InteractiveExecutor {
       pendingQuestionSet: null,
       pendingApproval: null,
       pendingMessageApproval: null,
+      pendingContextPrompt: null,
     };
   }
 
@@ -108,11 +136,13 @@ export class InteractiveExecutor {
     pendingQuestionSet?: InteractiveState['pendingQuestionSet'];
     pendingApproval?: InteractiveState['pendingApproval'];
     pendingMessageApproval?: InteractiveState['pendingMessageApproval'];
+    pendingContextPrompt?: InteractiveState['pendingContextPrompt'];
   }): void {
     this.state = {
       pendingQuestionSet: persisted.pendingQuestionSet ?? null,
       pendingApproval: persisted.pendingApproval ?? null,
       pendingMessageApproval: persisted.pendingMessageApproval ?? null,
+      pendingContextPrompt: persisted.pendingContextPrompt ?? null,
     };
   }
 
@@ -489,6 +519,95 @@ export class InteractiveExecutor {
     // Notify completion handler
     if (this.onMessageApprovalComplete) {
       await this.onMessageApprovalComplete(decision, { fromUser, originalMessage });
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Context prompt methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending context prompt state.
+   * Called when starting a session mid-thread and offering context selection.
+   */
+  setPendingContextPrompt(prompt: PendingContextPrompt): void {
+    this.state.pendingContextPrompt = prompt;
+  }
+
+  /**
+   * Get pending context prompt state.
+   */
+  getPendingContextPrompt(): PendingContextPrompt | null {
+    return this.state.pendingContextPrompt;
+  }
+
+  /**
+   * Check if there's a pending context prompt.
+   */
+  hasPendingContextPrompt(): boolean {
+    return this.state.pendingContextPrompt !== null;
+  }
+
+  /**
+   * Clear pending context prompt state.
+   */
+  clearPendingContextPrompt(): void {
+    this.state.pendingContextPrompt = null;
+  }
+
+  /**
+   * Handle a context prompt reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param selection - The context selection (number of messages or 'timeout')
+   * @param username - Username of the user who responded (for logging)
+   * @param ctx - Executor context
+   */
+  async handleContextPromptResponse(
+    postId: string,
+    selection: ContextPromptSelection,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingContextPrompt) return false;
+    if (this.state.pendingContextPrompt.postId !== postId) return false;
+
+    const logger = log.forSession(ctx.sessionId);
+    const { queuedPrompt, queuedFiles, threadMessageCount } = this.state.pendingContextPrompt;
+    const formatter = ctx.platform.getFormatter();
+
+    // Update the post based on selection
+    let statusMessage: string;
+    if (selection === 'timeout') {
+      statusMessage = `⏱️ Continuing without context (no response)`;
+      logger.info(`Context prompt timed out, continuing without context`);
+    } else if (selection === 0) {
+      statusMessage = `✅ Continuing without context (skipped by ${formatter.formatUserMention(username)})`;
+      logger.info(`Context skipped by @${username}`);
+    } else {
+      statusMessage = `✅ Including last ${selection} messages (selected by ${formatter.formatUserMention(username)})`;
+      logger.info(`Context selection: last ${selection} messages by @${username}`);
+    }
+
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      logger.debug(`Failed to update context prompt post: ${err}`);
+    }
+
+    // Clear pending state
+    this.state.pendingContextPrompt = null;
+
+    // Notify completion handler
+    if (this.onContextPromptComplete) {
+      await this.onContextPromptComplete(selection, {
+        queuedPrompt,
+        queuedFiles,
+        threadMessageCount,
+      });
     }
 
     return true;

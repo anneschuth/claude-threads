@@ -522,7 +522,7 @@ export class SessionManager extends EventEmitter {
     }
 
     // Handle context prompt reactions (only on add)
-    if (action === 'added' && session.pendingContextPrompt?.postId === postId) {
+    if (action === 'added' && session.messageManager?.getPendingContextPrompt()?.postId === postId) {
       await this.handleContextPromptReaction(session, emojiName, username);
       return;
     }
@@ -618,7 +618,7 @@ export class SessionManager extends EventEmitter {
    */
   hasPendingContextPrompt(threadId: string): boolean {
     const session = this.findSessionByThreadId(threadId);
-    return session?.pendingContextPrompt !== undefined;
+    return session?.messageManager?.hasPendingContextPrompt() ?? false;
   }
 
   // ---------------------------------------------------------------------------
@@ -721,16 +721,17 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
-    // Convert pendingContextPrompt to persisted form (without timeoutId)
+    // Get context prompt state from MessageManager (source of truth)
     let persistedContextPrompt: PersistedContextPrompt | undefined;
-    if (session.pendingContextPrompt) {
+    const contextPromptState = session.messageManager?.getPendingContextPrompt();
+    if (contextPromptState) {
       persistedContextPrompt = {
-        postId: session.pendingContextPrompt.postId,
-        queuedPrompt: session.pendingContextPrompt.queuedPrompt,
-        queuedFiles: session.pendingContextPrompt.queuedFiles,
-        threadMessageCount: session.pendingContextPrompt.threadMessageCount,
-        createdAt: session.pendingContextPrompt.createdAt,
-        availableOptions: session.pendingContextPrompt.availableOptions,
+        postId: contextPromptState.postId,
+        queuedPrompt: contextPromptState.queuedPrompt,
+        queuedFiles: contextPromptState.queuedFiles,
+        threadMessageCount: contextPromptState.threadMessageCount,
+        createdAt: contextPromptState.createdAt,
+        availableOptions: contextPromptState.availableOptions,
       };
     }
 

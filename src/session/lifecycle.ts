@@ -24,6 +24,10 @@ import type { SessionContext } from './context.js';
 import { suggestSessionMetadata } from './title-suggest.js';
 import { suggestSessionTags } from './tag-suggest.js';
 import { MessageManager, PostTracker } from '../operations/index.js';
+import {
+  getThreadMessagesForContext,
+  formatContextForClaude,
+} from './context-prompt.js';
 
 const log = createLogger('lifecycle');
 
@@ -167,6 +171,45 @@ function createMessageManager(
         sessionLog(session).info(`@${fromUser} invited to session`);
       }
       // 'deny' - nothing extra to do, post already updated by MessageManager
+    },
+    onContextPromptComplete: async (selection, { queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
+      // Build message with or without context
+      let messageToSend = queuedPrompt;
+      if (typeof selection === 'number' && selection > 0) {
+        // User selected to include context - fetch and format messages
+        const messages = await getThreadMessagesForContext(session, selection);
+        if (messages.length > 0) {
+          const contextPrefix = formatContextForClaude(messages);
+          messageToSend = contextPrefix + queuedPrompt;
+        }
+        sessionLog(session).debug(`🧵 Including ${selection} messages as context`);
+      } else {
+        // No context (selection is 0 for skip, or 'timeout')
+        const reason = selection === 'timeout' ? 'timed out' : 'skipped';
+        sessionLog(session).debug(`🧵 Context ${reason}, continuing without`);
+      }
+
+      // Increment message counter
+      session.messageCount++;
+
+      // Inject metadata reminder periodically
+      messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
+
+      // Build content with files (if any)
+      // Note: queuedFiles from MessageManager are simplified refs (id, name)
+      // For now, send without files - the full PlatformFile[] would need to be
+      // stored separately if file support is needed here
+      const content = await ctx.ops.buildMessageContent(messageToSend, session.platform, undefined);
+
+      // Send the message to Claude
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(content);
+        ctx.ops.startTyping(session);
+      }
+
+      // Update activity and persist
+      session.lastActivityAt = new Date();
+      ctx.ops.persistSession(session);
     },
     // onBumpTaskList callback not implemented - task list bumping is handled separately
     // via the legacy streaming.ts path during the transition period

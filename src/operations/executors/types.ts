@@ -72,6 +72,27 @@ export interface PendingMessageApproval {
 }
 
 /**
+ * Simplified file reference for context prompts.
+ */
+export interface ContextPromptFile {
+  id: string;
+  name: string;
+}
+
+/**
+ * Pending context prompt state for thread context selection.
+ * Note: timeoutId is handled by the session layer, not stored here.
+ */
+export interface PendingContextPrompt {
+  postId: string;
+  queuedPrompt: string;
+  queuedFiles?: ContextPromptFile[];
+  threadMessageCount: number;
+  createdAt: number;
+  availableOptions: number[];
+}
+
+/**
  * State managed by the interactive executor.
  */
 export interface InteractiveState {
@@ -95,6 +116,8 @@ export interface InteractiveState {
   } | null;
   /** Pending message approval from unauthorized user */
   pendingMessageApproval: PendingMessageApproval | null;
+  /** Pending context prompt for thread context selection */
+  pendingContextPrompt: PendingContextPrompt | null;
 }
 
 /**

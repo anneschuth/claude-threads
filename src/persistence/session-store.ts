@@ -3,6 +3,7 @@ import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import type { PlatformFile } from '../platform/types.js';
+import type { ContextPromptFile } from '../operations/executors/types.js';
 
 const log = createLogger('persist');
 
@@ -21,7 +22,7 @@ export interface WorktreeInfo {
 export interface PersistedContextPrompt {
   postId: string;
   queuedPrompt: string;
-  queuedFiles?: PlatformFile[];  // Files attached to the queued prompt (for images)
+  queuedFiles?: ContextPromptFile[];  // Simplified file refs (id, name) for storage
   threadMessageCount: number;
   createdAt: number;
   availableOptions: number[];

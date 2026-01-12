@@ -8,6 +8,7 @@
 import type { Session } from './types.js';
 import type { ThreadMessage, PlatformFile } from '../platform/index.js';
 import type { ContentBlock } from '../claude/cli.js';
+import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../operations/executors/types.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
 import { withErrorHandling } from './error-handler.js';
 import { updateLastMessage } from './post-helpers.js';
@@ -25,6 +26,87 @@ export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
 
 // Context options: last N messages
 export const CONTEXT_OPTIONS = [3, 5, 10] as const;
+
+// ---------------------------------------------------------------------------
+// Helper Functions for MessageManager Integration
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level map for storing context prompt timeouts.
+ * Keyed by sessionId since timeouts are not stored in MessageManager.
+ */
+const contextPromptTimeouts: Map<string, ReturnType<typeof setTimeout>> = new Map();
+
+/**
+ * Module-level map for storing original PlatformFiles for context prompts.
+ * MessageManager only stores simplified ContextPromptFile (id, name), but
+ * we need the full PlatformFile for buildMessageContent.
+ */
+const contextPromptFiles: Map<string, PlatformFile[]> = new Map();
+
+/**
+ * Convert PlatformFile[] to ContextPromptFile[] for storage in MessageManager.
+ * Only stores the essential fields needed for later retrieval.
+ */
+function toContextPromptFiles(files: PlatformFile[] | undefined): ContextPromptFile[] | undefined {
+  if (!files || files.length === 0) return undefined;
+  return files.map(f => ({ id: f.id, name: f.name }));
+}
+
+/**
+ * Get the pending context prompt from MessageManager.
+ * Returns null if not found or MessageManager not available.
+ */
+function getPendingContextPromptFromManager(session: Session): (ExecutorPendingContextPrompt & { timeoutId?: ReturnType<typeof setTimeout> }) | null {
+  const prompt = session.messageManager?.getPendingContextPrompt();
+  if (!prompt) return null;
+  // Note: timeoutId is managed locally (not stored in MessageManager)
+  const timeoutId = contextPromptTimeouts.get(session.sessionId);
+  return { ...prompt, timeoutId };
+}
+
+/**
+ * Set the pending context prompt in MessageManager.
+ * The timeoutId and original files are stored locally.
+ */
+function setPendingContextPromptInManager(session: Session, prompt: PendingContextPrompt): void {
+  if (session.messageManager) {
+    // Store in MessageManager (without timeoutId - that's handled locally)
+    const { timeoutId, queuedFiles, ...rest } = prompt;
+    session.messageManager.setPendingContextPrompt({
+      ...rest,
+      queuedFiles: toContextPromptFiles(queuedFiles),
+    });
+    // Store timeout locally
+    if (timeoutId) {
+      contextPromptTimeouts.set(session.sessionId, timeoutId);
+    }
+    // Store original files locally for later use
+    if (queuedFiles && queuedFiles.length > 0) {
+      contextPromptFiles.set(session.sessionId, queuedFiles);
+    }
+  }
+}
+
+/**
+ * Clear the pending context prompt from MessageManager and local storage.
+ */
+function clearPendingContextPromptInManager(session: Session): void {
+  session.messageManager?.clearPendingContextPrompt();
+  const timeoutId = contextPromptTimeouts.get(session.sessionId);
+  if (timeoutId) {
+    clearTimeout(timeoutId);
+    contextPromptTimeouts.delete(session.sessionId);
+  }
+  contextPromptFiles.delete(session.sessionId);
+}
+
+/**
+ * Get the original PlatformFiles for a session's context prompt.
+ */
+function getContextPromptFilesForSession(session: Session): PlatformFile[] | undefined {
+  return contextPromptFiles.get(session.sessionId);
+}
 
 /**
  * Pending context prompt state
@@ -294,28 +376,31 @@ export async function handleContextPromptReaction(
   username: string,
   ctx: ContextPromptHandler
 ): Promise<boolean> {
-  if (!session.pendingContextPrompt) return false;
+  // Get pending context prompt from MessageManager
+  const pending = getPendingContextPromptFromManager(session);
+  if (!pending) return false;
 
   const selection = getContextSelectionFromReaction(
     emojiName,
-    session.pendingContextPrompt.availableOptions
+    pending.availableOptions
   );
   if (selection === null) return false; // Not a valid context selection reaction
 
-  const pending = session.pendingContextPrompt;
-
-  // Clear the timeout
-  clearContextPromptTimeout(pending);
+  // Clear the timeout (if stored locally)
+  if (pending.timeoutId) {
+    clearTimeout(pending.timeoutId);
+  }
 
   // Update the post to show selection
   await updateContextPromptPost(session, pending.postId, selection, username);
 
   // Get the queued prompt and files
   const queuedPrompt = pending.queuedPrompt;
-  const queuedFiles = pending.queuedFiles;
+  // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
+  const queuedFiles = getContextPromptFilesForSession(session);
 
-  // Clear pending context prompt
-  session.pendingContextPrompt = undefined;
+  // Clear pending context prompt (MessageManager and local storage)
+  clearPendingContextPromptInManager(session);
 
   // Build message with or without context
   let messageToSend = queuedPrompt;
@@ -357,19 +442,20 @@ export async function handleContextPromptTimeout(
   session: Session,
   ctx: ContextPromptHandler
 ): Promise<void> {
-  if (!session.pendingContextPrompt) return;
-
-  const pending = session.pendingContextPrompt;
+  // Get pending context prompt from MessageManager
+  const pending = getPendingContextPromptFromManager(session);
+  if (!pending) return;
 
   // Update the post to show timeout
   await updateContextPromptPost(session, pending.postId, 'timeout');
 
   // Get the queued prompt and files
   const queuedPrompt = pending.queuedPrompt;
-  const queuedFiles = pending.queuedFiles;
+  // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
+  const queuedFiles = getContextPromptFilesForSession(session);
 
-  // Clear pending context prompt
-  session.pendingContextPrompt = undefined;
+  // Clear pending context prompt (MessageManager and local storage)
+  clearPendingContextPromptInManager(session);
 
   // Increment message counter
   session.messageCount++;
@@ -452,7 +538,8 @@ export async function offerContextPrompt(
     () => handleContextPromptTimeout(session, ctx)
   );
 
-  session.pendingContextPrompt = pending;
+  // Store in MessageManager (timeoutId and files stored locally)
+  setPendingContextPromptInManager(session, pending);
   ctx.persistSession(session);
 
   sessionLog(session).debug(`🧵 Context prompt posted (${messageCount} messages available)`);

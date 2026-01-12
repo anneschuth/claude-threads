@@ -13,6 +13,8 @@ export type {
   InteractiveState,
   SubagentState,
   PendingMessageApproval,
+  PendingContextPrompt,
+  ContextPromptFile,
   Executor,
   ExecutionResult,
   RegisterPostCallback,
@@ -23,6 +25,6 @@ export type {
 export { ContentExecutor } from './content.js';
 export { TaskListExecutor } from './task-list.js';
 export { InteractiveExecutor } from './interactive.js';
-export type { MessageApprovalDecision, MessageApprovalCallback } from './interactive.js';
+export type { MessageApprovalDecision, MessageApprovalCallback, ContextPromptSelection, ContextPromptCallback } from './interactive.js';
 export { SubagentExecutor } from './subagent.js';
 export { SystemExecutor } from './system.js';

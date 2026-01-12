@@ -47,6 +47,7 @@ function createMockMessageManager(overrides: Partial<{
   getPendingApproval: ReturnType<typeof mock>;
   getPendingQuestionSet: ReturnType<typeof mock>;
   getPendingMessageApproval: ReturnType<typeof mock>;
+  getPendingContextPrompt: ReturnType<typeof mock>;
 }> = {}) {
   return {
     resetContentPost: mock(() => {}),
@@ -59,6 +60,11 @@ function createMockMessageManager(overrides: Partial<{
     getPendingApproval: overrides.getPendingApproval ?? mock(() => null),
     getPendingQuestionSet: overrides.getPendingQuestionSet ?? mock(() => null),
     getPendingMessageApproval: overrides.getPendingMessageApproval ?? mock(() => null),
+    getPendingContextPrompt: overrides.getPendingContextPrompt ?? mock(() => null),
+    setPendingContextPrompt: mock(() => {}),
+    clearPendingContextPrompt: mock(() => {}),
+    hasPendingContextPrompt: mock(() => false),
+    handleContextPromptResponse: mock(() => Promise.resolve(false)),
     clearPendingApproval: mock(() => {}),
     clearPendingQuestionSet: mock(() => {}),
     advanceQuestionIndex: mock(() => {}),
@@ -532,14 +538,17 @@ describe('buildStickyMessage', () => {
 
   it('shows pending context prompt', async () => {
     const sessions = new Map<string, Session>();
-    const session = createMockSession({
-      pendingContextPrompt: {
+    const mockMsgManager = createMockMessageManager({
+      getPendingContextPrompt: mock(() => ({
         postId: 'post1',
         queuedPrompt: 'Help me',
         threadMessageCount: 10,
         createdAt: Date.now(),
         availableOptions: [3, 5, 10],
-      },
+      })),
+    });
+    const session = createMockSession({
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -689,14 +698,17 @@ describe('getPendingPrompts', () => {
   });
 
   it('returns context prompt', () => {
-    const session = createMockSession({
-      pendingContextPrompt: {
+    const mockMsgManager = createMockMessageManager({
+      getPendingContextPrompt: mock(() => ({
         postId: 'post1',
         queuedPrompt: 'Help me',
         threadMessageCount: 10,
         createdAt: Date.now(),
         availableOptions: [3, 5, 10],
-      },
+      })),
+    });
+    const session = createMockSession({
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(1);
