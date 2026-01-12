@@ -6,6 +6,7 @@
  */
 
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
+import type { PendingQuestionSet } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
 import {
@@ -388,10 +389,54 @@ export class MessageManager {
   }
 
   /**
-   * Get pending question set info
+   * Get pending question set (full data including questions)
    */
-  getPendingQuestionSet(): { toolUseId: string; currentIndex: number; currentPostId: string | null } | null {
-    return this.interactiveExecutor.getPendingQuestionSet();
+  getPendingQuestionSet(): PendingQuestionSet | null {
+    const state = this.interactiveExecutor.getState();
+    return state.pendingQuestionSet ?? null;
+  }
+
+  /**
+   * Clear pending approval state
+   */
+  clearPendingApproval(): void {
+    this.interactiveExecutor.clearPendingApproval();
+  }
+
+  /**
+   * Clear pending question set state
+   */
+  clearPendingQuestionSet(): void {
+    this.interactiveExecutor.clearPendingQuestionSet();
+  }
+
+  /**
+   * Advance to the next question in the pending question set
+   */
+  advanceQuestionIndex(): void {
+    this.interactiveExecutor.advanceQuestionIndex();
+  }
+
+  /**
+   * Get the current post ID being updated
+   */
+  getCurrentPostId(): string | null {
+    return this.contentExecutor.getState().currentPostId;
+  }
+
+  /**
+   * Reset content post state to start next content in a new post.
+   * Called after compaction or before sending follow-up messages.
+   */
+  resetContentPost(): void {
+    this.contentExecutor.resetContentPost();
+  }
+
+  /**
+   * Get the current post content
+   */
+  getCurrentPostContent(): string {
+    return this.contentExecutor.getState().currentPostContent;
   }
 
   /**

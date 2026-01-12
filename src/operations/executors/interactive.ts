@@ -355,4 +355,20 @@ export class InteractiveExecutor {
   clearPendingQuestions(): void {
     this.state.pendingQuestionSet = null;
   }
+
+  /**
+   * Clear pending question set (alias for clearPendingQuestions).
+   */
+  clearPendingQuestionSet(): void {
+    this.state.pendingQuestionSet = null;
+  }
+
+  /**
+   * Advance to the next question in the pending question set.
+   */
+  advanceQuestionIndex(): void {
+    if (this.state.pendingQuestionSet) {
+      this.state.pendingQuestionSet.currentIndex++;
+    }
+  }
 }

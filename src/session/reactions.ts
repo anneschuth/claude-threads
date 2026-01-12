@@ -14,7 +14,6 @@ import {
   getNumberEmojiIndex,
   isBugReportEmoji,
 } from '../utils/emoji.js';
-import { postCurrentQuestion } from './events.js';
 import { withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { shortenPath } from '../operations/index.js';
@@ -33,62 +32,31 @@ function sessionLog(session: Session) {
 
 /**
  * Handle a reaction on a question post (number emoji to select an option).
+ *
+ * Note: Question handling is delegated to MessageManager.handleQuestionAnswer()
+ * which manages the question state internally. This function just extracts
+ * the option index from the emoji and delegates.
  */
 export async function handleQuestionReaction(
   session: Session,
   postId: string,
   emojiName: string,
   username: string,
-  ctx: SessionContext
+  _ctx: SessionContext
 ): Promise<void> {
-  if (!session.pendingQuestionSet) return;
-
-  const { currentIndex, questions } = session.pendingQuestionSet;
-  const question = questions[currentIndex];
-  if (!question) return;
+  // Delegate to MessageManager if available
+  if (!session.messageManager) return;
 
   const optionIndex = getNumberEmojiIndex(emojiName);
-  if (optionIndex < 0 || optionIndex >= question.options.length) return;
-
-  const selectedOption = question.options[optionIndex];
-  question.answer = selectedOption.label;
-  sessionLog(session).debug(`💬 @${username} answered "${question.header}": ${selectedOption.label}`);
+  if (optionIndex < 0) return;
 
   // Log the reaction
-  session.threadLogger?.logReaction('question_answer', username, emojiName, selectedOption.label);
+  session.threadLogger?.logReaction('question_answer', username, emojiName);
 
-  // Update the post to show answer
-  const formatter = session.platform.getFormatter();
-  await withErrorHandling(
-    () => session.platform.updatePost(postId, `✅ ${formatter.formatBold(question.header)}: ${selectedOption.label}`),
-    { action: 'Update answered question', session }
-  );
-
-  // Move to next question or finish
-  session.pendingQuestionSet.currentIndex++;
-
-  if (session.pendingQuestionSet.currentIndex < questions.length) {
-    // Post next question - must register post for reaction routing
-    await postCurrentQuestion(session, ctx);
-  } else {
-    // All questions answered - send user message (NOT tool_result)
-    // Claude Code CLI handles AskUserQuestion internally (generating its own tool_result),
-    // so we can't send another tool_result. Instead, send a user message with answers.
-    let answersText = 'Here are my answers:\n';
-    for (const q of questions) {
-      answersText += `- ${formatter.formatBold(q.header)}: ${q.answer}\n`;
-    }
-
-    sessionLog(session).debug('✅ All questions answered');
-
-    // Clear pending questions
-    session.pendingQuestionSet = null;
-
-    // Send user message to Claude with the answers
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(answersText);
-      ctx.ops.startTyping(session);
-    }
+  // Delegate to MessageManager - it handles state, post updates, and callbacks
+  const handled = await session.messageManager.handleQuestionAnswer(postId, optionIndex);
+  if (handled) {
+    sessionLog(session).debug(`💬 @${username} answered question with option ${optionIndex + 1}`);
   }
 }
 
@@ -98,54 +66,40 @@ export async function handleQuestionReaction(
 
 /**
  * Handle a reaction on a plan approval post (thumbs up/down).
+ *
+ * Note: Approval handling is delegated to MessageManager.handleApprovalResponse()
+ * which manages the approval state internally. This function determines
+ * the approval decision from the emoji and delegates.
  */
 export async function handleApprovalReaction(
   session: Session,
+  postId: string,
   emojiName: string,
   username: string,
-  ctx: SessionContext
+  _ctx: SessionContext
 ): Promise<void> {
-  if (!session.pendingApproval) return;
+  // Delegate to MessageManager if available
+  if (!session.messageManager) return;
 
   const isApprove = isApprovalEmoji(emojiName);
   const isReject = isDenialEmoji(emojiName);
 
   if (!isApprove && !isReject) return;
 
-  const { postId } = session.pendingApproval;
-  // Note: toolUseId is no longer used - Claude Code CLI handles ExitPlanMode internally
-  sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
-
   // Log the reaction
   session.threadLogger?.logReaction(isApprove ? 'plan_approve' : 'plan_reject', username, emojiName);
 
-  // Update the post to show the decision
-  const formatter = session.platform.getFormatter();
-  const statusMessage = isApprove
-    ? `✅ ${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`
-    : `❌ ${formatter.formatBold('Changes requested')} by ${formatter.formatUserMention(username)}`;
-  await withErrorHandling(
-    () => session.platform.updatePost(postId, statusMessage),
-    { action: 'Update approval post', session }
-  );
+  // Delegate to MessageManager - it handles state, post updates, and callbacks
+  const handled = await session.messageManager.handleApprovalResponse(postId, isApprove);
+  if (handled) {
+    sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
 
-  // Clear pending approval and mark as approved
-  session.pendingApproval = null;
-  // Also clear any stale questions from plan mode - they're no longer relevant
-  session.pendingQuestionSet = null;
-  if (isApprove) {
-    session.planApproved = true;
-  }
+    // Also clear any stale questions from plan mode - they're no longer relevant
+    session.messageManager.clearPendingQuestionSet();
 
-  // Send user message to Claude - NOT a tool_result
-  // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),
-  // so we can't send another tool_result. Instead, send a user message to continue.
-  if (session.claude.isRunning()) {
-    const message = isApprove
-      ? 'Plan approved! Please proceed with the implementation.'
-      : 'Please revise the plan. I would like some changes.';
-    session.claude.sendMessage(message);
-    ctx.ops.startTyping(session);
+    if (isApprove) {
+      session.planApproved = true;
+    }
   }
 }
 

@@ -72,7 +72,6 @@ async function restartClaudeSession(
 
   // Flush any pending content
   await ctx.ops.flush(session);
-  session.currentPostId = null;
 
   // Create new Claude CLI
   session.claude = new ClaudeCli(cliOptions);
@@ -203,13 +202,14 @@ export async function approvePendingPlan(
   ctx: SessionContext
 ): Promise<void> {
   // Check if there's a pending plan approval
-  if (!session.pendingApproval || session.pendingApproval.type !== 'plan') {
+  const pendingApproval = session.messageManager?.getPendingApproval();
+  if (!pendingApproval || pendingApproval.type !== 'plan') {
     await postInfo(session, `No pending plan to approve`);
     sessionLog(session).debug(`Approve requested but no pending plan`);
     return;
   }
 
-  const { postId } = session.pendingApproval;
+  const { postId } = pendingApproval;
   sessionLog(session).info(`✅ Plan approved by @${username} via command`);
 
   // Update the post to show the decision
@@ -221,9 +221,9 @@ export async function approvePendingPlan(
   );
 
   // Clear pending approval and mark as approved
-  session.pendingApproval = null;
+  session.messageManager?.clearPendingApproval();
   // Also clear any stale questions from plan mode - they're no longer relevant
-  session.pendingQuestionSet = null;
+  session.messageManager?.clearPendingQuestionSet();
   session.planApproved = true;
 
   // Send user message to Claude - NOT a tool_result
@@ -568,7 +568,7 @@ export async function updateSessionHeader(
   statusItems.push(formatter.formatCode(permMode));
 
   // Show plan mode status
-  if (session.pendingApproval?.type === 'plan') {
+  if (session.messageManager?.getPendingApproval()?.type === 'plan') {
     statusItems.push(formatter.formatCode('📋 Plan pending'));
   } else if (session.planApproved) {
     statusItems.push(formatter.formatCode('🔨 Implementing'));

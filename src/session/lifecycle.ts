@@ -440,10 +440,6 @@ export async function startSession(
     sessionNumber: ctx.state.sessions.size + 1,
     workingDir: ctx.config.workingDir,
     claude,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
     pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
@@ -658,10 +654,6 @@ export async function resumeSession(
     sessionNumber: state.sessionNumber ?? 1,
     workingDir: state.workingDir,
     claude,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
     pendingMessageApproval: null,
     planApproved: state.planApproved ?? false,
     sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
@@ -828,8 +820,7 @@ export async function sendFollowUp(
   await ctx.ops.flush(session);
 
   // Reset current post so Claude's response starts in a new message
-  session.currentPostId = null;
-  session.currentPostContent = '';
+  session.messageManager?.resetContentPost();
 
   // Bump task list below the user's message
   await ctx.ops.bumpTasksToBottom(session);

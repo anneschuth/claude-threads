@@ -469,7 +469,6 @@ export async function createAndSwitchToWorktree(
 
         // Flush any pending content
         await options.flush(session);
-        session.currentPostId = null;
 
         // Generate new session ID for fresh start in new directory
         const newSessionId = randomUUID();
@@ -611,7 +610,6 @@ export async function createAndSwitchToWorktree(
 
       // Flush any pending content
       await options.flush(session);
-      session.currentPostId = null;
 
       // Generate new session ID for fresh start in new directory
       // (Claude CLI sessions are tied to working directory, can't resume across directories)

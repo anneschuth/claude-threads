@@ -89,6 +89,7 @@ function createMockSession(): Session {
     hasClaudeResponded: false,
     isProcessing: false,
     recentEvents: [],
+    messageManager: undefined,
   } as Session;
 }
 

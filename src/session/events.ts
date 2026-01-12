@@ -260,7 +260,7 @@ async function handleCompactionStart(
 ): Promise<void> {
   // Flush any pending content first to avoid mixing with compaction message
   await ctx.ops.flush(session);
-  session.currentPostId = null;
+  session.messageManager?.resetContentPost();
 
   // Create the compaction status post
   const formatter = session.platform.getFormatter();
@@ -513,7 +513,7 @@ export async function postCurrentQuestion(
   session: Session,
   ctx: SessionContext
 ): Promise<void> {
-  const questionSet = session.pendingQuestionSet;
+  const questionSet = session.messageManager?.getPendingQuestionSet();
   if (!questionSet) return;
 
   const { currentIndex, questions } = questionSet;

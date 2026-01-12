@@ -42,6 +42,42 @@ function createMockPlatform(platformId: string): PlatformClient {
   } as unknown as PlatformClient;
 }
 
+// Create a mock message manager for testing
+function createMockMessageManager(overrides: Partial<{
+  getPendingApproval: ReturnType<typeof mock>;
+  getPendingQuestionSet: ReturnType<typeof mock>;
+}> = {}) {
+  return {
+    resetContentPost: mock(() => {}),
+    handleEvent: mock(() => Promise.resolve()),
+    flush: mock(() => Promise.resolve()),
+    getCurrentPostId: mock(() => null),
+    getCurrentPostContent: mock(() => ''),
+    hasPendingQuestions: mock(() => false),
+    hasPendingApproval: mock(() => false),
+    getPendingApproval: overrides.getPendingApproval ?? mock(() => null),
+    getPendingQuestionSet: overrides.getPendingQuestionSet ?? mock(() => null),
+    clearPendingApproval: mock(() => {}),
+    clearPendingQuestionSet: mock(() => {}),
+    advanceQuestionIndex: mock(() => {}),
+    handleQuestionAnswer: mock(() => Promise.resolve(false)),
+    handleApprovalResponse: mock(() => Promise.resolve(false)),
+    handleSubagentToggle: mock(() => Promise.resolve(false)),
+    handleTaskListToggle: mock(() => Promise.resolve(false)),
+    bumpTaskList: mock(() => Promise.resolve()),
+    getTaskListState: mock(() => ({ postId: null, content: null, isMinimized: false, isCompleted: false })),
+    hydrateTaskListState: mock(() => {}),
+    setWorktreeInfo: mock(() => {}),
+    clearWorktreeInfo: mock(() => {}),
+    postInfo: mock(() => Promise.resolve(undefined)),
+    postWarning: mock(() => Promise.resolve(undefined)),
+    postError: mock(() => Promise.resolve(undefined)),
+    postSuccess: mock(() => Promise.resolve(undefined)),
+    reset: mock(() => {}),
+    dispose: mock(() => {}),
+  };
+}
+
 // Create a mock session
 function createMockSession(overrides: Partial<Session> = {}): Session {
   const platform = createMockPlatform('test-platform');
@@ -57,11 +93,6 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     platform,
     workingDir: '/home/user/projects/myproject',
     claude: { isRunning: () => true, kill: mock(), sendMessage: mock() } as any,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
     pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
@@ -82,6 +113,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     activeToolStarts: new Map(),
     firstPrompt: 'Help me with this task',
     statusBarTimer: null,
+    messageManager: createMockMessageManager() as any,
     ...overrides,
   } as Session;
 }
@@ -411,8 +443,11 @@ describe('buildStickyMessage', () => {
 
   it('shows pending plan approval', async () => {
     const sessions = new Map<string, Session>();
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -424,8 +459,8 @@ describe('buildStickyMessage', () => {
 
   it('shows pending question with progress', async () => {
     const sessions = new Map<string, Session>();
-    const session = createMockSession({
-      pendingQuestionSet: {
+    const mockMsgManager = createMockMessageManager({
+      getPendingQuestionSet: mock(() => ({
         toolUseId: 'tool1',
         currentIndex: 1,
         currentPostId: 'post1',
@@ -434,7 +469,10 @@ describe('buildStickyMessage', () => {
           { header: 'Q2', question: 'Question 2', options: [], answer: null },
           { header: 'Q3', question: 'Question 3', options: [], answer: null },
         ],
-      },
+      })),
+    });
+    const session = createMockSession({
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -509,9 +547,12 @@ describe('buildStickyMessage', () => {
 
   it('shows multiple pending prompts', async () => {
     const sessions = new Map<string, Session>();
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
       pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -525,9 +566,12 @@ describe('buildStickyMessage', () => {
 
   it('hides active task when pending prompts are shown', async () => {
     const sessions = new Map<string, Session>();
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
       lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -561,8 +605,11 @@ describe('getPendingPrompts', () => {
   });
 
   it('returns plan approval prompt', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(1);
@@ -570,16 +617,19 @@ describe('getPendingPrompts', () => {
   });
 
   it('ignores action type approval (only plan)', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'action', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'action', toolUseId: 'tool1' },
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toEqual([]);
   });
 
   it('returns question prompt with progress', () => {
-    const session = createMockSession({
-      pendingQuestionSet: {
+    const mockMsgManager = createMockMessageManager({
+      getPendingQuestionSet: mock(() => ({
         toolUseId: 'tool1',
         currentIndex: 2,
         currentPostId: 'post1',
@@ -589,7 +639,10 @@ describe('getPendingPrompts', () => {
           { header: 'Q3', question: 'Q3', options: [], answer: null },
           { header: 'Q4', question: 'Q4', options: [], answer: null },
         ],
-      },
+      })),
+    });
+    const session = createMockSession({
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(1);
@@ -644,10 +697,13 @@ describe('getPendingPrompts', () => {
   });
 
   it('returns multiple prompts in order', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
       pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
       pendingWorktreePrompt: true,
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(3);
@@ -665,17 +721,23 @@ describe('formatPendingPrompts', () => {
   });
 
   it('formats single prompt', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
+      messageManager: mockMsgManager as any,
     });
     const result = formatPendingPrompts(session);
     expect(result).toBe('⏳ 📋 Plan approval');
   });
 
   it('formats multiple prompts with separator', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+    });
     const session = createMockSession({
-      pendingApproval: { postId: 'post1', type: 'plan', toolUseId: 'tool1' },
       pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
+      messageManager: mockMsgManager as any,
     });
     const result = formatPendingPrompts(session);
     expect(result).toBe('⏳ 📋 Plan approval · 💬 Message approval');

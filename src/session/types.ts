@@ -149,13 +149,7 @@ export interface Session {
   // Claude process
   claude: ClaudeCli;
 
-  // Post state for streaming updates (legacy - used by SessionManager for non-event content)
-  currentPostId: string | null;
-  currentPostContent: string;  // Tracks what content has been posted to currentPostId (for error recovery)
-
-  // Interactive state
-  pendingApproval: PendingApproval | null;
-  pendingQuestionSet: PendingQuestionSet | null;
+  // Interactive state (collaboration - not Claude events)
   pendingMessageApproval: PendingMessageApproval | null;
   planApproved: boolean;
 
@@ -263,7 +257,11 @@ export interface Session {
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
 
-  // Message manager - orchestrates content, tasks, questions, subagents
+  /**
+   * MessageManager for handling operations (content, tasks, questions, subagents).
+   * Optional because it's assigned immediately after Session creation.
+   * Always present in running sessions.
+   */
   messageManager?: MessageManager;
 }
 

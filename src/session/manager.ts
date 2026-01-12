@@ -540,14 +540,16 @@ export class SessionManager extends EventEmitter {
     }
 
     // Handle question reactions (only on add)
-    if (action === 'added' && session.pendingQuestionSet?.currentPostId === postId) {
+    const pendingQuestionSet = session.messageManager?.getPendingQuestionSet();
+    if (action === 'added' && pendingQuestionSet?.currentPostId === postId) {
       await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
       return;
     }
 
     // Handle plan approval reactions (only on add)
-    if (action === 'added' && session.pendingApproval?.postId === postId) {
-      await reactions.handleApprovalReaction(session, emojiName, username, this.getContext());
+    const pendingApproval = session.messageManager?.getPendingApproval();
+    if (action === 'added' && pendingApproval?.postId === postId) {
+      await reactions.handleApprovalReaction(session, postId, emojiName, username, this.getContext());
       return;
     }
 

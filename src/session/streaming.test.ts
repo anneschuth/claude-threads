@@ -42,10 +42,6 @@ function createTestSession(platform: PlatformClient): Session {
     platform,
     workingDir: '/test',
     claude: null as any,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
     pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
@@ -70,6 +66,7 @@ function createTestSession(platform: PlatformClient): Session {
     hasClaudeResponded: false,
     isProcessing: false,
     recentEvents: [],
+    messageManager: undefined,
   };
 }
 

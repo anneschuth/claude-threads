@@ -41,6 +41,41 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
 }
 
 /**
+ * Create a mock message manager for testing
+ */
+function createMockMessageManager() {
+  return {
+    resetContentPost: mock(() => {}),
+    handleEvent: mock(() => Promise.resolve()),
+    flush: mock(() => Promise.resolve()),
+    getCurrentPostId: mock(() => null),
+    getCurrentPostContent: mock(() => ''),
+    hasPendingQuestions: mock(() => false),
+    hasPendingApproval: mock(() => false),
+    getPendingApproval: mock(() => null),
+    getPendingQuestionSet: mock(() => null),
+    clearPendingApproval: mock(() => {}),
+    clearPendingQuestionSet: mock(() => {}),
+    advanceQuestionIndex: mock(() => {}),
+    handleQuestionAnswer: mock(() => Promise.resolve(false)),
+    handleApprovalResponse: mock(() => Promise.resolve(false)),
+    handleSubagentToggle: mock(() => Promise.resolve(false)),
+    handleTaskListToggle: mock(() => Promise.resolve(false)),
+    bumpTaskList: mock(() => Promise.resolve()),
+    getTaskListState: mock(() => ({ postId: null, content: null, isMinimized: false, isCompleted: false })),
+    hydrateTaskListState: mock(() => {}),
+    setWorktreeInfo: mock(() => {}),
+    clearWorktreeInfo: mock(() => {}),
+    postInfo: mock(() => Promise.resolve(undefined)),
+    postWarning: mock(() => Promise.resolve(undefined)),
+    postError: mock(() => Promise.resolve(undefined)),
+    postSuccess: mock(() => Promise.resolve(undefined)),
+    reset: mock(() => {}),
+    dispose: mock(() => {}),
+  };
+}
+
+/**
  * Create a mock session for testing
  */
 function createMockSession(overrides?: Partial<Session>): Session {
@@ -70,7 +105,6 @@ function createMockSession(overrides?: Partial<Session>): Session {
     typingTimer: null,
     isResumed: false,
     sessionStartPostId: 'start-post-id',
-    currentPostContent: '',
     timeoutWarningPosted: false,
     tasksCompleted: false,
     tasksMinimized: false,
@@ -78,6 +112,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     tasksPostId: null,
     skipPermissions: true,
     forceInteractivePermissions: false,
+    messageManager: createMockMessageManager() as any,
     ...overrides,
   } as Session;
 }
@@ -376,10 +411,12 @@ describe('cleanupIdleSessions extended', () => {
   it('does not skip sessions with pending approval when timed out', async () => {
     // Note: The current implementation does NOT skip sessions with pending items when timing out
     // This tests the actual behavior
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getPendingApproval as any).mockReturnValue({ postId: 'p1', toolUseId: 't1', type: 'action' });
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000), // 35 min ago
       timeoutWarningPosted: true,
-      pendingApproval: { postId: 'p1', toolUseId: 't1', type: 'action' },
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -396,10 +433,12 @@ describe('cleanupIdleSessions extended', () => {
 
   it('does not skip sessions with pending question when timed out', async () => {
     // Note: The current implementation does NOT skip sessions with pending items when timing out
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getPendingQuestionSet as any).mockReturnValue({ toolUseId: 't1', currentIndex: 0, currentPostId: 'p1', questions: [] });
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
       timeoutWarningPosted: true,
-      pendingQuestionSet: { toolUseId: 't1', currentIndex: 0, currentPostId: 'p1', questions: [] },
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -523,9 +562,12 @@ describe('killAllSessions edge cases', () => {
 
 describe('sendFollowUp', () => {
   it('flushes pending content before sending new message', async () => {
+    // Mock messageManager with current post state
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
+    (mockMsgManager.getCurrentPostContent as any).mockReturnValue('old content');
     const session = createMockSession({
-      currentPostId: 'old-post-id',
-      currentPostContent: 'old content',
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -536,25 +578,30 @@ describe('sendFollowUp', () => {
     expect(ctx.ops.flush).toHaveBeenCalledWith(session);
   });
 
-  it('resets currentPostId so response starts in new message', async () => {
+  it('resets content post state so response starts in new message', async () => {
+    // Mock messageManager with current post state
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
+    (mockMsgManager.getCurrentPostContent as any).mockReturnValue('old content');
     const session = createMockSession({
-      currentPostId: 'old-post-id',
-      currentPostContent: 'old content',
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
     await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
 
-    // currentPostId should be reset
-    expect(session.currentPostId).toBeNull();
-    expect(session.currentPostContent).toBe('');
+    // messageManager.resetContentPost() should be called
+    expect(session.messageManager?.resetContentPost).toHaveBeenCalled();
   });
 
   it('bumps task list after resetting post state', async () => {
+    // Mock messageManager with current post state
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getCurrentPostId as any).mockReturnValue('old-post-id');
     const session = createMockSession({
-      currentPostId: 'old-post-id',
       tasksPostId: 'tasks-post',
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);

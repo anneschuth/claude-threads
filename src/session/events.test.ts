@@ -100,10 +100,6 @@ function createTestSession(platform: PlatformClient): Session {
       sendMessage: mock(() => {}),
       getStatusData: () => null,
     } as any,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
     pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
@@ -128,6 +124,7 @@ function createTestSession(platform: PlatformClient): Session {
     hasClaudeResponded: false,
     isProcessing: false,
     recentEvents: [],
+    messageManager: undefined,
   };
 }
 
@@ -285,15 +282,21 @@ describe('postCurrentQuestion', () => {
   let platform: PlatformClient;
   let session: Session;
   let ctx: SessionContext;
+  let pendingQuestionSet: any;
 
   beforeEach(() => {
     platform = createMockPlatform();
     session = createTestSession(platform);
     ctx = createSessionContext();
+    pendingQuestionSet = null;
+    // Mock messageManager with getPendingQuestionSet
+    session.messageManager = {
+      getPendingQuestionSet: () => pendingQuestionSet,
+    } as any;
   });
 
   test('does nothing if no pending question set', async () => {
-    session.pendingQuestionSet = null;
+    pendingQuestionSet = null;
 
     await postCurrentQuestion(session, ctx);
 
@@ -301,7 +304,7 @@ describe('postCurrentQuestion', () => {
   });
 
   test('posts current question with options', async () => {
-    session.pendingQuestionSet = {
+    pendingQuestionSet = {
       toolUseId: 'ask_1',
       currentIndex: 0,
       currentPostId: null,
@@ -329,7 +332,7 @@ describe('postCurrentQuestion', () => {
   });
 
   test('registers the question post', async () => {
-    session.pendingQuestionSet = {
+    pendingQuestionSet = {
       toolUseId: 'ask_1',
       currentIndex: 0,
       currentPostId: null,
@@ -344,6 +347,6 @@ describe('postCurrentQuestion', () => {
     await postCurrentQuestion(session, ctx);
 
     expect(ctx.ops.registerPost).toHaveBeenCalled();
-    expect(session.pendingQuestionSet.currentPostId).toBeTruthy();
+    expect(pendingQuestionSet.currentPostId).toBeTruthy();
   });
 });

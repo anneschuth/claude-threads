@@ -53,8 +53,9 @@ export interface PendingPrompt {
 export function getPendingPrompts(session: Session): PendingPrompt[] {
   const prompts: PendingPrompt[] = [];
 
-  // Plan approval
-  if (session.pendingApproval?.type === 'plan') {
+  // Plan approval from MessageManager
+  const pendingApproval = session.messageManager?.getPendingApproval();
+  if (pendingApproval?.type === 'plan') {
     prompts.push({
       type: 'plan',
       label: 'Plan approval',
@@ -62,10 +63,11 @@ export function getPendingPrompts(session: Session): PendingPrompt[] {
     });
   }
 
-  // Question set (multi-step questions)
-  if (session.pendingQuestionSet) {
-    const current = session.pendingQuestionSet.currentIndex + 1;
-    const total = session.pendingQuestionSet.questions.length;
+  // Question set (multi-step questions) from MessageManager
+  const pendingQuestionSet = session.messageManager?.getPendingQuestionSet();
+  if (pendingQuestionSet) {
+    const current = pendingQuestionSet.currentIndex + 1;
+    const total = pendingQuestionSet.questions.length;
     prompts.push({
       type: 'question',
       label: `Question ${current}/${total}`,

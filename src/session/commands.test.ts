@@ -47,9 +47,27 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
 }
 
 /**
+ * Create a mock message manager for testing
+ */
+function createMockMessageManager(initialApproval?: { postId: string; type: string; toolUseId: string } | null, initialQuestionSet?: any) {
+  let pendingApproval = initialApproval ?? null;
+  let pendingQuestionSet = initialQuestionSet ?? null;
+  return {
+    getPendingApproval: () => pendingApproval,
+    clearPendingApproval: () => { pendingApproval = null; },
+    getPendingQuestionSet: () => pendingQuestionSet,
+    clearPendingQuestionSet: () => { pendingQuestionSet = null; },
+  } as any;
+}
+
+/**
  * Create a mock session for testing
  */
-function createMockSession(overrides?: Partial<Session>): Session {
+function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { postId: string; type: string; toolUseId: string } | null; pendingQuestionSet?: any }): Session {
+  // Extract pendingApproval and pendingQuestionSet from overrides to create messageManager
+  const { pendingApproval, pendingQuestionSet, ...restOverrides } = overrides ?? {};
+  const messageManager = createMockMessageManager(pendingApproval, pendingQuestionSet);
+
   return {
     sessionId: 'test-platform:thread-123',
     platformId: 'test-platform',
@@ -88,7 +106,8 @@ function createMockSession(overrides?: Partial<Session>): Session {
     pendingQuestionSet: null,
     pendingMessageApproval: null,
     messageCount: 0,
-    ...overrides,
+    messageManager,
+    ...restOverrides,
   } as Session;
 }
 
@@ -365,8 +384,8 @@ describe('approvePendingPlan', () => {
       expect.stringContaining('Plan approved')
     );
 
-    // Should clear the pending approval
-    expect(session.pendingApproval).toBeNull();
+    // Should clear the pending approval (via messageManager)
+    expect(session.messageManager?.getPendingApproval()).toBeNull();
 
     // Should mark as approved
     expect(session.planApproved).toBe(true);
@@ -418,8 +437,8 @@ describe('approvePendingPlan', () => {
       session.threadId
     );
 
-    // Should not clear the action pending approval
-    expect(session.pendingApproval).not.toBeNull();
+    // Should not clear the action pending approval (via messageManager)
+    expect(session.messageManager?.getPendingApproval()).not.toBeNull();
   });
 
   it('does not send message if Claude is not running', async () => {
@@ -441,8 +460,8 @@ describe('approvePendingPlan', () => {
 
     await commands.approvePendingPlan(session, 'testuser', ctx);
 
-    // Should still clear and mark approved
-    expect(session.pendingApproval).toBeNull();
+    // Should still clear and mark approved (via messageManager)
+    expect(session.messageManager?.getPendingApproval()).toBeNull();
     expect(session.planApproved).toBe(true);
 
     // Should not send message since Claude not running
@@ -468,10 +487,10 @@ describe('approvePendingPlan', () => {
 
     await commands.approvePendingPlan(session, 'testuser', ctx);
 
-    // Should clear pending approval
-    expect(session.pendingApproval).toBeNull();
-    // Should clear stale questions
-    expect(session.pendingQuestionSet).toBeNull();
+    // Should clear pending approval (via messageManager)
+    expect(session.messageManager?.getPendingApproval()).toBeNull();
+    // Should clear stale questions (via messageManager)
+    expect(session.messageManager?.getPendingQuestionSet()).toBeNull();
     // Should mark as approved
     expect(session.planApproved).toBe(true);
   });

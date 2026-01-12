@@ -68,6 +68,15 @@ export class ContentExecutor {
   }
 
   /**
+   * Reset content post state to start next content in a new post.
+   * Called after compaction or before sending follow-up messages.
+   */
+  resetContentPost(): void {
+    this.state.currentPostId = null;
+    this.state.currentPostContent = '';
+  }
+
+  /**
    * Execute an append content operation.
    */
   async executeAppend(op: AppendContentOp, _ctx: ExecutorContext): Promise<void> {
