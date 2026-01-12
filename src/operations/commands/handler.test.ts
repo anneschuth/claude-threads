@@ -1,9 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
-import * as commands from './commands.js';
-import type { SessionContext } from './context.js';
-import type { Session } from './types.js';
-import type { PlatformClient } from '../platform/index.js';
-import { createMockFormatter } from '../test-utils/mock-formatter.js';
+import * as commands from './handler.js';
+import type { SessionContext } from '../../session/context.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient } from '../../platform/index.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
 // =============================================================================
 // Test Utilities

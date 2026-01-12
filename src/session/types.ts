@@ -6,7 +6,7 @@ import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { SessionInfo } from '../ui/types.js';
-import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
+import type { RecentEvent, PendingBugReport, ErrorContext } from '../operations/bug-report/index.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
 

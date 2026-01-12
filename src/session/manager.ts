@@ -32,12 +32,12 @@ import { SessionMonitor } from './monitor.js';
 // Import extracted modules
 import * as streaming from './streaming.js';
 import * as events from './events.js';
-import * as commands from './commands.js';
+import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
-import * as worktreeModule from './worktree.js';
+import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from './context-prompt.js';
-import * as stickyMessage from './sticky-message.js';
+import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
 import { postInfo } from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';

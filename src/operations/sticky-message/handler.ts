@@ -6,20 +6,20 @@
  * The message is updated whenever sessions start or end.
  */
 
-import type { Session } from './types.js';
-import { getSessionStatus } from './types.js';
-import type { PlatformClient, PlatformFormatter } from '../platform/index.js';
-import { getPlatformIcon } from '../platform/utils.js';
-import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
-import type { WorktreeMode } from '../config.js';
-import { formatBatteryStatus } from '../utils/battery.js';
-import { formatUptime } from '../utils/uptime.js';
-import { formatRelativeTimeShort } from '../utils/format.js';
-import { VERSION } from '../version.js';
-import { createLogger } from '../utils/logger.js';
-import { formatPullRequestLink } from '../utils/pr-detector.js';
-import { getClaudeCliVersion } from '../claude/version-check.js';
-import { keepAlive } from '../utils/keep-alive.js';
+import type { Session } from '../../session/types.js';
+import { getSessionStatus } from '../../session/types.js';
+import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
+import { getPlatformIcon } from '../../platform/utils.js';
+import type { SessionStore, PersistedSession } from '../../persistence/session-store.js';
+import type { WorktreeMode } from '../../config.js';
+import { formatBatteryStatus } from '../../utils/battery.js';
+import { formatUptime } from '../../utils/uptime.js';
+import { formatRelativeTimeShort } from '../../utils/format.js';
+import { VERSION } from '../../version.js';
+import { createLogger } from '../../utils/logger.js';
+import { formatPullRequestLink } from '../../utils/pr-detector.js';
+import { getClaudeCliVersion } from '../../claude/version-check.js';
+import { keepAlive } from '../../utils/keep-alive.js';
 
 const log = createLogger('sticky');
 

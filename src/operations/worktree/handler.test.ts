@@ -1,8 +1,8 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import * as worktree from './worktree.js';
-import type { Session } from './types.js';
-import type { PlatformClient } from '../platform/index.js';
-import { createMockFormatter } from '../test-utils/mock-formatter.js';
+import * as worktree from './handler.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient } from '../../platform/index.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
 // Mock the git/worktree module
 const mockIsGitRepository = mock(() => Promise.resolve(true));
@@ -14,7 +14,7 @@ const mockRemoveWorktree = mock(() => Promise.resolve());
 const mockIsValidWorktreePath = mock((path: string) => path.includes('/.claude-threads/worktrees/'));
 const mockWriteWorktreeMetadata = mock(() => Promise.resolve());
 
-mock.module('../git/worktree.js', () => ({
+mock.module('../../git/worktree.js', () => ({
   isGitRepository: mockIsGitRepository,
   getRepositoryRoot: mockGetRepositoryRoot,
   findWorktreeByBranch: mockFindWorktreeByBranch,
@@ -29,7 +29,7 @@ mock.module('../git/worktree.js', () => ({
 }));
 
 // Mock the ClaudeCli class to avoid spawning real processes
-mock.module('../claude/cli.js', () => ({
+mock.module('../../claude/cli.js', () => ({
   ClaudeCli: class MockClaudeCli {
     isRunning() { return true; }
     kill() {}

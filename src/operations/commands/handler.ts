@@ -4,22 +4,22 @@
  * Handles user commands like !cd, !invite, !kick, !permissions, !escape, !stop.
  */
 
-import type { Session } from './types.js';
-import type { SessionContext } from './context.js';
-import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
-import { ClaudeCli } from '../claude/cli.js';
+import type { Session } from '../../session/types.js';
+import type { SessionContext } from '../../session/context.js';
+import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
+import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
-import { getUpdateInfo } from '../update-notifier.js';
-import { getReleaseNotes, getWhatsNewSummary } from '../changelog.js';
-import { getLogo } from '../logo.js';
-import { VERSION } from '../version.js';
+import { getUpdateInfo } from '../../update-notifier.js';
+import { getReleaseNotes, getWhatsNewSummary } from '../../changelog.js';
+import { getLogo } from '../../logo.js';
+import { VERSION } from '../../version.js';
 import {
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
   ALLOW_ALL_EMOJIS,
-} from '../utils/emoji.js';
+} from '../../utils/emoji.js';
 import {
   collectBugReportContext,
   formatIssueBody,
@@ -29,12 +29,12 @@ import {
   createGitHubIssue,
   uploadImages,
   type ErrorContext,
-} from './bug-report.js';
-import type { PlatformFile } from '../platform/types.js';
-import { formatBatteryStatus } from '../utils/battery.js';
-import { formatUptime } from '../utils/uptime.js';
-import { keepAlive } from '../utils/keep-alive.js';
-import { logAndNotify } from './error-handler.js';
+} from '../bug-report/index.js';
+import type { PlatformFile } from '../../platform/types.js';
+import { formatBatteryStatus } from '../../utils/battery.js';
+import { formatUptime } from '../../utils/uptime.js';
+import { keepAlive } from '../../utils/keep-alive.js';
+import { logAndNotify } from '../../session/error-handler.js';
 import {
   postCancelled,
   postInfo,
@@ -51,13 +51,13 @@ import {
   updatePostSuccess,
   updatePostError,
   updatePostCancelled,
-} from './post-helpers.js';
-import { createLogger } from '../utils/logger.js';
-import { formatPullRequestLink } from '../utils/pr-detector.js';
-import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
-import { getClaudeCliVersion } from '../claude/version-check.js';
-import { shortenPath } from '../operations/index.js';
-import { getLogFilePath } from '../persistence/thread-logger.js';
+} from '../../session/post-helpers.js';
+import { createLogger } from '../../utils/logger.js';
+import { formatPullRequestLink } from '../../utils/pr-detector.js';
+import { getCurrentBranch, isGitRepository } from '../../git/worktree.js';
+import { getClaudeCliVersion } from '../../claude/version-check.js';
+import { shortenPath } from '../index.js';
+import { getLogFilePath } from '../../persistence/thread-logger.js';
 
 const log = createLogger('commands');
 

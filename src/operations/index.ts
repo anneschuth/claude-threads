@@ -135,3 +135,15 @@ export type {
   RegisterPostCallback,
   UpdateLastMessageCallback,
 } from './executors/index.js';
+
+// Sticky message
+export * from './sticky-message/index.js';
+
+// Bug reporting
+export * from './bug-report/index.js';
+
+// Commands
+export * from './commands/index.js';
+
+// Worktree operations
+export * from './worktree/index.js';

@@ -14,11 +14,11 @@ import { Redactor } from '@redactpii/node';
 // Create a single redactor instance with aggressive mode for enhanced PII detection
 // Aggressive mode catches obfuscated patterns like "user [at] example [dot] com"
 const piiRedactor = new Redactor({ aggressive: true });
-import { VERSION } from '../version.js';
-import { getClaudeCliVersion } from '../claude/version-check.js';
-import { getLogFilePath, readRecentLogEntries, type LogEntry } from '../persistence/thread-logger.js';
-import type { Session } from './types.js';
-import type { PlatformFile } from '../platform/types.js';
+import { VERSION } from '../../version.js';
+import { getClaudeCliVersion } from '../../claude/version-check.js';
+import { getLogFilePath, readRecentLogEntries, type LogEntry } from '../../persistence/thread-logger.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformFile } from '../../platform/types.js';
 
 // =============================================================================
 // Image Upload (Catbox.moe)

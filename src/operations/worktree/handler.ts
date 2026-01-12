@@ -4,10 +4,10 @@
  * Handles worktree prompts, creation, switching, and cleanup.
  */
 
-import type { Session } from './types.js';
-import type { WorktreeMode } from '../config.js';
-import type { PlatformFile } from '../platform/index.js';
-import { suggestBranchNames } from './branch-suggest.js';
+import type { Session } from '../../session/types.js';
+import type { WorktreeMode } from '../../config.js';
+import type { PlatformFile } from '../../platform/index.js';
+import { suggestBranchNames } from '../../session/branch-suggest.js';
 import {
   isGitRepository,
   getRepositoryRoot,
@@ -20,11 +20,11 @@ import {
   isValidBranchName,
   writeWorktreeMetadata,
   isValidWorktreePath,
-} from '../git/worktree.js';
-import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
-import { ClaudeCli } from '../claude/cli.js';
+} from '../../git/worktree.js';
+import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
+import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
-import { logAndNotify } from './error-handler.js';
+import { logAndNotify } from '../../session/error-handler.js';
 import {
   postWarning,
   postError,
@@ -35,9 +35,9 @@ import {
   updatePost,
   updatePostSuccess,
   removeReaction,
-} from './post-helpers.js';
-import { createLogger } from '../utils/logger.js';
-import { shortenPath } from '../operations/index.js';
+} from '../../session/post-helpers.js';
+import { createLogger } from '../../utils/logger.js';
+import { shortenPath } from '../index.js';
 
 const log = createLogger('worktree');
 

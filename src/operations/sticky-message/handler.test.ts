@@ -1,8 +1,8 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, setStickyPostId, markNeedsBump, initialize } from './sticky-message.js';
-import type { Session } from './types.js';
-import type { PlatformClient } from '../platform/index.js';
-import { mockFormatter } from '../test-utils/mock-formatter.js';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, setStickyPostId, markNeedsBump, initialize } from './handler.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient } from '../../platform/index.js';
+import { mockFormatter } from '../../test-utils/mock-formatter.js';
 
 // Default test config
 const testConfig: StickyMessageConfig = {

@@ -17,9 +17,9 @@ import { resetSessionActivity, postInfo, postError, updatePost } from './post-he
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
-import { changeDirectory, reportBug } from './commands.js';
-import { buildWorktreeListMessage } from './worktree.js';
-import { trackEvent } from './bug-report.js';
+import { changeDirectory, reportBug } from '../operations/commands/index.js';
+import { buildWorktreeListMessage } from '../operations/worktree/index.js';
+import { trackEvent } from '../operations/bug-report/index.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
 
 const log = createLogger('events');

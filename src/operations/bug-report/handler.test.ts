@@ -15,9 +15,9 @@ import {
   uploadImages,
   type BugReportContext,
   type RecentEvent,
-} from './bug-report.js';
-import type { Session } from './types.js';
-import type { PlatformFile } from '../platform/types.js';
+} from './handler.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformFile } from '../../platform/types.js';
 
 // =============================================================================
 // sanitizePath tests

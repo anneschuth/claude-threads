@@ -18,8 +18,8 @@ export type { PendingContextPrompt } from './context-prompt.js';
 export type { PendingMessageApproval } from '../operations/executors/index.js';
 
 // Pending prompts utilities (reusable for displaying pending states)
-export type { PendingPrompt } from './sticky-message.js';
-export { getPendingPrompts, formatPendingPrompts } from './sticky-message.js';
+export type { PendingPrompt } from '../operations/sticky-message/index.js';
+export { getPendingPrompts, formatPendingPrompts } from '../operations/sticky-message/index.js';
 
 // Session metadata suggestion utilities (quickQuery-based)
 export { suggestSessionMetadata } from './title-suggest.js';

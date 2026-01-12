@@ -14,7 +14,7 @@ import {
   getRecentEvents,
   type BugReportContext,
   type RecentEvent,
-} from '../../src/session/bug-report.js';
+} from '../../src/operations/bug-report/index.js';
 import type { Session } from '../../src/session/types.js';
 
 // =============================================================================
