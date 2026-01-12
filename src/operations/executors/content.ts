@@ -81,10 +81,14 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
    * Execute an append content operation.
    */
   async executeAppend(op: AppendContentOp, _ctx: ExecutorContext): Promise<void> {
-    // Tool output (like "  ↳ ✓") needs a newline before it
+    // Tool output needs spacing before and after to separate from text
     if (op.isToolOutput && this.state.pendingContent.length > 0) {
-      if (!this.state.pendingContent.endsWith('\n')) {
-        this.state.pendingContent += '\n';
+      if (!this.state.pendingContent.endsWith('\n\n')) {
+        if (this.state.pendingContent.endsWith('\n')) {
+          this.state.pendingContent += '\n';
+        } else {
+          this.state.pendingContent += '\n\n';
+        }
       }
     }
     this.state.pendingContent += op.content;
