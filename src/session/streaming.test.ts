@@ -42,7 +42,6 @@ function createTestSession(platform: PlatformClient): Session {
     platform,
     workingDir: '/test',
     claude: null as any,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,

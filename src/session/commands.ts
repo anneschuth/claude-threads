@@ -502,7 +502,7 @@ export async function requestMessageApproval(
   ctx: SessionContext
 ): Promise<void> {
   // If there's already a pending message approval, ignore
-  if (session.pendingMessageApproval) {
+  if (session.messageManager?.getPendingMessageApproval()) {
     return;
   }
 
@@ -522,11 +522,11 @@ export async function requestMessageApproval(
     ctx.ops.registerPost
   );
 
-  session.pendingMessageApproval = {
+  session.messageManager?.setPendingMessageApproval({
     postId: post.id,
     originalMessage: message,
     fromUser: username,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------

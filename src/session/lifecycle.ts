@@ -150,6 +150,24 @@ function createMessageManager(
       const response = approved ? 'approved' : 'denied';
       session.claude.sendMessage(response);
     },
+    onMessageApprovalComplete: async (decision, { fromUser, originalMessage }) => {
+      if (decision === 'allow') {
+        // Allow this single message
+        session.claude.sendMessage(originalMessage);
+        session.lastActivityAt = new Date();
+        ctx.ops.startTyping(session);
+        sessionLog(session).info(`Message from @${fromUser} approved`);
+      } else if (decision === 'invite') {
+        // Invite user to session and send their message
+        session.sessionAllowedUsers.add(fromUser);
+        await ctx.ops.updateSessionHeader(session);
+        session.claude.sendMessage(originalMessage);
+        session.lastActivityAt = new Date();
+        ctx.ops.startTyping(session);
+        sessionLog(session).info(`@${fromUser} invited to session`);
+      }
+      // 'deny' - nothing extra to do, post already updated by MessageManager
+    },
     // onBumpTaskList callback not implemented - task list bumping is handled separately
     // via the legacy streaming.ts path during the transition period
   });
@@ -444,7 +462,6 @@ export async function startSession(
     sessionNumber: ctx.state.sessions.size + 1,
     workingDir: ctx.config.workingDir,
     claude,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions: false,
@@ -661,7 +678,6 @@ export async function resumeSession(
     sessionNumber: state.sessionNumber ?? 1,
     workingDir: state.workingDir,
     claude,
-    pendingMessageApproval: null,
     planApproved: state.planApproved ?? false,
     sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,

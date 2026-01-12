@@ -63,6 +63,15 @@ export interface TaskListState {
 }
 
 /**
+ * Pending message from unauthorized user awaiting approval.
+ */
+export interface PendingMessageApproval {
+  postId: string;
+  originalMessage: string;
+  fromUser: string;
+}
+
+/**
  * State managed by the interactive executor.
  */
 export interface InteractiveState {
@@ -84,6 +93,8 @@ export interface InteractiveState {
     type: 'plan' | 'action';
     toolUseId: string;
   } | null;
+  /** Pending message approval from unauthorized user */
+  pendingMessageApproval: PendingMessageApproval | null;
 }
 
 /**

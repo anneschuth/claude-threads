@@ -99,7 +99,6 @@ function createTestSession(platform: PlatformClient): Session {
       sendMessage: mock(() => {}),
       getStatusData: () => null,
     } as any,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,

@@ -77,15 +77,6 @@ export interface PendingApproval {
 }
 
 /**
- * Pending message from unauthorized user awaiting approval
- */
-export interface PendingMessageApproval {
-  postId: string;
-  originalMessage: string;
-  fromUser: string;
-}
-
-/**
  * Pending prompt asking user if they want to join an existing worktree
  */
 export interface PendingExistingWorktreePrompt {
@@ -150,7 +141,6 @@ export interface Session {
   claude: ClaudeCli;
 
   // Interactive state (collaboration - not Claude events)
-  pendingMessageApproval: PendingMessageApproval | null;
   planApproved: boolean;
 
   // Collaboration - per-session allowlist

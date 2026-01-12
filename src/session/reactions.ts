@@ -7,6 +7,7 @@
 
 import type { Session } from './types.js';
 import type { SessionContext } from './context.js';
+import type { MessageApprovalDecision } from '../operations/executors/index.js';
 import {
   isApprovalEmoji,
   isDenialEmoji,
@@ -109,66 +110,44 @@ export async function handleApprovalReaction(
 
 /**
  * Handle a reaction on a message approval post (approve/invite/deny).
+ * Delegates business logic to MessageManager.handleMessageApprovalResponse().
  */
 export async function handleMessageApprovalReaction(
   session: Session,
   emoji: string,
   approver: string,
-  ctx: SessionContext
+  _ctx: SessionContext
 ): Promise<void> {
-  const pending = session.pendingMessageApproval;
-  if (!pending) return;
+  // Check if messageManager exists
+  if (!session.messageManager) return;
 
-  // Only session owner or globally allowed users can approve
+  // Get pending approval from messageManager
+  const postId = session.messageManager.getPendingMessageApproval()?.postId;
+  if (!postId) return;
+
+  // Extract decision from emoji
+  let decision: MessageApprovalDecision | null = null;
+  if (isApprovalEmoji(emoji)) decision = 'allow';
+  else if (isAllowAllEmoji(emoji)) decision = 'invite';
+  else if (isDenialEmoji(emoji)) decision = 'deny';
+  if (!decision) return;
+
+  // Check if approver has permission
   if (session.startedBy !== approver && !session.platform.isUserAllowed(approver)) {
     return;
   }
 
-  const isAllow = isApprovalEmoji(emoji);
-  const isInvite = isAllowAllEmoji(emoji);
-  const isDeny = isDenialEmoji(emoji);
+  // Log the reaction
+  const reactionType = decision === 'allow' ? 'message_approve'
+    : decision === 'invite' ? 'message_invite'
+    : 'message_reject';
+  session.threadLogger?.logReaction(reactionType, approver, emoji);
 
-  if (!isAllow && !isInvite && !isDeny) return;
-
-  const formatter = session.platform.getFormatter();
-
-  if (isAllow) {
-    // Allow this single message
-    await updatePostSuccess(
-      session,
-      pending.postId,
-      `Message from ${formatter.formatUserMention(pending.fromUser)} approved by ${formatter.formatUserMention(approver)}`
-    );
-    session.claude.sendMessage(pending.originalMessage);
-    session.lastActivityAt = new Date();
-    ctx.ops.startTyping(session);
-    sessionLog(session).info(`✅ Message from @${pending.fromUser} approved by @${approver}`);
-    session.threadLogger?.logReaction('message_approve', approver, emoji);
-  } else if (isInvite) {
-    // Invite user to session
-    session.sessionAllowedUsers.add(pending.fromUser);
-    await updatePostSuccess(
-      session,
-      pending.postId,
-      `${formatter.formatUserMention(pending.fromUser)} invited to session by ${formatter.formatUserMention(approver)}`
-    );
-    await ctx.ops.updateSessionHeader(session);
-    session.claude.sendMessage(pending.originalMessage);
-    session.lastActivityAt = new Date();
-    ctx.ops.startTyping(session);
-    sessionLog(session).info(`👋 @${pending.fromUser} invited to session by @${approver}`);
-  } else if (isDeny) {
-    // Deny
-    await updatePost(
-      session,
-      pending.postId,
-      `❌ Message from ${formatter.formatUserMention(pending.fromUser)} denied by ${formatter.formatUserMention(approver)}`
-    );
-    sessionLog(session).info(`❌ Message from @${pending.fromUser} denied by @${approver}`);
-    session.threadLogger?.logReaction('message_reject', approver, emoji);
+  // Delegate to messageManager - it handles state, post updates, and callbacks
+  const handled = await session.messageManager.handleMessageApprovalResponse(postId, decision, approver);
+  if (handled) {
+    sessionLog(session).debug(`Message approval ${decision} by @${approver}`);
   }
-
-  session.pendingMessageApproval = null;
 }
 
 // NOTE: Task list toggle reaction handling has been moved to TaskListExecutor.

@@ -76,7 +76,7 @@ export function getPendingPrompts(session: Session): PendingPrompt[] {
   }
 
   // Message approval (unauthorized user message)
-  if (session.pendingMessageApproval) {
+  if (session.messageManager?.getPendingMessageApproval()) {
     prompts.push({
       type: 'message_approval',
       label: 'Message approval',

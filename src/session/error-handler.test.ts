@@ -49,7 +49,6 @@ function createMockSession(): Session {
     // Interactive state
     pendingApproval: null,
     pendingQuestionSet: null,
-    pendingMessageApproval: null,
     planApproved: false,
 
     // Collaboration

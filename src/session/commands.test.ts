@@ -104,7 +104,6 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
     wasInterrupted: false,
     pendingApproval: null,
     pendingQuestionSet: null,
-    pendingMessageApproval: null,
     messageCount: 0,
     messageManager,
     ...restOverrides,

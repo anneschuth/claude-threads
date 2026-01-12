@@ -16,7 +16,8 @@ import {
   SubagentExecutor,
   SystemExecutor,
 } from './executors/index.js';
-import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback } from './executors/types.js';
+import type { MessageApprovalDecision, MessageApprovalCallback } from './executors/interactive.js';
+import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback, PendingMessageApproval } from './executors/types.js';
 import { PostTracker } from './post-tracker.js';
 import { DefaultContentBreaker } from './content-breaker.js';
 import type {
@@ -82,6 +83,7 @@ export interface MessageManagerOptions {
   updateLastMessage: UpdateLastMessageCallback;
   onQuestionComplete: QuestionCompleteCallback;
   onApprovalComplete: ApprovalCompleteCallback;
+  onMessageApprovalComplete?: MessageApprovalCallback;
   onStatusUpdate?: StatusUpdateCallback;
   onLifecycleEvent?: LifecycleCallback;
   onBumpTaskList?: () => Promise<void>;
@@ -161,6 +163,7 @@ export class MessageManager {
       updateLastMessage: options.updateLastMessage,
       onQuestionComplete: options.onQuestionComplete,
       onApprovalComplete: options.onApprovalComplete,
+      onMessageApprovalComplete: options.onMessageApprovalComplete,
     });
 
     this.subagentExecutor = new SubagentExecutor({
@@ -417,6 +420,56 @@ export class MessageManager {
     this.interactiveExecutor.advanceQuestionIndex();
   }
 
+  // ---------------------------------------------------------------------------
+  // Message approval delegation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending message approval state.
+   * Called when an unauthorized user sends a message that needs approval.
+   */
+  setPendingMessageApproval(approval: PendingMessageApproval): void {
+    this.interactiveExecutor.setPendingMessageApproval(approval);
+  }
+
+  /**
+   * Get pending message approval state.
+   */
+  getPendingMessageApproval(): PendingMessageApproval | null {
+    return this.interactiveExecutor.getPendingMessageApproval();
+  }
+
+  /**
+   * Check if there's a pending message approval.
+   */
+  hasPendingMessageApproval(): boolean {
+    return this.interactiveExecutor.hasPendingMessageApproval();
+  }
+
+  /**
+   * Clear pending message approval state.
+   */
+  clearPendingMessageApproval(): void {
+    this.interactiveExecutor.clearPendingMessageApproval();
+  }
+
+  /**
+   * Handle a message approval reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   */
+  async handleMessageApprovalResponse(
+    postId: string,
+    decision: MessageApprovalDecision,
+    approver: string
+  ): Promise<boolean> {
+    return this.interactiveExecutor.handleMessageApprovalResponse(
+      postId,
+      decision,
+      approver,
+      this.getExecutorContext()
+    );
+  }
+
   /**
    * Get the current post ID being updated
    */
@@ -498,6 +551,7 @@ export class MessageManager {
       type: 'plan' | 'action';
       toolUseId: string;
     } | null;
+    pendingMessageApproval?: PendingMessageApproval | null;
   }): void {
     this.interactiveExecutor.hydrateState(persisted);
   }

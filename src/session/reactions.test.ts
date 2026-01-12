@@ -71,15 +71,18 @@ function createMockPlatform() {
 function createMockMessageManager() {
   let pendingApproval: { postId: string; type: string; toolUseId: string } | null = null;
   let pendingQuestionSet: { toolUseId: string; currentIndex: number; currentPostId: string | null } | null = null;
+  let pendingMessageApproval: { postId: string; fromUser: string; originalMessage: string } | null = null;
 
   return {
     // State management
     setPendingApproval: (approval: typeof pendingApproval) => { pendingApproval = approval; },
     setPendingQuestionSet: (questionSet: typeof pendingQuestionSet) => { pendingQuestionSet = questionSet; },
+    setPendingMessageApproval: (approval: typeof pendingMessageApproval) => { pendingMessageApproval = approval; },
 
     // Public API methods
     getPendingApproval: mock(() => pendingApproval),
     getPendingQuestionSet: mock(() => pendingQuestionSet),
+    getPendingMessageApproval: mock(() => pendingMessageApproval),
     clearPendingApproval: mock(() => { pendingApproval = null; }),
     clearPendingQuestionSet: mock(() => { pendingQuestionSet = null; }),
     advanceQuestionIndex: mock(() => {
@@ -97,6 +100,14 @@ function createMockMessageManager() {
       // Return true if we have pending approval
       if (pendingApproval) {
         pendingApproval = null;
+        return true;
+      }
+      return false;
+    }),
+    handleMessageApprovalResponse: mock(async (_postId: string, _decision: string, _approver: string) => {
+      // Return true if we have pending message approval
+      if (pendingMessageApproval) {
+        pendingMessageApproval = null;
         return true;
       }
       return false;
@@ -123,7 +134,6 @@ function createTestSession(platform: PlatformClient): Session {
       sendMessage: mock(() => {}),
       sendToolResult: mock(() => {}),
     } as any,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
@@ -347,82 +357,98 @@ describe('handleMessageApprovalReaction', () => {
   let platform: PlatformClient & { posts: Map<string, string> };
   let session: Session;
   let ctx: SessionContext;
+  let mockMessageManager: ReturnType<typeof createMockMessageManager>;
 
   beforeEach(() => {
     platform = createMockPlatform();
     session = createTestSession(platform);
     ctx = createMockContext();
+    mockMessageManager = createMockMessageManager();
+    session.messageManager = mockMessageManager as any;
+  });
+
+  test('does nothing if no messageManager', async () => {
+    session.messageManager = undefined;
+    await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
+    // Should not throw, just return early
   });
 
   test('does nothing if no pending message approval', async () => {
-    session.pendingMessageApproval = null;
+    // messageManager has no pending approval by default
     await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
-    expect(platform.updatePost).not.toHaveBeenCalled();
+    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
   });
 
-  test('only session owner can approve', async () => {
-    session.pendingMessageApproval = {
+  test('only session owner or allowed users can approve', async () => {
+    mockMessageManager.setPendingMessageApproval({
       postId: 'post1',
       fromUser: 'outsider',
       originalMessage: 'hello',
-    };
+    });
 
     // Random user can't approve
     await handleMessageApprovalReaction(session, '+1', 'randomuser', ctx);
-    expect(session.pendingMessageApproval).not.toBeNull();
+    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
   });
 
   test('session owner can approve message', async () => {
-    session.pendingMessageApproval = {
+    mockMessageManager.setPendingMessageApproval({
       postId: 'post1',
       fromUser: 'outsider',
       originalMessage: 'hello',
-    };
+    });
 
     await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
 
-    expect(session.pendingMessageApproval).toBeNull();
-    expect(session.claude.sendMessage).toHaveBeenCalledWith('hello');
-    expect(platform.updatePost).toHaveBeenCalled();
+    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'allow', 'testuser');
   });
 
   test('globally allowed user can approve', async () => {
-    session.pendingMessageApproval = {
+    mockMessageManager.setPendingMessageApproval({
       postId: 'post1',
       fromUser: 'outsider',
       originalMessage: 'hello',
-    };
+    });
 
     await handleMessageApprovalReaction(session, '+1', 'admin', ctx);
 
-    expect(session.pendingMessageApproval).toBeNull();
+    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'allow', 'admin');
   });
 
-  test('invite emoji adds user to session', async () => {
-    session.pendingMessageApproval = {
+  test('invite emoji invites user to session', async () => {
+    mockMessageManager.setPendingMessageApproval({
       postId: 'post1',
       fromUser: 'newuser',
       originalMessage: 'hello',
-    };
+    });
 
     await handleMessageApprovalReaction(session, 'white_check_mark', 'testuser', ctx);
 
-    expect(session.sessionAllowedUsers.has('newuser')).toBe(true);
-    expect(session.pendingMessageApproval).toBeNull();
-    expect(ctx.ops.updateSessionHeader).toHaveBeenCalled();
+    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'invite', 'testuser');
   });
 
-  test('deny emoji rejects message', async () => {
-    session.pendingMessageApproval = {
+  test('deny emoji denies message', async () => {
+    mockMessageManager.setPendingMessageApproval({
       postId: 'post1',
       fromUser: 'outsider',
       originalMessage: 'hello',
-    };
+    });
 
     await handleMessageApprovalReaction(session, '-1', 'testuser', ctx);
 
-    expect(session.pendingMessageApproval).toBeNull();
-    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'deny', 'testuser');
+  });
+
+  test('ignores unrecognized emojis', async () => {
+    mockMessageManager.setPendingMessageApproval({
+      postId: 'post1',
+      fromUser: 'outsider',
+      originalMessage: 'hello',
+    });
+
+    await handleMessageApprovalReaction(session, 'smile', 'testuser', ctx);
+
+    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
   });
 });
 

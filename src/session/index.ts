@@ -9,11 +9,13 @@ export type {
   Session,
   PendingApproval,
   PendingQuestionSet,
-  PendingMessageApproval,
   PendingExistingWorktreePrompt,
   PendingWorktreeFailurePrompt,
 } from './types.js';
 export type { PendingContextPrompt } from './context-prompt.js';
+
+// Re-export PendingMessageApproval from executors (now managed by MessageManager)
+export type { PendingMessageApproval } from '../operations/executors/index.js';
 
 // Pending prompts utilities (reusable for displaying pending states)
 export type { PendingPrompt } from './sticky-message.js';

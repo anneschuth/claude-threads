@@ -87,7 +87,7 @@ export interface PermissionEntry extends BaseLogEntry {
  */
 export interface ReactionEntry extends BaseLogEntry {
   type: 'reaction';
-  action: 'plan_approve' | 'plan_reject' | 'question_answer' | 'message_approve' | 'message_reject' | 'cancel' | 'interrupt';
+  action: 'plan_approve' | 'plan_reject' | 'question_answer' | 'message_approve' | 'message_invite' | 'message_reject' | 'cancel' | 'interrupt';
   username: string;
   emoji?: string;
   answer?: string;

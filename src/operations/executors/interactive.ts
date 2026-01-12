@@ -10,8 +10,13 @@
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
-import type { ExecutorContext, InteractiveState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, InteractiveState, PendingMessageApproval, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+
+/**
+ * Decision type for message approval reactions.
+ */
+export type MessageApprovalDecision = 'allow' | 'invite' | 'deny';
 
 const log = createLogger('interactive-executor');
 
@@ -32,27 +37,39 @@ interface PendingQuestion {
 /**
  * Executor for interactive operations (questions, approvals).
  */
+/**
+ * Callback for message approval completion.
+ */
+export type MessageApprovalCallback = (
+  decision: MessageApprovalDecision,
+  context: { fromUser: string; originalMessage: string }
+) => Promise<void>;
+
 export class InteractiveExecutor {
   private state: InteractiveState;
   private registerPost: RegisterPostCallback;
   private updateLastMessage: UpdateLastMessageCallback;
   private onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
   private onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
+  private onMessageApprovalComplete?: MessageApprovalCallback;
 
   constructor(options: {
     registerPost: RegisterPostCallback;
     updateLastMessage: UpdateLastMessageCallback;
     onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
     onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
+    onMessageApprovalComplete?: MessageApprovalCallback;
   }) {
     this.state = {
       pendingQuestionSet: null,
       pendingApproval: null,
+      pendingMessageApproval: null,
     };
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
     this.onQuestionComplete = options.onQuestionComplete;
     this.onApprovalComplete = options.onApprovalComplete;
+    this.onMessageApprovalComplete = options.onMessageApprovalComplete;
   }
 
   /**
@@ -66,6 +83,9 @@ export class InteractiveExecutor {
       pendingApproval: this.state.pendingApproval
         ? { ...this.state.pendingApproval }
         : null,
+      pendingMessageApproval: this.state.pendingMessageApproval
+        ? { ...this.state.pendingMessageApproval }
+        : null,
     };
   }
 
@@ -76,6 +96,7 @@ export class InteractiveExecutor {
     this.state = {
       pendingQuestionSet: null,
       pendingApproval: null,
+      pendingMessageApproval: null,
     };
   }
 
@@ -86,10 +107,12 @@ export class InteractiveExecutor {
   hydrateState(persisted: {
     pendingQuestionSet?: InteractiveState['pendingQuestionSet'];
     pendingApproval?: InteractiveState['pendingApproval'];
+    pendingMessageApproval?: InteractiveState['pendingMessageApproval'];
   }): void {
     this.state = {
       pendingQuestionSet: persisted.pendingQuestionSet ?? null,
       pendingApproval: persisted.pendingApproval ?? null,
+      pendingMessageApproval: persisted.pendingMessageApproval ?? null,
     };
   }
 
@@ -384,5 +407,90 @@ export class InteractiveExecutor {
     if (this.state.pendingQuestionSet) {
       this.state.pendingQuestionSet.currentIndex++;
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Message approval methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending message approval state.
+   * Called when an unauthorized user sends a message that needs approval.
+   */
+  setPendingMessageApproval(approval: PendingMessageApproval): void {
+    this.state.pendingMessageApproval = approval;
+  }
+
+  /**
+   * Get pending message approval state.
+   */
+  getPendingMessageApproval(): PendingMessageApproval | null {
+    return this.state.pendingMessageApproval;
+  }
+
+  /**
+   * Check if there's a pending message approval.
+   */
+  hasPendingMessageApproval(): boolean {
+    return this.state.pendingMessageApproval !== null;
+  }
+
+  /**
+   * Clear pending message approval state.
+   */
+  clearPendingMessageApproval(): void {
+    this.state.pendingMessageApproval = null;
+  }
+
+  /**
+   * Handle a message approval reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param decision - The approval decision (allow/invite/deny)
+   * @param approver - Username of the approver (for logging)
+   * @param ctx - Executor context
+   */
+  async handleMessageApprovalResponse(
+    postId: string,
+    decision: MessageApprovalDecision,
+    approver: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingMessageApproval) return false;
+    if (this.state.pendingMessageApproval.postId !== postId) return false;
+
+    const logger = log.forSession(ctx.sessionId);
+    const { fromUser, originalMessage } = this.state.pendingMessageApproval;
+    const formatter = ctx.platform.getFormatter();
+
+    // Update the post based on decision
+    let statusMessage: string;
+    if (decision === 'allow') {
+      statusMessage = `✅ Message from ${formatter.formatUserMention(fromUser)} approved by ${formatter.formatUserMention(approver)}`;
+      logger.info(`Message from @${fromUser} approved by @${approver}`);
+    } else if (decision === 'invite') {
+      statusMessage = `✅ ${formatter.formatUserMention(fromUser)} invited to session by ${formatter.formatUserMention(approver)}`;
+      logger.info(`@${fromUser} invited to session by @${approver}`);
+    } else {
+      statusMessage = `❌ Message from ${formatter.formatUserMention(fromUser)} denied by ${formatter.formatUserMention(approver)}`;
+      logger.info(`Message from @${fromUser} denied by @${approver}`);
+    }
+
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      logger.debug(`Failed to update message approval post: ${err}`);
+    }
+
+    // Clear pending state
+    this.state.pendingMessageApproval = null;
+
+    // Notify completion handler
+    if (this.onMessageApprovalComplete) {
+      await this.onMessageApprovalComplete(decision, { fromUser, originalMessage });
+    }
+
+    return true;
   }
 }

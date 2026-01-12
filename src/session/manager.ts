@@ -554,7 +554,8 @@ export class SessionManager extends EventEmitter {
     }
 
     // Handle message approval reactions (only on add)
-    if (action === 'added' && session.pendingMessageApproval?.postId === postId) {
+    const pendingMessageApproval = session.messageManager?.getPendingMessageApproval();
+    if (action === 'added' && pendingMessageApproval?.postId === postId) {
       await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
       return;
     }

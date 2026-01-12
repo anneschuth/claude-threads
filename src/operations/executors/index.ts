@@ -12,6 +12,7 @@ export type {
   TaskListState,
   InteractiveState,
   SubagentState,
+  PendingMessageApproval,
   Executor,
   ExecutionResult,
   RegisterPostCallback,
@@ -22,5 +23,6 @@ export type {
 export { ContentExecutor } from './content.js';
 export { TaskListExecutor } from './task-list.js';
 export { InteractiveExecutor } from './interactive.js';
+export type { MessageApprovalDecision, MessageApprovalCallback } from './interactive.js';
 export { SubagentExecutor } from './subagent.js';
 export { SystemExecutor } from './system.js';

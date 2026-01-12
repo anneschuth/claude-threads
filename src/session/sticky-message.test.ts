@@ -46,6 +46,7 @@ function createMockPlatform(platformId: string): PlatformClient {
 function createMockMessageManager(overrides: Partial<{
   getPendingApproval: ReturnType<typeof mock>;
   getPendingQuestionSet: ReturnType<typeof mock>;
+  getPendingMessageApproval: ReturnType<typeof mock>;
 }> = {}) {
   return {
     resetContentPost: mock(() => {}),
@@ -57,6 +58,7 @@ function createMockMessageManager(overrides: Partial<{
     hasPendingApproval: mock(() => false),
     getPendingApproval: overrides.getPendingApproval ?? mock(() => null),
     getPendingQuestionSet: overrides.getPendingQuestionSet ?? mock(() => null),
+    getPendingMessageApproval: overrides.getPendingMessageApproval ?? mock(() => null),
     clearPendingApproval: mock(() => {}),
     clearPendingQuestionSet: mock(() => {}),
     advanceQuestionIndex: mock(() => {}),
@@ -93,7 +95,6 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     platform,
     workingDir: '/home/user/projects/myproject',
     claude: { isRunning: () => true, kill: mock(), sendMessage: mock() } as any,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
@@ -484,8 +485,11 @@ describe('buildStickyMessage', () => {
 
   it('shows pending message approval', async () => {
     const sessions = new Map<string, Session>();
+    const mockMsgManager = createMockMessageManager({
+      getPendingMessageApproval: mock(() => ({ postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' })),
+    });
     const session = createMockSession({
-      pendingMessageApproval: { postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' },
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -549,9 +553,9 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const mockMsgManager = createMockMessageManager({
       getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+      getPendingMessageApproval: mock(() => ({ postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' })),
     });
     const session = createMockSession({
-      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
       messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
@@ -650,8 +654,11 @@ describe('getPendingPrompts', () => {
   });
 
   it('returns message approval prompt', () => {
+    const mockMsgManager = createMockMessageManager({
+      getPendingMessageApproval: mock(() => ({ postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' })),
+    });
     const session = createMockSession({
-      pendingMessageApproval: { postId: 'post1', originalMessage: 'Hello', fromUser: 'alice' },
+      messageManager: mockMsgManager as any,
     });
     const prompts = getPendingPrompts(session);
     expect(prompts).toHaveLength(1);
@@ -699,9 +706,9 @@ describe('getPendingPrompts', () => {
   it('returns multiple prompts in order', () => {
     const mockMsgManager = createMockMessageManager({
       getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+      getPendingMessageApproval: mock(() => ({ postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' })),
     });
     const session = createMockSession({
-      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
       pendingWorktreePrompt: true,
       messageManager: mockMsgManager as any,
     });
@@ -734,9 +741,9 @@ describe('formatPendingPrompts', () => {
   it('formats multiple prompts with separator', () => {
     const mockMsgManager = createMockMessageManager({
       getPendingApproval: mock(() => ({ postId: 'post1', type: 'plan', toolUseId: 'tool1' })),
+      getPendingMessageApproval: mock(() => ({ postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' })),
     });
     const session = createMockSession({
-      pendingMessageApproval: { postId: 'post2', originalMessage: 'Hello', fromUser: 'alice' },
       messageManager: mockMsgManager as any,
     });
     const result = formatPendingPrompts(session);
