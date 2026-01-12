@@ -2,9 +2,11 @@
  * Session module public exports
  *
  * Provides SessionManager for managing multiple concurrent Claude Code sessions.
+ * SessionRegistry provides pure session lookup without business logic.
  */
 
 export { SessionManager } from './manager.js';
+export { SessionRegistry } from './registry.js';
 export type {
   Session,
   SessionTimers,

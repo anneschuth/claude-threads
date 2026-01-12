@@ -39,6 +39,7 @@ import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
+import { SessionRegistry } from './registry.js';
 import { postInfo } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -80,16 +81,15 @@ export class SessionManager extends EventEmitter {
     return process.env.DEBUG === '1' || process.argv.includes('--debug');
   }
 
-  // Session state
-  private sessions: Map<string, Session> = new Map();
-  private postIndex: Map<string, string> = new Map();
+  // Session registry - tracks active sessions and post mappings
+  private registry!: SessionRegistry;
 
   // Worktree reference counting
   // Key: worktreePath, Value: Set of sessionIds using that worktree
   private worktreeUsers: Map<string, Set<string>> = new Map();
 
-  // Persistence
-  private sessionStore: SessionStore;
+  // Persistence (accessed via registry.getSessionStore())
+  private sessionStore!: SessionStore;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -120,13 +120,14 @@ export class SessionManager extends EventEmitter {
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
     this.sessionStore = new SessionStore(sessionsPath);
+    this.registry = new SessionRegistry(this.sessionStore);
 
     // Create background tasks (started in initialize())
     this.sessionMonitor = new SessionMonitor({
       sessionTimeoutMs: this.limits.sessionTimeoutMinutes * 60 * 1000,
       sessionWarningMs: this.limits.sessionWarningMinutes * 60 * 1000,
       getContext: () => this.getContext(),
-      getSessionCount: () => this.sessions.size,
+      getSessionCount: () => this.registry.size,
       updateStickyMessage: () => this.updateStickyMessage(),
     });
 
@@ -241,8 +242,8 @@ export class SessionManager extends EventEmitter {
     };
 
     const state: SessionState = {
-      sessions: this.sessions,
-      postIndex: this.postIndex,
+      sessions: this.registry._getSessions(),
+      postIndex: this.registry._getPostIndex(),
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
@@ -364,13 +365,11 @@ export class SessionManager extends EventEmitter {
   }
 
   private registerPost(postId: string, threadId: string): void {
-    this.postIndex.set(postId, threadId);
+    this.registry.registerPost(postId, threadId);
   }
 
   private getSessionByPost(postId: string): Session | undefined {
-    const threadId = this.postIndex.get(postId);
-    if (!threadId) return undefined;
-    return this.findSessionByThreadId(threadId);
+    return this.registry.findByPost(postId);
   }
 
   // ---------------------------------------------------------------------------
@@ -427,7 +426,7 @@ export class SessionManager extends EventEmitter {
 
     // Check if this session is already active
     const sessionId = `${platformId}:${persistedSession.threadId}`;
-    if (this.sessions.has(sessionId)) return false;
+    if (this.registry.hasById(sessionId)) return false;
 
     // Check if user is allowed (defensive: handle missing sessionAllowedUsers)
     const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
@@ -443,11 +442,11 @@ export class SessionManager extends EventEmitter {
     }
 
     // Check max sessions limit
-    if (this.sessions.size >= this.limits.maxSessions) {
+    if (this.registry.size >= this.limits.maxSessions) {
       if (platform) {
         const fmt = platform.getFormatter();
         await platform.createPost(
-          `⚠️ ${fmt.formatBold('Too busy')} - ${this.sessions.size} sessions active. Please try again later.`,
+          `⚠️ ${fmt.formatBold('Too busy')} - ${this.registry.size} sessions active. Please try again later.`,
           persistedSession.threadId
         );
       }
@@ -575,7 +574,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
-    const session = this.sessions.get(sessionId);
+    const session = this.registry.get(sessionId);
     if (!session || !session.messageManager) return;
 
     // Pre-processing: session-specific side effects
@@ -651,7 +650,7 @@ export class SessionManager extends EventEmitter {
   }
 
   private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       // Skip the session we're checking from (compare raw threadIds)
       if (session.threadId === excludeThreadId) continue;
       if (session.workingDir === repoRoot) return true;
@@ -752,7 +751,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private async updateStickyMessage(): Promise<void> {
-    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions, {
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.registry._getSessions(), {
       maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
       skipPermissions: this.skipPermissions,
@@ -797,7 +796,7 @@ export class SessionManager extends EventEmitter {
 
     const sessionsToKill: Session[] = [];
 
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       if (session.platformId === platformId) {
         sessionsToKill.push(session);
       }
@@ -835,7 +834,7 @@ export class SessionManager extends EventEmitter {
         session.claude.kill();
 
         // Remove from active sessions (but keep persisted)
-        this.sessions.delete(session.sessionId);
+        this.registry.unregister(session.sessionId);
 
         // Emit UI update
         this.emitSessionRemove(session.sessionId);
@@ -848,11 +847,7 @@ export class SessionManager extends EventEmitter {
 
     // Clear post index entries for paused sessions
     for (const session of sessionsToKill) {
-      for (const [postId, threadId] of this.postIndex.entries()) {
-        if (threadId === session.threadId) {
-          this.postIndex.delete(postId);
-        }
-      }
+      this.registry.clearPostsForThread(session.threadId);
     }
 
     // Update sticky message to show paused state
@@ -875,7 +870,7 @@ export class SessionManager extends EventEmitter {
 
       // Skip sessions that are already active
       const sessionId = `${state.platformId}:${state.threadId}`;
-      if (this.sessions.has(sessionId)) continue;
+      if (this.registry.hasById(sessionId)) continue;
 
       sessionsToResume.push(state);
     }
@@ -987,7 +982,7 @@ export class SessionManager extends EventEmitter {
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
   private findSessionByThreadId(threadId: string): Session | undefined {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       if (session.threadId === threadId) {
         return session;
       }
@@ -1013,7 +1008,7 @@ export class SessionManager extends EventEmitter {
   }
 
   isSessionActive(): boolean {
-    return this.sessions.size > 0;
+    return this.registry.size > 0;
   }
 
   isInSessionThread(threadRoot: string): boolean {
@@ -1219,7 +1214,7 @@ export class SessionManager extends EventEmitter {
   // Missing public methods needed by index.ts
   getActiveThreadIds(): string[] {
     // Return raw threadIds (not composite sessionIds) for posting to chat
-    return [...this.sessions.values()].map(s => s.threadId);
+    return [...this.registry.getAll()].map(s => s.threadId);
   }
 
   /**
@@ -1250,7 +1245,7 @@ export class SessionManager extends EventEmitter {
    * This allows the resume to update the same post instead of creating a new one.
    */
   async postShutdownMessages(): Promise<void> {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       try {
         const fmt = session.platform.getFormatter();
         const shutdownMessage = `⏸️ ${fmt.formatBold('Bot shutting down')} - session will resume on restart`;
@@ -1299,7 +1294,7 @@ export class SessionManager extends EventEmitter {
 
     // Then switch to worktree
     const threadId = replyToPostId || '';
-    const session = this.sessions.get(this.getSessionId(platformId, threadId));
+    const session = this.registry.find(platformId, threadId);
     if (session) {
       await this.createAndSwitchToWorktree(session.threadId, branch, username);
     }
@@ -1320,7 +1315,7 @@ export class SessionManager extends EventEmitter {
    * Returns the number of active sessions, last activity time, and busy state.
    */
   getActivityInfo(): { activeSessionCount: number; lastActivityAt: Date | null; anySessionBusy: boolean } {
-    const sessions = [...this.sessions.values()];
+    const sessions = [...this.registry.getAll()];
 
     if (sessions.length === 0) {
       return {
@@ -1357,7 +1352,7 @@ export class SessionManager extends EventEmitter {
    * @param messageBuilder - Function that takes a formatter and returns the formatted message
    */
   async broadcastToAll(messageBuilder: (formatter: import('../platform/formatter.js').PlatformFormatter) => string): Promise<void> {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       try {
         const formatter = session.platform.getFormatter();
         const message = messageBuilder(formatter);
@@ -1409,7 +1404,7 @@ export class SessionManager extends EventEmitter {
 
     // Post shutdown message to all active sessions
     if (message) {
-      for (const session of this.sessions.values()) {
+      for (const session of this.registry.getAll()) {
         try {
           await postInfo(session, message);
         } catch {
@@ -1419,12 +1414,11 @@ export class SessionManager extends EventEmitter {
     }
 
     // Persist and kill all sessions for later resume
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       this.stopTyping(session);
       this.persistSession(session);
       session.claude.kill();
     }
-    this.sessions.clear();
-    this.postIndex.clear();
+    this.registry.clear();
   }
 }
