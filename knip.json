@@ -12,6 +12,6 @@
     "src/test-utils/**/*"
   ],
   "ignoreDependencies": ["prettier"],
-  "ignoreBinaries": ["pkill", "sleep", "prettier", "knip"],
+  "ignoreBinaries": ["pkill", "sleep", "prettier", "knip", "dist/index.js"],
   "ignoreExportsUsedInFile": true
 }
