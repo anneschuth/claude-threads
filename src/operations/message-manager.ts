@@ -286,7 +286,10 @@ export class MessageManager {
     const ops = transformEvent(event, transformCtx);
 
     if (ops.length === 0) {
-      logger.debug(`No operations from event: ${event.type}`);
+      // System events are expected to produce no operations (handled separately for compaction/errors)
+      if (event.type !== 'system') {
+        logger.debug(`No operations from event: ${event.type}`);
+      }
       return;
     }
 
