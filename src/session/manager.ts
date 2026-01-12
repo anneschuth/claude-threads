@@ -973,16 +973,6 @@ export class SessionManager extends EventEmitter {
     return undefined;
   }
 
-  // Helper to find persisted session by threadId (persisted sessions are keyed by composite sessionId)
-  private findPersistedByThreadId(threadId: string): PersistedSession | undefined {
-    const persisted = this.sessionStore.load();
-    for (const session of persisted.values()) {
-      if (session.threadId === threadId) {
-        return session;
-      }
-    }
-    return undefined;
-  }
 
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
@@ -1019,7 +1009,7 @@ export class SessionManager extends EventEmitter {
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {
-    return this.findPersistedByThreadId(threadId);
+    return this.registry.getPersistedByThreadId(threadId);
   }
 
   async killSession(threadId: string, unpersist = true): Promise<void> {
@@ -1233,7 +1223,7 @@ export class SessionManager extends EventEmitter {
       return session.sessionStartPostId;
     }
     // Then check persisted sessions (for resume scenarios)
-    const persisted = this.findPersistedByThreadId(threadId);
+    const persisted = this.registry.getPersistedByThreadId(threadId);
     return persisted?.sessionStartPostId ?? undefined;
   }
 
