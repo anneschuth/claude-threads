@@ -20,7 +20,6 @@ import {
   isCancelEmoji,
   isEscapeEmoji,
   isResumeEmoji,
-  isMinimizeToggleEmoji,
   getNumberEmojiIndex,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
@@ -460,127 +459,102 @@ export class SessionManager extends EventEmitter {
     username: string,
     action: 'added' | 'removed'
   ): Promise<void> {
-    // Most reactions only trigger on 'added', not 'removed'
-    // Task toggle is an exception - it's state-based
+    // =========================================================================
+    // Session-level reactions (lifecycle, worktrees, updates, bug reports)
+    // These are NOT handled by MessageManager and must stay in SessionManager
+    // =========================================================================
 
-    // Handle ❌ on worktree prompt (only on add)
-    if (action === 'added' && session.worktreePromptPostId === postId && emojiName === 'x') {
-      await worktreeModule.handleWorktreeSkip(
-        session,
-        username,
-        (s) => this.persistSession(s),
-        (s, q) => this.offerContextPrompt(s, q)
-      );
-      return;
-    }
-
-    // Handle number emoji on worktree prompt (branch suggestion selection)
-    if (action === 'added' && session.pendingWorktreeSuggestions?.postId === postId) {
-      const emojiIndex = getNumberEmojiIndex(emojiName);
-      if (emojiIndex >= 0) {
-        const handled = await worktreeModule.handleBranchSuggestionReaction(
-          session,
-          postId,
-          emojiIndex,
-          username,
-          (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
-        );
-        if (handled) return;
+    if (action === 'added') {
+      // Handle cancel/escape reactions on session start post
+      if (session.sessionStartPostId === postId) {
+        if (isCancelEmoji(emojiName)) {
+          await commands.cancelSession(session, username, this.getContext());
+          return;
+        }
+        if (isEscapeEmoji(emojiName)) {
+          await commands.interruptSession(session, username);
+          return;
+        }
       }
-    }
 
-    // Handle existing worktree join prompt reactions (only on add)
-    if (action === 'added' && session.pendingExistingWorktreePrompt?.postId === postId) {
-      const handled = await reactions.handleExistingWorktreeReaction(
-        session,
-        postId,
-        emojiName,
-        username,
-        this.getContext(),
-        (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
-      );
-      if (handled) return;
-    }
+      // Handle ❌ on worktree prompt
+      if (session.worktreePromptPostId === postId && emojiName === 'x') {
+        await worktreeModule.handleWorktreeSkip(
+          session,
+          username,
+          (s) => this.persistSession(s),
+          (s, q) => this.offerContextPrompt(s, q)
+        );
+        return;
+      }
 
-    // Handle update prompt reactions (only on add)
-    if (action === 'added' && session.pendingUpdatePrompt?.postId === postId) {
-      if (this.autoUpdateManager) {
-        const updateHandler: reactions.UpdateReactionHandler = {
-          forceUpdate: () => this.autoUpdateManager!.forceUpdate(),
-          deferUpdate: (minutes: number) => this.autoUpdateManager!.deferUpdate(minutes),
-        };
-        const handled = await reactions.handleUpdateReaction(
+      // Handle number emoji on worktree prompt (branch suggestion selection)
+      if (session.pendingWorktreeSuggestions?.postId === postId) {
+        const emojiIndex = getNumberEmojiIndex(emojiName);
+        if (emojiIndex >= 0) {
+          const handled = await worktreeModule.handleBranchSuggestionReaction(
+            session,
+            postId,
+            emojiIndex,
+            username,
+            (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
+          );
+          if (handled) return;
+        }
+      }
+
+      // Handle existing worktree join prompt reactions
+      if (session.pendingExistingWorktreePrompt?.postId === postId) {
+        const handled = await reactions.handleExistingWorktreeReaction(
           session,
           postId,
           emojiName,
           username,
           this.getContext(),
-          updateHandler
+          (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
         );
+        if (handled) return;
+      }
+
+      // Handle update prompt reactions
+      if (session.pendingUpdatePrompt?.postId === postId) {
+        if (this.autoUpdateManager) {
+          const updateHandler: reactions.UpdateReactionHandler = {
+            forceUpdate: () => this.autoUpdateManager!.forceUpdate(),
+            deferUpdate: (minutes: number) => this.autoUpdateManager!.deferUpdate(minutes),
+          };
+          const handled = await reactions.handleUpdateReaction(
+            session,
+            postId,
+            emojiName,
+            username,
+            this.getContext(),
+            updateHandler
+          );
+          if (handled) return;
+        }
+      }
+
+      // Handle bug report emoji reaction on error posts
+      if (session.lastError?.postId === postId) {
+        const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
+        if (handled) return;
+      }
+
+      // Handle bug report approval reactions
+      if (session.pendingBugReport?.postId === postId) {
+        const handled = await reactions.handleBugApprovalReaction(session, postId, emojiName, username, this.getContext());
         if (handled) return;
       }
     }
 
-    // Handle context prompt reactions (only on add)
-    if (action === 'added' && session.messageManager?.getPendingContextPrompt()?.postId === postId) {
-      await this.handleContextPromptReaction(session, emojiName, username);
-      return;
-    }
+    // =========================================================================
+    // MessageManager-delegated reactions (questions, approvals, toggles, etc.)
+    // These are routed through MessageManager.handleReaction()
+    // =========================================================================
 
-    // Handle cancel/escape reactions on session start post (only on add)
-    if (action === 'added' && session.sessionStartPostId === postId) {
-      if (isCancelEmoji(emojiName)) {
-        await commands.cancelSession(session, username, this.getContext());
-        return;
-      }
-      if (isEscapeEmoji(emojiName)) {
-        await commands.interruptSession(session, username);
-        return;
-      }
-    }
-
-    // Handle question reactions (only on add)
-    const pendingQuestionSet = session.messageManager?.getPendingQuestionSet();
-    if (action === 'added' && pendingQuestionSet?.currentPostId === postId) {
-      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
-      return;
-    }
-
-    // Handle plan approval reactions (only on add)
-    const pendingApproval = session.messageManager?.getPendingApproval();
-    if (action === 'added' && pendingApproval?.postId === postId) {
-      await reactions.handleApprovalReaction(session, postId, emojiName, username, this.getContext());
-      return;
-    }
-
-    // Handle message approval reactions (only on add)
-    const pendingMessageApproval = session.messageManager?.getPendingMessageApproval();
-    if (action === 'added' && pendingMessageApproval?.postId === postId) {
-      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
-      return;
-    }
-
-    // Handle task list and subagent toggle reactions (minimize/expand) - state-based on both add and remove
-    // Uses same emoji (🔽) for both task list and subagent toggles
-    if (isMinimizeToggleEmoji(emojiName) && session.messageManager) {
-      // Try task list toggle first
-      const taskHandled = await session.messageManager.handleTaskListToggle(postId, action);
-      if (taskHandled) return;
-
-      // Try subagent toggle
-      const subagentHandled = await session.messageManager.handleSubagentToggle(postId, action);
-      if (subagentHandled) return;
-    }
-
-    // Handle bug report emoji reaction on error posts (only on add)
-    if (action === 'added' && session.lastError?.postId === postId) {
-      const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
-      if (handled) return;
-    }
-
-    // Handle bug report approval reactions (only on add)
-    if (action === 'added' && session.pendingBugReport?.postId === postId) {
-      const handled = await reactions.handleBugApprovalReaction(session, postId, emojiName, username, this.getContext());
+    if (session.messageManager) {
+      const handled = await session.messageManager.handleReaction(postId, emojiName, username, action);
       if (handled) return;
     }
   }
@@ -597,10 +571,6 @@ export class SessionManager extends EventEmitter {
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
       buildMessageContent: (text, session, files) => this.buildMessageContent(text, session.platform, files),
     };
-  }
-
-  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
-    await contextPrompt.handleContextPromptReaction(session, emojiName, username, this.getContextPromptHandler());
   }
 
   /**

@@ -93,6 +93,16 @@ export interface PendingContextPrompt {
 }
 
 /**
+ * Pending existing worktree prompt state for worktree selection.
+ */
+export interface PendingExistingWorktreePrompt {
+  postId: string;
+  branch: string;
+  worktreePath: string;
+  username: string;
+}
+
+/**
  * State managed by the interactive executor.
  */
 export interface InteractiveState {
@@ -118,6 +128,8 @@ export interface InteractiveState {
   pendingMessageApproval: PendingMessageApproval | null;
   /** Pending context prompt for thread context selection */
   pendingContextPrompt: PendingContextPrompt | null;
+  /** Pending existing worktree prompt for worktree selection */
+  pendingExistingWorktreePrompt: PendingExistingWorktreePrompt | null;
 }
 
 /**

@@ -9,7 +9,7 @@
  */
 
 import type { PlatformFormatter } from '../../platform/index.js';
-import { MINIMIZE_TOGGLE_EMOJIS } from '../../utils/emoji.js';
+import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
 import { formatDuration } from '../../utils/format.js';
 import type { SubagentOp } from '../types.js';
 import type { ExecutorContext, SubagentState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
@@ -281,6 +281,24 @@ export class SubagentExecutor {
       }
     }
     return false;
+  }
+
+  /**
+   * Handle a reaction on a subagent post.
+   * Returns true if handled, false otherwise.
+   */
+  async handleReaction(
+    postId: string,
+    emoji: string,
+    action: 'added' | 'removed',
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    // Only handle minimize toggle reactions
+    if (!isMinimizeToggleEmoji(emoji)) {
+      return false;
+    }
+
+    return this.handleToggleReaction(postId, action, ctx);
   }
 
   /**

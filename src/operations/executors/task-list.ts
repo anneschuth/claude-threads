@@ -9,7 +9,7 @@
  */
 
 import type { PlatformFormatter } from '../../platform/index.js';
-import { MINIMIZE_TOGGLE_EMOJIS } from '../../utils/emoji.js';
+import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
 import type { TaskListOp, TaskItem } from '../types.js';
 import type { ExecutorContext, TaskListState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
@@ -258,6 +258,34 @@ export class TaskListExecutor {
     } catch {
       // Ignore errors
     }
+  }
+
+  /**
+   * Handle a reaction event on a post.
+   * Returns true if the reaction was handled, false otherwise.
+   */
+  async handleReaction(
+    postId: string,
+    emoji: string,
+    action: 'added' | 'removed',
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    // Check if this reaction is on the tasks post
+    if (postId !== this.state.tasksPostId) {
+      return false;
+    }
+
+    // Check if this is the minimize toggle emoji
+    if (!isMinimizeToggleEmoji(emoji)) {
+      return false;
+    }
+
+    // Only toggle on 'added' reactions (ignore removals)
+    if (action === 'added') {
+      await this.toggleMinimize(ctx);
+    }
+
+    return true;
   }
 
   /**

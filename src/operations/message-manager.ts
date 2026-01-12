@@ -641,6 +641,54 @@ export class MessageManager {
     return this.systemExecutor.postSuccess(message, this.getExecutorContext());
   }
 
+  // ---------------------------------------------------------------------------
+  // Unified reaction routing
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle a reaction event on any post.
+   * Routes to the appropriate executor based on what's pending.
+   * This is the single entry point for all reaction handling.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param emoji - The emoji name that was used
+   * @param user - Username of the user who reacted
+   * @param action - Whether the reaction was 'added' or 'removed'
+   * @returns true if the reaction was handled, false otherwise
+   */
+  async handleReaction(
+    postId: string,
+    emoji: string,
+    user: string,
+    action: 'added' | 'removed'
+  ): Promise<boolean> {
+    const logger = log.forSession(this.sessionId);
+    const ctx = this.getExecutorContext();
+
+    logger.debug(`Routing reaction: postId=${postId}, emoji=${emoji}, user=${user}, action=${action}`);
+
+    // Try interactive executor first (questions, approvals, message approvals, context prompts)
+    if (await this.interactiveExecutor.handleReaction(postId, emoji, user, action, ctx)) {
+      logger.debug('Reaction handled by InteractiveExecutor');
+      return true;
+    }
+
+    // Try task list executor (minimize toggle)
+    if (await this.taskListExecutor.handleReaction(postId, emoji, action, ctx)) {
+      logger.debug('Reaction handled by TaskListExecutor');
+      return true;
+    }
+
+    // Try subagent executor (minimize toggle)
+    if (await this.subagentExecutor.handleReaction(postId, emoji, action, ctx)) {
+      logger.debug('Reaction handled by SubagentExecutor');
+      return true;
+    }
+
+    logger.debug('Reaction not handled by any executor');
+    return false;
+  }
+
   /**
    * Reset all state (for session restart)
    */

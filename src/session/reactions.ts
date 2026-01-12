@@ -1,18 +1,19 @@
 /**
  * User reaction handling module
  *
- * Handles emoji reactions on posts: plan approval, question answers,
- * message approval, cancel/escape actions.
+ * Handles emoji reactions on posts for session-level prompts that haven't
+ * been migrated to MessageManager yet (worktrees, updates, bug reports).
+ *
+ * NOTE: Question, approval, and message approval reactions are now handled
+ * by MessageManager.handleReaction() which routes to InteractiveExecutor.
+ * This module only handles session-level prompts that require SessionContext.
  */
 
 import type { Session } from './types.js';
 import type { SessionContext } from './context.js';
-import type { MessageApprovalDecision } from '../operations/executors/index.js';
 import {
   isApprovalEmoji,
   isDenialEmoji,
-  isAllowAllEmoji,
-  getNumberEmojiIndex,
   isBugReportEmoji,
 } from '../utils/emoji.js';
 import { createLogger } from '../utils/logger.js';
@@ -26,132 +27,6 @@ const log = createLogger('reactions');
 function sessionLog(session: Session) {
   return log.forSession(session.sessionId);
 }
-
-// ---------------------------------------------------------------------------
-// Question reaction handling
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a reaction on a question post (number emoji to select an option).
- *
- * Note: Question handling is delegated to MessageManager.handleQuestionAnswer()
- * which manages the question state internally. This function just extracts
- * the option index from the emoji and delegates.
- */
-export async function handleQuestionReaction(
-  session: Session,
-  postId: string,
-  emojiName: string,
-  username: string,
-  _ctx: SessionContext
-): Promise<void> {
-  // Delegate to MessageManager if available
-  if (!session.messageManager) return;
-
-  const optionIndex = getNumberEmojiIndex(emojiName);
-  if (optionIndex < 0) return;
-
-  // Log the reaction
-  session.threadLogger?.logReaction('question_answer', username, emojiName);
-
-  // Delegate to MessageManager - it handles state, post updates, and callbacks
-  const handled = await session.messageManager.handleQuestionAnswer(postId, optionIndex);
-  if (handled) {
-    sessionLog(session).debug(`💬 @${username} answered question with option ${optionIndex + 1}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Plan approval reaction handling
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a reaction on a plan approval post (thumbs up/down).
- *
- * Note: Approval handling is delegated to MessageManager.handleApprovalResponse()
- * which manages the approval state internally. This function determines
- * the approval decision from the emoji and delegates.
- */
-export async function handleApprovalReaction(
-  session: Session,
-  postId: string,
-  emojiName: string,
-  username: string,
-  _ctx: SessionContext
-): Promise<void> {
-  // Delegate to MessageManager if available
-  if (!session.messageManager) return;
-
-  const isApprove = isApprovalEmoji(emojiName);
-  const isReject = isDenialEmoji(emojiName);
-
-  if (!isApprove && !isReject) return;
-
-  // Log the reaction
-  session.threadLogger?.logReaction(isApprove ? 'plan_approve' : 'plan_reject', username, emojiName);
-
-  // Delegate to MessageManager - it handles state, post updates, and callbacks
-  const handled = await session.messageManager.handleApprovalResponse(postId, isApprove);
-  if (handled) {
-    sessionLog(session).info(`${isApprove ? '✅' : '❌'} Plan ${isApprove ? 'approved' : 'rejected'} by @${username}`);
-
-    // Also clear any stale questions from plan mode - they're no longer relevant
-    session.messageManager.clearPendingQuestionSet();
-
-    if (isApprove) {
-      session.planApproved = true;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Message approval reaction handling
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a reaction on a message approval post (approve/invite/deny).
- * Delegates business logic to MessageManager.handleMessageApprovalResponse().
- */
-export async function handleMessageApprovalReaction(
-  session: Session,
-  emoji: string,
-  approver: string,
-  _ctx: SessionContext
-): Promise<void> {
-  // Check if messageManager exists
-  if (!session.messageManager) return;
-
-  // Get pending approval from messageManager
-  const postId = session.messageManager.getPendingMessageApproval()?.postId;
-  if (!postId) return;
-
-  // Extract decision from emoji
-  let decision: MessageApprovalDecision | null = null;
-  if (isApprovalEmoji(emoji)) decision = 'allow';
-  else if (isAllowAllEmoji(emoji)) decision = 'invite';
-  else if (isDenialEmoji(emoji)) decision = 'deny';
-  if (!decision) return;
-
-  // Check if approver has permission
-  if (session.startedBy !== approver && !session.platform.isUserAllowed(approver)) {
-    return;
-  }
-
-  // Log the reaction
-  const reactionType = decision === 'allow' ? 'message_approve'
-    : decision === 'invite' ? 'message_invite'
-    : 'message_reject';
-  session.threadLogger?.logReaction(reactionType, approver, emoji);
-
-  // Delegate to messageManager - it handles state, post updates, and callbacks
-  const handled = await session.messageManager.handleMessageApprovalResponse(postId, decision, approver);
-  if (handled) {
-    sessionLog(session).debug(`Message approval ${decision} by @${approver}`);
-  }
-}
-
-// NOTE: Task list toggle reaction handling has been moved to TaskListExecutor.
-// It's now handled via MessageManager.handleTaskListToggle() in manager.ts
 
 // ---------------------------------------------------------------------------
 // Existing worktree join prompt reaction handling

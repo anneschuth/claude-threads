@@ -8,9 +8,9 @@
  * - Processing user responses via reactions
  */
 
-import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS } from '../../utils/emoji.js';
+import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, isAllowAllEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
-import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, PendingExistingWorktreePrompt, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 
 /**
@@ -65,6 +65,19 @@ export type ContextPromptCallback = (
   }
 ) => Promise<void>;
 
+/**
+ * Decision type for existing worktree prompt reactions.
+ */
+export type ExistingWorktreeDecision = 'join' | 'skip';
+
+/**
+ * Callback for existing worktree prompt completion.
+ */
+export type ExistingWorktreeCallback = (
+  decision: ExistingWorktreeDecision,
+  context: { branch: string; worktreePath: string; username: string }
+) => Promise<void>;
+
 export class InteractiveExecutor {
   private state: InteractiveState;
   private registerPost: RegisterPostCallback;
@@ -73,6 +86,7 @@ export class InteractiveExecutor {
   private onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
   private onMessageApprovalComplete?: MessageApprovalCallback;
   private onContextPromptComplete?: ContextPromptCallback;
+  private onExistingWorktreeComplete?: ExistingWorktreeCallback;
 
   constructor(options: {
     registerPost: RegisterPostCallback;
@@ -81,12 +95,14 @@ export class InteractiveExecutor {
     onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
     onMessageApprovalComplete?: MessageApprovalCallback;
     onContextPromptComplete?: ContextPromptCallback;
+    onExistingWorktreeComplete?: ExistingWorktreeCallback;
   }) {
     this.state = {
       pendingQuestionSet: null,
       pendingApproval: null,
       pendingMessageApproval: null,
       pendingContextPrompt: null,
+      pendingExistingWorktreePrompt: null,
     };
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
@@ -94,6 +110,7 @@ export class InteractiveExecutor {
     this.onApprovalComplete = options.onApprovalComplete;
     this.onMessageApprovalComplete = options.onMessageApprovalComplete;
     this.onContextPromptComplete = options.onContextPromptComplete;
+    this.onExistingWorktreeComplete = options.onExistingWorktreeComplete;
   }
 
   /**
@@ -113,6 +130,9 @@ export class InteractiveExecutor {
       pendingContextPrompt: this.state.pendingContextPrompt
         ? { ...this.state.pendingContextPrompt }
         : null,
+      pendingExistingWorktreePrompt: this.state.pendingExistingWorktreePrompt
+        ? { ...this.state.pendingExistingWorktreePrompt }
+        : null,
     };
   }
 
@@ -125,6 +145,7 @@ export class InteractiveExecutor {
       pendingApproval: null,
       pendingMessageApproval: null,
       pendingContextPrompt: null,
+      pendingExistingWorktreePrompt: null,
     };
   }
 
@@ -137,12 +158,14 @@ export class InteractiveExecutor {
     pendingApproval?: InteractiveState['pendingApproval'];
     pendingMessageApproval?: InteractiveState['pendingMessageApproval'];
     pendingContextPrompt?: InteractiveState['pendingContextPrompt'];
+    pendingExistingWorktreePrompt?: InteractiveState['pendingExistingWorktreePrompt'];
   }): void {
     this.state = {
       pendingQuestionSet: persisted.pendingQuestionSet ?? null,
       pendingApproval: persisted.pendingApproval ?? null,
       pendingMessageApproval: persisted.pendingMessageApproval ?? null,
       pendingContextPrompt: persisted.pendingContextPrompt ?? null,
+      pendingExistingWorktreePrompt: persisted.pendingExistingWorktreePrompt ?? null,
     };
   }
 
@@ -611,5 +634,198 @@ export class InteractiveExecutor {
     }
 
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Existing worktree prompt methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending existing worktree prompt state.
+   * Called when an existing worktree is found and user must decide to join or skip.
+   */
+  setPendingExistingWorktreePrompt(prompt: PendingExistingWorktreePrompt): void {
+    this.state.pendingExistingWorktreePrompt = prompt;
+  }
+
+  /**
+   * Get pending existing worktree prompt state.
+   */
+  getPendingExistingWorktreePrompt(): PendingExistingWorktreePrompt | null {
+    return this.state.pendingExistingWorktreePrompt;
+  }
+
+  /**
+   * Check if there's a pending existing worktree prompt.
+   */
+  hasPendingExistingWorktreePrompt(): boolean {
+    return this.state.pendingExistingWorktreePrompt !== null;
+  }
+
+  /**
+   * Clear pending existing worktree prompt state.
+   */
+  clearPendingExistingWorktreePrompt(): void {
+    this.state.pendingExistingWorktreePrompt = null;
+  }
+
+  /**
+   * Handle an existing worktree prompt reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param decision - The worktree decision (join or skip)
+   * @param username - Username of the user who responded (for logging)
+   * @param ctx - Executor context
+   */
+  async handleExistingWorktreeResponse(
+    postId: string,
+    decision: ExistingWorktreeDecision,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingExistingWorktreePrompt) return false;
+    if (this.state.pendingExistingWorktreePrompt.postId !== postId) return false;
+
+    const logger = log.forSession(ctx.sessionId);
+    const { branch, worktreePath } = this.state.pendingExistingWorktreePrompt;
+    const formatter = ctx.platform.getFormatter();
+
+    // Update the post based on decision
+    let statusMessage: string;
+    if (decision === 'join') {
+      statusMessage = `✅ Joining existing worktree ${formatter.formatBold(branch)} (${formatter.formatUserMention(username)})`;
+      logger.info(`Joining existing worktree ${branch} by @${username}`);
+    } else {
+      statusMessage = `✅ Continuing in current directory (skipped by ${formatter.formatUserMention(username)})`;
+      logger.info(`Skipped joining existing worktree ${branch} by @${username}`);
+    }
+
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      logger.debug(`Failed to update existing worktree prompt post: ${err}`);
+    }
+
+    // Clear pending state
+    this.state.pendingExistingWorktreePrompt = null;
+
+    // Notify completion handler
+    if (this.onExistingWorktreeComplete) {
+      await this.onExistingWorktreeComplete(decision, {
+        branch,
+        worktreePath,
+        username,
+      });
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Unified reaction handler
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle a reaction on any interactive post.
+   * Routes to the appropriate handler based on pending state.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param emoji - The emoji name that was used
+   * @param user - Username of the user who reacted
+   * @param action - Whether the reaction was 'added' or 'removed'
+   * @param ctx - Executor context
+   */
+  async handleReaction(
+    postId: string,
+    emoji: string,
+    user: string,
+    action: 'added' | 'removed',
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    // Only handle 'added' reactions
+    if (action !== 'added') {
+      return false;
+    }
+
+    const logger = log.forSession(ctx.sessionId);
+
+    // Check pending question set
+    if (this.state.pendingQuestionSet?.currentPostId === postId) {
+      const index = getNumberEmojiIndex(emoji);
+      if (index >= 0) {
+        logger.debug(`Question answer reaction from @${user}: option ${index + 1}`);
+        return this.handleQuestionAnswer(postId, index, ctx);
+      }
+      return false;
+    }
+
+    // Check pending approval
+    if (this.state.pendingApproval?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        logger.debug(`Approval reaction from @${user}: approved`);
+        return this.handleApprovalResponse(postId, true, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Approval reaction from @${user}: denied`);
+        return this.handleApprovalResponse(postId, false, ctx);
+      }
+      return false;
+    }
+
+    // Check pending message approval
+    if (this.state.pendingMessageApproval?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        logger.debug(`Message approval reaction from @${user}: allow`);
+        return this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
+      }
+      if (isAllowAllEmoji(emoji)) {
+        logger.debug(`Message approval reaction from @${user}: invite`);
+        return this.handleMessageApprovalResponse(postId, 'invite', user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Message approval reaction from @${user}: deny`);
+        return this.handleMessageApprovalResponse(postId, 'deny', user, ctx);
+      }
+      return false;
+    }
+
+    // Check pending context prompt
+    if (this.state.pendingContextPrompt?.postId === postId) {
+      // Check for number emoji (to include N messages)
+      const index = getNumberEmojiIndex(emoji);
+      if (index >= 0) {
+        // Number emojis are 1-indexed in context prompts (1 = 1 message, etc.)
+        const { availableOptions } = this.state.pendingContextPrompt;
+        if (index < availableOptions.length) {
+          const selection = availableOptions[index];
+          logger.debug(`Context prompt reaction from @${user}: ${selection} messages`);
+          return this.handleContextPromptResponse(postId, selection, user, ctx);
+        }
+      }
+      // Check for skip emoji (x or similar denial emoji means skip)
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Context prompt reaction from @${user}: skip`);
+        return this.handleContextPromptResponse(postId, 0, user, ctx);
+      }
+      return false;
+    }
+
+    // Check pending existing worktree prompt
+    if (this.state.pendingExistingWorktreePrompt?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        logger.debug(`Existing worktree reaction from @${user}: join`);
+        return this.handleExistingWorktreeResponse(postId, 'join', user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Existing worktree reaction from @${user}: skip`);
+        return this.handleExistingWorktreeResponse(postId, 'skip', user, ctx);
+      }
+      return false;
+    }
+
+    // No pending interactive state matched
+    return false;
   }
 }

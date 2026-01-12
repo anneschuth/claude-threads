@@ -1,12 +1,13 @@
 /**
  * Tests for session/reactions.ts - User reaction handling
+ *
+ * NOTE: Question, approval, and message approval reaction tests have been moved
+ * to operations/executors/interactive.test.ts since that functionality is now
+ * handled by InteractiveExecutor via MessageManager.handleReaction().
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
-  handleQuestionReaction,
-  handleApprovalReaction,
-  handleMessageApprovalReaction,
   handleExistingWorktreeReaction,
   handleUpdateReaction,
   type UpdateReactionHandler,
@@ -67,54 +68,6 @@ function createMockPlatform() {
   } as unknown as PlatformClient & { posts: Map<string, string> };
 }
 
-// Create a mock MessageManager for testing
-function createMockMessageManager() {
-  let pendingApproval: { postId: string; type: string; toolUseId: string } | null = null;
-  let pendingQuestionSet: { toolUseId: string; currentIndex: number; currentPostId: string | null } | null = null;
-  let pendingMessageApproval: { postId: string; fromUser: string; originalMessage: string } | null = null;
-
-  return {
-    // State management
-    setPendingApproval: (approval: typeof pendingApproval) => { pendingApproval = approval; },
-    setPendingQuestionSet: (questionSet: typeof pendingQuestionSet) => { pendingQuestionSet = questionSet; },
-    setPendingMessageApproval: (approval: typeof pendingMessageApproval) => { pendingMessageApproval = approval; },
-
-    // Public API methods
-    getPendingApproval: mock(() => pendingApproval),
-    getPendingQuestionSet: mock(() => pendingQuestionSet),
-    getPendingMessageApproval: mock(() => pendingMessageApproval),
-    clearPendingApproval: mock(() => { pendingApproval = null; }),
-    clearPendingQuestionSet: mock(() => { pendingQuestionSet = null; }),
-    advanceQuestionIndex: mock(() => {
-      if (pendingQuestionSet) pendingQuestionSet.currentIndex++;
-    }),
-    handleQuestionAnswer: mock(async (_postId: string, _optionIndex: number) => {
-      // Return true if we have pending questions
-      if (pendingQuestionSet) {
-        pendingQuestionSet = null;
-        return true;
-      }
-      return false;
-    }),
-    handleApprovalResponse: mock(async (_postId: string, _approved: boolean) => {
-      // Return true if we have pending approval
-      if (pendingApproval) {
-        pendingApproval = null;
-        return true;
-      }
-      return false;
-    }),
-    handleMessageApprovalResponse: mock(async (_postId: string, _decision: string, _approver: string) => {
-      // Return true if we have pending message approval
-      if (pendingMessageApproval) {
-        pendingMessageApproval = null;
-        return true;
-      }
-      return false;
-    }),
-  };
-}
-
 // Create a minimal session for testing
 function createTestSession(platform: PlatformClient): Session {
   return {
@@ -169,7 +122,7 @@ function createTestSession(platform: PlatformClient): Session {
     activeToolStarts: new Map(),
     statusBarTimer: null,
     recentEvents: [],
-    messageManager: undefined,  // Will be set in tests that need it
+    messageManager: undefined,
   };
 }
 
@@ -219,237 +172,11 @@ function createMockContext(): SessionContext {
   };
 }
 
-describe('handleQuestionReaction', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let ctx: SessionContext;
-  let mockMessageManager: ReturnType<typeof createMockMessageManager>;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    ctx = createMockContext();
-    mockMessageManager = createMockMessageManager();
-    session.messageManager = mockMessageManager as any;
-  });
-
-  test('does nothing if no messageManager', async () => {
-    session.messageManager = undefined;
-    await handleQuestionReaction(session, 'post1', 'one', 'testuser', ctx);
-    // Should not throw
-  });
-
-  test('does nothing if invalid emoji index', async () => {
-    mockMessageManager.setPendingQuestionSet({
-      toolUseId: 'tool1',
-      currentIndex: 0,
-      currentPostId: 'post1',
-    });
-    // 'invalid' is not a number emoji
-    await handleQuestionReaction(session, 'post1', 'invalid', 'testuser', ctx);
-    expect(mockMessageManager.handleQuestionAnswer).not.toHaveBeenCalled();
-  });
-
-  test('delegates to messageManager.handleQuestionAnswer on valid emoji', async () => {
-    mockMessageManager.setPendingQuestionSet({
-      toolUseId: 'tool1',
-      currentIndex: 0,
-      currentPostId: 'post1',
-    });
-
-    await handleQuestionReaction(session, 'post1', 'one', 'testuser', ctx);
-
-    expect(mockMessageManager.handleQuestionAnswer).toHaveBeenCalledWith('post1', 0);
-  });
-
-  test('handles option index correctly for different emojis', async () => {
-    mockMessageManager.setPendingQuestionSet({
-      toolUseId: 'tool1',
-      currentIndex: 0,
-      currentPostId: 'post1',
-    });
-
-    await handleQuestionReaction(session, 'post1', 'two', 'testuser', ctx);
-
-    expect(mockMessageManager.handleQuestionAnswer).toHaveBeenCalledWith('post1', 1);
-  });
-});
-
-describe('handleApprovalReaction', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let ctx: SessionContext;
-  let mockMessageManager: ReturnType<typeof createMockMessageManager>;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    ctx = createMockContext();
-    mockMessageManager = createMockMessageManager();
-    session.messageManager = mockMessageManager as any;
-  });
-
-  test('does nothing if no messageManager', async () => {
-    session.messageManager = undefined;
-    await handleApprovalReaction(session, 'post1', '+1', 'testuser', ctx);
-    // Should not throw
-  });
-
-  test('approves plan on thumbs up', async () => {
-    mockMessageManager.setPendingApproval({ postId: 'post1', toolUseId: 'tool1', type: 'plan' });
-
-    await handleApprovalReaction(session, 'post1', '+1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleApprovalResponse).toHaveBeenCalledWith('post1', true);
-    expect(session.planApproved).toBe(true);
-  });
-
-  test('rejects plan on thumbs down', async () => {
-    mockMessageManager.setPendingApproval({ postId: 'post1', toolUseId: 'tool1', type: 'plan' });
-
-    await handleApprovalReaction(session, 'post1', '-1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleApprovalResponse).toHaveBeenCalledWith('post1', false);
-    expect(session.planApproved).toBe(false);
-  });
-
-  test('ignores non-approval emojis', async () => {
-    mockMessageManager.setPendingApproval({ postId: 'post1', toolUseId: 'tool1', type: 'plan' });
-
-    await handleApprovalReaction(session, 'post1', 'heart', 'testuser', ctx);
-
-    expect(mockMessageManager.handleApprovalResponse).not.toHaveBeenCalled();
-  });
-
-  test('clears stale pendingQuestionSet when plan is approved', async () => {
-    mockMessageManager.setPendingApproval({ postId: 'post1', toolUseId: 'tool1', type: 'plan' });
-    mockMessageManager.setPendingQuestionSet({
-      toolUseId: 'oldTool',
-      currentIndex: 0,
-      currentPostId: 'oldPost',
-    });
-
-    await handleApprovalReaction(session, 'post1', '+1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleApprovalResponse).toHaveBeenCalledWith('post1', true);
-    expect(mockMessageManager.clearPendingQuestionSet).toHaveBeenCalled();
-    expect(session.planApproved).toBe(true);
-  });
-
-  test('clears stale pendingQuestionSet when plan is rejected', async () => {
-    mockMessageManager.setPendingApproval({ postId: 'post1', toolUseId: 'tool1', type: 'plan' });
-    mockMessageManager.setPendingQuestionSet({
-      toolUseId: 'oldTool',
-      currentIndex: 0,
-      currentPostId: 'oldPost',
-    });
-
-    await handleApprovalReaction(session, 'post1', '-1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleApprovalResponse).toHaveBeenCalledWith('post1', false);
-    expect(mockMessageManager.clearPendingQuestionSet).toHaveBeenCalled();
-    expect(session.planApproved).toBe(false);
-  });
-});
-
-describe('handleMessageApprovalReaction', () => {
-  let platform: PlatformClient & { posts: Map<string, string> };
-  let session: Session;
-  let ctx: SessionContext;
-  let mockMessageManager: ReturnType<typeof createMockMessageManager>;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    ctx = createMockContext();
-    mockMessageManager = createMockMessageManager();
-    session.messageManager = mockMessageManager as any;
-  });
-
-  test('does nothing if no messageManager', async () => {
-    session.messageManager = undefined;
-    await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
-    // Should not throw, just return early
-  });
-
-  test('does nothing if no pending message approval', async () => {
-    // messageManager has no pending approval by default
-    await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
-    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
-  });
-
-  test('only session owner or allowed users can approve', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'outsider',
-      originalMessage: 'hello',
-    });
-
-    // Random user can't approve
-    await handleMessageApprovalReaction(session, '+1', 'randomuser', ctx);
-    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
-  });
-
-  test('session owner can approve message', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'outsider',
-      originalMessage: 'hello',
-    });
-
-    await handleMessageApprovalReaction(session, '+1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'allow', 'testuser');
-  });
-
-  test('globally allowed user can approve', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'outsider',
-      originalMessage: 'hello',
-    });
-
-    await handleMessageApprovalReaction(session, '+1', 'admin', ctx);
-
-    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'allow', 'admin');
-  });
-
-  test('invite emoji invites user to session', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'newuser',
-      originalMessage: 'hello',
-    });
-
-    await handleMessageApprovalReaction(session, 'white_check_mark', 'testuser', ctx);
-
-    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'invite', 'testuser');
-  });
-
-  test('deny emoji denies message', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'outsider',
-      originalMessage: 'hello',
-    });
-
-    await handleMessageApprovalReaction(session, '-1', 'testuser', ctx);
-
-    expect(mockMessageManager.handleMessageApprovalResponse).toHaveBeenCalledWith('post1', 'deny', 'testuser');
-  });
-
-  test('ignores unrecognized emojis', async () => {
-    mockMessageManager.setPendingMessageApproval({
-      postId: 'post1',
-      fromUser: 'outsider',
-      originalMessage: 'hello',
-    });
-
-    await handleMessageApprovalReaction(session, 'smile', 'testuser', ctx);
-
-    expect(mockMessageManager.handleMessageApprovalResponse).not.toHaveBeenCalled();
-  });
-});
+// NOTE: handleQuestionReaction, handleApprovalReaction, and handleMessageApprovalReaction
+// tests have been removed. These functions were deleted from reactions.ts and their
+// functionality is now handled by MessageManager.handleReaction() which routes to
+// InteractiveExecutor. Tests for that functionality should be in
+// operations/executors/interactive.test.ts
 
 // NOTE: Task list toggle tests have been moved.
 // Task toggle is now handled by MessageManager.handleTaskListToggle() which
