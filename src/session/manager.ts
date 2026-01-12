@@ -1011,14 +1011,24 @@ export class SessionManager extends EventEmitter {
     return this.registry.size > 0;
   }
 
+  /**
+   * Check if a thread has an active session.
+   * Delegates to registry.findByThreadId() internally.
+   */
   isInSessionThread(threadRoot: string): boolean {
-    const session = this.findSessionByThreadId(threadRoot);
+    const session = this.registry.findByThreadId(threadRoot);
     return session !== undefined && session.claude.isRunning();
   }
 
+  /**
+   * Check if a thread has a paused (persisted but not active) session.
+   * Delegates to registry.getPersistedByThreadId() internally.
+   */
   hasPausedSession(threadId: string): boolean {
-    if (this.findSessionByThreadId(threadId)) return false;
-    return this.findPersistedByThreadId(threadId) !== undefined;
+    // If there's an active session, it's not paused
+    if (this.registry.findByThreadId(threadId)) return false;
+    // Check for persisted session
+    return this.registry.getPersistedByThreadId(threadId) !== undefined;
   }
 
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
