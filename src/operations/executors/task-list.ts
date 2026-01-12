@@ -105,7 +105,18 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Update the task list.
    */
   private async updateTaskList(tasks: TaskItem[], ctx: ExecutorContext): Promise<void> {
-    
+    // Log task summary
+    const statusCounts = tasks.reduce(
+      (acc, t) => {
+        acc[t.status] = (acc[t.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+    ctx.logger.debug(
+      `TodoWrite: ${tasks.length} tasks (${Object.entries(statusCounts).map(([s, c]) => `${s}:${c}`).join(', ')})`
+    );
+
     // Track in-progress task timing
     const inProgressTask = tasks.find(t => t.status === 'in_progress');
     if (inProgressTask && !this.state.inProgressTaskStart) {
@@ -142,6 +153,8 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Mark task list as completed.
    */
   private async completeTaskList(tasks: TaskItem[], ctx: ExecutorContext): Promise<void> {
+    ctx.logger.debug(`TodoWrite: All ${tasks.length} tasks completed`);
+
     // Format final task list
     const content = this.formatTaskList(tasks, ctx.formatter);
     this.state.lastTasksContent = content;
@@ -238,19 +251,27 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`TaskListExecutor.handleReaction: postId=${postId.substring(0, 8)}, emoji=${emoji}, action=${action}, tasksPostId=${this.state.tasksPostId?.substring(0, 8) ?? 'none'}`);
+
     // Check if this reaction is on the tasks post
     if (postId !== this.state.tasksPostId) {
+      ctx.logger.debug(`TaskListExecutor: postId does not match tasksPostId, ignoring`);
       return false;
     }
 
     // Check if this is the minimize toggle emoji
     if (!isMinimizeToggleEmoji(emoji)) {
+      ctx.logger.debug(`TaskListExecutor: emoji ${emoji} is not minimize toggle, ignoring`);
       return false;
     }
 
     // Only toggle on 'added' reactions (ignore removals)
     if (action === 'added') {
+      ctx.logger.debug(`TaskListExecutor: toggling minimize state`);
       await this.toggleMinimize(ctx);
+      ctx.logger.debug(`TaskListExecutor: toggle complete, isMinimized=${this.state.tasksMinimized}`);
+    } else {
+      ctx.logger.debug(`TaskListExecutor: ignoring 'removed' reaction for minimize toggle`);
     }
 
     return true;

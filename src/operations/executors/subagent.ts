@@ -133,7 +133,11 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    * Start a new subagent.
    */
   private async startSubagent(op: SubagentOp, ctx: ExecutorContext): Promise<void> {
-        const now = Date.now();
+    ctx.logger.debug(
+      `Task: Starting subagent "${op.subagentType}" - ${op.description.substring(0, 80)}${op.description.length > 80 ? '...' : ''}`
+    );
+
+    const now = Date.now();
 
     // Create subagent metadata
     const subagent: ActiveSubagent = {
@@ -199,8 +203,13 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    * Mark a subagent as complete.
    */
   private async completeSubagent(op: SubagentOp, ctx: ExecutorContext): Promise<void> {
-        const subagent = this.state.activeSubagents.get(op.toolUseId);
+    const subagent = this.state.activeSubagents.get(op.toolUseId);
     if (!subagent) return;
+
+    const elapsedMs = Date.now() - subagent.startTime;
+    ctx.logger.debug(
+      `Task: Subagent "${subagent.subagentType}" completed after ${formatDuration(elapsedMs)}`
+    );
 
     // Mark as complete
     subagent.isComplete = true;
@@ -289,12 +298,17 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`SubagentExecutor.handleReaction: postId=${postId.substring(0, 8)}, emoji=${emoji}, action=${action}`);
+
     // Only handle minimize toggle reactions
     if (!isMinimizeToggleEmoji(emoji)) {
+      ctx.logger.debug(`SubagentExecutor: emoji ${emoji} is not minimize toggle, ignoring`);
       return false;
     }
 
-    return this.handleToggleReaction(postId, action, ctx);
+    const handled = await this.handleToggleReaction(postId, action, ctx);
+    ctx.logger.debug(`SubagentExecutor: toggle reaction ${handled ? 'handled' : 'not handled (no matching subagent)'}`);
+    return handled;
   }
 
   /**

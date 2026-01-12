@@ -124,12 +124,15 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
    * Handle a question operation.
    */
   private async handleQuestion(op: QuestionOp, ctx: ExecutorContext): Promise<void> {
-    
     // If already have pending questions, don't start another set
     if (this.state.pendingQuestionSet) {
-      ctx.logger.debug('Questions already pending, skipping');
+      ctx.logger.debug('AskUserQuestion: Already pending, skipping new question set');
       return;
     }
+
+    ctx.logger.debug(
+      `AskUserQuestion: Received ${op.questions.length} question(s), starting at index ${op.currentIndex}`
+    );
 
     // Initialize question set state
     this.state.pendingQuestionSet = {
@@ -152,12 +155,13 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
    * Handle an approval operation.
    */
   private async handleApproval(op: ApprovalOp, ctx: ExecutorContext): Promise<void> {
-    
     // If already have pending approval, don't post another
     if (this.state.pendingApproval) {
-      ctx.logger.debug('Approval already pending, skipping');
+      ctx.logger.debug(`ExitPlanMode: ${op.approvalType} approval already pending, skipping`);
       return;
     }
+
+    ctx.logger.debug(`ExitPlanMode: Requesting ${op.approvalType} approval`);
 
     // Build approval message based on type
     let message: string;
@@ -211,6 +215,10 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     const q = questions[currentIndex];
     const total = questions.length;
+
+    ctx.logger.debug(
+      `AskUserQuestion: Posting question ${currentIndex + 1}/${total} - "${q.header}" (${q.options.length} options)`
+    );
 
     // Format the question message
     let message = `❓ ${ctx.formatter.formatBold('Question')} ${ctx.formatter.formatItalic(`(${currentIndex + 1}/${total})`)}\n`;
@@ -382,19 +390,24 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`QuestionApprovalExecutor.handleReaction: postId=${formatShortId(postId)}, emoji=${emoji}, user=${user}, action=${action}`);
+
     // Only handle 'added' reactions
     if (action !== 'added') {
+      ctx.logger.debug(`QuestionApprovalExecutor: ignoring ${action} reaction (only handling 'added')`);
       return false;
     }
 
-    
     // Check pending question set
     if (this.state.pendingQuestionSet?.currentPostId === postId) {
       const index = getNumberEmojiIndex(emoji);
       if (index >= 0) {
         ctx.logger.debug(`Question answer reaction from @${user}: option ${index + 1}`);
-        return this.handleQuestionAnswer(postId, index, ctx);
+        const handled = await this.handleQuestionAnswer(postId, index, ctx);
+        ctx.logger.debug(`QuestionApprovalExecutor: question answer ${handled ? 'accepted' : 'rejected'}`);
+        return handled;
       }
+      ctx.logger.debug(`QuestionApprovalExecutor: emoji ${emoji} is not a number emoji, ignoring`);
       return false;
     }
 
@@ -402,16 +415,22 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
     if (this.state.pendingApproval?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Approval reaction from @${user}: approved`);
-        return this.handleApprovalResponse(postId, true, ctx);
+        const handled = await this.handleApprovalResponse(postId, true, ctx);
+        ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=approved, handled=${handled}`);
+        return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Approval reaction from @${user}: denied`);
-        return this.handleApprovalResponse(postId, false, ctx);
+        const handled = await this.handleApprovalResponse(postId, false, ctx);
+        ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=denied, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`QuestionApprovalExecutor: emoji ${emoji} is not an approval/denial emoji, ignoring`);
       return false;
     }
 
     // No pending state matched
+    ctx.logger.debug(`QuestionApprovalExecutor: no pending state matches postId=${formatShortId(postId)}`);
     return false;
   }
 }

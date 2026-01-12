@@ -296,6 +296,39 @@ export class MessageManager {
     const opTypes = ops.map(op => op.type).join(', ');
     logger.debug(`Transformed ${event.type} to ${ops.length} operation(s): ${opTypes}`);
 
+    // Log detailed tool information for tool_use events
+    if (event.type === 'tool_use' && event.tool_use) {
+      const tool = event.tool_use as { name?: string; input?: Record<string, unknown> };
+      const toolName = tool.name || 'unknown';
+      const toolInput = tool.input || {};
+
+      // Extract a brief description based on common input patterns
+      let briefDesc = '';
+      if ('file_path' in toolInput) {
+        briefDesc = String(toolInput.file_path).slice(0, 50);
+      } else if ('command' in toolInput) {
+        briefDesc = String(toolInput.command).slice(0, 50);
+      } else if ('pattern' in toolInput) {
+        briefDesc = String(toolInput.pattern).slice(0, 50);
+      } else if ('query' in toolInput) {
+        briefDesc = String(toolInput.query).slice(0, 50);
+      } else if ('url' in toolInput) {
+        briefDesc = String(toolInput.url).slice(0, 50);
+      } else if ('content' in toolInput) {
+        briefDesc = String(toolInput.content).slice(0, 50);
+      } else if ('description' in toolInput) {
+        briefDesc = String(toolInput.description).slice(0, 50);
+      } else if ('todos' in toolInput && Array.isArray(toolInput.todos)) {
+        briefDesc = `${toolInput.todos.length} tasks`;
+      }
+
+      if (briefDesc) {
+        logger.debug(`Tool: ${toolName} - ${briefDesc}${briefDesc.length >= 50 ? '...' : ''}`);
+      } else {
+        logger.debug(`Tool: ${toolName}`);
+      }
+    }
+
     // Execute each operation
     for (const op of ops) {
       await this.executeOperation(op);

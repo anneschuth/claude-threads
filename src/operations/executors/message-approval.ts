@@ -166,30 +166,40 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`MessageApprovalExecutor.handleReaction: postId=${postId.substring(0, 8)}, emoji=${emoji}, user=${user}, action=${action}`);
+
     // Only handle 'added' reactions
     if (action !== 'added') {
+      ctx.logger.debug(`MessageApprovalExecutor: ignoring ${action} reaction (only handling 'added')`);
       return false;
     }
 
-    
     // Check pending message approval
     if (this.state.pendingMessageApproval?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Message approval reaction from @${user}: allow`);
-        return this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
+        const handled = await this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
+        ctx.logger.debug(`MessageApprovalExecutor: outcome=allow, handled=${handled}`);
+        return handled;
       }
       if (isAllowAllEmoji(emoji)) {
         ctx.logger.debug(`Message approval reaction from @${user}: invite`);
-        return this.handleMessageApprovalResponse(postId, 'invite', user, ctx);
+        const handled = await this.handleMessageApprovalResponse(postId, 'invite', user, ctx);
+        ctx.logger.debug(`MessageApprovalExecutor: outcome=invite, handled=${handled}`);
+        return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Message approval reaction from @${user}: deny`);
-        return this.handleMessageApprovalResponse(postId, 'deny', user, ctx);
+        const handled = await this.handleMessageApprovalResponse(postId, 'deny', user, ctx);
+        ctx.logger.debug(`MessageApprovalExecutor: outcome=deny, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`MessageApprovalExecutor: emoji ${emoji} is not a valid message approval emoji, ignoring`);
       return false;
     }
 
     // No pending state matched
+    ctx.logger.debug(`MessageApprovalExecutor: no pending message approval for postId=${postId.substring(0, 8)}`);
     return false;
   }
 }

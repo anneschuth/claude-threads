@@ -371,12 +371,14 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`PromptExecutor.handleReaction: postId=${postId.substring(0, 8)}, emoji=${emoji}, user=${user}, action=${action}`);
+
     // Only handle 'added' reactions
     if (action !== 'added') {
+      ctx.logger.debug(`PromptExecutor: ignoring ${action} reaction (only handling 'added')`);
       return false;
     }
 
-    
     // Check pending context prompt
     if (this.state.pendingContextPrompt?.postId === postId) {
       // Check for number emoji (to include N messages)
@@ -387,14 +389,20 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         if (index < availableOptions.length) {
           const selection = availableOptions[index];
           ctx.logger.debug(`Context prompt reaction from @${user}: ${selection} messages`);
-          return this.handleContextPromptResponse(postId, selection, user, ctx);
+          const handled = await this.handleContextPromptResponse(postId, selection, user, ctx);
+          ctx.logger.debug(`PromptExecutor: context prompt outcome=${selection} messages, handled=${handled}`);
+          return handled;
         }
+        ctx.logger.debug(`PromptExecutor: number index ${index} out of range for available options`);
       }
       // Check for skip emoji (x or similar denial emoji means skip)
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Context prompt reaction from @${user}: skip`);
-        return this.handleContextPromptResponse(postId, 0, user, ctx);
+        const handled = await this.handleContextPromptResponse(postId, 0, user, ctx);
+        ctx.logger.debug(`PromptExecutor: context prompt outcome=skip, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for context prompt, ignoring`);
       return false;
     }
 
@@ -402,12 +410,17 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (this.state.pendingExistingWorktreePrompt?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Existing worktree reaction from @${user}: join`);
-        return this.handleExistingWorktreeResponse(postId, 'join', user, ctx);
+        const handled = await this.handleExistingWorktreeResponse(postId, 'join', user, ctx);
+        ctx.logger.debug(`PromptExecutor: worktree prompt outcome=join, handled=${handled}`);
+        return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Existing worktree reaction from @${user}: skip`);
-        return this.handleExistingWorktreeResponse(postId, 'skip', user, ctx);
+        const handled = await this.handleExistingWorktreeResponse(postId, 'skip', user, ctx);
+        ctx.logger.debug(`PromptExecutor: worktree prompt outcome=skip, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for worktree prompt, ignoring`);
       return false;
     }
 
@@ -415,16 +428,22 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (this.state.pendingUpdatePrompt?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Update prompt reaction from @${user}: update_now`);
-        return this.handleUpdatePromptResponse(postId, 'update_now', user, ctx);
+        const handled = await this.handleUpdatePromptResponse(postId, 'update_now', user, ctx);
+        ctx.logger.debug(`PromptExecutor: update prompt outcome=update_now, handled=${handled}`);
+        return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Update prompt reaction from @${user}: defer`);
-        return this.handleUpdatePromptResponse(postId, 'defer', user, ctx);
+        const handled = await this.handleUpdatePromptResponse(postId, 'defer', user, ctx);
+        ctx.logger.debug(`PromptExecutor: update prompt outcome=defer, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for update prompt, ignoring`);
       return false;
     }
 
     // No pending state matched
+    ctx.logger.debug(`PromptExecutor: no pending prompt state matches postId=${postId.substring(0, 8)}`);
     return false;
   }
 }

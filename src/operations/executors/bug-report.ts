@@ -163,8 +163,11 @@ export class BugReportExecutor extends BaseExecutor<BugReportState> {
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {
+    ctx.logger.debug(`BugReportExecutor.handleReaction: postId=${postId.substring(0, 8)}, emoji=${emoji}, user=${user}, action=${action}`);
+
     // Only handle 'added' reactions
     if (action !== 'added') {
+      ctx.logger.debug(`BugReportExecutor: ignoring ${action} reaction (only handling 'added')`);
       return false;
     }
 
@@ -172,16 +175,22 @@ export class BugReportExecutor extends BaseExecutor<BugReportState> {
     if (this.state.pendingBugReport?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Bug report reaction from @${user}: approve`);
-        return this.handleBugReportResponse(postId, 'approve', user, ctx);
+        const handled = await this.handleBugReportResponse(postId, 'approve', user, ctx);
+        ctx.logger.debug(`BugReportExecutor: outcome=approve, handled=${handled}`);
+        return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Bug report reaction from @${user}: deny`);
-        return this.handleBugReportResponse(postId, 'deny', user, ctx);
+        const handled = await this.handleBugReportResponse(postId, 'deny', user, ctx);
+        ctx.logger.debug(`BugReportExecutor: outcome=deny, handled=${handled}`);
+        return handled;
       }
+      ctx.logger.debug(`BugReportExecutor: emoji ${emoji} not valid for bug report, ignoring`);
       return false;
     }
 
     // No pending state matched
+    ctx.logger.debug(`BugReportExecutor: no pending bug report for postId=${postId.substring(0, 8)}`);
     return false;
   }
 }
