@@ -63,7 +63,7 @@ export async function handleMessage(
         return;
       }
       // Post confirmation to the channel where !kill was issued
-      const activeCount = session.getActiveThreadIds().length;
+      const activeCount = session.registry.getActiveThreadIds().length;
       try {
         await client.createPost(
           `🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} initiated by ${formatter.formatUserMention(username)} - killing ${activeCount} active session${activeCount !== 1 ? 's' : ''}`,
@@ -74,7 +74,7 @@ export async function handleMessage(
       }
 
       // Notify all other active sessions before killing
-      for (const tid of session.getActiveThreadIds()) {
+      for (const tid of session.registry.getActiveThreadIds()) {
         if (tid === threadRoot) continue; // Skip the thread where we already posted
         try {
           await client.createPost(`🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} by ${formatter.formatUserMention(username)}`, tid);

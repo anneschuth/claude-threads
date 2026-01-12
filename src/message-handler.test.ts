@@ -39,11 +39,15 @@ function createMockPlatform(botName = 'claude-bot') {
 
 // Create mock session manager
 function createMockSessionManager() {
+  const mockGetActiveThreadIds = mock(() => [] as string[]);
   return {
     isInSessionThread: mock(() => false),
     hasPausedSession: mock(() => false),
     isUserAllowedInSession: mock(() => true),
-    getActiveThreadIds: mock(() => []),
+    getActiveThreadIds: mockGetActiveThreadIds,
+    registry: {
+      getActiveThreadIds: mockGetActiveThreadIds,
+    },
     getPersistedSession: mock(() => undefined),
     killAllSessions: mock(async () => {}),
     cancelSession: mock(async () => {}),

@@ -82,7 +82,7 @@ export class SessionManager extends EventEmitter {
   }
 
   // Session registry - tracks active sessions and post mappings
-  private registry!: SessionRegistry;
+  public readonly registry!: SessionRegistry;
 
   // Worktree reference counting
   // Key: worktreePath, Value: Set of sessionIds using that worktree
