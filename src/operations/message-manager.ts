@@ -825,10 +825,29 @@ export class MessageManager {
   }
 
   /**
-   * Post an error message
+   * Post an error message with bug reaction for quick error reporting.
+   * Matches the behavior of post-helpers/postError().
    */
-  async postError(message: string): Promise<PlatformPost | undefined> {
-    return this.systemExecutor.postError(message, this.getExecutorContext());
+  async postError(message: string, addBugReaction = true): Promise<PlatformPost | undefined> {
+    const post = await this.systemExecutor.postError(message, this.getExecutorContext());
+
+    // Add bug reaction for quick error reporting (matches post-helpers behavior)
+    if (post && addBugReaction) {
+      try {
+        const { BUG_REPORT_EMOJI } = await import('../utils/emoji.js');
+        await this.platform.addReaction(post.id, BUG_REPORT_EMOJI);
+        // Store error context for potential bug report
+        this.session.lastError = {
+          postId: post.id,
+          message,
+          timestamp: new Date(),
+        };
+      } catch {
+        // Ignore if reaction fails - not critical
+      }
+    }
+
+    return post;
   }
 
   /**
