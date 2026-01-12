@@ -11,10 +11,23 @@
 import { truncateMessageSafely } from '../../platform/utils.js';
 import { MIN_BREAK_THRESHOLD } from '../content-breaker.js';
 import type { AppendContentOp, FlushOp } from '../types.js';
-import type { ExecutorContext, ContentState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, ContentState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('content-executor');
+
+// ---------------------------------------------------------------------------
+// Content Executor Options
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended options for ContentExecutor.
+ */
+export interface ContentExecutorOptions extends ExecutorOptions {
+  /** Callback to bump task list and get old post ID for reuse */
+  onBumpTaskList?: () => Promise<string | null>;
+}
 
 // ---------------------------------------------------------------------------
 // Content Executor
@@ -23,48 +36,36 @@ const log = createLogger('content-executor');
 /**
  * Executor for content operations.
  */
-export class ContentExecutor {
-  private state: ContentState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
+export class ContentExecutor extends BaseExecutor<ContentState> {
   private onBumpTaskList?: () => Promise<string | null>;
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    onBumpTaskList?: () => Promise<string | null>;
-  }) {
-    this.state = {
+  constructor(options: ContentExecutorOptions) {
+    super(options, ContentExecutor.createInitialState());
+    this.onBumpTaskList = options.onBumpTaskList;
+  }
+
+  private static createInitialState(): ContentState {
+    return {
       currentPostId: null,
       currentPostContent: '',
       pendingContent: '',
       updateTimer: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.onBumpTaskList = options.onBumpTaskList;
   }
 
-  /**
-   * Get the current state (for inspection/testing).
-   */
-  getState(): Readonly<ContentState> {
-    return { ...this.state };
+  protected getInitialState(): ContentState {
+    return ContentExecutor.createInitialState();
   }
 
   /**
    * Reset state (for session restart).
+   * Override to clear timer before resetting state.
    */
-  reset(): void {
+  override reset(): void {
     if (this.state.updateTimer) {
       clearTimeout(this.state.updateTimer);
     }
-    this.state = {
-      currentPostId: null,
-      currentPostContent: '',
-      pendingContent: '',
-      updateTimer: null,
-    };
+    this.state = this.getInitialState();
   }
 
   /**

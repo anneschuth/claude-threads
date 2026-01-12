@@ -5,6 +5,9 @@
  * on the chat platform (posting messages, updating posts, etc.).
  */
 
+// Base class
+export { BaseExecutor, type ExecutorOptions } from './base.js';
+
 // Types
 export type {
   ExecutorContext,
@@ -16,6 +19,7 @@ export type {
   BugReportState,
   InteractiveState,
   SubagentState,
+  SystemState,
   PendingMessageApproval,
   PendingContextPrompt,
   ContextPromptFile,
@@ -29,9 +33,9 @@ export type {
 } from './types.js';
 
 // Executors
-export { ContentExecutor } from './content.js';
+export { ContentExecutor, type ContentExecutorOptions } from './content.js';
 export { TaskListExecutor } from './task-list.js';
-export { SubagentExecutor } from './subagent.js';
+export { SubagentExecutor, type SubagentExecutorOptions } from './subagent.js';
 export { SystemExecutor } from './system.js';
 
 // Focused executors for interactive operations

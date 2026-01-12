@@ -13,7 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
+import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { WorktreeMode, type LimitsConfig, resolveLimits } from '../config.js';
@@ -245,8 +245,8 @@ export class SessionManager extends EventEmitter {
     };
 
     const state: SessionState = {
-      sessions: this.registry._getSessions(),
-      postIndex: this.registry._getPostIndex(),
+      sessions: this.registry.getSessions(),
+      postIndex: this.registry.getPostIndex(),
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
@@ -260,12 +260,17 @@ export class SessionManager extends EventEmitter {
       // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
 
-      // Streaming & content
-      flush: (s) => this.flush(s),
+      // Streaming & content (inlined - no wrapper methods needed)
+      flush: async (s) => {
+        // Delegate to MessageManager (source of truth for content flushing)
+        if (s.messageManager) {
+          await s.messageManager.flush();
+        }
+      },
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      buildMessageContent: (t, p, f) => streaming.buildMessageContent(t, p, f, this.debug),
+      bumpTasksToBottom: (s) => streaming.bumpTasksToBottom(s),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -297,8 +302,8 @@ export class SessionManager extends EventEmitter {
       // Bug report operations
       handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
 
-      // Context prompt
-      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
+      // Context prompt (inlined - no wrapper method needed)
+      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -495,7 +500,7 @@ export class SessionManager extends EventEmitter {
           session,
           username,
           (s) => this.persistSession(s),
-          (s, q) => this.offerContextPrompt(s, q)
+          (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
         );
         return;
       }
@@ -550,19 +555,11 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
-      buildMessageContent: (text, session, files) => this.buildMessageContent(text, session.platform, files),
+      buildMessageContent: (text, session, files) => streaming.buildMessageContent(text, session.platform, files, this.debug),
     };
   }
 
-  /**
-   * Offer context prompt after a session restart (e.g., !cd, worktree creation).
-   * If there's thread history, posts the context prompt and queues the message.
-   * If no history, sends the message immediately.
-   * Returns true if context prompt was posted, false if message was sent directly.
-   */
-  async offerContextPrompt(session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string): Promise<boolean> {
-    return contextPrompt.offerContextPrompt(session, queuedPrompt, queuedFiles, this.getContextPromptHandler(), excludePostId);
-  }
+  // Note: offerContextPrompt() has been inlined directly in getContext().ops
 
   /**
    * Check if session has a pending context prompt.
@@ -599,16 +596,11 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Streaming utilities (delegates to streaming module)
+  // Streaming utilities
   // ---------------------------------------------------------------------------
-
-  private async flush(session: Session): Promise<void> {
-    // Delegate to MessageManager (source of truth for content flushing)
-    if (session.messageManager) {
-      await session.messageManager.flush();
-    }
-    // If no messageManager, nothing to flush - content is managed by MessageManager
-  }
+  // Note: flush(), buildMessageContent(), and bumpTasksToBottom() have been
+  // inlined directly in getContext().ops to eliminate thin wrapper methods.
+  // Only startTyping() and stopTyping() remain as they have meaningful UI logic.
 
   private startTyping(session: Session): void {
     const wasTyping = session.timers.typingTimer !== null;
@@ -626,18 +618,6 @@ export class SessionManager extends EventEmitter {
     if (wasTyping && session.timers.typingTimer === null) {
       this.emitSessionUpdate(session.sessionId, { isTyping: false });
     }
-  }
-
-  private async buildMessageContent(
-    text: string,
-    platform: PlatformClient,
-    files?: PlatformFile[]
-  ): Promise<string | ContentBlock[]> {
-    return streaming.buildMessageContent(text, platform, files, this.debug);
-  }
-
-  private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session);
   }
 
   // ---------------------------------------------------------------------------
@@ -703,11 +683,11 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
-      // Task state from MessageManager (or fallback to Session for backward compat)
-      tasksPostId: taskState?.postId ?? session.tasksPostId,
-      lastTasksContent: taskState?.content ?? session.lastTasksContent,
-      tasksCompleted: taskState?.isCompleted ?? session.tasksCompleted,
-      tasksMinimized: taskState?.isMinimized ?? session.tasksMinimized,
+      // Task state from MessageManager (single source of truth)
+      tasksPostId: taskState?.postId ?? null,
+      lastTasksContent: taskState?.content ?? null,
+      tasksCompleted: taskState?.isCompleted ?? false,
+      tasksMinimized: taskState?.isMinimized ?? false,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
@@ -754,7 +734,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private async updateStickyMessage(): Promise<void> {
-    await stickyMessage.updateAllStickyMessages(this.platforms, this.registry._getSessions(), {
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.registry.getSessions(), {
       maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
       skipPermissions: this.skipPermissions,
@@ -1152,7 +1132,7 @@ export class SessionManager extends EventEmitter {
       session,
       username,
       (s) => this.persistSession(s),
-      (s, q) => this.offerContextPrompt(s, q)
+      (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
     );
   }
 
@@ -1167,11 +1147,15 @@ export class SessionManager extends EventEmitter {
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),
-      flush: (s) => this.flush(s),
+      flush: async (s) => {
+        if (s.messageManager) {
+          await s.messageManager.flush();
+        }
+      },
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
+      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),

@@ -11,8 +11,9 @@
 import type { PlatformFormatter } from '../../platform/index.js';
 import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
 import type { TaskListOp, TaskItem } from '../types.js';
-import type { ExecutorContext, TaskListState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, TaskListState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('task-executor');
 
@@ -23,44 +24,23 @@ const log = createLogger('task-executor');
 /**
  * Executor for task list operations.
  */
-export class TaskListExecutor {
-  private state: TaskListState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
+export class TaskListExecutor extends BaseExecutor<TaskListState> {
+  constructor(options: ExecutorOptions) {
+    super(options, TaskListExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-  }) {
-    this.state = {
+  private static createInitialState(): TaskListState {
+    return {
       tasksPostId: null,
       lastTasksContent: null,
       tasksCompleted: false,
       tasksMinimized: false,
       inProgressTaskStart: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
   }
 
-  /**
-   * Get the current state (for inspection/testing).
-   */
-  getState(): Readonly<TaskListState> {
-    return { ...this.state };
-  }
-
-  /**
-   * Reset state (for session restart).
-   */
-  reset(): void {
-    this.state = {
-      tasksPostId: null,
-      lastTasksContent: null,
-      tasksCompleted: false,
-      tasksMinimized: false,
-      inProgressTaskStart: null,
-    };
+  protected getInitialState(): TaskListState {
+    return TaskListExecutor.createInitialState();
   }
 
   /**

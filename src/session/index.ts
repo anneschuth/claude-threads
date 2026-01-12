@@ -14,9 +14,10 @@ export type {
   SessionLifecycleState,
   PendingApproval,
   PendingQuestionSet,
-  PendingExistingWorktreePrompt,
   PendingWorktreeFailurePrompt,
 } from './types.js';
+// Re-export PendingExistingWorktreePrompt from its source
+export type { PendingExistingWorktreePrompt } from '../operations/executors/types.js';
 export {
   createSessionTimers,
   clearAllTimers,

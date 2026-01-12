@@ -293,7 +293,7 @@ export class DefaultContentBreaker implements ContentBreaker {
 export const defaultContentBreaker = new DefaultContentBreaker();
 
 // ---------------------------------------------------------------------------
-// Standalone functions for backward compatibility
+// Convenience Functions
 // ---------------------------------------------------------------------------
 
 /**

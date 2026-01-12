@@ -6,7 +6,6 @@
 
 import type { Session } from './types.js';
 import {
-  getSessionStatus,
   createSessionTimers,
   createSessionLifecycle,
   createResumedLifecycle,
@@ -98,6 +97,72 @@ function cleanupPostIndex(ctx: SessionContext, threadId: string): void {
 }
 
 /**
+ * Options for cleanupSession helper.
+ */
+interface CleanupSessionOptions {
+  /** Lifecycle action for thread logger (e.g., 'exit', 'interrupt', 'kill') */
+  action?: 'exit' | 'timeout' | 'interrupt' | 'kill';
+  /** Additional details for thread logger */
+  details?: Record<string, unknown>;
+  /** Whether to close thread logger (default: true) */
+  closeLogger?: boolean;
+  /** Whether to clean up post index entries (default: true) */
+  cleanupPostIndex?: boolean;
+}
+
+/**
+ * Clean up a session completely - stop timers, close logger, remove from registry.
+ *
+ * This consolidates the cleanup sequence that was previously duplicated across
+ * multiple exit paths in the file.
+ *
+ * @param session - The session to clean up
+ * @param ctx - Session context for state access
+ * @param options - Cleanup options (action for logger, whether to clean post index)
+ */
+async function cleanupSession(
+  session: Session,
+  ctx: SessionContext,
+  options: CleanupSessionOptions = {}
+): Promise<void> {
+  const {
+    action,
+    details,
+    closeLogger: doCloseLogger = true,
+    cleanupPostIndex: doCleanupPostIndex = true,
+  } = options;
+
+  ctx.ops.stopTyping(session);
+  cleanupSessionTimers(session);
+  if (doCloseLogger) {
+    await closeThreadLogger(session, action, details);
+  }
+  ctx.ops.emitSessionRemove(session.sessionId);
+  mutableSessions(ctx).delete(session.sessionId);
+  if (doCleanupPostIndex) {
+    cleanupPostIndex(ctx, session.threadId);
+  }
+  keepAlive.sessionEnded();
+}
+
+/**
+ * Remove a session from the registry (maps) and notify keep-alive.
+ *
+ * This is a lightweight cleanup helper for cases where timers and logger
+ * are already handled separately (e.g., interrupted sessions that need
+ * to post messages between cleanup steps).
+ *
+ * @param session - The session to remove from registry
+ * @param ctx - Session context for state access
+ */
+function removeFromRegistry(session: Session, ctx: SessionContext): void {
+  ctx.ops.emitSessionRemove(session.sessionId);
+  mutableSessions(ctx).delete(session.sessionId);
+  cleanupPostIndex(ctx, session.threadId);
+  keepAlive.sessionEnded();
+}
+
+/**
  * Helper to find a persisted session by raw threadId.
  * Persisted sessions are keyed by composite sessionId, so we need to iterate.
  */
@@ -154,8 +219,6 @@ function createMessageManager(
     emitSessionUpdate: (updates) => {
       ctx.ops.emitSessionUpdate(session.sessionId, updates);
     },
-    // onBumpTaskList callback not implemented - task list bumping is handled separately
-    // via the legacy streaming.ts path during the transition period
   });
 
   // Subscribe to events from MessageManager
@@ -558,15 +621,11 @@ export async function startSession(
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions: false,
     sessionStartPostId: post.id,
-    tasksPostId: null,
-    lastTasksContent: null,
-    tasksCompleted: false,
-    tasksMinimized: false,
+    // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
+    // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
-    inProgressTaskStart: null,
-    activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
     isProcessing: true,  // Starts as true since we're sending initial prompt
@@ -767,15 +826,11 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
-    tasksPostId: state.tasksPostId ?? null,
-    lastTasksContent: state.lastTasksContent ?? null,
-    tasksCompleted: state.tasksCompleted ?? false,
-    tasksMinimized: state.tasksMinimized ?? false,
+    // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
+    // These fields are NOT set here - MessageManager is hydrated with them below.
     timers: createSessionTimers(),
     lifecycle: createResumedLifecycle(state.resumeFailCount ?? 0),
     timeoutWarningPosted: false,
-    inProgressTaskStart: null,
-    activeToolStarts: new Map(),
     worktreeInfo: state.worktreeInfo,
     isWorktreeOwner: state.isWorktreeOwner,
     pendingWorktreePrompt: state.pendingWorktreePrompt,
@@ -958,31 +1013,15 @@ export async function sendFollowUp(
 
   // Delegate to MessageManager for the normal message flow
   // MessageManager handles: logging, flush/reset/bump, send to Claude, typing indicator
-  if (session.messageManager) {
-    // Increment message counter
-    session.messageCount++;
-
-    await session.messageManager.handleUserMessage(message, files, username, displayName);
-  } else {
-    // Fallback for sessions without MessageManager (shouldn't happen in normal operation)
-    sessionLog(session).warn('No MessageManager, using legacy path');
-
-    // Log the user message
-    session.threadLogger?.logUserMessage(
-      username || session.startedBy,
-      message,
-      displayName,
-      files && files.length > 0
-    );
-
-    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
-    session.messageCount++;
-    session.isProcessing = true;
-    ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
-    session.claude.sendMessage(content);
-    session.lastActivityAt = new Date();
-    ctx.ops.startTyping(session);
+  if (!session.messageManager) {
+    sessionLog(session).error('MessageManager not initialized - this should never happen');
+    return;
   }
+
+  // Increment message counter
+  session.messageCount++;
+
+  await session.messageManager.handleUserMessage(message, files, username, displayName);
 }
 
 /**
@@ -1058,13 +1097,11 @@ export async function handleExit(
   // If bot is shutting down, preserve persistence
   if (ctx.state.isShuttingDown) {
     sessionLog(session).debug(`Bot shutting down, preserving persistence`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'exit', { reason: 'shutdown', exitCode: code });
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    await cleanupSession(session, ctx, {
+      action: 'exit',
+      details: { reason: 'shutdown', exitCode: code },
+      cleanupPostIndex: false,  // Preserve for faster shutdown
+    });
     return;
   }
 
@@ -1095,11 +1132,7 @@ export async function handleExit(
       }
       ctx.ops.persistSession(session);
     }
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    cleanupPostIndex(ctx, session.threadId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    removeFromRegistry(session, ctx);
     sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
@@ -1110,14 +1143,11 @@ export async function handleExit(
   const wasResumed = session.lifecycle.resumeFailCount > 0 || session.lifecycle.state !== 'starting';
   if (!session.lifecycle.hasClaudeResponded && !wasResumed) {
     sessionLog(session).debug(`Exited before Claude responded, not persisting`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'exit', { reason: 'early_exit', exitCode: code });
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    cleanupPostIndex(ctx, session.threadId);
-    keepAlive.sessionEnded();
-    // Notify user
+    await cleanupSession(session, ctx, {
+      action: 'exit',
+      details: { reason: 'early_exit', exitCode: code },
+    });
+    // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
     await withErrorHandling(
       () => postWarning(session, `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
@@ -1138,12 +1168,12 @@ export async function handleExit(
     const permanentReason = session.claude.getPermanentFailureReason();
 
     sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    // Skip closeLogger (session is already persisted, logger may be closed)
+    // Skip cleanupPostIndex (was already cleaned on original session end)
+    await cleanupSession(session, ctx, {
+      closeLogger: false,
+      cleanupPostIndex: false,
+    });
 
     // Immediately give up on permanent failures
     const resumeFailFormatter = session.platform.getFormatter();
@@ -1197,9 +1227,10 @@ export async function handleExit(
   cleanupSessionTimers(session);
   await closeThreadLogger(session, 'exit', { exitCode: code });
 
-  // Unpin task post on session exit
-  if (session.tasksPostId) {
-    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  // Unpin task post on session exit (get from MessageManager, source of truth)
+  const exitTaskState = session.messageManager?.getTaskListState();
+  if (exitTaskState?.postId) {
+    await session.platform.unpinPost(exitTaskState.postId).catch(() => {});
   }
 
   await ctx.ops.flush(session);
@@ -1217,13 +1248,8 @@ export async function handleExit(
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Clean up session from maps
-  ctx.ops.emitSessionRemove(session.sessionId);
-  mutableSessions(ctx).delete(session.sessionId);
-  cleanupPostIndex(ctx, session.threadId);
-
-  // Notify keep-alive that a session ended
-  keepAlive.sessionEnded();
+  // Clean up session from maps and notify keep-alive
+  removeFromRegistry(session, ctx);
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
@@ -1255,9 +1281,10 @@ export async function killSession(
   await closeThreadLogger(session, 'kill', { unpersist });
   session.claude.kill();
 
-  // Unpin task post on session kill
-  if (session.tasksPostId) {
-    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  // Unpin task post on session kill (get from MessageManager, source of truth)
+  const killTaskState = session.messageManager?.getTaskListState();
+  if (killTaskState?.postId) {
+    await session.platform.unpinPost(killTaskState.postId).catch(() => {});
   }
 
   // Unregister from worktree reference counting, but DON'T cleanup automatically
@@ -1266,13 +1293,8 @@ export async function killSession(
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Clean up session from maps
-  ctx.ops.emitSessionRemove(session.sessionId);
-  mutableSessions(ctx).delete(session.sessionId);
-  cleanupPostIndex(ctx, session.threadId);
-
-  // Notify keep-alive that a session ended
-  keepAlive.sessionEnded();
+  // Clean up session from maps and notify keep-alive
+  removeFromRegistry(session, ctx);
 
   // Explicitly unpersist if requested
   if (unpersist) {

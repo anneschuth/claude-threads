@@ -12,6 +12,11 @@ import {
   webToolsFormatter,
   shortenPath,
   parseMcpToolName,
+  escapeRegExp,
+  truncateWithEllipsis,
+  escapeCodeBlockContent,
+  formatToolUse,
+  formatToolForPermission,
 } from './index.js';
 import type { PlatformFormatter } from '../../platform/formatter.js';
 
@@ -397,6 +402,151 @@ describe('Utility Functions', () => {
     it('returns null for malformed MCP names', () => {
       expect(parseMcpToolName('mcp__')).toBeNull();
       expect(parseMcpToolName('mcp__server')).toBeNull();
+    });
+  });
+
+  describe('escapeRegExp', () => {
+    it('escapes special regex characters', () => {
+      expect(escapeRegExp('.*+?^${}()|[]\\'))
+        .toBe('\\.\\*\\+\\?\\^\\$\\{\\}\\(\\)\\|\\[\\]\\\\');
+    });
+
+    it('leaves normal characters unchanged', () => {
+      expect(escapeRegExp('abc123')).toBe('abc123');
+    });
+
+    it('handles empty string', () => {
+      expect(escapeRegExp('')).toBe('');
+    });
+
+    it('escapes path with special characters', () => {
+      expect(escapeRegExp('/path/to/file.ts')).toBe('/path/to/file\\.ts');
+    });
+  });
+
+  describe('truncateWithEllipsis', () => {
+    it('returns original string if shorter than max', () => {
+      expect(truncateWithEllipsis('short', 10)).toBe('short');
+    });
+
+    it('returns original string if equal to max', () => {
+      expect(truncateWithEllipsis('exact', 5)).toBe('exact');
+    });
+
+    it('truncates and adds ellipsis if longer than max', () => {
+      expect(truncateWithEllipsis('this is a long string', 10)).toBe('this is a ...');
+    });
+
+    it('handles empty string', () => {
+      expect(truncateWithEllipsis('', 10)).toBe('');
+    });
+
+    it('handles max of 0', () => {
+      expect(truncateWithEllipsis('test', 0)).toBe('...');
+    });
+  });
+
+  describe('escapeCodeBlockContent', () => {
+    it('escapes triple backticks', () => {
+      expect(escapeCodeBlockContent('```code```')).toBe('` ``code` ``');
+    });
+
+    it('leaves normal content unchanged', () => {
+      expect(escapeCodeBlockContent('normal content')).toBe('normal content');
+    });
+
+    it('handles multiple triple backticks', () => {
+      expect(escapeCodeBlockContent('```a``` and ```b```'))
+        .toBe('` ``a` `` and ` ``b` ``');
+    });
+
+    it('handles single and double backticks unchanged', () => {
+      expect(escapeCodeBlockContent('`single` and ``double``'))
+        .toBe('`single` and ``double``');
+    });
+
+    it('handles empty string', () => {
+      expect(escapeCodeBlockContent('')).toBe('');
+    });
+  });
+});
+
+describe('Wrapper Functions', () => {
+  const _options = { formatter: mockFormatter };
+
+  describe('formatToolUse', () => {
+    it('formats tool for display', () => {
+      const result = formatToolUse('Read', { file_path: '/test/file.ts' }, mockFormatter);
+
+      expect(result).not.toBeNull();
+      expect(result).toContain('Read');
+      expect(result).toContain('file.ts');
+    });
+
+    it('returns null for hidden tools', () => {
+      const result = formatToolUse('TodoWrite', {}, mockFormatter);
+      expect(result).toBeNull();
+    });
+
+    it('passes detailed option through', () => {
+      const result = formatToolUse(
+        'Edit',
+        { file_path: '/test.ts', old_string: 'a', new_string: 'b' },
+        mockFormatter,
+        { detailed: true }
+      );
+
+      expect(result).not.toBeNull();
+      expect(result).toContain('diff');
+    });
+
+    it('passes worktreeInfo option through', () => {
+      const result = formatToolUse(
+        'Read',
+        { file_path: '/worktree/path/file.ts' },
+        mockFormatter,
+        { worktreeInfo: { path: '/worktree/path', branch: 'feature' } }
+      );
+
+      expect(result).toContain('[feature]');
+    });
+  });
+
+  describe('formatToolForPermission', () => {
+    it('formats tool for permission prompt', () => {
+      const result = formatToolForPermission('Read', { file_path: '/test.ts' }, mockFormatter);
+
+      expect(result).toContain('Read');
+    });
+
+    it('returns tool name as fallback', () => {
+      // For unknown tools, should return permissionText or tool name
+      const result = formatToolForPermission('UnknownTool', {}, mockFormatter);
+
+      expect(result).toContain('UnknownTool');
+    });
+
+    it('uses permissionText over display', () => {
+      // Edit tool has different permissionText (no diff)
+      const result = formatToolForPermission(
+        'Edit',
+        { file_path: '/test.ts', old_string: 'a', new_string: 'b' },
+        mockFormatter
+      );
+
+      expect(result).not.toContain('diff');
+      expect(result).toContain('Edit');
+    });
+
+    it('passes worktreeInfo for path shortening', () => {
+      const result = formatToolForPermission(
+        'Write',
+        { file_path: '/worktree/file.ts' },
+        mockFormatter,
+        { worktreeInfo: { path: '/worktree', branch: 'main' } }
+      );
+
+      expect(result).toContain('[main]');
     });
   });
 });

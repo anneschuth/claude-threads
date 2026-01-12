@@ -8,9 +8,9 @@
  */
 
 import { isApprovalEmoji, isDenialEmoji, isAllowAllEmoji } from '../../utils/emoji.js';
-import type { ExecutorContext, MessageApprovalState, PendingMessageApproval, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, MessageApprovalState, PendingMessageApproval } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('message-approval-executor');
 
@@ -38,45 +38,30 @@ export type MessageApprovalCallback = (
 /**
  * Executor for message approval operations.
  */
-export class MessageApprovalExecutor {
-  private state: MessageApprovalState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> {
+  constructor(options: ExecutorOptions) {
+    super(options, MessageApprovalExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    /**
-     * Event emitter for notifying when interactive operations complete.
-     */
-    events?: TypedEventEmitter;
-  }) {
-    this.state = {
+  private static createInitialState(): MessageApprovalState {
+    return {
       pendingMessageApproval: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  }
+
+  protected getInitialState(): MessageApprovalState {
+    return MessageApprovalExecutor.createInitialState();
   }
 
   /**
    * Get the current state (for inspection/testing).
+   * Override to provide deep copy of nested object.
    */
-  getState(): Readonly<MessageApprovalState> {
+  override getState(): Readonly<MessageApprovalState> {
     return {
       pendingMessageApproval: this.state.pendingMessageApproval
         ? { ...this.state.pendingMessageApproval }
         : null,
-    };
-  }
-
-  /**
-   * Reset state (for session restart).
-   */
-  reset(): void {
-    this.state = {
-      pendingMessageApproval: null,
     };
   }
 

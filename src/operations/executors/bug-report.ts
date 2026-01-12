@@ -8,9 +8,9 @@
  */
 
 import { isApprovalEmoji, isDenialEmoji } from '../../utils/emoji.js';
-import type { ExecutorContext, BugReportState, PendingBugReport, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, BugReportState, PendingBugReport } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('bug-report-executor');
 
@@ -38,45 +38,30 @@ export type BugReportCallback = (
 /**
  * Executor for bug report operations.
  */
-export class BugReportExecutor {
-  private state: BugReportState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class BugReportExecutor extends BaseExecutor<BugReportState> {
+  constructor(options: ExecutorOptions) {
+    super(options, BugReportExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    /**
-     * Event emitter for notifying when interactive operations complete.
-     */
-    events?: TypedEventEmitter;
-  }) {
-    this.state = {
+  private static createInitialState(): BugReportState {
+    return {
       pendingBugReport: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  }
+
+  protected getInitialState(): BugReportState {
+    return BugReportExecutor.createInitialState();
   }
 
   /**
    * Get the current state (for inspection/testing).
+   * Override to provide deep copy of nested object.
    */
-  getState(): Readonly<BugReportState> {
+  override getState(): Readonly<BugReportState> {
     return {
       pendingBugReport: this.state.pendingBugReport
         ? { ...this.state.pendingBugReport }
         : null,
-    };
-  }
-
-  /**
-   * Reset state (for session restart).
-   */
-  reset(): void {
-    this.state = {
-      pendingBugReport: null,
     };
   }
 

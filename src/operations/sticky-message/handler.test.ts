@@ -50,6 +50,7 @@ function createMockMessageManager(overrides: Partial<{
   getPendingMessageApproval: ReturnType<typeof mock>;
   getPendingContextPrompt: ReturnType<typeof mock>;
   hasPendingExistingWorktreePrompt: ReturnType<typeof mock>;
+  getTaskListState: ReturnType<typeof mock>;
 }> = {}) {
   return {
     resetContentPost: mock(() => {}),
@@ -87,7 +88,7 @@ function createMockMessageManager(overrides: Partial<{
     handleSubagentToggle: mock(() => Promise.resolve(false)),
     handleTaskListToggle: mock(() => Promise.resolve(false)),
     bumpTaskList: mock(() => Promise.resolve()),
-    getTaskListState: mock(() => ({ postId: null, content: null, isMinimized: false, isCompleted: false })),
+    getTaskListState: overrides.getTaskListState ?? mock(() => ({ postId: null, content: null, isMinimized: false, isCompleted: false })),
     hydrateTaskListState: mock(() => {}),
     setWorktreeInfo: mock(() => {}),
     clearWorktreeInfo: mock(() => {}),
@@ -103,6 +104,11 @@ function createMockMessageManager(overrides: Partial<{
 // Create a mock session
 function createMockSession(overrides: Partial<Session> = {}): Session {
   const platform = createMockPlatform('test-platform');
+  // Extract lastTasksContent to pass to message manager
+  const lastTasksContent = overrides.lastTasksContent ?? null;
+  const messageManagerOverrides = lastTasksContent
+    ? { getTaskListState: mock(() => ({ postId: null, content: lastTasksContent, isMinimized: false, isCompleted: false })) }
+    : {};
   return {
     platformId: 'test-platform',
     threadId: 'thread123',
@@ -127,7 +133,7 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: 'Help me with this task',
-    messageManager: createMockMessageManager() as any,
+    messageManager: createMockMessageManager(messageManagerOverrides) as any,
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),
     ...overrides,
@@ -329,8 +335,12 @@ describe('buildStickyMessage', () => {
 
   it('shows task progress when available', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (3/7 · 43%)\n✅ Done\n○ Pending';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (3/7 · 43%)\n✅ Done\n○ Pending',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -341,9 +351,8 @@ describe('buildStickyMessage', () => {
 
   it('does not show task progress when no tasks', async () => {
     const sessions = new Map<string, Session>();
-    const session = createMockSession({
-      lastTasksContent: null,
-    });
+    // MessageManager returns null content (default mock behavior)
+    const session = createMockSession();
     sessions.set(session.sessionId, session);
 
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
@@ -354,8 +363,12 @@ describe('buildStickyMessage', () => {
 
   it('shows active task when in progress', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (2/5 · 40%)\n\n✅ ~~First task~~\n✅ ~~Second task~~\n🔄 **Building the API** (15s)\n○ Fourth task\n○ Fifth task';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n✅ ~~First task~~\n✅ ~~Second task~~\n🔄 **Building the API** (15s)\n○ Fourth task\n○ Fifth task',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -367,8 +380,12 @@ describe('buildStickyMessage', () => {
 
   it('shows active task without elapsed time', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (1/3 · 33%)\n\n✅ ~~Done~~\n🔄 **Running tests**\n○ Deploy';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (1/3 · 33%)\n\n✅ ~~Done~~\n🔄 **Running tests**\n○ Deploy',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -380,8 +397,12 @@ describe('buildStickyMessage', () => {
 
   it('does not show active task when all completed', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (3/3 · 100%)\n\n✅ ~~First~~\n✅ ~~Second~~\n✅ ~~Third~~';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: true })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (3/3 · 100%)\n\n✅ ~~First~~\n✅ ~~Second~~\n✅ ~~Third~~',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -393,8 +414,12 @@ describe('buildStickyMessage', () => {
 
   it('does not show active task when only pending tasks', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (0/2 · 0%)\n\n○ First task\n○ Second task';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (0/2 · 0%)\n\n○ First task\n○ Second task',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 
@@ -605,8 +630,12 @@ describe('buildStickyMessage', () => {
 
   it('shows active task when no pending prompts', async () => {
     const sessions = new Map<string, Session>();
+    const taskContent = '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)';
+    const mockMsgManager = createMockMessageManager({
+      getTaskListState: mock(() => ({ postId: 'task-post-id', content: taskContent, isMinimized: false, isCompleted: false })),
+    });
     const session = createMockSession({
-      lastTasksContent: '📋 **Tasks** (2/5 · 40%)\n\n🔄 **Running tests** (15s)',
+      messageManager: mockMsgManager as any,
     });
     sessions.set(session.sessionId, session);
 

@@ -367,7 +367,7 @@ describe('SubagentExecutor', () => {
       executor.reset();
 
       expect(executor.getState().activeSubagents.size).toBe(0);
-      expect(executor.getState().hasUpdateTimer).toBe(false);
+      expect(executor.hasUpdateTimer()).toBe(false);
     });
 
     it('getActiveSubagents returns the map', async () => {

@@ -1,5 +1,9 @@
 import { describe, it, expect, mock } from 'bun:test';
 import {
+  // New preferred API
+  post,
+  POST_TYPES,
+  // Legacy functions (still exported for compatibility)
   formatBold,
   getPostId,
   resetSessionActivity,
@@ -89,6 +93,124 @@ function createMockSession(overrides?: Partial<{
 // Note: Most post-helpers functions require a Session object with a platform client.
 // Since they're thin wrappers around platform.createPost(), we focus on testing
 // the formatting utilities that don't require mocking the platform.
+
+describe('POST_TYPES', () => {
+  it('contains all expected post types', () => {
+    expect(POST_TYPES.info).toBe('');
+    expect(POST_TYPES.success).toBe('✅');
+    expect(POST_TYPES.warning).toBe('⚠️');
+    expect(POST_TYPES.error).toBe('❌');
+    expect(POST_TYPES.secure).toBe('🔐');
+    expect(POST_TYPES.command).toBe('⚙️');
+    expect(POST_TYPES.cancelled).toBe('🛑');
+    expect(POST_TYPES.resume).toBe('🔄');
+    expect(POST_TYPES.timeout).toBe('⏱️');
+    expect(POST_TYPES.interrupt).toBe('⏸️');
+    expect(POST_TYPES.worktree).toBe('🌿');
+    expect(POST_TYPES.context).toBe('🧵');
+    expect(POST_TYPES.user).toBe('👤');
+  });
+});
+
+describe('post() factory function', () => {
+  it('posts info message without emoji prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'info', 'Hello world');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('Hello world', 'thread-123');
+  });
+
+  it('posts success message with ✅ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'success', 'Operation complete');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('✅ Operation complete', 'thread-123');
+  });
+
+  it('posts warning message with ⚠️ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'warning', 'Be careful');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('⚠️ Be careful', 'thread-123');
+  });
+
+  it('posts error message with ❌ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'error', 'Something failed');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('❌ Something failed', 'thread-123');
+  });
+
+  it('posts secure message with 🔐 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'secure', 'Permission granted');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('🔐 Permission granted', 'thread-123');
+  });
+
+  it('posts command message with ⚙️ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'command', 'Executing action');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('⚙️ Executing action', 'thread-123');
+  });
+
+  it('posts cancelled message with 🛑 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'cancelled', 'Session ended');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('🛑 Session ended', 'thread-123');
+  });
+
+  it('posts resume message with 🔄 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'resume', 'Resuming');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('🔄 Resuming', 'thread-123');
+  });
+
+  it('posts timeout message with ⏱️ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'timeout', 'Timed out');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('⏱️ Timed out', 'thread-123');
+  });
+
+  it('posts interrupt message with ⏸️ prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'interrupt', 'Paused');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('⏸️ Paused', 'thread-123');
+  });
+
+  it('posts worktree message with 🌿 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'worktree', 'Created worktree');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('🌿 Created worktree', 'thread-123');
+  });
+
+  it('posts context message with 🧵 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'context', 'Including context');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('🧵 Including context', 'thread-123');
+  });
+
+  it('posts user message with 👤 prefix', async () => {
+    const session = createMockSession();
+    await post(session, 'user', 'User joined');
+
+    expect(session.platform.createPost).toHaveBeenCalledWith('👤 User joined', 'thread-123');
+  });
+
+  it('updates lastMessageId tracking', async () => {
+    const session = createMockSession();
+    await post(session, 'success', 'Test');
+
+    expect(session.lastMessageId).toBe('post-123');
+  });
+});
 
 describe('formatBold', () => {
   it('formats label only (Mattermost)', () => {
@@ -418,7 +540,11 @@ describe('post helper functions', () => {
   it('exports all expected functions', async () => {
     const helpers = await import('./index.js');
 
-    // Core post functions
+    // New preferred API
+    expect(typeof helpers.post).toBe('function');
+    expect(typeof helpers.POST_TYPES).toBe('object');
+
+    // Legacy post functions (deprecated but still exported)
     expect(typeof helpers.postInfo).toBe('function');
     expect(typeof helpers.postSuccess).toBe('function');
     expect(typeof helpers.postWarning).toBe('function');

@@ -224,7 +224,7 @@ export class SessionRegistry {
   }
 
   // ---------------------------------------------------------------------------
-  // Internal Access (for migration - will be removed)
+  // Public Utilities
   // ---------------------------------------------------------------------------
 
   /**
@@ -250,26 +250,18 @@ export class SessionRegistry {
   }
 
   /**
-   * Get all post entries for iteration.
-   * @internal - for migration, prefer using clearPostsForThread
+   * Get the sessions map for context building.
+   * Used by SessionManager.getContext() to provide session state to operations.
    */
-  _getPostEntries(): IterableIterator<[string, string]> {
-    return this.postIndex.entries();
-  }
-
-  /**
-   * Get raw sessions map - for migration from SessionManager.
-   * @internal
-   */
-  _getSessions(): Map<string, Session> {
+  getSessions(): Map<string, Session> {
     return this.sessions;
   }
 
   /**
-   * Get raw post index - for migration from SessionManager.
-   * @internal
+   * Get the post index map for context building.
+   * Used by SessionManager.getContext() to provide post mappings to operations.
    */
-  _getPostIndex(): Map<string, string> {
+  getPostIndex(): Map<string, string> {
     return this.postIndex;
   }
 }

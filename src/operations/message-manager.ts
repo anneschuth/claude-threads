@@ -46,8 +46,6 @@ import type {
   MessageOperation,
   AppendContentOp,
   FlushOp,
-  StatusUpdateOp,
-  LifecycleOp,
 } from './types.js';
 import {
   isContentOp,
@@ -65,36 +63,6 @@ import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 
 const log = createLogger('message-manager');
-
-/**
- * Callback to handle question completion
- * @deprecated Use `messageManager.events.on('question:complete', ...)` instead
- */
-export type QuestionCompleteCallback = (
-  toolUseId: string,
-  answers: Array<{ header: string; answer: string }>
-) => void;
-
-/**
- * Callback to handle approval completion
- * @deprecated Use `messageManager.events.on('approval:complete', ...)` instead
- */
-export type ApprovalCompleteCallback = (
-  toolUseId: string,
-  approved: boolean
-) => void;
-
-/**
- * Callback to handle status updates
- * @deprecated Use `messageManager.events.on('status:update', ...)` instead
- */
-export type StatusUpdateCallback = (status: Partial<StatusUpdateOp>) => void;
-
-/**
- * Callback to handle lifecycle events
- * @deprecated Use `messageManager.events.on('lifecycle:event', ...)` instead
- */
-export type LifecycleCallback = (event: LifecycleOp['event']) => void;
 
 /**
  * Callback to build message content (handles image attachments)

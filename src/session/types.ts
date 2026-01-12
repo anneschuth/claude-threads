@@ -6,18 +6,12 @@ import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { SessionInfo } from '../ui/types.js';
-import type { RecentEvent, PendingBugReport, ErrorContext } from '../operations/bug-report/index.js';
+import type { RecentEvent, ErrorContext } from '../operations/bug-report/index.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
 import type { QuestionOption } from '../operations/types.js';
-import type {
-  PendingExistingWorktreePrompt,
-  PendingUpdatePrompt,
-} from '../operations/executors/types.js';
 import type { SessionTimers } from './timer-manager.js';
 
-// Re-export imported types for backward compatibility
-export type { QuestionOption, PendingExistingWorktreePrompt, PendingUpdatePrompt, PendingBugReport };
 // Re-export timer types
 export type { SessionTimers };
 export { createSessionTimers, clearAllTimers, isTyping } from './timer-manager.js';
@@ -264,10 +258,15 @@ export interface Session {
 
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
-  tasksPostId: string | null;
-  lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
-  tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
-  tasksMinimized: boolean;  // True when task list is minimized (show only progress)
+
+  // DEPRECATED: Task state is now managed by MessageManager.
+  // These fields exist only for backward compatibility during persistence migration.
+  // Use session.messageManager?.getTaskListState() instead.
+  // TODO: Remove these fields once all persisted sessions have been migrated.
+  tasksPostId?: string | null;
+  lastTasksContent?: string | null;
+  tasksCompleted?: boolean;
+  tasksMinimized?: boolean;
 
   // Timer management (centralized)
   timers: SessionTimers;
@@ -278,11 +277,11 @@ export interface Session {
   // Timeout warning state
   timeoutWarningPosted: boolean;
 
-  // Task timing - when the current in_progress task started
-  inProgressTaskStart: number | null;
-
-  // Tool timing - track when tools started for elapsed time display
-  activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
+  // DEPRECATED: Task timing is now managed by MessageManager's TaskListExecutor.
+  // These fields exist only for backward compatibility during persistence migration.
+  // TODO: Remove these fields once all persisted sessions have been migrated.
+  inProgressTaskStart?: number | null;
+  activeToolStarts?: Map<string, number>;
 
   // Worktree support
   worktreeInfo?: WorktreeInfo;              // Active worktree info

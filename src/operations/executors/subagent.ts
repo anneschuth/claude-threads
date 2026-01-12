@@ -12,13 +12,26 @@ import type { PlatformFormatter } from '../../platform/index.js';
 import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
 import { formatDuration } from '../../utils/format.js';
 import type { SubagentOp } from '../types.js';
-import type { ExecutorContext, SubagentState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, SubagentState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('subagent-executor');
 
 /** Update interval for subagent elapsed time (5 seconds) */
 const SUBAGENT_UPDATE_INTERVAL_MS = 5000;
+
+// ---------------------------------------------------------------------------
+// Subagent Executor Options
+// ---------------------------------------------------------------------------
+
+/**
+ * Extended options for SubagentExecutor.
+ */
+export interface SubagentExecutorOptions extends ExecutorOptions {
+  /** Callback to bump task list after subagent starts */
+  onBumpTaskList?: () => Promise<void>;
+}
 
 // ---------------------------------------------------------------------------
 // Subagent Executor
@@ -40,48 +53,49 @@ interface ActiveSubagent {
 /**
  * Executor for subagent operations.
  */
-export class SubagentExecutor {
-  private state: SubagentState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
+export class SubagentExecutor extends BaseExecutor<SubagentState> {
   private onBumpTaskList?: () => Promise<void>;
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    onBumpTaskList?: () => Promise<void>;
-  }) {
-    this.state = {
+  constructor(options: SubagentExecutorOptions) {
+    super(options, SubagentExecutor.createInitialState());
+    this.onBumpTaskList = options.onBumpTaskList;
+  }
+
+  private static createInitialState(): SubagentState {
+    return {
       activeSubagents: new Map(),
       subagentUpdateTimer: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.onBumpTaskList = options.onBumpTaskList;
+  }
+
+  protected getInitialState(): SubagentState {
+    return SubagentExecutor.createInitialState();
   }
 
   /**
    * Get the current state (for inspection/testing).
    */
-  getState(): Readonly<{
-    activeSubagents: ReadonlyMap<string, Readonly<ActiveSubagent>>;
-    hasUpdateTimer: boolean;
-  }> {
+  override getState(): Readonly<SubagentState> {
     return {
       activeSubagents: this.state.activeSubagents,
-      hasUpdateTimer: this.state.subagentUpdateTimer !== null,
+      subagentUpdateTimer: this.state.subagentUpdateTimer,
     };
   }
 
   /**
-   * Reset state (for session restart).
+   * Check if the update timer is running.
    */
-  reset(): void {
+  hasUpdateTimer(): boolean {
+    return this.state.subagentUpdateTimer !== null;
+  }
+
+  /**
+   * Reset state (for session restart).
+   * Override to stop timer before resetting state.
+   */
+  override reset(): void {
     this.stopUpdateTimer();
-    this.state = {
-      activeSubagents: new Map(),
-      subagentUpdateTimer: null,
-    };
+    this.state = this.getInitialState();
   }
 
   /**

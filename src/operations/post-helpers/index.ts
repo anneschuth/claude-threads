@@ -10,6 +10,10 @@
  * - Consistency: Standard emoji prefixes for message types
  * - Extensibility: Easy to add logging, metrics, rate limiting
  * - Testability: Can mock a single interface
+ *
+ * Usage:
+ * - Preferred: `post(session, 'success', 'Operation complete')`
+ * - Legacy (deprecated): `postSuccess(session, 'Operation complete')`
  */
 
 import type { Session } from '../../session/types.js';
@@ -23,6 +27,57 @@ import { updateWorktreeActivity } from '../../git/worktree.js';
 
 const log = createLogger('helpers');
 const sessionLog = createSessionLog(log);
+
+// =============================================================================
+// Post Type Configuration
+// =============================================================================
+
+/**
+ * Mapping of post types to their emoji prefixes.
+ * Empty string means no prefix.
+ */
+export const POST_TYPES = {
+  info: '',           // No emoji
+  success: '✅',
+  warning: '⚠️',
+  error: '❌',
+  secure: '🔐',
+  command: '⚙️',
+  cancelled: '🛑',
+  resume: '🔄',
+  timeout: '⏱️',
+  interrupt: '⏸️',
+  worktree: '🌿',
+  context: '🧵',
+  user: '👤',
+} as const;
+
+export type PostType = keyof typeof POST_TYPES;
+
+/**
+ * Post a message with an optional type prefix emoji.
+ * This is the preferred way to post messages - use this instead of the
+ * individual post functions like postSuccess, postWarning, etc.
+ *
+ * @param session - The session to post to
+ * @param type - The type of message (determines emoji prefix)
+ * @param message - The message content (without emoji)
+ * @returns The created post
+ *
+ * @example
+ * await post(session, 'success', 'Operation complete');  // ✅ Operation complete
+ * await post(session, 'warning', 'Be careful');          // ⚠️ Be careful
+ * await post(session, 'info', 'Just FYI');               // Just FYI (no emoji)
+ */
+export async function post(
+  session: Session,
+  type: PostType,
+  message: string
+): Promise<PlatformPost> {
+  const emoji = POST_TYPES[type];
+  const content = emoji ? `${emoji} ${message}` : message;
+  return createPostAndTrack(session, content);
+}
 
 // =============================================================================
 // Internal Helper
@@ -40,42 +95,39 @@ async function createPostAndTrack(session: Session, message: string): Promise<Pl
 }
 
 // =============================================================================
-// Core Post Functions
+// Legacy Post Functions (Deprecated)
 // =============================================================================
+// These functions are kept for backward compatibility during migration.
+// Prefer using `post(session, type, message)` instead.
 
 /**
  * Post an informational message to the session thread.
- * @param session - The session to post to
- * @param message - The message content
- * @returns The created post
+ * @deprecated Use `post(session, 'info', message)` instead
  */
 export async function postInfo(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, message);
+  return post(session, 'info', message);
 }
 
 /**
- * Post a success message (with ✅ prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a success message (with checkmark prefix).
+ * @deprecated Use `post(session, 'success', message)` instead
  */
 export async function postSuccess(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `✅ ${message}`);
+  return post(session, 'success', message);
 }
 
 /**
- * Post a warning message (with ⚠️ prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a warning message (with warning prefix).
+ * @deprecated Use `post(session, 'warning', message)` instead
  */
 export async function postWarning(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `⚠️ ${message}`);
+  return post(session, 'warning', message);
 }
 
 /**
- * Post an error message (with ❌ prefix).
+ * Post an error message (with X prefix).
  * Adds a bug reaction for quick error reporting.
+ * Note: This function has special behavior (bug reaction) not available in `post()`.
  * @param session - The session to post to
  * @param message - The message content (without emoji)
  * @param addBugReaction - Whether to add bug reaction for quick reporting (default: true)
@@ -86,15 +138,15 @@ export async function postError(
   message: string,
   addBugReaction = true
 ): Promise<PlatformPost> {
-  const post = await createPostAndTrack(session, `❌ ${message}`);
+  const result = await post(session, 'error', message);
 
   // Add bug reaction for quick error reporting
   if (addBugReaction) {
     try {
-      await session.platform.addReaction(post.id, BUG_REPORT_EMOJI);
+      await session.platform.addReaction(result.id, BUG_REPORT_EMOJI);
       // Store error context for potential bug report
       session.lastError = {
-        postId: post.id,
+        postId: result.id,
         message,
         timestamp: new Date(),
       };
@@ -103,97 +155,79 @@ export async function postError(
     }
   }
 
-  return post;
+  return result;
 }
 
 /**
- * Post a security/permission message (with 🔐 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a security/permission message (with lock prefix).
+ * @deprecated Use `post(session, 'secure', message)` instead
  */
 export async function postSecure(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `🔐 ${message}`);
+  return post(session, 'secure', message);
 }
 
 /**
- * Post a command/action message (with ⚙️ prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a command/action message (with gear prefix).
+ * @deprecated Use `post(session, 'command', message)` instead
  */
 export async function postCommand(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `⚙️ ${message}`);
+  return post(session, 'command', message);
 }
 
 /**
- * Post a session cancelled message (with 🛑 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a session cancelled message (with stop prefix).
+ * @deprecated Use `post(session, 'cancelled', message)` instead
  */
 export async function postCancelled(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `🛑 ${message}`);
+  return post(session, 'cancelled', message);
 }
 
 /**
- * Post a resume/refresh message (with 🔄 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a resume/refresh message (with refresh prefix).
+ * @deprecated Use `post(session, 'resume', message)` instead
  */
 export async function postResume(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `🔄 ${message}`);
+  return post(session, 'resume', message);
 }
 
 /**
- * Post a timeout message (with ⏱️ prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a timeout message (with timer prefix).
+ * @deprecated Use `post(session, 'timeout', message)` instead
  */
 export async function postTimeout(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `⏱️ ${message}`);
+  return post(session, 'timeout', message);
 }
 
 /**
- * Post an interrupt/pause message (with ⏸️ prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post an interrupt/pause message (with pause prefix).
+ * @deprecated Use `post(session, 'interrupt', message)` instead
  */
 export async function postInterrupt(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `⏸️ ${message}`);
+  return post(session, 'interrupt', message);
 }
 
 /**
- * Post a worktree/git message (with 🌿 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a worktree/git message (with tree prefix).
+ * @deprecated Use `post(session, 'worktree', message)` instead
  */
 export async function postWorktree(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `🌿 ${message}`);
+  return post(session, 'worktree', message);
 }
 
 /**
- * Post a context/thread message (with 🧵 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post a context/thread message (with thread prefix).
+ * @deprecated Use `post(session, 'context', message)` instead
  */
 export async function postContext(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `🧵 ${message}`);
+  return post(session, 'context', message);
 }
 
 /**
- * Post an invite/user message (with 👤 prefix).
- * @param session - The session to post to
- * @param message - The message content (without emoji)
- * @returns The created post
+ * Post an invite/user message (with user prefix).
+ * @deprecated Use `post(session, 'user', message)` instead
  */
 export async function postUser(session: Session, message: string): Promise<PlatformPost> {
-  return createPostAndTrack(session, `👤 ${message}`);
+  return post(session, 'user', message);
 }
 
 // =============================================================================

@@ -109,10 +109,6 @@ export type { TransformContext } from './transformer.js';
 export { MessageManager } from './message-manager.js';
 export type {
   MessageManagerOptions,
-  QuestionCompleteCallback,
-  ApprovalCompleteCallback,
-  StatusUpdateCallback,
-  LifecycleCallback,
   BuildMessageContentCallback,
   StartTypingCallback,
   EmitSessionUpdateCallback,

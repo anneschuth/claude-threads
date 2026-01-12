@@ -68,8 +68,7 @@ toolFormatterRegistry.register(chromeToolsFormatter);
 toolFormatterRegistry.register(webToolsFormatter);
 
 // ---------------------------------------------------------------------------
-// Backward-compatible wrapper functions
-// These match the old tool-formatter.ts API for easier migration
+// Convenience Functions
 // ---------------------------------------------------------------------------
 
 import type { PlatformFormatter } from '../../platform/formatter.js';
@@ -90,7 +89,6 @@ export interface FormatOptions {
 
 /**
  * Format a tool use for display in chat platforms.
- * Backward-compatible wrapper around toolFormatterRegistry.format().
  *
  * @param toolName - The name of the tool being called
  * @param input - The tool input parameters
@@ -120,7 +118,6 @@ export function formatToolUse(
 
 /**
  * Format tool info for permission prompts (simpler format).
- * Backward-compatible wrapper around toolFormatterRegistry.format().
  *
  * @param toolName - The name of the tool
  * @param input - The tool input parameters

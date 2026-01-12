@@ -12,9 +12,9 @@
 
 import type { PlatformFormatter, PlatformPost } from '../../platform/index.js';
 import type { SystemMessageOp, StatusUpdateOp, LifecycleOp, SystemMessageLevel } from '../types.js';
-import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, SystemState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('system-executor');
 
@@ -25,33 +25,27 @@ const log = createLogger('system-executor');
 /**
  * Executor for system messages and status updates.
  */
-export class SystemExecutor {
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class SystemExecutor extends BaseExecutor<SystemState> {
+  constructor(options: ExecutorOptions) {
+    super(options, SystemExecutor.createInitialState());
+  }
 
-  /** Track ephemeral posts for potential cleanup */
-  private ephemeralPosts: Set<string> = new Set();
+  private static createInitialState(): SystemState {
+    return {
+      ephemeralPosts: new Set(),
+    };
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    /**
-     * Event emitter for notifying about status and lifecycle events.
-     * If provided, events are emitted instead of callbacks being called.
-     */
-    events?: TypedEventEmitter;
-  }) {
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  protected getInitialState(): SystemState {
+    return SystemExecutor.createInitialState();
   }
 
   /**
    * Reset state (for session restart).
+   * Override to use clear() on Set instead of recreating.
    */
-  reset(): void {
-    this.ephemeralPosts.clear();
+  override reset(): void {
+    this.state.ephemeralPosts.clear();
   }
 
   /**
@@ -72,7 +66,7 @@ export class SystemExecutor {
 
       // Track ephemeral posts
       if (op.ephemeral) {
-        this.ephemeralPosts.add(post.id);
+        this.state.ephemeralPosts.add(post.id);
       }
 
       logger.debug(`Posted ${op.level} message`);
@@ -193,7 +187,7 @@ export class SystemExecutor {
   async cleanupEphemeralPosts(ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
-    for (const postId of this.ephemeralPosts) {
+    for (const postId of this.state.ephemeralPosts) {
       try {
         await ctx.platform.deletePost(postId);
       } catch (err) {
@@ -201,7 +195,7 @@ export class SystemExecutor {
       }
     }
 
-    this.ephemeralPosts.clear();
+    this.state.ephemeralPosts.clear();
   }
 
   /**

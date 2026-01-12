@@ -10,9 +10,9 @@
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
-import type { ExecutorContext, QuestionApprovalState, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, QuestionApprovalState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('question-approval-executor');
 
@@ -50,34 +50,27 @@ export type ApprovalCompleteCallback = (toolUseId: string, approved: boolean) =>
 /**
  * Executor for question and approval operations.
  */
-export class QuestionApprovalExecutor {
-  private state: QuestionApprovalState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState> {
+  constructor(options: ExecutorOptions) {
+    super(options, QuestionApprovalExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    /**
-     * Event emitter for notifying when interactive operations complete.
-     * If provided, events are emitted instead of callbacks being called.
-     */
-    events?: TypedEventEmitter;
-  }) {
-    this.state = {
+  private static createInitialState(): QuestionApprovalState {
+    return {
       pendingQuestionSet: null,
       pendingApproval: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  }
+
+  protected getInitialState(): QuestionApprovalState {
+    return QuestionApprovalExecutor.createInitialState();
   }
 
   /**
    * Get the current state (for inspection/testing).
+   * Override to provide deep copy of nested objects.
    */
-  getState(): Readonly<QuestionApprovalState> {
+  override getState(): Readonly<QuestionApprovalState> {
     return {
       pendingQuestionSet: this.state.pendingQuestionSet
         ? { ...this.state.pendingQuestionSet }
@@ -85,16 +78,6 @@ export class QuestionApprovalExecutor {
       pendingApproval: this.state.pendingApproval
         ? { ...this.state.pendingApproval }
         : null,
-    };
-  }
-
-  /**
-   * Reset state (for session restart).
-   */
-  reset(): void {
-    this.state = {
-      pendingQuestionSet: null,
-      pendingApproval: null,
     };
   }
 

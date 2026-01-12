@@ -15,11 +15,9 @@ import type {
   PendingContextPrompt,
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
-  RegisterPostCallback,
-  UpdateLastMessageCallback,
 } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('prompt-executor');
 
@@ -77,34 +75,28 @@ export type UpdatePromptCallback = (decision: UpdatePromptDecision) => Promise<v
 /**
  * Executor for system prompt operations.
  */
-export class PromptExecutor {
-  private state: PromptState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class PromptExecutor extends BaseExecutor<PromptState> {
+  constructor(options: ExecutorOptions) {
+    super(options, PromptExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    /**
-     * Event emitter for notifying when interactive operations complete.
-     */
-    events?: TypedEventEmitter;
-  }) {
-    this.state = {
+  private static createInitialState(): PromptState {
+    return {
       pendingContextPrompt: null,
       pendingExistingWorktreePrompt: null,
       pendingUpdatePrompt: null,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  }
+
+  protected getInitialState(): PromptState {
+    return PromptExecutor.createInitialState();
   }
 
   /**
    * Get the current state (for inspection/testing).
+   * Override to provide deep copy of nested objects.
    */
-  getState(): Readonly<PromptState> {
+  override getState(): Readonly<PromptState> {
     return {
       pendingContextPrompt: this.state.pendingContextPrompt
         ? { ...this.state.pendingContextPrompt }
@@ -115,17 +107,6 @@ export class PromptExecutor {
       pendingUpdatePrompt: this.state.pendingUpdatePrompt
         ? { ...this.state.pendingUpdatePrompt }
         : null,
-    };
-  }
-
-  /**
-   * Reset state (for session restart).
-   */
-  reset(): void {
-    this.state = {
-      pendingContextPrompt: null,
-      pendingExistingWorktreePrompt: null,
-      pendingUpdatePrompt: null,
     };
   }
 

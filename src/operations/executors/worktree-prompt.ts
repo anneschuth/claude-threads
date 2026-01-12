@@ -9,9 +9,8 @@
  */
 
 import { isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
-import type { RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
-import type { TypedEventEmitter } from '../message-manager-events.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 const log = createLogger('worktree-prompt-executor');
 
@@ -102,26 +101,22 @@ export type WorktreePromptCallback = (
  * Consolidates all worktree-related pending state that was previously
  * spread across multiple Session fields.
  */
-export class WorktreePromptExecutor {
-  private state: WorktreePromptState;
-  private registerPost: RegisterPostCallback;
-  private updateLastMessage: UpdateLastMessageCallback;
-  private events?: TypedEventEmitter;
+export class WorktreePromptExecutor extends BaseExecutor<WorktreePromptState> {
+  constructor(options: ExecutorOptions) {
+    super(options, WorktreePromptExecutor.createInitialState());
+  }
 
-  constructor(options: {
-    registerPost: RegisterPostCallback;
-    updateLastMessage: UpdateLastMessageCallback;
-    events?: TypedEventEmitter;
-  }) {
-    this.state = {
+  private static createInitialState(): WorktreePromptState {
+    return {
       pendingInitialPrompt: null,
       pendingFailurePrompt: null,
       queuedData: null,
       promptDisabled: false,
     };
-    this.registerPost = options.registerPost;
-    this.updateLastMessage = options.updateLastMessage;
-    this.events = options.events;
+  }
+
+  protected getInitialState(): WorktreePromptState {
+    return WorktreePromptExecutor.createInitialState();
   }
 
   // ---------------------------------------------------------------------------
@@ -392,20 +387,15 @@ export class WorktreePromptExecutor {
   /**
    * Reset executor state.
    */
-  reset(): void {
-    this.state = {
-      pendingInitialPrompt: null,
-      pendingFailurePrompt: null,
-      queuedData: null,
-      promptDisabled: false,
-    };
+  override reset(): void {
+    this.state = this.getInitialState();
     log.debug('Reset worktree prompt executor');
   }
 
   /**
    * Get full state for persistence.
    */
-  getState(): WorktreePromptState {
+  override getState(): WorktreePromptState {
     return { ...this.state };
   }
 }

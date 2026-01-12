@@ -185,6 +185,14 @@ export interface BugReportState {
 export interface InteractiveState extends QuestionApprovalState, MessageApprovalState, PromptState, BugReportState {}
 
 /**
+ * State managed by the system executor.
+ */
+export interface SystemState {
+  /** Track ephemeral posts for potential cleanup */
+  ephemeralPosts: Set<string>;
+}
+
+/**
  * State managed by the subagent executor.
  */
 export interface SubagentState {

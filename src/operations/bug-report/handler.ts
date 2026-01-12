@@ -21,7 +21,7 @@ import type { Session } from '../../session/types.js';
 import type { PlatformFile } from '../../platform/types.js';
 import type { PendingBugReport } from '../executors/types.js';
 
-// Re-export for backward compatibility
+// Re-export for external use via bug-report/index.ts
 export type { PendingBugReport };
 
 // =============================================================================

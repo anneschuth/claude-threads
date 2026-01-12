@@ -242,16 +242,12 @@ export function getShuttingDown(): boolean {
 
 
 /**
- * Get task content from MessageManager (or fall back to Session for backward compat).
+ * Get task content from MessageManager (single source of truth).
  */
 function getTaskContent(session: Session): string | null {
-  // Prefer MessageManager state (source of truth)
+  // MessageManager is the single source of truth for task state
   const taskState = session.messageManager?.getTaskListState();
-  if (taskState?.content) {
-    return taskState.content;
-  }
-  // Fallback to Session for backward compatibility
-  return session.lastTasksContent;
+  return taskState?.content ?? null;
 }
 
 /**
@@ -351,9 +347,7 @@ function formatHistoryEntry(
   const threadLink = formatter.formatLink(topic, getThreadLink(session.threadId));
   const displayName = session.startedByDisplayName || session.startedBy;
   // Determine if this is a timed-out (resumable) session or a completed session
-  // Check both new and legacy field names for backward compatibility
-  const legacySession = session as PersistedSession & { timeoutPostId?: string };
-  const isTimedOut = !session.cleanedAt && (session.lifecyclePostId || legacySession.timeoutPostId);
+  const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
   // Show when the user last worked on it, not when it was cleaned up
   // Defensive: handle missing lastActivityAt (old persisted data)
   const lastActivity = session.lastActivityAt ? new Date(session.lastActivityAt) : new Date();
