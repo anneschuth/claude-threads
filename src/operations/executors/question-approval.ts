@@ -9,6 +9,7 @@
  */
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
+import { formatShortId } from '../../utils/format.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, QuestionApprovalState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
@@ -196,7 +197,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       toolUseId: op.toolUseId,
     };
 
-    ctx.logger.debug(`Created ${op.approvalType} approval post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created ${op.approvalType} approval post ${formatShortId(post.id)}`);
   }
 
   /**

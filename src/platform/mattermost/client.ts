@@ -2,6 +2,7 @@
 import { EventEmitter } from 'events';
 import type { MattermostPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
+import { formatShortId } from '../../utils/format.js';
 
 const log = createLogger('mattermost');
 import type {
@@ -143,7 +144,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     const hasFileMetadata = post.metadata?.files && post.metadata.files.length > 0;
 
     if (hasFileIds && !hasFileMetadata) {
-      log.debug(`Post ${post.id.substring(0, 8)} has ${post.file_ids!.length} file(s), fetching metadata`);
+      log.debug(`Post ${formatShortId(post.id)} has ${post.file_ids!.length} file(s), fetching metadata`);
       try {
         // Fetch file info for each file_id
         const files: MattermostFile[] = [];
@@ -162,10 +163,10 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
             ...post.metadata,
             files,
           };
-          log.debug(`Enriched post ${post.id.substring(0, 8)} with ${files.length} file(s)`);
+          log.debug(`Enriched post ${formatShortId(post.id)} with ${files.length} file(s)`);
         }
       } catch (err) {
-        log.warn(`Failed to fetch file metadata for post ${post.id.substring(0, 8)}: ${err}`);
+        log.warn(`Failed to fetch file metadata for post ${formatShortId(post.id)}: ${err}`);
       }
     }
 

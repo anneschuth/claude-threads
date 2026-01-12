@@ -10,7 +10,7 @@
 
 import type { PlatformFormatter } from '../../platform/index.js';
 import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
-import { formatDuration } from '../../utils/format.js';
+import { formatDuration, formatShortId } from '../../utils/format.js';
 import type { SubagentOp } from '../types.js';
 import type { ExecutorContext, SubagentState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
@@ -161,7 +161,7 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     subagent.postId = post.id;
     this.state.activeSubagents.set(op.toolUseId, subagent);
 
-    ctx.logger.debug(`Started subagent ${op.subagentType} with post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Started subagent ${op.subagentType} with post ${formatShortId(post.id)}`);
 
     // Start update timer if this is the first active subagent
     this.startUpdateTimerIfNeeded(ctx);

@@ -9,6 +9,7 @@
  */
 
 import { truncateMessageSafely } from '../../platform/utils.js';
+import { formatShortId } from '../../utils/format.js';
 import { MIN_BREAK_THRESHOLD } from '../content-breaker.js';
 import type { AppendContentOp, FlushOp } from '../types.js';
 import type { ExecutorContext, ContentState } from './types.js';
@@ -318,7 +319,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       this.state.currentPostId = post.id;
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
-      ctx.logger.debug(`Created post ${post.id.substring(0, 8)}`);
+      ctx.logger.debug(`Created post ${formatShortId(post.id)}`);
     } catch (err) {
       ctx.logger.error(`Failed to create post: ${err}`);
     }

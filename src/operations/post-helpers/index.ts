@@ -24,6 +24,7 @@ import { createSessionLog } from '../../utils/session-log.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { BUG_REPORT_EMOJI } from '../../utils/emoji.js';
 import { updateWorktreeActivity } from '../../git/worktree.js';
+import { formatShortId } from '../../utils/format.js';
 
 const log = createLogger('helpers');
 const sessionLog = createSessionLog(log);
@@ -157,7 +158,7 @@ async function postWithReactions(
   reactions: string[]
 ): Promise<PlatformPost> {
   const post = await createPostAndTrack(session, message);
-  sessionLog(session).debug(`Posted with ${reactions.length} reactions: ${post.id.substring(0, 8)}`);
+  sessionLog(session).debug(`Posted with ${reactions.length} reactions: ${formatShortId(post.id)}`);
   for (const emoji of reactions) {
     try {
       await session.platform.addReaction(post.id, emoji);

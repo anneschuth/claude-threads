@@ -14,7 +14,7 @@ import type { SessionStore, PersistedSession } from '../../persistence/session-s
 import type { WorktreeMode } from '../../config.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
-import { formatRelativeTimeShort } from '../../utils/format.js';
+import { formatRelativeTimeShort, formatShortId } from '../../utils/format.js';
 import { VERSION } from '../../version.js';
 import { createLogger } from '../../utils/logger.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
@@ -771,7 +771,7 @@ async function updateStickyMessageImpl(
       sessionStore.saveStickyPostId(platform.platformId, post.id);
     }
 
-    log.info(`📌 Created sticky message for ${platform.platformId}: ${post.id.substring(0, 8)}...`);
+    log.info(`📌 Created sticky message for ${platform.platformId}: ${formatShortId(post.id)}`);
 
     // Clean up any orphaned pinned posts from the bot (in case previous delete failed)
     // This is throttled (max once per 5 min) and only checks recent posts (last hour)

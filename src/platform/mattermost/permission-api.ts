@@ -17,6 +17,7 @@ import {
   MattermostApiConfig,
 } from '../../mattermost/api.js';
 import { mcpLogger } from '../../utils/logger.js';
+import { formatShortId } from '../../utils/format.js';
 
 /**
  * Mattermost Permission API implementation
@@ -84,7 +85,7 @@ class MattermostPermissionApi implements PermissionApi {
       threadId,
       botUserId
     );
-    mcpLogger.debug(`Created post ${post.id.substring(0, 8)}`);
+    mcpLogger.debug(`Created post ${formatShortId(post.id)}`);
     return { id: post.id };
   }
 

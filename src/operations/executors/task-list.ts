@@ -10,6 +10,7 @@
 
 import type { PlatformFormatter } from '../../platform/index.js';
 import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
+import { formatShortId } from '../../utils/format.js';
 import type { TaskListOp, TaskItem } from '../types.js';
 import type { ExecutorContext, TaskListState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
@@ -200,7 +201,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     // Pin new post
     await ctx.platform.pinPost(post.id).catch(() => {});
 
-    ctx.logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created new task post ${formatShortId(post.id)}`);
 
     return oldPostId;
   }
@@ -306,7 +307,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       this.state.tasksPostId = post.id;
       await ctx.platform.pinPost(post.id).catch(() => {});
 
-      ctx.logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
+      ctx.logger.debug(`Created new task post ${formatShortId(post.id)}`);
     } else {
       this.state.tasksPostId = null;
     }
@@ -330,7 +331,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     // Pin task list
     await ctx.platform.pinPost(post.id).catch(() => {});
 
-    ctx.logger.debug(`Created task post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created task post ${formatShortId(post.id)}`);
   }
 
   /**
