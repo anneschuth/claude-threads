@@ -14,7 +14,7 @@ import type { ExecutorContext, QuestionApprovalState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('question-approval-executor');
+const log = createLogger('q-appr');
 
 // ---------------------------------------------------------------------------
 // Types

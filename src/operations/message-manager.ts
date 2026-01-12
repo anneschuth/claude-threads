@@ -62,7 +62,7 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 
-const log = createLogger('message-manager');
+const log = createLogger('msg-mgr');
 
 /**
  * Callback to build message content (handles image attachments)

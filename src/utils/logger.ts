@@ -75,9 +75,17 @@ export function setLogHandler(handler: LogHandler | null): void {
  * const sessionLog = log.forSession('session-123');
  * sessionLog.info('Processing'); // Will include sessionId for UI routing
  */
+// Width for component name padding (accommodates shortened component names)
+const COMPONENT_WIDTH = 10;
+
 export function createLogger(component: string, useStderr = false, sessionId?: string): Logger {
   const isDebug = () => process.env.DEBUG === '1';
   const consoleLog = useStderr ? console.error : console.log;
+
+  // Pad or truncate component name to fixed width for aligned output
+  const paddedComponent = component.length > COMPONENT_WIDTH
+    ? component.substring(0, COMPONENT_WIDTH)
+    : component.padEnd(COMPONENT_WIDTH);
 
   // Helper to format message with args
   const formatMessage = (msg: string, args: unknown[]): string => {
@@ -93,9 +101,9 @@ export function createLogger(component: string, useStderr = false, sessionId?: s
       if (isDebug()) {
         const fullMsg = formatMessage(msg, args);
         if (globalLogHandler) {
-          globalLogHandler('debug', component, fullMsg, sessionId);
+          globalLogHandler('debug', paddedComponent, fullMsg, sessionId);
         } else {
-          consoleLog(`  [${component}] ${fullMsg}`);
+          consoleLog(`[${paddedComponent}] ${fullMsg}`);
         }
       }
     },
@@ -105,34 +113,34 @@ export function createLogger(component: string, useStderr = false, sessionId?: s
         const truncated = json.length > maxLen ? `${json.substring(0, maxLen)}…` : json;
         const fullMsg = `${label}: ${truncated}`;
         if (globalLogHandler) {
-          globalLogHandler('debug', component, fullMsg, sessionId);
+          globalLogHandler('debug', paddedComponent, fullMsg, sessionId);
         } else {
-          consoleLog(`  [${component}] ${fullMsg}`);
+          consoleLog(`[${paddedComponent}] ${fullMsg}`);
         }
       }
     },
     info: (msg: string, ...args: unknown[]) => {
       const fullMsg = formatMessage(msg, args);
       if (globalLogHandler) {
-        globalLogHandler('info', component, fullMsg, sessionId);
+        globalLogHandler('info', paddedComponent, fullMsg, sessionId);
       } else {
-        consoleLog(`  [${component}] ${fullMsg}`);
+        consoleLog(`[${paddedComponent}] ${fullMsg}`);
       }
     },
     warn: (msg: string, ...args: unknown[]) => {
       const fullMsg = formatMessage(msg, args);
       if (globalLogHandler) {
-        globalLogHandler('warn', component, fullMsg, sessionId);
+        globalLogHandler('warn', paddedComponent, fullMsg, sessionId);
       } else {
-        console.warn(`  [${component}] ⚠️ ${fullMsg}`);
+        console.warn(`[${paddedComponent}] ⚠️ ${fullMsg}`);
       }
     },
     error: (msg: string, err?: Error) => {
       const fullMsg = err && isDebug() ? `${msg}\n${err.stack || err.message}` : msg;
       if (globalLogHandler) {
-        globalLogHandler('error', component, fullMsg, sessionId);
+        globalLogHandler('error', paddedComponent, fullMsg, sessionId);
       } else {
-        console.error(`  [${component}] ❌ ${msg}`);
+        console.error(`[${paddedComponent}] ❌ ${msg}`);
         if (err && isDebug()) {
           console.error(err);
         }

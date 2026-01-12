@@ -15,7 +15,7 @@ import type { ExecutorContext, TaskListState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('task-executor');
+const log = createLogger('task');
 
 // ---------------------------------------------------------------------------
 // Task List Executor

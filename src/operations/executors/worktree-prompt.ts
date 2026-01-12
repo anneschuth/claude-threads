@@ -12,7 +12,7 @@ import { isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('worktree-prompt-executor');
+const log = createLogger('wt-prompt');
 
 // ---------------------------------------------------------------------------
 // Types

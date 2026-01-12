@@ -12,7 +12,7 @@ import type { ExecutorContext, BugReportState, PendingBugReport } from './types.
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('bug-report-executor');
+const log = createLogger('bug-rpt');
 
 // ---------------------------------------------------------------------------
 // Types

@@ -16,7 +16,7 @@ import type { ExecutorContext, SystemState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('system-executor');
+const log = createLogger('system');
 
 // ---------------------------------------------------------------------------
 // System Executor

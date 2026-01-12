@@ -12,7 +12,7 @@ import type { ExecutorContext, MessageApprovalState, PendingMessageApproval } fr
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('message-approval-executor');
+const log = createLogger('msg-appr');
 
 // ---------------------------------------------------------------------------
 // Types

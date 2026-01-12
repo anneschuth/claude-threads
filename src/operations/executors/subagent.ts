@@ -16,7 +16,7 @@ import type { ExecutorContext, SubagentState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('subagent-executor');
+const log = createLogger('subagent');
 
 /** Update interval for subagent elapsed time (5 seconds) */
 const SUBAGENT_UPDATE_INTERVAL_MS = 5000;

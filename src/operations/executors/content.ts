@@ -15,7 +15,7 @@ import type { ExecutorContext, ContentState } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('content-executor');
+const log = createLogger('content');
 
 // ---------------------------------------------------------------------------
 // Content Executor Options

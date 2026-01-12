@@ -19,7 +19,7 @@ import type {
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
-const log = createLogger('prompt-executor');
+const log = createLogger('prompt');
 
 // ---------------------------------------------------------------------------
 // Types
