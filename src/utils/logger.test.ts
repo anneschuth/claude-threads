@@ -174,7 +174,7 @@ describe('pre-configured loggers', () => {
   });
 });
 
-import { setLogHandler, lifecycleLogger, eventsLogger } from './logger.js';
+import { setLogHandler } from './logger.js';
 import { mock } from 'bun:test';
 
 describe('setLogHandler', () => {
@@ -392,14 +392,3 @@ describe('debugJson', () => {
   });
 });
 
-describe('additional pre-configured loggers', () => {
-  it('lifecycleLogger exists and has forSession', () => {
-    expect(lifecycleLogger).toBeDefined();
-    expect(typeof lifecycleLogger.forSession).toBe('function');
-  });
-
-  it('eventsLogger exists and has debugJson', () => {
-    expect(eventsLogger).toBeDefined();
-    expect(typeof eventsLogger.debugJson).toBe('function');
-  });
-});

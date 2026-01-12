@@ -14,7 +14,7 @@ import type { SessionTimers } from './timer-manager.js';
 
 // Re-export timer types
 export type { SessionTimers };
-export { createSessionTimers, clearAllTimers, isTyping } from './timer-manager.js';
+export { createSessionTimers, clearAllTimers } from './timer-manager.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -69,13 +69,6 @@ export interface PendingQuestionSet {
     answer: string | null;
   }>;
 }
-
-export interface PendingApproval {
-  postId: string;
-  type: 'plan' | 'action';
-  toolUseId: string;
-}
-
 
 /**
  * Pending prompt after worktree creation failed, asking user what to do
@@ -157,20 +150,6 @@ export function createResumedLifecycle(resumeFailCount: number = 0): SessionLife
 }
 
 /**
- * Check if session is in an active state (can receive messages).
- */
-export function isSessionActive(session: Session): boolean {
-  return session.lifecycle.state === 'active' || session.lifecycle.state === 'processing';
-}
-
-/**
- * Check if session can be interrupted (processing or active).
- */
-export function canInterruptSession(session: Session): boolean {
-  return session.lifecycle.state === 'active' || session.lifecycle.state === 'processing';
-}
-
-/**
  * Check if session is being restarted (suppress exit handlers).
  */
 export function isSessionRestarting(session: Session): boolean {
@@ -182,22 +161,6 @@ export function isSessionRestarting(session: Session): boolean {
  */
 export function isSessionCancelled(session: Session): boolean {
   return session.lifecycle.state === 'cancelling';
-}
-
-/**
- * Check if session was paused (timeout/interrupt).
- */
-export function isSessionPaused(session: Session): boolean {
-  return session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted';
-}
-
-/**
- * Check if session was resumed from persistence.
- */
-export function wasSessionResumed(session: Session): boolean {
-  // A session is considered resumed if resumeFailCount exists (was loaded from persistence)
-  // and we're past the starting state
-  return session.lifecycle.resumeFailCount > 0 || session.lifecycle.state !== 'starting';
 }
 
 /**

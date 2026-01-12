@@ -23,14 +23,6 @@ const log = createLogger('message-approval-executor');
  */
 export type MessageApprovalDecision = 'allow' | 'invite' | 'deny';
 
-/**
- * Callback for message approval completion.
- */
-export type MessageApprovalCallback = (
-  decision: MessageApprovalDecision,
-  context: { fromUser: string; originalMessage: string }
-) => Promise<void>;
-
 // ---------------------------------------------------------------------------
 // Message Approval Executor
 // ---------------------------------------------------------------------------

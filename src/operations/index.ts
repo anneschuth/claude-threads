@@ -10,11 +10,6 @@
 // Content breaking utilities
 export {
   DefaultContentBreaker,
-  defaultContentBreaker,
-  getCodeBlockState,
-  findLogicalBreakpoint,
-  shouldFlushEarly,
-  endsAtBreakpoint,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -30,7 +25,6 @@ export type {
 // Post tracking
 export {
   PostTracker,
-  defaultPostTracker,
 } from './post-tracker.js';
 
 export type {
@@ -47,7 +41,6 @@ export {
   toolFormatterRegistry,
   shortenPath,
   parseMcpToolName,
-  formatToolUse,
   formatToolForPermission,
 } from './tool-formatters/index.js';
 
@@ -95,10 +88,8 @@ export {
   createTaskListOp,
   createQuestionOp,
   createApprovalOp,
-  createSystemMessageOp,
   createSubagentOp,
   createStatusUpdateOp,
-  createLifecycleOp,
 } from './types.js';
 
 // Event transformer
@@ -137,10 +128,7 @@ export type {
   ExecutorContext,
   ContentState,
   TaskListState,
-  InteractiveState,
   SubagentState,
-  Executor,
-  ExecutionResult,
   RegisterPostCallback,
   UpdateLastMessageCallback,
 } from './executors/index.js';

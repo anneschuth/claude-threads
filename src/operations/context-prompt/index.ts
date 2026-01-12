@@ -18,10 +18,8 @@ export {
   getThreadMessagesForContext,
   formatContextForClaude,
   updateContextPromptPost,
-  clearContextPromptTimeout,
 
   // High-level handlers
-  handleContextPromptReaction,
   handleContextPromptTimeout,
   offerContextPrompt,
 } from './handler.js';

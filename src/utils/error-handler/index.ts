@@ -181,43 +181,9 @@ export async function withErrorHandling<T>(
   }
 }
 
-/**
- * Wrapper for sync operations with consistent error handling.
- * Returns undefined on recoverable errors, throws on fatal errors.
- *
- * @param operation - The sync operation to execute
- * @param context - Context about the operation
- * @param severity - Error severity (default: recoverable)
- * @returns The operation result, or undefined if error occurred
- */
-export function withErrorHandlingSync<T>(
-  operation: () => T,
-  context: ErrorContext,
-  severity: ErrorSeverity = 'recoverable'
-): T | undefined {
-  try {
-    return operation();
-  } catch (error) {
-    // Fire-and-forget async handleError
-    handleError(error, context, severity).catch(() => {});
-    return undefined;
-  }
-}
-
 // =============================================================================
 // Convenience Functions
 // =============================================================================
-
-/**
- * Log an error without re-throwing (recoverable error).
- * Shorthand for handleError with severity 'recoverable'.
- */
-export async function logError(
-  error: unknown,
-  context: ErrorContext
-): Promise<void> {
-  await handleError(error, context, 'recoverable');
-}
 
 /**
  * Log an error and notify the user.
@@ -228,64 +194,4 @@ export async function logAndNotify(
   context: ErrorContext
 ): Promise<void> {
   await handleError(error, { ...context, notifyUser: true }, 'recoverable');
-}
-
-/**
- * Try to execute an operation, returning a boolean success indicator.
- * Useful for operations where you only care if it succeeded.
- *
- * @example
- * const updated = await tryOperation(
- *   () => session.platform.updatePost(postId, message),
- *   { action: 'Update post', session }
- * );
- */
-export async function tryOperation(
-  operation: () => Promise<unknown>,
-  context: ErrorContext
-): Promise<boolean> {
-  const result = await withErrorHandling(operation, context);
-  return result !== undefined;
-}
-
-// =============================================================================
-// Error Formatting
-// =============================================================================
-
-/**
- * Format an error for display to users.
- * Strips technical details and provides a friendly message.
- */
-export function formatErrorForUser(error: unknown, action?: string): string {
-  const actionPart = action ? `${action}: ` : '';
-
-  if (error instanceof SessionError) {
-    return `${actionPart}${error.message}`;
-  }
-
-  if (error instanceof Error) {
-    // Remove technical prefixes and stack traces
-    const message = error.message.split('\n')[0];
-    return `${actionPart}${message}`;
-  }
-
-  return `${actionPart}An unexpected error occurred`;
-}
-
-/**
- * Check if an error is a specific type.
- * Useful for handling specific error cases differently.
- */
-export function isErrorType(error: unknown, errorName: string): boolean {
-  return error instanceof Error && error.name === errorName;
-}
-
-/**
- * Check if an error message contains a specific string.
- */
-export function errorContains(error: unknown, substring: string): boolean {
-  if (error instanceof Error) {
-    return error.message.toLowerCase().includes(substring.toLowerCase());
-  }
-  return String(error).toLowerCase().includes(substring.toLowerCase());
 }

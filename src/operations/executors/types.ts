@@ -8,7 +8,6 @@
 import type { PlatformClient, PlatformPost } from '../../platform/index.js';
 import type { PostTracker, RegisterPostOptions } from '../post-tracker.js';
 import type { ContentBreaker } from '../content-breaker.js';
-import type { MessageOperation } from '../types.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -179,12 +178,6 @@ export interface BugReportState {
 }
 
 /**
- * Combined state managed by all interactive executors.
- * Used for backward compatibility with existing code.
- */
-export interface InteractiveState extends QuestionApprovalState, MessageApprovalState, PromptState, BugReportState {}
-
-/**
  * State managed by the system executor.
  */
 export interface SystemState {
@@ -208,42 +201,6 @@ export interface SubagentState {
   }>;
   /** Timer for updating elapsed times */
   subagentUpdateTimer: ReturnType<typeof setInterval> | null;
-}
-
-// ---------------------------------------------------------------------------
-// Executor Interface
-// ---------------------------------------------------------------------------
-
-/**
- * Generic executor interface.
- */
-export interface Executor<T extends MessageOperation> {
-  /**
-   * Execute an operation.
-   *
-   * @param operation - The operation to execute
-   * @param ctx - Executor context
-   * @returns Promise that resolves when execution is complete
-   */
-  execute(operation: T, ctx: ExecutorContext): Promise<void>;
-}
-
-// ---------------------------------------------------------------------------
-// Execution Result
-// ---------------------------------------------------------------------------
-
-/**
- * Result of executing an operation.
- */
-export interface ExecutionResult {
-  /** Whether execution succeeded */
-  success: boolean;
-  /** Error message if failed */
-  error?: string;
-  /** Post ID created or updated (if applicable) */
-  postId?: string;
-  /** Additional metadata */
-  metadata?: Record<string, unknown>;
 }
 
 // ---------------------------------------------------------------------------

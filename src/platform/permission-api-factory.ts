@@ -10,13 +10,6 @@ import { createMattermostPermissionApi } from './mattermost/permission-api.js';
 import { createSlackPermissionApi } from './slack/permission-api.js';
 
 /**
- * Config types for each platform
- */
-export type PlatformPermissionConfig =
-  | { platformType: 'mattermost'; config: MattermostPermissionApiConfig }
-  | { platformType: 'slack'; config: SlackPermissionApiConfig };
-
-/**
  * Create a permission API instance for the specified platform type
  *
  * @param platformType - The platform type ('mattermost' or 'slack')

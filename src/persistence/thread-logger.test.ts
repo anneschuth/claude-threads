@@ -4,7 +4,6 @@ import {
   createThreadLogger,
   cleanupOldLogs,
   getLogFilePath,
-  getLogsBaseDir,
   type ThreadLogger,
   type ClaudeEventEntry,
   type UserMessageEntry,
@@ -361,13 +360,6 @@ describe('getLogFilePath', () => {
   it('returns correct path format', () => {
     const path = getLogFilePath('mattermost-main', 'thread-abc123');
     expect(path).toContain('.claude-threads/logs/mattermost-main/thread-abc123.jsonl');
-  });
-});
-
-describe('getLogsBaseDir', () => {
-  it('returns correct base directory', () => {
-    const dir = getLogsBaseDir();
-    expect(dir).toContain('.claude-threads/logs');
   });
 });
 

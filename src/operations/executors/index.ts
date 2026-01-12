@@ -17,7 +17,6 @@ export type {
   MessageApprovalState,
   PromptState,
   BugReportState,
-  InteractiveState,
   SubagentState,
   SystemState,
   PendingMessageApproval,
@@ -26,8 +25,6 @@ export type {
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
   PendingBugReport,
-  Executor,
-  ExecutionResult,
   RegisterPostCallback,
   UpdateLastMessageCallback,
 } from './types.js';
@@ -40,32 +37,19 @@ export { SystemExecutor } from './system.js';
 
 // Focused executors for interactive operations
 export { QuestionApprovalExecutor } from './question-approval.js';
-export type {
-  QuestionCompleteCallback,
-  ApprovalCompleteCallback,
-} from './question-approval.js';
 
 export { MessageApprovalExecutor } from './message-approval.js';
-export type {
-  MessageApprovalDecision,
-  MessageApprovalCallback,
-} from './message-approval.js';
+export type { MessageApprovalDecision } from './message-approval.js';
 
 export { PromptExecutor } from './prompt.js';
 export type {
   ContextPromptSelection,
-  ContextPromptCallback,
   ExistingWorktreeDecision,
-  ExistingWorktreeCallback,
   UpdatePromptDecision,
-  UpdatePromptCallback,
 } from './prompt.js';
 
 export { BugReportExecutor } from './bug-report.js';
-export type {
-  BugReportDecision,
-  BugReportCallback,
-} from './bug-report.js';
+export type { BugReportDecision } from './bug-report.js';
 
 export { WorktreePromptExecutor } from './worktree-prompt.js';
 export type {
@@ -74,7 +58,6 @@ export type {
   WorktreePromptFile,
   QueuedWorktreeData,
   WorktreePromptDecision,
-  WorktreePromptCallback,
 } from './worktree-prompt.js';
 // Re-export PendingWorktreeFailurePrompt from worktree-prompt (was in session/types)
 export type { PendingWorktreeFailurePrompt } from './worktree-prompt.js';

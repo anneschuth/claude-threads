@@ -216,12 +216,6 @@ export function setPlatformPaused(platformId: string, paused: boolean): void {
   }
 }
 
-/**
- * Check if a platform is paused.
- */
-export function isPlatformPaused(platformId: string): boolean {
-  return pausedPlatforms.get(platformId) ?? false;
-}
 
 /**
  * Mark the bot as shutting down.
@@ -232,12 +226,6 @@ export function setShuttingDown(shuttingDown: boolean): void {
   log.debug(`Bot shutdown state: ${shuttingDown}`);
 }
 
-/**
- * Check if the bot is shutting down.
- */
-export function getShuttingDown(): boolean {
-  return isShuttingDown;
-}
 
 
 
@@ -811,35 +799,6 @@ export async function updateAllStickyMessages(
   await Promise.all(updates);
 }
 
-/**
- * Get the sticky post ID for a platform (for persistence).
- */
-export function getStickyPostId(platformId: string): string | undefined {
-  return stickyPostIds.get(platformId);
-}
-
-/**
- * Set the sticky post ID for a platform (for restoration after restart).
- */
-export function setStickyPostId(platformId: string, postId: string): void {
-  stickyPostIds.set(platformId, postId);
-}
-
-/**
- * Get all sticky post IDs (for persistence).
- */
-export function getAllStickyPostIds(): Map<string, string> {
-  return new Map(stickyPostIds);
-}
-
-/**
- * Restore sticky post IDs from persistence.
- */
-export function restoreStickyPostIds(postIds: Map<string, string>): void {
-  for (const [platformId, postId] of postIds) {
-    stickyPostIds.set(platformId, postId);
-  }
-}
 
 /**
  * Mark that a platform needs to bump its sticky message to the bottom.

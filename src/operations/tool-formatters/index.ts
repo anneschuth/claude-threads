@@ -33,7 +33,6 @@ export {
   shortenPath,
   parseMcpToolName,
   escapeRegExp,
-  truncateWithEllipsis,
   escapeCodeBlockContent,
 } from './utils.js';
 
@@ -90,13 +89,15 @@ export interface FormatOptions {
 /**
  * Format a tool use for display in chat platforms.
  *
+ * Note: This is an internal helper. Use toolFormatterRegistry.format() directly for new code.
+ *
  * @param toolName - The name of the tool being called
  * @param input - The tool input parameters
  * @param formatter - Platform-specific markdown formatter
  * @param options - Formatting options
  * @returns Formatted string or null if the tool should not be displayed
  */
-export function formatToolUse(
+function formatToolUse(
   toolName: string,
   input: ToolInput,
   formatter: PlatformFormatter,
@@ -115,6 +116,9 @@ export function formatToolUse(
 
   return result.display;
 }
+
+// Export for testing only (not re-exported from operations/index.ts)
+export { formatToolUse as _formatToolUse };
 
 /**
  * Format tool info for permission prompts (simpler format).

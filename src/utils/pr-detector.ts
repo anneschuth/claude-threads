@@ -125,14 +125,3 @@ export function formatPullRequestLink(url: string, formatter: PlatformFormatter)
   // GitHub, Bitbucket, Azure use "PR" terminology
   return formatter.formatLink(`🔗 PR #${pr.number}`, url);
 }
-
-/**
- * Get platform icon for a PR URL
- */
-export function getPlatformIcon(url: string): string {
-  if (url.includes('github.com')) return '🐙';
-  if (url.includes('gitlab')) return '🦊';
-  if (url.includes('bitbucket')) return '🪣';
-  if (url.includes('azure') || url.includes('visualstudio')) return '🔷';
-  return '🔗';
-}

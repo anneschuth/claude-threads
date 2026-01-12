@@ -6,12 +6,9 @@ import { describe, it, expect } from 'bun:test';
 import {
   COMMAND_REGISTRY,
   REACTION_REGISTRY,
-  getCommandsByCategory,
   getUserHelpCommands,
   getClaudeExecutableCommands,
   getClaudeAvoidCommands,
-  getCommand,
-  getReactionsByContext,
   buildClaudeAllowedCommandsSet,
 } from './registry.js';
 
@@ -79,29 +76,6 @@ describe('REACTION_REGISTRY', () => {
   });
 });
 
-describe('getCommandsByCategory', () => {
-  it('returns session commands', () => {
-    const sessionCommands = getCommandsByCategory('session');
-    const names = sessionCommands.map(c => c.command);
-
-    expect(names).toContain('stop');
-    expect(names).toContain('escape');
-    expect(names).toContain('approve');
-  });
-
-  it('returns worktree commands', () => {
-    const worktreeCommands = getCommandsByCategory('worktree');
-    const names = worktreeCommands.map(c => c.command);
-
-    expect(names).toContain('worktree');
-  });
-
-  it('returns empty array for unknown category', () => {
-    const unknown = getCommandsByCategory('unknown' as any);
-    expect(unknown).toHaveLength(0);
-  });
-});
-
 describe('getUserHelpCommands', () => {
   it('excludes passthrough commands', () => {
     const helpCommands = getUserHelpCommands();
@@ -159,39 +133,6 @@ describe('getClaudeAvoidCommands', () => {
       expect(cmd.reason).toBeTruthy();
       expect(typeof cmd.reason).toBe('string');
     }
-  });
-});
-
-describe('getCommand', () => {
-  it('returns command by name', () => {
-    const cmd = getCommand('stop');
-    expect(cmd).toBeDefined();
-    expect(cmd?.command).toBe('stop');
-  });
-
-  it('returns undefined for unknown command', () => {
-    const cmd = getCommand('unknown');
-    expect(cmd).toBeUndefined();
-  });
-});
-
-describe('getReactionsByContext', () => {
-  it('returns approval reactions', () => {
-    const approvalReactions = getReactionsByContext('approval');
-    const emojis = approvalReactions.map(r => r.emoji);
-
-    expect(emojis).toContain('👍');
-    expect(emojis).toContain('👎');
-    expect(emojis).toContain('✅');
-  });
-
-  it('returns session reactions', () => {
-    const sessionReactions = getReactionsByContext('session');
-    const emojis = sessionReactions.map(r => r.emoji);
-
-    expect(emojis).toContain('⏸️');
-    expect(emojis).toContain('❌');
-    expect(emojis).toContain('🛑');
   });
 });
 

@@ -5,10 +5,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
   DefaultContentBreaker,
-  getCodeBlockState,
-  findLogicalBreakpoint,
-  shouldFlushEarly,
-  endsAtBreakpoint,
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
@@ -295,30 +291,6 @@ describe('ContentBreaker', () => {
     it('handles trailing whitespace', () => {
       const content = '```\ncode\n```  ';
       expect(breaker.endsAtBreakpoint(content)).toBe('code_block_end');
-    });
-  });
-
-  // ---------------------------------------------------------------------------
-  // Standalone Functions (backward compatibility)
-  // ---------------------------------------------------------------------------
-
-  describe('standalone functions', () => {
-    it('getCodeBlockState works', () => {
-      const result = getCodeBlockState('```\ncode\n', 10);
-      expect(result.isInside).toBe(true);
-    });
-
-    it('findLogicalBreakpoint works', () => {
-      const result = findLogicalBreakpoint('Line 1\n\nLine 2', 0);
-      expect(result).not.toBeNull();
-    });
-
-    it('shouldFlushEarly works', () => {
-      expect(shouldFlushEarly('short')).toBe(false);
-    });
-
-    it('endsAtBreakpoint works', () => {
-      expect(endsAtBreakpoint('text\n\n')).toBe('paragraph');
     });
   });
 

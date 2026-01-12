@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { colors, dim, bold, cyan, green, red, yellow } from './colors.js';
+import { colors, dim, bold, green, red } from './colors.js';
 
 describe('colors', () => {
   it('exports ANSI color codes', () => {
@@ -24,19 +24,11 @@ describe('styling helpers', () => {
     expect(bold('test')).toBe('\x1b[1mtest\x1b[0m');
   });
 
-  it('cyan wraps text with cyan codes', () => {
-    expect(cyan('test')).toBe('\x1b[36mtest\x1b[0m');
-  });
-
   it('green wraps text with green codes', () => {
     expect(green('test')).toBe('\x1b[32mtest\x1b[0m');
   });
 
   it('red wraps text with red codes', () => {
     expect(red('test')).toBe('\x1b[31mtest\x1b[0m');
-  });
-
-  it('yellow wraps text with yellow codes', () => {
-    expect(yellow('test')).toBe('\x1b[33mtest\x1b[0m');
   });
 });

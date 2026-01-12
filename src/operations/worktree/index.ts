@@ -18,7 +18,6 @@ export {
   removeWorktreeCommand,
   disableWorktreePrompt,
   cleanupWorktreeCommand,
-  cleanupWorktree,
 } from './handler.js';
 
 export type { CleanupResult } from './handler.js';

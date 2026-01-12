@@ -30,19 +30,6 @@ interface PendingQuestion {
   answer: string | null;
 }
 
-/**
- * Callback for question completion.
- */
-export type QuestionCompleteCallback = (
-  toolUseId: string,
-  answers: Array<{ header: string; answer: string }>
-) => void;
-
-/**
- * Callback for approval completion.
- */
-export type ApprovalCompleteCallback = (toolUseId: string, approved: boolean) => void;
-
 // ---------------------------------------------------------------------------
 // Question & Approval Executor
 // ---------------------------------------------------------------------------

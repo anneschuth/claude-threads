@@ -296,12 +296,3 @@ export class PostTracker implements PostTrackerInterface {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Singleton for convenience
-// ---------------------------------------------------------------------------
-
-/**
- * Default post tracker instance.
- * Use this for standard post tracking behavior.
- */
-export const defaultPostTracker = new PostTracker();

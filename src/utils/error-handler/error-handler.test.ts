@@ -3,13 +3,7 @@ import {
   SessionError,
   handleError,
   withErrorHandling,
-  withErrorHandlingSync,
-  logError,
   logAndNotify,
-  tryOperation,
-  formatErrorForUser,
-  isErrorType,
-  errorContains,
   type ErrorContext,
 } from './index.js';
 import type { Session } from '../../session/types.js';
@@ -260,49 +254,6 @@ describe('withErrorHandling', () => {
   });
 });
 
-describe('withErrorHandlingSync', () => {
-  it('returns result on success', () => {
-    const operation = () => 'success';
-    const context: ErrorContext = { action: 'Test' };
-
-    const result = withErrorHandlingSync(operation, context);
-
-    expect(result).toBe('success');
-  });
-
-  it('returns undefined on error', () => {
-    const operation = () => {
-      throw new Error('test error');
-    };
-    const context: ErrorContext = { action: 'Test' };
-
-    const result = withErrorHandlingSync(operation, context, 'recoverable');
-
-    expect(result).toBeUndefined();
-  });
-});
-
-describe('logError', () => {
-  let originalConsoleWarn: typeof console.warn;
-
-  beforeEach(() => {
-    originalConsoleWarn = console.warn;
-    console.warn = mock(() => {});
-  });
-
-  afterEach(() => {
-    console.warn = originalConsoleWarn;
-  });
-
-  it('logs error without throwing', async () => {
-    const error = new Error('test error');
-    const context: ErrorContext = { action: 'Test' };
-
-    // Should not throw
-    await logError(error, context);
-  });
-});
-
 describe('logAndNotify', () => {
   let originalConsoleWarn: typeof console.warn;
 
@@ -326,122 +277,3 @@ describe('logAndNotify', () => {
   });
 });
 
-describe('tryOperation', () => {
-  let originalConsoleWarn: typeof console.warn;
-
-  beforeEach(() => {
-    originalConsoleWarn = console.warn;
-    console.warn = mock(() => {});
-  });
-
-  afterEach(() => {
-    console.warn = originalConsoleWarn;
-  });
-
-  it('returns true on success', async () => {
-    const operation = async () => 'success';
-    const context: ErrorContext = { action: 'Test' };
-
-    const result = await tryOperation(operation, context);
-
-    expect(result).toBe(true);
-  });
-
-  it('returns false on error', async () => {
-    const operation = async () => {
-      throw new Error('test error');
-    };
-    const context: ErrorContext = { action: 'Test' };
-
-    const result = await tryOperation(operation, context);
-
-    expect(result).toBe(false);
-  });
-});
-
-describe('formatErrorForUser', () => {
-  it('formats SessionError', () => {
-    const error = new SessionError('action', 'User-friendly message');
-
-    const result = formatErrorForUser(error, 'Action');
-
-    expect(result).toBe('Action: User-friendly message');
-  });
-
-  it('formats regular Error', () => {
-    const error = new Error('Something went wrong');
-
-    const result = formatErrorForUser(error);
-
-    expect(result).toBe('Something went wrong');
-  });
-
-  it('handles Error with multiline message', () => {
-    const error = new Error('First line\nSecond line\nThird line');
-
-    const result = formatErrorForUser(error);
-
-    expect(result).toBe('First line');
-  });
-
-  it('handles unknown error types', () => {
-    const result = formatErrorForUser('just a string');
-
-    expect(result).toBe('An unexpected error occurred');
-  });
-
-  it('includes action prefix when provided', () => {
-    const result = formatErrorForUser(null, 'Save file');
-
-    expect(result).toBe('Save file: An unexpected error occurred');
-  });
-});
-
-describe('isErrorType', () => {
-  it('returns true for matching error type', () => {
-    const error = new TypeError('test');
-
-    expect(isErrorType(error, 'TypeError')).toBe(true);
-  });
-
-  it('returns false for non-matching error type', () => {
-    const error = new Error('test');
-
-    expect(isErrorType(error, 'TypeError')).toBe(false);
-  });
-
-  it('returns false for non-Error types', () => {
-    expect(isErrorType('not an error', 'Error')).toBe(false);
-    expect(isErrorType(null, 'Error')).toBe(false);
-  });
-
-  it('works with SessionError', () => {
-    const error = new SessionError('action', 'message');
-
-    expect(isErrorType(error, 'SessionError')).toBe(true);
-  });
-});
-
-describe('errorContains', () => {
-  it('finds substring in Error message', () => {
-    const error = new Error('Connection timeout occurred');
-
-    expect(errorContains(error, 'timeout')).toBe(true);
-    expect(errorContains(error, 'TIMEOUT')).toBe(true); // case insensitive
-  });
-
-  it('returns false when substring not found', () => {
-    const error = new Error('Connection failed');
-
-    expect(errorContains(error, 'timeout')).toBe(false);
-  });
-
-  it('handles string errors', () => {
-    expect(errorContains('Connection timeout', 'timeout')).toBe(true);
-  });
-
-  it('handles other types', () => {
-    expect(errorContains(123, '123')).toBe(true);
-    expect(errorContains(null, 'null')).toBe(true);
-  });
-});

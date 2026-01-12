@@ -338,16 +338,6 @@ export async function updateContextPromptPost(
   );
 }
 
-/**
- * Clear the context prompt timeout.
- */
-export function clearContextPromptTimeout(pending: PendingContextPrompt): void {
-  if (pending.timeoutId) {
-    clearTimeout(pending.timeoutId);
-    pending.timeoutId = undefined;
-  }
-}
-
 // =============================================================================
 // High-level Context Prompt Handling
 // =============================================================================
@@ -361,75 +351,6 @@ export interface ContextPromptHandler {
   persistSession: (session: Session) => void;
   injectMetadataReminder: (message: string, session: Session) => string;
   buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
-}
-
-/**
- * Handle reaction on a context prompt.
- * Returns true if the reaction was handled.
- */
-export async function handleContextPromptReaction(
-  session: Session,
-  emojiName: string,
-  username: string,
-  ctx: ContextPromptHandler
-): Promise<boolean> {
-  // Get pending context prompt from MessageManager
-  const pending = getPendingContextPromptFromManager(session);
-  if (!pending) return false;
-
-  const selection = getContextSelectionFromReaction(
-    emojiName,
-    pending.availableOptions
-  );
-  if (selection === null) return false; // Not a valid context selection reaction
-
-  // Clear the timeout (if stored locally)
-  if (pending.timeoutId) {
-    clearTimeout(pending.timeoutId);
-  }
-
-  // Update the post to show selection
-  await updateContextPromptPost(session, pending.postId, selection, username);
-
-  // Get the queued prompt and files
-  const queuedPrompt = pending.queuedPrompt;
-  // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
-  const queuedFiles = getContextPromptFilesForSession(session);
-
-  // Clear pending context prompt (MessageManager and local storage)
-  clearPendingContextPromptInManager(session);
-
-  // Build message with or without context
-  let messageToSend = queuedPrompt;
-  if (selection > 0) {
-    const messages = await getThreadMessagesForContext(session, selection, pending.postId);
-    if (messages.length > 0) {
-      const contextPrefix = formatContextForClaude(messages);
-      messageToSend = contextPrefix + queuedPrompt;
-    }
-  }
-
-  // Increment message counter
-  session.messageCount++;
-
-  // Inject metadata reminder periodically
-  messageToSend = ctx.injectMetadataReminder(messageToSend, session);
-
-  // Build content with files (images)
-  const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
-
-  // Send the message to Claude
-  if (session.claude.isRunning()) {
-    session.claude.sendMessage(content);
-    ctx.startTyping(session);
-  }
-
-  // Persist updated state
-  ctx.persistSession(session);
-
-  sessionLog(session).debug(`🧵 Context selection: ${selection === 0 ? 'none' : `last ${selection} messages`} by @${username}`);
-
-  return true;
 }
 
 /**

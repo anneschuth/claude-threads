@@ -16,12 +16,9 @@ export {
 export {
   COMMAND_REGISTRY,
   REACTION_REGISTRY,
-  getCommandsByCategory,
   getUserHelpCommands,
   getClaudeExecutableCommands,
   getClaudeAvoidCommands,
-  getCommand,
-  getReactionsByContext,
   buildClaudeAllowedCommandsSet,
   type CommandDefinition,
   type SubcommandDefinition,
@@ -37,5 +34,4 @@ export { generateHelpMessage } from './help-generator.js';
 export {
   generateChatPlatformPrompt,
   buildSessionContext,
-  buildFullSystemPrompt,
 } from './system-prompt-generator.js';

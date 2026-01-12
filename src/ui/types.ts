@@ -99,17 +99,3 @@ export interface AppState {
   ready: boolean;
   shuttingDown: boolean;
 }
-
-export interface UIInstance {
-  setReady: () => void;
-  setShuttingDown: () => void;
-  addSession: (session: SessionInfo) => void;
-  updateSession: (sessionId: string, updates: Partial<SessionInfo>) => void;
-  removeSession: (sessionId: string) => void;
-  addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
-  setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
-  setUpdateState: (state: UpdatePanelState) => void;
-  waitUntilExit: () => Promise<void>;
-  // Toggle state getters (for main logic to read current values)
-  getToggles: () => ToggleState;
-}

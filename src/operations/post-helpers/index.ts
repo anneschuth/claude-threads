@@ -144,12 +144,14 @@ export async function postError(
  * Post a message and add reaction options.
  * Used for approval/denial prompts, questions, etc.
  *
+ * Note: This is an internal helper. Prefer postInteractive for new code.
+ *
  * @param session - The session to post to
  * @param message - The message content
  * @param reactions - Array of emoji names to add as reactions
  * @returns The created post
  */
-export async function postWithReactions(
+async function postWithReactions(
   session: Session,
   message: string,
   reactions: string[]
@@ -353,13 +355,16 @@ export function formatBold(formatter: PlatformFormatter, label: string, rest?: s
 
 /**
  * Post a message with a bold label.
+ *
+ * Note: This is an internal helper. Prefer using post() with formatBold() for new code.
+ *
  * @param session - The session to post to
  * @param emoji - Emoji prefix (or empty string)
  * @param label - Bold label text
  * @param rest - Optional rest of the message
  * @returns The created post
  */
-export async function postBold(
+async function postBold(
   session: Session,
   emoji: string,
   label: string,
@@ -371,3 +376,6 @@ export async function postBold(
     : formatBold(formatter, label, rest);
   return createPostAndTrack(session, message);
 }
+
+// Export internal helpers for testing (but not re-exported from operations/index.ts)
+export { postWithReactions as _postWithReactions, postBold as _postBold };

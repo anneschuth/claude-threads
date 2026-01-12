@@ -8,8 +8,6 @@ import {
   getThreadContextCount,
   getThreadMessagesForContext,
   updateContextPromptPost,
-  clearContextPromptTimeout,
-  type PendingContextPrompt,
 } from './handler.js';
 import type { ThreadMessage, PlatformClient, PlatformPost } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
@@ -404,35 +402,4 @@ describe('context-prompt', () => {
     });
   });
 
-  describe('clearContextPromptTimeout', () => {
-    it('clears the timeout when present', () => {
-      const timeoutId = setTimeout(() => {}, 10000);
-      const pending: PendingContextPrompt = {
-        postId: 'post-123',
-        queuedPrompt: 'test prompt',
-        threadMessageCount: 5,
-        createdAt: Date.now(),
-        timeoutId,
-        availableOptions: [3, 5],
-      };
-
-      clearContextPromptTimeout(pending);
-
-      expect(pending.timeoutId).toBeUndefined();
-    });
-
-    it('handles pending without timeoutId', () => {
-      const pending: PendingContextPrompt = {
-        postId: 'post-123',
-        queuedPrompt: 'test prompt',
-        threadMessageCount: 5,
-        createdAt: Date.now(),
-        availableOptions: [3, 5],
-      };
-
-      // Should not throw
-      clearContextPromptTimeout(pending);
-      expect(pending.timeoutId).toBeUndefined();
-    });
-  });
 });

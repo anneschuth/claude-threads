@@ -12,10 +12,6 @@
     "tests/**/*"
   ],
   "ignoreDependencies": ["prettier"],
-  "ignoreBinaries": ["pkill", "sleep", "dist/index.js", "prettier"],
-  "ignoreExportsUsedInFile": true,
-  "rules": {
-    "exports": "off",
-    "types": "off"
-  }
+  "ignoreBinaries": ["pkill", "sleep", "prettier"],
+  "ignoreExportsUsedInFile": true
 }

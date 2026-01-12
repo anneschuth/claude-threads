@@ -13,11 +13,12 @@ import {
   shortenPath,
   parseMcpToolName,
   escapeRegExp,
-  truncateWithEllipsis,
   escapeCodeBlockContent,
-  formatToolUse,
   formatToolForPermission,
+  // Internal helpers (exported for testing with underscore prefix)
+  _formatToolUse as formatToolUse,
 } from './index.js';
+import { truncateWithEllipsis } from './utils.js';
 import type { PlatformFormatter } from '../../platform/formatter.js';
 
 // Mock formatter for testing

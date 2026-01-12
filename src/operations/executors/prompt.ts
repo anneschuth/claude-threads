@@ -34,39 +34,14 @@ const log = createLogger('prompt-executor');
 export type ContextPromptSelection = number | 'timeout';
 
 /**
- * Callback for context prompt completion.
- */
-export type ContextPromptCallback = (
-  selection: ContextPromptSelection,
-  context: {
-    queuedPrompt: string;
-    queuedFiles?: Array<{ id: string; name: string }>;
-    threadMessageCount: number;
-  }
-) => Promise<void>;
-
-/**
  * Decision type for existing worktree prompt reactions.
  */
 export type ExistingWorktreeDecision = 'join' | 'skip';
 
 /**
- * Callback for existing worktree prompt completion.
- */
-export type ExistingWorktreeCallback = (
-  decision: ExistingWorktreeDecision,
-  context: { branch: string; worktreePath: string; username: string }
-) => Promise<void>;
-
-/**
  * Decision type for update prompt reactions.
  */
 export type UpdatePromptDecision = 'update_now' | 'defer';
-
-/**
- * Callback for update prompt completion.
- */
-export type UpdatePromptCallback = (decision: UpdatePromptDecision) => Promise<void>;
 
 // ---------------------------------------------------------------------------
 // Prompt Executor

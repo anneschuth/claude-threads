@@ -47,7 +47,6 @@ function loadPackageJson(): PackageInfo {
 const pkgInfo = loadPackageJson();
 
 export const VERSION = pkgInfo.version;
-export const PACKAGE_NAME = pkgInfo.name;
 
 // For update-notifier which needs { name, version } object
 export const PKG = pkgInfo;

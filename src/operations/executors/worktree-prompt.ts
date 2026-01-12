@@ -78,19 +78,6 @@ export type WorktreePromptDecision =
   | { type: 'skip' }
   | { type: 'retry'; branchName: string };
 
-/**
- * Callback for worktree prompt completion.
- */
-export type WorktreePromptCallback = (
-  decision: WorktreePromptDecision,
-  context: {
-    queuedPrompt?: string;
-    queuedFiles?: WorktreePromptFile[];
-    responsePostId?: string;
-    failedBranch?: string;
-  }
-) => Promise<void>;
-
 // ---------------------------------------------------------------------------
 // Worktree Prompt Executor
 // ---------------------------------------------------------------------------

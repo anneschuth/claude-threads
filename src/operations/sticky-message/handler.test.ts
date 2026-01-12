@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, setStickyPostId, markNeedsBump, initialize } from './handler.js';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, markNeedsBump, initialize } from './handler.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
@@ -818,8 +818,13 @@ describe('cleanupOldStickyMessages', () => {
       getPinnedPosts,
     } as unknown as PlatformClient;
 
-    // Set up current sticky so it gets skipped
-    setStickyPostId('cleanup-test-1', 'current-sticky');
+    // Set up current sticky so it gets skipped via initialize()
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['cleanup-test-1', 'current-sticky']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
 
     // forceRun=true bypasses throttle for testing
     await cleanupOldStickyMessages(platform, 'bot-user-123', true);
@@ -853,8 +858,13 @@ describe('cleanupOldStickyMessages', () => {
       getPinnedPosts,
     } as unknown as PlatformClient;
 
-    // Clear any current sticky
-    setStickyPostId('cleanup-test-2', 'some-other-post');
+    // Set up sticky via initialize() - using a different post ID so bot-post gets cleaned up
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['cleanup-test-2', 'some-other-post']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
 
     // forceRun=true bypasses throttle for testing
     await cleanupOldStickyMessages(platform, 'bot-user-123', true);
@@ -886,7 +896,13 @@ describe('cleanupOldStickyMessages', () => {
       getPinnedPosts,
     } as unknown as PlatformClient;
 
-    setStickyPostId('cleanup-test-3', 'different-post');
+    // Set up sticky via initialize()
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['cleanup-test-3', 'different-post']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
 
     // Should not throw (forceRun=true bypasses throttle for testing)
     await cleanupOldStickyMessages(platform, 'bot-user-123', true);
@@ -960,16 +976,15 @@ describe('updateStickyMessage with bump', () => {
       getFormatter,
     } as unknown as PlatformClient;
 
-    // Initialize with a mock session store
+    // Initialize with a mock session store that has the old sticky post ID
     const mockSessionStore = {
-      getStickyPostIds: mock(() => new Map()),
+      getStickyPostIds: mock(() => new Map([['test-platform-bump', 'old-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
     };
     initialize(mockSessionStore as any);
 
-    // Set up existing sticky and mark for bump
-    setStickyPostId('test-platform-bump', 'old-sticky-post');
+    // Mark for bump (the sticky post ID is now set via initialize above)
     markNeedsBump('test-platform-bump');
 
     await updateStickyMessage(platform, sessions, testConfig);

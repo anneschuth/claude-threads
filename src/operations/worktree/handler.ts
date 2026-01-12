@@ -971,11 +971,14 @@ export async function cleanupWorktreeCommand(
  * - No other sessions are using the worktree
  * - Worktree path is in the centralized location
  *
+ * Note: This is an internal helper called via cleanupWorktreeCommand.
+ * Not exported from the module index.
+ *
  * @param session - The session that's ending
  * @param hasOtherSessionsUsingWorktree - Callback to check if other sessions use this worktree
  * @returns Result indicating success or failure
  */
-export async function cleanupWorktree(
+async function cleanupWorktree(
   session: Session,
   hasOtherSessionsUsingWorktree: (worktreePath: string, excludeSessionId: string) => boolean
 ): Promise<CleanupResult> {
@@ -1015,3 +1018,6 @@ export async function cleanupWorktree(
     return { success: false, error: errorMsg };
   }
 }
+
+// Export for testing only (not re-exported from worktree/index.ts)
+export { cleanupWorktree };

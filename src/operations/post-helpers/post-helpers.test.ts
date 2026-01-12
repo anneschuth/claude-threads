@@ -9,9 +9,9 @@ import {
   formatBold,
   resetSessionActivity,
   updateLastMessage,
-  // Post with reactions
-  postWithReactions,
-  postBold,
+  // Internal helpers (exported for testing with underscore prefix)
+  _postWithReactions as postWithReactions,
+  _postBold as postBold,
 } from './index.js';
 import {
   mockFormatter as mattermostFormatter,
@@ -421,11 +421,7 @@ describe('post helper functions', () => {
     // Error post with bug reaction behavior
     expect(typeof helpers.postError).toBe('function');
 
-    // Post with reactions
-    expect(typeof helpers.postWithReactions).toBe('function');
-
     // Utility functions
     expect(typeof helpers.formatBold).toBe('function');
-    expect(typeof helpers.postBold).toBe('function');
   });
 });

@@ -98,8 +98,3 @@ export interface SlackPermissionApiConfig {
   allowedUsers: string[];
   debug?: boolean;
 }
-
-/**
- * Union type for permission API config
- */
-export type PermissionApiConfig = MattermostPermissionApiConfig | SlackPermissionApiConfig;

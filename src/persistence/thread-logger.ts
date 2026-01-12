@@ -373,13 +373,6 @@ export function createThreadLogger(
 // =============================================================================
 
 /**
- * Get the base directory for thread logs
- */
-export function getLogsBaseDir(): string {
-  return LOGS_BASE_DIR;
-}
-
-/**
  * Clean up old log files based on retention policy.
  * Deletes log files older than retentionDays.
  *

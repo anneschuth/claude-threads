@@ -411,8 +411,10 @@ export function createApprovalOp(
 
 /**
  * Create a system message operation.
+ *
+ * Note: This is an internal factory. Not currently used - consider removing if unnecessary.
  */
-export function createSystemMessageOp(
+function createSystemMessageOp(
   sessionId: string,
   message: string,
   level: SystemMessageLevel = 'info',
@@ -427,6 +429,9 @@ export function createSystemMessageOp(
     ephemeral,
   };
 }
+
+// Export for testing only (not re-exported from operations/index.ts)
+export { createSystemMessageOp as _createSystemMessageOp };
 
 /**
  * Create a subagent operation.
@@ -469,8 +474,10 @@ export function createStatusUpdateOp(
 
 /**
  * Create a lifecycle operation.
+ *
+ * Note: This is an internal factory. Not currently used - consider removing if unnecessary.
  */
-export function createLifecycleOp(
+function createLifecycleOp(
   sessionId: string,
   event: LifecycleOp['event']
 ): LifecycleOp {
@@ -481,3 +488,6 @@ export function createLifecycleOp(
     event,
   };
 }
+
+// Export for testing only (not re-exported from operations/index.ts)
+export { createLifecycleOp as _createLifecycleOp };

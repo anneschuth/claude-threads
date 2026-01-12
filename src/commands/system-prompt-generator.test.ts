@@ -6,7 +6,6 @@ import { describe, it, expect } from 'bun:test';
 import {
   generateChatPlatformPrompt,
   buildSessionContext,
-  buildFullSystemPrompt,
 } from './system-prompt-generator.js';
 import { VERSION } from '../version.js';
 
@@ -102,33 +101,3 @@ describe('buildSessionContext', () => {
   });
 });
 
-describe('buildFullSystemPrompt', () => {
-  it('combines session context and chat prompt', () => {
-    const prompt = buildFullSystemPrompt(
-      { platformType: 'mattermost', displayName: 'Test' },
-      '/home/user'
-    );
-
-    // Should have session context
-    expect(prompt).toContain('Platform:');
-    expect(prompt).toContain('Mattermost');
-    expect(prompt).toContain('/home/user');
-
-    // Should have chat platform prompt
-    expect(prompt).toContain('## How This Works');
-    expect(prompt).toContain('## User Commands');
-  });
-
-  it('separates context and prompt with newlines', () => {
-    const prompt = buildFullSystemPrompt(
-      { platformType: 'slack', displayName: 'Test' },
-      '/path'
-    );
-
-    // Context should come before the chat prompt sections
-    const contextIndex = prompt.indexOf('**Platform:**');
-    const howItWorksIndex = prompt.indexOf('## How This Works');
-
-    expect(contextIndex).toBeLessThan(howItWorksIndex);
-  });
-});

@@ -23,14 +23,6 @@ const log = createLogger('bug-report-executor');
  */
 export type BugReportDecision = 'approve' | 'deny';
 
-/**
- * Callback for bug report completion.
- */
-export type BugReportCallback = (
-  decision: BugReportDecision,
-  report: PendingBugReport
-) => Promise<void>;
-
 // ---------------------------------------------------------------------------
 // Bug Report Executor
 // ---------------------------------------------------------------------------

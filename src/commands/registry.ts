@@ -244,13 +244,6 @@ export const REACTION_REGISTRY: ReactionDefinition[] = [
 // =============================================================================
 
 /**
- * Get all commands in a specific category.
- */
-export function getCommandsByCategory(category: CommandCategory): CommandDefinition[] {
-  return COMMAND_REGISTRY.filter(cmd => cmd.category === category);
-}
-
-/**
  * Get commands that should appear in user help (!help command).
  * Excludes passthrough commands which are internal.
  */
@@ -279,24 +272,8 @@ export function getClaudeAvoidCommands(): Array<{ command: string; reason: strin
     .filter(cmd => cmd.claudeNotes?.includes('do not use') || cmd.claudeNotes?.includes('User decisions'))
     .map(cmd => ({
       command: cmd.command,
-      reason: cmd.claudeNotes!,
+      reason: cmd.claudeNotes ?? '',
     }));
-}
-
-/**
- * Get a specific command by name.
- */
-export function getCommand(name: string): CommandDefinition | undefined {
-  return COMMAND_REGISTRY.find(cmd => cmd.command === name);
-}
-
-/**
- * Get reactions by context.
- */
-export function getReactionsByContext(context: 'approval' | 'session' | 'both'): ReactionDefinition[] {
-  return REACTION_REGISTRY.filter(r =>
-    r.context === context || r.context === 'both'
-  );
 }
 
 /**
