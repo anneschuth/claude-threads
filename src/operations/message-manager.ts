@@ -290,7 +290,8 @@ export class MessageManager {
       return;
     }
 
-    logger.debug(`Transformed ${event.type} to ${ops.length} operation(s)`);
+    const opTypes = ops.map(op => op.type).join(', ');
+    logger.debug(`Transformed ${event.type} to ${ops.length} operation(s): ${opTypes}`);
 
     // Execute each operation
     for (const op of ops) {
