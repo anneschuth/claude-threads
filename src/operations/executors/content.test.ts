@@ -145,18 +145,18 @@ describe('ContentExecutor', () => {
       const ctx = getContext();
 
       // First flush creates a post
-      await executor.executeAppend(createAppendContentOp('test', 'Hello\n'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
       await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       // Second flush updates the same post
-      // Content is trimmed during formatting, but newlines create separation
+      // Content is combined with proper spacing between updates
       await executor.executeAppend(createAppendContentOp('test', 'World'), ctx);
       await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).toHaveBeenCalledTimes(1);
       expect(platform.updatePost).toHaveBeenCalledTimes(1);
-      // Content is combined with previous post content
-      expect(platform.updatePost).toHaveBeenCalledWith('post_1', 'HelloWorld');
+      // Content is combined with separator between updates
+      expect(platform.updatePost).toHaveBeenCalledWith('post_1', 'Hello\n\nWorld');
     });
 
     it('registers post for reaction routing', async () => {
@@ -205,6 +205,36 @@ describe('ContentExecutor', () => {
 
       // The extra content should be preserved
       expect(executor.getState().pendingContent).toBe(' extra');
+    });
+
+    it('adds separator between tool outputs across multiple flushes', async () => {
+      // This tests the scenario where tool_result events trigger flushes
+      // between each tool_use operation
+      const ctx = getContext();
+
+      // First: text + tool, then flush (simulates tool_result)
+      await executor.executeAppend(createAppendContentOp('test', 'Sure! Let me try.'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', '📁 Bash `pwd`', true), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+
+      // Second: another tool, then flush
+      await executor.executeAppend(createAppendContentOp('test', '🔍 Glob `*.ts`', true), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+
+      // Third: another tool, then flush
+      await executor.executeAppend(createAppendContentOp('test', '📁 Read `file.ts`', true), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+
+      // Verify proper spacing was added between each flush
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+      expect(platform.updatePost).toHaveBeenCalledTimes(2);
+
+      // Check the final combined content has proper separators
+      const finalContent = executor.getState().currentPostContent;
+      expect(finalContent).toContain('Sure! Let me try.');
+      expect(finalContent).toContain('\n\n📁 Bash');
+      expect(finalContent).toContain('\n\n🔍 Glob');
+      expect(finalContent).toContain('\n\n📁 Read');
     });
   });
 

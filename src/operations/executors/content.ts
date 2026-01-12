@@ -164,9 +164,17 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       // Update existing post
       const postId = this.state.currentPostId;
       try {
-        const combinedContent = this.state.currentPostContent
-          ? this.state.currentPostContent + content
-          : content;
+        // Ensure proper spacing when combining content
+        // The trim() removes trailing newlines, so we need to add them back when combining
+        let combinedContent: string;
+        if (this.state.currentPostContent) {
+          const needsSeparator = !this.state.currentPostContent.endsWith('\n') && !content.startsWith('\n');
+          combinedContent = needsSeparator
+            ? this.state.currentPostContent + '\n\n' + content
+            : this.state.currentPostContent + content;
+        } else {
+          combinedContent = content;
+        }
         await ctx.platform.updatePost(postId, combinedContent);
         this.state.currentPostContent = combinedContent;
         this.clearFlushedContent(pendingAtFlushStart);
