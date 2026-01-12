@@ -46,7 +46,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
  */
 function createMockMessageManager() {
   return {
-    resetContentPost: mock(() => {}),
+    closeCurrentPost: mock(() => Promise.resolve()),
     handleEvent: mock(() => Promise.resolve()),
     flush: mock(() => Promise.resolve()),
     prepareForUserMessage: mock(() => Promise.resolve()),

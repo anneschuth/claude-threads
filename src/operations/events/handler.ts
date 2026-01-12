@@ -251,11 +251,10 @@ export function handleEventPostProcessing(
  */
 async function handleCompactionStart(
   session: Session,
-  ctx: SessionContext
+  _ctx: SessionContext
 ): Promise<void> {
-  // Flush any pending content first to avoid mixing with compaction message
-  await ctx.ops.flush(session);
-  session.messageManager?.resetContentPost();
+  // Close current post (flushes pending content) to avoid mixing with compaction message
+  await session.messageManager?.closeCurrentPost();
 
   // Create the compaction status post
   const formatter = session.platform.getFormatter();

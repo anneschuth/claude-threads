@@ -713,8 +713,14 @@ export class MessageManager {
    * Reset content post state to start next content in a new post.
    * Called after compaction or before sending follow-up messages.
    */
-  resetContentPost(): void {
-    this.contentExecutor.resetContentPost();
+  /**
+   * Close the current post, flushing any pending content first.
+   * Subsequent content will go to a new post.
+   * Called when user sends a message to ensure Claude's response appears below the user's message.
+   */
+  async closeCurrentPost(): Promise<void> {
+    await this.flush();
+    this.contentExecutor.closeCurrentPost();
   }
 
   /**
@@ -872,12 +878,9 @@ export class MessageManager {
     const logger = log.forSession(this.sessionId);
     logger.debug('Preparing for new user message');
 
-    // Flush any pending content before starting new message
-    // This ensures code blocks and other structures are properly closed
-    await this.flush();
-
-    // Reset current post so Claude's response starts in a new message
-    this.resetContentPost();
+    // Close current post (flushes pending content) so Claude's response
+    // starts in a new message below the user's message
+    await this.closeCurrentPost();
 
     // Bump task list below the user's message
     await this.bumpTaskList();

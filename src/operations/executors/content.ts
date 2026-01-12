@@ -69,10 +69,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   }
 
   /**
-   * Reset content post state to start next content in a new post.
-   * Called after compaction or before sending follow-up messages.
+   * Close the current post, signaling that subsequent content should go to a new post.
+   * Called when user sends a message or after compaction.
    */
-  resetContentPost(): void {
+  closeCurrentPost(): void {
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
   }

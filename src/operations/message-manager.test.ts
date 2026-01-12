@@ -482,4 +482,104 @@ describe('MessageManager', () => {
       expect(postContent).not.toContain('[');
     });
   });
+
+  describe('User Message Flow', () => {
+    it('creates a new post after user message instead of updating existing post', async () => {
+      // 1. Claude sends initial response (creates post_1)
+      const event1 = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'First response from Claude' }],
+        },
+      };
+      await manager.handleEvent(event1);
+      await manager.flush();
+
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+      const firstPostContent = manager.getCurrentPostContent();
+      expect(firstPostContent).toContain('First response');
+
+      // 2. User sends a follow-up message
+      await manager.handleUserMessage('User follow-up question', undefined, 'testuser');
+
+      // 3. Claude responds again - should create NEW post, not update post_1
+      const event2 = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'Second response from Claude' }],
+        },
+      };
+      await manager.handleEvent(event2);
+      await manager.flush();
+
+      // Should have created 2 posts total (not updated the first one)
+      expect(platform.createPost).toHaveBeenCalledTimes(2);
+      const secondPostContent = manager.getCurrentPostContent();
+      expect(secondPostContent).toContain('Second response');
+      expect(secondPostContent).not.toContain('First response');
+    });
+
+    it('closeCurrentPost signals that next content goes to a new post', async () => {
+      // 1. Create initial content in a post
+      const event1 = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'Initial content' }],
+        },
+      };
+      await manager.handleEvent(event1);
+      await manager.flush();
+
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+
+      // 2. Close the current post (flushes + signals completion)
+      await manager.closeCurrentPost();
+
+      // 3. Next content should go to a NEW post
+      const event2 = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'New content after close' }],
+        },
+      };
+      await manager.handleEvent(event2);
+      await manager.flush();
+
+      // Should have created 2 posts, not updated the first
+      expect(platform.createPost).toHaveBeenCalledTimes(2);
+    });
+
+    it('prepareForUserMessage flushes pending content and closes current post', async () => {
+      // 1. Accumulate some content (but don't flush yet)
+      const event = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'Pending content' }],
+        },
+      };
+      await manager.handleEvent(event);
+
+      // Content is pending, no post created yet
+      expect(platform.createPost).toHaveBeenCalledTimes(0);
+
+      // 2. Prepare for user message (should flush + close)
+      await manager.prepareForUserMessage();
+
+      // Should have flushed the pending content
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+
+      // 3. Next content should go to a new post
+      const event2 = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'After user message' }],
+        },
+      };
+      await manager.handleEvent(event2);
+      await manager.flush();
+
+      // Should have created 2 posts
+      expect(platform.createPost).toHaveBeenCalledTimes(2);
+    });
+  });
 });
