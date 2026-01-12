@@ -378,14 +378,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
   }
 
   /**
-   * Clear pending questions (e.g., when session ends).
-   */
-  clearPendingQuestions(): void {
-    this.state.pendingQuestionSet = null;
-  }
-
-  /**
-   * Clear pending question set (alias for clearPendingQuestions).
+   * Clear pending question set (e.g., when session ends).
    */
   clearPendingQuestionSet(): void {
     this.state.pendingQuestionSet = null;
