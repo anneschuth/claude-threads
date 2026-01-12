@@ -14,10 +14,10 @@ import {
   getNumberEmojiIndex,
   isBugReportEmoji,
 } from '../utils/emoji.js';
-import { withErrorHandling } from './error-handler.js';
 import { createLogger } from '../utils/logger.js';
 import { shortenPath } from '../operations/index.js';
 import { reportBug, handleBugReportApproval } from './commands.js';
+import { updatePost, updatePostSuccess } from './post-helpers.js';
 
 const log = createLogger('reactions');
 
@@ -134,9 +134,10 @@ export async function handleMessageApprovalReaction(
 
   if (isAllow) {
     // Allow this single message
-    await session.platform.updatePost(
+    await updatePostSuccess(
+      session,
       pending.postId,
-      `✅ Message from ${formatter.formatUserMention(pending.fromUser)} approved by ${formatter.formatUserMention(approver)}`
+      `Message from ${formatter.formatUserMention(pending.fromUser)} approved by ${formatter.formatUserMention(approver)}`
     );
     session.claude.sendMessage(pending.originalMessage);
     session.lastActivityAt = new Date();
@@ -146,9 +147,10 @@ export async function handleMessageApprovalReaction(
   } else if (isInvite) {
     // Invite user to session
     session.sessionAllowedUsers.add(pending.fromUser);
-    await session.platform.updatePost(
+    await updatePostSuccess(
+      session,
       pending.postId,
-      `✅ ${formatter.formatUserMention(pending.fromUser)} invited to session by ${formatter.formatUserMention(approver)}`
+      `${formatter.formatUserMention(pending.fromUser)} invited to session by ${formatter.formatUserMention(approver)}`
     );
     await ctx.ops.updateSessionHeader(session);
     session.claude.sendMessage(pending.originalMessage);
@@ -157,7 +159,8 @@ export async function handleMessageApprovalReaction(
     sessionLog(session).info(`👋 @${pending.fromUser} invited to session by @${approver}`);
   } else if (isDeny) {
     // Deny
-    await session.platform.updatePost(
+    await updatePost(
+      session,
       pending.postId,
       `❌ Message from ${formatter.formatUserMention(pending.fromUser)} denied by ${formatter.formatUserMention(approver)}`
     );
@@ -213,9 +216,10 @@ export async function handleExistingWorktreeReaction(
 
   if (isApprove) {
     // Join the existing worktree
-    await session.platform.updatePost(
+    await updatePostSuccess(
+      session,
       pending.postId,
-      `✅ Joining worktree for branch ${formatter.formatCode(pending.branch)} at ${formatter.formatCode(shortPath)}`
+      `Joining worktree for branch ${formatter.formatCode(pending.branch)} at ${formatter.formatCode(shortPath)}`
     );
 
     // Clear the pending prompt before switching
@@ -228,9 +232,10 @@ export async function handleExistingWorktreeReaction(
     sessionLog(session).info(`🌿 @${username} joined existing worktree ${pending.branch} at ${shortPath}`);
   } else {
     // Skip - continue in current directory
-    await session.platform.updatePost(
+    await updatePostSuccess(
+      session,
       pending.postId,
-      `✅ Continuing in current directory (skipped by ${formatter.formatUserMention(username)})`
+      `Continuing in current directory (skipped by ${formatter.formatUserMention(username)})`
     );
 
     // Clear the pending prompt
@@ -288,13 +293,11 @@ export async function handleUpdateReaction(
 
   if (isUpdateNow) {
     // Update now
-    await withErrorHandling(
-      () => session.platform.updatePost(
-        pending.postId,
-        `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...\n` +
-        formatter.formatItalic('Sessions will resume automatically')
-      ),
-      { action: 'Update post for force update', session }
+    await updatePost(
+      session,
+      pending.postId,
+      `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...\n` +
+      formatter.formatItalic('Sessions will resume automatically')
     );
 
     // Clear the pending prompt
@@ -309,13 +312,11 @@ export async function handleUpdateReaction(
     // Defer for 1 hour
     updateHandler.deferUpdate(60);
 
-    await withErrorHandling(
-      () => session.platform.updatePost(
-        pending.postId,
-        `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
-        formatter.formatItalic('Use !update now to apply earlier')
-      ),
-      { action: 'Update post for defer update', session }
+    await updatePost(
+      session,
+      pending.postId,
+      `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour\n` +
+      formatter.formatItalic('Use !update now to apply earlier')
     );
 
     // Clear the pending prompt

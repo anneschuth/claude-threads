@@ -13,7 +13,7 @@ import { getSessionStatus } from './types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { shortenPath } from '../operations/index.js';
 import { withErrorHandling } from './error-handler.js';
-import { resetSessionActivity, updateLastMessage } from './post-helpers.js';
+import { resetSessionActivity, postInfo, postError, updatePost } from './post-helpers.js';
 import type { SessionContext } from './context.js';
 import { createLogger } from '../utils/logger.js';
 import { extractPullRequestUrl } from '../utils/pr-detector.js';
@@ -21,8 +21,6 @@ import { changeDirectory, reportBug } from './commands.js';
 import { buildWorktreeListMessage } from './worktree.js';
 import { trackEvent } from './bug-report.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
-import { postInfo, postError } from './post-helpers.js';
-import { NUMBER_EMOJIS } from '../utils/emoji.js';
 
 const log = createLogger('events');
 
@@ -83,7 +81,7 @@ async function executeClaudeCommand(
   const visibilityMessage = `🤖 ${formatter.formatBold('Claude executed:')} ${formatter.formatCode(`!${command}${shortArgs ? ' ' + shortArgs : ''}`)}`;
 
   await withErrorHandling(
-    () => session.platform.createPost(visibilityMessage, session.threadId),
+    () => postInfo(session, visibilityMessage),
     { action: 'Post Claude command visibility', session }
   );
 
@@ -266,14 +264,13 @@ async function handleCompactionStart(
   const formatter = session.platform.getFormatter();
   const message = `🗜️ ${formatter.formatBold('Compacting context...')} ${formatter.formatItalic('(freeing up memory)')}`;
   const post = await withErrorHandling(
-    () => session.platform.createPost(message, session.threadId),
+    () => postInfo(session, message),
     { action: 'Post compaction start', session }
   );
 
   if (post) {
     session.compactionPostId = post.id;
-    // Track for jump-to-bottom links
-    updateLastMessage(session, post);
+    // Note: postInfo already calls updateLastMessage internally
   }
 }
 
@@ -298,21 +295,15 @@ async function handleCompactionComplete(
 
   if (session.compactionPostId) {
     // Update the existing compaction post
-    const postId = session.compactionPostId;
-    await withErrorHandling(
-      () => session.platform.updatePost(postId, completionMessage),
-      { action: 'Update compaction complete', session }
-    );
+    await updatePost(session, session.compactionPostId, completionMessage);
     session.compactionPostId = undefined;
   } else {
     // Fallback: create a new post if we don't have the original
-    const post = await withErrorHandling(
-      () => session.platform.createPost(completionMessage, session.threadId),
+    // Note: postInfo already calls updateLastMessage internally
+    await withErrorHandling(
+      () => postInfo(session, completionMessage),
       { action: 'Post compaction complete', session }
     );
-    if (post) {
-      updateLastMessage(session, post);
-    }
   }
 }
 
@@ -501,43 +492,3 @@ function updateUsageFromStatusLine(session: Session): void {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Question posting (for multi-question flows)
-// ---------------------------------------------------------------------------
-
-/**
- * Post the current question in a multi-question set.
- * Called when advancing to the next question after user answers one.
- */
-export async function postCurrentQuestion(
-  session: Session,
-  ctx: SessionContext
-): Promise<void> {
-  const questionSet = session.messageManager?.getPendingQuestionSet();
-  if (!questionSet) return;
-
-  const { currentIndex, questions } = questionSet;
-  const question = questions[currentIndex];
-  if (!question) return;
-
-  const formatter = session.platform.getFormatter();
-
-  // Build question message
-  let message = `❓ ${formatter.formatBold(question.header)}: ${question.question}\n\n`;
-  for (let i = 0; i < question.options.length; i++) {
-    const opt = question.options[i];
-    message += `${NUMBER_EMOJIS[i]} ${formatter.formatBold(opt.label)} - ${opt.description}\n`;
-  }
-
-  // Post the question with reaction options
-  const post = await session.platform.createInteractivePost(
-    message,
-    NUMBER_EMOJIS.slice(0, question.options.length),
-    session.threadId
-  );
-
-  // Update tracking
-  questionSet.currentPostId = post.id;
-  ctx.ops.registerPost(post.id, session.threadId);
-  updateLastMessage(session, post);
-}

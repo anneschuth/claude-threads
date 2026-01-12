@@ -382,10 +382,14 @@ export async function startSession(
   // Check max sessions limit
   if (ctx.state.sessions.size >= ctx.config.maxSessions) {
     const formatter = platform.getFormatter();
-    await platform.createPost(
-      `⚠️ ${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`,
-      replyToPostId
-    );
+    // Create a temporary pseudo-session just for posting the message
+    // (we don't have a real session yet since we're at capacity)
+    const tempSession = {
+      platform,
+      threadId: replyToPostId || '',
+      sessionId: 'temp',
+    } as Session;
+    await postWarning(tempSession, `${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`);
     return;
   }
 
@@ -604,11 +608,14 @@ export async function resumeSession(
     log.warn(`Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     const resumeFormatter = platform.getFormatter();
+    // Create a temporary pseudo-session just for posting the message
+    const tempSession = {
+      platform,
+      threadId: state.threadId,
+      sessionId: `${state.platformId}:${state.threadId}`,
+    } as Session;
     await withErrorHandling(
-      () => platform.createPost(
-        `⚠️ ${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`,
-        state.threadId
-      ),
+      () => postWarning(tempSession, `${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`),
       { action: 'Post resume failure notification' }
     );
     return;
@@ -708,6 +715,33 @@ export async function resumeSession(
     tasksMinimized: state.tasksMinimized,
   });
 
+  // Hydrate MessageManager with persisted interactive state (if any)
+  // Note: These fields may not exist in older persisted sessions
+  const persistedWithInteractive = state as PersistedSession & {
+    pendingQuestionSet?: {
+      toolUseId: string;
+      currentIndex: number;
+      currentPostId: string | null;
+      questions: Array<{
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        answer: string | null;
+      }>;
+    } | null;
+    pendingApproval?: {
+      postId: string;
+      type: 'plan' | 'action';
+      toolUseId: string;
+    } | null;
+  };
+  if (persistedWithInteractive.pendingQuestionSet || persistedWithInteractive.pendingApproval) {
+    session.messageManager.hydrateInteractiveState({
+      pendingQuestionSet: persistedWithInteractive.pendingQuestionSet,
+      pendingApproval: persistedWithInteractive.pendingApproval,
+    });
+  }
+
   // Log session resume
   session.threadLogger?.logLifecycle('resume', {
     username: state.startedBy,
@@ -778,10 +812,7 @@ export async function resumeSession(
     // Try to notify user
     const failFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => session.platform.createPost(
-        `⚠️ ${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`,
-        state.threadId
-      ),
+      () => postWarning(session, `${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`),
       { action: 'Post resume failure notification', session }
     );
 

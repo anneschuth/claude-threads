@@ -474,5 +474,98 @@ describe('InteractiveExecutor', () => {
 
       expect(executor.hasPendingQuestions()).toBe(false);
     });
+
+    it('hydrates question state from persisted data', () => {
+      const persisted = {
+        pendingQuestionSet: {
+          toolUseId: 'tool-hydrate-123',
+          currentIndex: 1,
+          currentPostId: 'post-456',
+          questions: [
+            {
+              header: 'Question 1',
+              question: 'First question?',
+              options: [
+                { label: 'Option A', description: 'First option' },
+                { label: 'Option B', description: 'Second option' },
+              ],
+              answer: 'Option A',
+            },
+            {
+              header: 'Question 2',
+              question: 'Second question?',
+              options: [
+                { label: 'Option C', description: 'Third option' },
+                { label: 'Option D', description: 'Fourth option' },
+              ],
+              answer: null,
+            },
+          ],
+        },
+        pendingApproval: null,
+      };
+
+      executor.hydrateState(persisted);
+
+      expect(executor.hasPendingQuestions()).toBe(true);
+      expect(executor.hasPendingApproval()).toBe(false);
+
+      const state = executor.getPendingQuestionSet();
+      expect(state).not.toBeNull();
+      expect(state!.toolUseId).toBe('tool-hydrate-123');
+      expect(state!.currentIndex).toBe(1);
+      expect(state!.currentPostId).toBe('post-456');
+      expect(state!.questions).toHaveLength(2);
+      expect(state!.questions[0].answer).toBe('Option A');
+      expect(state!.questions[1].answer).toBeNull();
+    });
+
+    it('hydrates approval state from persisted data', () => {
+      const persisted = {
+        pendingQuestionSet: null,
+        pendingApproval: {
+          postId: 'approval-post-789',
+          type: 'plan' as const,
+          toolUseId: 'tool-approval-456',
+        },
+      };
+
+      executor.hydrateState(persisted);
+
+      expect(executor.hasPendingQuestions()).toBe(false);
+      expect(executor.hasPendingApproval()).toBe(true);
+
+      const approval = executor.getPendingApproval();
+      expect(approval).not.toBeNull();
+      expect(approval!.postId).toBe('approval-post-789');
+      expect(approval!.type).toBe('plan');
+      expect(approval!.toolUseId).toBe('tool-approval-456');
+    });
+
+    it('hydrates empty state correctly', () => {
+      // First set some state
+      executor.hydrateState({
+        pendingQuestionSet: {
+          toolUseId: 'tool-123',
+          currentIndex: 0,
+          currentPostId: 'post-1',
+          questions: [],
+        },
+        pendingApproval: {
+          postId: 'post-2',
+          type: 'action' as const,
+          toolUseId: 'tool-456',
+        },
+      });
+
+      expect(executor.hasPendingQuestions()).toBe(true);
+      expect(executor.hasPendingApproval()).toBe(true);
+
+      // Now hydrate with empty state
+      executor.hydrateState({});
+
+      expect(executor.hasPendingQuestions()).toBe(false);
+      expect(executor.hasPendingApproval()).toBe(false);
+    });
   });
 });

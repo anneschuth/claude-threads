@@ -10,7 +10,6 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
   handleEventPreProcessing,
   handleEventPostProcessing,
-  postCurrentQuestion,
 } from './events.js';
 import type { SessionContext } from './context.js';
 import type { Session } from './types.js';
@@ -276,77 +275,7 @@ describe('handleEventPostProcessing', () => {
 
   // NOTE: Subagent toggle reaction tests have been moved to subagent.test.ts
   // since that functionality is now handled by SubagentExecutor via MessageManager
-});
 
-describe('postCurrentQuestion', () => {
-  let platform: PlatformClient;
-  let session: Session;
-  let ctx: SessionContext;
-  let pendingQuestionSet: any;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-    ctx = createSessionContext();
-    pendingQuestionSet = null;
-    // Mock messageManager with getPendingQuestionSet
-    session.messageManager = {
-      getPendingQuestionSet: () => pendingQuestionSet,
-    } as any;
-  });
-
-  test('does nothing if no pending question set', async () => {
-    pendingQuestionSet = null;
-
-    await postCurrentQuestion(session, ctx);
-
-    expect(platform.createInteractivePost).not.toHaveBeenCalled();
-  });
-
-  test('posts current question with options', async () => {
-    pendingQuestionSet = {
-      toolUseId: 'ask_1',
-      currentIndex: 0,
-      currentPostId: null,
-      questions: [{
-        header: 'Test Header',
-        question: 'What do you prefer?',
-        options: [
-          { label: 'Option A', description: 'First option' },
-          { label: 'Option B', description: 'Second option' },
-        ],
-        answer: null,
-      }],
-    };
-
-    await postCurrentQuestion(session, ctx);
-
-    expect(platform.createInteractivePost).toHaveBeenCalled();
-    const call = (platform.createInteractivePost as any).mock.calls[0];
-    const message = call[0];
-
-    expect(message).toContain('Test Header');
-    expect(message).toContain('What do you prefer?');
-    expect(message).toContain('Option A');
-    expect(message).toContain('Option B');
-  });
-
-  test('registers the question post', async () => {
-    pendingQuestionSet = {
-      toolUseId: 'ask_1',
-      currentIndex: 0,
-      currentPostId: null,
-      questions: [{
-        header: 'Header',
-        question: 'Question?',
-        options: [{ label: 'A', description: 'A' }],
-        answer: null,
-      }],
-    };
-
-    await postCurrentQuestion(session, ctx);
-
-    expect(ctx.ops.registerPost).toHaveBeenCalled();
-    expect(pendingQuestionSet.currentPostId).toBeTruthy();
-  });
+  // NOTE: postCurrentQuestion tests have been removed - question posting now
+  // goes through InteractiveExecutor.postCurrentQuestion() in MessageManager
 });

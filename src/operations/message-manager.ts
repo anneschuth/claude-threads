@@ -478,6 +478,31 @@ export class MessageManager {
   }
 
   /**
+   * Hydrate interactive state from persisted session data.
+   * Called during session resume to restore pending questions/approvals.
+   */
+  hydrateInteractiveState(persisted: {
+    pendingQuestionSet?: {
+      toolUseId: string;
+      currentIndex: number;
+      currentPostId: string | null;
+      questions: Array<{
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        answer: string | null;
+      }>;
+    } | null;
+    pendingApproval?: {
+      postId: string;
+      type: 'plan' | 'action';
+      toolUseId: string;
+    } | null;
+  }): void {
+    this.interactiveExecutor.hydrateState(persisted);
+  }
+
+  /**
    * Post an info message
    */
   async postInfo(message: string): Promise<PlatformPost | undefined> {

@@ -80,6 +80,20 @@ export class InteractiveExecutor {
   }
 
   /**
+   * Hydrate state from persisted session data.
+   * Used when resuming a session after bot restart.
+   */
+  hydrateState(persisted: {
+    pendingQuestionSet?: InteractiveState['pendingQuestionSet'];
+    pendingApproval?: InteractiveState['pendingApproval'];
+  }): void {
+    this.state = {
+      pendingQuestionSet: persisted.pendingQuestionSet ?? null,
+      pendingApproval: persisted.pendingApproval ?? null,
+    };
+  }
+
+  /**
    * Check if there are pending questions.
    */
   hasPendingQuestions(): boolean {

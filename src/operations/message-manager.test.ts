@@ -241,4 +241,94 @@ describe('MessageManager', () => {
       expect(platform.createPost).toHaveBeenCalled();
     });
   });
+
+  describe('State Hydration', () => {
+    it('hydrates task list state', () => {
+      manager.hydrateTaskListState({
+        tasksPostId: 'task-post-123',
+        lastTasksContent: '📋 Tasks (1/2)',
+        tasksCompleted: false,
+        tasksMinimized: true,
+      });
+
+      const state = manager.getTaskListState();
+      expect(state.postId).toBe('task-post-123');
+      expect(state.content).toBe('📋 Tasks (1/2)');
+      expect(state.isCompleted).toBe(false);
+      expect(state.isMinimized).toBe(true);
+    });
+
+    it('hydrates interactive state with pending questions', () => {
+      manager.hydrateInteractiveState({
+        pendingQuestionSet: {
+          toolUseId: 'tool-123',
+          currentIndex: 1,
+          currentPostId: 'question-post-456',
+          questions: [
+            {
+              header: 'Q1',
+              question: 'First?',
+              options: [{ label: 'A', description: 'desc' }],
+              answer: 'A',
+            },
+            {
+              header: 'Q2',
+              question: 'Second?',
+              options: [{ label: 'B', description: 'desc' }],
+              answer: null,
+            },
+          ],
+        },
+        pendingApproval: null,
+      });
+
+      expect(manager.hasPendingQuestions()).toBe(true);
+      expect(manager.hasPendingApproval()).toBe(false);
+
+      const questionSet = manager.getPendingQuestionSet();
+      expect(questionSet).not.toBeNull();
+      expect(questionSet!.toolUseId).toBe('tool-123');
+      expect(questionSet!.currentIndex).toBe(1);
+    });
+
+    it('hydrates interactive state with pending approval', () => {
+      manager.hydrateInteractiveState({
+        pendingQuestionSet: null,
+        pendingApproval: {
+          postId: 'approval-post-789',
+          type: 'plan',
+          toolUseId: 'tool-456',
+        },
+      });
+
+      expect(manager.hasPendingQuestions()).toBe(false);
+      expect(manager.hasPendingApproval()).toBe(true);
+
+      const approval = manager.getPendingApproval();
+      expect(approval).not.toBeNull();
+      expect(approval!.postId).toBe('approval-post-789');
+      expect(approval!.type).toBe('plan');
+    });
+
+    it('hydrates empty interactive state', () => {
+      // First set some state
+      manager.hydrateInteractiveState({
+        pendingQuestionSet: {
+          toolUseId: 'tool-123',
+          currentIndex: 0,
+          currentPostId: 'post-1',
+          questions: [],
+        },
+        pendingApproval: null,
+      });
+
+      expect(manager.hasPendingQuestions()).toBe(true);
+
+      // Now hydrate with empty state
+      manager.hydrateInteractiveState({});
+
+      expect(manager.hasPendingQuestions()).toBe(false);
+      expect(manager.hasPendingApproval()).toBe(false);
+    });
+  });
 });

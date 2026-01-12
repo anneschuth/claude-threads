@@ -24,8 +24,18 @@ import {
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { randomUUID } from 'crypto';
-import { withErrorHandling, logAndNotify } from './error-handler.js';
-import { postWarning, postError, postSuccess, postInfo, resetSessionActivity, updateLastMessage } from './post-helpers.js';
+import { logAndNotify } from './error-handler.js';
+import {
+  postWarning,
+  postError,
+  postSuccess,
+  postInfo,
+  resetSessionActivity,
+  postInteractiveAndRegister,
+  updatePost,
+  updatePostSuccess,
+  removeReaction,
+} from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 import { shortenPath } from '../operations/index.js';
 
@@ -208,15 +218,10 @@ export async function postWorktreePrompt(
     reactionOptions.push('x');
   }
 
-  const post = await session.platform.createInteractivePost(
-    message,
-    reactionOptions,
-    session.threadId
-  );
+  const post = await postInteractiveAndRegister(session, message, reactionOptions, registerPost);
 
   // Track the post for reaction handling
   session.worktreePromptPostId = post.id;
-  registerPost(post.id, session.threadId);
 
   // Store suggestions for reaction handling
   if (suggestions.length > 0) {
@@ -225,9 +230,6 @@ export async function postWorktreePrompt(
       suggestions,
     };
   }
-
-  // Track for jump-to-bottom links
-  updateLastMessage(session, post);
 }
 
 /**
@@ -340,18 +342,12 @@ export async function handleWorktreeSkip(
 
   if (promptPostId) {
     const message = isFailurePrompt
-      ? `✅ Continuing in main repo after worktree failure (by @${username})`
-      : `✅ Continuing in main repo (skipped by @${username})`;
+      ? `Continuing in main repo after worktree failure (by @${username})`
+      : `Continuing in main repo (skipped by @${username})`;
 
-    await withErrorHandling(
-      () => session.platform.updatePost(promptPostId, message),
-      { action: 'Update worktree prompt', session }
-    );
+    await updatePostSuccess(session, promptPostId, message);
     // Remove the ❌ reaction option since the action is complete
-    await withErrorHandling(
-      () => session.platform.removeReaction(promptPostId, 'x'),
-      { action: 'Remove x reaction from worktree prompt', session }
-    );
+    await removeReaction(session, promptPostId, 'x');
   }
 
   // Clear pending state
@@ -431,16 +427,9 @@ export async function createAndSwitchToWorktree(
       // Update the worktree prompt post
       const worktreePromptId = session.worktreePromptPostId;
       if (worktreePromptId) {
-        await withErrorHandling(
-          () => session.platform.updatePost(worktreePromptId,
-            `✅ Joining existing worktree for ${fmt.formatCode(branch)}`),
-          { action: 'Update worktree prompt', session }
-        );
+        await updatePostSuccess(session, worktreePromptId, `Joining existing worktree for ${fmt.formatCode(branch)}`);
         // Remove the ❌ reaction option since the action is complete
-        await withErrorHandling(
-          () => session.platform.removeReaction(worktreePromptId, 'x'),
-          { action: 'Remove x reaction from worktree prompt', session }
-        );
+        await removeReaction(session, worktreePromptId, 'x');
       }
 
       // Clear pending worktree prompt state
@@ -519,11 +508,12 @@ export async function createAndSwitchToWorktree(
     }
 
     // Otherwise, post interactive prompt asking if user wants to join the existing worktree
-    const post = await session.platform.createInteractivePost(
+    const post = await postInteractiveAndRegister(
+      session,
       `🌿 ${fmt.formatBold(`Worktree for branch ${fmt.formatCode(branch)} already exists`)} at ${fmt.formatCode(shortPath)}.\n` +
       `React with 👍 to join this worktree, or ❌ to continue in the current directory.`,
       ['+1', 'x'],  // thumbsup and x emoji names
-      session.threadId
+      options.registerPost
     );
 
     // Store the pending prompt for reaction handling
@@ -533,11 +523,6 @@ export async function createAndSwitchToWorktree(
       worktreePath: existing.path,
       username,
     };
-
-    // Register the post for reaction routing
-    options.registerPost(post.id, session.threadId);
-    // Track for jump-to-bottom links
-    updateLastMessage(session, post);
 
     // Persist the session state and update sticky message
     options.persistSession(session);
@@ -566,16 +551,9 @@ export async function createAndSwitchToWorktree(
     // Update the prompt post if it exists
     const worktreePromptId = session.worktreePromptPostId;
     if (worktreePromptId) {
-      await withErrorHandling(
-        () => session.platform.updatePost(worktreePromptId,
-          `✅ Created worktree for \`${branch}\``),
-        { action: 'Update worktree prompt', session }
-      );
+      await updatePostSuccess(session, worktreePromptId, `Created worktree for \`${branch}\``);
       // Remove the ❌ reaction option since the action is complete
-      await withErrorHandling(
-        () => session.platform.removeReaction(worktreePromptId, 'x'),
-        { action: 'Remove x reaction from worktree prompt', session }
-      );
+      await removeReaction(session, worktreePromptId, 'x');
     }
 
     // Clear pending state
@@ -683,33 +661,25 @@ export async function createAndSwitchToWorktree(
     // Update the original worktree prompt post if it exists
     const worktreePromptId = session.worktreePromptPostId;
     if (worktreePromptId) {
-      await withErrorHandling(
-        () => session.platform.updatePost(worktreePromptId,
-          `❌ ${fmt.formatBold(summary)}: ${fmt.formatCode(branch)}`),
-        { action: 'Update worktree prompt after failure', session }
-      );
+      await updatePost(session, worktreePromptId, `❌ ${fmt.formatBold(summary)}: ${fmt.formatCode(branch)}`);
       // Remove the ❌ reaction option since we'll show a new prompt
-      await withErrorHandling(
-        () => session.platform.removeReaction(worktreePromptId, 'x'),
-        { action: 'Remove x reaction from worktree prompt', session }
-      );
+      await removeReaction(session, worktreePromptId, 'x');
     }
 
     // If worktreeMode is 'require', we can't fall back to main repo - must retry
     if (options.worktreeMode === 'require') {
       // Show error with retry prompt
-      const post = await session.platform.createInteractivePost(
+      const post = await postInteractiveAndRegister(
+        session,
         `⚠️ ${fmt.formatBold('Worktree required but creation failed')}\n\n` +
         `${suggestion}\n\n` +
         `Reply with a different branch name to try again.`,
         [],  // No skip option in require mode
-        session.threadId
+        options.registerPost
       );
 
       // Keep pending state but update the prompt post ID
       session.worktreePromptPostId = post.id;
-      options.registerPost(post.id, session.threadId);
-      updateLastMessage(session, post);
       options.persistSession(session);
 
       sessionLog(session).info(`🌿 Worktree creation failed (require mode), waiting for retry: ${branch}`);
@@ -717,12 +687,13 @@ export async function createAndSwitchToWorktree(
     }
 
     // For 'prompt' mode, offer choices: retry with different branch or continue in main repo
-    const post = await session.platform.createInteractivePost(
+    const post = await postInteractiveAndRegister(
+      session,
       `⚠️ ${fmt.formatBold('Worktree creation failed')}\n\n` +
       `${suggestion}\n\n` +
       `Reply with a different branch name to try again, or react with ❌ to continue in the main repo.`,
       ['x'],  // Allow skipping in prompt mode
-      session.threadId
+      options.registerPost
     );
 
     // Store pending state for handling the user's response
@@ -735,8 +706,6 @@ export async function createAndSwitchToWorktree(
 
     // Keep the worktree prompt in pending state so the session waits for response
     session.worktreePromptPostId = post.id;
-    options.registerPost(post.id, session.threadId);
-    updateLastMessage(session, post);
     options.persistSession(session);
 
     sessionLog(session).info(`🌿 Worktree creation failed, waiting for user decision: ${branch}`);

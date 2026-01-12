@@ -34,8 +34,24 @@ import type { PlatformFile } from '../platform/types.js';
 import { formatBatteryStatus } from '../utils/battery.js';
 import { formatUptime } from '../utils/uptime.js';
 import { keepAlive } from '../utils/keep-alive.js';
-import { logAndNotify, withErrorHandling } from './error-handler.js';
-import { postCancelled, postInfo, postWarning, postError, postSuccess, postSecure, postInterrupt, postCommand, postUser, resetSessionActivity, updateLastMessage } from './post-helpers.js';
+import { logAndNotify } from './error-handler.js';
+import {
+  postCancelled,
+  postInfo,
+  postWarning,
+  postError,
+  postSuccess,
+  postSecure,
+  postInterrupt,
+  postCommand,
+  postUser,
+  resetSessionActivity,
+  postInteractiveAndRegister,
+  updatePost,
+  updatePostSuccess,
+  updatePostError,
+  updatePostCancelled,
+} from './post-helpers.js';
 import { createLogger } from '../utils/logger.js';
 import { formatPullRequestLink } from '../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../git/worktree.js';
@@ -214,11 +230,8 @@ export async function approvePendingPlan(
 
   // Update the post to show the decision
   const formatter = session.platform.getFormatter();
-  const statusMessage = `✅ ${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`;
-  await withErrorHandling(
-    () => session.platform.updatePost(postId, statusMessage),
-    { action: 'Update approval post', session }
-  );
+  const statusMessage = `${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`;
+  await updatePostSuccess(session, postId, statusMessage);
 
   // Clear pending approval and mark as approved
   session.messageManager?.clearPendingApproval();
@@ -502,10 +515,11 @@ export async function requestMessageApproval(
     `${formatter.formatBlockquote(displayMessage)}\n\n` +
     `React: 👍 Allow once | ✅ Invite to session | 👎 Deny`;
 
-  const post = await session.platform.createInteractivePost(
+  const post = await postInteractiveAndRegister(
+    session,
     approvalMessage,
     [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
-    session.threadId
+    ctx.ops.registerPost
   );
 
   session.pendingMessageApproval = {
@@ -513,11 +527,6 @@ export async function requestMessageApproval(
     originalMessage: message,
     fromUser: username,
   };
-
-  // Register post for reaction routing
-  ctx.ops.registerPost(post.id, session.threadId);
-  // Track for jump-to-bottom links
-  updateLastMessage(session, post);
 }
 
 // ---------------------------------------------------------------------------
@@ -672,10 +681,7 @@ export async function updateSessionHeader(
   ].join('\n');
 
   const postId = session.sessionStartPostId;
-  await withErrorHandling(
-    () => session.platform.updatePost(postId, msg),
-    { action: 'Update session header', session }
-  );
+  await updatePost(session, postId, msg);
 }
 
 // ---------------------------------------------------------------------------
@@ -741,16 +747,15 @@ export async function showUpdateStatus(
     `React: 👍 Update now | 👎 Defer for 1 hour`;
 
   // Create interactive post with reaction options
-  const post = await session.platform.createInteractivePost(
+  const post = await postInteractiveAndRegister(
+    session,
     message,
     [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
-    session.threadId
+    ctx.ops.registerPost
   );
 
   // Store pending update prompt for reaction handling
   session.pendingUpdatePrompt = { postId: post.id };
-  // Register post in index so reactions can find the session
-  ctx.ops.registerPost(post.id, session.threadId);
 }
 
 /**
@@ -899,10 +904,11 @@ export async function reportBug(
   const previewMessage = `🐛 ${preview}`;
 
   // Post preview with approval reactions
-  const post = await session.platform.createInteractivePost(
+  const post = await postInteractiveAndRegister(
+    session,
     previewMessage,
     [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
-    session.threadId
+    ctx.ops.registerPost
   );
 
   // Store pending bug report
@@ -915,10 +921,6 @@ export async function reportBug(
     imageErrors,
     errorContext,
   };
-
-  // Register post for reaction routing
-  ctx.ops.registerPost(post.id, session.threadId);
-  updateLastMessage(session, post);
 
   sessionLog(session).info(`🐛 Bug report preview created by @${username}: ${title}`);
 }
@@ -947,34 +949,22 @@ export async function handleBugReportApproval(
       );
 
       // Update the approval post to show success
-      await withErrorHandling(
-        () => session.platform.updatePost(
-          pending.postId,
-          `✅ ${formatter.formatBold('Bug report submitted')}: ${issueUrl}`
-        ),
-        { action: 'Update bug report post', session }
+      await updatePostSuccess(session, pending.postId,
+        `${formatter.formatBold('Bug report submitted')}: ${issueUrl}`
       );
 
       sessionLog(session).info(`🐛 Bug report created by @${username}: ${issueUrl}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      await withErrorHandling(
-        () => session.platform.updatePost(
-          pending.postId,
-          `❌ ${formatter.formatBold('Failed to create bug report')}: ${errorMessage}`
-        ),
-        { action: 'Update bug report post', session }
+      await updatePostError(session, pending.postId,
+        `${formatter.formatBold('Failed to create bug report')}: ${errorMessage}`
       );
       sessionLog(session).error(`Failed to create bug report: ${errorMessage}`);
     }
   } else {
     // Cancelled
-    await withErrorHandling(
-      () => session.platform.updatePost(
-        pending.postId,
-        `🚫 ${formatter.formatBold('Bug report cancelled')} by ${formatter.formatUserMention(username)}`
-      ),
-      { action: 'Update bug report post', session }
+    await updatePostCancelled(session, pending.postId,
+      `${formatter.formatBold('Bug report cancelled')} by ${formatter.formatUserMention(username)}`
     );
     sessionLog(session).info(`🐛 Bug report cancelled by @${username}`);
   }

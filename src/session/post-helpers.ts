@@ -303,6 +303,136 @@ export async function postWithReactionsAndRegister(
 }
 
 /**
+ * Create an interactive post using platform's native interactive post functionality.
+ * This is preferred over postWithReactions when available.
+ *
+ * @param session - The session to post to
+ * @param message - The message content
+ * @param reactions - Array of emoji names to add as reactions
+ * @returns The created post
+ */
+export async function postInteractive(
+  session: Session,
+  message: string,
+  reactions: string[]
+): Promise<PlatformPost> {
+  const post = await session.platform.createInteractivePost(message, reactions, session.threadId);
+  updateLastMessage(session, post);
+  return post;
+}
+
+/**
+ * Create an interactive post and register for reaction routing.
+ *
+ * @param session - The session to post to
+ * @param message - The message content
+ * @param reactions - Array of emoji names to add as reactions
+ * @param registerPost - Function to register the post for reaction routing
+ * @returns The created post
+ */
+export async function postInteractiveAndRegister(
+  session: Session,
+  message: string,
+  reactions: string[],
+  registerPost: (postId: string, threadId: string) => void
+): Promise<PlatformPost> {
+  const post = await postInteractive(session, message, reactions);
+  registerPost(post.id, session.threadId);
+  return post;
+}
+
+// =============================================================================
+// Update Post Functions
+// =============================================================================
+
+/**
+ * Update an existing post with new content.
+ * Wraps platform.updatePost with consistent error handling.
+ *
+ * @param session - The session containing the post
+ * @param postId - ID of the post to update
+ * @param message - New message content
+ */
+export async function updatePost(
+  session: Session,
+  postId: string,
+  message: string
+): Promise<void> {
+  await withErrorHandling(
+    () => session.platform.updatePost(postId, message),
+    { action: 'Update post', session }
+  );
+}
+
+/**
+ * Update a post with a success message (with checkmark prefix).
+ *
+ * @param session - The session containing the post
+ * @param postId - ID of the post to update
+ * @param message - Message content (without emoji)
+ */
+export async function updatePostSuccess(
+  session: Session,
+  postId: string,
+  message: string
+): Promise<void> {
+  await updatePost(session, postId, `✅ ${message}`);
+}
+
+/**
+ * Update a post with an error message (with X prefix).
+ *
+ * @param session - The session containing the post
+ * @param postId - ID of the post to update
+ * @param message - Message content (without emoji)
+ */
+export async function updatePostError(
+  session: Session,
+  postId: string,
+  message: string
+): Promise<void> {
+  await updatePost(session, postId, `❌ ${message}`);
+}
+
+/**
+ * Update a post with a cancelled message (with no-entry prefix).
+ *
+ * @param session - The session containing the post
+ * @param postId - ID of the post to update
+ * @param message - Message content (without emoji)
+ */
+export async function updatePostCancelled(
+  session: Session,
+  postId: string,
+  message: string
+): Promise<void> {
+  await updatePost(session, postId, `🚫 ${message}`);
+}
+
+// =============================================================================
+// Reaction Functions
+// =============================================================================
+
+/**
+ * Remove a reaction from a post.
+ * Wraps platform.removeReaction with consistent error handling.
+ *
+ * @param session - The session containing the post
+ * @param postId - ID of the post to remove the reaction from
+ * @param emoji - The emoji name to remove (e.g., 'x', '+1')
+ */
+export async function removeReaction(
+  session: Session,
+  postId: string,
+  emoji: string
+): Promise<void> {
+  await withErrorHandling(
+    () => session.platform.removeReaction(postId, emoji),
+    { action: `Remove ${emoji} reaction`, session }
+  );
+}
+
+/**
  * Reset session activity state and clear duo-post tracking.
  * Call this when activity occurs to prevent updating stale posts in long threads.
  * Also updates worktree metadata to prevent the cleanup scheduler from
