@@ -90,6 +90,9 @@ export function transformEvent(
 /**
  * Transform an assistant event.
  * Handles text, tool_use, and thinking blocks.
+ *
+ * Each tool_use block creates a separate operation with isToolOutput=true
+ * so that the content executor can add proper spacing around tools.
  */
 function transformAssistant(
   event: ClaudeEvent,
@@ -107,32 +110,43 @@ function transformAssistant(
   };
 
   const operations: MessageOperation[] = [];
-  const contentParts: string[] = [];
+  // Buffer for non-tool content (text, thinking, server_tool_use)
+  const textBuffer: string[] = [];
+
+  /**
+   * Flush accumulated text content as a non-tool operation.
+   */
+  const flushTextBuffer = () => {
+    if (textBuffer.length > 0) {
+      operations.push(createAppendContentOp(ctx.sessionId, textBuffer.join('\n\n')));
+      textBuffer.length = 0;
+    }
+  };
 
   for (const block of msg?.content || []) {
     if (block.type === 'text' && block.text) {
       // Filter out <thinking> tags that may appear in text content
       const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
-      if (text) contentParts.push(text);
+      if (text) textBuffer.push(text);
     } else if (block.type === 'tool_use' && block.name) {
       // Handle special tools that create their own operations
       const specialOps = handleSpecialTool(block.name, block.id || '', block.input || {}, ctx);
       if (specialOps) {
-        // Flush accumulated content first
-        if (contentParts.length > 0) {
-          operations.push(createAppendContentOp(ctx.sessionId, contentParts.join('\n\n')));
-          contentParts.length = 0;
-        }
+        // Flush accumulated text content first
+        flushTextBuffer();
         operations.push(...specialOps);
       } else {
-        // Format regular tool use
+        // Format regular tool use - flush text first, then add tool as separate operation
         const result = toolFormatterRegistry.format(block.name, block.input || {}, {
           formatter: ctx.formatter,
           detailed: ctx.detailed ?? true,
           worktreeInfo: ctx.worktreeInfo,
         });
         if (result.display && !result.hidden) {
-          contentParts.push(result.display);
+          // Flush any accumulated text before the tool
+          flushTextBuffer();
+          // Create separate operation for tool with isToolOutput=true
+          operations.push(createAppendContentOp(ctx.sessionId, result.display, true));
         }
       }
     } else if (block.type === 'thinking' && block.thinking) {
@@ -142,20 +156,19 @@ function transformAssistant(
       const formatted = ctx.formatter.formatBlockquote(
         `💭 ${ctx.formatter.formatItalic(preview)}`
       );
-      contentParts.push(formatted);
+      textBuffer.push(formatted);
     } else if (block.type === 'server_tool_use' && block.name) {
-      // Server-managed tools (e.g., web search)
+      // Server-managed tools (e.g., web search) - treat as tool output
+      flushTextBuffer();
       const inputStr = block.input ? JSON.stringify(block.input).substring(0, 50) : '';
-      contentParts.push(
-        `🌐 ${ctx.formatter.formatBold(block.name)} ${inputStr}`
+      operations.push(
+        createAppendContentOp(ctx.sessionId, `🌐 ${ctx.formatter.formatBold(block.name)} ${inputStr}`, true)
       );
     }
   }
 
-  // Add accumulated content
-  if (contentParts.length > 0) {
-    operations.push(createAppendContentOp(ctx.sessionId, contentParts.join('\n\n')));
-  }
+  // Flush any remaining text content
+  flushTextBuffer();
 
   return operations;
 }
