@@ -65,12 +65,25 @@ function createMockPlatform(): PlatformClient {
 
 // Create context for tests
 function createTestContext(platform?: PlatformClient): ExecutorContext {
+  const p = platform ?? createMockPlatform();
+  const threadId = 'thread-123';
+
   return {
     sessionId: 'test:session-1',
-    threadId: 'thread-123',
-    platform: platform ?? createMockPlatform(),
+    threadId,
+    platform: p,
     postTracker: new PostTracker(),
     contentBreaker: new DefaultContentBreaker(),
+    formatter: mockFormatter,
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, debugJson: () => {}, forSession: () => ({} as any) } as any,
+    createPost: async (content, _options) => {
+      const post = await p.createPost(content, threadId);
+      return post;
+    },
+    createInteractivePost: async (content, reactions, _options) => {
+      const post = await p.createInteractivePost(content, reactions, threadId);
+      return post;
+    },
   };
 }
 

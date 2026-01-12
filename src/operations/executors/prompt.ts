@@ -16,10 +16,7 @@ import type {
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
 } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('prompt');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -152,27 +149,25 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (!this.state.pendingContextPrompt) return false;
     if (this.state.pendingContextPrompt.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const { queuedPrompt, queuedFiles, threadMessageCount } = this.state.pendingContextPrompt;
-    const formatter = ctx.platform.getFormatter();
+        const { queuedPrompt, queuedFiles, threadMessageCount } = this.state.pendingContextPrompt;
 
     // Update the post based on selection
     let statusMessage: string;
     if (selection === 'timeout') {
       statusMessage = `⏱️ Continuing without context (no response)`;
-      logger.info(`Context prompt timed out, continuing without context`);
+      ctx.logger.info(`Context prompt timed out, continuing without context`);
     } else if (selection === 0) {
-      statusMessage = `✅ Continuing without context (skipped by ${formatter.formatUserMention(username)})`;
-      logger.info(`Context skipped by @${username}`);
+      statusMessage = `✅ Continuing without context (skipped by ${ctx.formatter.formatUserMention(username)})`;
+      ctx.logger.info(`Context skipped by @${username}`);
     } else {
-      statusMessage = `✅ Including last ${selection} messages (selected by ${formatter.formatUserMention(username)})`;
-      logger.info(`Context selection: last ${selection} messages by @${username}`);
+      statusMessage = `✅ Including last ${selection} messages (selected by ${ctx.formatter.formatUserMention(username)})`;
+      ctx.logger.info(`Context selection: last ${selection} messages by @${username}`);
     }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update context prompt post: ${err}`);
+      ctx.logger.debug(`Failed to update context prompt post: ${err}`);
     }
 
     // Clear pending state
@@ -242,24 +237,22 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (!this.state.pendingExistingWorktreePrompt) return false;
     if (this.state.pendingExistingWorktreePrompt.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const { branch, worktreePath } = this.state.pendingExistingWorktreePrompt;
-    const formatter = ctx.platform.getFormatter();
+        const { branch, worktreePath } = this.state.pendingExistingWorktreePrompt;
 
     // Update the post based on decision
     let statusMessage: string;
     if (decision === 'join') {
-      statusMessage = `✅ Joining existing worktree ${formatter.formatBold(branch)} (${formatter.formatUserMention(username)})`;
-      logger.info(`Joining existing worktree ${branch} by @${username}`);
+      statusMessage = `✅ Joining existing worktree ${ctx.formatter.formatBold(branch)} (${ctx.formatter.formatUserMention(username)})`;
+      ctx.logger.info(`Joining existing worktree ${branch} by @${username}`);
     } else {
-      statusMessage = `✅ Continuing in current directory (skipped by ${formatter.formatUserMention(username)})`;
-      logger.info(`Skipped joining existing worktree ${branch} by @${username}`);
+      statusMessage = `✅ Continuing in current directory (skipped by ${ctx.formatter.formatUserMention(username)})`;
+      ctx.logger.info(`Skipped joining existing worktree ${branch} by @${username}`);
     }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update existing worktree prompt post: ${err}`);
+      ctx.logger.debug(`Failed to update existing worktree prompt post: ${err}`);
     }
 
     // Clear pending state
@@ -329,23 +322,21 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (!this.state.pendingUpdatePrompt) return false;
     if (this.state.pendingUpdatePrompt.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const formatter = ctx.platform.getFormatter();
-
+    
     // Update the post based on decision
     let statusMessage: string;
     if (decision === 'update_now') {
-      statusMessage = `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...`;
-      logger.info(`Update prompt: forcing update now by @${username}`);
+      statusMessage = `🔄 ${ctx.formatter.formatBold('Forcing update')} - restarting shortly...`;
+      ctx.logger.info(`Update prompt: forcing update now by @${username}`);
     } else {
-      statusMessage = `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour`;
-      logger.info(`Update prompt: update deferred by @${username}`);
+      statusMessage = `⏸️ ${ctx.formatter.formatBold('Update deferred')} for 1 hour`;
+      ctx.logger.info(`Update prompt: update deferred by @${username}`);
     }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update update prompt post: ${err}`);
+      ctx.logger.debug(`Failed to update update prompt post: ${err}`);
     }
 
     // Clear pending state
@@ -385,8 +376,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       return false;
     }
 
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // Check pending context prompt
     if (this.state.pendingContextPrompt?.postId === postId) {
       // Check for number emoji (to include N messages)
@@ -396,13 +386,13 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         const { availableOptions } = this.state.pendingContextPrompt;
         if (index < availableOptions.length) {
           const selection = availableOptions[index];
-          logger.debug(`Context prompt reaction from @${user}: ${selection} messages`);
+          ctx.logger.debug(`Context prompt reaction from @${user}: ${selection} messages`);
           return this.handleContextPromptResponse(postId, selection, user, ctx);
         }
       }
       // Check for skip emoji (x or similar denial emoji means skip)
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Context prompt reaction from @${user}: skip`);
+        ctx.logger.debug(`Context prompt reaction from @${user}: skip`);
         return this.handleContextPromptResponse(postId, 0, user, ctx);
       }
       return false;
@@ -411,11 +401,11 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     // Check pending existing worktree prompt
     if (this.state.pendingExistingWorktreePrompt?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
-        logger.debug(`Existing worktree reaction from @${user}: join`);
+        ctx.logger.debug(`Existing worktree reaction from @${user}: join`);
         return this.handleExistingWorktreeResponse(postId, 'join', user, ctx);
       }
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Existing worktree reaction from @${user}: skip`);
+        ctx.logger.debug(`Existing worktree reaction from @${user}: skip`);
         return this.handleExistingWorktreeResponse(postId, 'skip', user, ctx);
       }
       return false;
@@ -424,11 +414,11 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     // Check pending update prompt
     if (this.state.pendingUpdatePrompt?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
-        logger.debug(`Update prompt reaction from @${user}: update_now`);
+        ctx.logger.debug(`Update prompt reaction from @${user}: update_now`);
         return this.handleUpdatePromptResponse(postId, 'update_now', user, ctx);
       }
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Update prompt reaction from @${user}: defer`);
+        ctx.logger.debug(`Update prompt reaction from @${user}: defer`);
         return this.handleUpdatePromptResponse(postId, 'defer', user, ctx);
       }
       return false;

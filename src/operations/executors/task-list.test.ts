@@ -120,12 +120,27 @@ describe('TaskListExecutor', () => {
   });
 
   function getContext(): ExecutorContext {
+    const threadId = 'thread-123';
     return {
       sessionId: 'test:session-1',
-      threadId: 'thread-123',
+      threadId,
       platform,
       postTracker,
       contentBreaker,
+      formatter: mockFormatter,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, debugJson: () => {}, forSession: () => ({} as any) } as any,
+      createPost: async (content, options) => {
+        const post = await platform.createPost(content, threadId);
+        registerPostMock(post.id, options);
+        updateLastMessageMock(post);
+        return post;
+      },
+      createInteractivePost: async (content, reactions, options) => {
+        const post = await platform.createInteractivePost(content, reactions, threadId);
+        registerPostMock(post.id, options);
+        updateLastMessageMock(post);
+        return post;
+      },
     };
   }
 

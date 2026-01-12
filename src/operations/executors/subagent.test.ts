@@ -64,13 +64,39 @@ function createMockPlatform(): PlatformClient {
 }
 
 // Create context for tests
-function createTestContext(platform?: PlatformClient): ExecutorContext {
+function createTestContext(
+  platform?: PlatformClient,
+  callbacks?: {
+    registerPost?: (postId: string, options: unknown) => void;
+    updateLastMessage?: (post: PlatformPost) => void;
+  }
+): ExecutorContext {
+  const p = platform ?? createMockPlatform();
+  const threadId = 'thread-123';
+  const registerPost = callbacks?.registerPost ?? (() => {});
+  const updateLastMessage = callbacks?.updateLastMessage ?? (() => {});
+
   return {
     sessionId: 'test:session-1',
-    threadId: 'thread-123',
-    platform: platform ?? createMockPlatform(),
+    threadId,
+    platform: p,
     postTracker: new PostTracker(),
     contentBreaker: new DefaultContentBreaker(),
+    formatter: mockFormatter,
+    logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, debugJson: () => {}, forSession: () => ({} as any) } as any,
+    // Helper methods that combine create + register + track
+    createPost: async (content, options) => {
+      const post = await p.createPost(content, threadId);
+      registerPost(post.id, options);
+      updateLastMessage(post);
+      return post;
+    },
+    createInteractivePost: async (content, reactions, options) => {
+      const post = await p.createInteractivePost(content, reactions, threadId);
+      registerPost(post.id, options);
+      updateLastMessage(post);
+      return post;
+    },
   };
 }
 
@@ -84,19 +110,22 @@ describe('SubagentExecutor', () => {
     registeredPosts = new Map();
     taskListBumped = false;
 
+    const registerPost = (postId: string, options: unknown) => {
+      registeredPosts.set(postId, options);
+    };
+    const updateLastMessage = (_post: PlatformPost) => {
+      // Track last message if needed
+    };
+
     executor = new SubagentExecutor({
-      registerPost: (postId, options) => {
-        registeredPosts.set(postId, options);
-      },
-      updateLastMessage: (_post) => {
-        // Track last message if needed
-      },
+      registerPost,
+      updateLastMessage,
       onBumpTaskList: async () => {
         taskListBumped = true;
       },
     });
 
-    ctx = createTestContext();
+    ctx = createTestContext(undefined, { registerPost, updateLastMessage });
   });
 
   afterEach(() => {

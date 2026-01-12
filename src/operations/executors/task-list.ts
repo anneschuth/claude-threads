@@ -12,10 +12,7 @@ import type { PlatformFormatter } from '../../platform/index.js';
 import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji.js';
 import type { TaskListOp, TaskItem } from '../types.js';
 import type { ExecutorContext, TaskListState } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('task');
 
 // ---------------------------------------------------------------------------
 // Task List Executor
@@ -80,8 +77,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Execute a task list operation.
    */
   async execute(op: TaskListOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     switch (op.action) {
       case 'update':
         await this.updateTaskList(op.tasks, ctx);
@@ -100,7 +96,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
         break;
 
       default:
-        logger.warn(`Unknown task list action: ${op.action}`);
+        ctx.logger.warn(`Unknown task list action: ${op.action}`);
     }
   }
 
@@ -108,9 +104,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Update the task list.
    */
   private async updateTaskList(tasks: TaskItem[], ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-    const formatter = ctx.platform.getFormatter();
-
+    
     // Track in-progress task timing
     const inProgressTask = tasks.find(t => t.status === 'in_progress');
     if (inProgressTask && !this.state.inProgressTaskStart) {
@@ -120,13 +114,13 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     }
 
     // Format task list content
-    const content = this.formatTaskList(tasks, formatter);
+    const content = this.formatTaskList(tasks, ctx.formatter);
     this.state.lastTasksContent = content;
     this.state.tasksCompleted = false;
 
     // Get display content (minimized or full)
     const displayContent = this.state.tasksMinimized
-      ? this.getMinimizedContent(content, formatter)
+      ? this.getMinimizedContent(content, ctx.formatter)
       : content;
 
     if (this.state.tasksPostId) {
@@ -134,7 +128,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       try {
         await ctx.platform.updatePost(this.state.tasksPostId, displayContent);
       } catch (err) {
-        logger.debug(`Failed to update task post, creating new: ${err}`);
+        ctx.logger.debug(`Failed to update task post, creating new: ${err}`);
         await this.createTaskPost(displayContent, ctx);
       }
     } else {
@@ -147,10 +141,8 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Mark task list as completed.
    */
   private async completeTaskList(tasks: TaskItem[], ctx: ExecutorContext): Promise<void> {
-    const formatter = ctx.platform.getFormatter();
-
     // Format final task list
-    const content = this.formatTaskList(tasks, formatter);
+    const content = this.formatTaskList(tasks, ctx.formatter);
     this.state.lastTasksContent = content;
     this.state.tasksCompleted = true;
     this.state.inProgressTaskStart = null;
@@ -172,16 +164,14 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Returns the old post ID for reuse, or null if no task list.
    */
   async bumpToBottom(ctx: ExecutorContext): Promise<string | null> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     if (!this.state.tasksPostId || !this.state.lastTasksContent || this.state.tasksCompleted) {
       return null;
     }
 
     const oldPostId = this.state.tasksPostId;
-    const formatter = ctx.platform.getFormatter();
 
-    logger.debug(`Bumping tasks to bottom, old post ${oldPostId.substring(0, 8)}`);
+    ctx.logger.debug(`Bumping tasks to bottom, old post ${oldPostId.substring(0, 8)}`);
 
     // Remove toggle emoji and unpin old post
     try {
@@ -196,23 +186,21 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
 
     // Create new post at bottom
     const displayContent = this.state.tasksMinimized
-      ? this.getMinimizedContent(this.state.lastTasksContent, formatter)
+      ? this.getMinimizedContent(this.state.lastTasksContent, ctx.formatter)
       : this.state.lastTasksContent;
 
-    const post = await ctx.platform.createInteractivePost(
+    const post = await ctx.createInteractivePost(
       displayContent,
       [MINIMIZE_TOGGLE_EMOJIS[0]],
-      ctx.threadId
+      { type: 'task_list', interactionType: 'toggle_minimize' }
     );
 
     this.state.tasksPostId = post.id;
-    this.registerPost(post.id, { type: 'task_list', interactionType: 'toggle_minimize' });
-    this.updateLastMessage(post);
 
     // Pin new post
     await ctx.platform.pinPost(post.id).catch(() => {});
 
-    logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
 
     return oldPostId;
   }
@@ -226,11 +214,10 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       return;
     }
 
-    const formatter = ctx.platform.getFormatter();
     this.state.tasksMinimized = !this.state.tasksMinimized;
 
     const displayContent = this.state.tasksMinimized
-      ? this.getMinimizedContent(this.state.lastTasksContent, formatter)
+      ? this.getMinimizedContent(this.state.lastTasksContent, ctx.formatter)
       : this.state.lastTasksContent;
 
     try {
@@ -276,16 +263,14 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     ctx: ExecutorContext,
     newContent: string
   ): Promise<string | null> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     if (!this.hasActiveTasks() || !this.state.tasksPostId) {
       return null;
     }
 
     const oldPostId = this.state.tasksPostId;
-    const formatter = ctx.platform.getFormatter();
 
-    logger.debug(`Repurposing task post ${oldPostId.substring(0, 8)} for content`);
+    ctx.logger.debug(`Repurposing task post ${oldPostId.substring(0, 8)} for content`);
 
     // Remove toggle emoji
     try {
@@ -302,28 +287,26 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       repurposedPostId = oldPostId;
       this.registerPost(oldPostId, { type: 'content' });
     } catch (err) {
-      logger.debug(`Could not repurpose task post: ${err}`);
+      ctx.logger.debug(`Could not repurpose task post: ${err}`);
       // Will return null - caller should create new post
     }
 
     // Create new task post at bottom
     if (this.state.lastTasksContent) {
       const displayContent = this.state.tasksMinimized
-        ? this.getMinimizedContent(this.state.lastTasksContent, formatter)
+        ? this.getMinimizedContent(this.state.lastTasksContent, ctx.formatter)
         : this.state.lastTasksContent;
 
-      const post = await ctx.platform.createInteractivePost(
+      const post = await ctx.createInteractivePost(
         displayContent,
         [MINIMIZE_TOGGLE_EMOJIS[0]],
-        ctx.threadId
+        { type: 'task_list', interactionType: 'toggle_minimize' }
       );
 
       this.state.tasksPostId = post.id;
-      this.registerPost(post.id, { type: 'task_list', interactionType: 'toggle_minimize' });
-      this.updateLastMessage(post);
       await ctx.platform.pinPost(post.id).catch(() => {});
 
-      logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
+      ctx.logger.debug(`Created new task post ${post.id.substring(0, 8)}`);
     } else {
       this.state.tasksPostId = null;
     }
@@ -335,22 +318,19 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
    * Create a new task list post.
    */
   private async createTaskPost(content: string, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
-    const post = await ctx.platform.createInteractivePost(
+    
+    const post = await ctx.createInteractivePost(
       content,
       [MINIMIZE_TOGGLE_EMOJIS[0]],
-      ctx.threadId
+      { type: 'task_list', interactionType: 'toggle_minimize' }
     );
 
     this.state.tasksPostId = post.id;
-    this.registerPost(post.id, { type: 'task_list', interactionType: 'toggle_minimize' });
-    this.updateLastMessage(post);
 
     // Pin task list
     await ctx.platform.pinPost(post.id).catch(() => {});
 
-    logger.debug(`Created task post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created task post ${post.id.substring(0, 8)}`);
   }
 
   /**

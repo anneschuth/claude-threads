@@ -11,10 +11,7 @@
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, QuestionApprovalState } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('q-appr');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -126,11 +123,10 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
    * Handle a question operation.
    */
   private async handleQuestion(op: QuestionOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // If already have pending questions, don't start another set
     if (this.state.pendingQuestionSet) {
-      logger.debug('Questions already pending, skipping');
+      ctx.logger.debug('Questions already pending, skipping');
       return;
     }
 
@@ -155,41 +151,42 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
    * Handle an approval operation.
    */
   private async handleApproval(op: ApprovalOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // If already have pending approval, don't post another
     if (this.state.pendingApproval) {
-      logger.debug('Approval already pending, skipping');
+      ctx.logger.debug('Approval already pending, skipping');
       return;
     }
-
-    const formatter = ctx.platform.getFormatter();
 
     // Build approval message based on type
     let message: string;
     if (op.approvalType === 'plan') {
       message =
-        `✅ ${formatter.formatBold('Plan ready for approval')}\n\n` +
+        `✅ ${ctx.formatter.formatBold('Plan ready for approval')}\n\n` +
         `👍 Approve and start building\n` +
         `👎 Request changes\n\n` +
-        formatter.formatItalic('React to respond');
+        ctx.formatter.formatItalic('React to respond');
     } else {
       message =
-        `⚠️ ${formatter.formatBold('Action requires approval')}\n\n`;
+        `⚠️ ${ctx.formatter.formatBold('Action requires approval')}\n\n`;
       if (op.content) {
         message += `${op.content}\n\n`;
       }
       message +=
         `👍 Approve\n` +
         `👎 Deny\n\n` +
-        formatter.formatItalic('React to respond');
+        ctx.formatter.formatItalic('React to respond');
     }
 
     // Create interactive post with approval reactions
-    const post = await ctx.platform.createInteractivePost(
+    const post = await ctx.createInteractivePost(
       message,
       [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
-      ctx.threadId
+      {
+        type: 'plan_approval',
+        interactionType: 'plan_approval',
+        toolUseId: op.toolUseId,
+      }
     );
 
     // Track pending approval state
@@ -199,15 +196,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       toolUseId: op.toolUseId,
     };
 
-    // Register post for reaction routing
-    this.registerPost(post.id, {
-      type: 'plan_approval',
-      interactionType: 'plan_approval',
-      toolUseId: op.toolUseId,
-    });
-    this.updateLastMessage(post);
-
-    logger.debug(`Created ${op.approvalType} approval post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Created ${op.approvalType} approval post ${post.id.substring(0, 8)}`);
   }
 
   /**
@@ -221,15 +210,14 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     const q = questions[currentIndex];
     const total = questions.length;
-    const formatter = ctx.platform.getFormatter();
 
     // Format the question message
-    let message = `❓ ${formatter.formatBold('Question')} ${formatter.formatItalic(`(${currentIndex + 1}/${total})`)}\n`;
-    message += `${formatter.formatBold(`${q.header}:`)} ${q.question}\n\n`;
+    let message = `❓ ${ctx.formatter.formatBold('Question')} ${ctx.formatter.formatItalic(`(${currentIndex + 1}/${total})`)}\n`;
+    message += `${ctx.formatter.formatBold(`${q.header}:`)} ${q.question}\n\n`;
 
     for (let i = 0; i < q.options.length && i < 4; i++) {
       const emoji = ['1️⃣', '2️⃣', '3️⃣', '4️⃣'][i];
-      message += `${emoji} ${formatter.formatBold(q.options[i].label)}`;
+      message += `${emoji} ${ctx.formatter.formatBold(q.options[i].label)}`;
       if (q.options[i].description) {
         message += ` - ${q.options[i].description}`;
       }
@@ -238,21 +226,17 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     // Post the question with reaction options
     const reactionOptions = NUMBER_EMOJIS.slice(0, q.options.length);
-    const post = await ctx.platform.createInteractivePost(
+    const post = await ctx.createInteractivePost(
       message,
       reactionOptions,
-      ctx.threadId
+      {
+        type: 'question',
+        interactionType: 'question',
+        toolUseId: this.state.pendingQuestionSet.toolUseId,
+      }
     );
 
     this.state.pendingQuestionSet.currentPostId = post.id;
-
-    // Register post for reaction routing
-    this.registerPost(post.id, {
-      type: 'question',
-      interactionType: 'question',
-      toolUseId: this.state.pendingQuestionSet.toolUseId,
-    });
-    this.updateLastMessage(post);
   }
 
   /**
@@ -273,21 +257,19 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     if (optionIndex < 0 || optionIndex >= question.options.length) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const selectedOption = question.options[optionIndex];
+        const selectedOption = question.options[optionIndex];
     question.answer = selectedOption.label;
 
-    logger.debug(`Question "${question.header}" answered: ${selectedOption.label}`);
+    ctx.logger.debug(`Question "${question.header}" answered: ${selectedOption.label}`);
 
     // Update the post to show answer
-    const formatter = ctx.platform.getFormatter();
     try {
       await ctx.platform.updatePost(
         postId,
-        `✅ ${formatter.formatBold(question.header)}: ${selectedOption.label}`
+        `✅ ${ctx.formatter.formatBold(question.header)}: ${selectedOption.label}`
       );
     } catch (err) {
-      logger.debug(`Failed to update question post: ${err}`);
+      ctx.logger.debug(`Failed to update question post: ${err}`);
     }
 
     // Move to next question or finish
@@ -298,7 +280,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       await this.postCurrentQuestion(ctx);
     } else {
       // All questions answered
-      logger.debug('All questions answered');
+      ctx.logger.debug('All questions answered');
 
       // Collect answers
       const answers = questions
@@ -329,21 +311,19 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
     if (!this.state.pendingApproval) return false;
     if (this.state.pendingApproval.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const { type, toolUseId } = this.state.pendingApproval;
-    const formatter = ctx.platform.getFormatter();
+        const { type, toolUseId } = this.state.pendingApproval;
 
-    logger.info(`${type} ${approved ? 'approved' : 'rejected'}`);
+    ctx.logger.info(`${type} ${approved ? 'approved' : 'rejected'}`);
 
     // Update the post to show decision
     const statusMessage = approved
-      ? `✅ ${formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`
-      : `❌ ${formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
+      ? `✅ ${ctx.formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`
+      : `❌ ${ctx.formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update approval post: ${err}`);
+      ctx.logger.debug(`Failed to update approval post: ${err}`);
     }
 
     // Clear pending state
@@ -406,13 +386,12 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       return false;
     }
 
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // Check pending question set
     if (this.state.pendingQuestionSet?.currentPostId === postId) {
       const index = getNumberEmojiIndex(emoji);
       if (index >= 0) {
-        logger.debug(`Question answer reaction from @${user}: option ${index + 1}`);
+        ctx.logger.debug(`Question answer reaction from @${user}: option ${index + 1}`);
         return this.handleQuestionAnswer(postId, index, ctx);
       }
       return false;
@@ -421,11 +400,11 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
     // Check pending approval
     if (this.state.pendingApproval?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
-        logger.debug(`Approval reaction from @${user}: approved`);
+        ctx.logger.debug(`Approval reaction from @${user}: approved`);
         return this.handleApprovalResponse(postId, true, ctx);
       }
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Approval reaction from @${user}: denied`);
+        ctx.logger.debug(`Approval reaction from @${user}: denied`);
         return this.handleApprovalResponse(postId, false, ctx);
       }
       return false;

@@ -9,10 +9,7 @@
 
 import { isApprovalEmoji, isDenialEmoji, isAllowAllEmoji } from '../../utils/emoji.js';
 import type { ExecutorContext, MessageApprovalState, PendingMessageApproval } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('msg-appr');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,27 +113,25 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
     if (!this.state.pendingMessageApproval) return false;
     if (this.state.pendingMessageApproval.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
-    const { fromUser, originalMessage } = this.state.pendingMessageApproval;
-    const formatter = ctx.platform.getFormatter();
+        const { fromUser, originalMessage } = this.state.pendingMessageApproval;
 
     // Update the post based on decision
     let statusMessage: string;
     if (decision === 'allow') {
-      statusMessage = `✅ Message from ${formatter.formatUserMention(fromUser)} approved by ${formatter.formatUserMention(approver)}`;
-      logger.info(`Message from @${fromUser} approved by @${approver}`);
+      statusMessage = `✅ Message from ${ctx.formatter.formatUserMention(fromUser)} approved by ${ctx.formatter.formatUserMention(approver)}`;
+      ctx.logger.info(`Message from @${fromUser} approved by @${approver}`);
     } else if (decision === 'invite') {
-      statusMessage = `✅ ${formatter.formatUserMention(fromUser)} invited to session by ${formatter.formatUserMention(approver)}`;
-      logger.info(`@${fromUser} invited to session by @${approver}`);
+      statusMessage = `✅ ${ctx.formatter.formatUserMention(fromUser)} invited to session by ${ctx.formatter.formatUserMention(approver)}`;
+      ctx.logger.info(`@${fromUser} invited to session by @${approver}`);
     } else {
-      statusMessage = `❌ Message from ${formatter.formatUserMention(fromUser)} denied by ${formatter.formatUserMention(approver)}`;
-      logger.info(`Message from @${fromUser} denied by @${approver}`);
+      statusMessage = `❌ Message from ${ctx.formatter.formatUserMention(fromUser)} denied by ${ctx.formatter.formatUserMention(approver)}`;
+      ctx.logger.info(`Message from @${fromUser} denied by @${approver}`);
     }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update message approval post: ${err}`);
+      ctx.logger.debug(`Failed to update message approval post: ${err}`);
     }
 
     // Clear pending state
@@ -176,20 +171,19 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
       return false;
     }
 
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // Check pending message approval
     if (this.state.pendingMessageApproval?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
-        logger.debug(`Message approval reaction from @${user}: allow`);
+        ctx.logger.debug(`Message approval reaction from @${user}: allow`);
         return this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
       }
       if (isAllowAllEmoji(emoji)) {
-        logger.debug(`Message approval reaction from @${user}: invite`);
+        ctx.logger.debug(`Message approval reaction from @${user}: invite`);
         return this.handleMessageApprovalResponse(postId, 'invite', user, ctx);
       }
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Message approval reaction from @${user}: deny`);
+        ctx.logger.debug(`Message approval reaction from @${user}: deny`);
         return this.handleMessageApprovalResponse(postId, 'deny', user, ctx);
       }
       return false;

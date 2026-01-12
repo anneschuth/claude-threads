@@ -13,10 +13,7 @@
 import type { PlatformFormatter, PlatformPost } from '../../platform/index.js';
 import type { SystemMessageOp, StatusUpdateOp, LifecycleOp, SystemMessageLevel } from '../types.js';
 import type { ExecutorContext, SystemState } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('system');
 
 // ---------------------------------------------------------------------------
 // System Executor
@@ -69,26 +66,21 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Handle a system message operation.
    */
   private async handleSystemMessage(op: SystemMessageOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-    const formatter = ctx.platform.getFormatter();
-
+    
     // Format message with level indicator
-    const formattedMessage = this.formatSystemMessage(op.message, op.level, formatter);
+    const formattedMessage = this.formatSystemMessage(op.message, op.level, ctx.formatter);
 
     try {
-      const post = await ctx.platform.createPost(formattedMessage, ctx.threadId);
-
-      this.registerPost(post.id, { type: 'system' });
-      this.updateLastMessage(post);
+      const post = await ctx.createPost(formattedMessage, { type: 'system' });
 
       // Track ephemeral posts
       if (op.ephemeral) {
         this.state.ephemeralPosts.add(post.id);
       }
 
-      logger.debug(`Posted ${op.level} message`);
+      ctx.logger.debug(`Posted ${op.level} message`);
     } catch (err) {
-      logger.error(`Failed to post system message: ${err}`);
+      ctx.logger.error(`Failed to post system message: ${err}`);
     }
   }
 
@@ -96,8 +88,7 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Handle a status update operation.
    */
   private async handleStatusUpdate(op: StatusUpdateOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // Emit status update event (typically updates session header)
     if (this.events) {
       this.events.emit('status:update', {
@@ -109,37 +100,32 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
       });
     }
 
-    logger.debug('Status update processed');
+    ctx.logger.debug('Status update processed');
   }
 
   /**
    * Handle a lifecycle operation.
    */
   private async handleLifecycle(op: LifecycleOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     // Emit lifecycle event
     if (this.events) {
       this.events.emit('lifecycle:event', { event: op.event });
     }
 
-    logger.debug(`Lifecycle event: ${op.event}`);
+    ctx.logger.debug(`Lifecycle event: ${op.event}`);
   }
 
   /**
    * Post an info message.
    */
   async postInfo(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formatter = ctx.platform.getFormatter();
-    const formattedMessage = this.formatSystemMessage(message, 'info', formatter);
+    const formattedMessage = this.formatSystemMessage(message, 'info', ctx.formatter);
 
     try {
-      const post = await ctx.platform.createPost(formattedMessage, ctx.threadId);
-      this.registerPost(post.id, { type: 'system' });
-      this.updateLastMessage(post);
-      return post;
+      return await ctx.createPost(formattedMessage, { type: 'system' });
     } catch (err) {
-      log.forSession(ctx.sessionId).error(`Failed to post info message: ${err}`);
+      ctx.logger.error(`Failed to post info message: ${err}`);
       return undefined;
     }
   }
@@ -148,16 +134,12 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Post a warning message.
    */
   async postWarning(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formatter = ctx.platform.getFormatter();
-    const formattedMessage = this.formatSystemMessage(message, 'warning', formatter);
+    const formattedMessage = this.formatSystemMessage(message, 'warning', ctx.formatter);
 
     try {
-      const post = await ctx.platform.createPost(formattedMessage, ctx.threadId);
-      this.registerPost(post.id, { type: 'system' });
-      this.updateLastMessage(post);
-      return post;
+      return await ctx.createPost(formattedMessage, { type: 'system' });
     } catch (err) {
-      log.forSession(ctx.sessionId).error(`Failed to post warning message: ${err}`);
+      ctx.logger.error(`Failed to post warning message: ${err}`);
       return undefined;
     }
   }
@@ -166,16 +148,12 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Post an error message.
    */
   async postError(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formatter = ctx.platform.getFormatter();
-    const formattedMessage = this.formatSystemMessage(message, 'error', formatter);
+    const formattedMessage = this.formatSystemMessage(message, 'error', ctx.formatter);
 
     try {
-      const post = await ctx.platform.createPost(formattedMessage, ctx.threadId);
-      this.registerPost(post.id, { type: 'system' });
-      this.updateLastMessage(post);
-      return post;
+      return await ctx.createPost(formattedMessage, { type: 'system' });
     } catch (err) {
-      log.forSession(ctx.sessionId).error(`Failed to post error message: ${err}`);
+      ctx.logger.error(`Failed to post error message: ${err}`);
       return undefined;
     }
   }
@@ -184,16 +162,12 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Post a success message.
    */
   async postSuccess(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formatter = ctx.platform.getFormatter();
-    const formattedMessage = this.formatSystemMessage(message, 'success', formatter);
+    const formattedMessage = this.formatSystemMessage(message, 'success', ctx.formatter);
 
     try {
-      const post = await ctx.platform.createPost(formattedMessage, ctx.threadId);
-      this.registerPost(post.id, { type: 'system' });
-      this.updateLastMessage(post);
-      return post;
+      return await ctx.createPost(formattedMessage, { type: 'system' });
     } catch (err) {
-      log.forSession(ctx.sessionId).error(`Failed to post success message: ${err}`);
+      ctx.logger.error(`Failed to post success message: ${err}`);
       return undefined;
     }
   }
@@ -202,13 +176,12 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
    * Clean up ephemeral posts.
    */
   async cleanupEphemeralPosts(ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     for (const postId of this.state.ephemeralPosts) {
       try {
         await ctx.platform.deletePost(postId);
       } catch (err) {
-        logger.debug(`Failed to delete ephemeral post ${postId}: ${err}`);
+        ctx.logger.debug(`Failed to delete ephemeral post ${postId}: ${err}`);
       }
     }
 

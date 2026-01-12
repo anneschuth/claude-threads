@@ -9,10 +9,7 @@
 
 import { isApprovalEmoji, isDenialEmoji } from '../../utils/emoji.js';
 import type { ExecutorContext, BugReportState, PendingBugReport } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('bug-rpt');
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,24 +113,22 @@ export class BugReportExecutor extends BaseExecutor<BugReportState> {
     if (!this.state.pendingBugReport) return false;
     if (this.state.pendingBugReport.postId !== postId) return false;
 
-    const logger = log.forSession(ctx.sessionId);
     const report = this.state.pendingBugReport;
-    const formatter = ctx.platform.getFormatter();
 
     // Update the post based on decision
     let statusMessage: string;
     if (decision === 'approve') {
-      statusMessage = `✅ ${formatter.formatBold('Bug report submitted')} - creating issue...`;
-      logger.info(`Bug report approved by @${username}`);
+      statusMessage = `✅ ${ctx.formatter.formatBold('Bug report submitted')} - creating issue...`;
+      ctx.logger.info(`Bug report approved by @${username}`);
     } else {
-      statusMessage = `❌ ${formatter.formatBold('Bug report cancelled')}`;
-      logger.info(`Bug report denied by @${username}`);
+      statusMessage = `❌ ${ctx.formatter.formatBold('Bug report cancelled')}`;
+      ctx.logger.info(`Bug report denied by @${username}`);
     }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
     } catch (err) {
-      logger.debug(`Failed to update bug report post: ${err}`);
+      ctx.logger.debug(`Failed to update bug report post: ${err}`);
     }
 
     // Clear pending state
@@ -173,16 +168,14 @@ export class BugReportExecutor extends BaseExecutor<BugReportState> {
       return false;
     }
 
-    const logger = log.forSession(ctx.sessionId);
-
     // Check pending bug report
     if (this.state.pendingBugReport?.postId === postId) {
       if (isApprovalEmoji(emoji)) {
-        logger.debug(`Bug report reaction from @${user}: approve`);
+        ctx.logger.debug(`Bug report reaction from @${user}: approve`);
         return this.handleBugReportResponse(postId, 'approve', user, ctx);
       }
       if (isDenialEmoji(emoji)) {
-        logger.debug(`Bug report reaction from @${user}: deny`);
+        ctx.logger.debug(`Bug report reaction from @${user}: deny`);
         return this.handleBugReportResponse(postId, 'deny', user, ctx);
       }
       return false;

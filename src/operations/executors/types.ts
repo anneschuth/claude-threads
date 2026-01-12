@@ -5,13 +5,24 @@
  * on the chat platform (posting messages, updating posts, etc.).
  */
 
-import type { PlatformClient, PlatformPost } from '../../platform/index.js';
-import type { PostTracker, RegisterPostOptions } from '../post-tracker.js';
+import type { PlatformClient, PlatformPost, PlatformFormatter } from '../../platform/index.js';
+import type { PostTracker, RegisterPostOptions, PostType, InteractionType } from '../post-tracker.js';
 import type { ContentBreaker } from '../content-breaker.js';
+import type { Logger } from '../../utils/logger.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
 // ---------------------------------------------------------------------------
+
+/**
+ * Options for creating a tracked post.
+ * Compatible with RegisterPostOptions for direct pass-through.
+ */
+export interface CreatePostOptions {
+  type: PostType;
+  interactionType?: InteractionType;
+  toolUseId?: string;
+}
 
 /**
  * Context provided to executors for performing operations.
@@ -23,12 +34,32 @@ export interface ExecutorContext {
   threadId: string;
   /** Platform client for API calls */
   platform: PlatformClient;
+  /** Platform formatter (pre-fetched for convenience) */
+  formatter: PlatformFormatter;
+  /** Session-scoped logger (pre-configured for convenience) */
+  logger: Logger;
   /** Post tracker for registering posts */
   postTracker: PostTracker;
   /** Content breaker for message splitting */
   contentBreaker: ContentBreaker;
   /** Debug mode */
   debug?: boolean;
+
+  /**
+   * Create a post and automatically register + track it.
+   * Combines platform.createPost + registerPost + updateLastMessage.
+   */
+  createPost(content: string, options: CreatePostOptions): Promise<PlatformPost>;
+
+  /**
+   * Create an interactive post with reactions and automatically register + track it.
+   * Combines platform.createInteractivePost + registerPost + updateLastMessage.
+   */
+  createInteractivePost(
+    content: string,
+    reactions: string[],
+    options: CreatePostOptions
+  ): Promise<PlatformPost>;
 }
 
 /**

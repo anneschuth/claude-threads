@@ -12,10 +12,7 @@ import { truncateMessageSafely } from '../../platform/utils.js';
 import { MIN_BREAK_THRESHOLD } from '../content-breaker.js';
 import type { AppendContentOp, FlushOp } from '../types.js';
 import type { ExecutorContext, ContentState } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('content');
 
 // ---------------------------------------------------------------------------
 // Content Executor Options
@@ -122,8 +119,6 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
    * Flush pending content to the platform.
    */
   async flush(ctx: ExecutorContext, _reason: FlushOp['reason']): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
     if (!this.state.pendingContent.trim()) {
       return; // Nothing to flush
     }
@@ -132,8 +127,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     const pendingAtFlushStart = this.state.pendingContent;
 
     // Format for target platform
-    const formatter = ctx.platform.getFormatter();
-    let content = formatter.formatMarkdown(pendingAtFlushStart).trim();
+    let content = ctx.formatter.formatMarkdown(pendingAtFlushStart).trim();
 
     // Get platform limits
     const { maxLength: MAX_POST_LENGTH, hardThreshold: HARD_CONTINUATION_THRESHOLD } =
@@ -152,11 +146,11 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 
     // Normal case: content fits in current post
     if (content.length > MAX_POST_LENGTH) {
-      logger.warn(`Content too long (${content.length}), truncating`);
+      ctx.logger.warn(`Content too long (${content.length}), truncating`);
       content = truncateMessageSafely(
         content,
         MAX_POST_LENGTH,
-        formatter.formatItalic('... (truncated)')
+        ctx.formatter.formatItalic('... (truncated)')
       );
     }
 
@@ -179,7 +173,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         this.state.currentPostContent = combinedContent;
         this.clearFlushedContent(pendingAtFlushStart);
       } catch (err) {
-        logger.debug(`Update failed, will create new post on next flush: ${err}`);
+        ctx.logger.debug(`Update failed, will create new post on next flush: ${err}`);
         this.state.currentPostId = null;
         this.state.currentPostContent = '';
       }
@@ -198,8 +192,6 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     pendingAtFlushStart: string,
     hardThreshold: number
   ): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
     // Determine break point
     let breakPoint: number;
     let codeBlockOpenPosition: number | undefined;
@@ -239,7 +231,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           try {
             await ctx.platform.updatePost(this.state.currentPostId, content);
           } catch {
-            logger.debug('Update failed (no breakpoint), will create new post on next flush');
+            ctx.logger.debug('Update failed (no breakpoint), will create new post on next flush');
             this.state.currentPostId = null;
           }
         }
@@ -255,7 +247,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           try {
             await ctx.platform.updatePost(this.state.currentPostId, content);
           } catch {
-            logger.debug('Update failed (code block at start)');
+            ctx.logger.debug('Update failed (code block at start)');
             this.state.currentPostId = null;
           }
         }
@@ -270,7 +262,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           try {
             await ctx.platform.updatePost(this.state.currentPostId, content);
           } catch {
-            logger.debug('Update failed (no break before code block)');
+            ctx.logger.debug('Update failed (no break before code block)');
             this.state.currentPostId = null;
           }
         }
@@ -287,7 +279,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       try {
         await ctx.platform.updatePost(this.state.currentPostId, firstPart);
       } catch {
-        logger.debug('Update failed during split, continuing with new post');
+        ctx.logger.debug('Update failed during split, continuing with new post');
       }
     }
 
@@ -309,8 +301,6 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     content: string,
     pendingAtFlushStart: string
   ): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
     // Try to bump task list first
     if (this.onBumpTaskList) {
       const bumpedPostId = await this.onBumpTaskList();
@@ -324,15 +314,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 
     // Create new post
     try {
-      const post = await ctx.platform.createPost(content, ctx.threadId);
+      const post = await ctx.createPost(content, { type: 'content' });
       this.state.currentPostId = post.id;
       this.state.currentPostContent = content;
-      this.registerPost(post.id, { type: 'content' });
-      this.updateLastMessage(post);
       this.clearFlushedContent(pendingAtFlushStart);
-      logger.debug(`Created post ${post.id.substring(0, 8)}`);
+      ctx.logger.debug(`Created post ${post.id.substring(0, 8)}`);
     } catch (err) {
-      logger.error(`Failed to create post: ${err}`);
+      ctx.logger.error(`Failed to create post: ${err}`);
     }
   }
 

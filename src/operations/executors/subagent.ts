@@ -13,10 +13,7 @@ import { MINIMIZE_TOGGLE_EMOJIS, isMinimizeToggleEmoji } from '../../utils/emoji
 import { formatDuration } from '../../utils/format.js';
 import type { SubagentOp } from '../types.js';
 import type { ExecutorContext, SubagentState } from './types.js';
-import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
-
-const log = createLogger('subagent');
 
 /** Update interval for subagent elapsed time (5 seconds) */
 const SUBAGENT_UPDATE_INTERVAL_MS = 5000;
@@ -109,8 +106,7 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    * Execute a subagent operation.
    */
   async execute(op: SubagentOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-
+    
     switch (op.action) {
       case 'start':
         await this.startSubagent(op, ctx);
@@ -129,7 +125,7 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
         break;
 
       default:
-        logger.warn(`Unknown subagent action: ${op.action}`);
+        ctx.logger.warn(`Unknown subagent action: ${op.action}`);
     }
   }
 
@@ -137,9 +133,7 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    * Start a new subagent.
    */
   private async startSubagent(op: SubagentOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-    const now = Date.now();
-    const formatter = ctx.platform.getFormatter();
+        const now = Date.now();
 
     // Create subagent metadata
     const subagent: ActiveSubagent = {
@@ -153,25 +147,21 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     };
 
     // Format and post initial message with toggle emoji
-    const message = this.formatSubagentPost(subagent, formatter);
-    const post = await ctx.platform.createInteractivePost(
+    const message = this.formatSubagentPost(subagent, ctx.formatter);
+    const post = await ctx.createInteractivePost(
       message,
       [MINIMIZE_TOGGLE_EMOJIS[0]],
-      ctx.threadId
+      {
+        type: 'subagent',
+        interactionType: 'toggle_minimize',
+        toolUseId: op.toolUseId,
+      }
     );
 
     subagent.postId = post.id;
     this.state.activeSubagents.set(op.toolUseId, subagent);
 
-    // Register post for reaction routing
-    this.registerPost(post.id, {
-      type: 'subagent',
-      interactionType: 'toggle_minimize',
-      toolUseId: op.toolUseId,
-    });
-    this.updateLastMessage(post);
-
-    logger.debug(`Started subagent ${op.subagentType} with post ${post.id.substring(0, 8)}`);
+    ctx.logger.debug(`Started subagent ${op.subagentType} with post ${post.id.substring(0, 8)}`);
 
     // Start update timer if this is the first active subagent
     this.startUpdateTimerIfNeeded(ctx);
@@ -189,8 +179,6 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     const subagent = this.state.activeSubagents.get(op.toolUseId);
     if (!subagent) return;
 
-    const formatter = ctx.platform.getFormatter();
-
     // Update subagent metadata
     subagent.description = op.description;
     if (op.isMinimized !== undefined) {
@@ -199,11 +187,11 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     subagent.lastUpdateTime = Date.now();
 
     // Update the post
-    const message = this.formatSubagentPost(subagent, formatter);
+    const message = this.formatSubagentPost(subagent, ctx.formatter);
     try {
       await ctx.platform.updatePost(subagent.postId, message);
     } catch (err) {
-      log.forSession(ctx.sessionId).debug(`Failed to update subagent post: ${err}`);
+      ctx.logger.debug(`Failed to update subagent post: ${err}`);
     }
   }
 
@@ -211,28 +199,25 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    * Mark a subagent as complete.
    */
   private async completeSubagent(op: SubagentOp, ctx: ExecutorContext): Promise<void> {
-    const logger = log.forSession(ctx.sessionId);
-    const subagent = this.state.activeSubagents.get(op.toolUseId);
+        const subagent = this.state.activeSubagents.get(op.toolUseId);
     if (!subagent) return;
-
-    const formatter = ctx.platform.getFormatter();
 
     // Mark as complete
     subagent.isComplete = true;
     subagent.lastUpdateTime = Date.now();
 
     // Update the post with final elapsed time
-    const message = this.formatSubagentPost(subagent, formatter);
+    const message = this.formatSubagentPost(subagent, ctx.formatter);
     try {
       await ctx.platform.updatePost(subagent.postId, message);
     } catch (err) {
-      logger.debug(`Failed to update subagent completion post: ${err}`);
+      ctx.logger.debug(`Failed to update subagent completion post: ${err}`);
     }
 
     // Stop the update timer if no more active subagents
     this.stopUpdateTimerIfNoActive();
 
-    logger.debug(`Completed subagent ${op.toolUseId.substring(0, 8)}`);
+    ctx.logger.debug(`Completed subagent ${op.toolUseId.substring(0, 8)}`);
   }
 
   /**
@@ -242,15 +227,14 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     const subagent = this.state.activeSubagents.get(toolUseId);
     if (!subagent) return;
 
-    const formatter = ctx.platform.getFormatter();
     subagent.isMinimized = !subagent.isMinimized;
     subagent.lastUpdateTime = Date.now();
 
-    const message = this.formatSubagentPost(subagent, formatter);
+    const message = this.formatSubagentPost(subagent, ctx.formatter);
     try {
       await ctx.platform.updatePost(subagent.postId, message);
     } catch (err) {
-      log.forSession(ctx.sessionId).debug(`Failed to update subagent toggle: ${err}`);
+      ctx.logger.debug(`Failed to update subagent toggle: ${err}`);
     }
   }
 
@@ -266,8 +250,6 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
     // Find the subagent by postId
     for (const [_toolUseId, subagent] of this.state.activeSubagents) {
       if (subagent.postId === postId) {
-        const formatter = ctx.platform.getFormatter();
-
         // State-based: user adds reaction = minimize, user removes = expand
         const shouldMinimize = action === 'added';
 
@@ -279,16 +261,16 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
         subagent.isMinimized = shouldMinimize;
         subagent.lastUpdateTime = Date.now();
 
-        log.forSession(ctx.sessionId).debug(
+        ctx.logger.debug(
           `Subagent ${shouldMinimize ? 'minimized' : 'expanded'} (user ${action} reaction)`
         );
 
         // Update the post with new state
-        const message = this.formatSubagentPost(subagent, formatter);
+        const message = this.formatSubagentPost(subagent, ctx.formatter);
         try {
           await ctx.platform.updatePost(postId, message);
         } catch (err) {
-          log.forSession(ctx.sessionId).debug(`Failed to update subagent toggle: ${err}`);
+          ctx.logger.debug(`Failed to update subagent toggle: ${err}`);
         }
 
         return true;
@@ -380,19 +362,18 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
    */
   private async updateAllSubagentPosts(ctx: ExecutorContext): Promise<void> {
     const now = Date.now();
-    const formatter = ctx.platform.getFormatter();
 
     for (const [_toolUseId, subagent] of this.state.activeSubagents) {
       // Skip completed subagents and recently updated ones (debounce)
       if (subagent.isComplete) continue;
       if (now - subagent.lastUpdateTime < SUBAGENT_UPDATE_INTERVAL_MS - 500) continue;
 
-      const message = this.formatSubagentPost(subagent, formatter);
+      const message = this.formatSubagentPost(subagent, ctx.formatter);
       try {
         await ctx.platform.updatePost(subagent.postId, message);
         subagent.lastUpdateTime = now;
       } catch (err) {
-        log.forSession(ctx.sessionId).debug(`Failed to update subagent elapsed time: ${err}`);
+        ctx.logger.debug(`Failed to update subagent elapsed time: ${err}`);
       }
     }
   }

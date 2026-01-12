@@ -390,8 +390,24 @@ export class MessageManager {
       sessionId: this.sessionId,
       threadId: this.threadId,
       platform: this.platform,
+      formatter: this.platform.getFormatter(),
+      logger: log.forSession(this.sessionId),
       postTracker: this.postTracker,
       contentBreaker: this.contentBreaker,
+
+      // Helper methods that combine create + register + track
+      createPost: async (content, options) => {
+        const post = await this.platform.createPost(content, this.threadId);
+        this.registerPost(post.id, options);
+        this.updateLastMessage(post);
+        return post;
+      },
+      createInteractivePost: async (content, reactions, options) => {
+        const post = await this.platform.createInteractivePost(content, reactions, this.threadId);
+        this.registerPost(post.id, options);
+        this.updateLastMessage(post);
+        return post;
+      },
     };
   }
 

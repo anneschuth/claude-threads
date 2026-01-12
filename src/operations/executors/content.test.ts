@@ -79,12 +79,28 @@ describe('ContentExecutor', () => {
   });
 
   function getContext(): ExecutorContext {
+    const threadId = 'thread-123';
     return {
       sessionId: 'test:session-1',
-      threadId: 'thread-123',
+      threadId,
       platform,
       postTracker,
       contentBreaker,
+      formatter: mockFormatter,
+      logger: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {}, debugJson: () => {}, forSession: () => ({} as any) } as any,
+      // Helper methods that combine create + register + track
+      createPost: async (content, options) => {
+        const post = await platform.createPost(content, threadId);
+        registeredPosts.set(post.id, options ?? { type: 'content' });
+        lastMessage = post;
+        return post;
+      },
+      createInteractivePost: async (content, reactions, options) => {
+        const post = await platform.createInteractivePost(content, reactions, threadId);
+        registeredPosts.set(post.id, options);
+        lastMessage = post;
+        return post;
+      },
     };
   }
 
