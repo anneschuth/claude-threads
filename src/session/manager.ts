@@ -228,8 +228,11 @@ export class SessionManager extends EventEmitter {
   /**
    * Build the unified SessionContext that all modules receive.
    * This replaces the previous 4 separate context builders.
+   *
+   * Made public to allow direct access from message-handler.ts,
+   * enabling elimination of thin wrapper methods.
    */
-  private getContext(): SessionContext {
+  getContext(): SessionContext {
     const config: SessionConfig = {
       workingDir: this.workingDir,
       skipPermissions: this.skipPermissions,

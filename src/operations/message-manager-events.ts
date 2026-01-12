@@ -85,6 +85,17 @@ export interface MessageManagerEventMap {
   };
 
   /**
+   * Emitted when an initial worktree prompt (branch suggestions) receives a response.
+   */
+  'worktree-initial-prompt:complete': {
+    decision: { type: 'branch_selected'; branch: string } | { type: 'skip' } | { type: 'retry'; branchName: string };
+    queuedPrompt?: string;
+    queuedFiles?: Array<{ id: string; name: string }>;
+    responsePostId?: string;
+    failedBranch?: string;
+  };
+
+  /**
    * Emitted when a bug report prompt receives a response.
    */
   'bug-report:complete': {

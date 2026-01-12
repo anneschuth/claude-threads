@@ -62,3 +62,15 @@ export type {
   BugReportDecision,
   BugReportCallback,
 } from './bug-report.js';
+
+export { WorktreePromptExecutor } from './worktree-prompt.js';
+export type {
+  WorktreePromptState,
+  PendingInitialWorktreePrompt,
+  WorktreePromptFile,
+  QueuedWorktreeData,
+  WorktreePromptDecision,
+  WorktreePromptCallback,
+} from './worktree-prompt.js';
+// Re-export PendingWorktreeFailurePrompt from worktree-prompt (was in session/types)
+export type { PendingWorktreeFailurePrompt } from './worktree-prompt.js';
