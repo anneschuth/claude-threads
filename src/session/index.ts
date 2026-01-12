@@ -7,10 +7,28 @@
 export { SessionManager } from './manager.js';
 export type {
   Session,
+  SessionTimers,
+  SessionLifecycle,
+  SessionLifecycleState,
   PendingApproval,
   PendingQuestionSet,
   PendingExistingWorktreePrompt,
   PendingWorktreeFailurePrompt,
+} from './types.js';
+export {
+  createSessionTimers,
+  clearAllTimers,
+  isTyping,
+  createSessionLifecycle,
+  createResumedLifecycle,
+  isSessionActive,
+  canInterruptSession,
+  isSessionRestarting,
+  isSessionCancelled,
+  isSessionPaused,
+  wasSessionResumed,
+  transitionTo,
+  markClaudeResponded,
 } from './types.js';
 export type { PendingContextPrompt } from '../operations/context-prompt/index.js';
 

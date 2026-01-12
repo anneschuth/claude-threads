@@ -5,6 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { transitionTo } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
@@ -53,6 +54,7 @@ import {
   updatePostCancelled,
 } from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
+import { createSessionLog } from '../../utils/session-log.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../../git/worktree.js';
 import { getClaudeCliVersion } from '../../claude/version-check.js';
@@ -60,11 +62,7 @@ import { shortenPath } from '../index.js';
 import { getLogFilePath } from '../../persistence/thread-logger.js';
 
 const log = createLogger('commands');
-
-/** Get session-scoped logger for routing to correct UI panel */
-function sessionLog(session: Session) {
-  return log.forSession(session.sessionId);
-}
+const sessionLog = createSessionLog(log);
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -83,7 +81,7 @@ async function restartClaudeSession(
 ): Promise<boolean> {
   // Stop the current Claude CLI
   ctx.ops.stopTyping(session);
-  session.isRestarting = true;
+  transitionTo(session, 'restarting');
   session.claude.kill();
 
   // Flush any pending content
@@ -101,7 +99,7 @@ async function restartClaudeSession(
     session.claude.start();
     return true;
   } catch (err) {
-    session.isRestarting = false;
+    transitionTo(session, 'active');
     await logAndNotify(err, { action: actionName, session });
     return false;
   }
@@ -174,8 +172,8 @@ export async function cancelSession(
   sessionLog(session).info(`🛑 Cancelled by @${username}`);
   session.threadLogger?.logCommand('stop', undefined, username);
 
-  // Mark as cancelled BEFORE killing to prevent re-persistence in handleExit
-  session.isCancelled = true;
+  // Mark as cancelling BEFORE killing to prevent re-persistence in handleExit
+  transitionTo(session, 'cancelling');
 
   const formatter = session.platform.getFormatter();
   await postCancelled(session, `${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`);
@@ -196,8 +194,8 @@ export async function interruptSession(
     return;
   }
 
-  // Set flag BEFORE interrupt - if Claude exits due to SIGINT, we won't unpersist
-  session.wasInterrupted = true;
+  // Set interrupted state BEFORE interrupt - if Claude exits due to SIGINT, we won't unpersist
+  transitionTo(session, 'interrupted');
   const interrupted = session.claude.interrupt();
 
   if (interrupted) {

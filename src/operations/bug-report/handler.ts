@@ -19,6 +19,10 @@ import { getClaudeCliVersion } from '../../claude/version-check.js';
 import { getLogFilePath, readRecentLogEntries, type LogEntry } from '../../persistence/thread-logger.js';
 import type { Session } from '../../session/types.js';
 import type { PlatformFile } from '../../platform/types.js';
+import type { PendingBugReport } from '../executors/types.js';
+
+// Re-export for backward compatibility
+export type { PendingBugReport };
 
 // =============================================================================
 // Image Upload (Catbox.moe)
@@ -137,20 +141,6 @@ export interface ErrorContext {
   timestamp: Date;
 }
 
-/**
- * Pending bug report awaiting user approval
- */
-export interface PendingBugReport {
-  postId: string;
-  title: string;
-  body: string;
-  userDescription: string;
-  /** URLs of uploaded images (to Catbox.moe) */
-  imageUrls: string[];
-  /** Upload errors for any failed images */
-  imageErrors: string[];
-  errorContext?: ErrorContext;
-}
 
 /**
  * Bug report context - all information collected for the report

@@ -13,13 +13,10 @@ import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { updateLastMessage } from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
+import { createSessionLog } from '../../utils/session-log.js';
 
 const log = createLogger('context');
-
-/** Get session-scoped logger for routing to correct UI panel */
-function sessionLog(session: Session) {
-  return log.forSession(session.sessionId);
-}
+const sessionLog = createSessionLog(log);
 
 // Context timeout in milliseconds (30 seconds)
 export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;

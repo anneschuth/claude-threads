@@ -5,7 +5,16 @@
  */
 
 import type { Session } from './types.js';
-import { getSessionStatus } from './types.js';
+import {
+  getSessionStatus,
+  createSessionTimers,
+  createSessionLifecycle,
+  createResumedLifecycle,
+  transitionTo,
+  isSessionRestarting,
+  isSessionCancelled,
+} from './types.js';
+import { clearAllTimers } from './timer-manager.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -19,6 +28,7 @@ import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
+import { createSessionLog } from '../utils/session-log.js';
 import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from '../operations/post-helpers/index.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import { suggestSessionMetadata } from '../operations/suggestions/title.js';
@@ -30,17 +40,7 @@ import {
 } from '../operations/context-prompt/index.js';
 
 const log = createLogger('lifecycle');
-
-/**
- * Get a session-scoped logger for session events.
- * Uses session ID if available, otherwise falls back to global logger.
- */
-function sessionLog(session: Session | null | undefined) {
-  if (session?.sessionId) {
-    return log.forSession(session.sessionId);
-  }
-  return log;
-}
+const sessionLog = createSessionLog(log);
 
 // ---------------------------------------------------------------------------
 // Internal helpers for DRY code
@@ -63,18 +63,11 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
 }
 
 /**
- * Clean up session timers (updateTimer, statusBarTimer).
+ * Clean up session timers (updateTimer, typingTimer, statusBarTimer).
  * Call this before removing a session from the map.
  */
 function cleanupSessionTimers(session: Session): void {
-  if (session.updateTimer) {
-    clearTimeout(session.updateTimer);
-    session.updateTimer = null;
-  }
-  if (session.statusBarTimer) {
-    clearInterval(session.statusBarTimer);
-    session.statusBarTimer = null;
-  }
+  clearAllTimers(session.timers);
 }
 
 /**
@@ -123,6 +116,9 @@ function findPersistedByThreadId(
 /**
  * Create a MessageManager for a session.
  * Handles all content, task list, question, and subagent operations.
+ *
+ * Uses event subscriptions to handle callbacks from MessageManager.
+ * This replaces the old callback-based approach for cleaner code.
  */
 function createMessageManager(
   session: Session,
@@ -130,7 +126,8 @@ function createMessageManager(
 ): MessageManager {
   const postTracker = new PostTracker();
 
-  return new MessageManager({
+  // Create the MessageManager with minimal options (no callbacks)
+  const messageManager = new MessageManager({
     platform: session.platform,
     postTracker,
     threadId: session.threadId,
@@ -144,99 +141,115 @@ function createMessageManager(
     updateLastMessage: (post) => {
       updateLastMessage(session, post);
     },
-    onQuestionComplete: (toolUseId, answers) => {
-      // Send answers back to Claude
-      const answerJson = JSON.stringify(answers);
-      session.claude.sendMessage(answerJson);
-    },
-    onApprovalComplete: (toolUseId, approved) => {
-      // Send approval/denial back to Claude
-      const response = approved ? 'approved' : 'denied';
-      session.claude.sendMessage(response);
-    },
-    onMessageApprovalComplete: async (decision, { fromUser, originalMessage }) => {
-      if (decision === 'allow') {
-        // Allow this single message
-        session.claude.sendMessage(originalMessage);
-        session.lastActivityAt = new Date();
-        ctx.ops.startTyping(session);
-        sessionLog(session).info(`Message from @${fromUser} approved`);
-      } else if (decision === 'invite') {
-        // Invite user to session and send their message
-        session.sessionAllowedUsers.add(fromUser);
-        await ctx.ops.updateSessionHeader(session);
-        session.claude.sendMessage(originalMessage);
-        session.lastActivityAt = new Date();
-        ctx.ops.startTyping(session);
-        sessionLog(session).info(`@${fromUser} invited to session`);
-      }
-      // 'deny' - nothing extra to do, post already updated by MessageManager
-    },
-    onContextPromptComplete: async (selection, { queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
-      // Build message with or without context
-      let messageToSend = queuedPrompt;
-      if (typeof selection === 'number' && selection > 0) {
-        // User selected to include context - fetch and format messages
-        const messages = await getThreadMessagesForContext(session, selection);
-        if (messages.length > 0) {
-          const contextPrefix = formatContextForClaude(messages);
-          messageToSend = contextPrefix + queuedPrompt;
-        }
-        sessionLog(session).debug(`🧵 Including ${selection} messages as context`);
-      } else {
-        // No context (selection is 0 for skip, or 'timeout')
-        const reason = selection === 'timeout' ? 'timed out' : 'skipped';
-        sessionLog(session).debug(`🧵 Context ${reason}, continuing without`);
-      }
-
-      // Increment message counter
-      session.messageCount++;
-
-      // Inject metadata reminder periodically
-      messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
-
-      // Build content with files (if any)
-      // Note: queuedFiles from MessageManager are simplified refs (id, name)
-      // For now, send without files - the full PlatformFile[] would need to be
-      // stored separately if file support is needed here
-      const content = await ctx.ops.buildMessageContent(messageToSend, session.platform, undefined);
-
-      // Send the message to Claude
-      if (session.claude.isRunning()) {
-        session.claude.sendMessage(content);
-        ctx.ops.startTyping(session);
-      }
-
-      // Update activity and persist
-      session.lastActivityAt = new Date();
-      ctx.ops.persistSession(session);
-    },
-    onExistingWorktreeComplete: async (decision, { branch, worktreePath, username }) => {
-      if (decision === 'join') {
-        // Switch to the existing worktree
-        await ctx.ops.switchToWorktree(session.threadId, worktreePath, username);
-        sessionLog(session).info(`🌿 @${username} joined existing worktree ${branch}`);
-      } else {
-        sessionLog(session).info(`❌ @${username} skipped joining existing worktree ${branch}`);
-      }
-      ctx.ops.persistSession(session);
-    },
-    onUpdatePromptComplete: async (decision) => {
-      if (decision === 'update_now') {
-        sessionLog(session).info('🔄 User triggered immediate update');
-        await ctx.ops.forceUpdate();
-      } else {
-        sessionLog(session).info('⏸️ User deferred update for 1 hour');
-        ctx.ops.deferUpdate(60);
-      }
-      ctx.ops.persistSession(session);
-    },
-    onBugReportComplete: async (decision, _report) => {
-      await ctx.ops.handleBugReportApproval(session, decision === 'approve', session.startedBy);
-    },
     // onBumpTaskList callback not implemented - task list bumping is handled separately
     // via the legacy streaming.ts path during the transition period
   });
+
+  // Subscribe to events from MessageManager
+  // These replace the callback-based approach for cleaner separation of concerns
+
+  messageManager.events.on('question:complete', ({ toolUseId: _toolUseId, answers }) => {
+    // Send answers back to Claude
+    const answerJson = JSON.stringify(answers);
+    session.claude.sendMessage(answerJson);
+  });
+
+  messageManager.events.on('approval:complete', ({ toolUseId: _toolUseId, approved }) => {
+    // Send approval/denial back to Claude
+    const response = approved ? 'approved' : 'denied';
+    session.claude.sendMessage(response);
+  });
+
+  messageManager.events.on('message-approval:complete', async ({ decision, fromUser, originalMessage }) => {
+    if (decision === 'allow') {
+      // Allow this single message
+      session.claude.sendMessage(originalMessage);
+      session.lastActivityAt = new Date();
+      ctx.ops.startTyping(session);
+      sessionLog(session).info(`Message from @${fromUser} approved`);
+    } else if (decision === 'invite') {
+      // Invite user to session and send their message
+      session.sessionAllowedUsers.add(fromUser);
+      await ctx.ops.updateSessionHeader(session);
+      session.claude.sendMessage(originalMessage);
+      session.lastActivityAt = new Date();
+      ctx.ops.startTyping(session);
+      sessionLog(session).info(`@${fromUser} invited to session`);
+    }
+    // 'deny' - nothing extra to do, post already updated by MessageManager
+  });
+
+  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
+    // Build message with or without context
+    let messageToSend = queuedPrompt;
+    if (typeof selection === 'number' && selection > 0) {
+      // User selected to include context - fetch and format messages
+      const messages = await getThreadMessagesForContext(session, selection);
+      if (messages.length > 0) {
+        const contextPrefix = formatContextForClaude(messages);
+        messageToSend = contextPrefix + queuedPrompt;
+      }
+      sessionLog(session).debug(`🧵 Including ${selection} messages as context`);
+    } else {
+      // No context (selection is 0 for skip, or 'timeout')
+      const reason = selection === 'timeout' ? 'timed out' : 'skipped';
+      sessionLog(session).debug(`🧵 Context ${reason}, continuing without`);
+    }
+
+    // Increment message counter
+    session.messageCount++;
+
+    // Inject metadata reminder periodically
+    messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
+
+    // Build content with files (if any)
+    // Note: queuedFiles from MessageManager are simplified refs (id, name)
+    // For now, send without files - the full PlatformFile[] would need to be
+    // stored separately if file support is needed here
+    const content = await ctx.ops.buildMessageContent(messageToSend, session.platform, undefined);
+
+    // Send the message to Claude
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(content);
+      ctx.ops.startTyping(session);
+    }
+
+    // Update activity and persist
+    session.lastActivityAt = new Date();
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('worktree-prompt:complete', async ({ decision, branch, worktreePath, username }) => {
+    if (decision === 'join') {
+      // Switch to the existing worktree
+      await ctx.ops.switchToWorktree(session.threadId, worktreePath, username);
+      sessionLog(session).info(`🌿 @${username} joined existing worktree ${branch}`);
+    } else {
+      sessionLog(session).info(`❌ @${username} skipped joining existing worktree ${branch}`);
+    }
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('update-prompt:complete', async ({ decision }) => {
+    if (decision === 'update_now') {
+      sessionLog(session).info('🔄 User triggered immediate update');
+      await ctx.ops.forceUpdate();
+    } else {
+      sessionLog(session).info('⏸️ User deferred update for 1 hour');
+      ctx.ops.deferUpdate(60);
+    }
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('bug-report:complete', async ({ decision, report: _report }) => {
+    await ctx.ops.handleBugReportApproval(session, decision === 'approve', session.startedBy);
+  });
+
+  // Status and lifecycle events (these are typically for session header updates)
+  // Note: These are handled differently - they update session state directly
+  // For now, these remain as part of the session management layer
+
+  return messageManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -536,21 +549,14 @@ export async function startSession(
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    updateTimer: null,
-    typingTimer: null,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    resumeFailCount: 0,
-    wasInterrupted: false,
-    hasClaudeResponded: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
     isProcessing: true,  // Starts as true since we're sending initial prompt
-    statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors
     // Thread logger for persisting events to disk
     threadLogger: createThreadLogger(platformId, actualThreadId, claudeSessionId, {
@@ -752,15 +758,9 @@ export async function resumeSession(
     lastTasksContent: state.lastTasksContent ?? null,
     tasksCompleted: state.tasksCompleted ?? false,
     tasksMinimized: state.tasksMinimized ?? false,
-    updateTimer: null,
-    typingTimer: null,
+    timers: createSessionTimers(),
+    lifecycle: createResumedLifecycle(state.resumeFailCount ?? 0),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: true,
-    resumeFailCount: state.resumeFailCount ?? 0,
-    wasInterrupted: false,
-    hasClaudeResponded: true,  // Resumed sessions have already had responses
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     worktreeInfo: state.worktreeInfo,
@@ -778,7 +778,6 @@ export async function resumeSession(
     messageCount: state.messageCount ?? 0,
     isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
-    statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors (cleared on resume)
     // Thread logger for persisting events to disk (appends to existing log)
     threadLogger: createThreadLogger(platformId, state.threadId, state.claudeSessionId, {
@@ -870,7 +869,7 @@ export async function resumeSession(
       );
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
-      session.isPaused = undefined;
+      transitionTo(session, 'active');
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
@@ -1030,15 +1029,15 @@ export async function handleExit(
   }
 
   // If we're intentionally restarting (e.g., !cd), don't clean up
-  if (session.isRestarting) {
+  if (isSessionRestarting(session)) {
     sessionLog(session).debug(`Restarting, skipping cleanup`);
-    session.isRestarting = false;
+    transitionTo(session, 'active');
     return;
   }
 
   // If session was cancelled (via !stop or ❌), don't clean up or re-persist
   // The killSession function handles all cleanup - we just exit early here
-  if (session.isCancelled) {
+  if (isSessionCancelled(session)) {
     sessionLog(session).debug(`Cancelled, skipping cleanup (handled by killSession)`);
     return;
   }
@@ -1057,7 +1056,7 @@ export async function handleExit(
   }
 
   // If session was interrupted, preserve for resume (only if Claude has responded)
-  if (session.wasInterrupted) {
+  if (session.lifecycle.state === 'interrupted') {
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
@@ -1065,7 +1064,7 @@ export async function handleExit(
 
     // Notify user first, then persist with the lifecyclePostId
     // This ensures the session won't auto-resume on bot restart
-    const message = session.hasClaudeResponded
+    const message = session.lifecycle.hasClaudeResponded
       ? `ℹ️ Session paused. Send a new message to continue.`
       : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
     const pausePost = await withErrorHandling(
@@ -1074,9 +1073,9 @@ export async function handleExit(
     );
 
     // Only persist if Claude actually responded (otherwise there's nothing to resume)
-    if (session.hasClaudeResponded) {
+    if (session.lifecycle.hasClaudeResponded) {
       // Mark as paused so it won't auto-resume on bot restart
-      session.isPaused = true;
+      transitionTo(session, 'paused');
       if (pausePost) {
         session.lifecyclePostId = pausePost.id;
         ctx.ops.registerPost(pausePost.id, session.threadId);
@@ -1095,7 +1094,8 @@ export async function handleExit(
   }
 
   // If session exits before Claude responded, notify user (no point trying to resume)
-  if (!session.hasClaudeResponded && !session.isResumed) {
+  const wasResumed = session.lifecycle.resumeFailCount > 0 || session.lifecycle.state !== 'starting';
+  if (!session.lifecycle.hasClaudeResponded && !wasResumed) {
     sessionLog(session).debug(`Exited before Claude responded, not persisting`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
@@ -1116,15 +1116,15 @@ export async function handleExit(
   }
 
   // For resumed sessions that exit with error, track failures and give up after too many
-  if (session.isResumed && code !== 0) {
+  if (wasResumed && code !== 0) {
     const MAX_RESUME_FAILURES = 3;
-    session.resumeFailCount = (session.resumeFailCount || 0) + 1;
+    session.lifecycle.resumeFailCount = (session.lifecycle.resumeFailCount || 0) + 1;
 
     // Check if this is a permanent failure that shouldn't be retried
     const isPermanent = session.claude.isPermanentFailure();
     const permanentReason = session.claude.getPermanentFailureReason();
 
-    sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
+    sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
     ctx.ops.emitSessionRemove(session.sessionId);
@@ -1150,7 +1150,7 @@ export async function handleExit(
       return;
     }
 
-    if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
+    if (session.lifecycle.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence
       sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
       // Unregister from worktree but don't cleanup - user may want to recover work
@@ -1167,7 +1167,7 @@ export async function handleExit(
       // Still have retries left - persist with updated fail count
       ctx.ops.persistSession(session);
       await withErrorHandling(
-        () => postWarning(session, `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
+        () => postWarning(session, `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
         { action: 'Post session resume failure', session }
       );
     }
@@ -1233,9 +1233,9 @@ export async function killSession(
   unpersist: boolean,
   ctx: SessionContext
 ): Promise<void> {
-  // Set restarting flag to prevent handleExit from also unpersisting
+  // Set restarting state to prevent handleExit from also unpersisting
   if (!unpersist) {
-    session.isRestarting = true;
+    transitionTo(session, 'restarting');
   }
 
   ctx.ops.stopTyping(session);
@@ -1343,7 +1343,7 @@ export async function cleanupIdleSessions(
         }
       }
       // Mark as paused so it won't auto-resume on bot restart
-      session.isPaused = true;
+      transitionTo(session, 'paused');
       ctx.ops.persistSession(session);
 
       // Kill without unpersisting to allow resume

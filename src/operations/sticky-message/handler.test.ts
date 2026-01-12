@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, setStickyPostId, markNeedsBump, initialize } from './handler.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { mockFormatter } from '../../test-utils/mock-formatter.js';
 
@@ -121,18 +122,13 @@ function createMockSession(overrides: Partial<Session> = {}): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    updateTimer: null,
-    typingTimer: null,
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     firstPrompt: 'Help me with this task',
-    statusBarTimer: null,
     messageManager: createMockMessageManager() as any,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     ...overrides,
   } as Session;
 }

@@ -1,6 +1,7 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
 import * as worktree from './handler.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
@@ -114,7 +115,6 @@ function createMockSession(overrides?: Partial<Session>): Session {
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test/repo',
-    isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
     pendingContent: '',
@@ -129,6 +129,8 @@ function createMockSession(overrides?: Partial<Session>): Session {
     currentPostId: null,
     messageCount: 0,
     messageManager: createMockMessageManager(),
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     ...overrides,
   } as Session;
 }

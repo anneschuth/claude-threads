@@ -17,6 +17,7 @@ import {
   MAX_LINES_BEFORE_BREAK,
 } from '../content-breaker.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
@@ -50,19 +51,12 @@ function createTestSession(platform: PlatformClient): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    updateTimer: null,
-    typingTimer: null,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    resumeFailCount: 0,
-    wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     messageCount: 0,
-    statusBarTimer: null,
-    hasClaudeResponded: false,
     isProcessing: false,
     recentEvents: [],
     messageManager: undefined,
@@ -86,17 +80,17 @@ describe('startTyping', () => {
     startTyping(session);
 
     expect(platform.sendTyping).toHaveBeenCalledWith('thread1');
-    expect(session.typingTimer).not.toBeNull();
+    expect(session.timers.typingTimer).not.toBeNull();
   });
 
   test('does not restart if already typing', () => {
     startTyping(session);
-    const firstTimer = session.typingTimer;
+    const firstTimer = session.timers.typingTimer;
 
     startTyping(session);
 
     // Timer should be the same (not restarted)
-    expect(session.typingTimer).toBe(firstTimer);
+    expect(session.timers.typingTimer).toBe(firstTimer);
     // sendTyping called only once (initial call)
     expect(platform.sendTyping).toHaveBeenCalledTimes(1);
   });
@@ -113,17 +107,17 @@ describe('stopTyping', () => {
 
   test('clears typing timer', () => {
     startTyping(session);
-    expect(session.typingTimer).not.toBeNull();
+    expect(session.timers.typingTimer).not.toBeNull();
 
     stopTyping(session);
 
-    expect(session.typingTimer).toBeNull();
+    expect(session.timers.typingTimer).toBeNull();
   });
 
   test('does nothing if not typing', () => {
     // Should not throw
     stopTyping(session);
-    expect(session.typingTimer).toBeNull();
+    expect(session.timers.typingTimer).toBeNull();
   });
 });
 

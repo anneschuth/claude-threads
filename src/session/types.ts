@@ -9,6 +9,18 @@ import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, PendingBugReport, ErrorContext } from '../operations/bug-report/index.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
+import type { QuestionOption } from '../operations/types.js';
+import type {
+  PendingExistingWorktreePrompt,
+  PendingUpdatePrompt,
+} from '../operations/executors/types.js';
+import type { SessionTimers } from './timer-manager.js';
+
+// Re-export imported types for backward compatibility
+export type { QuestionOption, PendingExistingWorktreePrompt, PendingUpdatePrompt };
+// Re-export timer types
+export type { SessionTimers };
+export { createSessionTimers, clearAllTimers, isTyping } from './timer-manager.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -52,11 +64,6 @@ export interface SessionUsageStats {
 // Interactive State Types
 // =============================================================================
 
-export interface QuestionOption {
-  label: string;
-  description: string;
-}
-
 export interface PendingQuestionSet {
   toolUseId: string;
   currentIndex: number;
@@ -75,15 +82,6 @@ export interface PendingApproval {
   toolUseId: string;
 }
 
-/**
- * Pending prompt asking user if they want to join an existing worktree
- */
-export interface PendingExistingWorktreePrompt {
-  postId: string;
-  branch: string;
-  worktreePath: string;
-  username: string;  // User who triggered the prompt
-}
 
 /**
  * Pending prompt after worktree creation failed, asking user what to do
@@ -103,11 +101,127 @@ export interface PendingWorktreeSuggestions {
   suggestions: string[];  // Array of suggested branch names (0-3)
 }
 
+// =============================================================================
+// Session Lifecycle State Machine
+// =============================================================================
+
 /**
- * Pending update prompt asking user to update now or defer
+ * Possible states in the session lifecycle.
+ *
+ * State transitions:
+ * - starting -> active (on first Claude response)
+ * - active -> processing (when Claude is processing)
+ * - processing -> active (when Claude finishes)
+ * - active/processing -> paused (on timeout or interrupt)
+ * - active/processing -> restarting (on !cd, !permissions, etc.)
+ * - active/processing -> cancelling (on !stop or cancel emoji)
+ * - any -> ending (cleanup in progress)
  */
-export interface PendingUpdatePrompt {
-  postId: string;
+export type SessionLifecycleState =
+  | 'starting'      // Session is being created
+  | 'active'        // Normal operation, idle
+  | 'processing'    // Claude is processing a request
+  | 'paused'        // Timed out or interrupted, waiting for resume
+  | 'interrupted'   // User interrupted (escape), Claude stopped
+  | 'restarting'    // Being restarted (e.g., !cd)
+  | 'cancelling'    // Being cancelled
+  | 'ending';       // Cleanup in progress
+
+/**
+ * Session lifecycle state container.
+ * Replaces scattered boolean flags with a single state machine.
+ */
+export interface SessionLifecycle {
+  /** Current lifecycle state */
+  state: SessionLifecycleState;
+  /** Count of consecutive resume failures (only relevant when paused) */
+  resumeFailCount: number;
+  /** Whether Claude has responded at least once (safe to persist) */
+  hasClaudeResponded: boolean;
+}
+
+/**
+ * Create a new SessionLifecycle with default starting state.
+ */
+export function createSessionLifecycle(): SessionLifecycle {
+  return {
+    state: 'starting',
+    resumeFailCount: 0,
+    hasClaudeResponded: false,
+  };
+}
+
+/**
+ * Create a SessionLifecycle for a resumed session.
+ */
+export function createResumedLifecycle(resumeFailCount: number = 0): SessionLifecycle {
+  return {
+    state: 'active',
+    resumeFailCount,
+    hasClaudeResponded: true, // Resumed sessions have already had responses
+  };
+}
+
+/**
+ * Check if session is in an active state (can receive messages).
+ */
+export function isSessionActive(session: Session): boolean {
+  return session.lifecycle.state === 'active' || session.lifecycle.state === 'processing';
+}
+
+/**
+ * Check if session can be interrupted (processing or active).
+ */
+export function canInterruptSession(session: Session): boolean {
+  return session.lifecycle.state === 'active' || session.lifecycle.state === 'processing';
+}
+
+/**
+ * Check if session is being restarted (suppress exit handlers).
+ */
+export function isSessionRestarting(session: Session): boolean {
+  return session.lifecycle.state === 'restarting';
+}
+
+/**
+ * Check if session has been cancelled.
+ */
+export function isSessionCancelled(session: Session): boolean {
+  return session.lifecycle.state === 'cancelling';
+}
+
+/**
+ * Check if session was paused (timeout/interrupt).
+ */
+export function isSessionPaused(session: Session): boolean {
+  return session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted';
+}
+
+/**
+ * Check if session was resumed from persistence.
+ */
+export function wasSessionResumed(session: Session): boolean {
+  // A session is considered resumed if resumeFailCount exists (was loaded from persistence)
+  // and we're past the starting state
+  return session.lifecycle.resumeFailCount > 0 || session.lifecycle.state !== 'starting';
+}
+
+/**
+ * Transition session to a new lifecycle state.
+ */
+export function transitionTo(session: Session, newState: SessionLifecycleState): void {
+  session.lifecycle.state = newState;
+}
+
+/**
+ * Mark that Claude has responded (session is now safe to persist).
+ */
+export function markClaudeResponded(session: Session): void {
+  session.lifecycle.hasClaudeResponded = true;
+  // Also transition from starting to active if needed
+  if (session.lifecycle.state === 'starting') {
+    session.lifecycle.state = 'active';
+  }
 }
 
 // =============================================================================
@@ -155,30 +269,14 @@ export interface Session {
   tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
   tasksMinimized: boolean;  // True when task list is minimized (show only progress)
 
-  // Timers (per-session)
-  updateTimer: ReturnType<typeof setTimeout> | null;
-  typingTimer: ReturnType<typeof setInterval> | null;
+  // Timer management (centralized)
+  timers: SessionTimers;
+
+  // Lifecycle state machine (replaces scattered boolean flags)
+  lifecycle: SessionLifecycle;
 
   // Timeout warning state
   timeoutWarningPosted: boolean;
-
-  // Flag to suppress exit message during intentional restart (e.g., !cd)
-  isRestarting: boolean;
-
-  // Flag to mark session as cancelled (via !stop or ❌) - prevents re-persistence on exit
-  isCancelled: boolean;
-
-  // Flag to track if this session was resumed after bot restart
-  isResumed: boolean;
-
-  // Count of consecutive resume failures (for giving up after too many)
-  resumeFailCount: number;
-
-  // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
-  wasInterrupted: boolean;
-
-  // Flag to track if Claude has responded at least once (safe to persist for resume)
-  hasClaudeResponded: boolean;
 
   // Task timing - when the current in_progress task started
   inProgressTaskStart: number | null;
@@ -210,7 +308,6 @@ export interface Session {
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
-  isPaused?: boolean;        // True if session is paused (timeout/interrupt) - won't auto-resume on restart
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)
@@ -231,9 +328,6 @@ export interface Session {
 
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
-
-  // Status bar update timer (for periodic refreshes)
-  statusBarTimer: ReturnType<typeof setInterval> | null;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;
@@ -264,7 +358,7 @@ export interface Session {
  */
 export function getSessionStatus(session: Session): SessionInfo['status'] {
   if (session.isProcessing) {
-    return session.hasClaudeResponded ? 'active' : 'starting';
+    return session.lifecycle.hasClaudeResponded ? 'active' : 'starting';
   }
   return 'idle';
 }

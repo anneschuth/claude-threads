@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test';
 import * as commands from './handler.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
@@ -88,7 +89,6 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
     sessionNumber: 1,
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
     currentPostId: null,
@@ -99,13 +99,12 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
     tasksPostId: null,
     forceInteractivePermissions: false,
     planApproved: false,
-    isRestarting: false,
-    isCancelled: false,
-    wasInterrupted: false,
     pendingApproval: null,
     pendingQuestionSet: null,
     messageCount: 0,
     messageManager,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     ...restOverrides,
   } as Session;
 }
@@ -326,7 +325,7 @@ describe('cancelSession', () => {
 
     await commands.cancelSession(session, 'testuser', ctx);
 
-    expect(session.isCancelled).toBe(true);
+    expect(session.lifecycle.state).toBe('cancelling');
     expect(mockPlatform.createPost).toHaveBeenCalledWith(
       expect.stringContaining('Session cancelled'),
       session.threadId
@@ -342,7 +341,7 @@ describe('interruptSession', () => {
 
     await commands.interruptSession(session, 'testuser');
 
-    expect(session.wasInterrupted).toBe(true);
+    expect(session.lifecycle.state).toBe('interrupted');
     expect(session.claude.interrupt).toHaveBeenCalled();
     expect(mockPlatform.createPost).toHaveBeenCalledWith(
       expect.stringContaining('Interrupted'),

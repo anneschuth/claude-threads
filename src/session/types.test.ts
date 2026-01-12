@@ -1,14 +1,17 @@
 import { describe, it, expect } from 'bun:test';
-import { getSessionStatus } from './types.js';
-import type { Session } from './types.js';
+import { getSessionStatus, createSessionLifecycle } from './types.js';
+import type { Session, SessionLifecycle } from './types.js';
 
 describe('getSessionStatus', () => {
   // Helper to create a minimal session for testing
-  function createTestSession(overrides: Partial<Pick<Session, 'isProcessing' | 'hasClaudeResponded'>>): Pick<Session, 'isProcessing' | 'hasClaudeResponded'> {
+  function createTestSession(overrides: { isProcessing: boolean; hasClaudeResponded: boolean }): Pick<Session, 'isProcessing' | 'lifecycle'> {
+    const lifecycle: SessionLifecycle = {
+      ...createSessionLifecycle(),
+      hasClaudeResponded: overrides.hasClaudeResponded,
+    };
     return {
-      isProcessing: false,
-      hasClaudeResponded: false,
-      ...overrides,
+      isProcessing: overrides.isProcessing,
+      lifecycle,
     };
   }
 

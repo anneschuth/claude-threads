@@ -13,6 +13,7 @@ import {
   type ErrorContext,
 } from './index.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 
 // Mock session for testing - returns a minimal mock that satisfies the Session interface
 // for error handler testing purposes
@@ -62,16 +63,8 @@ function createMockSession(): Session {
     tasksCompleted: false,
     tasksMinimized: false,
 
-    // Timers
-    updateTimer: null,
-    typingTimer: null,
-
     // Flags
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    wasInterrupted: false,
 
     // Task timing
     inProgressTaskStart: null,
@@ -80,15 +73,14 @@ function createMockSession(): Session {
     // Message counter
     messageCount: 0,
 
-    // Status bar timer
-    statusBarTimer: null,
-
-    // Resume support
-    resumeFailCount: 0,
-    hasClaudeResponded: false,
+    // Processing state
     isProcessing: false,
     recentEvents: [],
     messageManager: undefined,
+
+    // Timers and lifecycle
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
   } as Session;
 }
 

@@ -88,12 +88,14 @@ describe('MessageManager', () => {
       updateLastMessage: (post) => {
         _lastMessage = post;
       },
-      onQuestionComplete: (toolUseId, answers) => {
-        _questionCompleted = { toolUseId, answers };
-      },
-      onApprovalComplete: (toolUseId, approved) => {
-        _approvalCompleted = { toolUseId, approved };
-      },
+    });
+
+    // Subscribe to events for testing (replaces old callback approach)
+    manager.events.on('question:complete', ({ toolUseId, answers }) => {
+      _questionCompleted = { toolUseId, answers };
+    });
+    manager.events.on('approval:complete', ({ toolUseId, approved }) => {
+      _approvalCompleted = { toolUseId, approved };
     });
   });
 

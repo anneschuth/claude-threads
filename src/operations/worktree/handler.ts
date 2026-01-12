@@ -5,6 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { transitionTo } from '../../session/types.js';
 import type { WorktreeMode } from '../../config.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
@@ -37,14 +38,11 @@ import {
   removeReaction,
 } from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
+import { createSessionLog } from '../../utils/session-log.js';
 import { shortenPath } from '../index.js';
 
 const log = createLogger('worktree');
-
-/** Get session-scoped logger for routing to correct UI panel */
-function sessionLog(session: Session) {
-  return log.forSession(session.sessionId);
-}
+const sessionLog = createSessionLog(log);
 
 /**
  * Parse git worktree errors and return a user-friendly message.
@@ -453,7 +451,7 @@ export async function createAndSwitchToWorktree(
       // Restart Claude CLI in the worktree directory if running
       if (session.claude.isRunning()) {
         options.stopTyping(session);
-        session.isRestarting = true;
+        transitionTo(session, 'restarting');
         session.claude.kill();
 
         // Flush any pending content
@@ -583,7 +581,7 @@ export async function createAndSwitchToWorktree(
     // If Claude is already running, restart it in the new directory
     if (session.claude.isRunning()) {
       options.stopTyping(session);
-      session.isRestarting = true;
+      transitionTo(session, 'restarting');
       session.claude.kill();
 
       // Flush any pending content

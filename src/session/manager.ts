@@ -338,7 +338,7 @@ export class SessionManager extends EventEmitter {
       description: session.sessionDescription,
       lastActivity: session.lastActivityAt,
       // Typing indicator state
-      isTyping: session.typingTimer !== null,
+      isTyping: session.timers.typingTimer !== null,
     };
   }
 
@@ -609,19 +609,19 @@ export class SessionManager extends EventEmitter {
   }
 
   private startTyping(session: Session): void {
-    const wasTyping = session.typingTimer !== null;
+    const wasTyping = session.timers.typingTimer !== null;
     streaming.startTyping(session);
     // Emit UI update if typing state changed
-    if (!wasTyping && session.typingTimer !== null) {
+    if (!wasTyping && session.timers.typingTimer !== null) {
       this.emitSessionUpdate(session.sessionId, { isTyping: true });
     }
   }
 
   private stopTyping(session: Session): void {
-    const wasTyping = session.typingTimer !== null;
+    const wasTyping = session.timers.typingTimer !== null;
     streaming.stopTyping(session);
     // Emit UI update if typing state changed
-    if (wasTyping && session.typingTimer === null) {
+    if (wasTyping && session.timers.typingTimer === null) {
       this.emitSessionUpdate(session.sessionId, { isTyping: false });
     }
   }
@@ -716,13 +716,13 @@ export class SessionManager extends EventEmitter {
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
-      isPaused: session.isPaused,
+      isPaused: session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted',
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
       sessionTags: session.sessionTags,
       pullRequestUrl: session.pullRequestUrl,
       messageCount: session.messageCount,
-      resumeFailCount: session.resumeFailCount,
+      resumeFailCount: session.lifecycle.resumeFailCount,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -1339,7 +1339,7 @@ export class SessionManager extends EventEmitter {
         lastActivity = session.lastActivityAt;
       }
       // A session is "busy" if it's typing (Claude is processing)
-      if (session.typingTimer !== null) {
+      if (session.timers.typingTimer !== null) {
         anyBusy = true;
       }
     }

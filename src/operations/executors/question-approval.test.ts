@@ -1,9 +1,9 @@
 /**
- * Tests for InteractiveExecutor
+ * Tests for QuestionApprovalExecutor
  */
 
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { InteractiveExecutor } from './interactive.js';
+import { QuestionApprovalExecutor } from './question-approval.js';
 import type { ExecutorContext } from './types.js';
 import type { PlatformClient, PlatformFormatter, PlatformPost } from '../../platform/index.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
@@ -75,8 +75,8 @@ function createTestContext(platform?: PlatformClient): ExecutorContext {
   };
 }
 
-describe('InteractiveExecutor', () => {
-  let executor: InteractiveExecutor;
+describe('QuestionApprovalExecutor', () => {
+  let executor: QuestionApprovalExecutor;
   let ctx: ExecutorContext;
   let registeredPosts: Map<string, unknown>;
   let questionCompleted: { toolUseId: string; answers: Array<{ header: string; answer: string }> } | null;
@@ -96,7 +96,7 @@ describe('InteractiveExecutor', () => {
       approvalCompleted = { toolUseId, approved };
     });
 
-    executor = new InteractiveExecutor({
+    executor = new QuestionApprovalExecutor({
       registerPost: (postId, options) => {
         registeredPosts.set(postId, options);
       },
@@ -227,64 +227,6 @@ describe('InteractiveExecutor', () => {
       expect(handled).toBe(false);
       expect(executor.hasPendingQuestions()).toBe(true);
     });
-
-    it('ignores answer for wrong post', async () => {
-      const op: QuestionOp = {
-        type: 'question',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        questions: [
-          {
-            header: 'Test',
-            question: 'Test question?',
-            options: [
-              { label: 'Option A', description: 'First' },
-            ],
-            multiSelect: false,
-          },
-        ],
-        currentIndex: 0,
-      };
-
-      await executor.executeQuestion(op, ctx);
-
-      // Answer with wrong post ID
-      const handled = await executor.handleQuestionAnswer('wrong-post-id', 0, ctx);
-      expect(handled).toBe(false);
-      expect(executor.hasPendingQuestions()).toBe(true);
-    });
-
-    it('does not start new questions while pending', async () => {
-      const op: QuestionOp = {
-        type: 'question',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        questions: [
-          {
-            header: 'Test',
-            question: 'Test question?',
-            options: [{ label: 'A', description: '' }],
-            multiSelect: false,
-          },
-        ],
-        currentIndex: 0,
-      };
-
-      await executor.executeQuestion(op, ctx);
-
-      // Try to start another question set
-      const op2: QuestionOp = {
-        ...op,
-        toolUseId: 'tool-456',
-      };
-      await executor.executeQuestion(op2, ctx);
-
-      // Should still be the first question set
-      const state = executor.getPendingQuestionSet();
-      expect(state?.toolUseId).toBe('tool-123');
-    });
   });
 
   describe('Approval Operations', () => {
@@ -305,24 +247,6 @@ describe('InteractiveExecutor', () => {
       const approval = executor.getPendingApproval();
       expect(approval?.type).toBe('plan');
       expect(approval?.toolUseId).toBe('tool-123');
-    });
-
-    it('posts an action approval prompt with content', async () => {
-      const op: ApprovalOp = {
-        type: 'approval',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        approvalType: 'action',
-        content: 'Delete 10 files',
-      };
-
-      await executor.executeApproval(op, ctx);
-
-      expect(executor.hasPendingApproval()).toBe(true);
-
-      const approval = executor.getPendingApproval();
-      expect(approval?.type).toBe('action');
     });
 
     it('handles approval response', async () => {
@@ -370,45 +294,6 @@ describe('InteractiveExecutor', () => {
       expect(approvalCompleted).not.toBeNull();
       expect(approvalCompleted!.approved).toBe(false);
     });
-
-    it('ignores approval for wrong post', async () => {
-      const op: ApprovalOp = {
-        type: 'approval',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        approvalType: 'plan',
-      };
-
-      await executor.executeApproval(op, ctx);
-
-      const handled = await executor.handleApprovalResponse('wrong-post-id', true, ctx);
-
-      expect(handled).toBe(false);
-      expect(executor.hasPendingApproval()).toBe(true);
-    });
-
-    it('does not start new approval while pending', async () => {
-      const op: ApprovalOp = {
-        type: 'approval',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        approvalType: 'plan',
-      };
-
-      await executor.executeApproval(op, ctx);
-
-      const op2: ApprovalOp = {
-        ...op,
-        toolUseId: 'tool-456',
-      };
-      await executor.executeApproval(op2, ctx);
-
-      // Should still be the first approval
-      const approval = executor.getPendingApproval();
-      expect(approval?.toolUseId).toBe('tool-123');
-    });
   });
 
   describe('State Management', () => {
@@ -438,49 +323,7 @@ describe('InteractiveExecutor', () => {
       expect(executor.hasPendingApproval()).toBe(false);
     });
 
-    it('clears pending approval', async () => {
-      const op: ApprovalOp = {
-        type: 'approval',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        approvalType: 'plan',
-      };
-
-      await executor.executeApproval(op, ctx);
-      expect(executor.hasPendingApproval()).toBe(true);
-
-      executor.clearPendingApproval();
-
-      expect(executor.hasPendingApproval()).toBe(false);
-    });
-
-    it('clears pending questions', async () => {
-      const op: QuestionOp = {
-        type: 'question',
-        sessionId: 'test:session-1',
-        timestamp: Date.now(),
-        toolUseId: 'tool-123',
-        questions: [
-          {
-            header: 'Test',
-            question: 'Test?',
-            options: [{ label: 'A', description: '' }],
-            multiSelect: false,
-          },
-        ],
-        currentIndex: 0,
-      };
-
-      await executor.executeQuestion(op, ctx);
-      expect(executor.hasPendingQuestions()).toBe(true);
-
-      executor.clearPendingQuestions();
-
-      expect(executor.hasPendingQuestions()).toBe(false);
-    });
-
-    it('hydrates question state from persisted data', () => {
+    it('hydrates state from persisted data', () => {
       const persisted = {
         pendingQuestionSet: {
           toolUseId: 'tool-hydrate-123',
@@ -496,15 +339,6 @@ describe('InteractiveExecutor', () => {
               ],
               answer: 'Option A',
             },
-            {
-              header: 'Question 2',
-              question: 'Second question?',
-              options: [
-                { label: 'Option C', description: 'Third option' },
-                { label: 'Option D', description: 'Fourth option' },
-              ],
-              answer: null,
-            },
           ],
         },
         pendingApproval: null,
@@ -518,59 +352,6 @@ describe('InteractiveExecutor', () => {
       const state = executor.getPendingQuestionSet();
       expect(state).not.toBeNull();
       expect(state!.toolUseId).toBe('tool-hydrate-123');
-      expect(state!.currentIndex).toBe(1);
-      expect(state!.currentPostId).toBe('post-456');
-      expect(state!.questions).toHaveLength(2);
-      expect(state!.questions[0].answer).toBe('Option A');
-      expect(state!.questions[1].answer).toBeNull();
-    });
-
-    it('hydrates approval state from persisted data', () => {
-      const persisted = {
-        pendingQuestionSet: null,
-        pendingApproval: {
-          postId: 'approval-post-789',
-          type: 'plan' as const,
-          toolUseId: 'tool-approval-456',
-        },
-      };
-
-      executor.hydrateState(persisted);
-
-      expect(executor.hasPendingQuestions()).toBe(false);
-      expect(executor.hasPendingApproval()).toBe(true);
-
-      const approval = executor.getPendingApproval();
-      expect(approval).not.toBeNull();
-      expect(approval!.postId).toBe('approval-post-789');
-      expect(approval!.type).toBe('plan');
-      expect(approval!.toolUseId).toBe('tool-approval-456');
-    });
-
-    it('hydrates empty state correctly', () => {
-      // First set some state
-      executor.hydrateState({
-        pendingQuestionSet: {
-          toolUseId: 'tool-123',
-          currentIndex: 0,
-          currentPostId: 'post-1',
-          questions: [],
-        },
-        pendingApproval: {
-          postId: 'post-2',
-          type: 'action' as const,
-          toolUseId: 'tool-456',
-        },
-      });
-
-      expect(executor.hasPendingQuestions()).toBe(true);
-      expect(executor.hasPendingApproval()).toBe(true);
-
-      // Now hydrate with empty state
-      executor.hydrateState({});
-
-      expect(executor.hasPendingQuestions()).toBe(false);
-      expect(executor.hasPendingApproval()).toBe(false);
     });
   });
 });

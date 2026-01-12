@@ -5,12 +5,16 @@
  * - Posting system messages (info, warning, error, success)
  * - Handling status updates (context usage, model info)
  * - Managing lifecycle events (started, idle, paused, resumed)
+ *
+ * Uses TypedEventEmitter for communication with Session/Lifecycle layers.
+ * Events are emitted for status updates and lifecycle changes.
  */
 
 import type { PlatformFormatter, PlatformPost } from '../../platform/index.js';
 import type { SystemMessageOp, StatusUpdateOp, LifecycleOp, SystemMessageLevel } from '../types.js';
 import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+import type { TypedEventEmitter } from '../message-manager-events.js';
 
 const log = createLogger('system-executor');
 
@@ -24,8 +28,7 @@ const log = createLogger('system-executor');
 export class SystemExecutor {
   private registerPost: RegisterPostCallback;
   private updateLastMessage: UpdateLastMessageCallback;
-  private onStatusUpdate?: (status: Partial<StatusUpdateOp>) => void;
-  private onLifecycleEvent?: (event: LifecycleOp['event']) => void;
+  private events?: TypedEventEmitter;
 
   /** Track ephemeral posts for potential cleanup */
   private ephemeralPosts: Set<string> = new Set();
@@ -33,13 +36,15 @@ export class SystemExecutor {
   constructor(options: {
     registerPost: RegisterPostCallback;
     updateLastMessage: UpdateLastMessageCallback;
-    onStatusUpdate?: (status: Partial<StatusUpdateOp>) => void;
-    onLifecycleEvent?: (event: LifecycleOp['event']) => void;
+    /**
+     * Event emitter for notifying about status and lifecycle events.
+     * If provided, events are emitted instead of callbacks being called.
+     */
+    events?: TypedEventEmitter;
   }) {
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
-    this.onStatusUpdate = options.onStatusUpdate;
-    this.onLifecycleEvent = options.onLifecycleEvent;
+    this.events = options.events;
   }
 
   /**
@@ -82,9 +87,9 @@ export class SystemExecutor {
   async executeStatusUpdate(op: StatusUpdateOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
-    // Notify status update handler (typically updates session header)
-    if (this.onStatusUpdate) {
-      this.onStatusUpdate({
+    // Emit status update event (typically updates session header)
+    if (this.events) {
+      this.events.emit('status:update', {
         modelId: op.modelId,
         modelDisplayName: op.modelDisplayName,
         contextWindowSize: op.contextWindowSize,
@@ -102,9 +107,9 @@ export class SystemExecutor {
   async executeLifecycle(op: LifecycleOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
-    // Notify lifecycle handler
-    if (this.onLifecycleEvent) {
-      this.onLifecycleEvent(op.event);
+    // Emit lifecycle event
+    if (this.events) {
+      this.events.emit('lifecycle:event', { event: op.event });
     }
 
     logger.debug(`Lifecycle event: ${op.event}`);

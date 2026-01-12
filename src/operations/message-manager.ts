@@ -3,6 +3,11 @@
  *
  * Handles Claude events by transforming them to operations and
  * dispatching to appropriate executors.
+ *
+ * Uses an EventEmitter pattern for communicating with Session/Lifecycle layers:
+ * - Subscribe to events via `messageManager.events.on('event-name', handler)`
+ * - No more callback parameters in the constructor
+ * - Easy to add new event types by updating MessageManagerEventMap
  */
 
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
@@ -12,19 +17,19 @@ import { transformEvent, type TransformContext } from './transformer.js';
 import {
   ContentExecutor,
   TaskListExecutor,
-  InteractiveExecutor,
+  QuestionApprovalExecutor,
+  MessageApprovalExecutor,
+  PromptExecutor,
+  BugReportExecutor,
   SubagentExecutor,
   SystemExecutor,
 } from './executors/index.js';
 import type {
   MessageApprovalDecision,
-  MessageApprovalCallback,
-  ContextPromptCallback,
+} from './executors/message-approval.js';
+import type {
   ContextPromptSelection,
-  ExistingWorktreeCallback,
-  UpdatePromptCallback,
-  BugReportCallback,
-} from './executors/interactive.js';
+} from './executors/prompt.js';
 import type {
   ExecutorContext,
   RegisterPostCallback,
@@ -57,11 +62,13 @@ import {
   createFlushOp,
 } from './types.js';
 import { createLogger } from '../utils/logger.js';
+import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 
 const log = createLogger('message-manager');
 
 /**
  * Callback to handle question completion
+ * @deprecated Use `messageManager.events.on('question:complete', ...)` instead
  */
 export type QuestionCompleteCallback = (
   toolUseId: string,
@@ -70,6 +77,7 @@ export type QuestionCompleteCallback = (
 
 /**
  * Callback to handle approval completion
+ * @deprecated Use `messageManager.events.on('approval:complete', ...)` instead
  */
 export type ApprovalCompleteCallback = (
   toolUseId: string,
@@ -78,16 +86,26 @@ export type ApprovalCompleteCallback = (
 
 /**
  * Callback to handle status updates
+ * @deprecated Use `messageManager.events.on('status:update', ...)` instead
  */
 export type StatusUpdateCallback = (status: Partial<StatusUpdateOp>) => void;
 
 /**
  * Callback to handle lifecycle events
+ * @deprecated Use `messageManager.events.on('lifecycle:event', ...)` instead
  */
 export type LifecycleCallback = (event: LifecycleOp['event']) => void;
 
 /**
  * Options for creating a MessageManager
+ *
+ * Note: Event-based callbacks have been removed. Instead, subscribe to
+ * events on `messageManager.events` after creating the MessageManager.
+ *
+ * @example
+ * const manager = new MessageManager({ platform, postTracker, ... });
+ * manager.events.on('question:complete', ({ toolUseId, answers }) => { ... });
+ * manager.events.on('approval:complete', ({ toolUseId, approved }) => { ... });
  */
 export interface MessageManagerOptions {
   platform: PlatformClient;
@@ -98,15 +116,6 @@ export interface MessageManagerOptions {
   worktreeBranch?: string;
   registerPost: RegisterPostCallback;
   updateLastMessage: UpdateLastMessageCallback;
-  onQuestionComplete: QuestionCompleteCallback;
-  onApprovalComplete: ApprovalCompleteCallback;
-  onMessageApprovalComplete?: MessageApprovalCallback;
-  onContextPromptComplete?: ContextPromptCallback;
-  onExistingWorktreeComplete?: ExistingWorktreeCallback;
-  onUpdatePromptComplete?: UpdatePromptCallback;
-  onBugReportComplete?: BugReportCallback;
-  onStatusUpdate?: StatusUpdateCallback;
-  onLifecycleEvent?: LifecycleCallback;
   onBumpTaskList?: () => Promise<void>;
 }
 
@@ -115,6 +124,9 @@ export interface MessageManagerOptions {
  *
  * Transforms Claude CLI events into operations and dispatches them
  * to the appropriate executors for rendering to the chat platform.
+ *
+ * Uses TypedEventEmitter for communication with Session/Lifecycle layers.
+ * Subscribe to events via `messageManager.events.on('event-name', handler)`.
  */
 export class MessageManager {
   private platform: PlatformClient;
@@ -124,7 +136,10 @@ export class MessageManager {
   // Executors
   private contentExecutor: ContentExecutor;
   private taskListExecutor: TaskListExecutor;
-  private interactiveExecutor: InteractiveExecutor;
+  private questionApprovalExecutor: QuestionApprovalExecutor;
+  private messageApprovalExecutor: MessageApprovalExecutor;
+  private promptExecutor: PromptExecutor;
+  private bugReportExecutor: BugReportExecutor;
   private subagentExecutor: SubagentExecutor;
   private systemExecutor: SystemExecutor;
 
@@ -134,11 +149,9 @@ export class MessageManager {
   private worktreePath?: string;
   private worktreeBranch?: string;
 
-  // Callbacks
+  // Callbacks (only structural, not event-based)
   private registerPost: RegisterPostCallback;
   private updateLastMessage: UpdateLastMessageCallback;
-  private onStatusUpdate?: StatusUpdateCallback;
-  private onLifecycleEvent?: LifecycleCallback;
 
   // Tool start times for elapsed time calculation
   private toolStartTimes: Map<string, number> = new Map();
@@ -146,6 +159,36 @@ export class MessageManager {
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static FLUSH_DELAY_MS = 500;
+
+  /**
+   * Event emitter for MessageManager events.
+   *
+   * Subscribe to events to receive notifications when interactive operations complete:
+   *
+   * @example
+   * manager.events.on('question:complete', ({ toolUseId, answers }) => {
+   *   // Send answers back to Claude
+   *   session.claude.sendMessage(JSON.stringify(answers));
+   * });
+   *
+   * manager.events.on('approval:complete', ({ toolUseId, approved }) => {
+   *   // Handle approval/denial
+   *   session.claude.sendMessage(approved ? 'approved' : 'denied');
+   * });
+   *
+   * manager.events.on('message-approval:complete', ({ decision, fromUser, originalMessage }) => {
+   *   // Handle message approval from unauthorized user
+   * });
+   *
+   * manager.events.on('context-prompt:complete', ({ selection, queuedPrompt }) => {
+   *   // Handle context selection for mid-thread session start
+   * });
+   *
+   * manager.events.on('status:update', (statusInfo) => {
+   *   // Update session header with status info
+   * });
+   */
+  public readonly events: TypedEventEmitter;
 
   constructor(options: MessageManagerOptions) {
     this.platform = options.platform;
@@ -156,13 +199,14 @@ export class MessageManager {
     this.worktreeBranch = options.worktreeBranch;
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
-    this.onStatusUpdate = options.onStatusUpdate;
-    this.onLifecycleEvent = options.onLifecycleEvent;
+
+    // Create event emitter
+    this.events = createMessageManagerEvents();
 
     // Create content breaker
     this.contentBreaker = new DefaultContentBreaker();
 
-    // Create executors
+    // Create executors - pass the events emitter for callbacks
     this.contentExecutor = new ContentExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
@@ -179,16 +223,28 @@ export class MessageManager {
       updateLastMessage: options.updateLastMessage,
     });
 
-    this.interactiveExecutor = new InteractiveExecutor({
+    this.questionApprovalExecutor = new QuestionApprovalExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
-      onQuestionComplete: options.onQuestionComplete,
-      onApprovalComplete: options.onApprovalComplete,
-      onMessageApprovalComplete: options.onMessageApprovalComplete,
-      onContextPromptComplete: options.onContextPromptComplete,
-      onExistingWorktreeComplete: options.onExistingWorktreeComplete,
-      onUpdatePromptComplete: options.onUpdatePromptComplete,
-      onBugReportComplete: options.onBugReportComplete,
+      events: this.events,
+    });
+
+    this.messageApprovalExecutor = new MessageApprovalExecutor({
+      registerPost: options.registerPost,
+      updateLastMessage: options.updateLastMessage,
+      events: this.events,
+    });
+
+    this.promptExecutor = new PromptExecutor({
+      registerPost: options.registerPost,
+      updateLastMessage: options.updateLastMessage,
+      events: this.events,
+    });
+
+    this.bugReportExecutor = new BugReportExecutor({
+      registerPost: options.registerPost,
+      updateLastMessage: options.updateLastMessage,
+      events: this.events,
     });
 
     this.subagentExecutor = new SubagentExecutor({
@@ -200,8 +256,7 @@ export class MessageManager {
     this.systemExecutor = new SystemExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
-      onStatusUpdate: options.onStatusUpdate,
-      onLifecycleEvent: options.onLifecycleEvent,
+      events: this.events,
     });
   }
 
@@ -253,9 +308,9 @@ export class MessageManager {
       } else if (isTaskListOp(op)) {
         await this.taskListExecutor.execute(op, ctx);
       } else if (isQuestionOp(op)) {
-        await this.interactiveExecutor.executeQuestion(op, ctx);
+        await this.questionApprovalExecutor.executeQuestion(op, ctx);
       } else if (isApprovalOp(op)) {
-        await this.interactiveExecutor.executeApproval(op, ctx);
+        await this.questionApprovalExecutor.executeApproval(op, ctx);
       } else if (isSystemMessageOp(op)) {
         await this.systemExecutor.executeSystemMessage(op, ctx);
       } else if (isSubagentOp(op)) {
@@ -365,14 +420,14 @@ export class MessageManager {
    * Handle a question answer reaction
    */
   async handleQuestionAnswer(postId: string, optionIndex: number): Promise<boolean> {
-    return this.interactiveExecutor.handleQuestionAnswer(postId, optionIndex, this.getExecutorContext());
+    return this.questionApprovalExecutor.handleQuestionAnswer(postId, optionIndex, this.getExecutorContext());
   }
 
   /**
    * Handle an approval response reaction
    */
   async handleApprovalResponse(postId: string, approved: boolean): Promise<boolean> {
-    return this.interactiveExecutor.handleApprovalResponse(postId, approved, this.getExecutorContext());
+    return this.questionApprovalExecutor.handleApprovalResponse(postId, approved, this.getExecutorContext());
   }
 
   /**
@@ -399,28 +454,28 @@ export class MessageManager {
    * Check if there are pending questions
    */
   hasPendingQuestions(): boolean {
-    return this.interactiveExecutor.hasPendingQuestions();
+    return this.questionApprovalExecutor.hasPendingQuestions();
   }
 
   /**
    * Check if there is a pending approval
    */
   hasPendingApproval(): boolean {
-    return this.interactiveExecutor.hasPendingApproval();
+    return this.questionApprovalExecutor.hasPendingApproval();
   }
 
   /**
    * Get pending approval info
    */
   getPendingApproval(): { postId: string; type: string; toolUseId: string } | null {
-    return this.interactiveExecutor.getPendingApproval();
+    return this.questionApprovalExecutor.getPendingApproval();
   }
 
   /**
    * Get pending question set (full data including questions)
    */
   getPendingQuestionSet(): PendingQuestionSet | null {
-    const state = this.interactiveExecutor.getState();
+    const state = this.questionApprovalExecutor.getState();
     return state.pendingQuestionSet ?? null;
   }
 
@@ -428,21 +483,21 @@ export class MessageManager {
    * Clear pending approval state
    */
   clearPendingApproval(): void {
-    this.interactiveExecutor.clearPendingApproval();
+    this.questionApprovalExecutor.clearPendingApproval();
   }
 
   /**
    * Clear pending question set state
    */
   clearPendingQuestionSet(): void {
-    this.interactiveExecutor.clearPendingQuestionSet();
+    this.questionApprovalExecutor.clearPendingQuestionSet();
   }
 
   /**
    * Advance to the next question in the pending question set
    */
   advanceQuestionIndex(): void {
-    this.interactiveExecutor.advanceQuestionIndex();
+    this.questionApprovalExecutor.advanceQuestionIndex();
   }
 
   // ---------------------------------------------------------------------------
@@ -454,28 +509,28 @@ export class MessageManager {
    * Called when an unauthorized user sends a message that needs approval.
    */
   setPendingMessageApproval(approval: PendingMessageApproval): void {
-    this.interactiveExecutor.setPendingMessageApproval(approval);
+    this.messageApprovalExecutor.setPendingMessageApproval(approval);
   }
 
   /**
    * Get pending message approval state.
    */
   getPendingMessageApproval(): PendingMessageApproval | null {
-    return this.interactiveExecutor.getPendingMessageApproval();
+    return this.messageApprovalExecutor.getPendingMessageApproval();
   }
 
   /**
    * Check if there's a pending message approval.
    */
   hasPendingMessageApproval(): boolean {
-    return this.interactiveExecutor.hasPendingMessageApproval();
+    return this.messageApprovalExecutor.hasPendingMessageApproval();
   }
 
   /**
    * Clear pending message approval state.
    */
   clearPendingMessageApproval(): void {
-    this.interactiveExecutor.clearPendingMessageApproval();
+    this.messageApprovalExecutor.clearPendingMessageApproval();
   }
 
   /**
@@ -487,7 +542,7 @@ export class MessageManager {
     decision: MessageApprovalDecision,
     approver: string
   ): Promise<boolean> {
-    return this.interactiveExecutor.handleMessageApprovalResponse(
+    return this.messageApprovalExecutor.handleMessageApprovalResponse(
       postId,
       decision,
       approver,
@@ -504,28 +559,28 @@ export class MessageManager {
    * Called when prompting user for thread context inclusion.
    */
   setPendingContextPrompt(prompt: PendingContextPrompt): void {
-    this.interactiveExecutor.setPendingContextPrompt(prompt);
+    this.promptExecutor.setPendingContextPrompt(prompt);
   }
 
   /**
    * Get pending context prompt state.
    */
   getPendingContextPrompt(): PendingContextPrompt | null {
-    return this.interactiveExecutor.getPendingContextPrompt();
+    return this.promptExecutor.getPendingContextPrompt();
   }
 
   /**
    * Check if there's a pending context prompt.
    */
   hasPendingContextPrompt(): boolean {
-    return this.interactiveExecutor.hasPendingContextPrompt();
+    return this.promptExecutor.hasPendingContextPrompt();
   }
 
   /**
    * Clear pending context prompt state.
    */
   clearPendingContextPrompt(): void {
-    this.interactiveExecutor.clearPendingContextPrompt();
+    this.promptExecutor.clearPendingContextPrompt();
   }
 
   /**
@@ -541,7 +596,7 @@ export class MessageManager {
     selection: ContextPromptSelection,
     username: string
   ): Promise<boolean> {
-    return this.interactiveExecutor.handleContextPromptResponse(
+    return this.promptExecutor.handleContextPromptResponse(
       postId,
       selection,
       username,
@@ -558,28 +613,28 @@ export class MessageManager {
    * Called when an existing worktree is found and user must decide to join or skip.
    */
   setPendingExistingWorktreePrompt(prompt: PendingExistingWorktreePrompt): void {
-    this.interactiveExecutor.setPendingExistingWorktreePrompt(prompt);
+    this.promptExecutor.setPendingExistingWorktreePrompt(prompt);
   }
 
   /**
    * Get pending existing worktree prompt state.
    */
   getPendingExistingWorktreePrompt(): PendingExistingWorktreePrompt | null {
-    return this.interactiveExecutor.getPendingExistingWorktreePrompt();
+    return this.promptExecutor.getPendingExistingWorktreePrompt();
   }
 
   /**
    * Check if there's a pending existing worktree prompt.
    */
   hasPendingExistingWorktreePrompt(): boolean {
-    return this.interactiveExecutor.hasPendingExistingWorktreePrompt();
+    return this.promptExecutor.hasPendingExistingWorktreePrompt();
   }
 
   /**
    * Clear pending existing worktree prompt state.
    */
   clearPendingExistingWorktreePrompt(): void {
-    this.interactiveExecutor.clearPendingExistingWorktreePrompt();
+    this.promptExecutor.clearPendingExistingWorktreePrompt();
   }
 
   // ---------------------------------------------------------------------------
@@ -591,28 +646,28 @@ export class MessageManager {
    * Called when prompting user about a version update.
    */
   setPendingUpdatePrompt(prompt: PendingUpdatePrompt): void {
-    this.interactiveExecutor.setPendingUpdatePrompt(prompt);
+    this.promptExecutor.setPendingUpdatePrompt(prompt);
   }
 
   /**
    * Get pending update prompt state.
    */
   getPendingUpdatePrompt(): PendingUpdatePrompt | null {
-    return this.interactiveExecutor.getPendingUpdatePrompt();
+    return this.promptExecutor.getPendingUpdatePrompt();
   }
 
   /**
    * Check if there's a pending update prompt.
    */
   hasPendingUpdatePrompt(): boolean {
-    return this.interactiveExecutor.hasPendingUpdatePrompt();
+    return this.promptExecutor.hasPendingUpdatePrompt();
   }
 
   /**
    * Clear pending update prompt state.
    */
   clearPendingUpdatePrompt(): void {
-    this.interactiveExecutor.clearPendingUpdatePrompt();
+    this.promptExecutor.clearPendingUpdatePrompt();
   }
 
   // ---------------------------------------------------------------------------
@@ -624,28 +679,28 @@ export class MessageManager {
    * Called when a bug report is being reviewed before submission.
    */
   setPendingBugReport(report: PendingBugReport): void {
-    this.interactiveExecutor.setPendingBugReport(report);
+    this.bugReportExecutor.setPendingBugReport(report);
   }
 
   /**
    * Get pending bug report state.
    */
   getPendingBugReport(): PendingBugReport | null {
-    return this.interactiveExecutor.getPendingBugReport();
+    return this.bugReportExecutor.getPendingBugReport();
   }
 
   /**
    * Check if there's a pending bug report.
    */
   hasPendingBugReport(): boolean {
-    return this.interactiveExecutor.hasPendingBugReport();
+    return this.bugReportExecutor.hasPendingBugReport();
   }
 
   /**
    * Clear pending bug report state.
    */
   clearPendingBugReport(): void {
-    this.interactiveExecutor.clearPendingBugReport();
+    this.bugReportExecutor.clearPendingBugReport();
   }
 
   /**
@@ -735,7 +790,25 @@ export class MessageManager {
     pendingUpdatePrompt?: PendingUpdatePrompt | null;
     pendingBugReport?: PendingBugReport | null;
   }): void {
-    this.interactiveExecutor.hydrateState(persisted);
+    // Hydrate each executor with its relevant state
+    this.questionApprovalExecutor.hydrateState({
+      pendingQuestionSet: persisted.pendingQuestionSet,
+      pendingApproval: persisted.pendingApproval,
+    });
+
+    this.messageApprovalExecutor.hydrateState({
+      pendingMessageApproval: persisted.pendingMessageApproval,
+    });
+
+    this.promptExecutor.hydrateState({
+      pendingContextPrompt: persisted.pendingContextPrompt,
+      pendingExistingWorktreePrompt: persisted.pendingExistingWorktreePrompt,
+      pendingUpdatePrompt: persisted.pendingUpdatePrompt,
+    });
+
+    this.bugReportExecutor.hydrateState({
+      pendingBugReport: persisted.pendingBugReport,
+    });
   }
 
   /**
@@ -818,9 +891,27 @@ export class MessageManager {
 
     logger.debug(`Routing reaction: postId=${postId}, emoji=${emoji}, user=${user}, action=${action}`);
 
-    // Try interactive executor first (questions, approvals, message approvals, context prompts)
-    if (await this.interactiveExecutor.handleReaction(postId, emoji, user, action, ctx)) {
-      logger.debug('Reaction handled by InteractiveExecutor');
+    // Try question/approval executor first
+    if (await this.questionApprovalExecutor.handleReaction(postId, emoji, user, action, ctx)) {
+      logger.debug('Reaction handled by QuestionApprovalExecutor');
+      return true;
+    }
+
+    // Try message approval executor
+    if (await this.messageApprovalExecutor.handleReaction(postId, emoji, user, action, ctx)) {
+      logger.debug('Reaction handled by MessageApprovalExecutor');
+      return true;
+    }
+
+    // Try prompt executor (context, worktree, update prompts)
+    if (await this.promptExecutor.handleReaction(postId, emoji, user, action, ctx)) {
+      logger.debug('Reaction handled by PromptExecutor');
+      return true;
+    }
+
+    // Try bug report executor
+    if (await this.bugReportExecutor.handleReaction(postId, emoji, user, action, ctx)) {
+      logger.debug('Reaction handled by BugReportExecutor');
       return true;
     }
 
@@ -848,7 +939,10 @@ export class MessageManager {
     this.toolStartTimes.clear();
     this.contentExecutor.reset();
     this.taskListExecutor.reset();
-    this.interactiveExecutor.reset();
+    this.questionApprovalExecutor.reset();
+    this.messageApprovalExecutor.reset();
+    this.promptExecutor.reset();
+    this.bugReportExecutor.reset();
     this.subagentExecutor.reset();
     this.systemExecutor.reset();
   }

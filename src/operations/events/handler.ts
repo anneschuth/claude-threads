@@ -9,13 +9,14 @@
  */
 
 import type { Session, SessionUsageStats, ModelTokenUsage } from '../../session/types.js';
-import { getSessionStatus } from '../../session/types.js';
+import { getSessionStatus, markClaudeResponded } from '../../session/types.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { shortenPath } from '../index.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { resetSessionActivity, postInfo, postError, updatePost } from '../post-helpers/index.js';
 import type { SessionContext } from '../session-context/index.js';
 import { createLogger } from '../../utils/logger.js';
+import { createSessionLog } from '../../utils/session-log.js';
 import { extractPullRequestUrl } from '../../utils/pr-detector.js';
 import { changeDirectory, reportBug } from '../commands/index.js';
 import { buildWorktreeListMessage } from '../worktree/index.js';
@@ -23,11 +24,7 @@ import { trackEvent } from '../bug-report/index.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
-
-/** Get session-scoped logger for routing to correct UI panel */
-function sessionLog(session: Session) {
-  return log.forSession(session.sessionId);
-}
+const sessionLog = createSessionLog(log);
 
 // ---------------------------------------------------------------------------
 // Claude command detection
@@ -171,8 +168,8 @@ export function handleEventPreProcessing(
   resetSessionActivity(session);
 
   // On first meaningful response from Claude, mark session as safe to resume and persist
-  if (!session.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
-    session.hasClaudeResponded = true;
+  if (!session.lifecycle.hasClaudeResponded && (event.type === 'assistant' || event.type === 'tool_use')) {
+    markClaudeResponded(session);
     ctx.ops.persistSession(session);
     ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
   }
@@ -435,9 +432,9 @@ function updateUsageStats(
   );
 
   // Start periodic status bar timer if not already running
-  if (!session.statusBarTimer) {
+  if (!session.timers.statusBarTimer) {
     const STATUS_BAR_UPDATE_INTERVAL = 30000; // 30 seconds
-    session.statusBarTimer = setInterval(() => {
+    session.timers.statusBarTimer = setInterval(() => {
       // Only update if session is still active
       if (session.claude.isRunning()) {
         // Try to get more accurate context data from status line

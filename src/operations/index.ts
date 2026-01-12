@@ -115,6 +115,17 @@ export type {
   LifecycleCallback,
 } from './message-manager.js';
 
+// Message manager events (EventEmitter-based API)
+export {
+  TypedEventEmitter,
+  createMessageManagerEvents,
+} from './message-manager-events.js';
+export type {
+  MessageManagerEventMap,
+  MessageManagerEvent,
+  QuestionAnswer,
+} from './message-manager-events.js';
+
 // Executors
 export {
   ContentExecutor,

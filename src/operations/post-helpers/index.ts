@@ -13,18 +13,16 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { transitionTo } from '../../session/types.js';
 import type { PlatformPost, PlatformFormatter } from '../../platform/index.js';
 import { createLogger } from '../../utils/logger.js';
+import { createSessionLog } from '../../utils/session-log.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { BUG_REPORT_EMOJI } from '../../utils/emoji.js';
 import { updateWorktreeActivity } from '../../git/worktree.js';
 
 const log = createLogger('helpers');
-
-/** Get session-scoped logger for routing to correct UI panel */
-function sessionLog(session: Session) {
-  return log.forSession(session.sessionId);
-}
+const sessionLog = createSessionLog(log);
 
 // =============================================================================
 // Internal Helper
@@ -444,7 +442,8 @@ export function resetSessionActivity(session: Session): void {
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
   session.lifecyclePostId = undefined;
-  session.isPaused = undefined;
+  // Reset lifecycle state to active (clearing paused/interrupted states)
+  transitionTo(session, 'active');
 
   // Update worktree metadata to prevent aggressive cleanup of active worktrees.
   // This is fire-and-forget - we don't want to block session activity on disk I/O.

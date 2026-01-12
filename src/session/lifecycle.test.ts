@@ -2,6 +2,7 @@ import { describe, it, expect, mock } from 'bun:test';
 import * as lifecycle from './lifecycle.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import type { Session } from './types.js';
+import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
@@ -79,7 +80,36 @@ function createMockMessageManager() {
 /**
  * Create a mock session for testing
  */
-function createMockSession(overrides?: Partial<Session>): Session {
+function createMockSession(overrides?: Partial<Session> & {
+  // Legacy flag aliases for backward compatibility in tests
+  isRestarting?: boolean;
+  isCancelled?: boolean;
+  isResumed?: boolean;
+  wasInterrupted?: boolean;
+  hasClaudeResponded?: boolean;
+}): Session {
+  // Build lifecycle state from overrides or defaults
+  let lifecycle = createSessionLifecycle();
+  if (overrides?.isResumed) {
+    lifecycle = createResumedLifecycle();
+  }
+  if (overrides?.isRestarting) {
+    lifecycle.state = 'restarting';
+  }
+  if (overrides?.isCancelled) {
+    lifecycle.state = 'cancelling';
+  }
+  if (overrides?.wasInterrupted) {
+    lifecycle.state = 'interrupted';
+  }
+  if (overrides?.hasClaudeResponded) {
+    lifecycle.hasClaudeResponded = true;
+  }
+  // Allow direct lifecycle override
+  if (overrides?.lifecycle) {
+    lifecycle = overrides.lifecycle;
+  }
+
   return {
     sessionId: 'test-platform:thread-123',
     threadId: 'thread-123',
@@ -102,9 +132,8 @@ function createMockSession(overrides?: Partial<Session>): Session {
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    updateTimer: null,
-    typingTimer: null,
-    isResumed: false,
+    timers: createSessionTimers(),
+    lifecycle,
     sessionStartPostId: 'start-post-id',
     timeoutWarningPosted: false,
     tasksCompleted: false,
@@ -491,10 +520,10 @@ describe('cleanupIdleSessions extended', () => {
 
 describe('killSession edge cases', () => {
   it('clears session timers', async () => {
-    const session = createMockSession({
-      updateTimer: setTimeout(() => {}, 10000) as any,
-      statusBarTimer: setInterval(() => {}, 10000) as any,
-    });
+    const session = createMockSession();
+    // Set up timers via the new timers object
+    session.timers.updateTimer = setTimeout(() => {}, 10000) as any;
+    session.timers.statusBarTimer = setInterval(() => {}, 10000) as any;
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
@@ -532,9 +561,9 @@ describe('killSession edge cases', () => {
 
 describe('killAllSessions edge cases', () => {
   it('handles sessions with timers', async () => {
-    const session = createMockSession({
-      updateTimer: setTimeout(() => {}, 10000) as any,
-    });
+    const session = createMockSession();
+    // Set up timer via the new timers object
+    session.timers.updateTimer = setTimeout(() => {}, 10000) as any;
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
@@ -639,7 +668,7 @@ describe('handleExit', () => {
 
     expect(ctx.ops.persistSession).not.toHaveBeenCalled();
     expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
-    // isRestarting should be reset
-    expect(session.isRestarting).toBe(false);
+    // lifecycle state should be reset to active
+    expect(session.lifecycle.state).toBe('active');
   });
 });

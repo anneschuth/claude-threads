@@ -13,6 +13,7 @@ import {
 } from './handler.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient, PlatformPost } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
@@ -107,19 +108,12 @@ function createTestSession(platform: PlatformClient): Session {
     lastTasksContent: null,
     tasksCompleted: false,
     tasksMinimized: false,
-    updateTimer: null,
-    typingTimer: null,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    resumeFailCount: 0,
-    wasInterrupted: false,
     inProgressTaskStart: null,
     activeToolStarts: new Map(),
     messageCount: 0,
-    statusBarTimer: null,
-    hasClaudeResponded: false,
     isProcessing: false,
     recentEvents: [],
     messageManager: undefined,
@@ -196,24 +190,24 @@ describe('handleEventPreProcessing', () => {
   });
 
   test('sets hasClaudeResponded on first assistant event', () => {
-    expect(session.hasClaudeResponded).toBe(false);
+    expect(session.lifecycle.hasClaudeResponded).toBe(false);
 
     handleEventPreProcessing(session, { type: 'assistant' }, ctx);
 
-    expect(session.hasClaudeResponded).toBe(true);
+    expect(session.lifecycle.hasClaudeResponded).toBe(true);
     expect(ctx.ops.persistSession).toHaveBeenCalled();
   });
 
   test('sets hasClaudeResponded on first tool_use event', () => {
-    expect(session.hasClaudeResponded).toBe(false);
+    expect(session.lifecycle.hasClaudeResponded).toBe(false);
 
     handleEventPreProcessing(session, { type: 'tool_use', tool_use: { name: 'Read' } }, ctx);
 
-    expect(session.hasClaudeResponded).toBe(true);
+    expect(session.lifecycle.hasClaudeResponded).toBe(true);
   });
 
   test('does not set hasClaudeResponded again if already set', () => {
-    session.hasClaudeResponded = true;
+    session.lifecycle.hasClaudeResponded = true;
     const callCount = (ctx.ops.persistSession as ReturnType<typeof mock>).mock.calls.length;
 
     handleEventPreProcessing(session, { type: 'assistant' }, ctx);

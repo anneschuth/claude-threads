@@ -6,12 +6,16 @@
  * - Posting approval prompts
  * - Managing pending question/approval state
  * - Processing user responses via reactions
+ *
+ * Uses TypedEventEmitter for communication with Session/Lifecycle layers.
+ * Events are emitted when interactive operations complete.
  */
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, isAllowAllEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, PendingExistingWorktreePrompt, PendingUpdatePrompt, PendingBugReport, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
+import type { TypedEventEmitter } from '../message-manager-events.js';
 
 /**
  * Decision type for message approval reactions.
@@ -105,24 +109,16 @@ export class InteractiveExecutor {
   private state: InteractiveState;
   private registerPost: RegisterPostCallback;
   private updateLastMessage: UpdateLastMessageCallback;
-  private onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
-  private onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
-  private onMessageApprovalComplete?: MessageApprovalCallback;
-  private onContextPromptComplete?: ContextPromptCallback;
-  private onExistingWorktreeComplete?: ExistingWorktreeCallback;
-  private onUpdatePromptComplete?: UpdatePromptCallback;
-  private onBugReportComplete?: BugReportCallback;
+  private events?: TypedEventEmitter;
 
   constructor(options: {
     registerPost: RegisterPostCallback;
     updateLastMessage: UpdateLastMessageCallback;
-    onQuestionComplete?: (toolUseId: string, answers: Array<{ header: string; answer: string }>) => void;
-    onApprovalComplete?: (toolUseId: string, approved: boolean) => void;
-    onMessageApprovalComplete?: MessageApprovalCallback;
-    onContextPromptComplete?: ContextPromptCallback;
-    onExistingWorktreeComplete?: ExistingWorktreeCallback;
-    onUpdatePromptComplete?: UpdatePromptCallback;
-    onBugReportComplete?: BugReportCallback;
+    /**
+     * Event emitter for notifying when interactive operations complete.
+     * If provided, events are emitted instead of callbacks being called.
+     */
+    events?: TypedEventEmitter;
   }) {
     this.state = {
       pendingQuestionSet: null,
@@ -135,13 +131,7 @@ export class InteractiveExecutor {
     };
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
-    this.onQuestionComplete = options.onQuestionComplete;
-    this.onApprovalComplete = options.onApprovalComplete;
-    this.onMessageApprovalComplete = options.onMessageApprovalComplete;
-    this.onContextPromptComplete = options.onContextPromptComplete;
-    this.onExistingWorktreeComplete = options.onExistingWorktreeComplete;
-    this.onUpdatePromptComplete = options.onUpdatePromptComplete;
-    this.onBugReportComplete = options.onBugReportComplete;
+    this.events = options.events;
   }
 
   /**
@@ -426,9 +416,9 @@ export class InteractiveExecutor {
       // Clear pending state
       this.state.pendingQuestionSet = null;
 
-      // Notify completion handler
-      if (this.onQuestionComplete) {
-        this.onQuestionComplete(toolUseId, answers);
+      // Emit question complete event
+      if (this.events) {
+        this.events.emit('question:complete', { toolUseId, answers });
       }
     }
 
@@ -467,9 +457,9 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingApproval = null;
 
-    // Notify completion handler
-    if (this.onApprovalComplete) {
-      this.onApprovalComplete(toolUseId, approved);
+    // Emit approval complete event
+    if (this.events) {
+      this.events.emit('approval:complete', { toolUseId, approved });
     }
 
     return true;
@@ -582,9 +572,9 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingMessageApproval = null;
 
-    // Notify completion handler
-    if (this.onMessageApprovalComplete) {
-      await this.onMessageApprovalComplete(decision, { fromUser, originalMessage });
+    // Emit message approval complete event
+    if (this.events) {
+      this.events.emit('message-approval:complete', { decision, fromUser, originalMessage });
     }
 
     return true;
@@ -667,9 +657,10 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingContextPrompt = null;
 
-    // Notify completion handler
-    if (this.onContextPromptComplete) {
-      await this.onContextPromptComplete(selection, {
+    // Emit context prompt complete event
+    if (this.events) {
+      this.events.emit('context-prompt:complete', {
+        selection,
         queuedPrompt,
         queuedFiles,
         threadMessageCount,
@@ -753,9 +744,10 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingExistingWorktreePrompt = null;
 
-    // Notify completion handler
-    if (this.onExistingWorktreeComplete) {
-      await this.onExistingWorktreeComplete(decision, {
+    // Emit worktree prompt complete event
+    if (this.events) {
+      this.events.emit('worktree-prompt:complete', {
+        decision,
         branch,
         worktreePath,
         username,
@@ -838,9 +830,9 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingUpdatePrompt = null;
 
-    // Notify completion handler
-    if (this.onUpdatePromptComplete) {
-      await this.onUpdatePromptComplete(decision);
+    // Emit update prompt complete event
+    if (this.events) {
+      this.events.emit('update-prompt:complete', { decision });
     }
 
     return true;
@@ -920,9 +912,9 @@ export class InteractiveExecutor {
     // Clear pending state
     this.state.pendingBugReport = null;
 
-    // Notify completion handler
-    if (this.onBugReportComplete) {
-      await this.onBugReportComplete(decision, report);
+    // Emit bug report complete event
+    if (this.events) {
+      this.events.emit('bug-report:complete', { decision, report });
     }
 
     return true;

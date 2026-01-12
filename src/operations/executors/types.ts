@@ -127,9 +127,9 @@ export interface PendingBugReport {
 }
 
 /**
- * State managed by the interactive executor.
+ * State managed by the question approval executor.
  */
-export interface InteractiveState {
+export interface QuestionApprovalState {
   /** Pending question set */
   pendingQuestionSet: {
     toolUseId: string;
@@ -148,17 +148,41 @@ export interface InteractiveState {
     type: 'plan' | 'action';
     toolUseId: string;
   } | null;
+}
+
+/**
+ * State managed by the message approval executor.
+ */
+export interface MessageApprovalState {
   /** Pending message approval from unauthorized user */
   pendingMessageApproval: PendingMessageApproval | null;
+}
+
+/**
+ * State managed by the prompt executor.
+ */
+export interface PromptState {
   /** Pending context prompt for thread context selection */
   pendingContextPrompt: PendingContextPrompt | null;
   /** Pending existing worktree prompt for worktree selection */
   pendingExistingWorktreePrompt: PendingExistingWorktreePrompt | null;
   /** Pending update prompt for version update prompts */
   pendingUpdatePrompt: PendingUpdatePrompt | null;
+}
+
+/**
+ * State managed by the bug report executor.
+ */
+export interface BugReportState {
   /** Pending bug report for bug report submission */
   pendingBugReport: PendingBugReport | null;
 }
+
+/**
+ * Combined state managed by all interactive executors.
+ * Used for backward compatibility with existing code.
+ */
+export interface InteractiveState extends QuestionApprovalState, MessageApprovalState, PromptState, BugReportState {}
 
 /**
  * State managed by the subagent executor.

@@ -84,9 +84,9 @@ export async function buildMessageContent(
  * Sends immediately, then every 3 seconds until stopped.
  */
 export function startTyping(session: Session): void {
-  if (session.typingTimer) return;
+  if (session.timers.typingTimer) return;
   session.platform.sendTyping(session.threadId);
-  session.typingTimer = setInterval(() => {
+  session.timers.typingTimer = setInterval(() => {
     session.platform.sendTyping(session.threadId);
   }, 3000);
 }
@@ -95,9 +95,9 @@ export function startTyping(session: Session): void {
  * Stop sending typing indicators.
  */
 export function stopTyping(session: Session): void {
-  if (session.typingTimer) {
-    clearInterval(session.typingTimer);
-    session.typingTimer = null;
+  if (session.timers.typingTimer) {
+    clearInterval(session.timers.typingTimer);
+    session.timers.typingTimer = null;
   }
 }
 

@@ -29,6 +29,7 @@ import {
   createMockFormatter,
 } from '../../test-utils/mock-formatter.js';
 import type { Session } from '../../session/types.js';
+import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient, PlatformPost } from '../../platform/index.js';
 
 // Helper to create a mock session for testing
@@ -68,7 +69,6 @@ function createMockSession(overrides?: Partial<{
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    isResumed: false,
     sessionStartPostId: 'start-post-id',
     currentPostContent: '',
     pendingContent: '',
@@ -80,6 +80,8 @@ function createMockSession(overrides?: Partial<{
     skipPermissions: true,
     forceInteractivePermissions: false,
     messageCount: 0,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     ...overrides?.sessionOverrides,
   } as Session;
 }
@@ -148,14 +150,15 @@ describe('resetSessionActivity', () => {
     expect(session.lifecyclePostId).toBeUndefined();
   });
 
-  it('clears isPaused', () => {
-    const session = createMockSession({
-      sessionOverrides: { isPaused: true },
-    });
+  it('resets lifecycle to active', () => {
+    const session = createMockSession();
+    // Set lifecycle to paused state
+    session.lifecycle.state = 'paused';
 
     resetSessionActivity(session);
 
-    expect(session.isPaused).toBeUndefined();
+    // Should be reset to active (use type assertion to avoid narrowing issue)
+    expect(session.lifecycle.state as string).toBe('active');
   });
 
   it('calls updateWorktreeActivity when session has worktreeInfo', () => {

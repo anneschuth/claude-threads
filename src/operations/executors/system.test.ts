@@ -9,6 +9,7 @@ import type { PlatformClient, PlatformFormatter, PlatformPost } from '../../plat
 import type { SystemMessageOp, StatusUpdateOp, LifecycleOp } from '../types.js';
 import { DefaultContentBreaker } from '../content-breaker.js';
 import { PostTracker } from '../post-tracker.js';
+import { createMessageManagerEvents } from '../message-manager-events.js';
 
 // Mock formatter
 const mockFormatter: PlatformFormatter = {
@@ -80,6 +81,15 @@ describe('SystemExecutor', () => {
     statusUpdates = [];
     lifecycleEvents = [];
 
+    // Create event emitter and subscribe to events
+    const events = createMessageManagerEvents();
+    events.on('status:update', (status) => {
+      statusUpdates.push(status);
+    });
+    events.on('lifecycle:event', ({ event }) => {
+      lifecycleEvents.push(event);
+    });
+
     executor = new SystemExecutor({
       registerPost: (postId, options) => {
         registeredPosts.set(postId, options);
@@ -87,12 +97,7 @@ describe('SystemExecutor', () => {
       updateLastMessage: (_post) => {
         // Track last message if needed
       },
-      onStatusUpdate: (status) => {
-        statusUpdates.push(status);
-      },
-      onLifecycleEvent: (event) => {
-        lifecycleEvents.push(event);
-      },
+      events,
     });
 
     ctx = createTestContext();
