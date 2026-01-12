@@ -91,7 +91,9 @@ export async function handleMessage(
     }
 
     // Follow-up in active thread
-    if (session.isInSessionThread(threadRoot)) {
+    // Use registry to check for active session directly
+    const hasActiveSession = session.registry.findByThreadId(threadRoot) !== undefined;
+    if (hasActiveSession) {
       // If message starts with @mention to someone else, ignore it (side conversation)
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
@@ -265,7 +267,9 @@ export async function handleMessage(
     }
 
     // Check for paused session that can be resumed
-    if (session.hasPausedSession(threadRoot)) {
+    // Use registry to check for persisted session directly
+    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
+    if (hasPausedSession) {
       // If message starts with @mention to someone else, ignore it (side conversation)
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
