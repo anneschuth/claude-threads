@@ -7,14 +7,10 @@ import {
   postError,
   // Utility functions
   formatBold,
-  getPostId,
   resetSessionActivity,
   updateLastMessage,
   // Post with reactions
   postWithReactions,
-  postApprovalPrompt,
-  postAndRegister,
-  postWithReactionsAndRegister,
   postBold,
 } from './index.js';
 import {
@@ -225,13 +221,6 @@ describe('formatBold', () => {
   });
 });
 
-describe('getPostId', () => {
-  it('returns the post id from a post object', () => {
-    const post: PlatformPost = { id: 'abc123', message: 'test', userId: 'user1', platformId: 'test', channelId: 'ch1' };
-    expect(getPostId(post)).toBe('abc123');
-  });
-});
-
 describe('resetSessionActivity', () => {
   it('updates lastActivityAt to current time', () => {
     const session = createMockSession();
@@ -395,56 +384,6 @@ describe('postWithReactions', () => {
   });
 });
 
-describe('postApprovalPrompt', () => {
-  it('creates post with thumbs up/down reactions', async () => {
-    const session = createMockSession();
-    await postApprovalPrompt(session, 'Approve this action?');
-
-    expect(session.platform.createPost).toHaveBeenCalledWith('Approve this action?', 'thread-123');
-    expect(session.platform.addReaction).toHaveBeenCalledWith('post-123', '+1');
-    expect(session.platform.addReaction).toHaveBeenCalledWith('post-123', '-1');
-  });
-});
-
-describe('postAndRegister', () => {
-  it('creates post and calls register callback', async () => {
-    const session = createMockSession();
-    const registerPost = mock(() => {});
-
-    await postAndRegister(session, 'Test message', registerPost);
-
-    expect(session.platform.createPost).toHaveBeenCalled();
-    expect(registerPost).toHaveBeenCalledWith('post-123', 'thread-123');
-  });
-
-  it('returns null on error', async () => {
-    const session = createMockSession({
-      platformOverrides: {
-        createPost: mock(() => Promise.reject(new Error('Network error'))),
-      },
-    });
-    const registerPost = mock(() => {});
-
-    const result = await postAndRegister(session, 'Test', registerPost);
-
-    expect(result).toBeNull();
-    expect(registerPost).not.toHaveBeenCalled();
-  });
-});
-
-describe('postWithReactionsAndRegister', () => {
-  it('creates post with reactions and registers it', async () => {
-    const session = createMockSession();
-    const registerPost = mock(() => {});
-
-    await postWithReactionsAndRegister(session, 'Vote!', ['one', 'two'], registerPost);
-
-    expect(session.platform.createPost).toHaveBeenCalled();
-    expect(session.platform.addReaction).toHaveBeenCalledTimes(2);
-    expect(registerPost).toHaveBeenCalledWith('post-123', 'thread-123');
-  });
-});
-
 describe('postBold', () => {
   it('creates post with bold label and emoji', async () => {
     const session = createMockSession();
@@ -484,12 +423,8 @@ describe('post helper functions', () => {
 
     // Post with reactions
     expect(typeof helpers.postWithReactions).toBe('function');
-    expect(typeof helpers.postApprovalPrompt).toBe('function');
 
     // Utility functions
-    expect(typeof helpers.getPostId).toBe('function');
-    expect(typeof helpers.postAndRegister).toBe('function');
-    expect(typeof helpers.postWithReactionsAndRegister).toBe('function');
     expect(typeof helpers.formatBold).toBe('function');
     expect(typeof helpers.postBold).toBe('function');
   });
