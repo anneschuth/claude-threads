@@ -582,6 +582,39 @@ When making changes to persisted data:
 3. Verify the session resumes correctly
 4. Verify all features work (tasks, permissions, worktrees, etc.)
 
+### Red-Green Testing for Regression Fixes
+
+When fixing bugs, follow the red-green testing pattern to ensure tests actually catch the bug:
+
+1. **Write the test first** that exercises the buggy behavior
+2. **RED**: Run the test with the buggy code - it should FAIL
+3. **Apply the fix**
+4. **GREEN**: Run the test again - it should PASS
+5. **Verify all tests pass** before committing
+
+This ensures:
+- The test actually catches the regression
+- The fix actually solves the problem
+- Future regressions will be caught
+
+**Example workflow:**
+```bash
+# 1. Write test, revert the fix temporarily
+git checkout src/path/to/file.ts
+
+# 2. RED: Verify test fails
+bun test src/path/to/file.test.ts
+
+# 3. Apply the fix
+# ... edit the file ...
+
+# 4. GREEN: Verify test passes
+bun test src/path/to/file.test.ts
+
+# 5. Verify all tests pass
+bun test
+```
+
 ### Files That Store Persisted Data
 
 - `~/.config/claude-threads/sessions.json` - Session state (`PersistedSession` interface)

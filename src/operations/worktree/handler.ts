@@ -443,6 +443,8 @@ export async function createAndSwitchToWorktree(
         worktreePath: existing.path,
         branch: existing.branch,
       };
+      // Sync to message manager for tool output path shortening
+      session.messageManager?.setWorktreeInfo(existing.path, existing.branch);
       // Not the owner since we're joining an existing worktree
       session.isWorktreeOwner = false;
 
@@ -567,6 +569,8 @@ export async function createAndSwitchToWorktree(
       worktreePath,
       branch,
     };
+    // Sync to message manager for tool output path shortening
+    session.messageManager?.setWorktreeInfo(worktreePath, branch);
     // Mark this session as the owner since we CREATED this worktree
     session.isWorktreeOwner = true;
 
@@ -750,6 +754,8 @@ export async function switchToWorktree(
     worktreePath: target.path,
     branch: target.branch,
   };
+  // Sync to message manager for tool output path shortening
+  session.messageManager?.setWorktreeInfo(target.path, target.branch);
   // Not the owner since we're switching to (joining) an existing worktree
   session.isWorktreeOwner = false;
 }
@@ -945,9 +951,10 @@ export async function cleanupWorktreeCommand(
   await post(session, 'info', `Switching back to \`${repoRoot}\` before cleanup...`);
   await changeDirectory(session.threadId, repoRoot, username);
 
-  // Clear worktree info from session
+  // Clear worktree info from session and message manager
   session.worktreeInfo = undefined;
   session.isWorktreeOwner = undefined;
+  session.messageManager?.clearWorktreeInfo();
 
   // Attempt cleanup
   try {

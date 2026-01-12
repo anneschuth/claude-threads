@@ -89,6 +89,8 @@ function createMockMessageManager() {
     handleEvent: mock(() => Promise.resolve()),
     flush: mock(() => Promise.resolve()),
     handleReaction: mock(() => Promise.resolve(false)),
+    setWorktreeInfo: mock(() => {}),
+    clearWorktreeInfo: mock(() => {}),
   } as any;
 }
 
@@ -734,6 +736,49 @@ describe('Worktree Module', () => {
 
       expect(session.isWorktreeOwner).toBe(true);
     });
+
+    it('syncs worktree info to message manager when joining existing worktree', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        queuedPrompt: 'do something',
+      });
+      const options = createMockOptions();
+
+      // Mock existing worktree
+      mockFindWorktreeByBranch.mockImplementation(() =>
+        Promise.resolve({
+          path: '/repo-worktrees/feature-branch',
+          branch: 'feature-branch',
+          isMain: false,
+        })
+      );
+
+      await worktree.createAndSwitchToWorktree(session, 'feature-branch', 'testuser', options);
+
+      // Should sync worktree info to message manager for tool output path shortening
+      expect(session.messageManager?.setWorktreeInfo).toHaveBeenCalledWith(
+        '/repo-worktrees/feature-branch',
+        'feature-branch'
+      );
+    });
+
+    it('syncs worktree info to message manager when creating new worktree', async () => {
+      const session = createMockSession({
+        pendingWorktreePrompt: true,
+        worktreePromptPostId: 'prompt-post-1',
+        queuedPrompt: 'do something',
+      });
+      const options = createMockOptions();
+
+      // No existing worktree
+      mockFindWorktreeByBranch.mockImplementation(() => Promise.resolve(null));
+
+      await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+      // Should sync worktree info to message manager for tool output path shortening
+      expect(session.messageManager?.setWorktreeInfo).toHaveBeenCalled();
+    });
   });
 
   describe('cleanupWorktreeCommand', () => {
@@ -773,6 +818,8 @@ describe('Worktree Module', () => {
       // Should clear worktree info
       expect(session.worktreeInfo).toBeUndefined();
       expect(session.isWorktreeOwner).toBeUndefined();
+      // Should clear worktree info on message manager (for tool output path shortening)
+      expect(session.messageManager?.clearWorktreeInfo).toHaveBeenCalled();
       // Should remove worktree
       expect(mockRemoveWorktree).toHaveBeenCalled();
     });
