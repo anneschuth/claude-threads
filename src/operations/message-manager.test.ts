@@ -376,4 +376,110 @@ describe('MessageManager', () => {
       expect(manager.hasPendingApproval()).toBe(false);
     });
   });
+
+  describe('Worktree Path Shortening', () => {
+    it('shortens file paths in tool output when worktree info is set', async () => {
+      // Create a new manager with worktree info
+      const worktreePath = '/home/testuser/.claude-threads/worktrees/testuser-myrepo--feature-branch-abc12345';
+      const newPostTracker = new PostTracker();
+      const managerWithWorktree = new MessageManager({
+        session,
+        platform,
+        postTracker: newPostTracker,
+        sessionId: 'test:session-wt',
+        threadId: 'thread-wt',
+        worktreePath,
+        worktreeBranch: 'feature/my-branch',
+        registerPost: () => {},
+        updateLastMessage: () => {},
+      });
+
+      // Send a Read tool_use event with a file path in the worktree
+      const event = {
+        type: 'tool_use' as const,
+        tool_use: {
+          id: 'tool-read-1',
+          name: 'Read',
+          input: {
+            file_path: `${worktreePath}/src/index.ts`,
+          },
+        },
+      };
+
+      await managerWithWorktree.handleEvent(event);
+
+      // Flush to trigger content creation
+      await managerWithWorktree.flush();
+
+      // Check the post content contains shortened path
+      const postContent = managerWithWorktree.getCurrentPostContent();
+      expect(postContent).toContain('[feature/my-branch]');
+      expect(postContent).not.toContain('testuser-myrepo--feature-branch');
+    });
+
+    it('shortens paths after setWorktreeInfo is called', async () => {
+      // Create a manager WITHOUT worktree info initially
+      const worktreePath = '/home/testuser/.claude-threads/worktrees/testuser-myrepo--feature-branch-abc12345';
+      const newPostTracker = new PostTracker();
+      const managerNoWorktree = new MessageManager({
+        session,
+        platform,
+        postTracker: newPostTracker,
+        sessionId: 'test:session-nwt',
+        threadId: 'thread-nwt',
+        // NO worktreePath or worktreeBranch
+        registerPost: () => {},
+        updateLastMessage: () => {},
+      });
+
+      // Set worktree info dynamically (simulates joining a worktree mid-session)
+      managerNoWorktree.setWorktreeInfo(worktreePath, 'feature/my-branch');
+
+      // Send a Read tool_use event with a file path in the worktree
+      const event = {
+        type: 'tool_use' as const,
+        tool_use: {
+          id: 'tool-read-dynamic',
+          name: 'Read',
+          input: {
+            file_path: `${worktreePath}/src/index.ts`,
+          },
+        },
+      };
+
+      await managerNoWorktree.handleEvent(event);
+      await managerNoWorktree.flush();
+
+      // Check the post content contains shortened path
+      const postContent = managerNoWorktree.getCurrentPostContent();
+      expect(postContent).toContain('[feature/my-branch]');
+      expect(postContent).not.toContain('testuser-myrepo--feature-branch');
+    });
+
+    it('uses ~ fallback when worktree info is not set', async () => {
+      // Use the home dir that will be used for ~ substitution
+      const home = process.env.HOME || '/home/user';
+      const filePath = `${home}/.claude-threads/worktrees/some-repo--some-branch/src/index.ts`;
+
+      // The default manager has no worktree info
+      const event = {
+        type: 'tool_use' as const,
+        tool_use: {
+          id: 'tool-read-2',
+          name: 'Read',
+          input: {
+            file_path: filePath,
+          },
+        },
+      };
+
+      await manager.handleEvent(event);
+      await manager.flush();
+
+      // Should use ~ fallback instead of [branch]
+      const postContent = manager.getCurrentPostContent();
+      expect(postContent).toContain('~/.claude-threads');
+      expect(postContent).not.toContain('[');
+    });
+  });
 });

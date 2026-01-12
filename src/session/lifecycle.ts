@@ -37,6 +37,7 @@ import {
   getThreadMessagesForContext,
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
+import { detectWorktreeInfo } from '../git/worktree.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -851,6 +852,21 @@ export async function resumeSession(
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+
+  // Auto-detect worktree info if workingDir is a worktree but worktreeInfo is not set
+  // This handles sessions that were created before worktreeInfo tracking was added,
+  // or sessions that were started directly in a worktree directory
+  if (!session.worktreeInfo) {
+    const detected = await detectWorktreeInfo(session.workingDir);
+    if (detected) {
+      session.worktreeInfo = {
+        repoRoot: detected.repoRoot,
+        worktreePath: detected.worktreePath,
+        branch: detected.branch,
+      };
+      log.info(`Auto-detected worktree info for resumed session: branch=${detected.branch}`);
+    }
+  }
 
   // Create MessageManager for this session
   session.messageManager = createMessageManager(session, ctx);

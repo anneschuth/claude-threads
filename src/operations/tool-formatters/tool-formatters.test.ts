@@ -373,6 +373,30 @@ describe('Utility Functions', () => {
       expect(result).toBe('[feature-branch]/src/file.ts');
     });
 
+    it('shortens long worktree paths from ~/.claude-threads/worktrees/', () => {
+      // This tests the actual format of worktree directories created by claude-threads
+      const worktreePath = '/Users/anneschuth/.claude-threads/worktrees/Users-anneschuth-claude-threads--refactor-platform-abstraction-layer-c7287c11';
+      const filePath = `${worktreePath}/src/operations/tool-formatters/file.ts`;
+
+      const result = shortenPath(filePath, undefined, {
+        path: worktreePath,
+        branch: 'refactor/platform-abstraction-layer',
+      });
+
+      expect(result).toBe('[refactor/platform-abstraction-layer]/src/operations/tool-formatters/file.ts');
+    });
+
+    it('shortens exact worktree path match', () => {
+      const worktreePath = '/Users/anneschuth/.claude-threads/worktrees/Users-anneschuth-claude-threads--branch-abc12345';
+
+      const result = shortenPath(worktreePath, undefined, {
+        path: worktreePath,
+        branch: 'feature/my-branch',
+      });
+
+      expect(result).toBe('[feature/my-branch]/');
+    });
+
     it('handles empty path', () => {
       expect(shortenPath('')).toBe('');
     });

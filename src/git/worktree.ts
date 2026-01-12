@@ -291,6 +291,57 @@ export function getWorktreesDir(): string {
 }
 
 /**
+ * Detect worktree info from a path if it's inside the centralized worktrees directory.
+ * Uses git to get the actual branch name.
+ *
+ * @param workingDir - Path to check
+ * @returns WorktreeInfo-like object with path and branch, or null if not a worktree
+ */
+export async function detectWorktreeInfo(
+  workingDir: string
+): Promise<{ worktreePath: string; branch: string; repoRoot: string } | null> {
+  // Must be inside ~/.claude-threads/worktrees/
+  if (!isValidWorktreePath(workingDir)) {
+    return null;
+  }
+
+  try {
+    // Get the branch name from git
+    const branchOutput = await execGit(['rev-parse', '--abbrev-ref', 'HEAD'], workingDir);
+    const branch = branchOutput?.trim();
+    if (!branch) {
+      log.debug(`Could not detect branch for worktree at ${workingDir}`);
+      return null;
+    }
+
+    // Get the main repository root (the one this worktree is linked to)
+    // The .git file in a worktree points to the main repo
+    const gitDirOutput = await execGit(['rev-parse', '--git-common-dir'], workingDir);
+    let repoRoot = gitDirOutput?.trim();
+    if (repoRoot) {
+      // git-common-dir returns something like /path/to/repo/.git
+      // We want /path/to/repo
+      if (repoRoot.endsWith('/.git')) {
+        repoRoot = repoRoot.slice(0, -5);
+      } else if (repoRoot.endsWith('.git')) {
+        repoRoot = repoRoot.slice(0, -4);
+      }
+    }
+
+    log.debug(`Detected worktree: path=${workingDir}, branch=${branch}, repoRoot=${repoRoot}`);
+
+    return {
+      worktreePath: workingDir,
+      branch,
+      repoRoot: repoRoot || workingDir,
+    };
+  } catch (err) {
+    log.debug(`Failed to detect worktree info for ${workingDir}: ${err}`);
+    return null;
+  }
+}
+
+/**
  * Create a new worktree for a branch
  * If the branch doesn't exist, creates it from the current HEAD
  */
