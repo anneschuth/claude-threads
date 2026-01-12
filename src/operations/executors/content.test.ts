@@ -296,7 +296,7 @@ describe('ContentExecutor', () => {
         updateLastMessage: (post) => {
           lastMessage = post;
         },
-        onBumpTaskList: async () => 'bumped_task_post_id',
+        onBumpTaskList: async (_content, _ctx) => 'bumped_task_post_id',
       });
 
       const ctx = getContext();
@@ -316,7 +316,7 @@ describe('ContentExecutor', () => {
         updateLastMessage: (post) => {
           lastMessage = post;
         },
-        onBumpTaskList: async () => null,
+        onBumpTaskList: async (_content, _ctx) => null,
       });
 
       const ctx = getContext();
@@ -324,6 +324,36 @@ describe('ContentExecutor', () => {
       await executorWithBump.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
       expect(platform.createPost).toHaveBeenCalled();
+    });
+
+    it('passes content and ctx to onBumpTaskList callback', async () => {
+      // This test ensures the callback receives the content so it can
+      // update the old task list post with the new content
+      let receivedContent = '';
+      let receivedCtx: unknown = null;
+
+      const executorWithBump = new ContentExecutor({
+        registerPost: (postId, options) => {
+          registeredPosts.set(postId, options ?? { type: 'content' });
+        },
+        updateLastMessage: (post) => {
+          lastMessage = post;
+        },
+        onBumpTaskList: async (content, ctx) => {
+          receivedContent = content;
+          receivedCtx = ctx;
+          return 'repurposed_post_id';
+        },
+      });
+
+      const ctx = getContext();
+      await executorWithBump.executeAppend(createAppendContentOp('test', 'Test content'), ctx);
+      await executorWithBump.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      // Verify the callback received the formatted content
+      expect(receivedContent).toBe('Test content');
+      // Verify the callback received the executor context
+      expect(receivedCtx).toBe(ctx);
     });
   });
 

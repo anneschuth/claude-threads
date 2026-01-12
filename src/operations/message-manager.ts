@@ -105,7 +105,6 @@ export interface MessageManagerOptions {
   worktreeBranch?: string;
   registerPost: RegisterPostCallback;
   updateLastMessage: UpdateLastMessageCallback;
-  onBumpTaskList?: () => Promise<void>;
   /** Callback to build message content (handles image attachments) */
   buildMessageContent?: BuildMessageContentCallback;
   /** Callback to start typing indicator */
@@ -215,12 +214,11 @@ export class MessageManager {
     this.contentExecutor = new ContentExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
-      onBumpTaskList: options.onBumpTaskList
-        ? async () => {
-            await options.onBumpTaskList!();
-            return null;
-          }
-        : undefined,
+      // Wire up bump callback to call taskListExecutor.bumpAndGetOldPost
+      // This returns the old task list post ID so content can reuse it
+      onBumpTaskList: async (content: string, ctx: ExecutorContext) => {
+        return this.taskListExecutor.bumpAndGetOldPost(ctx, content);
+      },
     });
 
     this.taskListExecutor = new TaskListExecutor({
@@ -255,7 +253,10 @@ export class MessageManager {
     this.subagentExecutor = new SubagentExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
-      onBumpTaskList: options.onBumpTaskList,
+      // Wire up bump callback to call taskListExecutor.bumpToBottom
+      onBumpTaskList: async () => {
+        await this.taskListExecutor.bumpToBottom(this.getExecutorContext());
+      },
     });
 
     this.systemExecutor = new SystemExecutor({

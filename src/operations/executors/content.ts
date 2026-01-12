@@ -24,7 +24,7 @@ import { BaseExecutor, type ExecutorOptions } from './base.js';
  */
 export interface ContentExecutorOptions extends ExecutorOptions {
   /** Callback to bump task list and get old post ID for reuse */
-  onBumpTaskList?: () => Promise<string | null>;
+  onBumpTaskList?: (content: string, ctx: ExecutorContext) => Promise<string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -35,7 +35,7 @@ export interface ContentExecutorOptions extends ExecutorOptions {
  * Executor for content operations.
  */
 export class ContentExecutor extends BaseExecutor<ContentState> {
-  private onBumpTaskList?: () => Promise<string | null>;
+  private onBumpTaskList?: (content: string, ctx: ExecutorContext) => Promise<string | null>;
 
   constructor(options: ContentExecutorOptions) {
     super(options, ContentExecutor.createInitialState());
@@ -302,9 +302,9 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     content: string,
     pendingAtFlushStart: string
   ): Promise<void> {
-    // Try to bump task list first
+    // Try to bump task list first - this reuses the old task list post for content
     if (this.onBumpTaskList) {
-      const bumpedPostId = await this.onBumpTaskList();
+      const bumpedPostId = await this.onBumpTaskList(content, ctx);
       if (bumpedPostId) {
         this.state.currentPostId = bumpedPostId;
         this.state.currentPostContent = content;
