@@ -130,7 +130,7 @@ describe('QuestionApprovalExecutor', () => {
         currentIndex: 0,
       };
 
-      await executor.executeQuestion(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(executor.hasPendingQuestions()).toBe(true);
       expect(ctx.platform.createInteractivePost).toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe('QuestionApprovalExecutor', () => {
         currentIndex: 0,
       };
 
-      await executor.executeQuestion(op, ctx);
+      await executor.execute(op, ctx);
 
       // Answer first question
       const state = executor.getPendingQuestionSet();
@@ -215,7 +215,7 @@ describe('QuestionApprovalExecutor', () => {
         currentIndex: 0,
       };
 
-      await executor.executeQuestion(op, ctx);
+      await executor.execute(op, ctx);
 
       const state = executor.getPendingQuestionSet();
       expect(state).not.toBeNull();
@@ -239,7 +239,7 @@ describe('QuestionApprovalExecutor', () => {
         approvalType: 'plan',
       };
 
-      await executor.executeApproval(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(executor.hasPendingApproval()).toBe(true);
       expect(ctx.platform.createInteractivePost).toHaveBeenCalled();
@@ -258,7 +258,7 @@ describe('QuestionApprovalExecutor', () => {
         approvalType: 'plan',
       };
 
-      await executor.executeApproval(op, ctx);
+      await executor.execute(op, ctx);
 
       const approval = executor.getPendingApproval();
       expect(approval).not.toBeNull();
@@ -282,7 +282,7 @@ describe('QuestionApprovalExecutor', () => {
         approvalType: 'plan',
       };
 
-      await executor.executeApproval(op, ctx);
+      await executor.execute(op, ctx);
 
       const approval = executor.getPendingApproval();
       expect(approval).not.toBeNull();
@@ -314,7 +314,7 @@ describe('QuestionApprovalExecutor', () => {
         currentIndex: 0,
       };
 
-      await executor.executeQuestion(questionOp, ctx);
+      await executor.execute(questionOp, ctx);
       expect(executor.hasPendingQuestions()).toBe(true);
 
       executor.reset();

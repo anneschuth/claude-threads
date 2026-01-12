@@ -49,9 +49,26 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
   }
 
   /**
-   * Execute a system message operation.
+   * Execute a system message, status update, or lifecycle operation.
+   * Unified entry point for all operations handled by this executor.
    */
-  async executeSystemMessage(op: SystemMessageOp, ctx: ExecutorContext): Promise<void> {
+  async execute(
+    op: SystemMessageOp | StatusUpdateOp | LifecycleOp,
+    ctx: ExecutorContext
+  ): Promise<void> {
+    if (op.type === 'system_message') {
+      return this.handleSystemMessage(op, ctx);
+    } else if (op.type === 'status_update') {
+      return this.handleStatusUpdate(op, ctx);
+    } else if (op.type === 'lifecycle') {
+      return this.handleLifecycle(op, ctx);
+    }
+  }
+
+  /**
+   * Handle a system message operation.
+   */
+  private async handleSystemMessage(op: SystemMessageOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
     const formatter = ctx.platform.getFormatter();
 
@@ -76,9 +93,9 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
   }
 
   /**
-   * Execute a status update operation.
+   * Handle a status update operation.
    */
-  async executeStatusUpdate(op: StatusUpdateOp, ctx: ExecutorContext): Promise<void> {
+  private async handleStatusUpdate(op: StatusUpdateOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
     // Emit status update event (typically updates session header)
@@ -96,9 +113,9 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
   }
 
   /**
-   * Execute a lifecycle operation.
+   * Handle a lifecycle operation.
    */
-  async executeLifecycle(op: LifecycleOp, ctx: ExecutorContext): Promise<void> {
+  private async handleLifecycle(op: LifecycleOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
     // Emit lifecycle event

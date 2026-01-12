@@ -312,18 +312,12 @@ export class MessageManager {
         await this.handleFlushOp(op, ctx);
       } else if (isTaskListOp(op)) {
         await this.taskListExecutor.execute(op, ctx);
-      } else if (isQuestionOp(op)) {
-        await this.questionApprovalExecutor.executeQuestion(op, ctx);
-      } else if (isApprovalOp(op)) {
-        await this.questionApprovalExecutor.executeApproval(op, ctx);
-      } else if (isSystemMessageOp(op)) {
-        await this.systemExecutor.executeSystemMessage(op, ctx);
+      } else if (isQuestionOp(op) || isApprovalOp(op)) {
+        await this.questionApprovalExecutor.execute(op, ctx);
+      } else if (isSystemMessageOp(op) || isStatusUpdateOp(op) || isLifecycleOp(op)) {
+        await this.systemExecutor.execute(op, ctx);
       } else if (isSubagentOp(op)) {
         await this.subagentExecutor.execute(op, ctx);
-      } else if (isStatusUpdateOp(op)) {
-        await this.systemExecutor.executeStatusUpdate(op, ctx);
-      } else if (isLifecycleOp(op)) {
-        await this.systemExecutor.executeLifecycle(op, ctx);
       } else {
         // Type narrowing - if we get here, it means we have an unhandled operation type
         const unknownOp = op as { type: string };

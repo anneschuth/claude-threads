@@ -124,9 +124,21 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
   }
 
   /**
-   * Execute a question operation.
+   * Execute a question or approval operation.
+   * Unified entry point for all operations handled by this executor.
    */
-  async executeQuestion(op: QuestionOp, ctx: ExecutorContext): Promise<void> {
+  async execute(op: QuestionOp | ApprovalOp, ctx: ExecutorContext): Promise<void> {
+    if (op.type === 'question') {
+      return this.handleQuestion(op, ctx);
+    } else if (op.type === 'approval') {
+      return this.handleApproval(op, ctx);
+    }
+  }
+
+  /**
+   * Handle a question operation.
+   */
+  private async handleQuestion(op: QuestionOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
     // If already have pending questions, don't start another set
@@ -153,9 +165,9 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
   }
 
   /**
-   * Execute an approval operation.
+   * Handle an approval operation.
    */
-  async executeApproval(op: ApprovalOp, ctx: ExecutorContext): Promise<void> {
+  private async handleApproval(op: ApprovalOp, ctx: ExecutorContext): Promise<void> {
     const logger = log.forSession(ctx.sessionId);
 
     // If already have pending approval, don't post another

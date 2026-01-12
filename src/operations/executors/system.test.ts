@@ -113,7 +113,7 @@ describe('SystemExecutor', () => {
         level: 'info',
       };
 
-      await executor.executeSystemMessage(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(ctx.platform.createPost).toHaveBeenCalled();
       expect(registeredPosts.size).toBe(1);
@@ -128,7 +128,7 @@ describe('SystemExecutor', () => {
         level: 'warning',
       };
 
-      await executor.executeSystemMessage(op, ctx);
+      await executor.execute(op, ctx);
 
       const platform = ctx.platform as PlatformClient & { posts: Map<string, { content: string }> };
       const postContent = Array.from(platform.posts.values())[0]?.content;
@@ -144,7 +144,7 @@ describe('SystemExecutor', () => {
         level: 'error',
       };
 
-      await executor.executeSystemMessage(op, ctx);
+      await executor.execute(op, ctx);
 
       const platform = ctx.platform as PlatformClient & { posts: Map<string, { content: string }> };
       const postContent = Array.from(platform.posts.values())[0]?.content;
@@ -160,7 +160,7 @@ describe('SystemExecutor', () => {
         level: 'success',
       };
 
-      await executor.executeSystemMessage(op, ctx);
+      await executor.execute(op, ctx);
 
       const platform = ctx.platform as PlatformClient & { posts: Map<string, { content: string }> };
       const postContent = Array.from(platform.posts.values())[0]?.content;
@@ -177,7 +177,7 @@ describe('SystemExecutor', () => {
         ephemeral: true,
       };
 
-      await executor.executeSystemMessage(op, ctx);
+      await executor.execute(op, ctx);
 
       // Ephemeral posts should be tracked for cleanup
       expect(registeredPosts.size).toBe(1);
@@ -197,7 +197,7 @@ describe('SystemExecutor', () => {
         totalCostUSD: 1.25,
       };
 
-      await executor.executeStatusUpdate(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(statusUpdates).toHaveLength(1);
       expect(statusUpdates[0].modelId).toBe('claude-opus-4-5-20251101');
@@ -213,7 +213,7 @@ describe('SystemExecutor', () => {
         contextTokens: 75000,
       };
 
-      await executor.executeStatusUpdate(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(statusUpdates).toHaveLength(1);
       expect(statusUpdates[0].contextTokens).toBe(75000);
@@ -230,7 +230,7 @@ describe('SystemExecutor', () => {
         event: 'started',
       };
 
-      await executor.executeLifecycle(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(lifecycleEvents).toHaveLength(1);
       expect(lifecycleEvents[0]).toBe('started');
@@ -244,7 +244,7 @@ describe('SystemExecutor', () => {
         event: 'idle',
       };
 
-      await executor.executeLifecycle(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(lifecycleEvents).toContain('idle');
     });
@@ -257,7 +257,7 @@ describe('SystemExecutor', () => {
         event: 'paused',
       };
 
-      await executor.executeLifecycle(op, ctx);
+      await executor.execute(op, ctx);
 
       expect(lifecycleEvents).toContain('paused');
     });
@@ -296,7 +296,7 @@ describe('SystemExecutor', () => {
   describe('Ephemeral Post Cleanup', () => {
     it('cleans up ephemeral posts', async () => {
       // Create some ephemeral posts
-      await executor.executeSystemMessage({
+      await executor.execute({
         type: 'system_message',
         sessionId: 'test:session-1',
         timestamp: Date.now(),
@@ -305,7 +305,7 @@ describe('SystemExecutor', () => {
         ephemeral: true,
       }, ctx);
 
-      await executor.executeSystemMessage({
+      await executor.execute({
         type: 'system_message',
         sessionId: 'test:session-1',
         timestamp: Date.now(),
@@ -315,7 +315,7 @@ describe('SystemExecutor', () => {
       }, ctx);
 
       // Also create a non-ephemeral post
-      await executor.executeSystemMessage({
+      await executor.execute({
         type: 'system_message',
         sessionId: 'test:session-1',
         timestamp: Date.now(),
@@ -337,7 +337,7 @@ describe('SystemExecutor', () => {
 
   describe('State Management', () => {
     it('resets ephemeral posts tracking', async () => {
-      await executor.executeSystemMessage({
+      await executor.execute({
         type: 'system_message',
         sessionId: 'test:session-1',
         timestamp: Date.now(),
