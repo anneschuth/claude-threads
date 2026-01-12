@@ -282,6 +282,14 @@ export class SessionManager extends EventEmitter {
       registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),
       unregisterWorktreeUser: (path, sid) => this.unregisterWorktreeUser(path, sid),
       hasOtherSessionsUsingWorktree: (path, sid) => this.hasOtherSessionsUsingWorktree(path, sid),
+      switchToWorktree: (tid, path, user) => this.switchToWorktree(tid, path, user),
+
+      // Update operations
+      forceUpdate: () => this.autoUpdateManager?.forceUpdate() ?? Promise.resolve(),
+      deferUpdate: (min) => this.autoUpdateManager?.deferUpdate(min),
+
+      // Bug report operations
+      handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
 
       // Context prompt
       offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
@@ -503,47 +511,9 @@ export class SessionManager extends EventEmitter {
         }
       }
 
-      // Handle existing worktree join prompt reactions
-      if (session.pendingExistingWorktreePrompt?.postId === postId) {
-        const handled = await reactions.handleExistingWorktreeReaction(
-          session,
-          postId,
-          emojiName,
-          username,
-          this.getContext(),
-          (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
-        );
-        if (handled) return;
-      }
-
-      // Handle update prompt reactions
-      if (session.pendingUpdatePrompt?.postId === postId) {
-        if (this.autoUpdateManager) {
-          const updateHandler: reactions.UpdateReactionHandler = {
-            forceUpdate: () => this.autoUpdateManager!.forceUpdate(),
-            deferUpdate: (minutes: number) => this.autoUpdateManager!.deferUpdate(minutes),
-          };
-          const handled = await reactions.handleUpdateReaction(
-            session,
-            postId,
-            emojiName,
-            username,
-            this.getContext(),
-            updateHandler
-          );
-          if (handled) return;
-        }
-      }
-
       // Handle bug report emoji reaction on error posts
       if (session.lastError?.postId === postId) {
         const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
-        if (handled) return;
-      }
-
-      // Handle bug report approval reactions
-      if (session.pendingBugReport?.postId === postId) {
-        const handled = await reactions.handleBugApprovalReaction(session, postId, emojiName, username, this.getContext());
         if (handled) return;
       }
     }
@@ -1412,7 +1382,7 @@ export class SessionManager extends EventEmitter {
         );
 
         // Store pending update prompt for reaction handling
-        session.pendingUpdatePrompt = { postId: post.id };
+        session.messageManager?.setPendingUpdatePrompt({ postId: post.id });
         this.registerPost(post.id, session.threadId);
       } catch (err) {
         log.warn(`Failed to post ask message to ${threadId}: ${err}`);

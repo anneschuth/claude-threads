@@ -72,6 +72,25 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
   } as unknown as PlatformClient;
 }
 
+// Create mock message manager with state tracking
+function createMockMessageManager() {
+  // Internal state for testing
+  let pendingExistingWorktreePrompt: { postId: string; branch: string; worktreePath: string } | null = null;
+
+  return {
+    setPendingExistingWorktreePrompt: mock((prompt: { postId: string; branch: string; worktreePath: string } | null) => {
+      pendingExistingWorktreePrompt = prompt;
+    }),
+    getPendingExistingWorktreePrompt: mock(() => pendingExistingWorktreePrompt),
+    hasPendingExistingWorktreePrompt: mock(() => pendingExistingWorktreePrompt !== null),
+    clearPendingExistingWorktreePrompt: mock(() => { pendingExistingWorktreePrompt = null; }),
+    // Other methods that might be called
+    handleEvent: mock(() => Promise.resolve()),
+    flush: mock(() => Promise.resolve()),
+    handleReaction: mock(() => Promise.resolve(false)),
+  } as any;
+}
+
 function createMockSession(overrides?: Partial<Session>): Session {
   return {
     sessionId: 'test-platform:thread-123',
@@ -109,6 +128,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     platformId: 'test-platform',
     currentPostId: null,
     messageCount: 0,
+    messageManager: createMockMessageManager(),
     ...overrides,
   } as Session;
 }
@@ -267,9 +287,10 @@ describe('Worktree Module', () => {
         // Should create interactive post for confirmation
         expect(session.platform.createInteractivePost).toHaveBeenCalled();
 
-        // Should set pending state for reaction handling
-        expect(session.pendingExistingWorktreePrompt).toBeDefined();
-        expect(session.pendingExistingWorktreePrompt?.branch).toBe('feature-branch');
+        // Should set pending state for reaction handling via MessageManager
+        const pendingPrompt = session.messageManager?.getPendingExistingWorktreePrompt();
+        expect(pendingPrompt).toBeDefined();
+        expect(pendingPrompt?.branch).toBe('feature-branch');
       });
     });
 

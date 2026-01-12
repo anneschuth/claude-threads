@@ -177,6 +177,26 @@ export interface SessionOperations {
   /** Check if other sessions are using a worktree (besides the given session) */
   hasOtherSessionsUsingWorktree(worktreePath: string, excludeSessionId: string): boolean;
 
+  /** Switch session to an existing worktree directory */
+  switchToWorktree(threadId: string, branchOrPath: string, username: string): Promise<void>;
+
+  // ---------------------------------------------------------------------------
+  // Update Operations
+  // ---------------------------------------------------------------------------
+
+  /** Force an immediate update (if auto-update manager is available) */
+  forceUpdate(): Promise<void>;
+
+  /** Defer the update for the specified number of minutes */
+  deferUpdate(minutes: number): void;
+
+  // ---------------------------------------------------------------------------
+  // Bug Report Operations
+  // ---------------------------------------------------------------------------
+
+  /** Handle bug report approval/denial */
+  handleBugReportApproval(session: Session, approved: boolean, username: string): Promise<void>;
+
   // ---------------------------------------------------------------------------
   // Context Prompt
   // ---------------------------------------------------------------------------

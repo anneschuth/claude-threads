@@ -10,7 +10,7 @@
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, isAllowAllEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
-import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, PendingExistingWorktreePrompt, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { ExecutorContext, InteractiveState, PendingMessageApproval, PendingContextPrompt, PendingExistingWorktreePrompt, PendingUpdatePrompt, PendingBugReport, RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
 import { createLogger } from '../../utils/logger.js';
 
 /**
@@ -78,6 +78,29 @@ export type ExistingWorktreeCallback = (
   context: { branch: string; worktreePath: string; username: string }
 ) => Promise<void>;
 
+/**
+ * Decision type for update prompt reactions.
+ */
+export type UpdatePromptDecision = 'update_now' | 'defer';
+
+/**
+ * Callback for update prompt completion.
+ */
+export type UpdatePromptCallback = (decision: UpdatePromptDecision) => Promise<void>;
+
+/**
+ * Decision type for bug report reactions.
+ */
+export type BugReportDecision = 'approve' | 'deny';
+
+/**
+ * Callback for bug report completion.
+ */
+export type BugReportCallback = (
+  decision: BugReportDecision,
+  report: PendingBugReport
+) => Promise<void>;
+
 export class InteractiveExecutor {
   private state: InteractiveState;
   private registerPost: RegisterPostCallback;
@@ -87,6 +110,8 @@ export class InteractiveExecutor {
   private onMessageApprovalComplete?: MessageApprovalCallback;
   private onContextPromptComplete?: ContextPromptCallback;
   private onExistingWorktreeComplete?: ExistingWorktreeCallback;
+  private onUpdatePromptComplete?: UpdatePromptCallback;
+  private onBugReportComplete?: BugReportCallback;
 
   constructor(options: {
     registerPost: RegisterPostCallback;
@@ -96,6 +121,8 @@ export class InteractiveExecutor {
     onMessageApprovalComplete?: MessageApprovalCallback;
     onContextPromptComplete?: ContextPromptCallback;
     onExistingWorktreeComplete?: ExistingWorktreeCallback;
+    onUpdatePromptComplete?: UpdatePromptCallback;
+    onBugReportComplete?: BugReportCallback;
   }) {
     this.state = {
       pendingQuestionSet: null,
@@ -103,6 +130,8 @@ export class InteractiveExecutor {
       pendingMessageApproval: null,
       pendingContextPrompt: null,
       pendingExistingWorktreePrompt: null,
+      pendingUpdatePrompt: null,
+      pendingBugReport: null,
     };
     this.registerPost = options.registerPost;
     this.updateLastMessage = options.updateLastMessage;
@@ -111,6 +140,8 @@ export class InteractiveExecutor {
     this.onMessageApprovalComplete = options.onMessageApprovalComplete;
     this.onContextPromptComplete = options.onContextPromptComplete;
     this.onExistingWorktreeComplete = options.onExistingWorktreeComplete;
+    this.onUpdatePromptComplete = options.onUpdatePromptComplete;
+    this.onBugReportComplete = options.onBugReportComplete;
   }
 
   /**
@@ -133,6 +164,12 @@ export class InteractiveExecutor {
       pendingExistingWorktreePrompt: this.state.pendingExistingWorktreePrompt
         ? { ...this.state.pendingExistingWorktreePrompt }
         : null,
+      pendingUpdatePrompt: this.state.pendingUpdatePrompt
+        ? { ...this.state.pendingUpdatePrompt }
+        : null,
+      pendingBugReport: this.state.pendingBugReport
+        ? { ...this.state.pendingBugReport }
+        : null,
     };
   }
 
@@ -146,6 +183,8 @@ export class InteractiveExecutor {
       pendingMessageApproval: null,
       pendingContextPrompt: null,
       pendingExistingWorktreePrompt: null,
+      pendingUpdatePrompt: null,
+      pendingBugReport: null,
     };
   }
 
@@ -159,6 +198,8 @@ export class InteractiveExecutor {
     pendingMessageApproval?: InteractiveState['pendingMessageApproval'];
     pendingContextPrompt?: InteractiveState['pendingContextPrompt'];
     pendingExistingWorktreePrompt?: InteractiveState['pendingExistingWorktreePrompt'];
+    pendingUpdatePrompt?: InteractiveState['pendingUpdatePrompt'];
+    pendingBugReport?: InteractiveState['pendingBugReport'];
   }): void {
     this.state = {
       pendingQuestionSet: persisted.pendingQuestionSet ?? null,
@@ -166,6 +207,8 @@ export class InteractiveExecutor {
       pendingMessageApproval: persisted.pendingMessageApproval ?? null,
       pendingContextPrompt: persisted.pendingContextPrompt ?? null,
       pendingExistingWorktreePrompt: persisted.pendingExistingWorktreePrompt ?? null,
+      pendingUpdatePrompt: persisted.pendingUpdatePrompt ?? null,
+      pendingBugReport: persisted.pendingBugReport ?? null,
     };
   }
 
@@ -723,6 +766,169 @@ export class InteractiveExecutor {
   }
 
   // ---------------------------------------------------------------------------
+  // Update prompt methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending update prompt state.
+   * Called when a version update is available and user must decide to update or defer.
+   */
+  setPendingUpdatePrompt(prompt: PendingUpdatePrompt): void {
+    this.state.pendingUpdatePrompt = prompt;
+  }
+
+  /**
+   * Get pending update prompt state.
+   */
+  getPendingUpdatePrompt(): PendingUpdatePrompt | null {
+    return this.state.pendingUpdatePrompt;
+  }
+
+  /**
+   * Check if there's a pending update prompt.
+   */
+  hasPendingUpdatePrompt(): boolean {
+    return this.state.pendingUpdatePrompt !== null;
+  }
+
+  /**
+   * Clear pending update prompt state.
+   */
+  clearPendingUpdatePrompt(): void {
+    this.state.pendingUpdatePrompt = null;
+  }
+
+  /**
+   * Handle an update prompt reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param decision - The update decision (update_now or defer)
+   * @param username - Username of the user who responded (for logging)
+   * @param ctx - Executor context
+   */
+  async handleUpdatePromptResponse(
+    postId: string,
+    decision: UpdatePromptDecision,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingUpdatePrompt) return false;
+    if (this.state.pendingUpdatePrompt.postId !== postId) return false;
+
+    const logger = log.forSession(ctx.sessionId);
+    const formatter = ctx.platform.getFormatter();
+
+    // Update the post based on decision
+    let statusMessage: string;
+    if (decision === 'update_now') {
+      statusMessage = `🔄 ${formatter.formatBold('Forcing update')} - restarting shortly...`;
+      logger.info(`Update prompt: forcing update now by @${username}`);
+    } else {
+      statusMessage = `⏸️ ${formatter.formatBold('Update deferred')} for 1 hour`;
+      logger.info(`Update prompt: update deferred by @${username}`);
+    }
+
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      logger.debug(`Failed to update update prompt post: ${err}`);
+    }
+
+    // Clear pending state
+    this.state.pendingUpdatePrompt = null;
+
+    // Notify completion handler
+    if (this.onUpdatePromptComplete) {
+      await this.onUpdatePromptComplete(decision);
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bug report methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending bug report state.
+   * Called when a bug report is ready for user approval before submission.
+   */
+  setPendingBugReport(report: PendingBugReport): void {
+    this.state.pendingBugReport = report;
+  }
+
+  /**
+   * Get pending bug report state.
+   */
+  getPendingBugReport(): PendingBugReport | null {
+    return this.state.pendingBugReport;
+  }
+
+  /**
+   * Check if there's a pending bug report.
+   */
+  hasPendingBugReport(): boolean {
+    return this.state.pendingBugReport !== null;
+  }
+
+  /**
+   * Clear pending bug report state.
+   */
+  clearPendingBugReport(): void {
+    this.state.pendingBugReport = null;
+  }
+
+  /**
+   * Handle a bug report reaction.
+   * Returns true if the reaction was handled, false otherwise.
+   *
+   * @param postId - The post ID the reaction was on
+   * @param decision - The bug report decision (approve or deny)
+   * @param username - Username of the user who responded (for logging)
+   * @param ctx - Executor context
+   */
+  async handleBugReportResponse(
+    postId: string,
+    decision: BugReportDecision,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingBugReport) return false;
+    if (this.state.pendingBugReport.postId !== postId) return false;
+
+    const logger = log.forSession(ctx.sessionId);
+    const report = this.state.pendingBugReport;
+    const formatter = ctx.platform.getFormatter();
+
+    // Update the post based on decision
+    let statusMessage: string;
+    if (decision === 'approve') {
+      statusMessage = `✅ ${formatter.formatBold('Bug report submitted')} - creating issue...`;
+      logger.info(`Bug report approved by @${username}`);
+    } else {
+      statusMessage = `❌ ${formatter.formatBold('Bug report cancelled')}`;
+      logger.info(`Bug report denied by @${username}`);
+    }
+
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      logger.debug(`Failed to update bug report post: ${err}`);
+    }
+
+    // Clear pending state
+    this.state.pendingBugReport = null;
+
+    // Notify completion handler
+    if (this.onBugReportComplete) {
+      await this.onBugReportComplete(decision, report);
+    }
+
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // Unified reaction handler
   // ---------------------------------------------------------------------------
 
@@ -821,6 +1027,32 @@ export class InteractiveExecutor {
       if (isDenialEmoji(emoji)) {
         logger.debug(`Existing worktree reaction from @${user}: skip`);
         return this.handleExistingWorktreeResponse(postId, 'skip', user, ctx);
+      }
+      return false;
+    }
+
+    // Check pending update prompt
+    if (this.state.pendingUpdatePrompt?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        logger.debug(`Update prompt reaction from @${user}: update_now`);
+        return this.handleUpdatePromptResponse(postId, 'update_now', user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Update prompt reaction from @${user}: defer`);
+        return this.handleUpdatePromptResponse(postId, 'defer', user, ctx);
+      }
+      return false;
+    }
+
+    // Check pending bug report
+    if (this.state.pendingBugReport?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        logger.debug(`Bug report reaction from @${user}: approve`);
+        return this.handleBugReportResponse(postId, 'approve', user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        logger.debug(`Bug report reaction from @${user}: deny`);
+        return this.handleBugReportResponse(postId, 'deny', user, ctx);
       }
       return false;
     }

@@ -16,8 +16,25 @@ import {
   SubagentExecutor,
   SystemExecutor,
 } from './executors/index.js';
-import type { MessageApprovalDecision, MessageApprovalCallback, ContextPromptCallback, ContextPromptSelection } from './executors/interactive.js';
-import type { ExecutorContext, RegisterPostCallback, UpdateLastMessageCallback, PendingMessageApproval, PendingContextPrompt } from './executors/types.js';
+import type {
+  MessageApprovalDecision,
+  MessageApprovalCallback,
+  ContextPromptCallback,
+  ContextPromptSelection,
+  ExistingWorktreeCallback,
+  UpdatePromptCallback,
+  BugReportCallback,
+} from './executors/interactive.js';
+import type {
+  ExecutorContext,
+  RegisterPostCallback,
+  UpdateLastMessageCallback,
+  PendingMessageApproval,
+  PendingContextPrompt,
+  PendingExistingWorktreePrompt,
+  PendingUpdatePrompt,
+  PendingBugReport,
+} from './executors/types.js';
 import { PostTracker } from './post-tracker.js';
 import { DefaultContentBreaker } from './content-breaker.js';
 import type {
@@ -85,6 +102,9 @@ export interface MessageManagerOptions {
   onApprovalComplete: ApprovalCompleteCallback;
   onMessageApprovalComplete?: MessageApprovalCallback;
   onContextPromptComplete?: ContextPromptCallback;
+  onExistingWorktreeComplete?: ExistingWorktreeCallback;
+  onUpdatePromptComplete?: UpdatePromptCallback;
+  onBugReportComplete?: BugReportCallback;
   onStatusUpdate?: StatusUpdateCallback;
   onLifecycleEvent?: LifecycleCallback;
   onBumpTaskList?: () => Promise<void>;
@@ -166,6 +186,9 @@ export class MessageManager {
       onApprovalComplete: options.onApprovalComplete,
       onMessageApprovalComplete: options.onMessageApprovalComplete,
       onContextPromptComplete: options.onContextPromptComplete,
+      onExistingWorktreeComplete: options.onExistingWorktreeComplete,
+      onUpdatePromptComplete: options.onUpdatePromptComplete,
+      onBugReportComplete: options.onBugReportComplete,
     });
 
     this.subagentExecutor = new SubagentExecutor({
@@ -526,6 +549,105 @@ export class MessageManager {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // Existing worktree prompt delegation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending existing worktree prompt state.
+   * Called when an existing worktree is found and user must decide to join or skip.
+   */
+  setPendingExistingWorktreePrompt(prompt: PendingExistingWorktreePrompt): void {
+    this.interactiveExecutor.setPendingExistingWorktreePrompt(prompt);
+  }
+
+  /**
+   * Get pending existing worktree prompt state.
+   */
+  getPendingExistingWorktreePrompt(): PendingExistingWorktreePrompt | null {
+    return this.interactiveExecutor.getPendingExistingWorktreePrompt();
+  }
+
+  /**
+   * Check if there's a pending existing worktree prompt.
+   */
+  hasPendingExistingWorktreePrompt(): boolean {
+    return this.interactiveExecutor.hasPendingExistingWorktreePrompt();
+  }
+
+  /**
+   * Clear pending existing worktree prompt state.
+   */
+  clearPendingExistingWorktreePrompt(): void {
+    this.interactiveExecutor.clearPendingExistingWorktreePrompt();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Update prompt delegation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending update prompt state.
+   * Called when prompting user about a version update.
+   */
+  setPendingUpdatePrompt(prompt: PendingUpdatePrompt): void {
+    this.interactiveExecutor.setPendingUpdatePrompt(prompt);
+  }
+
+  /**
+   * Get pending update prompt state.
+   */
+  getPendingUpdatePrompt(): PendingUpdatePrompt | null {
+    return this.interactiveExecutor.getPendingUpdatePrompt();
+  }
+
+  /**
+   * Check if there's a pending update prompt.
+   */
+  hasPendingUpdatePrompt(): boolean {
+    return this.interactiveExecutor.hasPendingUpdatePrompt();
+  }
+
+  /**
+   * Clear pending update prompt state.
+   */
+  clearPendingUpdatePrompt(): void {
+    this.interactiveExecutor.clearPendingUpdatePrompt();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bug report delegation
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set pending bug report state.
+   * Called when a bug report is being reviewed before submission.
+   */
+  setPendingBugReport(report: PendingBugReport): void {
+    this.interactiveExecutor.setPendingBugReport(report);
+  }
+
+  /**
+   * Get pending bug report state.
+   */
+  getPendingBugReport(): PendingBugReport | null {
+    return this.interactiveExecutor.getPendingBugReport();
+  }
+
+  /**
+   * Check if there's a pending bug report.
+   */
+  hasPendingBugReport(): boolean {
+    return this.interactiveExecutor.hasPendingBugReport();
+  }
+
+  /**
+   * Clear pending bug report state.
+   */
+  clearPendingBugReport(): void {
+    this.interactiveExecutor.clearPendingBugReport();
+  }
+
   /**
    * Get the current post ID being updated
    */
@@ -609,6 +731,9 @@ export class MessageManager {
     } | null;
     pendingMessageApproval?: PendingMessageApproval | null;
     pendingContextPrompt?: PendingContextPrompt | null;
+    pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt | null;
+    pendingUpdatePrompt?: PendingUpdatePrompt | null;
+    pendingBugReport?: PendingBugReport | null;
   }): void {
     this.interactiveExecutor.hydrateState(persisted);
   }

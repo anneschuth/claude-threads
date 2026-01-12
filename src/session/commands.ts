@@ -755,7 +755,7 @@ export async function showUpdateStatus(
   );
 
   // Store pending update prompt for reaction handling
-  session.pendingUpdatePrompt = { postId: post.id };
+  session.messageManager?.setPendingUpdatePrompt({ postId: post.id });
 }
 
 /**
@@ -912,7 +912,7 @@ export async function reportBug(
   );
 
   // Store pending bug report
-  session.pendingBugReport = {
+  session.messageManager?.setPendingBugReport({
     postId: post.id,
     title,
     body,
@@ -920,7 +920,7 @@ export async function reportBug(
     imageUrls,
     imageErrors,
     errorContext,
-  };
+  });
 
   sessionLog(session).info(`🐛 Bug report preview created by @${username}: ${title}`);
 }
@@ -934,7 +934,8 @@ export async function handleBugReportApproval(
   isApproved: boolean,
   username: string
 ): Promise<void> {
-  const pending = session.pendingBugReport;
+  // Read from MessageManager (new location) or fallback to session (backward compat)
+  const pending = session.messageManager?.getPendingBugReport() ?? session.pendingBugReport;
   if (!pending) return;
 
   const formatter = session.platform.getFormatter();
@@ -970,5 +971,5 @@ export async function handleBugReportApproval(
   }
 
   // Clear pending bug report
-  session.pendingBugReport = undefined;
+  session.messageManager?.clearPendingBugReport();
 }

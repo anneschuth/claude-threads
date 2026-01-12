@@ -517,12 +517,12 @@ export async function createAndSwitchToWorktree(
     );
 
     // Store the pending prompt for reaction handling
-    session.pendingExistingWorktreePrompt = {
+    session.messageManager?.setPendingExistingWorktreePrompt({
       postId: post.id,
       branch,
       worktreePath: existing.path,
       username,
-    };
+    });
 
     // Persist the session state and update sticky message
     options.persistSession(session);

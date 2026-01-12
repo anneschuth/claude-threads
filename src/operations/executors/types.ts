@@ -103,6 +103,30 @@ export interface PendingExistingWorktreePrompt {
 }
 
 /**
+ * Pending update prompt state for version update prompts.
+ */
+export interface PendingUpdatePrompt {
+  postId: string;
+}
+
+/**
+ * Pending bug report state for bug report submission.
+ */
+export interface PendingBugReport {
+  postId: string;
+  title: string;
+  body: string;
+  userDescription: string;
+  imageUrls: string[];
+  imageErrors: string[];
+  errorContext?: {
+    postId: string;
+    message: string;
+    timestamp: Date;
+  };
+}
+
+/**
  * State managed by the interactive executor.
  */
 export interface InteractiveState {
@@ -130,6 +154,10 @@ export interface InteractiveState {
   pendingContextPrompt: PendingContextPrompt | null;
   /** Pending existing worktree prompt for worktree selection */
   pendingExistingWorktreePrompt: PendingExistingWorktreePrompt | null;
+  /** Pending update prompt for version update prompts */
+  pendingUpdatePrompt: PendingUpdatePrompt | null;
+  /** Pending bug report for bug report submission */
+  pendingBugReport: PendingBugReport | null;
 }
 
 /**

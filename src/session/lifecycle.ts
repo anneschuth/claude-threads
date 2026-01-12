@@ -211,6 +211,29 @@ function createMessageManager(
       session.lastActivityAt = new Date();
       ctx.ops.persistSession(session);
     },
+    onExistingWorktreeComplete: async (decision, { branch, worktreePath, username }) => {
+      if (decision === 'join') {
+        // Switch to the existing worktree
+        await ctx.ops.switchToWorktree(session.threadId, worktreePath, username);
+        sessionLog(session).info(`🌿 @${username} joined existing worktree ${branch}`);
+      } else {
+        sessionLog(session).info(`❌ @${username} skipped joining existing worktree ${branch}`);
+      }
+      ctx.ops.persistSession(session);
+    },
+    onUpdatePromptComplete: async (decision) => {
+      if (decision === 'update_now') {
+        sessionLog(session).info('🔄 User triggered immediate update');
+        await ctx.ops.forceUpdate();
+      } else {
+        sessionLog(session).info('⏸️ User deferred update for 1 hour');
+        ctx.ops.deferUpdate(60);
+      }
+      ctx.ops.persistSession(session);
+    },
+    onBugReportComplete: async (decision, _report) => {
+      await ctx.ops.handleBugReportApproval(session, decision === 'approve', session.startedBy);
+    },
     // onBumpTaskList callback not implemented - task list bumping is handled separately
     // via the legacy streaming.ts path during the transition period
   });
