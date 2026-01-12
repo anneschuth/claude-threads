@@ -6,8 +6,8 @@
  * Runs completely out-of-band (fire-and-forget) to not block session startup.
  */
 
-import { quickQuery } from '../claude/quick-query.js';
-import { createLogger } from '../utils/logger.js';
+import { quickQuery } from '../../claude/quick-query.js';
+import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('tags');
 

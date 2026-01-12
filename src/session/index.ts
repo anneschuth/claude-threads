@@ -12,7 +12,7 @@ export type {
   PendingExistingWorktreePrompt,
   PendingWorktreeFailurePrompt,
 } from './types.js';
-export type { PendingContextPrompt } from './context-prompt.js';
+export type { PendingContextPrompt } from '../operations/context-prompt/index.js';
 
 // Re-export PendingMessageApproval from executors (now managed by MessageManager)
 export type { PendingMessageApproval } from '../operations/executors/index.js';
@@ -21,8 +21,8 @@ export type { PendingMessageApproval } from '../operations/executors/index.js';
 export type { PendingPrompt } from '../operations/sticky-message/index.js';
 export { getPendingPrompts, formatPendingPrompts } from '../operations/sticky-message/index.js';
 
-// Session metadata suggestion utilities (quickQuery-based)
-export { suggestSessionMetadata } from './title-suggest.js';
-export type { SessionMetadata, TitleContext } from './title-suggest.js';
-export { suggestSessionTags, VALID_TAGS, isValidTag } from './tag-suggest.js';
-export type { SessionTag } from './tag-suggest.js';
+// Session metadata suggestion utilities (re-exported from operations/suggestions)
+export { suggestSessionMetadata } from '../operations/suggestions/title.js';
+export type { SessionMetadata, TitleContext } from '../operations/suggestions/title.js';
+export { suggestSessionTags, VALID_TAGS, isValidTag } from '../operations/suggestions/tag.js';
+export type { SessionTag } from '../operations/suggestions/tag.js';

@@ -3,9 +3,9 @@
  */
 
 import { describe, expect, test, mock, beforeEach } from 'bun:test';
-import { buildTitlePrompt, parseMetadata, suggestSessionMetadata } from './title-suggest.js';
-import type { TitleContext } from './title-suggest.js';
-import type { QuickQueryResult } from '../claude/quick-query.js';
+import { buildTitlePrompt, parseMetadata, suggestSessionMetadata } from './title.js';
+import type { TitleContext } from './title.js';
+import type { QuickQueryResult } from '../../claude/quick-query.js';
 
 // Mock quickQuery for suggestSessionMetadata tests
 const mockQuickQuery = mock(
@@ -16,7 +16,7 @@ const mockQuickQuery = mock(
       durationMs: 100,
     })
 );
-mock.module('../claude/quick-query.js', () => ({
+mock.module('../../claude/quick-query.js', () => ({
   quickQuery: mockQuickQuery,
 }));
 

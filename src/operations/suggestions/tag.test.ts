@@ -3,15 +3,15 @@
  */
 
 import { describe, expect, it, mock, beforeEach } from 'bun:test';
-import { buildTagPrompt, parseTags, isValidTag, VALID_TAGS, suggestSessionTags } from './tag-suggest.js';
-import type { QuickQueryResult } from '../claude/quick-query.js';
+import { buildTagPrompt, parseTags, isValidTag, VALID_TAGS, suggestSessionTags } from './tag.js';
+import type { QuickQueryResult } from '../../claude/quick-query.js';
 
 // Mock quickQuery for suggestSessionTags tests
 const mockQuickQuery = mock(
   (): Promise<QuickQueryResult> =>
     Promise.resolve({ success: true, response: 'bug-fix', durationMs: 100 })
 );
-mock.module('../claude/quick-query.js', () => ({
+mock.module('../../claude/quick-query.js', () => ({
   quickQuery: mockQuickQuery,
 }));
 

@@ -10,10 +10,10 @@ import {
   updateContextPromptPost,
   clearContextPromptTimeout,
   type PendingContextPrompt,
-} from './context-prompt.js';
-import type { ThreadMessage, PlatformClient, PlatformPost } from '../platform/index.js';
-import type { Session } from './types.js';
-import { createMockFormatter } from '../test-utils/mock-formatter.js';
+} from './handler.js';
+import type { ThreadMessage, PlatformClient, PlatformPost } from '../../platform/index.js';
+import type { Session } from '../../session/types.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
 describe('context-prompt', () => {
   describe('getValidContextOptions', () => {

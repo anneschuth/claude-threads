@@ -5,9 +5,9 @@
  * Uses the quick-query utility with Haiku for fast, low-cost suggestions.
  */
 
-import { quickQuery } from '../claude/quick-query.js';
-import { isValidBranchName } from '../git/worktree.js';
-import { createLogger } from '../utils/logger.js';
+import { quickQuery } from '../../claude/quick-query.js';
+import { isValidBranchName } from '../../git/worktree.js';
+import { createLogger } from '../../utils/logger.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 

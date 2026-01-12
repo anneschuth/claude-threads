@@ -12,9 +12,9 @@
  * - Recovery: Clear severity levels for different responses
  */
 
-import type { Session } from './types.js';
-import { createLogger } from '../utils/logger.js';
-import { formatShortId } from '../utils/format.js';
+import type { Session } from '../../session/types.js';
+import { createLogger } from '../logger.js';
+import { formatShortId } from '../format.js';
 
 const log = createLogger('error');
 

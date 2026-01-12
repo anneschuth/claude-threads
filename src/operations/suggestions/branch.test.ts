@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { parseBranchSuggestions, buildSuggestionPrompt } from './branch-suggest.js';
+import { parseBranchSuggestions, buildSuggestionPrompt } from './branch.js';
 
 describe('parseBranchSuggestions', () => {
   test('parses simple branch names', () => {

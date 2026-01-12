@@ -6,7 +6,7 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { bumpTasksToBottom, startTyping, stopTyping } from './streaming.js';
+import { bumpTasksToBottom, startTyping, stopTyping } from './handler.js';
 import {
   findLogicalBreakpoint,
   shouldFlushEarly,
@@ -15,10 +15,10 @@ import {
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
-} from '../operations/content-breaker.js';
-import type { Session } from './types.js';
-import type { PlatformClient } from '../platform/index.js';
-import { createMockFormatter } from '../test-utils/mock-formatter.js';
+} from '../content-breaker.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient } from '../../platform/index.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
 // Mock platform client (minimal version for streaming tests)
 function createMockPlatform() {

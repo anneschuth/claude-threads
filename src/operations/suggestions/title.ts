@@ -6,9 +6,9 @@
  * Runs completely out-of-band (fire-and-forget) to not block session startup.
  */
 
-import { quickQuery } from '../claude/quick-query.js';
-import { createLogger } from '../utils/logger.js';
-import { truncateAtWord } from '../utils/format.js';
+import { quickQuery } from '../../claude/quick-query.js';
+import { createLogger } from '../../utils/logger.js';
+import { truncateAtWord } from '../../utils/format.js';
 
 const log = createLogger('title');
 

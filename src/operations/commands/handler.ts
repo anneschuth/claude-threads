@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
-import type { SessionContext } from '../../session/context.js';
+import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
@@ -34,7 +34,7 @@ import type { PlatformFile } from '../../platform/types.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
 import { keepAlive } from '../../utils/keep-alive.js';
-import { logAndNotify } from '../../session/error-handler.js';
+import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
   postCancelled,
   postInfo,

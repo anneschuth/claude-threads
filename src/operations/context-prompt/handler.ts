@@ -5,14 +5,14 @@
  * when a session restarts (via !cd, worktree creation, or mid-thread @mention).
  */
 
-import type { Session } from './types.js';
-import type { ThreadMessage, PlatformFile } from '../platform/index.js';
-import type { ContentBlock } from '../claude/cli.js';
-import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../operations/executors/types.js';
-import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../utils/emoji.js';
-import { withErrorHandling } from './error-handler.js';
-import { updateLastMessage } from './post-helpers.js';
-import { createLogger } from '../utils/logger.js';
+import type { Session } from '../../session/types.js';
+import type { ThreadMessage, PlatformFile } from '../../platform/index.js';
+import type { ContentBlock } from '../../claude/cli.js';
+import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
+import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../../utils/emoji.js';
+import { withErrorHandling } from '../../utils/error-handler/index.js';
+import { updateLastMessage } from '../../session/post-helpers.js';
+import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('context');
 

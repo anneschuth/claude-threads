@@ -7,7 +7,7 @@
 import type { Session } from '../../session/types.js';
 import type { WorktreeMode } from '../../config.js';
 import type { PlatformFile } from '../../platform/index.js';
-import { suggestBranchNames } from '../../session/branch-suggest.js';
+import { suggestBranchNames } from '../suggestions/branch.js';
 import {
   isGitRepository,
   getRepositoryRoot,
@@ -24,7 +24,7 @@ import {
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
-import { logAndNotify } from '../../session/error-handler.js';
+import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
   postWarning,
   postError,

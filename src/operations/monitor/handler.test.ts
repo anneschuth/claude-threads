@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach, mock } from 'bun:test';
-import { SessionMonitor } from './monitor.js';
-import type { SessionContext } from './context.js';
+import { SessionMonitor } from './handler.js';
+import type { SessionContext } from '../session-context/index.js';
 
 // Create a minimal mock context
 function createMockContext(): SessionContext {

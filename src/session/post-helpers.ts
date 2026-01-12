@@ -15,7 +15,7 @@
 import type { Session } from './types.js';
 import type { PlatformPost, PlatformFormatter } from '../platform/index.js';
 import { createLogger } from '../utils/logger.js';
-import { withErrorHandling } from './error-handler.js';
+import { withErrorHandling } from '../utils/error-handler/index.js';
 import { BUG_REPORT_EMOJI } from '../utils/emoji.js';
 import { updateWorktreeActivity } from '../git/worktree.js';
 

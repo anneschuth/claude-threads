@@ -147,3 +147,21 @@ export * from './commands/index.js';
 
 // Worktree operations
 export * from './worktree/index.js';
+
+// Event processing
+export * from './events/index.js';
+
+// Session monitor
+export * from './monitor/index.js';
+
+// Session context
+export * from './session-context/index.js';
+
+// Context prompt operations
+export * from './context-prompt/index.js';
+
+// Suggestions
+export * from './suggestions/index.js';
+
+// Streaming utilities
+export * from './streaming/index.js';

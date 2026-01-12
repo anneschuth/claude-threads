@@ -10,11 +10,11 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import {
   handleEventPreProcessing,
   handleEventPostProcessing,
-} from './events.js';
-import type { SessionContext } from './context.js';
-import type { Session } from './types.js';
-import type { PlatformClient, PlatformPost } from '../platform/index.js';
-import { createMockFormatter } from '../test-utils/mock-formatter.js';
+} from './handler.js';
+import type { SessionContext } from '../session-context/index.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient, PlatformPost } from '../../platform/index.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 
 // Mock platform client
 function createMockPlatform() {

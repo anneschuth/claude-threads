@@ -3,10 +3,10 @@
  *
  * This is the main coordinator that delegates to specialized modules:
  * - lifecycle.ts: Session start, resume, exit
- * - events.ts: Claude event handling
- * - commands.ts: User commands (!cd, !invite, etc.)
- * - worktree.ts: Git worktree management
  * - streaming.ts: Message streaming and flushing
+ * - operations/events: Claude event handling
+ * - operations/commands: User commands (!cd, !invite, etc.)
+ * - operations/worktree: Git worktree management
  *
  * User reactions are handled via MessageManager.handleReaction() which routes
  * to the appropriate executor (InteractiveExecutor, TaskListExecutor, etc.)
@@ -27,16 +27,16 @@ import {
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
 import { CleanupScheduler } from '../cleanup/index.js';
-import { SessionMonitor } from './monitor.js';
+import { SessionMonitor } from '../operations/monitor/index.js';
 
 // Import extracted modules
-import * as streaming from './streaming.js';
-import * as events from './events.js';
+import * as streaming from '../operations/streaming/index.js';
+import * as events from '../operations/events/index.js';
 import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
 import * as worktreeModule from '../operations/worktree/index.js';
-import * as contextPrompt from './context-prompt.js';
+import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
 import { postInfo } from './post-helpers.js';
@@ -51,7 +51,7 @@ import {
   type SessionState,
   type SessionOperations,
   createSessionContext,
-} from './context.js';
+} from '../operations/session-context/index.js';
 
 // Import constants for internal use
 import { getSessionStatus } from './types.js';

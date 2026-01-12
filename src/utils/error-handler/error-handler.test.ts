@@ -11,8 +11,8 @@ import {
   isErrorType,
   errorContains,
   type ErrorContext,
-} from './error-handler.js';
-import type { Session } from './types.js';
+} from './index.js';
+import type { Session } from '../../session/types.js';
 
 // Mock session for testing - returns a minimal mock that satisfies the Session interface
 // for error handler testing purposes

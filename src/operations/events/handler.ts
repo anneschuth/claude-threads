@@ -8,19 +8,19 @@
  * This module handles session-specific side effects that wrap MessageManager.
  */
 
-import type { Session, SessionUsageStats, ModelTokenUsage } from './types.js';
-import { getSessionStatus } from './types.js';
-import type { ClaudeEvent } from '../claude/cli.js';
-import { shortenPath } from '../operations/index.js';
-import { withErrorHandling } from './error-handler.js';
-import { resetSessionActivity, postInfo, postError, updatePost } from './post-helpers.js';
-import type { SessionContext } from './context.js';
-import { createLogger } from '../utils/logger.js';
-import { extractPullRequestUrl } from '../utils/pr-detector.js';
-import { changeDirectory, reportBug } from '../operations/commands/index.js';
-import { buildWorktreeListMessage } from '../operations/worktree/index.js';
-import { trackEvent } from '../operations/bug-report/index.js';
-import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../commands/index.js';
+import type { Session, SessionUsageStats, ModelTokenUsage } from '../../session/types.js';
+import { getSessionStatus } from '../../session/types.js';
+import type { ClaudeEvent } from '../../claude/cli.js';
+import { shortenPath } from '../index.js';
+import { withErrorHandling } from '../../utils/error-handler/index.js';
+import { resetSessionActivity, postInfo, postError, updatePost } from '../../session/post-helpers.js';
+import type { SessionContext } from '../session-context/index.js';
+import { createLogger } from '../../utils/logger.js';
+import { extractPullRequestUrl } from '../../utils/pr-detector.js';
+import { changeDirectory, reportBug } from '../commands/index.js';
+import { buildWorktreeListMessage } from '../worktree/index.js';
+import { trackEvent } from '../bug-report/index.js';
+import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
 

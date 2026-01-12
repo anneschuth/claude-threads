@@ -5,9 +5,9 @@
  * and refreshes sticky messages to keep relative times current.
  */
 
-import { createLogger } from '../utils/logger.js';
-import * as lifecycle from './lifecycle.js';
-import type { SessionContext } from './context.js';
+import { createLogger } from '../../utils/logger.js';
+import * as lifecycle from '../../session/lifecycle.js';
+import type { SessionContext } from '../session-context/index.js';
 
 const log = createLogger('monitor');
 

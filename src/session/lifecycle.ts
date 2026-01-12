@@ -17,17 +17,17 @@ import { generateChatPlatformPrompt, buildSessionContext } from '../commands/ind
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
-import { logAndNotify, withErrorHandling } from './error-handler.js';
+import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
 import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from './post-helpers.js';
-import type { SessionContext } from './context.js';
-import { suggestSessionMetadata } from './title-suggest.js';
-import { suggestSessionTags } from './tag-suggest.js';
+import type { SessionContext } from '../operations/session-context/index.js';
+import { suggestSessionMetadata } from '../operations/suggestions/title.js';
+import { suggestSessionTags } from '../operations/suggestions/tag.js';
 import { MessageManager, PostTracker } from '../operations/index.js';
 import {
   getThreadMessagesForContext,
   formatContextForClaude,
-} from './context-prompt.js';
+} from '../operations/context-prompt/index.js';
 
 const log = createLogger('lifecycle');
 

@@ -5,10 +5,10 @@
  * Content flushing is now handled by MessageManager/ContentExecutor.
  */
 
-import type { PlatformClient, PlatformFile } from '../platform/index.js';
-import type { Session } from './types.js';
-import type { ContentBlock } from '../claude/cli.js';
-import { createLogger } from '../utils/logger.js';
+import type { PlatformClient, PlatformFile } from '../../platform/index.js';
+import type { Session } from '../../session/types.js';
+import type { ContentBlock } from '../../claude/cli.js';
+import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('streaming');
 
