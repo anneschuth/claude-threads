@@ -19,7 +19,7 @@ import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
-import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from './post-helpers.js';
+import { postError, postInfo, postResume, postWarning, postTimeout, updateLastMessage } from '../operations/post-helpers/index.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import { suggestSessionMetadata } from '../operations/suggestions/title.js';
 import { suggestSessionTags } from '../operations/suggestions/tag.js';

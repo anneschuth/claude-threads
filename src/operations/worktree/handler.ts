@@ -35,7 +35,7 @@ import {
   updatePost,
   updatePostSuccess,
   removeReaction,
-} from '../../session/post-helpers.js';
+} from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { shortenPath } from '../index.js';
 

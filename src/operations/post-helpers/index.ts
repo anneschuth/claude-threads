@@ -12,12 +12,12 @@
  * - Testability: Can mock a single interface
  */
 
-import type { Session } from './types.js';
-import type { PlatformPost, PlatformFormatter } from '../platform/index.js';
-import { createLogger } from '../utils/logger.js';
-import { withErrorHandling } from '../utils/error-handler/index.js';
-import { BUG_REPORT_EMOJI } from '../utils/emoji.js';
-import { updateWorktreeActivity } from '../git/worktree.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformPost, PlatformFormatter } from '../../platform/index.js';
+import { createLogger } from '../../utils/logger.js';
+import { withErrorHandling } from '../../utils/error-handler/index.js';
+import { BUG_REPORT_EMOJI } from '../../utils/emoji.js';
+import { updateWorktreeActivity } from '../../git/worktree.js';
 
 const log = createLogger('helpers');
 

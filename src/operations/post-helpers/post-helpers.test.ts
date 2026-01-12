@@ -22,14 +22,14 @@ import {
   postAndRegister,
   postWithReactionsAndRegister,
   postBold,
-} from './post-helpers.js';
+} from './index.js';
 import {
   mockFormatter as mattermostFormatter,
   slackMockFormatter as slackFormatter,
   createMockFormatter,
-} from '../test-utils/mock-formatter.js';
-import type { Session } from './types.js';
-import type { PlatformClient, PlatformPost } from '../platform/index.js';
+} from '../../test-utils/mock-formatter.js';
+import type { Session } from '../../session/types.js';
+import type { PlatformClient, PlatformPost } from '../../platform/index.js';
 
 // Helper to create a mock session for testing
 function createMockSession(overrides?: Partial<{
@@ -413,7 +413,7 @@ describe('postBold', () => {
 
 describe('post helper functions', () => {
   it('exports all expected functions', async () => {
-    const helpers = await import('./post-helpers.js');
+    const helpers = await import('./index.js');
 
     // Core post functions
     expect(typeof helpers.postInfo).toBe('function');

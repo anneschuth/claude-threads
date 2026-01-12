@@ -156,7 +156,7 @@ The session management is split into focused modules for maintainability:
 | `src/session/worktree.ts` | Git worktree management |
 | `src/session/streaming.ts` | Message batching and flushing to chat |
 | `src/session/context-prompt.ts` | Thread context prompt for mid-thread session starts |
-| `src/session/post-helpers.ts` | **NEW** - DRY utilities for posting messages (postInfo, postError, etc.) |
+| `src/operations/post-helpers/` | DRY utilities for posting messages (postInfo, postError, etc.) |
 | `src/session/error-handler.ts` | **NEW** - Centralized error handling with consistent patterns |
 | `src/session/types.ts` | TypeScript types (Session, PendingApproval, etc.) |
 | `src/session/index.ts` | Public exports |

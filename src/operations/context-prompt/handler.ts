@@ -11,7 +11,7 @@ import type { ContentBlock } from '../../claude/cli.js';
 import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../../utils/emoji.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
-import { updateLastMessage } from '../../session/post-helpers.js';
+import { updateLastMessage } from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('context');

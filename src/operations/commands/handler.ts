@@ -51,7 +51,7 @@ import {
   updatePostSuccess,
   updatePostError,
   updatePostCancelled,
-} from '../../session/post-helpers.js';
+} from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../../git/worktree.js';

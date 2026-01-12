@@ -13,7 +13,7 @@ import { getSessionStatus } from '../../session/types.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { shortenPath } from '../index.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
-import { resetSessionActivity, postInfo, postError, updatePost } from '../../session/post-helpers.js';
+import { resetSessionActivity, postInfo, postError, updatePost } from '../post-helpers/index.js';
 import type { SessionContext } from '../session-context/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { extractPullRequestUrl } from '../../utils/pr-detector.js';

@@ -39,7 +39,7 @@ import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
-import { postInfo } from './post-helpers.js';
+import { postInfo } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('manager');
