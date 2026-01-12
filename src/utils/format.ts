@@ -44,29 +44,6 @@ export function formatShortId(id: string): string {
 // Console Logging
 // =============================================================================
 
-/**
- * Handler for session log output.
- * When set, all session logs route through this handler instead of console.log.
- * The sessionId allows routing logs to specific session panels in the UI.
- */
-export type SessionLogHandler = (
-  level: 'info' | 'error' | 'debug',
-  message: string,
-  sessionId?: string
-) => void;
-
-let _sessionLogHandler: SessionLogHandler | null = null;
-
-/**
- * Set the global session log handler.
- * Used by the Ink UI to capture all session logs.
- * Note: Currently a no-op - log routing functions were removed.
- * TODO: Either restore log routing or remove this infrastructure.
- */
-export function setSessionLogHandler(handler: SessionLogHandler | null): void {
-  _sessionLogHandler = handler;
-}
-
 // =============================================================================
 // Time Formatting
 // =============================================================================
