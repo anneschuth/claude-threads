@@ -4,10 +4,12 @@
  * This is the main coordinator that delegates to specialized modules:
  * - lifecycle.ts: Session start, resume, exit
  * - events.ts: Claude event handling
- * - reactions.ts: User reaction handling
  * - commands.ts: User commands (!cd, !invite, etc.)
  * - worktree.ts: Git worktree management
  * - streaming.ts: Message streaming and flushing
+ *
+ * User reactions are handled via MessageManager.handleReaction() which routes
+ * to the appropriate executor (InteractiveExecutor, TaskListExecutor, etc.)
  */
 
 import { EventEmitter } from 'events';
@@ -21,6 +23,7 @@ import {
   isEscapeEmoji,
   isResumeEmoji,
   getNumberEmojiIndex,
+  isBugReportEmoji,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
 import { CleanupScheduler } from '../cleanup/index.js';
@@ -29,7 +32,6 @@ import { SessionMonitor } from './monitor.js';
 // Import extracted modules
 import * as streaming from './streaming.js';
 import * as events from './events.js';
-import * as reactions from './reactions.js';
 import * as commands from './commands.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
@@ -512,9 +514,16 @@ export class SessionManager extends EventEmitter {
       }
 
       // Handle bug report emoji reaction on error posts
-      if (session.lastError?.postId === postId) {
-        const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
-        if (handled) return;
+      // (Inlined from reactions.handleBugReportReaction to eliminate dependency)
+      if (session.lastError?.postId === postId && isBugReportEmoji(emojiName)) {
+        // Only session owner or allowed users can report bugs
+        if (session.startedBy === username ||
+            session.platform.isUserAllowed(username) ||
+            session.sessionAllowedUsers.has(username)) {
+          log.info(`🐛 @${username} triggered bug report from error reaction`);
+          await commands.reportBug(session, undefined, username, this.getContext(), session.lastError);
+          return;
+        }
       }
     }
 

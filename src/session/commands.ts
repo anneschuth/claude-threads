@@ -927,7 +927,7 @@ export async function reportBug(
 
 /**
  * Handle approval/denial of a pending bug report.
- * Called from reactions.ts when user reacts to the preview.
+ * Called via MessageManager callback when user reacts to the preview.
  */
 export async function handleBugReportApproval(
   session: Session,
