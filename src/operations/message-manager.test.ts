@@ -816,4 +816,78 @@ describe('MessageManager', () => {
       expect(bumpCallsAfter).toBeGreaterThan(bumpCallsBefore);
     });
   });
+
+  /**
+   * Regression test: Task updates must emit 'task:update' event for sticky message refresh.
+   *
+   * Bug: The sticky message shows task progress (e.g., "3/7") and active task name,
+   * but wasn't being updated when tasks changed. This is because the TaskListOp
+   * execution didn't notify anyone that tasks had changed.
+   *
+   * Fix: Emit 'task:update' event after TaskListOp execution so the session layer
+   * can call updateStickyMessage() to refresh the display.
+   */
+  describe('Task update event emission', () => {
+    it('emits task:update event when tasks are updated', async () => {
+      let taskUpdateReceived: { completed: number; total: number; allComplete: boolean } | null = null;
+
+      manager.events.on('task:update', (data) => {
+        taskUpdateReceived = data;
+      });
+
+      // Send a task list update event
+      const todoEvent = {
+        type: 'tool_use' as const,
+        tool_use: {
+          name: 'TodoWrite',
+          id: 'test-task-update',
+          input: {
+            todos: [
+              { content: 'Task 1', status: 'completed', activeForm: 'Done with task 1' },
+              { content: 'Task 2', status: 'in_progress', activeForm: 'Working on task 2' },
+              { content: 'Task 3', status: 'pending', activeForm: 'Task 3 waiting' },
+            ],
+          },
+        },
+      };
+
+      await manager.handleEvent(todoEvent as any);
+
+      // CRITICAL: The task:update event must be emitted so sticky message can refresh
+      expect(taskUpdateReceived).not.toBeNull();
+      expect(taskUpdateReceived!.completed).toBe(1);
+      expect(taskUpdateReceived!.total).toBe(3);
+      expect(taskUpdateReceived!.allComplete).toBe(false);
+    });
+
+    it('emits task:update with allComplete=true when all tasks done', async () => {
+      let taskUpdateReceived: { completed: number; total: number; allComplete: boolean } | null = null;
+
+      manager.events.on('task:update', (data) => {
+        taskUpdateReceived = data;
+      });
+
+      // Send a task list with all completed
+      const todoEvent = {
+        type: 'tool_use' as const,
+        tool_use: {
+          name: 'TodoWrite',
+          id: 'test-task-complete',
+          input: {
+            todos: [
+              { content: 'Task 1', status: 'completed', activeForm: 'Done' },
+              { content: 'Task 2', status: 'completed', activeForm: 'Done' },
+            ],
+          },
+        },
+      };
+
+      await manager.handleEvent(todoEvent as any);
+
+      expect(taskUpdateReceived).not.toBeNull();
+      expect(taskUpdateReceived!.completed).toBe(2);
+      expect(taskUpdateReceived!.total).toBe(2);
+      expect(taskUpdateReceived!.allComplete).toBe(true);
+    });
+  });
 });

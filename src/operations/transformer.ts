@@ -294,16 +294,16 @@ function transformResult(
     };
   };
 
-  if (result.result) {
-    const r = result.result;
-    operations.push(
-      createStatusUpdateOp(ctx.sessionId, {
-        modelId: r.model,
-        totalCostUSD: r.cost_usd,
-        // Note: Full usage stats would require model-specific token tracking
-      })
-    );
-  }
+  // Always create StatusUpdateOp when Claude's turn ends
+  // This triggers finalize() to clean up orphaned task lists
+  const r = result.result;
+  operations.push(
+    createStatusUpdateOp(ctx.sessionId, {
+      modelId: r?.model,
+      totalCostUSD: r?.cost_usd,
+      // Note: Full usage stats would require model-specific token tracking
+    })
+  );
 
   return operations;
 }

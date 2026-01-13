@@ -322,6 +322,11 @@ function createMessageManager(
     await ctx.ops.handleBugReportApproval(session, decision === 'approve', session.startedBy);
   });
 
+  // Task updates - refresh sticky message to show updated progress and active task
+  messageManager.events.on('task:update', async () => {
+    await ctx.ops.updateStickyMessage();
+  });
+
   // Status and lifecycle events (these are typically for session header updates)
   // Note: These are handled differently - they update session state directly
   // For now, these remain as part of the session management layer

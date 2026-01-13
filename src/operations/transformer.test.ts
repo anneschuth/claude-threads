@@ -349,6 +349,40 @@ describe('Event Transformer', () => {
       expect((statusOp as { modelId: string }).modelId).toBe('claude-opus-4-5');
       expect((statusOp as { totalCostUSD: number }).totalCostUSD).toBe(0.05);
     });
+
+    /**
+     * Regression test: StatusUpdateOp must ALWAYS be created when Claude's turn ends.
+     * This is critical because StatusUpdateOp triggers finalize() to clean up orphaned task lists.
+     *
+     * Bug: Previously, StatusUpdateOp was only created if result.result existed.
+     * If Claude's result event didn't have that property, finalize() was never called,
+     * leaving orphaned task lists visible to users.
+     */
+    it('ALWAYS creates status update even when result.result is missing', () => {
+      // This simulates a result event without the result property
+      const event: ClaudeEvent = {
+        type: 'result',
+        // No 'result' property - this used to cause StatusUpdateOp to not be created
+      };
+
+      const ops = transformEvent(event, ctx);
+
+      // CRITICAL: StatusUpdateOp must be created to trigger finalize()
+      const statusOp = ops.find(op => op.type === 'status_update');
+      expect(statusOp).toBeDefined();
+    });
+
+    it('ALWAYS creates status update even when result.result is empty', () => {
+      const event: ClaudeEvent = {
+        type: 'result',
+        result: {}, // Empty result object
+      };
+
+      const ops = transformEvent(event, ctx);
+
+      const statusOp = ops.find(op => op.type === 'status_update');
+      expect(statusOp).toBeDefined();
+    });
   });
 
   // ---------------------------------------------------------------------------

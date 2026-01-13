@@ -114,6 +114,19 @@ export interface MessageManagerEventMap {
   'lifecycle:event': {
     event: LifecycleOp['event'];
   };
+
+  /**
+   * Emitted when task list is updated (for sticky message refresh).
+   * The sticky message displays task progress and active task.
+   */
+  'task:update': {
+    /** Number of completed tasks */
+    completed: number;
+    /** Total number of tasks */
+    total: number;
+    /** Whether all tasks are complete */
+    allComplete: boolean;
+  };
 }
 
 /**

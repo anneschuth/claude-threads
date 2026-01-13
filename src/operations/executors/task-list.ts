@@ -85,6 +85,36 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
   }
 
   /**
+   * Finalize the task list when Claude's turn ends.
+   * If there's an active (non-completed) task list, delete it.
+   * This handles the case where Claude forgets to mark the last task as complete.
+   */
+  async finalize(ctx: ExecutorContext): Promise<void> {
+    if (!this.state.tasksPostId || this.state.tasksCompleted) {
+      return; // No active task list to finalize
+    }
+
+    ctx.logger.debug(`Finalizing task list (Claude's turn ended with tasks still showing)`);
+
+    // Delete the task list post - Claude finished without marking tasks complete
+    const postId = this.state.tasksPostId;
+    this.state.tasksPostId = null;
+    this.state.lastTasksContent = null;
+    this.state.tasksCompleted = true;
+    this.state.inProgressTaskStart = null;
+
+    try {
+      await ctx.platform.removeReaction(postId, MINIMIZE_TOGGLE_EMOJIS[0]).catch(() => {});
+      await ctx.platform.unpinPost(postId).catch(() => {});
+      await ctx.platform.deletePost(postId);
+      ctx.logger.debug(`Deleted orphaned task list post ${formatShortId(postId)}`);
+      ctx.threadLogger?.logExecutor('task_list', 'delete', postId, { reason: 'finalize_orphaned' }, 'finalize');
+    } catch (err) {
+      ctx.logger.debug(`Failed to delete orphaned task list: ${err}`);
+    }
+  }
+
+  /**
    * Execute a task list operation.
    */
   async execute(op: TaskListOp, ctx: ExecutorContext): Promise<void> {
@@ -147,6 +177,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
 
     if (this.state.tasksPostId) {
       // Update existing post
+      ctx.logger.debug(`updateTaskList: Updating existing post ${formatShortId(this.state.tasksPostId)}`);
       try {
         await ctx.platform.updatePost(this.state.tasksPostId, displayContent);
         ctx.threadLogger?.logExecutor('task_list', 'update', this.state.tasksPostId, undefined, 'updateTaskList');
@@ -158,8 +189,16 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
         try {
           await ctx.platform.deletePost(oldPostId);
           ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'update_failed_recovery' }, 'updateTaskList');
-          // Delete succeeded, now create new post
-          await this.createTaskPost(displayContent, ctx);
+          // Delete succeeded, now create new post via queue to prevent race
+          this.state.tasksPostId = null;
+          await this.withBumpQueue(async () => {
+            if (this.state.tasksPostId) {
+              // Another operation created a post while we were queued
+              ctx.logger.debug(`updateTaskList: Task post created while queued after delete (${formatShortId(this.state.tasksPostId)})`);
+              return;
+            }
+            await this.createTaskPost(displayContent, ctx);
+          });
         } catch (deleteErr) {
           // Delete also failed - DON'T create new post to prevent duplicates!
           // The old post might still exist on the platform.
@@ -170,33 +209,56 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
         }
       }
     } else {
-      // Create new post
-      await this.createTaskPost(displayContent, ctx);
+      // No existing post - go through bump queue to prevent race with bumpToBottom
+      // This ensures we don't create duplicate posts if bumpToBottom is also trying to create
+      ctx.logger.debug(`updateTaskList: No tasksPostId, creating new post via queue`);
+      await this.withBumpQueue(async () => {
+        // Double-check: maybe bumpToBottom already created a post while we were queued
+        if (this.state.tasksPostId) {
+          ctx.logger.debug(`updateTaskList: Task post created while queued (${formatShortId(this.state.tasksPostId)}), updating instead`);
+          try {
+            await ctx.platform.updatePost(this.state.tasksPostId, displayContent);
+            ctx.threadLogger?.logExecutor('task_list', 'update', this.state.tasksPostId, { reason: 'created_while_queued' }, 'updateTaskList');
+          } catch {
+            ctx.logger.debug(`updateTaskList: Failed to update post created while queued`);
+          }
+          return;
+        }
+        ctx.threadLogger?.logExecutor('task_list', 'create_start', 'none', { reason: 'no_tasksPostId_in_updateTaskList' }, 'updateTaskList');
+        await this.createTaskPost(displayContent, ctx);
+      });
     }
   }
 
   /**
    * Mark task list as completed.
+   * Deletes the task list post since it has served its purpose.
    */
   private async completeTaskList(tasks: TaskItem[], ctx: ExecutorContext): Promise<void> {
-    ctx.logger.debug(`TodoWrite: All ${tasks.length} tasks completed`);
+    ctx.logger.debug(`TodoWrite: All ${tasks.length} tasks completed, cleaning up task list`);
 
-    // Format final task list
-    const content = this.formatTaskList(tasks, ctx.formatter);
-    this.state.lastTasksContent = content;
+    // Update state
+    this.state.lastTasksContent = null;
     this.state.tasksCompleted = true;
     this.state.inProgressTaskStart = null;
 
-    // Always show full list when completed
+    // Delete the task list post - it has served its purpose
+    // The content will typically include a summary of completed work
     if (this.state.tasksPostId) {
+      const postId = this.state.tasksPostId;
+      this.state.tasksPostId = null;
+
       try {
-        await ctx.platform.updatePost(this.state.tasksPostId, content);
-        ctx.threadLogger?.logExecutor('task_list', 'complete', this.state.tasksPostId, { taskCount: tasks.length }, 'completeTaskList');
-        // Unpin completed task list
-        await ctx.platform.unpinPost(this.state.tasksPostId).catch(() => {});
+        // Remove reactions and unpin before deleting
+        await ctx.platform.removeReaction(postId, MINIMIZE_TOGGLE_EMOJIS[0]).catch(() => {});
+        await ctx.platform.unpinPost(postId).catch(() => {});
+        await ctx.platform.deletePost(postId);
+        ctx.logger.debug(`Deleted completed task list post ${formatShortId(postId)}`);
+        ctx.threadLogger?.logExecutor('task_list', 'delete', postId, { taskCount: tasks.length, reason: 'all_complete' }, 'completeTaskList');
       } catch (err) {
-        ctx.threadLogger?.logExecutor('task_list', 'error', this.state.tasksPostId, { failedOp: 'updatePost', error: String(err) }, 'completeTaskList');
-        // Ignore errors on completion
+        ctx.logger.debug(`Failed to delete completed task list: ${err}`);
+        ctx.threadLogger?.logExecutor('task_list', 'error', postId, { failedOp: 'deletePost', error: String(err) }, 'completeTaskList');
+        // Ignore errors - the post might already be gone
       }
     }
   }
@@ -242,8 +304,18 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
   async bumpToBottom(ctx: ExecutorContext): Promise<string | null> {
     // Capture the post we intend to bump BEFORE queueing
     const targetPostId = this.state.tasksPostId;
-    if (!targetPostId || !this.state.lastTasksContent || this.state.tasksCompleted) {
+
+    // If no task content or tasks completed, nothing to do
+    if (!this.state.lastTasksContent || this.state.tasksCompleted) {
       return null;
+    }
+
+    // If no existing task post but we have content, create a fresh one
+    // This handles the case where bumpAndGetOldPost failed and set tasksPostId to null
+    if (!targetPostId) {
+      return this.withBumpQueue(async () => {
+        return this.doCreateTaskPostAtBottom(ctx);
+      });
     }
 
     return this.withBumpQueue(async () => {
@@ -254,6 +326,42 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       }
       return this.doBumpToBottom(ctx);
     });
+  }
+
+  /**
+   * Create a fresh task post at the bottom (no existing post to delete).
+   */
+  private async doCreateTaskPostAtBottom(ctx: ExecutorContext): Promise<string | null> {
+    if (!this.state.lastTasksContent || this.state.tasksCompleted) {
+      return null;
+    }
+
+    // CRITICAL: Check if someone else already created a task post while we were queued
+    // This handles the race where updateTaskList creates a post before we get here
+    if (this.state.tasksPostId) {
+      ctx.logger.debug(`doCreateTaskPostAtBottom: Task post already exists (${formatShortId(this.state.tasksPostId)}), skipping creation`);
+      return null;
+    }
+
+    ctx.logger.debug(`Creating fresh task post at bottom (no existing post)`);
+
+    const displayContent = this.state.tasksMinimized
+      ? this.getMinimizedContent(this.state.lastTasksContent, ctx.formatter)
+      : this.state.lastTasksContent;
+
+    const post = await ctx.createInteractivePost(
+      displayContent,
+      [MINIMIZE_TOGGLE_EMOJIS[0]],
+      { type: 'task_list', interactionType: 'toggle_minimize' }
+    );
+
+    this.state.tasksPostId = post.id;
+    await ctx.platform.pinPost(post.id).catch(() => {});
+
+    ctx.logger.debug(`Created fresh task post ${formatShortId(post.id)}`);
+    ctx.threadLogger?.logExecutor('task_list', 'create', post.id, { reason: 'fresh_at_bottom' }, 'bumpToBottom');
+
+    return post.id;
   }
 
   /**
@@ -420,7 +528,6 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
 
     // Try to update old post with new content
     let repurposedPostId: string | null = null;
-    let shouldCreateNewTaskPost = true;
     try {
       await ctx.platform.updatePost(oldPostId, newContent);
       repurposedPostId = oldPostId;
@@ -437,33 +544,20 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
         // Delete also failed - DON'T create new task post to prevent duplicates!
         ctx.logger.warn(`Failed to delete old task post ${oldPostId.substring(0, 8)} during bump: ${deleteErr}. Not creating new task post to prevent duplicates.`);
         ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { failedOp: 'deletePost', error: String(deleteErr), context: 'delete_after_repurpose_failed' }, 'bumpAndGetOldPost');
-        shouldCreateNewTaskPost = false;
         this.state.tasksPostId = null;
       }
       // Will return null - caller should create new content post
     }
 
-    // Create new task post at bottom (only if delete succeeded or repurpose succeeded)
-    if (shouldCreateNewTaskPost && this.state.lastTasksContent) {
-      const displayContent = this.state.tasksMinimized
-        ? this.getMinimizedContent(this.state.lastTasksContent, ctx.formatter)
-        : this.state.lastTasksContent;
+    // NEVER create task post here - let bumpToBottom handle it
+    // This prevents duplicate task posts when:
+    // 1. Content splits and calls bumpAndGetOldPost multiple times
+    // 2. Task updates race with bump operations
+    // The caller (content executor) MUST call bumpToBottom after using the repurposed post
+    this.state.tasksPostId = null;
 
-      const post = await ctx.createInteractivePost(
-        displayContent,
-        [MINIMIZE_TOGGLE_EMOJIS[0]],
-        { type: 'task_list', interactionType: 'toggle_minimize' }
-      );
-
-      this.state.tasksPostId = post.id;
-      await ctx.platform.pinPost(post.id).catch(() => {});
-
-      ctx.logger.debug(`Created new task post ${formatShortId(post.id)}`);
-      ctx.threadLogger?.logExecutor('task_list', 'bump', post.id, { oldPostId }, 'bumpAndGetOldPost');
-    } else if (!shouldCreateNewTaskPost) {
-      // Already set tasksPostId to null above
-    } else {
-      this.state.tasksPostId = null;
+    if (repurposedPostId) {
+      ctx.logger.debug(`Repurposed task post ${formatShortId(oldPostId)}, tasksPostId cleared for bumpToBottom`);
     }
 
     return repurposedPostId;

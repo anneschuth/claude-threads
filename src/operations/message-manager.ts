@@ -354,10 +354,24 @@ export class MessageManager {
         await this.handleFlushOp(op, ctx);
       } else if (isTaskListOp(op)) {
         await this.taskListExecutor.execute(op, ctx);
+        // Emit task:update event so sticky message can refresh with new progress
+        const completed = op.tasks.filter(t => t.status === 'completed').length;
+        const total = op.tasks.length;
+        this.events.emit('task:update', {
+          completed,
+          total,
+          allComplete: completed === total && total > 0,
+        });
       } else if (isQuestionOp(op) || isApprovalOp(op)) {
         await this.questionApprovalExecutor.execute(op, ctx);
       } else if (isSystemMessageOp(op) || isStatusUpdateOp(op) || isLifecycleOp(op)) {
         await this.systemExecutor.execute(op, ctx);
+        // When Claude's turn ends (StatusUpdateOp), finalize the task list
+        // This handles cases where Claude forgets to mark the last task as complete
+        if (isStatusUpdateOp(op)) {
+          logger.debug(`StatusUpdateOp received, finalizing task list (tasksPostId=${this.taskListExecutor.getTasksPostId()?.substring(0, 8) ?? 'none'})`);
+          await this.taskListExecutor.finalize(ctx);
+        }
       } else if (isSubagentOp(op)) {
         await this.subagentExecutor.execute(op, ctx);
       } else {

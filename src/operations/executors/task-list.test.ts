@@ -490,21 +490,18 @@ describe('TaskListExecutor', () => {
   // completeTaskList() (6 tests)
   // ===========================================================================
   describe('completeTaskList()', () => {
-    it('shows full task list on completion', async () => {
+    it('deletes task list post on completion', async () => {
       const ctx = getContext();
 
-      // Create and minimize
+      // Create task list
       await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
-      await executor.execute(createTaskListOp('test', 'toggle_minimize', []), ctx);
-      expect(executor.getState().tasksMinimized).toBe(true);
+      expect(executor.getState().tasksPostId).toBe('post_1');
 
-      // Complete - should show full list regardless of minimize state
+      // Complete - should delete the post
       await executor.execute(createTaskListOp('test', 'complete', createAllCompletedTasks()), ctx);
 
-      const updateCalls = (platform.updatePost as ReturnType<typeof mock>).mock.calls;
-      const lastContent = updateCalls[updateCalls.length - 1][1] as string;
-      // Full list doesn't have the minimized indicator
-      expect(lastContent).not.toContain('🔽');
+      expect(platform.deletePost).toHaveBeenCalledWith('post_1');
+      expect(executor.getState().tasksPostId).toBeNull();
     });
 
     it('unpins the task post', async () => {
@@ -538,13 +535,16 @@ describe('TaskListExecutor', () => {
       expect(executor.getState().inProgressTaskStart).toBeNull();
     });
 
-    it('stores final task content', async () => {
+    it('clears lastTasksContent on completion', async () => {
       const ctx = getContext();
 
       await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      expect(executor.getState().lastTasksContent).toBeTruthy();
+
       await executor.execute(createTaskListOp('test', 'complete', createAllCompletedTasks()), ctx);
 
-      expect(executor.getState().lastTasksContent).toContain('100%'); // all completed
+      // Content is cleared since the post is deleted
+      expect(executor.getState().lastTasksContent).toBeNull();
     });
 
     it('ignores unpinPost errors', async () => {
@@ -559,6 +559,55 @@ describe('TaskListExecutor', () => {
       // Should not throw
       await executor.execute(createTaskListOp('test', 'complete', createAllCompletedTasks()), ctx);
       expect(executor.getState().tasksCompleted).toBe(true);
+    });
+  });
+
+  // ===========================================================================
+  // finalize() - auto-complete when Claude's turn ends
+  // ===========================================================================
+  describe('finalize()', () => {
+    it('deletes orphaned task list when Claude finishes without marking complete', async () => {
+      const ctx = getContext();
+
+      // Create task list but don't complete it (simulating Claude forgetting)
+      await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+      expect(executor.getState().tasksCompleted).toBe(false);
+
+      // Finalize (called when Claude's turn ends)
+      await executor.finalize(ctx);
+
+      // Task list should be deleted
+      expect(platform.deletePost).toHaveBeenCalledWith('post_1');
+      expect(executor.getState().tasksPostId).toBeNull();
+      expect(executor.getState().tasksCompleted).toBe(true);
+      expect(executor.getState().lastTasksContent).toBeNull();
+    });
+
+    it('does nothing if task list was already completed', async () => {
+      const ctx = getContext();
+
+      // Create and complete task list
+      await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      await executor.execute(createTaskListOp('test', 'complete', createAllCompletedTasks()), ctx);
+
+      (platform.deletePost as ReturnType<typeof mock>).mockClear();
+
+      // Finalize should do nothing
+      await executor.finalize(ctx);
+
+      // deletePost should only have been called once (by complete), not by finalize
+      expect(platform.deletePost).not.toHaveBeenCalled();
+    });
+
+    it('does nothing if no task list exists', async () => {
+      const ctx = getContext();
+
+      // No task list created
+      await executor.finalize(ctx);
+
+      // Nothing should happen
+      expect(platform.deletePost).not.toHaveBeenCalled();
     });
   });
 
@@ -818,7 +867,7 @@ describe('TaskListExecutor', () => {
       expect(result).toBe('post_1');
     });
 
-    it('creates new task post at bottom', async () => {
+    it('clears tasksPostId (caller must call bumpToBottom to create new task post)', async () => {
       const ctx = getContext();
 
       await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
@@ -826,8 +875,12 @@ describe('TaskListExecutor', () => {
 
       await executor.bumpAndGetOldPost(ctx, 'New content');
 
-      expect(platform.createInteractivePost).toHaveBeenCalled();
-      expect(executor.getState().tasksPostId).toBe('post_2');
+      // bumpAndGetOldPost should NOT create a new task post
+      // It should set tasksPostId = null so the caller can call bumpToBottom
+      expect(platform.createInteractivePost).not.toHaveBeenCalled();
+      expect(executor.getState().tasksPostId).toBeNull();
+      // But lastTasksContent should still exist for bumpToBottom to use
+      expect(executor.getState().lastTasksContent).toBeTruthy();
     });
 
     it('repurposes old post with new content', async () => {
@@ -885,8 +938,41 @@ describe('TaskListExecutor', () => {
       // Old post (post_1) should be DELETED, not left orphaned
       expect(platform.deletePost).toHaveBeenCalledWith('post_1');
 
-      // New task list (post_2) should be created
-      expect(executor.getState().tasksPostId).toBe('post_2');
+      // tasksPostId should be null - bumpToBottom will create new post later
+      // This prevents the task list from appearing ABOVE content during the race window
+      expect(executor.getState().tasksPostId).toBeNull();
+
+      // lastTasksContent should be preserved so bumpToBottom can create the post
+      expect(executor.getState().lastTasksContent).toBeTruthy();
+    });
+
+    it('bumpToBottom creates fresh task post after bumpAndGetOldPost fails', async () => {
+      // This tests the full recovery path:
+      // 1. bumpAndGetOldPost fails (sets tasksPostId=null)
+      // 2. bumpToBottom creates a fresh task post at the bottom
+      const ctx = getContext();
+
+      // Create initial task post (post_1)
+      await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Make updatePost fail so bumpAndGetOldPost can't repurpose
+      (platform.updatePost as ReturnType<typeof mock>) = mock(async () => {
+        throw new Error('msg_too_long');
+      });
+
+      // bumpAndGetOldPost fails - should delete old post and set tasksPostId to null
+      const repurposeResult = await executor.bumpAndGetOldPost(ctx, 'New content');
+      expect(repurposeResult).toBeNull();
+      expect(executor.getState().tasksPostId).toBeNull();
+      expect(executor.getState().lastTasksContent).toBeTruthy();
+
+      // bumpToBottom should create a fresh task post even though tasksPostId is null
+      const bumpResult = await executor.bumpToBottom(ctx);
+
+      // New post should be created
+      expect(bumpResult).not.toBeNull();
+      expect(executor.getState().tasksPostId).not.toBeNull();
     });
   });
 
@@ -1166,7 +1252,7 @@ describe('TaskListExecutor', () => {
       expect(platform.createInteractivePost).toHaveBeenCalledTimes(2);
     });
 
-    it('should clean up old task post when starting fresh task list after completed tasks', async () => {
+    it('should create fresh task post when starting new task list after completed tasks', async () => {
       const ctx = getContext();
 
       // Create and complete a task list
@@ -1177,7 +1263,8 @@ describe('TaskListExecutor', () => {
       await executor.execute(createTaskListOp('test', 'complete', tasks), ctx);
 
       expect(executor.getState().tasksCompleted).toBe(true);
-      expect(executor.getState().tasksPostId).toBe('post_1');
+      // Completion now deletes the post
+      expect(executor.getState().tasksPostId).toBeNull();
 
       // Now create a fresh task list (Claude started new work)
       const newTasks = [
@@ -1185,10 +1272,9 @@ describe('TaskListExecutor', () => {
       ];
       await executor.execute(createTaskListOp('test', 'update', newTasks), ctx);
 
-      // The old completed post should be reused (not left behind as a duplicate)
-      expect(executor.getState().tasksPostId).toBe('post_1');
-      // No new post should be created
-      expect(platform.createInteractivePost).toHaveBeenCalledTimes(1);
+      // A new post is created since the old one was deleted
+      expect(executor.getState().tasksPostId).toBe('post_2');
+      expect(executor.getState().tasksCompleted).toBe(false);
     });
 
     /**
@@ -1231,13 +1317,18 @@ describe('TaskListExecutor', () => {
       // The current task post (post_2) should have been repurposed for content
       expect(repurposedPostId).toBe('post_2');
 
-      // A new task post (post_3) should be created at the bottom
+      // bumpAndGetOldPost now ONLY repurposes, does NOT create task post
+      // tasksPostId should be null, caller must call bumpToBottom
+      expect(executor.getState().tasksPostId).toBeNull();
+
+      // Now the caller calls bumpToBottom to create new task post at bottom
+      await executor.bumpToBottom(ctx);
       expect(executor.getState().tasksPostId).toBe('post_3');
 
       // CRITICAL: We should NOT have any orphaned task posts (duplicates)
-      // Total createInteractivePost calls: 1 (initial) + 1 (bumpToBottom) + 1 (bumpAndGetOldPost) = 3
+      // Total createInteractivePost calls: 1 (initial) + 1 (bumpToBottom) + 1 (second bumpToBottom) = 3
       const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
-      expect(createPostCallsAfter).toBe(createPostCallsBefore + 2); // +1 for bumpToBottom, +1 for bumpAndGetOldPost
+      expect(createPostCallsAfter).toBe(createPostCallsBefore + 2); // +1 for bumpToBottom, +1 for second bumpToBottom
     });
 
     /**
@@ -1285,6 +1376,111 @@ describe('TaskListExecutor', () => {
       // The state should be consistent - one valid tasksPostId
       const finalTasksPostId = executor.getState().tasksPostId;
       expect(finalTasksPostId).toBeTruthy();
+    });
+
+    /**
+     * Regression test: Multiple sequential bumpAndGetOldPost calls (content splits)
+     *
+     * When content splits multiple times, bumpAndGetOldPost is called multiple times.
+     * Each call should NOT create a new task post - only bumpToBottom should.
+     *
+     * Bug: If bumpAndGetOldPost creates task posts, we get duplicates on splits.
+     * Fix: bumpAndGetOldPost only repurposes, caller must call bumpToBottom.
+     */
+    it('should NOT create duplicate task posts when bumpAndGetOldPost is called multiple times (content splits)', async () => {
+      const ctx = getContext();
+
+      // Create initial task list (post_1)
+      const tasks = [
+        { content: 'Task 1', status: 'in_progress' as const, activeForm: 'Doing task 1' },
+        { content: 'Task 2', status: 'pending' as const, activeForm: 'Task 2' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      const createPostCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // First content split: bumpAndGetOldPost + bumpToBottom
+      const repurposed1 = await executor.bumpAndGetOldPost(ctx, 'First content chunk');
+      expect(repurposed1).toBe('post_1'); // Old task post repurposed
+      expect(executor.getState().tasksPostId).toBeNull(); // Cleared
+      await executor.bumpToBottom(ctx); // Creates post_2
+      expect(executor.getState().tasksPostId).toBe('post_2');
+
+      // Second content split: bumpAndGetOldPost + bumpToBottom
+      const repurposed2 = await executor.bumpAndGetOldPost(ctx, 'Second content chunk');
+      expect(repurposed2).toBe('post_2'); // post_2 repurposed
+      expect(executor.getState().tasksPostId).toBeNull(); // Cleared
+      await executor.bumpToBottom(ctx); // Creates post_3
+      expect(executor.getState().tasksPostId).toBe('post_3');
+
+      // Third content split: bumpAndGetOldPost + bumpToBottom
+      const repurposed3 = await executor.bumpAndGetOldPost(ctx, 'Third content chunk');
+      expect(repurposed3).toBe('post_3'); // post_3 repurposed
+      expect(executor.getState().tasksPostId).toBeNull(); // Cleared
+      await executor.bumpToBottom(ctx); // Creates post_4
+      expect(executor.getState().tasksPostId).toBe('post_4');
+
+      // CRITICAL: Count post creations
+      // If bumpAndGetOldPost was creating posts, we'd have 1+3 = 4 posts
+      // With the fix, only bumpToBottom creates posts: 1 (initial) + 3 = 4 total creates
+      // But only ONE task post should exist at any time (post_4)
+      const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+      const newPostsCreated = createPostCallsAfter - createPostCallsBefore;
+
+      // 3 bumpToBottom calls = 3 new posts (post_2, post_3, post_4)
+      // bumpAndGetOldPost should NOT have created any posts
+      expect(newPostsCreated).toBe(3);
+
+      // Only ONE task post exists at the end
+      expect(executor.getState().tasksPostId).toBe('post_4');
+    });
+
+    /**
+     * Regression test: updateTaskList races with bumpToBottom when tasksPostId is null
+     *
+     * When bumpAndGetOldPost clears tasksPostId, both updateTaskList and bumpToBottom
+     * might try to create a new task post, causing duplicates.
+     *
+     * Fix: Both operations go through the bump queue, so only one creates a post.
+     */
+    it('should NOT create duplicate task posts when updateTaskList races with bumpToBottom', async () => {
+      const ctx = getContext();
+
+      // Create initial task list (post_1)
+      const tasks = [
+        { content: 'Task 1', status: 'in_progress' as const, activeForm: 'Doing task 1' },
+        { content: 'Task 2', status: 'pending' as const, activeForm: 'Task 2' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Simulate: bumpAndGetOldPost clears tasksPostId
+      const repurposed = await executor.bumpAndGetOldPost(ctx, 'Content');
+      expect(repurposed).toBe('post_1');
+      expect(executor.getState().tasksPostId).toBeNull();
+
+      const createPostCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // RACE: Both updateTaskList and bumpToBottom try to create when tasksPostId is null
+      // Without the queue protection, both would create posts
+      const updatedTasks = [
+        { content: 'Task 1', status: 'completed' as const, activeForm: 'Task 1 done' },
+        { content: 'Task 2', status: 'in_progress' as const, activeForm: 'Doing task 2' },
+      ];
+      await Promise.all([
+        executor.execute(createTaskListOp('test', 'update', updatedTasks), ctx),
+        executor.bumpToBottom(ctx),
+      ]);
+
+      const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+      const newPostsCreated = createPostCallsAfter - createPostCallsBefore;
+
+      // CRITICAL: Only ONE task post should be created (not two)
+      expect(newPostsCreated).toBe(1);
+
+      // State should be consistent
+      expect(executor.getState().tasksPostId).toBeTruthy();
     });
   });
 });
