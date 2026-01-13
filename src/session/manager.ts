@@ -270,7 +270,6 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       buildMessageContent: (t, p, f) => streaming.buildMessageContent(t, p, f, this.debug),
-      bumpTasksToBottom: (s) => streaming.bumpTasksToBottom(s),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),

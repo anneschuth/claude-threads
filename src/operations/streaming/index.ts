@@ -8,5 +8,4 @@ export {
   buildMessageContent,
   startTyping,
   stopTyping,
-  bumpTasksToBottom,
 } from './handler.js';

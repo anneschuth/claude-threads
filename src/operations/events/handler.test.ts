@@ -137,7 +137,6 @@ function createSessionContext(): SessionContext {
       flush: mock(async (_session: Session) => {}),
       startTyping: mock((_session: Session) => {}),
       stopTyping: mock((_session: Session) => {}),
-      bumpTasksToBottom: mock(async (_session: Session) => {}),
       updateStickyMessage: mock(async () => {}),
       persistSession: mock((_session: Session) => {}),
       updateSessionHeader: mock(async (_session: Session) => {}),

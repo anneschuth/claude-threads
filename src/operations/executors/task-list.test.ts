@@ -1239,5 +1239,52 @@ describe('TaskListExecutor', () => {
       const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
       expect(createPostCallsAfter).toBe(createPostCallsBefore + 2); // +1 for bumpToBottom, +1 for bumpAndGetOldPost
     });
+
+    /**
+     * Regression test: Simultaneous bumpToBottom and bumpAndGetOldPost calls
+     *
+     * Reproduces the race condition from production (timestamp 1768292703816)
+     * where both methods were called simultaneously, causing duplicate task posts.
+     *
+     * Root cause: Both methods read tasksPostId before either modifies it.
+     * Fix: Calls should be serialized - only one bump operation at a time.
+     */
+    it('should NOT create duplicate task posts when bumpToBottom and bumpAndGetOldPost run SIMULTANEOUSLY', async () => {
+      const ctx = getContext();
+
+      // Create initial task list
+      const tasks = [
+        { content: 'Task 1', status: 'in_progress' as const, activeForm: 'Doing task 1' },
+        { content: 'Task 2', status: 'pending' as const, activeForm: 'Task 2' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Track post creations
+      const createPostCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // Run BOTH operations SIMULTANEOUSLY (this is the race condition)
+      // In production, these are triggered by: user message + content flush
+      await Promise.all([
+        executor.bumpToBottom(ctx),
+        executor.bumpAndGetOldPost(ctx, 'Content to post'),
+      ]);
+
+      // Count total createInteractivePost calls
+      const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // CRITICAL: Should only create at most 2 new posts (one from each method)
+      // The IDEAL behavior: only 1 new task post is created (both methods coordinate)
+      // Current buggy behavior might create 3+ posts due to race
+      const newPostsCreated = createPostCallsAfter - createPostCallsBefore;
+
+      // This is the elegant expectation: only 1 bump happens, creating 1 new task post
+      // The other method either reuses the result or is a no-op
+      expect(newPostsCreated).toBe(1);
+
+      // The state should be consistent - one valid tasksPostId
+      const finalTasksPostId = executor.getState().tasksPostId;
+      expect(finalTasksPostId).toBeTruthy();
+    });
   });
 });

@@ -21,8 +21,18 @@ import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 /**
  * Executor for task list operations.
+ *
+ * Bump operations are serialized to prevent race conditions where simultaneous
+ * calls could create duplicate task posts. The bumpQueue ensures only one bump
+ * operation runs at a time.
  */
 export class TaskListExecutor extends BaseExecutor<TaskListState> {
+  /**
+   * Queue for serializing bump operations. Each bump waits for previous bumps
+   * to complete before starting, preventing race conditions.
+   */
+  private bumpQueue: Promise<void> = Promise.resolve();
+
   constructor(options: ExecutorOptions) {
     super(options, TaskListExecutor.createInitialState());
   }
@@ -192,11 +202,64 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
   }
 
   /**
+   * Serialize a bump operation through the queue (mutex pattern).
+   * Ensures only one bump runs at a time to prevent race conditions.
+   *
+   * The key insight: we IMMEDIATELY update bumpQueue before awaiting,
+   * so any concurrent call sees the new queue value and waits for us.
+   */
+  private async withBumpQueue<T>(fn: () => Promise<T>): Promise<T> {
+    // Capture the current queue (what we need to wait for)
+    const prevQueue = this.bumpQueue;
+
+    // IMMEDIATELY create our lock and set it as the new queue
+    // This ensures any concurrent call will wait for us
+    let releaseLock: () => void;
+    this.bumpQueue = new Promise(resolve => {
+      releaseLock = resolve;
+    });
+
+    // Wait for previous operation to complete
+    await prevQueue;
+
+    // Now it's our turn - execute the function
+    try {
+      return await fn();
+    } finally {
+      // Release our lock so next operation can proceed
+      releaseLock!();
+    }
+  }
+
+  /**
    * Bump task list to bottom of thread.
    * Returns the old post ID for reuse, or null if no task list.
+   *
+   * This method is serialized through bumpQueue to prevent race conditions
+   * when called simultaneously with bumpAndGetOldPost. If another bump
+   * completes first, this becomes a no-op.
    */
   async bumpToBottom(ctx: ExecutorContext): Promise<string | null> {
-    
+    // Capture the post we intend to bump BEFORE queueing
+    const targetPostId = this.state.tasksPostId;
+    if (!targetPostId || !this.state.lastTasksContent || this.state.tasksCompleted) {
+      return null;
+    }
+
+    return this.withBumpQueue(async () => {
+      // Check if another bump already happened (postId changed)
+      if (this.state.tasksPostId !== targetPostId) {
+        ctx.logger.debug(`bumpToBottom skipped: another bump already happened`);
+        return null;
+      }
+      return this.doBumpToBottom(ctx);
+    });
+  }
+
+  /**
+   * Internal implementation of bumpToBottom (not serialized).
+   */
+  private async doBumpToBottom(ctx: ExecutorContext): Promise<string | null> {
     if (!this.state.tasksPostId || !this.state.lastTasksContent || this.state.tasksCompleted) {
       return null;
     }
@@ -307,12 +370,38 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
   /**
    * Bump task list and return old post ID for content reuse.
    * Used by content executor to avoid creating extra posts.
+   *
+   * This method is serialized through bumpQueue to prevent race conditions
+   * when called simultaneously with bumpToBottom. If another bump completes
+   * first, this becomes a no-op (returns null).
    */
   async bumpAndGetOldPost(
     ctx: ExecutorContext,
     newContent: string
   ): Promise<string | null> {
-    
+    // Capture the post we intend to bump BEFORE queueing
+    const targetPostId = this.state.tasksPostId;
+    if (!this.hasActiveTasks() || !targetPostId) {
+      return null;
+    }
+
+    return this.withBumpQueue(async () => {
+      // Check if another bump already happened (postId changed)
+      if (this.state.tasksPostId !== targetPostId) {
+        ctx.logger.debug(`bumpAndGetOldPost skipped: another bump already happened`);
+        return null;
+      }
+      return this.doBumpAndGetOldPost(ctx, newContent);
+    });
+  }
+
+  /**
+   * Internal implementation of bumpAndGetOldPost (not serialized).
+   */
+  private async doBumpAndGetOldPost(
+    ctx: ExecutorContext,
+    newContent: string
+  ): Promise<string | null> {
     if (!this.hasActiveTasks() || !this.state.tasksPostId) {
       return null;
     }

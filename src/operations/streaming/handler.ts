@@ -100,20 +100,3 @@ export function stopTyping(session: Session): void {
     session.timers.typingTimer = null;
   }
 }
-
-// ---------------------------------------------------------------------------
-// Task list bumping (delegates to MessageManager)
-// ---------------------------------------------------------------------------
-
-/**
- * Bump the task list to the bottom of the thread.
- *
- * Call this when a user sends a follow-up message to keep the task list
- * below user messages. Requires MessageManager to be available.
- */
-export async function bumpTasksToBottom(session: Session): Promise<void> {
-  if (session.messageManager) {
-    await session.messageManager.bumpTaskList();
-  }
-  // If no messageManager, nothing to do - task list is managed by MessageManager
-}

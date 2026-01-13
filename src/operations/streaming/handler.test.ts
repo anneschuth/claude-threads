@@ -1,13 +1,14 @@
 /**
- * Tests for streaming.ts - typing indicators and task list delegation
+ * Tests for streaming.ts - typing indicators
  *
  * NOTE: Content flushing tests have been moved to src/operations/executors/content.test.ts
  * since that logic is now handled by ContentExecutor via MessageManager.
  * NOTE: Content-breaker tests are in src/operations/content-breaker.test.ts
+ * NOTE: Task list bumping is handled by TaskListExecutor with serialization
  */
 
 import { describe, test, expect, beforeEach, mock } from 'bun:test';
-import { bumpTasksToBottom, startTyping, stopTyping } from './handler.js';
+import { startTyping, stopTyping } from './handler.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
@@ -107,33 +108,3 @@ describe('stopTyping', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Task list bumping (delegation to MessageManager)
-// ---------------------------------------------------------------------------
-
-describe('bumpTasksToBottom', () => {
-  let platform: PlatformClient;
-  let session: Session;
-
-  beforeEach(() => {
-    platform = createMockPlatform();
-    session = createTestSession(platform);
-  });
-
-  test('delegates to MessageManager when available', async () => {
-    const bumpTaskListMock = mock(async () => {});
-    session.messageManager = {
-      bumpTaskList: bumpTaskListMock,
-    } as any;
-
-    await bumpTasksToBottom(session);
-
-    expect(bumpTaskListMock).toHaveBeenCalled();
-  });
-
-  test('does nothing when no MessageManager', async () => {
-    // No messageManager set
-    await bumpTasksToBottom(session);
-    // Should not throw
-  });
-});

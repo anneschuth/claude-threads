@@ -118,9 +118,6 @@ export interface SessionOperations {
     files?: PlatformFile[]
   ): Promise<string | ContentBlock[]>;
 
-  /** Move task list to bottom of thread */
-  bumpTasksToBottom(session: Session): Promise<void>;
-
   // ---------------------------------------------------------------------------
   // Persistence
   // ---------------------------------------------------------------------------
