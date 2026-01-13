@@ -1093,3 +1093,192 @@ describe('updateStickyMessage with bump', () => {
     expect(getPinnedPosts).toHaveBeenCalled();
   });
 });
+
+describe('updateStickyMessage validates lastMessageId', () => {
+  beforeEach(() => {
+    setShuttingDown(false);
+  });
+
+  it('clears lastMessageId when the message has been deleted', async () => {
+    // Create a session with a lastMessageId that points to a deleted message
+    const session = createMockSession({
+      lastMessageId: 'deleted-message-123',
+      lastMessageTs: 'deleted-message-123',
+    });
+    const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
+
+    // Mock getPost to return null (message was deleted)
+    const getPost = mock(() => Promise.resolve(null));
+    const createPost = mock(() => Promise.resolve({
+      id: 'new-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const updatePost = mock(() => Promise.resolve({
+      id: 'existing-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const pinPost = mock(() => Promise.resolve());
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot-user-123', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      getPost,
+      createPost,
+      updatePost,
+      pinPost,
+      getBotUser,
+      getPinnedPosts,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    // Initialize with an existing sticky post ID
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+      load: mock(() => new Map()),
+    };
+    initialize(mockSessionStore as any);
+
+    // Verify lastMessageId is set before the call
+    expect(session.lastMessageId).toBe('deleted-message-123');
+
+    await updateStickyMessage(platform, sessions, testConfig);
+
+    // Verify getPost was called to validate the lastMessageId
+    expect(getPost).toHaveBeenCalledWith('deleted-message-123');
+
+    // Verify lastMessageId was cleared because the message was deleted
+    expect(session.lastMessageId).toBeUndefined();
+    expect(session.lastMessageTs).toBeUndefined();
+  });
+
+  it('keeps lastMessageId when the message still exists', async () => {
+    // Create a session with a lastMessageId that points to an existing message
+    const session = createMockSession({
+      lastMessageId: 'existing-message-456',
+      lastMessageTs: 'existing-message-456',
+    });
+    const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
+
+    // Mock getPost to return the message (it still exists)
+    const getPost = mock(() => Promise.resolve({
+      id: 'existing-message-456',
+      userId: 'user-123',
+      message: 'Some message content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const createPost = mock(() => Promise.resolve({
+      id: 'new-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const updatePost = mock(() => Promise.resolve({
+      id: 'existing-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const pinPost = mock(() => Promise.resolve());
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot-user-123', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      getPost,
+      createPost,
+      updatePost,
+      pinPost,
+      getBotUser,
+      getPinnedPosts,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    // Initialize with an existing sticky post ID
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+      load: mock(() => new Map()),
+    };
+    initialize(mockSessionStore as any);
+
+    await updateStickyMessage(platform, sessions, testConfig);
+
+    // Verify getPost was called to validate the lastMessageId
+    expect(getPost).toHaveBeenCalledWith('existing-message-456');
+
+    // Verify lastMessageId was NOT cleared because the message still exists
+    expect(session.lastMessageId).toBe('existing-message-456');
+    expect(session.lastMessageTs).toBe('existing-message-456');
+  });
+
+  it('clears lastMessageId when getPost throws an error', async () => {
+    // Create a session with a lastMessageId
+    const session = createMockSession({
+      lastMessageId: 'error-message-789',
+      lastMessageTs: 'error-message-789',
+    });
+    const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
+
+    // Mock getPost to throw an error (network issue, etc.)
+    const getPost = mock(() => Promise.reject(new Error('Network error')));
+    const createPost = mock(() => Promise.resolve({
+      id: 'new-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const updatePost = mock(() => Promise.resolve({
+      id: 'existing-sticky-post',
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'test-platform',
+    }));
+    const pinPost = mock(() => Promise.resolve());
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot-user-123', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      getPost,
+      createPost,
+      updatePost,
+      pinPost,
+      getBotUser,
+      getPinnedPosts,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    // Initialize with an existing sticky post ID
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+      load: mock(() => new Map()),
+    };
+    initialize(mockSessionStore as any);
+
+    await updateStickyMessage(platform, sessions, testConfig);
+
+    // Verify lastMessageId was cleared on error (defensive behavior)
+    expect(session.lastMessageId).toBeUndefined();
+    expect(session.lastMessageTs).toBeUndefined();
+  });
+});
