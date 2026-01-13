@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-01-13
+
+### Changed
+- **Cleaner session header** - Simplified session start message, moved detailed info to help menu (#202)
+
+### Fixed
+- **Worktree prompt skipped when branch specified** - When starting a session with a branch name in the initial message (e.g., `@bot on branch fix/bug do X`), worktree prompt is now correctly skipped (#201)
+- **Pipe characters in markdown tables** - Fixed escaping of `|` characters in help menu table rows (#200)
+
 ## [1.0.0] - 2026-01-13
 
 ### Changed
