@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.5] - 2026-01-13
+
+### Added
+- **Height-aware message breaking** - Mattermost messages now split based on estimated rendered height (~500px threshold) instead of character count, reducing "Read more" collapsed messages (#210)
+  - Code blocks: 18px/line + 32px padding
+  - Headers: 32px, Lists/Blockquotes: 24px, Tables: 28px/row
+  - Text wrapping estimated at ~90 chars/line
+  - Code blocks are never broken mid-block
+
 ## [1.0.4] - 2026-01-13
 
 ### Changed
