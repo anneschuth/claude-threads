@@ -560,11 +560,11 @@ export class SlackClient extends BasePlatformClient {
   }
 
   /**
-   * Clean up the WebSocket connection forcefully.
-   * This ensures we start fresh on reconnection instead of relying on stale sockets.
+   * Force close the WebSocket connection.
+   * Cleans up listeners and ensures we start fresh on reconnection.
+   * This is critical for recovery after long idle periods where the socket may be stale.
    */
-  private cleanupWebSocket(): void {
-    this.stopHeartbeat();
+  protected forceCloseConnection(): void {
     if (this.ws) {
       // Remove all listeners to prevent any callbacks from firing
       this.ws.onopen = null;
@@ -585,24 +585,24 @@ export class SlackClient extends BasePlatformClient {
 
   /**
    * Schedule a reconnection with exponential backoff.
-   * Overrides base class to add Slack-specific timeout tracking.
+   * Overrides base class to add Slack-specific timeout tracking and
+   * check for intentional disconnect while waiting.
    */
   protected scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnection attempts reached');
-      return;
-    }
-
     // Clear any existing reconnect timeout
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
 
-    // Clean up any existing WebSocket before reconnecting
-    // This is critical for recovery after long idle periods where the socket may be stale
-    this.cleanupWebSocket();
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      log.error('Max reconnection attempts reached');
+      return;
+    }
 
+    // Base class handles cleanup and state updates
+    // We just need to wrap the timeout to check for intentional disconnect
+    this.forceCloseConnection();
     this.isReconnecting = true;
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
@@ -622,16 +622,6 @@ export class SlackClient extends BasePlatformClient {
         this.scheduleReconnect();
       });
     }, delay);
-  }
-
-  /**
-   * Force close the WebSocket connection.
-   */
-  protected forceCloseConnection(): void {
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
   }
 
   /**
