@@ -195,3 +195,25 @@ export async function logAndNotify(
 ): Promise<void> {
   await handleError(error, { ...context, notifyUser: true }, 'recoverable');
 }
+
+/**
+ * Log a silent error for debugging purposes.
+ *
+ * Use this instead of empty `catch {}` blocks to provide visibility into
+ * silently-handled errors. Logs at debug level so it doesn't spam production
+ * but is visible when DEBUG=1 is set.
+ *
+ * @param context - A short description of where/why the error was caught
+ * @param error - The error that was caught
+ *
+ * @example
+ * try {
+ *   await platform.removeReaction(postId, emoji);
+ * } catch (err) {
+ *   logSilentError('remove-bot-reaction', err);
+ * }
+ */
+export function logSilentError(context: string, error: unknown): void {
+  const message = error instanceof Error ? error.message : String(error);
+  log.debug(`[${context}] Silently caught: ${message}`);
+}

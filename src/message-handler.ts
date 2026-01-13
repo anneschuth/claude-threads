@@ -10,6 +10,7 @@ import type { SessionManager } from './session/index.js';
 import { VERSION } from './version.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { parseCommand, generateHelpMessage } from './commands/index.js';
+import { logSilentError } from './utils/error-handler/index.js';
 
 /**
  * Logger interface for message handler
@@ -69,8 +70,8 @@ export async function handleMessage(
           `🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} initiated by ${formatter.formatUserMention(username)} - killing ${activeCount} active session${activeCount !== 1 ? 's' : ''}`,
           threadRoot
         );
-      } catch {
-        /* ignore - we're shutting down anyway */
+      } catch (err) {
+        logSilentError('kill-confirmation-post', err);
       }
 
       // Notify all other active sessions before killing
@@ -78,8 +79,8 @@ export async function handleMessage(
         if (tid === threadRoot) continue; // Skip the thread where we already posted
         try {
           await client.createPost(`🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} by ${formatter.formatUserMention(username)}`, tid);
-        } catch {
-          /* ignore */
+        } catch (err) {
+          logSilentError('kill-notify-session', err);
         }
       }
       logger?.error(`EMERGENCY SHUTDOWN initiated by @${username}`);
@@ -348,8 +349,8 @@ export async function handleMessage(
     // Try to notify user if possible
     try {
       await client.createPost(`⚠️ An error occurred. Please try again.`, threadRoot);
-    } catch {
-      // Ignore if we can't post the error message
+    } catch (err) {
+      logSilentError('error-notification-post', err);
     }
   }
 }

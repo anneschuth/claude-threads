@@ -11,6 +11,20 @@
  */
 
 // =============================================================================
+// String Utilities
+// =============================================================================
+
+/**
+ * Escape special regex characters in a string to prevent regex injection.
+ *
+ * @param string - The string to escape
+ * @returns String with special regex characters escaped
+ */
+export function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// =============================================================================
 // Platform Icons
 // =============================================================================
 

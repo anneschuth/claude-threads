@@ -414,7 +414,9 @@ export class SessionManager extends EventEmitter {
     // Verify this reaction is from the same platform
     if (session.platformId !== platformId) return;
 
-    // Only process reactions from allowed users
+    // SECURITY: Only process reactions from allowed users
+    // This is the primary authorization gate for all reaction-based actions.
+    // All reactions are validated here before reaching MessageManager/executors.
     if (!session.sessionAllowedUsers.has(username) && !session.platform.isUserAllowed(username)) {
       return;
     }

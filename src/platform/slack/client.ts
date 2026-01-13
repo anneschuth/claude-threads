@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events';
 import type { SlackPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp } from '../utils.js';
 
 const log = createLogger('slack');
 
@@ -33,11 +33,6 @@ import type {
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
 import { getEmojiName } from '../utils.js';
-
-// Escape special regex characters to prevent regex injection
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * Slack platform client implementation using Socket Mode.

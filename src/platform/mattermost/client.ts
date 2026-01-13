@@ -3,6 +3,7 @@ import { EventEmitter } from 'events';
 import type { MattermostPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
+import { escapeRegExp } from '../utils.js';
 
 const log = createLogger('mattermost');
 import type {
@@ -26,11 +27,6 @@ import type {
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
-
-// Escape special regex characters to prevent regex injection
-function escapeRegExp(string: string): string {
-  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 export class MattermostClient extends EventEmitter implements PlatformClient {
   // Platform identity (required by PlatformClient)
