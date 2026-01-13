@@ -376,6 +376,41 @@ describe('TaskListExecutor', () => {
       expect(executor.getState().tasksPostId).toBe('post_2');
     });
 
+    it('deletes old task post when updatePost fails and new post is created', async () => {
+      // This test ensures we don't end up with TWO task lists visible
+      // when updatePost fails and we create a new task list post.
+      // Just unpinning isn't enough - the old post is still visible!
+      const ctx = getContext();
+
+      // Create initial task post (post_1)
+      await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Verify post_1 was pinned
+      expect(platform.pinPost).toHaveBeenCalledWith('post_1');
+
+      // Reset mocks to track new calls
+      (platform.deletePost as ReturnType<typeof mock>).mockClear();
+      (platform.pinPost as ReturnType<typeof mock>).mockClear();
+
+      // Make updatePost fail
+      (platform.updatePost as ReturnType<typeof mock>) = mock(async () => {
+        throw new Error('Update failed');
+      });
+
+      // Second update should create new post AND delete the old one
+      await executor.execute(createTaskListOp('test', 'update', createAllPendingTasks()), ctx);
+
+      // Verify old post (post_1) was DELETED (not just unpinned)
+      expect(platform.deletePost).toHaveBeenCalledWith('post_1');
+
+      // Verify new post (post_2) was pinned
+      expect(platform.pinPost).toHaveBeenCalledWith('post_2');
+
+      // Verify we now have the new post ID
+      expect(executor.getState().tasksPostId).toBe('post_2');
+    });
+
     it('tracks in-progress task timing', async () => {
       const ctx = getContext();
       const tasks = createSampleTasks(); // Has one in_progress task

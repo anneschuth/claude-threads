@@ -141,6 +141,9 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
         await ctx.platform.updatePost(this.state.tasksPostId, displayContent);
       } catch (err) {
         ctx.logger.debug(`Failed to update task post, creating new: ${err}`);
+        // Delete the old post to avoid duplicate task lists visible to users
+        const oldPostId = this.state.tasksPostId;
+        await ctx.platform.deletePost(oldPostId).catch(() => {});
         await this.createTaskPost(displayContent, ctx);
       }
     } else {
