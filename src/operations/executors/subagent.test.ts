@@ -104,11 +104,9 @@ describe('SubagentExecutor', () => {
   let executor: SubagentExecutor;
   let ctx: ExecutorContext;
   let registeredPosts: Map<string, unknown>;
-  let taskListBumped: boolean;
 
   beforeEach(() => {
     registeredPosts = new Map();
-    taskListBumped = false;
 
     const registerPost = (postId: string, options: unknown) => {
       registeredPosts.set(postId, options);
@@ -117,12 +115,13 @@ describe('SubagentExecutor', () => {
       // Track last message if needed
     };
 
+    // NOTE: SubagentExecutor no longer has onBumpTaskList callback.
+    // This was removed to fix a race condition where both SubagentExecutor
+    // and ContentExecutor were bumping the task list, causing duplicates.
+    // Now only ContentExecutor handles task list bumping.
     executor = new SubagentExecutor({
       registerPost,
       updateLastMessage,
-      onBumpTaskList: async () => {
-        taskListBumped = true;
-      },
     });
 
     ctx = createTestContext(undefined, { registerPost, updateLastMessage });
@@ -148,7 +147,7 @@ describe('SubagentExecutor', () => {
 
       expect(ctx.platform.createInteractivePost).toHaveBeenCalled();
       expect(registeredPosts.size).toBe(1);
-      expect(taskListBumped).toBe(true);
+      // NOTE: SubagentExecutor no longer bumps task list (removed to fix race condition)
 
       const state = executor.getState();
       expect(state.activeSubagents.size).toBe(1);

@@ -253,10 +253,9 @@ export class MessageManager {
     this.subagentExecutor = new SubagentExecutor({
       registerPost: options.registerPost,
       updateLastMessage: options.updateLastMessage,
-      // Wire up bump callback to call taskListExecutor.bumpToBottom
-      onBumpTaskList: async () => {
-        await this.taskListExecutor.bumpToBottom(this.getExecutorContext());
-      },
+      // NOTE: We intentionally do NOT bump task list here.
+      // The content executor handles all task list bumping when it flushes content.
+      // Having two independent bump mechanisms caused race conditions and duplicate task lists.
     });
 
     this.systemExecutor = new SystemExecutor({

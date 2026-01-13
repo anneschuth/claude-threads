@@ -1190,5 +1190,54 @@ describe('TaskListExecutor', () => {
       // No new post should be created
       expect(platform.createInteractivePost).toHaveBeenCalledTimes(1);
     });
+
+    /**
+     * This test verifies the fix for the race condition where bumpToBottom and
+     * bumpAndGetOldPost could both try to create new task posts, causing duplicates.
+     *
+     * Scenario that caused duplicates (BEFORE FIX):
+     * 1. bumpToBottom() deletes old post, creates new post at 1768291703.603889
+     * 2. bumpAndGetOldPost() still has reference to deleted post 1768291688.505399
+     * 3. bumpAndGetOldPost() tries to repurpose deleted post -> fails
+     * 4. bumpAndGetOldPost() creates ANOTHER task post -> DUPLICATE!
+     *
+     * The fix: Only ONE bump mechanism should exist. We removed SubagentExecutor's
+     * bump callback, so only ContentExecutor's bumpAndGetOldPost handles bumping.
+     */
+    it('should NOT create duplicate task posts when bumpToBottom runs before bumpAndGetOldPost', async () => {
+      const ctx = getContext();
+
+      // Create initial task list
+      const tasks = [
+        { content: 'Task 1', status: 'in_progress' as const, activeForm: 'Doing task 1' },
+        { content: 'Task 2', status: 'pending' as const, activeForm: 'Task 2' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Track the number of createInteractivePost calls
+      const createPostCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // Simulate: bumpToBottom is called first (this was previously triggered by SubagentExecutor)
+      await executor.bumpToBottom(ctx);
+
+      // Task list should now be at post_2
+      expect(executor.getState().tasksPostId).toBe('post_2');
+
+      // Now simulate: bumpAndGetOldPost is called
+      // It should detect that a bump already happened (tasksPostId changed) and NOT create another post
+      const repurposedPostId = await executor.bumpAndGetOldPost(ctx, 'Some content to post');
+
+      // The current task post (post_2) should have been repurposed for content
+      expect(repurposedPostId).toBe('post_2');
+
+      // A new task post (post_3) should be created at the bottom
+      expect(executor.getState().tasksPostId).toBe('post_3');
+
+      // CRITICAL: We should NOT have any orphaned task posts (duplicates)
+      // Total createInteractivePost calls: 1 (initial) + 1 (bumpToBottom) + 1 (bumpAndGetOldPost) = 3
+      const createPostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+      expect(createPostCallsAfter).toBe(createPostCallsBefore + 2); // +1 for bumpToBottom, +1 for bumpAndGetOldPost
+    });
   });
 });

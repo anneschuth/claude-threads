@@ -101,6 +101,7 @@ export interface ExecutorEntry extends BaseLogEntry {
   type: 'executor';
   executor: 'task_list' | 'content' | 'subagent' | 'system';
   operation: 'create' | 'update' | 'delete' | 'bump' | 'complete' | 'error';
+  method?: string;  // Which method originated this log (e.g., 'updateTaskList', 'bumpToBottom')
   postId?: string;
   details?: Record<string, unknown>;
 }
@@ -148,7 +149,8 @@ export interface ThreadLogger {
     executor: ExecutorEntry['executor'],
     operation: ExecutorEntry['operation'],
     postId?: string,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
+    method?: string
   ): void;
 
   /** Flush pending writes (for graceful shutdown) */
@@ -309,7 +311,8 @@ class ThreadLoggerImpl implements ThreadLogger {
     executor: ExecutorEntry['executor'],
     operation: ExecutorEntry['operation'],
     postId?: string,
-    details?: Record<string, unknown>
+    details?: Record<string, unknown>,
+    method?: string
   ): void {
     if (!this.enabled || this.isClosed) return;
 
@@ -320,6 +323,7 @@ class ThreadLoggerImpl implements ThreadLogger {
       executor,
       operation,
       postId,
+      method,
       details,
     };
     this.addEntry(entry);
