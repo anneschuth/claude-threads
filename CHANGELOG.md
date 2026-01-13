@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Major architecture refactor** - Consolidated operations module with specialized executors (#199)
+  - `MessageManager` now orchestrates all message operations via 9 specialized executors
+  - Each executor owns its state: Content, TaskList, QuestionApproval, MessageApproval, Prompt, BugReport, Subagent, System, WorktreePrompt
+  - Session is now a thin container; all business logic lives in `src/operations/`
+  - Unified reaction routing through MessageManager
+
+### Added
+- **Security documentation** - Enhanced `SECURITY.md` with comprehensive authorization matrix
+  - Documented multi-layer authorization model (platform → session → role)
+  - Added key security files with line numbers for audit
+- **DRY improvements**
+  - Moved `escapeRegExp` to `platform/utils.ts` (eliminated Slack/Mattermost duplication)
+  - Added `logSilentError` utility for debugging empty catch blocks
+- **Observability** - Added content executor logging for tracing content operations
+
+### Fixed
+- **Task list integration test** - Test was looking for deleted post; now checks completion message
+- **Task list cleanup** - Posts are properly deleted when all tasks complete
+
 ## [0.62.2] - 2026-01-11
 
 ### Fixed
