@@ -690,3 +690,142 @@ describe('handleExit', () => {
 // 1. manager.ts startSessionWithWorktree passes { ...options, skipWorktreePrompt: true }
 // 2. lifecycle.ts startSession checks options.skipWorktreePrompt before shouldPromptForWorktree
 // See src/session/manager.ts:1280 and src/session/lifecycle.ts:692
+
+describe('attemptMetadataFetch', () => {
+  it('returns success when both metadata and tags are fetched', async () => {
+    // Create session with no existing metadata
+    const session = createMockSession({
+      sessionTitle: undefined,
+      sessionDescription: undefined,
+      sessionTags: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => ({
+        title: 'Test Title',
+        description: 'Test Description',
+      }),
+      suggestTags: async () => ['bug-fix'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.metadataSet).toBe(true);
+    expect(result.tagsSet).toBe(true);
+    expect(session.sessionTitle).toBe('Test Title');
+    expect(session.sessionDescription).toBe('Test Description');
+    expect(session.sessionTags).toEqual(['bug-fix']);
+  });
+
+  it('returns partial success when only metadata fails', async () => {
+    const session = createMockSession({
+      sessionTitle: undefined,
+      sessionDescription: undefined,
+      sessionTags: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => null,
+      suggestTags: async () => ['feature'],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.metadataSet).toBe(false);
+    expect(result.tagsSet).toBe(true);
+    expect(session.sessionTitle).toBeUndefined();
+    expect(session.sessionTags).toEqual(['feature']);
+  });
+
+  it('returns partial success when only tags fail', async () => {
+    const session = createMockSession({
+      sessionTitle: undefined,
+      sessionDescription: undefined,
+      sessionTags: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => ({
+        title: 'Success Title',
+        description: 'Success Desc',
+      }),
+      suggestTags: async () => [],
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.metadataSet).toBe(true);
+    expect(result.tagsSet).toBe(false);
+    expect(session.sessionTitle).toBe('Success Title');
+    expect(session.sessionTags).toBeUndefined();
+  });
+
+  it('reports session already has metadata as success', async () => {
+    const session = createMockSession({
+      sessionTitle: 'Existing Title',
+      sessionDescription: 'Existing Desc',
+      sessionTags: ['refactor'],
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // Even if suggestions fail, existing metadata counts as success
+    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => null,
+      suggestTags: async () => [],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.metadataSet).toBe(true);
+    expect(result.tagsSet).toBe(true);
+    // Original values should be preserved
+    expect(session.sessionTitle).toBe('Existing Title');
+    expect(session.sessionTags).toEqual(['refactor']);
+  });
+
+  it('returns early if session is gone', async () => {
+    const session = createMockSession();
+    // Session is NOT in the sessions map (simulating cleanup while fetching)
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+
+    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => ({
+        title: 'Title',
+        description: 'Desc',
+      }),
+      suggestTags: async () => ['test'],
+    });
+
+    // Should return failure since session is gone
+    expect(result.success).toBe(false);
+    expect(result.metadataSet).toBe(false);
+    expect(result.tagsSet).toBe(false);
+  });
+
+  it('updates UI when metadata changes', async () => {
+    const session = createMockSession({
+      sessionTitle: undefined,
+      sessionDescription: undefined,
+      sessionTags: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+      suggestMetadata: async () => ({
+        title: 'New Title',
+        description: 'New Desc',
+      }),
+      suggestTags: async () => ['docs'],
+    });
+
+    // Should have updated persistence and UI
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+    expect(ctx.ops.updateStickyMessage).toHaveBeenCalled();
+    expect(ctx.ops.updateSessionHeader).toHaveBeenCalled();
+  });
+});
