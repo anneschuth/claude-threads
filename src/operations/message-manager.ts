@@ -219,6 +219,11 @@ export class MessageManager {
       onBumpTaskList: async (content: string, ctx: ExecutorContext) => {
         return this.taskListExecutor.bumpAndGetOldPost(ctx, content);
       },
+      // When content creates a new post (not reusing task post), bump task list to bottom
+      // This ensures task list always stays at the bottom during streaming
+      onBumpTaskListToBottom: async () => {
+        await this.taskListExecutor.bumpToBottom(this.getExecutorContext());
+      },
     });
 
     this.taskListExecutor = new TaskListExecutor({

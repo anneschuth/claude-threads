@@ -677,4 +677,143 @@ describe('MessageManager', () => {
       expect(state.postId).toBeNull();
     });
   });
+
+  describe('Event serialization', () => {
+    /**
+     * Regression test: When tool_use (TodoWrite) and assistant events arrive
+     * in quick succession, events must be serialized so task list is created
+     * before content tries to flush.
+     *
+     * The real-world scenario: SessionManager fires events with `void`:
+     *   void manager.handleEvent(event1);  // fire-and-forget
+     *   void manager.handleEvent(event2);  // fire-and-forget
+     *
+     * Without serialization, event2 might complete before event1, causing
+     * the task list to be stuck above content.
+     */
+    it('serializes concurrent events so task list is created before content flushes', async () => {
+      // Create events
+      const todoEvent = {
+        type: 'tool_use' as const,
+        tool_use: {
+          name: 'TodoWrite',
+          id: 'test-tool-123',
+          input: {
+            todos: [
+              { content: 'Task 1', status: 'pending', activeForm: 'Doing task 1' },
+            ],
+          },
+        },
+      };
+
+      const contentEvent = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'Here is some content after the task list.' }],
+        },
+      };
+
+      // Simulate fire-and-forget pattern from SessionManager
+      // Both events start processing concurrently
+      void manager.handleEvent(todoEvent as any);
+      void manager.handleEvent(contentEvent);
+
+      // Wait a bit for both events to complete
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Flush any remaining content
+      await manager.flush();
+
+      // Get final state
+      const taskState = manager.getTaskListState();
+      const createInteractivePostCalls = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // With proper serialization:
+      // 1. TodoWrite event is queued first, creates task list post (createInteractivePost)
+      // 2. Assistant event is queued second, waits for TodoWrite to complete
+      // 3. Content flush finds existing task list, bumps it (createInteractivePost again)
+      // Result: task list exists, 2+ createInteractivePost calls, content goes via bump
+      //
+      // Without serialization (race condition):
+      // 1. Both events start concurrently
+      // 2. Content might flush before task list exists
+      // 3. Content creates regular post (createPost), task list created after
+      // Result: task list exists but may be above content, fewer bumps
+
+      // The task list should exist
+      expect(taskState.postId).not.toBeNull();
+
+      // If serialization works correctly, content should have found the task list
+      // and used bumpAndGetOldPost (which creates 2 createInteractivePost calls total)
+      // If race condition occurred, content would use createPost (non-interactive)
+      expect(createInteractivePostCalls).toBeGreaterThanOrEqual(2);
+    });
+
+    it('bumps task list to bottom when content creates new post (not via bump)', async () => {
+      /**
+       * Regression test: When content creates a new post (because there's no task
+       * post to repurpose), the task list should still be bumped to the bottom.
+       *
+       * This test verifies the onBumpTaskListToBottom callback chain is wired up
+       * correctly in MessageManager. The unit test in content.test.ts verifies
+       * the callback is called; this test verifies the integration.
+       *
+       * We simulate the scenario by making updatePost fail during bumpAndGetOldPost,
+       * which causes it to return null, forcing content to create a new post.
+       */
+
+      // First, create a task list with ACTIVE (not completed) tasks
+      const todoEvent = {
+        type: 'tool_use' as const,
+        tool_use: {
+          name: 'TodoWrite',
+          id: 'test-tool-456',
+          input: {
+            todos: [
+              { content: 'Task 1', status: 'in_progress', activeForm: 'Task 1' },
+            ],
+          },
+        },
+      };
+      await manager.handleEvent(todoEvent as any);
+
+      // Record createInteractivePost calls before content
+      const bumpCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // Make updatePost fail so bumpAndGetOldPost cannot repurpose the task post
+      // This simulates a network error during bump
+      let updatePostCallCount = 0;
+      const originalUpdatePost = platform.updatePost;
+      (platform.updatePost as ReturnType<typeof mock>) = mock(async (postId: string, content: string) => {
+        updatePostCallCount++;
+        // Fail the first updatePost call (the one from bumpAndGetOldPost trying to repurpose)
+        // but let subsequent calls succeed (for the new task post)
+        if (updatePostCallCount === 1) {
+          throw new Error('Simulated network error');
+        }
+        return originalUpdatePost(postId, content);
+      });
+
+      // Now send content event
+      const contentEvent = {
+        type: 'assistant' as const,
+        message: {
+          content: [{ type: 'text', text: 'Content that creates a new post.' }],
+        },
+      };
+      await manager.handleEvent(contentEvent);
+      await manager.flush();
+
+      // Check that task list was bumped after content creation
+      const bumpCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // With the fix, after content creates a new post, onBumpTaskListToBottom
+      // is called which creates another task list post at the bottom
+      // So we should see multiple createInteractivePost calls:
+      // 1. Initial task list creation
+      // 2. New task list after failed repurpose (from bumpAndGetOldPost error recovery)
+      // 3. Bump to bottom after content post (from onBumpTaskListToBottom)
+      expect(bumpCallsAfter).toBeGreaterThan(bumpCallsBefore);
+    });
+  });
 });

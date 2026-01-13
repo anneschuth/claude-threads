@@ -355,6 +355,35 @@ describe('ContentExecutor', () => {
       // Verify the callback received the executor context
       expect(receivedCtx).toBe(ctx);
     });
+
+    it('bumps task list to bottom after creating new content post (RED-GREEN regression test)', async () => {
+      // BUG: When onBumpTaskList returns null (no task post to repurpose),
+      // content creates a new post but the task list stays at its old position above the content.
+      // FIX: After creating a new content post, call onBumpTaskListToBottom to keep task list at bottom.
+      let bumpToBottomCalled = false;
+
+      const executorWithBump = new ContentExecutor({
+        registerPost: (postId, options) => {
+          registeredPosts.set(postId, options ?? { type: 'content' });
+        },
+        updateLastMessage: (post) => {
+          lastMessage = post;
+        },
+        onBumpTaskList: async (_content, _ctx) => null, // No task post to repurpose
+        onBumpTaskListToBottom: async () => {
+          bumpToBottomCalled = true;
+        },
+      });
+
+      const ctx = getContext();
+      await executorWithBump.executeAppend(createAppendContentOp('test', 'Hello'), ctx);
+      await executorWithBump.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      // Content post should be created
+      expect(platform.createPost).toHaveBeenCalled();
+      // Task list should be bumped to bottom AFTER content post was created
+      expect(bumpToBottomCalled).toBe(true);
+    });
   });
 
   describe('Error Handling', () => {

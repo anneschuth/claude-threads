@@ -25,6 +25,8 @@ import { BaseExecutor, type ExecutorOptions } from './base.js';
 export interface ContentExecutorOptions extends ExecutorOptions {
   /** Callback to bump task list and get old post ID for reuse */
   onBumpTaskList?: (content: string, ctx: ExecutorContext) => Promise<string | null>;
+  /** Callback to bump task list to bottom (without repurposing) */
+  onBumpTaskListToBottom?: () => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,10 +38,12 @@ export interface ContentExecutorOptions extends ExecutorOptions {
  */
 export class ContentExecutor extends BaseExecutor<ContentState> {
   private onBumpTaskList?: (content: string, ctx: ExecutorContext) => Promise<string | null>;
+  private onBumpTaskListToBottom?: () => Promise<void>;
 
   constructor(options: ContentExecutorOptions) {
     super(options, ContentExecutor.createInitialState());
     this.onBumpTaskList = options.onBumpTaskList;
+    this.onBumpTaskListToBottom = options.onBumpTaskListToBottom;
   }
 
   private static createInitialState(): ContentState {
@@ -320,6 +324,12 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
       ctx.logger.debug(`Created post ${formatShortId(post.id)}`);
+
+      // Bump task list to bottom after creating content post
+      // This ensures task list always stays at the bottom of the thread
+      if (this.onBumpTaskListToBottom) {
+        await this.onBumpTaskListToBottom();
+      }
     } catch (err) {
       ctx.logger.error(`Failed to create post: ${err}`);
     }
