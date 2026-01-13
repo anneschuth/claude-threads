@@ -27,6 +27,7 @@ export type {
 } from './types.js';
 
 // Platform implementations
+export { BasePlatformClient } from './base-client.js';
 export { MattermostClient } from './mattermost/client.js';
 export { SlackClient } from './slack/client.js';
 

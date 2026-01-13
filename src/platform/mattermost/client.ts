@@ -1,9 +1,9 @@
 // Native WebSocket - no import needed in Bun
-import { EventEmitter } from 'events';
 import type { MattermostPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp } from '../utils.js';
+import { BasePlatformClient } from '../base-client.js';
 
 const log = createLogger('mattermost');
 import type {
@@ -18,7 +18,6 @@ import type {
   MattermostFile,
 } from './types.js';
 import type {
-  PlatformClient,
   PlatformUser,
   PlatformPost,
   PlatformReaction,
@@ -28,7 +27,7 @@ import type {
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 
-export class MattermostClient extends EventEmitter implements PlatformClient {
+export class MattermostClient extends BasePlatformClient {
   // Platform identity (required by PlatformClient)
   readonly platformId: string;
   readonly platformType = 'mattermost' as const;
@@ -38,25 +37,12 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   private url: string;
   private token: string;
   private channelId: string;
-  private botName: string;
-  private allowedUsers: string[];
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 1000;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
 
-  // Heartbeat to detect dead connections (using regular messages since browser WebSocket has no ping/pong)
-  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  private lastMessageAt = Date.now();
-  private readonly HEARTBEAT_INTERVAL_MS = 30000; // Check every 30s
-  private readonly HEARTBEAT_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
-
   // Track last processed post for message recovery after disconnection
   private lastProcessedPostId: string | null = null;
-  private isReconnecting = false;
-  private isIntentionalDisconnect = false;
 
   constructor(platformConfig: MattermostPlatformConfig) {
     super();
@@ -310,36 +296,6 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     await this.api('DELETE', `/users/${this.botUserId}/posts/${postId}/reactions/${emojiName}`);
   }
 
-  /**
-   * Create a post with reaction options for user interaction
-   *
-   * This is a common pattern for interactive posts that need user response
-   * via reactions (e.g., approval prompts, questions, permission requests).
-   *
-   * @param message - Post message content
-   * @param reactions - Array of emoji names to add as reaction options
-   * @param threadId - Optional thread root ID
-   * @returns The created post
-   */
-  async createInteractivePost(
-    message: string,
-    reactions: string[],
-    threadId?: string
-  ): Promise<PlatformPost> {
-    const post = await this.createPost(message, threadId);
-
-    // Add each reaction option, continuing even if some fail
-    for (const emoji of reactions) {
-      try {
-        await this.addReaction(post.id, emoji);
-      } catch (err) {
-        log.warn(`Failed to add reaction ${emoji}: ${err}`);
-      }
-    }
-
-    return post;
-  }
-
   // Download a file attachment
   async downloadFile(fileId: string): Promise<Buffer> {
     log.debug(`Downloading file ${fileId}`);
@@ -540,7 +496,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
       };
 
       this.ws.onmessage = (event) => {
-        this.lastMessageAt = Date.now(); // Track activity for heartbeat
+        this.updateLastMessageTime(); // Track activity for heartbeat
         try {
           const data = typeof event.data === 'string' ? event.data : event.data.toString();
           const wsEvent = JSON.parse(data) as MattermostWebSocketEvent;
@@ -548,18 +504,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
           // Authentication success
           if (wsEvent.event === 'hello') {
-            this.reconnectAttempts = 0;
-            this.startHeartbeat();
-            this.emit('connected');
-
-            // Recover missed messages after reconnection
-            if (this.isReconnecting && this.lastProcessedPostId) {
-              this.recoverMissedMessages().catch((err) => {
-                log.warn(`Failed to recover missed messages: ${err}`);
-              });
-            }
-            this.isReconnecting = false;
-
+            this.onConnectionEstablished();
             resolve();
           }
         } catch (err) {
@@ -569,15 +514,7 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
 
       this.ws.onclose = (event) => {
         wsLogger.info(`WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean})`);
-        this.stopHeartbeat();
-        this.emit('disconnected');
-        // Only reconnect if this wasn't an intentional disconnect
-        if (!this.isIntentionalDisconnect) {
-          wsLogger.debug('Scheduling reconnect...');
-          this.scheduleReconnect();
-        } else {
-          wsLogger.debug('Intentional disconnect, not reconnecting');
-        }
+        this.onConnectionClosed();
       };
 
       this.ws.onerror = (event) => {
@@ -656,11 +593,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
   }
 
   /**
-   * Clean up the WebSocket connection forcefully.
-   * This ensures we start fresh on reconnection instead of relying on stale sockets.
+   * Force close the WebSocket connection.
+   * Cleans up listeners and ensures we start fresh on reconnection.
+   * This is critical for recovery after long idle periods where the socket may be stale.
    */
-  private cleanupWebSocket(): void {
-    this.stopHeartbeat();
+  protected forceCloseConnection(): void {
     if (this.ws) {
       // Remove all listeners to prevent any callbacks from firing
       this.ws.onopen = null;
@@ -679,67 +616,11 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
-  private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnection attempts reached');
-      return;
-    }
-
-    // Clean up any existing WebSocket before reconnecting
-    // This is critical for recovery after long idle periods where the socket may be stale
-    this.cleanupWebSocket();
-
-    // Mark that we're reconnecting (to trigger message recovery)
-    this.isReconnecting = true;
-
-    this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    wsLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-    this.emit('reconnecting', this.reconnectAttempts);
-
-    setTimeout(() => {
-      this.connect().catch((err) => {
-        wsLogger.error(`Reconnection failed: ${err}`);
-        // Schedule another reconnect attempt
-        this.scheduleReconnect();
-      });
-    }, delay);
-  }
-
-  private startHeartbeat(): void {
-    this.stopHeartbeat(); // Clear any existing
-    this.lastMessageAt = Date.now();
-
-    this.heartbeatInterval = setInterval(() => {
-      const silentFor = Date.now() - this.lastMessageAt;
-
-      // If no message received for too long, connection is dead
-      if (silentFor > this.HEARTBEAT_TIMEOUT_MS) {
-        log.warn(`Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
-        this.stopHeartbeat();
-        if (this.ws) {
-          this.ws.close(); // Force close (triggers reconnect via 'close' event)
-        }
-        return;
-      }
-
-      // Send a typing indicator as a keepalive (Mattermost will respond with activity)
-      wsLogger.debug(`Heartbeat check (last activity ${Math.round(silentFor / 1000)}s ago)`);
-    }, this.HEARTBEAT_INTERVAL_MS);
-  }
-
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
-    }
-  }
-
   /**
    * Recover messages that were posted while disconnected.
    * Fetches posts after the last processed post and re-emits them as events.
    */
-  private async recoverMissedMessages(): Promise<void> {
+  protected async recoverMissedMessages(): Promise<void> {
     if (!this.lastProcessedPostId) {
       return;
     }
@@ -770,15 +651,6 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
-  // Check if user is allowed to use the bot
-  isUserAllowed(username: string): boolean {
-    if (this.allowedUsers.length === 0) {
-      // If no allowlist configured, allow all
-      return true;
-    }
-    return this.allowedUsers.includes(username);
-  }
-
   // Check if message mentions the bot
   isBotMentioned(message: string): boolean {
     const botName = escapeRegExp(this.botName);
@@ -793,11 +665,6 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     return message
       .replace(new RegExp(`(^|\\s)@${botName}\\b`, 'gi'), ' ')
       .trim();
-  }
-
-  // Get the bot name
-  getBotName(): string {
-    return this.botName;
   }
 
   // Get MCP config for permission server
@@ -840,24 +707,4 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }));
   }
 
-  disconnect(): void {
-    wsLogger.info('Disconnecting WebSocket (intentional)');
-    this.isIntentionalDisconnect = true;
-    this.stopHeartbeat();
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-  }
-
-  /**
-   * Prepare for reconnection after intentional disconnect.
-   * Resets the intentional disconnect flag and reconnect attempts
-   * so that connect() will work again.
-   */
-  prepareForReconnect(): void {
-    wsLogger.debug('Preparing for reconnect (resetting intentional disconnect flag)');
-    this.isIntentionalDisconnect = false;
-    this.reconnectAttempts = 0;
-  }
 }
