@@ -139,15 +139,15 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       // Update existing post
       try {
         await ctx.platform.updatePost(this.state.tasksPostId, displayContent);
-        ctx.threadLogger?.logExecutor('task_list', 'update', this.state.tasksPostId);
+        ctx.threadLogger?.logExecutor('task_list', 'update', this.state.tasksPostId, undefined, 'updateTaskList');
       } catch (err) {
         ctx.logger.debug(`Failed to update task post: ${err}`);
-        ctx.threadLogger?.logExecutor('task_list', 'error', this.state.tasksPostId, { error: 'update_failed', details: String(err) });
+        ctx.threadLogger?.logExecutor('task_list', 'error', this.state.tasksPostId, { failedOp: 'updatePost', error: String(err) }, 'updateTaskList');
         // Try to delete the old post to avoid duplicate task lists visible to users
         const oldPostId = this.state.tasksPostId;
         try {
           await ctx.platform.deletePost(oldPostId);
-          ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'update_failed_recovery' });
+          ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'update_failed_recovery' }, 'updateTaskList');
           // Delete succeeded, now create new post
           await this.createTaskPost(displayContent, ctx);
         } catch (deleteErr) {
@@ -155,7 +155,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
           // The old post might still exist on the platform.
           // Set tasksPostId to null so next update creates fresh post.
           ctx.logger.warn(`Failed to delete old task post ${oldPostId.substring(0, 8)}: ${deleteErr}. Not creating new post to prevent duplicates.`);
-          ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { error: 'delete_also_failed', details: String(deleteErr) });
+          ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { failedOp: 'deletePost', error: String(deleteErr), context: 'after_update_failed' }, 'updateTaskList');
           this.state.tasksPostId = null;
         }
       }
@@ -181,11 +181,11 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     if (this.state.tasksPostId) {
       try {
         await ctx.platform.updatePost(this.state.tasksPostId, content);
-        ctx.threadLogger?.logExecutor('task_list', 'complete', this.state.tasksPostId, { taskCount: tasks.length });
+        ctx.threadLogger?.logExecutor('task_list', 'complete', this.state.tasksPostId, { taskCount: tasks.length }, 'completeTaskList');
         // Unpin completed task list
         await ctx.platform.unpinPost(this.state.tasksPostId).catch(() => {});
       } catch (err) {
-        ctx.threadLogger?.logExecutor('task_list', 'error', this.state.tasksPostId, { error: 'complete_failed', details: String(err) });
+        ctx.threadLogger?.logExecutor('task_list', 'error', this.state.tasksPostId, { failedOp: 'updatePost', error: String(err) }, 'completeTaskList');
         // Ignore errors on completion
       }
     }
@@ -216,10 +216,10 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     // Delete old post - if this fails, don't create new post to prevent duplicates
     try {
       await ctx.platform.deletePost(oldPostId);
-      ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'bump_to_bottom' });
+      ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'bump_to_bottom' }, 'bumpToBottom');
     } catch (deleteErr) {
       ctx.logger.warn(`Failed to delete old task post ${oldPostId.substring(0, 8)} during bump: ${deleteErr}. Not creating new post to prevent duplicates.`);
-      ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { error: 'bump_delete_failed', details: String(deleteErr) });
+      ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { failedOp: 'deletePost', error: String(deleteErr) }, 'bumpToBottom');
       // Don't create new post - old one might still exist
       return null;
     }
@@ -241,7 +241,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     await ctx.platform.pinPost(post.id).catch(() => {});
 
     ctx.logger.debug(`Created new task post ${formatShortId(post.id)}`);
-    ctx.threadLogger?.logExecutor('task_list', 'bump', post.id, { oldPostId });
+    ctx.threadLogger?.logExecutor('task_list', 'bump', post.id, { oldPostId }, 'bumpToBottom');
 
     return oldPostId;
   }
@@ -336,18 +336,18 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       await ctx.platform.updatePost(oldPostId, newContent);
       repurposedPostId = oldPostId;
       this.registerPost(oldPostId, { type: 'content' });
-      ctx.threadLogger?.logExecutor('task_list', 'update', oldPostId, { action: 'repurposed_for_content' });
+      ctx.threadLogger?.logExecutor('task_list', 'update', oldPostId, { action: 'repurposed_for_content' }, 'bumpAndGetOldPost');
     } catch (err) {
       ctx.logger.debug(`Could not repurpose task post: ${err}`);
-      ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { error: 'repurpose_failed', details: String(err) });
+      ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { failedOp: 'updatePost', error: String(err), context: 'repurpose_failed' }, 'bumpAndGetOldPost');
       // Delete the old post to avoid orphaned task list visible to users
       try {
         await ctx.platform.deletePost(oldPostId);
-        ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'repurpose_failed_recovery' });
+        ctx.threadLogger?.logExecutor('task_list', 'delete', oldPostId, { reason: 'repurpose_failed_recovery' }, 'bumpAndGetOldPost');
       } catch (deleteErr) {
         // Delete also failed - DON'T create new task post to prevent duplicates!
         ctx.logger.warn(`Failed to delete old task post ${oldPostId.substring(0, 8)} during bump: ${deleteErr}. Not creating new task post to prevent duplicates.`);
-        ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { error: 'delete_also_failed', details: String(deleteErr) });
+        ctx.threadLogger?.logExecutor('task_list', 'error', oldPostId, { failedOp: 'deletePost', error: String(deleteErr), context: 'delete_after_repurpose_failed' }, 'bumpAndGetOldPost');
         shouldCreateNewTaskPost = false;
         this.state.tasksPostId = null;
       }
@@ -370,7 +370,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       await ctx.platform.pinPost(post.id).catch(() => {});
 
       ctx.logger.debug(`Created new task post ${formatShortId(post.id)}`);
-      ctx.threadLogger?.logExecutor('task_list', 'bump', post.id, { oldPostId, context: 'bump_and_get_old_post' });
+      ctx.threadLogger?.logExecutor('task_list', 'bump', post.id, { oldPostId }, 'bumpAndGetOldPost');
     } else if (!shouldCreateNewTaskPost) {
       // Already set tasksPostId to null above
     } else {
@@ -397,7 +397,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
     await ctx.platform.pinPost(post.id).catch(() => {});
 
     ctx.logger.debug(`Created task post ${formatShortId(post.id)}`);
-    ctx.threadLogger?.logExecutor('task_list', 'create', post.id);
+    ctx.threadLogger?.logExecutor('task_list', 'create', post.id, undefined, 'createTaskPost');
   }
 
   /**
