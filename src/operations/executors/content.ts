@@ -289,11 +289,36 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         }
       }
     } else {
-      // Soft break (height-based) - search from beginning for a good breakpoint
-      // where the first part would be under the height threshold
-      const breakInfo = ctx.contentBreaker.findLogicalBreakpoint(content, 0, content.length);
-      if (breakInfo && breakInfo.position > 0 && breakInfo.position < content.length) {
-        breakPoint = breakInfo.position;
+      // Soft break (height-based) - find a breakpoint where first part fits under height threshold
+      // We need to find the LAST good breakpoint where firstPart is still under threshold
+      const goodBreakpointTypes = new Set(['paragraph', 'code_block_end', 'heading', 'tool_marker']);
+      let bestBreakPoint: number | null = null;
+
+      // Iterate through breakpoints to find the best one (largest first part that fits)
+      let searchStart = 0;
+      while (searchStart < content.length) {
+        const breakInfo = ctx.contentBreaker.findLogicalBreakpoint(content, searchStart, content.length - searchStart);
+        if (!breakInfo || breakInfo.position <= searchStart || breakInfo.position >= content.length) {
+          break;
+        }
+
+        // Only consider good breakpoint types
+        if (!goodBreakpointTypes.has(breakInfo.type)) {
+          searchStart = breakInfo.position + 1;
+          continue;
+        }
+
+        const firstPart = content.substring(0, breakInfo.position).trim();
+        if (!ctx.contentBreaker.shouldFlushEarly(firstPart)) {
+          // This breakpoint gives us a first part that fits - remember it
+          bestBreakPoint = breakInfo.position;
+        }
+
+        searchStart = breakInfo.position + 1;
+      }
+
+      if (bestBreakPoint !== null && bestBreakPoint > 0) {
+        breakPoint = bestBreakPoint;
       } else {
         // No good breakpoint - just update current post with ALL content
         // We must update the post AND update state to prevent duplication on next flush
