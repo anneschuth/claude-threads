@@ -1,7 +1,7 @@
-import { EventEmitter } from 'events';
 import type { SlackPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely, escapeRegExp } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp, getEmojiName } from '../utils.js';
+import { BasePlatformClient } from '../base-client.js';
 
 const log = createLogger('slack');
 
@@ -23,7 +23,6 @@ import type {
   SlackApiResponse,
 } from './types.js';
 import type {
-  PlatformClient,
   PlatformUser,
   PlatformPost,
   PlatformReaction,
@@ -32,7 +31,6 @@ import type {
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
-import { getEmojiName } from '../utils.js';
 
 /**
  * Slack platform client implementation using Socket Mode.
@@ -42,7 +40,7 @@ import { getEmojiName } from '../utils.js';
  * - App-level token (xapp-...) for Socket Mode WebSocket connection
  * - Bot token (xoxb-...) for Web API calls
  */
-export class SlackClient extends EventEmitter implements PlatformClient {
+export class SlackClient extends BasePlatformClient {
   // Platform identity (required by PlatformClient)
   readonly platformId: string;
   readonly platformType = 'slack' as const;
@@ -52,17 +50,10 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private botToken: string;
   private appToken: string;
   private channelId: string;
-  private botName: string;
-  private allowedUsers: string[];
   private skipPermissions: boolean;
   private apiUrl: string;
 
-  // Reconnection handling
-  private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private reconnectDelay = 1000;
-  private isIntentionalDisconnect = false;
-  private isReconnecting = false;
+  // Additional reconnect timeout tracking (Slack-specific)
   private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User caching
@@ -71,12 +62,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   private botUserId: string | null = null;
   private botUser: SlackUser | null = null;
   private teamUrl: string | null = null;
-
-  // Heartbeat / ping-pong for connection health
-  private heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  private lastMessageAt = Date.now();
-  private readonly HEARTBEAT_INTERVAL_MS = 30000; // Check every 30s
-  private readonly HEARTBEAT_TIMEOUT_MS = 60000; // Reconnect if no message for 60s
 
   // Track last processed message for recovery after disconnection
   private lastProcessedTs: string | null = null;
@@ -334,7 +319,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       };
 
       this.ws.onmessage = (event) => {
-        this.lastMessageAt = Date.now();
+        this.updateLastMessageTime();
 
         try {
           const data = typeof event.data === 'string' ? event.data : event.data.toString();
@@ -346,9 +331,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
           // Connection established on 'hello'
           if (envelope.type === 'hello') {
             clearTimeout(connectionTimeout);
-            this.reconnectAttempts = 0;
-            this.startHeartbeat();
-            this.emit('connected');
+            this.onConnectionEstablished();
 
             // Recover missed messages if reconnecting
             if (this.isReconnecting && this.lastProcessedTs) {
@@ -356,7 +339,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
                 log.warn(`Failed to recover missed messages: ${err}`);
               });
             }
-            this.isReconnecting = false;
 
             doResolve();
           }
@@ -370,8 +352,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         wsLogger.info(
           `Socket Mode: WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean})`
         );
-        this.stopHeartbeat();
-        this.emit('disconnected');
 
         // If we haven't received 'hello' yet, reject the promise
         // This handles cases where the WebSocket closes before authentication completes
@@ -386,9 +366,10 @@ export class SlackClient extends EventEmitter implements PlatformClient {
         const serverShutdown = event.reason?.toLowerCase().includes('server shutting down');
         const connectionReplaced = event.reason?.toLowerCase().includes('new connection replacing');
         if (!this.isIntentionalDisconnect && !serverShutdown && !connectionReplaced) {
-          wsLogger.debug('Scheduling reconnect...');
-          this.scheduleReconnect();
+          this.onConnectionClosed();
         } else {
+          this.stopHeartbeat();
+          this.emit('disconnected');
           if (serverShutdown) {
             wsLogger.debug('Server shutdown detected, not reconnecting');
           } else if (connectionReplaced) {
@@ -604,8 +585,9 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Schedule a reconnection with exponential backoff.
+   * Overrides base class to add Slack-specific timeout tracking.
    */
-  private scheduleReconnect(): void {
+  protected scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       log.error('Max reconnection attempts reached');
       return;
@@ -643,42 +625,19 @@ export class SlackClient extends EventEmitter implements PlatformClient {
   }
 
   /**
-   * Start heartbeat to detect dead connections.
+   * Force close the WebSocket connection.
    */
-  private startHeartbeat(): void {
-    this.stopHeartbeat();
-    this.lastMessageAt = Date.now();
-
-    this.heartbeatInterval = setInterval(() => {
-      const silentFor = Date.now() - this.lastMessageAt;
-
-      if (silentFor > this.HEARTBEAT_TIMEOUT_MS) {
-        log.warn(`Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
-        this.stopHeartbeat();
-        if (this.ws) {
-          this.ws.close();
-        }
-        return;
-      }
-
-      wsLogger.debug(`Heartbeat check (last activity ${Math.round(silentFor / 1000)}s ago)`);
-    }, this.HEARTBEAT_INTERVAL_MS);
-  }
-
-  /**
-   * Stop heartbeat interval.
-   */
-  private stopHeartbeat(): void {
-    if (this.heartbeatInterval) {
-      clearInterval(this.heartbeatInterval);
-      this.heartbeatInterval = null;
+  protected forceCloseConnection(): void {
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
     }
   }
 
   /**
    * Recover messages that were posted while disconnected.
    */
-  private async recoverMissedMessages(): Promise<void> {
+  protected async recoverMissedMessages(): Promise<void> {
     if (!this.lastProcessedTs) {
       return;
     }
@@ -730,6 +689,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
 
   /**
    * Disconnect from Socket Mode.
+   * Overrides base class to add Slack-specific cleanup.
    */
   disconnect(): void {
     wsLogger.info('Disconnecting Socket Mode WebSocket (intentional)');
@@ -744,21 +704,7 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       this.reconnectTimeout = null;
     }
 
-    if (this.ws) {
-      this.ws.close();
-      this.ws = null;
-    }
-  }
-
-  /**
-   * Prepare for reconnection after intentional disconnect.
-   * Resets the intentional disconnect flag and reconnect attempts
-   * so that connect() will work again.
-   */
-  prepareForReconnect(): void {
-    wsLogger.debug('Preparing for reconnect (resetting intentional disconnect flag)');
-    this.isIntentionalDisconnect = false;
-    this.reconnectAttempts = 0;
+    this.forceCloseConnection();
   }
 
   // ============================================================================
@@ -862,24 +808,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       log.warn(`Failed to lookup user @${username}: ${err}`);
       return null;
     }
-  }
-
-  /**
-   * Check if a username is in the allowed users list.
-   */
-  isUserAllowed(username: string): boolean {
-    if (this.allowedUsers.length === 0) {
-      // If no allowlist configured, allow all
-      return true;
-    }
-    return this.allowedUsers.includes(username);
-  }
-
-  /**
-   * Get the bot's mention name.
-   */
-  getBotName(): string {
-    return this.botName;
   }
 
   /**
@@ -998,30 +926,6 @@ export class SlackClient extends EventEmitter implements PlatformClient {
       message: response.text,
       createAt: Math.floor(parseFloat(response.ts) * 1000),
     };
-  }
-
-  /**
-   * Create a post with reaction options for user interaction.
-   * Used for task lists, permission prompts, etc. - disables link previews.
-   */
-  async createInteractivePost(
-    message: string,
-    reactions: string[],
-    threadId?: string
-  ): Promise<PlatformPost> {
-    // Disable unfurling for interactive posts (task lists, prompts, etc.)
-    const post = await this.createPost(message, threadId, { unfurl: false });
-
-    // Add each reaction option, continuing even if some fail
-    for (const emoji of reactions) {
-      try {
-        await this.addReaction(post.id, emoji);
-      } catch (err) {
-        log.warn(`Failed to add reaction ${emoji}: ${err}`);
-      }
-    }
-
-    return post;
   }
 
   /**
