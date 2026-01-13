@@ -100,7 +100,7 @@ export interface ReactionEntry extends BaseLogEntry {
 export interface ExecutorEntry extends BaseLogEntry {
   type: 'executor';
   executor: 'task_list' | 'content' | 'subagent' | 'system';
-  operation: 'create' | 'update' | 'delete' | 'bump' | 'complete' | 'error';
+  operation: 'create' | 'create_start' | 'update' | 'delete' | 'bump' | 'complete' | 'error' | 'close';
   method?: string;  // Which method originated this log (e.g., 'updateTaskList', 'bumpToBottom')
   postId?: string;
   details?: Record<string, unknown>;

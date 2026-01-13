@@ -74,9 +74,17 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
    * Close the current post, signaling that subsequent content should go to a new post.
    * Called when user sends a message or after compaction.
    */
-  closeCurrentPost(): void {
+  closeCurrentPost(ctx?: ExecutorContext): void {
+    const oldPostId = this.state.currentPostId;
+    const contentLength = this.state.currentPostContent.length;
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
+    if (ctx?.threadLogger && oldPostId) {
+      ctx.threadLogger.logExecutor('content', 'close', oldPostId, {
+        contentLength,
+        reason: 'closeCurrentPost'
+      }, 'closeCurrentPost');
+    }
   }
 
   /**
@@ -177,13 +185,25 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         await ctx.platform.updatePost(postId, combinedContent);
         this.state.currentPostContent = combinedContent;
         this.clearFlushedContent(pendingAtFlushStart);
+        ctx.threadLogger?.logExecutor('content', 'update', postId, {
+          newContentLength: content.length,
+          combinedLength: combinedContent.length,
+        }, 'flush');
       } catch (err) {
         ctx.logger.debug(`Update failed, will create new post on next flush: ${err}`);
+        ctx.threadLogger?.logExecutor('content', 'error', postId, {
+          failedOp: 'updatePost',
+          error: String(err),
+        }, 'flush');
         this.state.currentPostId = null;
         this.state.currentPostContent = '';
       }
     } else {
       // Create new post
+      ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
+        contentLength: content.length,
+        reason: 'no_currentPostId',
+      }, 'flush');
       await this.createNewPost(ctx, content, pendingAtFlushStart);
     }
   }
@@ -313,6 +333,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         this.state.currentPostId = bumpedPostId;
         this.state.currentPostContent = content;
         this.clearFlushedContent(pendingAtFlushStart);
+        ctx.threadLogger?.logExecutor('content', 'create', bumpedPostId, {
+          method: 'bump_repurpose',
+          contentLength: content.length,
+        }, 'createNewPost');
         return;
       }
     }
@@ -324,6 +348,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
       ctx.logger.debug(`Created post ${formatShortId(post.id)}`);
+      ctx.threadLogger?.logExecutor('content', 'create', post.id, {
+        method: 'new_post',
+        contentLength: content.length,
+      }, 'createNewPost');
 
       // Bump task list to bottom after creating content post
       // This ensures task list always stays at the bottom of the thread

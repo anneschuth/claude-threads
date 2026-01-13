@@ -779,7 +779,7 @@ export class MessageManager {
    */
   async closeCurrentPost(): Promise<void> {
     await this.flush();
-    this.contentExecutor.closeCurrentPost();
+    this.contentExecutor.closeCurrentPost(this.getExecutorContext());
   }
 
   /**
