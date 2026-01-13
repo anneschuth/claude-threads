@@ -3,15 +3,17 @@
  *
  * This is the main coordinator that delegates to specialized modules:
  * - lifecycle.ts: Session start, resume, exit
- * - events.ts: Claude event handling
- * - reactions.ts: User reaction handling
- * - commands.ts: User commands (!cd, !invite, etc.)
- * - worktree.ts: Git worktree management
  * - streaming.ts: Message streaming and flushing
+ * - operations/events: Claude event handling
+ * - operations/commands: User commands (!cd, !invite, etc.)
+ * - operations/worktree: Git worktree management
+ *
+ * User reactions are handled via MessageManager.handleReaction() which routes
+ * to the appropriate executor (QuestionApprovalExecutor, TaskListExecutor, etc.)
  */
 
 import { EventEmitter } from 'events';
-import { ClaudeEvent, ContentBlock } from '../claude/cli.js';
+import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { WorktreeMode, type LimitsConfig, resolveLimits } from '../config.js';
@@ -20,25 +22,25 @@ import {
   isCancelEmoji,
   isEscapeEmoji,
   isResumeEmoji,
-  isMinimizeToggleEmoji,
   getNumberEmojiIndex,
+  isBugReportEmoji,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
 import { CleanupScheduler } from '../cleanup/index.js';
-import { SessionMonitor } from './monitor.js';
+import { SessionMonitor } from '../operations/monitor/index.js';
 
 // Import extracted modules
-import * as streaming from './streaming.js';
-import * as events from './events.js';
-import * as reactions from './reactions.js';
-import * as commands from './commands.js';
+import * as streaming from '../operations/streaming/index.js';
+import * as events from '../operations/events/index.js';
+import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
-import * as worktreeModule from './worktree.js';
-import * as contextPrompt from './context-prompt.js';
-import * as stickyMessage from './sticky-message.js';
+import * as worktreeModule from '../operations/worktree/index.js';
+import * as contextPrompt from '../operations/context-prompt/index.js';
+import * as stickyMessage from '../operations/sticky-message/index.js';
 import type { Session } from './types.js';
-import { postInfo } from './post-helpers.js';
+import { SessionRegistry } from './registry.js';
+import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('manager');
@@ -50,7 +52,7 @@ import {
   type SessionState,
   type SessionOperations,
   createSessionContext,
-} from './context.js';
+} from '../operations/session-context/index.js';
 
 // Import constants for internal use
 import { getSessionStatus } from './types.js';
@@ -79,16 +81,15 @@ export class SessionManager extends EventEmitter {
     return process.env.DEBUG === '1' || process.argv.includes('--debug');
   }
 
-  // Session state
-  private sessions: Map<string, Session> = new Map();
-  private postIndex: Map<string, string> = new Map();
+  // Session registry - tracks active sessions and post mappings
+  public readonly registry!: SessionRegistry;
 
   // Worktree reference counting
   // Key: worktreePath, Value: Set of sessionIds using that worktree
   private worktreeUsers: Map<string, Set<string>> = new Map();
 
-  // Persistence
-  private sessionStore: SessionStore;
+  // Persistence (accessed via registry.getSessionStore())
+  private sessionStore!: SessionStore;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -119,13 +120,14 @@ export class SessionManager extends EventEmitter {
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
     this.sessionStore = new SessionStore(sessionsPath);
+    this.registry = new SessionRegistry(this.sessionStore);
 
     // Create background tasks (started in initialize())
     this.sessionMonitor = new SessionMonitor({
       sessionTimeoutMs: this.limits.sessionTimeoutMinutes * 60 * 1000,
       sessionWarningMs: this.limits.sessionWarningMinutes * 60 * 1000,
       getContext: () => this.getContext(),
-      getSessionCount: () => this.sessions.size,
+      getSessionCount: () => this.registry.size,
       updateStickyMessage: () => this.updateStickyMessage(),
     });
 
@@ -226,8 +228,11 @@ export class SessionManager extends EventEmitter {
   /**
    * Build the unified SessionContext that all modules receive.
    * This replaces the previous 4 separate context builders.
+   *
+   * Made public to allow direct access from message-handler.ts,
+   * enabling elimination of thin wrapper methods.
    */
-  private getContext(): SessionContext {
+  getContext(): SessionContext {
     const config: SessionConfig = {
       workingDir: this.workingDir,
       skipPermissions: this.skipPermissions,
@@ -240,8 +245,8 @@ export class SessionManager extends EventEmitter {
     };
 
     const state: SessionState = {
-      sessions: this.sessions,
-      postIndex: this.postIndex,
+      sessions: this.registry.getSessions(),
+      postIndex: this.registry.getPostIndex(),
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       isShuttingDown: this.isShuttingDown,
@@ -255,13 +260,16 @@ export class SessionManager extends EventEmitter {
       // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
 
-      // Streaming & content
-      flush: (s) => this.flush(s),
-      appendContent: (s, t) => this.appendContent(s, t),
+      // Streaming & content (inlined - no wrapper methods needed)
+      flush: async (s) => {
+        // Delegate to MessageManager (source of truth for content flushing)
+        if (s.messageManager) {
+          await s.messageManager.flush();
+        }
+      },
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      buildMessageContent: (t, p, f) => this.buildMessageContent(t, p, f),
-      bumpTasksToBottom: (s) => this.bumpTasksToBottom(s),
+      buildMessageContent: (t, p, f) => streaming.buildMessageContent(t, p, f, this.debug),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -284,9 +292,17 @@ export class SessionManager extends EventEmitter {
       registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),
       unregisterWorktreeUser: (path, sid) => this.unregisterWorktreeUser(path, sid),
       hasOtherSessionsUsingWorktree: (path, sid) => this.hasOtherSessionsUsingWorktree(path, sid),
+      switchToWorktree: (tid, path, user) => this.switchToWorktree(tid, path, user),
 
-      // Context prompt
-      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
+      // Update operations
+      forceUpdate: () => this.autoUpdateManager?.forceUpdate() ?? Promise.resolve(),
+      deferUpdate: (min) => this.autoUpdateManager?.deferUpdate(min),
+
+      // Bug report operations
+      handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
+
+      // Context prompt (inlined - no wrapper method needed)
+      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -330,7 +346,7 @@ export class SessionManager extends EventEmitter {
       description: session.sessionDescription,
       lastActivity: session.lastActivityAt,
       // Typing indicator state
-      isTyping: session.typingTimer !== null,
+      isTyping: session.timers.typingTimer !== null,
     };
   }
 
@@ -356,13 +372,11 @@ export class SessionManager extends EventEmitter {
   }
 
   private registerPost(postId: string, threadId: string): void {
-    this.postIndex.set(postId, threadId);
+    this.registry.registerPost(postId, threadId);
   }
 
   private getSessionByPost(postId: string): Session | undefined {
-    const threadId = this.postIndex.get(postId);
-    if (!threadId) return undefined;
-    return this.findSessionByThreadId(threadId);
+    return this.registry.findByPost(postId);
   }
 
   // ---------------------------------------------------------------------------
@@ -400,7 +414,9 @@ export class SessionManager extends EventEmitter {
     // Verify this reaction is from the same platform
     if (session.platformId !== platformId) return;
 
-    // Only process reactions from allowed users
+    // SECURITY: Only process reactions from allowed users
+    // This is the primary authorization gate for all reaction-based actions.
+    // All reactions are validated here before reaching MessageManager/executors.
     if (!session.sessionAllowedUsers.has(username) && !session.platform.isUserAllowed(username)) {
       return;
     }
@@ -419,10 +435,10 @@ export class SessionManager extends EventEmitter {
 
     // Check if this session is already active
     const sessionId = `${platformId}:${persistedSession.threadId}`;
-    if (this.sessions.has(sessionId)) return false;
+    if (this.registry.hasById(sessionId)) return false;
 
-    // Check if user is allowed (defensive: handle missing sessionAllowedUsers)
-    const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
+    // Check if user is allowed
+    const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
     const platform = this.platforms.get(platformId);
     if (!allowedUsers.has(username) && !platform?.isUserAllowed(username)) {
       if (platform) {
@@ -435,11 +451,11 @@ export class SessionManager extends EventEmitter {
     }
 
     // Check max sessions limit
-    if (this.sessions.size >= this.limits.maxSessions) {
+    if (this.registry.size >= this.limits.maxSessions) {
       if (platform) {
         const fmt = platform.getFormatter();
         await platform.createPost(
-          `⚠️ ${fmt.formatBold('Too busy')} - ${this.sessions.size} sessions active. Please try again later.`,
+          `⚠️ ${fmt.formatBold('Too busy')} - ${this.registry.size} sessions active. Please try again later.`,
           persistedSession.threadId
         );
       }
@@ -461,125 +477,71 @@ export class SessionManager extends EventEmitter {
     username: string,
     action: 'added' | 'removed'
   ): Promise<void> {
-    // Most reactions only trigger on 'added', not 'removed'
-    // Task toggle is an exception - it's state-based
+    // =========================================================================
+    // Session-level reactions (lifecycle, worktrees, updates, bug reports)
+    // These are NOT handled by MessageManager and must stay in SessionManager
+    // =========================================================================
 
-    // Handle ❌ on worktree prompt (only on add)
-    if (action === 'added' && session.worktreePromptPostId === postId && emojiName === 'x') {
-      await worktreeModule.handleWorktreeSkip(
-        session,
-        username,
-        (s) => this.persistSession(s),
-        (s, q) => this.offerContextPrompt(s, q)
-      );
-      return;
-    }
-
-    // Handle number emoji on worktree prompt (branch suggestion selection)
-    if (action === 'added' && session.pendingWorktreeSuggestions?.postId === postId) {
-      const emojiIndex = getNumberEmojiIndex(emojiName);
-      if (emojiIndex >= 0) {
-        const handled = await worktreeModule.handleBranchSuggestionReaction(
-          session,
-          postId,
-          emojiIndex,
-          username,
-          (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
-        );
-        if (handled) return;
+    if (action === 'added') {
+      // Handle cancel/escape reactions on session start post
+      if (session.sessionStartPostId === postId) {
+        if (isCancelEmoji(emojiName)) {
+          await commands.cancelSession(session, username, this.getContext());
+          return;
+        }
+        if (isEscapeEmoji(emojiName)) {
+          await commands.interruptSession(session, username);
+          return;
+        }
       }
-    }
 
-    // Handle existing worktree join prompt reactions (only on add)
-    if (action === 'added' && session.pendingExistingWorktreePrompt?.postId === postId) {
-      const handled = await reactions.handleExistingWorktreeReaction(
-        session,
-        postId,
-        emojiName,
-        username,
-        this.getContext(),
-        (tid, branchOrPath, user) => this.switchToWorktree(tid, branchOrPath, user)
-      );
-      if (handled) return;
-    }
-
-    // Handle update prompt reactions (only on add)
-    if (action === 'added' && session.pendingUpdatePrompt?.postId === postId) {
-      if (this.autoUpdateManager) {
-        const updateHandler: reactions.UpdateReactionHandler = {
-          forceUpdate: () => this.autoUpdateManager!.forceUpdate(),
-          deferUpdate: (minutes: number) => this.autoUpdateManager!.deferUpdate(minutes),
-        };
-        const handled = await reactions.handleUpdateReaction(
+      // Handle ❌ on worktree prompt
+      if (session.worktreePromptPostId === postId && emojiName === 'x') {
+        await worktreeModule.handleWorktreeSkip(
           session,
-          postId,
-          emojiName,
           username,
-          this.getContext(),
-          updateHandler
+          (s) => this.persistSession(s),
+          (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
         );
-        if (handled) return;
-      }
-    }
-
-    // Handle context prompt reactions (only on add)
-    if (action === 'added' && session.pendingContextPrompt?.postId === postId) {
-      await this.handleContextPromptReaction(session, emojiName, username);
-      return;
-    }
-
-    // Handle cancel/escape reactions on session start post (only on add)
-    if (action === 'added' && session.sessionStartPostId === postId) {
-      if (isCancelEmoji(emojiName)) {
-        await commands.cancelSession(session, username, this.getContext());
         return;
       }
-      if (isEscapeEmoji(emojiName)) {
-        await commands.interruptSession(session, username);
-        return;
+
+      // Handle number emoji on worktree prompt (branch suggestion selection)
+      if (session.pendingWorktreeSuggestions?.postId === postId) {
+        const emojiIndex = getNumberEmojiIndex(emojiName);
+        if (emojiIndex >= 0) {
+          const handled = await worktreeModule.handleBranchSuggestionReaction(
+            session,
+            postId,
+            emojiIndex,
+            username,
+            (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
+          );
+          if (handled) return;
+        }
+      }
+
+      // Handle bug report emoji reaction on error posts
+      // (Inlined from reactions.handleBugReportReaction to eliminate dependency)
+      if (session.lastError?.postId === postId && isBugReportEmoji(emojiName)) {
+        // Only session owner or allowed users can report bugs
+        if (session.startedBy === username ||
+            session.platform.isUserAllowed(username) ||
+            session.sessionAllowedUsers.has(username)) {
+          log.info(`🐛 @${username} triggered bug report from error reaction`);
+          await commands.reportBug(session, undefined, username, this.getContext(), session.lastError);
+          return;
+        }
       }
     }
 
-    // Handle question reactions (only on add)
-    if (action === 'added' && session.pendingQuestionSet?.currentPostId === postId) {
-      await reactions.handleQuestionReaction(session, postId, emojiName, username, this.getContext());
-      return;
-    }
+    // =========================================================================
+    // MessageManager-delegated reactions (questions, approvals, toggles, etc.)
+    // These are routed through MessageManager.handleReaction()
+    // =========================================================================
 
-    // Handle plan approval reactions (only on add)
-    if (action === 'added' && session.pendingApproval?.postId === postId) {
-      await reactions.handleApprovalReaction(session, emojiName, username, this.getContext());
-      return;
-    }
-
-    // Handle message approval reactions (only on add)
-    if (action === 'added' && session.pendingMessageApproval?.postId === postId) {
-      await reactions.handleMessageApprovalReaction(session, emojiName, username, this.getContext());
-      return;
-    }
-
-    // Handle task list toggle reactions (minimize/expand) - state-based on both add and remove
-    if (session.tasksPostId === postId && isMinimizeToggleEmoji(emojiName)) {
-      await reactions.handleTaskToggleReaction(session, action, this.getContext());
-      return;
-    }
-
-    // Handle subagent toggle reactions (minimize/expand) - state-based on both add and remove
-    // Uses same emoji as task toggle (🔽)
-    if (isMinimizeToggleEmoji(emojiName)) {
-      const handled = await events.handleSubagentToggleReaction(session, postId, action);
-      if (handled) return;
-    }
-
-    // Handle bug report emoji reaction on error posts (only on add)
-    if (action === 'added' && session.lastError?.postId === postId) {
-      const handled = await reactions.handleBugReportReaction(session, postId, emojiName, username, this.getContext());
-      if (handled) return;
-    }
-
-    // Handle bug report approval reactions (only on add)
-    if (action === 'added' && session.pendingBugReport?.postId === postId) {
-      const handled = await reactions.handleBugApprovalReaction(session, postId, emojiName, username, this.getContext());
+    if (session.messageManager) {
+      const handled = await session.messageManager.handleReaction(postId, emojiName, username, action);
       if (handled) return;
     }
   }
@@ -594,40 +556,36 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
-      buildMessageContent: (text, session, files) => this.buildMessageContent(text, session.platform, files),
+      buildMessageContent: (text, session, files) => streaming.buildMessageContent(text, session.platform, files, this.debug),
     };
   }
 
-  private async handleContextPromptReaction(session: Session, emojiName: string, username: string): Promise<void> {
-    await contextPrompt.handleContextPromptReaction(session, emojiName, username, this.getContextPromptHandler());
-  }
-
-  /**
-   * Offer context prompt after a session restart (e.g., !cd, worktree creation).
-   * If there's thread history, posts the context prompt and queues the message.
-   * If no history, sends the message immediately.
-   * Returns true if context prompt was posted, false if message was sent directly.
-   */
-  async offerContextPrompt(session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string): Promise<boolean> {
-    return contextPrompt.offerContextPrompt(session, queuedPrompt, queuedFiles, this.getContextPromptHandler(), excludePostId);
-  }
+  // Note: offerContextPrompt() has been inlined directly in getContext().ops
 
   /**
    * Check if session has a pending context prompt.
    */
   hasPendingContextPrompt(threadId: string): boolean {
     const session = this.findSessionByThreadId(threadId);
-    return session?.pendingContextPrompt !== undefined;
+    return session?.messageManager?.hasPendingContextPrompt() ?? false;
   }
 
   // ---------------------------------------------------------------------------
-  // Event Handling (delegates to events module)
+  // Event Handling (delegates to MessageManager)
   // ---------------------------------------------------------------------------
 
   private handleEvent(sessionId: string, event: ClaudeEvent): void {
-    const session = this.sessions.get(sessionId);
-    if (!session) return;
-    events.handleEvent(session, event, this.getContext());
+    const session = this.registry.get(sessionId);
+    if (!session || !session.messageManager) return;
+
+    // Pre-processing: session-specific side effects
+    events.handleEventPreProcessing(session, event, this.getContext());
+
+    // Main event handling via MessageManager
+    void session.messageManager.handleEvent(event);
+
+    // Post-processing: session-specific side effects
+    events.handleEventPostProcessing(session, event, this.getContext());
   }
 
   // ---------------------------------------------------------------------------
@@ -639,49 +597,28 @@ export class SessionManager extends EventEmitter {
   }
 
   // ---------------------------------------------------------------------------
-  // Streaming utilities (delegates to streaming module)
+  // Streaming utilities
   // ---------------------------------------------------------------------------
-
-  private appendContent(session: Session, text: string): void {
-    if (!text) return;
-    // Use double newlines for proper visual separation between content blocks
-    // This ensures code blocks, tool results, and text are properly separated
-    session.pendingContent += text + '\n\n';
-    streaming.scheduleUpdate(session, (s) => this.flush(s));
-  }
-
-  private async flush(session: Session): Promise<void> {
-    await streaming.flush(session, (pid, tid) => this.registerPost(pid, tid));
-  }
+  // Note: flush(), buildMessageContent(), and bumpTasksToBottom() have been
+  // inlined directly in getContext().ops to eliminate thin wrapper methods.
+  // Only startTyping() and stopTyping() remain as they have meaningful UI logic.
 
   private startTyping(session: Session): void {
-    const wasTyping = session.typingTimer !== null;
+    const wasTyping = session.timers.typingTimer !== null;
     streaming.startTyping(session);
     // Emit UI update if typing state changed
-    if (!wasTyping && session.typingTimer !== null) {
+    if (!wasTyping && session.timers.typingTimer !== null) {
       this.emitSessionUpdate(session.sessionId, { isTyping: true });
     }
   }
 
   private stopTyping(session: Session): void {
-    const wasTyping = session.typingTimer !== null;
+    const wasTyping = session.timers.typingTimer !== null;
     streaming.stopTyping(session);
     // Emit UI update if typing state changed
-    if (wasTyping && session.typingTimer === null) {
+    if (wasTyping && session.timers.typingTimer === null) {
       this.emitSessionUpdate(session.sessionId, { isTyping: false });
     }
-  }
-
-  private async buildMessageContent(
-    text: string,
-    platform: PlatformClient,
-    files?: PlatformFile[]
-  ): Promise<string | ContentBlock[]> {
-    return streaming.buildMessageContent(text, platform, files, this.debug);
-  }
-
-  private async bumpTasksToBottom(session: Session): Promise<void> {
-    return streaming.bumpTasksToBottom(session, (pid, tid) => this.registerPost(pid, tid));
   }
 
   // ---------------------------------------------------------------------------
@@ -697,7 +634,7 @@ export class SessionManager extends EventEmitter {
   }
 
   private hasOtherSessionInRepo(repoRoot: string, excludeThreadId: string): boolean {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       // Skip the session we're checking from (compare raw threadIds)
       if (session.threadId === excludeThreadId) continue;
       if (session.workingDir === repoRoot) return true;
@@ -716,18 +653,22 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
-    // Convert pendingContextPrompt to persisted form (without timeoutId)
+    // Get context prompt state from MessageManager (source of truth)
     let persistedContextPrompt: PersistedContextPrompt | undefined;
-    if (session.pendingContextPrompt) {
+    const contextPromptState = session.messageManager?.getPendingContextPrompt();
+    if (contextPromptState) {
       persistedContextPrompt = {
-        postId: session.pendingContextPrompt.postId,
-        queuedPrompt: session.pendingContextPrompt.queuedPrompt,
-        queuedFiles: session.pendingContextPrompt.queuedFiles,
-        threadMessageCount: session.pendingContextPrompt.threadMessageCount,
-        createdAt: session.pendingContextPrompt.createdAt,
-        availableOptions: session.pendingContextPrompt.availableOptions,
+        postId: contextPromptState.postId,
+        queuedPrompt: contextPromptState.queuedPrompt,
+        queuedFiles: contextPromptState.queuedFiles,
+        threadMessageCount: contextPromptState.threadMessageCount,
+        createdAt: contextPromptState.createdAt,
+        availableOptions: contextPromptState.availableOptions,
       };
     }
+
+    // Get task list state from MessageManager (source of truth)
+    const taskState = session.messageManager?.getTaskListState();
 
     const state: PersistedSession = {
       platformId: session.platformId,
@@ -743,10 +684,11 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
-      tasksPostId: session.tasksPostId,
-      lastTasksContent: session.lastTasksContent,
-      tasksCompleted: session.tasksCompleted,
-      tasksMinimized: session.tasksMinimized,
+      // Task state from MessageManager (single source of truth)
+      tasksPostId: taskState?.postId ?? null,
+      lastTasksContent: taskState?.content ?? null,
+      tasksCompleted: taskState?.isCompleted ?? false,
+      tasksMinimized: taskState?.isMinimized ?? false,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
@@ -757,13 +699,13 @@ export class SessionManager extends EventEmitter {
       pendingContextPrompt: persistedContextPrompt,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
-      isPaused: session.isPaused,
+      isPaused: session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted',
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
       sessionTags: session.sessionTags,
       pullRequestUrl: session.pullRequestUrl,
       messageCount: session.messageCount,
-      resumeFailCount: session.resumeFailCount,
+      resumeFailCount: session.lifecycle.resumeFailCount,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -793,7 +735,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private async updateStickyMessage(): Promise<void> {
-    await stickyMessage.updateAllStickyMessages(this.platforms, this.sessions, {
+    await stickyMessage.updateAllStickyMessages(this.platforms, this.registry.getSessions(), {
       maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
       skipPermissions: this.skipPermissions,
@@ -838,7 +780,7 @@ export class SessionManager extends EventEmitter {
 
     const sessionsToKill: Session[] = [];
 
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       if (session.platformId === platformId) {
         sessionsToKill.push(session);
       }
@@ -876,7 +818,7 @@ export class SessionManager extends EventEmitter {
         session.claude.kill();
 
         // Remove from active sessions (but keep persisted)
-        this.sessions.delete(session.sessionId);
+        this.registry.unregister(session.sessionId);
 
         // Emit UI update
         this.emitSessionRemove(session.sessionId);
@@ -889,11 +831,7 @@ export class SessionManager extends EventEmitter {
 
     // Clear post index entries for paused sessions
     for (const session of sessionsToKill) {
-      for (const [postId, threadId] of this.postIndex.entries()) {
-        if (threadId === session.threadId) {
-          this.postIndex.delete(postId);
-        }
-      }
+      this.registry.clearPostsForThread(session.threadId);
     }
 
     // Update sticky message to show paused state
@@ -916,7 +854,7 @@ export class SessionManager extends EventEmitter {
 
       // Skip sessions that are already active
       const sessionId = `${state.platformId}:${state.threadId}`;
-      if (this.sessions.has(sessionId)) continue;
+      if (this.registry.hasById(sessionId)) continue;
 
       sessionsToResume.push(state);
     }
@@ -1028,7 +966,7 @@ export class SessionManager extends EventEmitter {
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
   private findSessionByThreadId(threadId: string): Session | undefined {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       if (session.threadId === threadId) {
         return session;
       }
@@ -1036,16 +974,6 @@ export class SessionManager extends EventEmitter {
     return undefined;
   }
 
-  // Helper to find persisted session by threadId (persisted sessions are keyed by composite sessionId)
-  private findPersistedByThreadId(threadId: string): PersistedSession | undefined {
-    const persisted = this.sessionStore.load();
-    for (const session of persisted.values()) {
-      if (session.threadId === threadId) {
-        return session;
-      }
-    }
-    return undefined;
-  }
 
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
@@ -1054,17 +982,27 @@ export class SessionManager extends EventEmitter {
   }
 
   isSessionActive(): boolean {
-    return this.sessions.size > 0;
+    return this.registry.size > 0;
   }
 
+  /**
+   * Check if a thread has an active session.
+   * Delegates to registry.findByThreadId() internally.
+   */
   isInSessionThread(threadRoot: string): boolean {
-    const session = this.findSessionByThreadId(threadRoot);
+    const session = this.registry.findByThreadId(threadRoot);
     return session !== undefined && session.claude.isRunning();
   }
 
+  /**
+   * Check if a thread has a paused (persisted but not active) session.
+   * Delegates to registry.getPersistedByThreadId() internally.
+   */
   hasPausedSession(threadId: string): boolean {
-    if (this.findSessionByThreadId(threadId)) return false;
-    return this.findPersistedByThreadId(threadId) !== undefined;
+    // If there's an active session, it's not paused
+    if (this.registry.findByThreadId(threadId)) return false;
+    // Check for persisted session
+    return this.registry.getPersistedByThreadId(threadId) !== undefined;
   }
 
   async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
@@ -1072,7 +1010,7 @@ export class SessionManager extends EventEmitter {
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {
-    return this.findPersistedByThreadId(threadId);
+    return this.registry.getPersistedByThreadId(threadId);
   }
 
   async killSession(threadId: string, unpersist = true): Promise<void> {
@@ -1185,7 +1123,7 @@ export class SessionManager extends EventEmitter {
       session,
       username,
       (s) => this.persistSession(s),
-      (s, q) => this.offerContextPrompt(s, q)
+      (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
     );
   }
 
@@ -1200,11 +1138,15 @@ export class SessionManager extends EventEmitter {
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),
-      flush: (s) => this.flush(s),
+      flush: async (s) => {
+        if (s.messageManager) {
+          await s.messageManager.flush();
+        }
+      },
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, f, e) => this.offerContextPrompt(s, q, f, e),
+      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
@@ -1260,7 +1202,7 @@ export class SessionManager extends EventEmitter {
   // Missing public methods needed by index.ts
   getActiveThreadIds(): string[] {
     // Return raw threadIds (not composite sessionIds) for posting to chat
-    return [...this.sessions.values()].map(s => s.threadId);
+    return [...this.registry.getAll()].map(s => s.threadId);
   }
 
   /**
@@ -1282,7 +1224,7 @@ export class SessionManager extends EventEmitter {
       return session.sessionStartPostId;
     }
     // Then check persisted sessions (for resume scenarios)
-    const persisted = this.findPersistedByThreadId(threadId);
+    const persisted = this.registry.getPersistedByThreadId(threadId);
     return persisted?.sessionStartPostId ?? undefined;
   }
 
@@ -1291,7 +1233,7 @@ export class SessionManager extends EventEmitter {
    * This allows the resume to update the same post instead of creating a new one.
    */
   async postShutdownMessages(): Promise<void> {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       try {
         const fmt = session.platform.getFormatter();
         const shutdownMessage = `⏸️ ${fmt.formatBold('Bot shutting down')} - session will resume on restart`;
@@ -1318,8 +1260,7 @@ export class SessionManager extends EventEmitter {
       // Check persisted session
       const persisted = this.getPersistedSession(threadId);
       if (persisted) {
-        // Defensive: handle missing sessionAllowedUsers (old persisted data)
-        return (persisted.sessionAllowedUsers || []).includes(username) ||
+        return persisted.sessionAllowedUsers.includes(username) ||
                this.platforms.get(persisted.platformId)?.isUserAllowed(username) || false;
       }
       return false;
@@ -1340,7 +1281,7 @@ export class SessionManager extends EventEmitter {
 
     // Then switch to worktree
     const threadId = replyToPostId || '';
-    const session = this.sessions.get(this.getSessionId(platformId, threadId));
+    const session = this.registry.find(platformId, threadId);
     if (session) {
       await this.createAndSwitchToWorktree(session.threadId, branch, username);
     }
@@ -1361,7 +1302,7 @@ export class SessionManager extends EventEmitter {
    * Returns the number of active sessions, last activity time, and busy state.
    */
   getActivityInfo(): { activeSessionCount: number; lastActivityAt: Date | null; anySessionBusy: boolean } {
-    const sessions = [...this.sessions.values()];
+    const sessions = [...this.registry.getAll()];
 
     if (sessions.length === 0) {
       return {
@@ -1380,7 +1321,7 @@ export class SessionManager extends EventEmitter {
         lastActivity = session.lastActivityAt;
       }
       // A session is "busy" if it's typing (Claude is processing)
-      if (session.typingTimer !== null) {
+      if (session.timers.typingTimer !== null) {
         anyBusy = true;
       }
     }
@@ -1398,11 +1339,11 @@ export class SessionManager extends EventEmitter {
    * @param messageBuilder - Function that takes a formatter and returns the formatted message
    */
   async broadcastToAll(messageBuilder: (formatter: import('../platform/formatter.js').PlatformFormatter) => string): Promise<void> {
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       try {
         const formatter = session.platform.getFormatter();
         const message = messageBuilder(formatter);
-        await postInfo(session, message);
+        await post(session, 'info', message);
       } catch (err) {
         log.warn(`Failed to broadcast to session ${session.threadId}: ${err}`);
       }
@@ -1432,7 +1373,7 @@ export class SessionManager extends EventEmitter {
         );
 
         // Store pending update prompt for reaction handling
-        session.pendingUpdatePrompt = { postId: post.id };
+        session.messageManager?.setPendingUpdatePrompt({ postId: post.id });
         this.registerPost(post.id, session.threadId);
       } catch (err) {
         log.warn(`Failed to post ask message to ${threadId}: ${err}`);
@@ -1450,9 +1391,9 @@ export class SessionManager extends EventEmitter {
 
     // Post shutdown message to all active sessions
     if (message) {
-      for (const session of this.sessions.values()) {
+      for (const session of this.registry.getAll()) {
         try {
-          await postInfo(session, message);
+          await post(session, 'info', message);
         } catch {
           // Ignore
         }
@@ -1460,12 +1401,11 @@ export class SessionManager extends EventEmitter {
     }
 
     // Persist and kill all sessions for later resume
-    for (const session of this.sessions.values()) {
+    for (const session of this.registry.getAll()) {
       this.stopTyping(session);
       this.persistSession(session);
       session.claude.kill();
     }
-    this.sessions.clear();
-    this.postIndex.clear();
+    this.registry.clear();
   }
 }

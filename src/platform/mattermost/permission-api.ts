@@ -5,7 +5,7 @@
  */
 
 // Native WebSocket - no import needed in Bun
-import type { PermissionApi, LegacyPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
+import type { PermissionApi, MattermostPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import {
@@ -17,17 +17,18 @@ import {
   MattermostApiConfig,
 } from '../../mattermost/api.js';
 import { mcpLogger } from '../../utils/logger.js';
+import { formatShortId } from '../../utils/format.js';
 
 /**
  * Mattermost Permission API implementation
  */
 class MattermostPermissionApi implements PermissionApi {
   private readonly apiConfig: MattermostApiConfig;
-  private readonly config: LegacyPermissionApiConfig;
+  private readonly config: MattermostPermissionApiConfig;
   private readonly formatter = new MattermostFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: LegacyPermissionApiConfig) {
+  constructor(config: MattermostPermissionApiConfig) {
     this.config = config;
     this.apiConfig = {
       url: config.url,
@@ -84,7 +85,7 @@ class MattermostPermissionApi implements PermissionApi {
       threadId,
       botUserId
     );
-    mcpLogger.debug(`Created post ${post.id.substring(0, 8)}`);
+    mcpLogger.debug(`Created post ${formatShortId(post.id)}`);
     return { id: post.id };
   }
 
@@ -194,6 +195,6 @@ class MattermostPermissionApi implements PermissionApi {
 /**
  * Create a Mattermost permission API instance
  */
-export function createMattermostPermissionApi(config: LegacyPermissionApiConfig): PermissionApi {
+export function createMattermostPermissionApi(config: MattermostPermissionApiConfig): PermissionApi {
   return new MattermostPermissionApi(config);
 }

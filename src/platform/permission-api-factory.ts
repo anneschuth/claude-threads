@@ -5,16 +5,9 @@
  * This isolates platform selection logic to the platform layer.
  */
 
-import type { PermissionApi, LegacyPermissionApiConfig } from './permission-api.js';
+import type { PermissionApi, MattermostPermissionApiConfig, SlackPermissionApiConfig } from './permission-api.js';
 import { createMattermostPermissionApi } from './mattermost/permission-api.js';
-import { createSlackPermissionApi, type SlackPermissionApiConfig } from './slack/permission-api.js';
-
-/**
- * Config types for each platform
- */
-export type PlatformPermissionConfig =
-  | { platformType: 'mattermost'; config: LegacyPermissionApiConfig }
-  | { platformType: 'slack'; config: SlackPermissionApiConfig };
+import { createSlackPermissionApi } from './slack/permission-api.js';
 
 /**
  * Create a permission API instance for the specified platform type
@@ -24,11 +17,11 @@ export type PlatformPermissionConfig =
  */
 export function createPermissionApi(
   platformType: string,
-  config: LegacyPermissionApiConfig | SlackPermissionApiConfig
+  config: MattermostPermissionApiConfig | SlackPermissionApiConfig
 ): PermissionApi {
   switch (platformType) {
     case 'mattermost':
-      return createMattermostPermissionApi(config as LegacyPermissionApiConfig);
+      return createMattermostPermissionApi(config as MattermostPermissionApiConfig);
     case 'slack':
       return createSlackPermissionApi(config as SlackPermissionApiConfig);
     default:

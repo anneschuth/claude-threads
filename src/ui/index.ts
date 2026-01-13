@@ -6,9 +6,6 @@ import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, Tog
 
 export type { UIProvider, StartUIOptions, AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState };
 
-// Re-export UIInstance as an alias for backward compatibility
-export type UIInstance = UIProvider;
-
 export async function startUI(options: StartUIOptions): Promise<UIProvider> {
   return createUIProvider(options);
 }

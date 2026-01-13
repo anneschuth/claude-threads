@@ -3,7 +3,6 @@ import {
   detectPullRequests,
   extractPullRequestUrl,
   formatPullRequestLink,
-  getPlatformIcon,
 } from './pr-detector.js';
 import { mockFormatter } from '../test-utils/mock-formatter.js';
 
@@ -162,24 +161,3 @@ describe('formatPullRequestLink', () => {
   });
 });
 
-describe('getPlatformIcon', () => {
-  test('returns octocat for GitHub', () => {
-    expect(getPlatformIcon('https://github.com/owner/repo/pull/1')).toBe('🐙');
-  });
-
-  test('returns fox for GitLab', () => {
-    expect(getPlatformIcon('https://gitlab.com/group/project/-/merge_requests/1')).toBe('🦊');
-  });
-
-  test('returns bucket for Bitbucket', () => {
-    expect(getPlatformIcon('https://bitbucket.org/workspace/repo/pull-requests/1')).toBe('🪣');
-  });
-
-  test('returns diamond for Azure', () => {
-    expect(getPlatformIcon('https://dev.azure.com/org/project/_git/repo/pullrequest/1')).toBe('🔷');
-  });
-
-  test('returns link for unknown platforms', () => {
-    expect(getPlatformIcon('https://example.com/pr/1')).toBe('🔗');
-  });
-});

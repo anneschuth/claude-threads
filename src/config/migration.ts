@@ -3,13 +3,12 @@ import { resolve, dirname } from 'path';
 import { homedir } from 'os';
 import yaml from 'js-yaml';
 
-// Re-export all types from types.ts for backward compatibility
+// Re-export all types from types.ts
 export type {
   WorktreeMode,
   ThreadLogsConfig,
   LimitsConfig,
   Config,
-  NewConfig,
   PlatformInstanceConfig,
   MattermostPlatformConfig,
   SlackPlatformConfig,

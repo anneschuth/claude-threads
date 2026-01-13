@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { VERSION, PACKAGE_NAME, PKG } from './version.js';
+import { VERSION, PKG } from './version.js';
 
 describe('version', () => {
   describe('VERSION', () => {
@@ -19,12 +19,6 @@ describe('version', () => {
     });
   });
 
-  describe('PACKAGE_NAME', () => {
-    it('is "claude-threads"', () => {
-      expect(PACKAGE_NAME).toBe('claude-threads');
-    });
-  });
-
   describe('PKG', () => {
     it('has version and name properties', () => {
       expect(PKG).toHaveProperty('version');
@@ -35,8 +29,8 @@ describe('version', () => {
       expect(PKG.version).toBe(VERSION);
     });
 
-    it('matches exported PACKAGE_NAME', () => {
-      expect(PKG.name).toBe(PACKAGE_NAME);
+    it('name is claude-threads', () => {
+      expect(PKG.name).toBe('claude-threads');
     });
   });
 });

@@ -54,30 +54,6 @@ export interface PlatformFile {
 }
 
 /**
- * Request to create a new post
- */
-export interface CreatePostRequest {
-  message: string;
-  threadId?: string;    // Optional thread parent ID
-}
-
-/**
- * Request to update an existing post
- */
-export interface UpdatePostRequest {
-  postId: string;
-  message: string;
-}
-
-/**
- * Request to add a reaction to a post
- */
-export interface AddReactionRequest {
-  postId: string;
-  emojiName: string;
-}
-
-/**
  * Normalized thread message for context retrieval
  */
 export interface ThreadMessage {

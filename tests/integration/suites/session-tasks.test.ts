@@ -143,11 +143,13 @@ describe.skipIf(SKIP)('Task List Display', () => {
         // Give time for all task updates
         await new Promise((r) => setTimeout(r, 2000));
 
-        // Verify completed status via posts - should show 100% or 3/3
-        const taskPost = await waitForPostMatching(ctx, rootPost.id, /100%|3\/3/i, {
+        // Verify completion via the "All tasks are complete!" message
+        // Note: The task list post itself is deleted when all tasks complete,
+        // so we look for the completion message instead
+        const completionPost = await waitForPostMatching(ctx, rootPost.id, /all tasks.*complete/i, {
           timeout: 10000,
         });
-        expect(taskPost).toBeDefined();
+        expect(completionPost).toBeDefined();
       });
     });
 

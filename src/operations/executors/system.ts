@@ -1,0 +1,209 @@
+/**
+ * System Executor - Handles SystemMessageOp, StatusUpdateOp, and LifecycleOp
+ *
+ * Responsible for:
+ * - Posting system messages (info, warning, error, success)
+ * - Handling status updates (context usage, model info)
+ * - Managing lifecycle events (started, idle, paused, resumed)
+ *
+ * Uses TypedEventEmitter for communication with Session/Lifecycle layers.
+ * Events are emitted for status updates and lifecycle changes.
+ */
+
+import type { PlatformFormatter, PlatformPost } from '../../platform/index.js';
+import type { SystemMessageOp, StatusUpdateOp, LifecycleOp, SystemMessageLevel } from '../types.js';
+import type { ExecutorContext, SystemState } from './types.js';
+import { BaseExecutor, type ExecutorOptions } from './base.js';
+
+// ---------------------------------------------------------------------------
+// System Executor
+// ---------------------------------------------------------------------------
+
+/**
+ * Executor for system messages and status updates.
+ */
+export class SystemExecutor extends BaseExecutor<SystemState> {
+  constructor(options: ExecutorOptions) {
+    super(options, SystemExecutor.createInitialState());
+  }
+
+  private static createInitialState(): SystemState {
+    return {
+      ephemeralPosts: new Set(),
+    };
+  }
+
+  protected getInitialState(): SystemState {
+    return SystemExecutor.createInitialState();
+  }
+
+  /**
+   * Reset state (for session restart).
+   * Override to use clear() on Set instead of recreating.
+   */
+  override reset(): void {
+    this.state.ephemeralPosts.clear();
+  }
+
+  /**
+   * Execute a system message, status update, or lifecycle operation.
+   * Unified entry point for all operations handled by this executor.
+   */
+  async execute(
+    op: SystemMessageOp | StatusUpdateOp | LifecycleOp,
+    ctx: ExecutorContext
+  ): Promise<void> {
+    if (op.type === 'system_message') {
+      return this.handleSystemMessage(op, ctx);
+    } else if (op.type === 'status_update') {
+      return this.handleStatusUpdate(op, ctx);
+    } else if (op.type === 'lifecycle') {
+      return this.handleLifecycle(op, ctx);
+    }
+  }
+
+  /**
+   * Handle a system message operation.
+   */
+  private async handleSystemMessage(op: SystemMessageOp, ctx: ExecutorContext): Promise<void> {
+    
+    // Format message with level indicator
+    const formattedMessage = this.formatSystemMessage(op.message, op.level, ctx.formatter);
+
+    try {
+      const post = await ctx.createPost(formattedMessage, { type: 'system' });
+
+      // Track ephemeral posts
+      if (op.ephemeral) {
+        this.state.ephemeralPosts.add(post.id);
+      }
+
+      ctx.logger.debug(`Posted ${op.level} message`);
+    } catch (err) {
+      ctx.logger.error(`Failed to post system message: ${err}`);
+    }
+  }
+
+  /**
+   * Handle a status update operation.
+   */
+  private async handleStatusUpdate(op: StatusUpdateOp, ctx: ExecutorContext): Promise<void> {
+    
+    // Emit status update event (typically updates session header)
+    if (this.events) {
+      this.events.emit('status:update', {
+        modelId: op.modelId,
+        modelDisplayName: op.modelDisplayName,
+        contextWindowSize: op.contextWindowSize,
+        contextTokens: op.contextTokens,
+        totalCostUSD: op.totalCostUSD,
+      });
+    }
+
+    ctx.logger.debug('Status update processed');
+  }
+
+  /**
+   * Handle a lifecycle operation.
+   */
+  private async handleLifecycle(op: LifecycleOp, ctx: ExecutorContext): Promise<void> {
+    
+    // Emit lifecycle event
+    if (this.events) {
+      this.events.emit('lifecycle:event', { event: op.event });
+    }
+
+    ctx.logger.debug(`Lifecycle event: ${op.event}`);
+  }
+
+  /**
+   * Post an info message.
+   */
+  async postInfo(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
+    const formattedMessage = this.formatSystemMessage(message, 'info', ctx.formatter);
+
+    try {
+      return await ctx.createPost(formattedMessage, { type: 'system' });
+    } catch (err) {
+      ctx.logger.error(`Failed to post info message: ${err}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Post a warning message.
+   */
+  async postWarning(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
+    const formattedMessage = this.formatSystemMessage(message, 'warning', ctx.formatter);
+
+    try {
+      return await ctx.createPost(formattedMessage, { type: 'system' });
+    } catch (err) {
+      ctx.logger.error(`Failed to post warning message: ${err}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Post an error message.
+   */
+  async postError(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
+    const formattedMessage = this.formatSystemMessage(message, 'error', ctx.formatter);
+
+    try {
+      return await ctx.createPost(formattedMessage, { type: 'system' });
+    } catch (err) {
+      ctx.logger.error(`Failed to post error message: ${err}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Post a success message.
+   */
+  async postSuccess(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
+    const formattedMessage = this.formatSystemMessage(message, 'success', ctx.formatter);
+
+    try {
+      return await ctx.createPost(formattedMessage, { type: 'system' });
+    } catch (err) {
+      ctx.logger.error(`Failed to post success message: ${err}`);
+      return undefined;
+    }
+  }
+
+  /**
+   * Clean up ephemeral posts.
+   */
+  async cleanupEphemeralPosts(ctx: ExecutorContext): Promise<void> {
+    
+    for (const postId of this.state.ephemeralPosts) {
+      try {
+        await ctx.platform.deletePost(postId);
+      } catch (err) {
+        ctx.logger.debug(`Failed to delete ephemeral post ${postId}: ${err}`);
+      }
+    }
+
+    this.state.ephemeralPosts.clear();
+  }
+
+  /**
+   * Format a system message with level indicator.
+   */
+  private formatSystemMessage(
+    message: string,
+    level: SystemMessageLevel,
+    _formatter: PlatformFormatter
+  ): string {
+    const levelIndicators: Record<SystemMessageLevel, string> = {
+      info: 'ℹ️',
+      warning: '⚠️',
+      error: '❌',
+      success: '✅',
+    };
+
+    const indicator = levelIndicators[level];
+    return `${indicator} ${message}`;
+  }
+}

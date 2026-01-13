@@ -5,10 +5,16 @@
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
-import type { PendingContextPrompt } from './context-prompt.js';
 import type { SessionInfo } from '../ui/types.js';
-import type { RecentEvent, PendingBugReport, ErrorContext } from './bug-report.js';
+import type { RecentEvent, ErrorContext } from '../operations/bug-report/index.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
+import type { MessageManager } from '../operations/message-manager.js';
+import type { QuestionOption } from '../operations/types.js';
+import type { SessionTimers } from './timer-manager.js';
+
+// Re-export timer types
+export type { SessionTimers };
+export { createSessionTimers, clearAllTimers } from './timer-manager.js';
 
 // =============================================================================
 // Model and Usage Types
@@ -52,11 +58,6 @@ export interface SessionUsageStats {
 // Interactive State Types
 // =============================================================================
 
-export interface QuestionOption {
-  label: string;
-  description: string;
-}
-
 export interface PendingQuestionSet {
   toolUseId: string;
   currentIndex: number;
@@ -67,31 +68,6 @@ export interface PendingQuestionSet {
     options: QuestionOption[];
     answer: string | null;
   }>;
-}
-
-export interface PendingApproval {
-  postId: string;
-  type: 'plan' | 'action';
-  toolUseId: string;
-}
-
-/**
- * Pending message from unauthorized user awaiting approval
- */
-export interface PendingMessageApproval {
-  postId: string;
-  originalMessage: string;
-  fromUser: string;
-}
-
-/**
- * Pending prompt asking user if they want to join an existing worktree
- */
-export interface PendingExistingWorktreePrompt {
-  postId: string;
-  branch: string;
-  worktreePath: string;
-  username: string;  // User who triggered the prompt
 }
 
 /**
@@ -112,24 +88,97 @@ export interface PendingWorktreeSuggestions {
   suggestions: string[];  // Array of suggested branch names (0-3)
 }
 
+// =============================================================================
+// Session Lifecycle State Machine
+// =============================================================================
+
 /**
- * Pending update prompt asking user to update now or defer
+ * Possible states in the session lifecycle.
+ *
+ * State transitions:
+ * - starting -> active (on first Claude response)
+ * - active -> processing (when Claude is processing)
+ * - processing -> active (when Claude finishes)
+ * - active/processing -> paused (on timeout or interrupt)
+ * - active/processing -> restarting (on !cd, !permissions, etc.)
+ * - active/processing -> cancelling (on !stop or cancel emoji)
+ * - any -> ending (cleanup in progress)
  */
-export interface PendingUpdatePrompt {
-  postId: string;
+export type SessionLifecycleState =
+  | 'starting'      // Session is being created
+  | 'active'        // Normal operation, idle
+  | 'processing'    // Claude is processing a request
+  | 'paused'        // Timed out or interrupted, waiting for resume
+  | 'interrupted'   // User interrupted (escape), Claude stopped
+  | 'restarting'    // Being restarted (e.g., !cd)
+  | 'cancelling'    // Being cancelled
+  | 'ending';       // Cleanup in progress
+
+/**
+ * Session lifecycle state container.
+ * Replaces scattered boolean flags with a single state machine.
+ */
+export interface SessionLifecycle {
+  /** Current lifecycle state */
+  state: SessionLifecycleState;
+  /** Count of consecutive resume failures (only relevant when paused) */
+  resumeFailCount: number;
+  /** Whether Claude has responded at least once (safe to persist) */
+  hasClaudeResponded: boolean;
 }
 
 /**
- * Active subagent tracking with extended metadata for display
+ * Create a new SessionLifecycle with default starting state.
  */
-export interface ActiveSubagent {
-  postId: string;           // Post ID in chat
-  startTime: number;        // Date.now() when started
-  description: string;      // Full prompt text
-  subagentType: string;     // 'general-purpose', 'Explore', etc.
-  isMinimized: boolean;     // Toggle state (like tasksMinimized)
-  isComplete: boolean;      // True when subagent has finished
-  lastUpdateTime: number;   // Last time we updated the post (for debouncing)
+export function createSessionLifecycle(): SessionLifecycle {
+  return {
+    state: 'starting',
+    resumeFailCount: 0,
+    hasClaudeResponded: false,
+  };
+}
+
+/**
+ * Create a SessionLifecycle for a resumed session.
+ */
+export function createResumedLifecycle(resumeFailCount: number = 0): SessionLifecycle {
+  return {
+    state: 'active',
+    resumeFailCount,
+    hasClaudeResponded: true, // Resumed sessions have already had responses
+  };
+}
+
+/**
+ * Check if session is being restarted (suppress exit handlers).
+ */
+export function isSessionRestarting(session: Session): boolean {
+  return session.lifecycle.state === 'restarting';
+}
+
+/**
+ * Check if session has been cancelled.
+ */
+export function isSessionCancelled(session: Session): boolean {
+  return session.lifecycle.state === 'cancelling';
+}
+
+/**
+ * Transition session to a new lifecycle state.
+ */
+export function transitionTo(session: Session, newState: SessionLifecycleState): void {
+  session.lifecycle.state = newState;
+}
+
+/**
+ * Mark that Claude has responded (session is now safe to persist).
+ */
+export function markClaudeResponded(session: Session): void {
+  session.lifecycle.hasClaudeResponded = true;
+  // Also transition from starting to active if needed
+  if (session.lifecycle.state === 'starting') {
+    session.lifecycle.state = 'active';
+  }
 }
 
 // =============================================================================
@@ -161,15 +210,7 @@ export interface Session {
   // Claude process
   claude: ClaudeCli;
 
-  // Post state for streaming updates
-  currentPostId: string | null;
-  currentPostContent: string;  // Tracks what content has been posted to currentPostId (for error recovery)
-  pendingContent: string;
-
-  // Interactive state
-  pendingApproval: PendingApproval | null;
-  pendingQuestionSet: PendingQuestionSet | null;
-  pendingMessageApproval: PendingMessageApproval | null;
+  // Interactive state (collaboration - not Claude events)
   planApproved: boolean;
 
   // Collaboration - per-session allowlist
@@ -180,43 +221,15 @@ export interface Session {
 
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
-  tasksPostId: string | null;
-  lastTasksContent: string | null;  // Last task list content (for re-posting when bumping to bottom)
-  tasksCompleted: boolean;  // True when all tasks are done (stops sticky behavior)
-  tasksMinimized: boolean;  // True when task list is minimized (show only progress)
-  activeSubagents: Map<string, ActiveSubagent>;  // toolUseId -> subagent metadata
 
-  // Timers (per-session)
-  updateTimer: ReturnType<typeof setTimeout> | null;
-  typingTimer: ReturnType<typeof setInterval> | null;
-  subagentUpdateTimer: ReturnType<typeof setInterval> | null;  // For updating elapsed time
+  // Timer management (centralized)
+  timers: SessionTimers;
+
+  // Lifecycle state machine (replaces scattered boolean flags)
+  lifecycle: SessionLifecycle;
 
   // Timeout warning state
   timeoutWarningPosted: boolean;
-
-  // Flag to suppress exit message during intentional restart (e.g., !cd)
-  isRestarting: boolean;
-
-  // Flag to mark session as cancelled (via !stop or ❌) - prevents re-persistence on exit
-  isCancelled: boolean;
-
-  // Flag to track if this session was resumed after bot restart
-  isResumed: boolean;
-
-  // Count of consecutive resume failures (for giving up after too many)
-  resumeFailCount: number;
-
-  // Flag to track if session was interrupted (SIGINT sent) - don't unpersist on exit
-  wasInterrupted: boolean;
-
-  // Flag to track if Claude has responded at least once (safe to persist for resume)
-  hasClaudeResponded: boolean;
-
-  // Task timing - when the current in_progress task started
-  inProgressTaskStart: number | null;
-
-  // Tool timing - track when tools started for elapsed time display
-  activeToolStarts: Map<string, number>;  // toolUseId -> start timestamp
 
   // Worktree support
   worktreeInfo?: WorktreeInfo;              // Active worktree info
@@ -228,20 +241,14 @@ export interface Session {
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   worktreeResponsePostId?: string;          // Post ID of user's worktree branch response (to exclude from context)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
-  pendingExistingWorktreePrompt?: PendingExistingWorktreePrompt; // Waiting for user to confirm joining existing worktree
   pendingWorktreeFailurePrompt?: PendingWorktreeFailurePrompt;  // Waiting for user to decide after worktree creation failed
   pendingWorktreeSuggestions?: PendingWorktreeSuggestions; // Branch suggestions for worktree prompt
 
   // Thread context prompt support
-  pendingContextPrompt?: PendingContextPrompt; // Waiting for context selection
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
-
-  // Update prompt support
-  pendingUpdatePrompt?: PendingUpdatePrompt; // Waiting for user to confirm update now/defer
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
-  isPaused?: boolean;        // True if session is paused (timeout/interrupt) - won't auto-resume on restart
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)
@@ -263,23 +270,23 @@ export interface Session {
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
 
-  // Status bar update timer (for periodic refreshes)
-  statusBarTimer: ReturnType<typeof setInterval> | null;
-
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;
   lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
-  // Task list creation lock (prevents duplicate posts from concurrent TodoWrite events)
-  taskListCreationPromise?: Promise<void>;
-
   // Bug reporting support
-  pendingBugReport?: PendingBugReport;    // Pending bug report awaiting approval
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)
   lastError?: ErrorContext;               // Most recent error for bug reaction
 
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
+
+  /**
+   * MessageManager for handling operations (content, tasks, questions, subagents).
+   * Optional because it's assigned immediately after Session creation.
+   * Always present in running sessions.
+   */
+  messageManager?: MessageManager;
 }
 
 // =============================================================================
@@ -291,33 +298,7 @@ export interface Session {
  */
 export function getSessionStatus(session: Session): SessionInfo['status'] {
   if (session.isProcessing) {
-    return session.hasClaudeResponded ? 'active' : 'starting';
+    return session.lifecycle.hasClaudeResponded ? 'active' : 'starting';
   }
   return 'idle';
 }
-
-// =============================================================================
-// Configuration Constants (Legacy - prefer using LimitsConfig from config/types.ts)
-// =============================================================================
-
-import { LIMITS_DEFAULTS } from '../config/types.js';
-
-/**
- * @deprecated Use resolveLimits(config.limits).maxSessions instead
- * Kept for backward compatibility with env var support
- */
-export const MAX_SESSIONS = parseInt(process.env.MAX_SESSIONS || String(LIMITS_DEFAULTS.maxSessions), 10);
-
-/**
- * @deprecated Use resolveLimits(config.limits).sessionTimeoutMinutes instead
- * Kept for backward compatibility with env var support
- */
-export const SESSION_TIMEOUT_MS = parseInt(
-  process.env.SESSION_TIMEOUT_MS || String(LIMITS_DEFAULTS.sessionTimeoutMinutes * 60 * 1000),
-  10
-);
-
-/**
- * @deprecated Use resolveLimits(config.limits).sessionWarningMinutes instead
- */
-export const SESSION_WARNING_MS = LIMITS_DEFAULTS.sessionWarningMinutes * 60 * 1000;

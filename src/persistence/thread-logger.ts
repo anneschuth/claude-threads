@@ -87,10 +87,23 @@ export interface PermissionEntry extends BaseLogEntry {
  */
 export interface ReactionEntry extends BaseLogEntry {
   type: 'reaction';
-  action: 'plan_approve' | 'plan_reject' | 'question_answer' | 'message_approve' | 'message_reject' | 'cancel' | 'interrupt';
+  action: 'plan_approve' | 'plan_reject' | 'question_answer' | 'message_approve' | 'message_invite' | 'message_reject' | 'cancel' | 'interrupt';
   username: string;
   emoji?: string;
   answer?: string;
+}
+
+/**
+ * Executor operation events (task list, content, etc.)
+ * Used for debugging post creation/update/delete issues
+ */
+export interface ExecutorEntry extends BaseLogEntry {
+  type: 'executor';
+  executor: 'task_list' | 'content' | 'subagent' | 'system';
+  operation: 'create' | 'create_start' | 'update' | 'delete' | 'bump' | 'complete' | 'error' | 'close';
+  method?: string;  // Which method originated this log (e.g., 'updateTaskList', 'bumpToBottom')
+  postId?: string;
+  details?: Record<string, unknown>;
 }
 
 export type LogEntry =
@@ -99,7 +112,8 @@ export type LogEntry =
   | LifecycleEntry
   | CommandEntry
   | PermissionEntry
-  | ReactionEntry;
+  | ReactionEntry
+  | ExecutorEntry;
 
 // =============================================================================
 // ThreadLogger Interface
@@ -129,6 +143,15 @@ export interface ThreadLogger {
 
   /** Log reaction event */
   logReaction(action: ReactionEntry['action'], username: string, emoji?: string, answer?: string): void;
+
+  /** Log executor operation (for debugging post management) */
+  logExecutor(
+    executor: ExecutorEntry['executor'],
+    operation: ExecutorEntry['operation'],
+    postId?: string,
+    details?: Record<string, unknown>,
+    method?: string
+  ): void;
 
   /** Flush pending writes (for graceful shutdown) */
   flush(): Promise<void>;
@@ -173,8 +196,8 @@ class ThreadLoggerImpl implements ThreadLogger {
     this.bufferSize = options?.bufferSize ?? 10;
     this.flushIntervalMs = options?.flushIntervalMs ?? 1000;
 
-    // Compute log file path
-    this.logPath = join(LOGS_BASE_DIR, platformId, `${threadId}.jsonl`);
+    // Compute log file path - use sessionId (platform-agnostic) rather than threadId
+    this.logPath = join(LOGS_BASE_DIR, platformId, `${claudeSessionId}.jsonl`);
 
     if (this.enabled) {
       // Ensure directory exists
@@ -284,6 +307,28 @@ class ThreadLoggerImpl implements ThreadLogger {
     this.addEntry(entry);
   }
 
+  logExecutor(
+    executor: ExecutorEntry['executor'],
+    operation: ExecutorEntry['operation'],
+    postId?: string,
+    details?: Record<string, unknown>,
+    method?: string
+  ): void {
+    if (!this.enabled || this.isClosed) return;
+
+    const entry: ExecutorEntry = {
+      ts: Date.now(),
+      sessionId: this.claudeSessionId,
+      type: 'executor',
+      executor,
+      operation,
+      postId,
+      method,
+      details,
+    };
+    this.addEntry(entry);
+  }
+
   async flush(): Promise<void> {
     this.flushSync();
   }
@@ -343,6 +388,7 @@ class DisabledThreadLogger implements ThreadLogger {
   logCommand(): void { /* no-op */ }
   logPermission(): void { /* no-op */ }
   logReaction(): void { /* no-op */ }
+  logExecutor(): void { /* no-op */ }
   async flush(): Promise<void> { /* no-op */ }
   async close(): Promise<void> { /* no-op */ }
   isEnabled(): boolean { return false; }
@@ -371,13 +417,6 @@ export function createThreadLogger(
 // =============================================================================
 // Cleanup Functions
 // =============================================================================
-
-/**
- * Get the base directory for thread logs
- */
-export function getLogsBaseDir(): string {
-  return LOGS_BASE_DIR;
-}
 
 /**
  * Clean up old log files based on retention policy.
@@ -446,8 +485,8 @@ export function cleanupOldLogs(retentionDays: number = 30): number {
 /**
  * Get log file path for a session (for external use, e.g., debugging)
  */
-export function getLogFilePath(platformId: string, threadId: string): string {
-  return join(LOGS_BASE_DIR, platformId, `${threadId}.jsonl`);
+export function getLogFilePath(platformId: string, sessionId: string): string {
+  return join(LOGS_BASE_DIR, platformId, `${sessionId}.jsonl`);
 }
 
 /**
@@ -455,16 +494,16 @@ export function getLogFilePath(platformId: string, threadId: string): string {
  * Returns an array of parsed log entries (most recent last).
  *
  * @param platformId - Platform identifier
- * @param threadId - Thread identifier
+ * @param sessionId - Session identifier (claudeSessionId)
  * @param maxLines - Maximum number of lines to read (default: 50)
  * @returns Array of log entries, or empty array if file doesn't exist
  */
 export function readRecentLogEntries(
   platformId: string,
-  threadId: string,
+  sessionId: string,
   maxLines: number = 50
 ): LogEntry[] {
-  const logPath = getLogFilePath(platformId, threadId);
+  const logPath = getLogFilePath(platformId, sessionId);
   log.debug(`Reading log entries from: ${logPath}`);
 
   if (!existsSync(logPath)) {

@@ -6,7 +6,7 @@ import {
   CONFIG_PATH,
   saveConfig,
   LIMITS_DEFAULTS,
-  type NewConfig,
+  type Config,
   type PlatformInstanceConfig,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
@@ -194,11 +194,11 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
 
   // Load existing config if reconfiguring
-  let existingConfig: NewConfig | null = null;
+  let existingConfig: Config | null = null;
   if (reconfigure && existsSync(CONFIG_PATH)) {
     try {
       const content = readFileSync(CONFIG_PATH, 'utf-8');
-      existingConfig = Bun.YAML.parse(content) as NewConfig;
+      existingConfig = Bun.YAML.parse(content) as Config;
       console.log(dim('  Reconfiguring existing setup.'));
     } catch {
       console.log(dim('  Could not load existing config, starting fresh.'));
@@ -311,7 +311,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     },
   ], { onCancel });
 
-  const config: NewConfig = {
+  const config: Config = {
     version: 2,
     ...globalSettings,
     platforms: [],
@@ -448,7 +448,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
 // Reconfigure Flow - Improved UX for editing existing config
 // ============================================================================
 
-async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
+async function runReconfigureFlow(existingConfig: Config): Promise<void> {
   let config = { ...existingConfig, platforms: [...existingConfig.platforms] };
   let keepReconfiguring = true;
 
@@ -682,7 +682,7 @@ async function runReconfigureFlow(existingConfig: NewConfig): Promise<void> {
 // Configuration Summary
 // ============================================================================
 
-async function showConfigSummary(config: NewConfig): Promise<void> {
+async function showConfigSummary(config: Config): Promise<void> {
   console.log('');
   console.log(bold('  Configuration Summary'));
   console.log(dim('  ─────────────────────────────────────────────────────'));

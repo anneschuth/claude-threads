@@ -23,7 +23,7 @@ import {
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
 import { waitFor } from '../helpers/wait-for.js';
-import type { AutoUpdateManagerInterface } from '../../../src/session/commands.js';
+import type { AutoUpdateManagerInterface } from '../../../src/operations/commands/index.js';
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;

@@ -5,7 +5,15 @@
  */
 
 import type { Session } from './types.js';
-import { getSessionStatus } from './types.js';
+import {
+  createSessionTimers,
+  createSessionLifecycle,
+  createResumedLifecycle,
+  transitionTo,
+  isSessionRestarting,
+  isSessionCancelled,
+} from './types.js';
+import { clearAllTimers } from './timer-manager.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -17,25 +25,22 @@ import { generateChatPlatformPrompt, buildSessionContext } from '../commands/ind
 import { randomUUID } from 'crypto';
 import { existsSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
-import { logAndNotify, withErrorHandling } from './error-handler.js';
+import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
-import { postError, postInfo, postResume, postWarning, postTimeout } from './post-helpers.js';
-import type { SessionContext } from './context.js';
-import { suggestSessionMetadata } from './title-suggest.js';
-import { suggestSessionTags } from './tag-suggest.js';
+import { createSessionLog } from '../utils/session-log.js';
+import { post, postError, updateLastMessage } from '../operations/post-helpers/index.js';
+import type { SessionContext } from '../operations/session-context/index.js';
+import { suggestSessionMetadata } from '../operations/suggestions/title.js';
+import { suggestSessionTags } from '../operations/suggestions/tag.js';
+import { MessageManager, PostTracker } from '../operations/index.js';
+import {
+  getThreadMessagesForContext,
+  formatContextForClaude,
+} from '../operations/context-prompt/index.js';
+import { detectWorktreeInfo } from '../git/worktree.js';
 
 const log = createLogger('lifecycle');
-
-/**
- * Get a session-scoped logger for session events.
- * Uses session ID if available, otherwise falls back to global logger.
- */
-function sessionLog(session: Session | null | undefined) {
-  if (session?.sessionId) {
-    return log.forSession(session.sessionId);
-  }
-  return log;
-}
+const sessionLog = createSessionLog(log);
 
 // ---------------------------------------------------------------------------
 // Internal helpers for DRY code
@@ -58,22 +63,11 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
 }
 
 /**
- * Clean up session timers (updateTimer, statusBarTimer, subagentUpdateTimer).
+ * Clean up session timers (updateTimer, typingTimer, statusBarTimer).
  * Call this before removing a session from the map.
  */
 function cleanupSessionTimers(session: Session): void {
-  if (session.updateTimer) {
-    clearTimeout(session.updateTimer);
-    session.updateTimer = null;
-  }
-  if (session.statusBarTimer) {
-    clearInterval(session.statusBarTimer);
-    session.statusBarTimer = null;
-  }
-  if (session.subagentUpdateTimer) {
-    clearInterval(session.subagentUpdateTimer);
-    session.subagentUpdateTimer = null;
-  }
+  clearAllTimers(session.timers);
 }
 
 /**
@@ -104,6 +98,72 @@ function cleanupPostIndex(ctx: SessionContext, threadId: string): void {
 }
 
 /**
+ * Options for cleanupSession helper.
+ */
+interface CleanupSessionOptions {
+  /** Lifecycle action for thread logger (e.g., 'exit', 'interrupt', 'kill') */
+  action?: 'exit' | 'timeout' | 'interrupt' | 'kill';
+  /** Additional details for thread logger */
+  details?: Record<string, unknown>;
+  /** Whether to close thread logger (default: true) */
+  closeLogger?: boolean;
+  /** Whether to clean up post index entries (default: true) */
+  cleanupPostIndex?: boolean;
+}
+
+/**
+ * Clean up a session completely - stop timers, close logger, remove from registry.
+ *
+ * This consolidates the cleanup sequence that was previously duplicated across
+ * multiple exit paths in the file.
+ *
+ * @param session - The session to clean up
+ * @param ctx - Session context for state access
+ * @param options - Cleanup options (action for logger, whether to clean post index)
+ */
+async function cleanupSession(
+  session: Session,
+  ctx: SessionContext,
+  options: CleanupSessionOptions = {}
+): Promise<void> {
+  const {
+    action,
+    details,
+    closeLogger: doCloseLogger = true,
+    cleanupPostIndex: doCleanupPostIndex = true,
+  } = options;
+
+  ctx.ops.stopTyping(session);
+  cleanupSessionTimers(session);
+  if (doCloseLogger) {
+    await closeThreadLogger(session, action, details);
+  }
+  ctx.ops.emitSessionRemove(session.sessionId);
+  mutableSessions(ctx).delete(session.sessionId);
+  if (doCleanupPostIndex) {
+    cleanupPostIndex(ctx, session.threadId);
+  }
+  keepAlive.sessionEnded();
+}
+
+/**
+ * Remove a session from the registry (maps) and notify keep-alive.
+ *
+ * This is a lightweight cleanup helper for cases where timers and logger
+ * are already handled separately (e.g., interrupted sessions that need
+ * to post messages between cleanup steps).
+ *
+ * @param session - The session to remove from registry
+ * @param ctx - Session context for state access
+ */
+function removeFromRegistry(session: Session, ctx: SessionContext): void {
+  ctx.ops.emitSessionRemove(session.sessionId);
+  mutableSessions(ctx).delete(session.sessionId);
+  cleanupPostIndex(ctx, session.threadId);
+  keepAlive.sessionEnded();
+}
+
+/**
  * Helper to find a persisted session by raw threadId.
  * Persisted sessions are keyed by composite sessionId, so we need to iterate.
  */
@@ -117,6 +177,161 @@ function findPersistedByThreadId(
     }
   }
   return undefined;
+}
+
+/**
+ * Create a MessageManager for a session.
+ * Handles all content, task list, question, and subagent operations.
+ *
+ * Uses event subscriptions to handle callbacks from MessageManager.
+ * This replaces the old callback-based approach for cleaner code.
+ */
+function createMessageManager(
+  session: Session,
+  ctx: SessionContext
+): MessageManager {
+  const postTracker = new PostTracker();
+
+  // Create the MessageManager with session reference and callbacks
+  const messageManager = new MessageManager({
+    session, // Direct session access for Claude CLI, logger, etc.
+    platform: session.platform,
+    postTracker,
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    worktreePath: session.worktreeInfo?.worktreePath,
+    worktreeBranch: session.worktreeInfo?.branch,
+    registerPost: (postId, options) => {
+      ctx.ops.registerPost(postId, session.threadId);
+      postTracker.register(postId, session.threadId, session.sessionId, options);
+    },
+    updateLastMessage: (post) => {
+      updateLastMessage(session, post);
+    },
+    // Callback to build message content (handles image attachments)
+    buildMessageContent: (text, platform, files) => {
+      return ctx.ops.buildMessageContent(text, platform, files);
+    },
+    // Callback to start typing indicator
+    startTyping: () => {
+      ctx.ops.startTyping(session);
+    },
+    // Callback to emit session update events
+    emitSessionUpdate: (updates) => {
+      ctx.ops.emitSessionUpdate(session.sessionId, updates);
+    },
+  });
+
+  // Subscribe to events from MessageManager
+  // These replace the callback-based approach for cleaner separation of concerns
+
+  messageManager.events.on('question:complete', ({ toolUseId: _toolUseId, answers }) => {
+    // Send answers back to Claude
+    const answerJson = JSON.stringify(answers);
+    session.claude.sendMessage(answerJson);
+  });
+
+  messageManager.events.on('approval:complete', ({ toolUseId: _toolUseId, approved }) => {
+    // Send approval/denial back to Claude
+    const response = approved ? 'approved' : 'denied';
+    session.claude.sendMessage(response);
+  });
+
+  messageManager.events.on('message-approval:complete', async ({ decision, fromUser, originalMessage }) => {
+    if (decision === 'allow') {
+      // Allow this single message
+      session.claude.sendMessage(originalMessage);
+      session.lastActivityAt = new Date();
+      ctx.ops.startTyping(session);
+      sessionLog(session).info(`Message from @${fromUser} approved`);
+    } else if (decision === 'invite') {
+      // Invite user to session and send their message
+      session.sessionAllowedUsers.add(fromUser);
+      await ctx.ops.updateSessionHeader(session);
+      session.claude.sendMessage(originalMessage);
+      session.lastActivityAt = new Date();
+      ctx.ops.startTyping(session);
+      sessionLog(session).info(`@${fromUser} invited to session`);
+    }
+    // 'deny' - nothing extra to do, post already updated by MessageManager
+  });
+
+  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
+    // Build message with or without context
+    let messageToSend = queuedPrompt;
+    if (typeof selection === 'number' && selection > 0) {
+      // User selected to include context - fetch and format messages
+      const messages = await getThreadMessagesForContext(session, selection);
+      if (messages.length > 0) {
+        const contextPrefix = formatContextForClaude(messages);
+        messageToSend = contextPrefix + queuedPrompt;
+      }
+      sessionLog(session).debug(`🧵 Including ${selection} messages as context`);
+    } else {
+      // No context (selection is 0 for skip, or 'timeout')
+      const reason = selection === 'timeout' ? 'timed out' : 'skipped';
+      sessionLog(session).debug(`🧵 Context ${reason}, continuing without`);
+    }
+
+    // Increment message counter
+    session.messageCount++;
+
+    // Inject metadata reminder periodically
+    messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
+
+    // Build content with files (if any)
+    // Note: queuedFiles from MessageManager are simplified refs (id, name)
+    // For now, send without files - the full PlatformFile[] would need to be
+    // stored separately if file support is needed here
+    const content = await ctx.ops.buildMessageContent(messageToSend, session.platform, undefined);
+
+    // Send the message to Claude
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(content);
+      ctx.ops.startTyping(session);
+    }
+
+    // Update activity and persist
+    session.lastActivityAt = new Date();
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('worktree-prompt:complete', async ({ decision, branch, worktreePath, username }) => {
+    if (decision === 'join') {
+      // Switch to the existing worktree
+      await ctx.ops.switchToWorktree(session.threadId, worktreePath, username);
+      sessionLog(session).info(`🌿 @${username} joined existing worktree ${branch}`);
+    } else {
+      sessionLog(session).info(`❌ @${username} skipped joining existing worktree ${branch}`);
+    }
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('update-prompt:complete', async ({ decision }) => {
+    if (decision === 'update_now') {
+      sessionLog(session).info('🔄 User triggered immediate update');
+      await ctx.ops.forceUpdate();
+    } else {
+      sessionLog(session).info('⏸️ User deferred update for 1 hour');
+      ctx.ops.deferUpdate(60);
+    }
+    ctx.ops.persistSession(session);
+  });
+
+  messageManager.events.on('bug-report:complete', async ({ decision, report: _report }) => {
+    await ctx.ops.handleBugReportApproval(session, decision === 'approve', session.startedBy);
+  });
+
+  // Task updates - refresh sticky message to show updated progress and active task
+  messageManager.events.on('task:update', async () => {
+    await ctx.ops.updateStickyMessage();
+  });
+
+  // Status and lifecycle events (these are typically for session header updates)
+  // Note: These are handled differently - they update session state directly
+  // For now, these remain as part of the session management layer
+
+  return messageManager;
 }
 
 // ---------------------------------------------------------------------------
@@ -346,24 +561,28 @@ export async function startSession(
   // Check max sessions limit
   if (ctx.state.sessions.size >= ctx.config.maxSessions) {
     const formatter = platform.getFormatter();
-    await platform.createPost(
-      `⚠️ ${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`,
-      replyToPostId
-    );
+    // Create a temporary pseudo-session just for posting the message
+    // (we don't have a real session yet since we're at capacity)
+    const tempSession = {
+      platform,
+      threadId: replyToPostId || '',
+      sessionId: 'temp',
+    } as Session;
+    await post(tempSession, 'warning', `${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`);
     return;
   }
 
   // Post initial session message
   const startFormatter = platform.getFormatter();
-  const post = await withErrorHandling(
+  const startPost = await withErrorHandling(
     () => platform.createPost(
       `${getLogo(VERSION)}\n\n${startFormatter.formatItalic('Starting session...')}`,
       replyToPostId
     ),
     { action: 'Create session post' }
   );
-  if (!post) return;
-  const actualThreadId = replyToPostId || post.id;
+  if (!startPost) return;
+  const actualThreadId = replyToPostId || startPost.id;
   const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
   // Generate a unique session ID for this Claude session
@@ -404,43 +623,27 @@ export async function startSession(
     sessionNumber: ctx.state.sessions.size + 1,
     workingDir: ctx.config.workingDir,
     claude,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
-    pendingMessageApproval: null,
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions: false,
-    sessionStartPostId: post.id,
-    tasksPostId: null,
-    lastTasksContent: null,
-    tasksCompleted: false,
-    tasksMinimized: false,
-    activeSubagents: new Map(),
-    updateTimer: null,
-    typingTimer: null,
-    subagentUpdateTimer: null,
+    sessionStartPostId: startPost.id,
+    // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
+    // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: false,
-    resumeFailCount: 0,
-    wasInterrupted: false,
-    hasClaudeResponded: false,
-    inProgressTaskStart: null,
-    activeToolStarts: new Map(),
     firstPrompt: options.prompt,  // Set early so sticky message can use it
     messageCount: 0,  // Will be incremented when first message is sent
     isProcessing: true,  // Starts as true since we're sending initial prompt
-    statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors
     // Thread logger for persisting events to disk
     threadLogger: createThreadLogger(platformId, actualThreadId, claudeSessionId, {
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+
+  // Create MessageManager for this session
+  session.messageManager = createMessageManager(session, ctx);
 
   // Log session start
   session.threadLogger?.logLifecycle('start', {
@@ -450,7 +653,7 @@ export async function startSession(
 
   // Register session
   mutableSessions(ctx).set(sessionId, session);
-  ctx.ops.registerPost(post.id, actualThreadId);
+  ctx.ops.registerPost(startPost.id, actualThreadId);
   ctx.ops.emitSessionAdd(session);
   sessionLog(session).info(`▶ Session started by @${username}`);
 
@@ -554,8 +757,8 @@ export async function resumeSession(
   }
 
   // Verify thread still exists
-  const post = await platform.getPost(state.threadId);
-  if (!post) {
+  const threadPost = await platform.getPost(state.threadId);
+  if (!threadPost) {
     log.warn(`Thread ${shortId}... deleted, skipping resume`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
@@ -572,11 +775,14 @@ export async function resumeSession(
     log.warn(`Working directory ${state.workingDir} no longer exists, skipping resume for ${shortId}...`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     const resumeFormatter = platform.getFormatter();
+    // Create a temporary pseudo-session just for posting the message
+    const tempSession = {
+      platform,
+      threadId: state.threadId,
+      sessionId: `${state.platformId}:${state.threadId}`,
+    } as Session;
     await withErrorHandling(
-      () => platform.createPost(
-        `⚠️ ${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`,
-        state.threadId
-      ),
+      () => post(tempSession, 'warning', `${resumeFormatter.formatBold('Cannot resume session')} - working directory no longer exists:\n${resumeFormatter.formatCode(state.workingDir)}\n\nPlease start a new session.`),
       { action: 'Post resume failure notification' }
     );
     return;
@@ -608,47 +814,28 @@ export async function resumeSession(
   const claude = new ClaudeCli(cliOptions);
 
   // Rebuild Session object from persisted state
-  // Use defensive defaults for all fields to handle old/incomplete persisted data
   const session: Session = {
     platformId,
     threadId: state.threadId,
     sessionId,
     platform,
     claudeSessionId: state.claudeSessionId,
-    startedBy: state.startedBy || 'unknown',
+    startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
-    startedAt: state.startedAt ? new Date(state.startedAt) : new Date(),
+    startedAt: new Date(state.startedAt),
     lastActivityAt: new Date(),
     sessionNumber: state.sessionNumber ?? 1,
     workingDir: state.workingDir,
     claude,
-    currentPostId: null,
-    currentPostContent: '',
-    pendingContent: '',
-    pendingApproval: null,
-    pendingQuestionSet: null,
-    pendingMessageApproval: null,
     planApproved: state.planApproved ?? false,
-    sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
+    sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
-    tasksPostId: state.tasksPostId ?? null,
-    lastTasksContent: state.lastTasksContent ?? null,
-    tasksCompleted: state.tasksCompleted ?? false,
-    tasksMinimized: state.tasksMinimized ?? false,
-    activeSubagents: new Map(),
-    updateTimer: null,
-    typingTimer: null,
-    subagentUpdateTimer: null,
+    // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
+    // These fields are NOT set here - MessageManager is hydrated with them below.
+    timers: createSessionTimers(),
+    lifecycle: createResumedLifecycle(state.resumeFailCount ?? 0),
     timeoutWarningPosted: false,
-    isRestarting: false,
-    isCancelled: false,
-    isResumed: true,
-    resumeFailCount: state.resumeFailCount ?? 0,
-    wasInterrupted: false,
-    hasClaudeResponded: true,  // Resumed sessions have already had responses
-    inProgressTaskStart: null,
-    activeToolStarts: new Map(),
     worktreeInfo: state.worktreeInfo,
     isWorktreeOwner: state.isWorktreeOwner,
     pendingWorktreePrompt: state.pendingWorktreePrompt,
@@ -664,13 +851,65 @@ export async function resumeSession(
     messageCount: state.messageCount ?? 0,
     isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
-    statusBarTimer: null,  // Will be started after first result event
     recentEvents: [],  // Bug report context: recent tool uses/errors (cleared on resume)
     // Thread logger for persisting events to disk (appends to existing log)
     threadLogger: createThreadLogger(platformId, state.threadId, state.claudeSessionId, {
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+
+  // Auto-detect worktree info if workingDir is a worktree but worktreeInfo is not set
+  // This handles sessions that were created before worktreeInfo tracking was added,
+  // or sessions that were started directly in a worktree directory
+  if (!session.worktreeInfo) {
+    const detected = await detectWorktreeInfo(session.workingDir);
+    if (detected) {
+      session.worktreeInfo = {
+        repoRoot: detected.repoRoot,
+        worktreePath: detected.worktreePath,
+        branch: detected.branch,
+      };
+      log.info(`Auto-detected worktree info for resumed session: branch=${detected.branch}`);
+    }
+  }
+
+  // Create MessageManager for this session
+  session.messageManager = createMessageManager(session, ctx);
+
+  // Restore task list from persisted state (hydrates + bumps to bottom)
+  await session.messageManager.restoreTaskListFromPersistence({
+    tasksPostId: state.tasksPostId,
+    lastTasksContent: state.lastTasksContent,
+    tasksCompleted: state.tasksCompleted,
+    tasksMinimized: state.tasksMinimized,
+  });
+
+  // Hydrate MessageManager with persisted interactive state (if any)
+  // Note: These fields may not exist in older persisted sessions
+  const persistedWithInteractive = state as PersistedSession & {
+    pendingQuestionSet?: {
+      toolUseId: string;
+      currentIndex: number;
+      currentPostId: string | null;
+      questions: Array<{
+        header: string;
+        question: string;
+        options: Array<{ label: string; description: string }>;
+        answer: string | null;
+      }>;
+    } | null;
+    pendingApproval?: {
+      postId: string;
+      type: 'plan' | 'action';
+      toolUseId: string;
+    } | null;
+  };
+  if (persistedWithInteractive.pendingQuestionSet || persistedWithInteractive.pendingApproval) {
+    session.messageManager.hydrateInteractiveState({
+      pendingQuestionSet: persistedWithInteractive.pendingQuestionSet,
+      pendingApproval: persistedWithInteractive.pendingApproval,
+    });
+  }
 
   // Log session resume
   session.threadLogger?.logLifecycle('resume', {
@@ -718,11 +957,11 @@ export async function resumeSession(
       );
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
-      session.isPaused = undefined;
+      transitionTo(session, 'active');
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
-      await postResume(session, restartMsg);
+      await post(session, 'resume', restartMsg);
     }
 
     // Update session header
@@ -742,10 +981,7 @@ export async function resumeSession(
     // Try to notify user
     const failFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => session.platform.createPost(
-        `⚠️ ${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`,
-        state.threadId
-      ),
+      () => post(session, 'warning', `${failFormatter.formatBold('Could not resume previous session.')} Starting fresh.\n${failFormatter.formatItalic('Your previous conversation context is preserved, but Claude needs to re-read it.')}`),
       { action: 'Post resume failure notification', session }
     );
 
@@ -760,6 +996,10 @@ export async function resumeSession(
 
 /**
  * Send a follow-up message to an existing session.
+ *
+ * This function handles:
+ * - Context prompt flow (offering to include thread history)
+ * - Delegating to MessageManager.handleUserMessage() for the normal flow
  */
 export async function sendFollowUp(
   session: Session,
@@ -771,31 +1011,17 @@ export async function sendFollowUp(
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
 
-  // Log the user message
-  session.threadLogger?.logUserMessage(
-    username || session.startedBy,
-    message,
-    displayName,
-    files && files.length > 0
-  );
-
-  // Flush any pending content before starting new message
-  // This ensures code blocks and other structures are properly closed
-  await ctx.ops.flush(session);
-
-  // Reset current post so Claude's response starts in a new message
-  session.currentPostId = null;
-  session.currentPostContent = '';
-
-  // Bump task list below the user's message
-  await ctx.ops.bumpTasksToBottom(session);
-
-  const content = await ctx.ops.buildMessageContent(message, session.platform, files);
-  const messageText = typeof content === 'string' ? content : message;
-
   // Check if we need to offer context prompt (e.g., after !cd)
+  // This must happen BEFORE MessageManager handles the message
   if (session.needsContextPromptOnNextMessage) {
     session.needsContextPromptOnNextMessage = false;
+
+    // Prepare for message (flush, reset) but don't send yet
+    await session.messageManager?.prepareForUserMessage();
+
+    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
+    const messageText = typeof content === 'string' ? content : message;
+
     const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, files);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
@@ -805,21 +1031,17 @@ export async function sendFollowUp(
     // No thread history or context prompt declined, fall through to send directly
   }
 
+  // Delegate to MessageManager for the normal message flow
+  // MessageManager handles: logging, flush/reset/bump, send to Claude, typing indicator
+  if (!session.messageManager) {
+    sessionLog(session).error('MessageManager not initialized - this should never happen');
+    return;
+  }
+
   // Increment message counter
   session.messageCount++;
 
-  // Inject metadata reminder periodically (also fires re-classification)
-  const messageToSend = typeof content === 'string'
-    ? maybeInjectMetadataReminder(content, session, ctx, session)
-    : content;
-
-  // Mark as processing and update UI
-  session.isProcessing = true;
-  ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
-
-  session.claude.sendMessage(messageToSend);
-  session.lastActivityAt = new Date();
-  ctx.ops.startTyping(session);
+  await session.messageManager.handleUserMessage(message, files, username, displayName);
 }
 
 /**
@@ -847,20 +1069,10 @@ export async function resumePausedSession(
 
   // Wait a moment for the session to be ready, then send the message
   const session = ctx.ops.findSessionByThreadId(threadId);
-  if (session && session.claude.isRunning()) {
-    // Increment message counter
+  if (session && session.claude.isRunning() && session.messageManager) {
+    // Increment message counter and delegate to MessageManager
     session.messageCount++;
-
-    const content = await ctx.ops.buildMessageContent(message, session.platform, files);
-
-    // Inject metadata reminder periodically (also fires re-classification)
-    const messageToSend = typeof content === 'string'
-      ? maybeInjectMetadataReminder(content, session, ctx, session)
-      : content;
-
-    session.claude.sendMessage(messageToSend);
-    session.lastActivityAt = new Date();
-    ctx.ops.startTyping(session);
+    await session.messageManager.handleUserMessage(message, files, state.startedBy);
   } else {
     log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }
@@ -889,15 +1101,15 @@ export async function handleExit(
   }
 
   // If we're intentionally restarting (e.g., !cd), don't clean up
-  if (session.isRestarting) {
+  if (isSessionRestarting(session)) {
     sessionLog(session).debug(`Restarting, skipping cleanup`);
-    session.isRestarting = false;
+    transitionTo(session, 'active');
     return;
   }
 
   // If session was cancelled (via !stop or ❌), don't clean up or re-persist
   // The killSession function handles all cleanup - we just exit early here
-  if (session.isCancelled) {
+  if (isSessionCancelled(session)) {
     sessionLog(session).debug(`Cancelled, skipping cleanup (handled by killSession)`);
     return;
   }
@@ -905,18 +1117,16 @@ export async function handleExit(
   // If bot is shutting down, preserve persistence
   if (ctx.state.isShuttingDown) {
     sessionLog(session).debug(`Bot shutting down, preserving persistence`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'exit', { reason: 'shutdown', exitCode: code });
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    await cleanupSession(session, ctx, {
+      action: 'exit',
+      details: { reason: 'shutdown', exitCode: code },
+      cleanupPostIndex: false,  // Preserve for faster shutdown
+    });
     return;
   }
 
   // If session was interrupted, preserve for resume (only if Claude has responded)
-  if (session.wasInterrupted) {
+  if (session.lifecycle.state === 'interrupted') {
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
@@ -924,29 +1134,25 @@ export async function handleExit(
 
     // Notify user first, then persist with the lifecyclePostId
     // This ensures the session won't auto-resume on bot restart
-    const message = session.hasClaudeResponded
+    const message = session.lifecycle.hasClaudeResponded
       ? `ℹ️ Session paused. Send a new message to continue.`
       : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
     const pausePost = await withErrorHandling(
-      () => postInfo(session, message),
+      () => post(session, 'info', message),
       { action: 'Post session pause notification', session }
     );
 
     // Only persist if Claude actually responded (otherwise there's nothing to resume)
-    if (session.hasClaudeResponded) {
+    if (session.lifecycle.hasClaudeResponded) {
       // Mark as paused so it won't auto-resume on bot restart
-      session.isPaused = true;
+      transitionTo(session, 'paused');
       if (pausePost) {
         session.lifecyclePostId = pausePost.id;
         ctx.ops.registerPost(pausePost.id, session.threadId);
       }
       ctx.ops.persistSession(session);
     }
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    cleanupPostIndex(ctx, session.threadId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    removeFromRegistry(session, ctx);
     sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
@@ -954,19 +1160,17 @@ export async function handleExit(
   }
 
   // If session exits before Claude responded, notify user (no point trying to resume)
-  if (!session.hasClaudeResponded && !session.isResumed) {
+  const wasResumed = session.lifecycle.resumeFailCount > 0 || session.lifecycle.state !== 'starting';
+  if (!session.lifecycle.hasClaudeResponded && !wasResumed) {
     sessionLog(session).debug(`Exited before Claude responded, not persisting`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'exit', { reason: 'early_exit', exitCode: code });
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    cleanupPostIndex(ctx, session.threadId);
-    keepAlive.sessionEnded();
-    // Notify user
+    await cleanupSession(session, ctx, {
+      action: 'exit',
+      details: { reason: 'early_exit', exitCode: code },
+    });
+    // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
     await withErrorHandling(
-      () => postWarning(session, `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
+      () => post(session, 'warning', `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
       { action: 'Post early exit notification', session }
     );
     sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);
@@ -975,21 +1179,21 @@ export async function handleExit(
   }
 
   // For resumed sessions that exit with error, track failures and give up after too many
-  if (session.isResumed && code !== 0) {
+  if (wasResumed && code !== 0) {
     const MAX_RESUME_FAILURES = 3;
-    session.resumeFailCount = (session.resumeFailCount || 0) + 1;
+    session.lifecycle.resumeFailCount = (session.lifecycle.resumeFailCount || 0) + 1;
 
     // Check if this is a permanent failure that shouldn't be retried
     const isPermanent = session.claude.isPermanentFailure();
     const permanentReason = session.claude.getPermanentFailureReason();
 
-    sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
-    ctx.ops.stopTyping(session);
-    cleanupSessionTimers(session);
-    ctx.ops.emitSessionRemove(session.sessionId);
-    mutableSessions(ctx).delete(session.sessionId);
-    // Notify keep-alive that a session ended
-    keepAlive.sessionEnded();
+    sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
+    // Skip closeLogger (session is already persisted, logger may be closed)
+    // Skip cleanupPostIndex (was already cleaned on original session end)
+    await cleanupSession(session, ctx, {
+      closeLogger: false,
+      cleanupPostIndex: false,
+    });
 
     // Immediately give up on permanent failures
     const resumeFailFormatter = session.platform.getFormatter();
@@ -1009,7 +1213,7 @@ export async function handleExit(
       return;
     }
 
-    if (session.resumeFailCount >= MAX_RESUME_FAILURES) {
+    if (session.lifecycle.resumeFailCount >= MAX_RESUME_FAILURES) {
       // Too many failures - give up and delete from persistence
       sessionLog(session).warn(`Exceeded ${MAX_RESUME_FAILURES} resume failures, removing from persistence`);
       // Unregister from worktree but don't cleanup - user may want to recover work
@@ -1026,7 +1230,7 @@ export async function handleExit(
       // Still have retries left - persist with updated fail count
       ctx.ops.persistSession(session);
       await withErrorHandling(
-        () => postWarning(session, `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
+        () => post(session, 'warning', `${resumeFailFormatter.formatBold('Session resume failed')} (exit code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}). Will retry on next bot restart.`),
         { action: 'Post session resume failure', session }
       );
     }
@@ -1043,16 +1247,17 @@ export async function handleExit(
   cleanupSessionTimers(session);
   await closeThreadLogger(session, 'exit', { exitCode: code });
 
-  // Unpin task post on session exit
-  if (session.tasksPostId) {
-    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  // Unpin task post on session exit (get from MessageManager, source of truth)
+  const exitTaskState = session.messageManager?.getTaskListState();
+  if (exitTaskState?.postId) {
+    await session.platform.unpinPost(exitTaskState.postId).catch(() => {});
   }
 
   await ctx.ops.flush(session);
 
   if (code !== 0 && code !== null) {
     const exitFormatter = session.platform.getFormatter();
-    await postInfo(session, exitFormatter.formatBold(`[Exited: ${code}]`));
+    await post(session, 'info', exitFormatter.formatBold(`[Exited: ${code}]`));
   }
 
   // Unregister from worktree reference counting, but DON'T cleanup automatically
@@ -1063,13 +1268,8 @@ export async function handleExit(
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Clean up session from maps
-  ctx.ops.emitSessionRemove(session.sessionId);
-  mutableSessions(ctx).delete(session.sessionId);
-  cleanupPostIndex(ctx, session.threadId);
-
-  // Notify keep-alive that a session ended
-  keepAlive.sessionEnded();
+  // Clean up session from maps and notify keep-alive
+  removeFromRegistry(session, ctx);
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
@@ -1092,18 +1292,19 @@ export async function killSession(
   unpersist: boolean,
   ctx: SessionContext
 ): Promise<void> {
-  // Set restarting flag to prevent handleExit from also unpersisting
+  // Set restarting state to prevent handleExit from also unpersisting
   if (!unpersist) {
-    session.isRestarting = true;
+    transitionTo(session, 'restarting');
   }
 
   ctx.ops.stopTyping(session);
   await closeThreadLogger(session, 'kill', { unpersist });
   session.claude.kill();
 
-  // Unpin task post on session kill
-  if (session.tasksPostId) {
-    await session.platform.unpinPost(session.tasksPostId).catch(() => {});
+  // Unpin task post on session kill (get from MessageManager, source of truth)
+  const killTaskState = session.messageManager?.getTaskListState();
+  if (killTaskState?.postId) {
+    await session.platform.unpinPost(killTaskState.postId).catch(() => {});
   }
 
   // Unregister from worktree reference counting, but DON'T cleanup automatically
@@ -1112,13 +1313,8 @@ export async function killSession(
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Clean up session from maps
-  ctx.ops.emitSessionRemove(session.sessionId);
-  mutableSessions(ctx).delete(session.sessionId);
-  cleanupPostIndex(ctx, session.threadId);
-
-  // Notify keep-alive that a session ended
-  keepAlive.sessionEnded();
+  // Clean up session from maps and notify keep-alive
+  removeFromRegistry(session, ctx);
 
   // Explicitly unpersist if requested
   if (unpersist) {
@@ -1193,7 +1389,7 @@ export async function cleanupIdleSessions(
       } else {
         // Create new timeout post (no warning was posted)
         const timeoutPost = await withErrorHandling(
-          () => postTimeout(session, timeoutMessage),
+          () => post(session, 'timeout', timeoutMessage),
           { action: 'Post session timeout', session }
         );
         if (timeoutPost) {
@@ -1202,7 +1398,7 @@ export async function cleanupIdleSessions(
         }
       }
       // Mark as paused so it won't auto-resume on bot restart
-      session.isPaused = true;
+      transitionTo(session, 'paused');
       ctx.ops.persistSession(session);
 
       // Kill without unpersisting to allow resume
@@ -1221,7 +1417,7 @@ export async function cleanupIdleSessions(
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(
-        () => postTimeout(session, warningMessage),
+        () => post(session, 'timeout', warningMessage),
         { action: 'Post timeout warning', session }
       );
       if (warningPost) {

@@ -3,19 +3,15 @@
   "entry": [
     "src/index.ts",
     "src/mcp/permission-server.ts",
-    "src/statusline/writer.ts"
-  ],
-  "project": ["src/**/*.ts", "src/**/*.tsx"],
-  "ignore": [
+    "src/statusline/writer.ts",
     "src/**/*.test.ts",
-    "src/test-utils/**/*",
-    "tests/**/*"
+    "tests/**/*.ts"
+  ],
+  "project": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts"],
+  "ignore": [
+    "src/test-utils/**/*"
   ],
   "ignoreDependencies": ["prettier"],
-  "ignoreBinaries": ["pkill", "sleep", "dist/index.js", "prettier"],
-  "ignoreExportsUsedInFile": true,
-  "rules": {
-    "exports": "off",
-    "types": "off"
-  }
+  "ignoreBinaries": ["pkill", "sleep", "prettier", "knip", "dist/index.js"],
+  "ignoreExportsUsedInFile": true
 }

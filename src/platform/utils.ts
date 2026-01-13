@@ -11,6 +11,20 @@
  */
 
 // =============================================================================
+// String Utilities
+// =============================================================================
+
+/**
+ * Escape special regex characters in a string to prevent regex injection.
+ *
+ * @param string - The string to escape
+ * @returns String with special regex characters escaped
+ */
+export function escapeRegExp(string: string): string {
+  return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+// =============================================================================
 // Platform Icons
 // =============================================================================
 
@@ -34,19 +48,6 @@ export function getPlatformIcon(platformType: string): string {
 // =============================================================================
 // Message Utilities
 // =============================================================================
-
-/**
- * Truncate a message to fit within a maximum length.
- * Adds ellipsis if truncated.
- *
- * @param message - The message to truncate
- * @param maxLength - Maximum allowed length
- * @returns Truncated message
- */
-export function truncateMessage(message: string, maxLength: number): string {
-  if (message.length <= maxLength) return message;
-  return message.substring(0, maxLength - 3) + '...';
-}
 
 /**
  * Truncate a message safely, properly closing any open code blocks.
@@ -79,118 +80,6 @@ export function truncateMessageSafely(
   }
 
   return truncated + '\n\n' + truncationIndicator;
-}
-
-/**
- * Split a long message into chunks at natural breakpoints.
- * Tries to break at paragraph boundaries, then sentence boundaries.
- *
- * @param content - The content to split
- * @param maxLength - Maximum length per chunk
- * @returns Array of message chunks
- */
-export function splitMessage(content: string, maxLength: number): string[] {
-  if (content.length <= maxLength) return [content];
-
-  const chunks: string[] = [];
-  let remaining = content;
-
-  while (remaining.length > 0) {
-    if (remaining.length <= maxLength) {
-      chunks.push(remaining);
-      break;
-    }
-
-    // Try to find a good break point
-    const breakPoint = findBreakPoint(remaining, maxLength);
-
-    chunks.push(remaining.substring(0, breakPoint).trim());
-    remaining = remaining.substring(breakPoint).trim();
-  }
-
-  return chunks;
-}
-
-/**
- * Find a natural break point in text.
- * Priority: paragraph > sentence > word > hard break
- */
-function findBreakPoint(text: string, maxLength: number): number {
-  const searchWindow = text.substring(0, maxLength);
-
-  // Try paragraph break (double newline)
-  const paragraphBreak = searchWindow.lastIndexOf('\n\n');
-  if (paragraphBreak > maxLength * 0.5) {
-    return paragraphBreak + 2;
-  }
-
-  // Try single newline
-  const lineBreak = searchWindow.lastIndexOf('\n');
-  if (lineBreak > maxLength * 0.7) {
-    return lineBreak + 1;
-  }
-
-  // Try sentence break
-  const sentenceBreaks = ['. ', '! ', '? '];
-  for (const sep of sentenceBreaks) {
-    const idx = searchWindow.lastIndexOf(sep);
-    if (idx > maxLength * 0.5) {
-      return idx + sep.length;
-    }
-  }
-
-  // Try word break (space)
-  const spaceBreak = searchWindow.lastIndexOf(' ');
-  if (spaceBreak > maxLength * 0.5) {
-    return spaceBreak + 1;
-  }
-
-  // Hard break at max length
-  return maxLength;
-}
-
-// =============================================================================
-// Mention Utilities
-// =============================================================================
-
-/**
- * Extract usernames mentioned in a message.
- * Handles common mention formats: @username, <@userid>
- *
- * @param message - The message to parse
- * @returns Array of mentioned usernames/IDs
- */
-export function extractMentions(message: string): string[] {
-  const mentions: string[] = [];
-
-  // Pattern: @username (word characters)
-  const atPattern = /@(\w+)/g;
-  let match;
-  while ((match = atPattern.exec(message)) !== null) {
-    mentions.push(match[1]);
-  }
-
-  // Pattern: <@USERID> (Slack-style)
-  const slackPattern = /<@([A-Z0-9]+)>/g;
-  while ((match = slackPattern.exec(message)) !== null) {
-    mentions.push(match[1]);
-  }
-
-  return [...new Set(mentions)]; // Deduplicate
-}
-
-/**
- * Check if a message mentions a specific user.
- *
- * @param message - The message to check
- * @param usernameOrId - Username or user ID to look for
- * @returns True if the user is mentioned
- */
-export function isMentioned(message: string, usernameOrId: string): boolean {
-  const mentions = extractMentions(message);
-  return mentions.some(m =>
-    m.toLowerCase() === usernameOrId.toLowerCase()
-  );
 }
 
 // =============================================================================
@@ -234,80 +123,51 @@ export function normalizeEmojiName(emojiName: string): string {
 }
 
 /**
- * Mapping from emoji shortcode names to Unicode characters.
- * Used for converting shortcode names to display emoji.
- */
-const EMOJI_NAME_TO_UNICODE: Record<string, string> = {
-  '+1': '👍',
-  '-1': '👎',
-  'white_check_mark': '✅',
-  'x': '❌',
-  'warning': '⚠️',
-  'stop': '🛑',
-  'pause': '⏸️',
-  'arrow_forward': '▶️',
-  'one': '1️⃣',
-  'two': '2️⃣',
-  'three': '3️⃣',
-  'four': '4️⃣',
-  'five': '5️⃣',
-  'six': '6️⃣',
-  'seven': '7️⃣',
-  'eight': '8️⃣',
-  'nine': '9️⃣',
-  'keycap_ten': '🔟',
-  'zero': '0️⃣',
-  'robot': '🤖',
-  'gear': '⚙️',
-  'lock': '🔐',
-  'unlock': '🔓',
-  'file_folder': '📁',
-  'page_facing_up': '📄',
-  'memo': '📝',
-  'stopwatch': '⏱️',
-  'hourglass': '⏳',
-  'seedling': '🌱',
-  'evergreen_tree': '🌲',
-  'deciduous_tree': '🌳',
-  'thread': '🧵',
-  // Additional emoji used in update messages and throughout the app
-  'arrows_counterclockwise': '🔄',
-  'package': '📦',
-  'partying_face': '🎉',
-  'hourglass_flowing_sand': '⏳',
-  'herb': '🌿',
-  'bust_in_silhouette': '👤',
-  'clipboard': '📋',
-  'small_red_triangle_down': '🔽',
-  'arrow_down_small': '🔽',
-  'new': '🆕',
-};
-
-/**
  * Mapping from Unicode emoji characters to shortcode names.
  * Used for converting Unicode emoji to platform-specific shortcodes.
- * Generated by inverting EMOJI_NAME_TO_UNICODE.
  */
-const EMOJI_UNICODE_TO_NAME: Record<string, string> = Object.fromEntries(
-  Object.entries(EMOJI_NAME_TO_UNICODE).map(([name, unicode]) => [unicode, name])
-);
-
-/**
- * Get the display emoji character for an emoji name.
- * Falls back to the name in colons if unknown.
- *
- * @param emojiName - The emoji name
- * @returns Emoji character or :name:
- */
-export function getEmojiCharacter(emojiName: string): string {
-  const normalized = normalizeEmojiName(emojiName);
-  return EMOJI_NAME_TO_UNICODE[normalized] ?? `:${emojiName}:`;
-}
-
-// NOTE: convertUnicodeEmojiToShortcodes was removed because modern Mattermost
-// clients (7.x+) render Unicode emoji natively. The conversion was causing issues
-// because not all shortcodes (like :stopwatch:, :pause:) are recognized by all
-// Mattermost instances.
+const EMOJI_UNICODE_TO_NAME: Record<string, string> = {
+  '👍': '+1',
+  '👎': '-1',
+  '✅': 'white_check_mark',
+  '❌': 'x',
+  '⚠️': 'warning',
+  '🛑': 'stop',
+  '⏸️': 'pause',
+  '▶️': 'arrow_forward',
+  '1️⃣': 'one',
+  '2️⃣': 'two',
+  '3️⃣': 'three',
+  '4️⃣': 'four',
+  '5️⃣': 'five',
+  '6️⃣': 'six',
+  '7️⃣': 'seven',
+  '8️⃣': 'eight',
+  '9️⃣': 'nine',
+  '🔟': 'keycap_ten',
+  '0️⃣': 'zero',
+  '🤖': 'robot',
+  '⚙️': 'gear',
+  '🔐': 'lock',
+  '🔓': 'unlock',
+  '📁': 'file_folder',
+  '📄': 'page_facing_up',
+  '📝': 'memo',
+  '⏱️': 'stopwatch',
+  '⏳': 'hourglass',
+  '🌱': 'seedling',
+  '🌲': 'evergreen_tree',
+  '🌳': 'deciduous_tree',
+  '🧵': 'thread',
+  '🔄': 'arrows_counterclockwise',
+  '📦': 'package',
+  '🎉': 'partying_face',
+  '🌿': 'herb',
+  '👤': 'bust_in_silhouette',
+  '📋': 'clipboard',
+  '🔽': 'small_red_triangle_down',
+  '🆕': 'new',
+};
 
 /**
  * Convert a Unicode emoji character to its shortcode name.
@@ -328,173 +188,6 @@ export function getEmojiName(emoji: string): string {
   }
   // Otherwise assume it's already a name (or unknown emoji)
   return emoji;
-}
-
-// =============================================================================
-// Code Block Utilities
-// =============================================================================
-
-/**
- * Check if content contains a code block.
- *
- * @param content - The content to check
- * @returns True if contains code block
- */
-export function containsCodeBlock(content: string): boolean {
-  return content.includes('```');
-}
-
-/**
- * Extract code blocks from content.
- *
- * @param content - The content to parse
- * @returns Array of {language, code} objects
- */
-export function extractCodeBlocks(content: string): Array<{ language: string; code: string }> {
-  const blocks: Array<{ language: string; code: string }> = [];
-  const regex = /```(\w*)\n?([\s\S]*?)```/g;
-
-  let match;
-  while ((match = regex.exec(content)) !== null) {
-    blocks.push({
-      language: match[1] || '',
-      code: match[2].trim(),
-    });
-  }
-
-  return blocks;
-}
-
-/**
- * Wrap code in a code block with optional language.
- *
- * @param code - The code to wrap
- * @param language - Optional language for syntax highlighting
- * @returns Formatted code block with trailing newline
- */
-export function formatCodeBlock(code: string, language?: string): string {
-  const lang = language ?? '';
-  // Add trailing newline to ensure proper rendering when followed by text
-  return '```' + lang + '\n' + code + '\n```\n';
-}
-
-// =============================================================================
-// URL Utilities
-// =============================================================================
-
-/**
- * Extract URLs from a message.
- *
- * @param message - The message to parse
- * @returns Array of URLs found
- */
-export function extractUrls(message: string): string[] {
-  const urlRegex = /https?:\/\/[^\s<>"[\]]+/gi;
-  return message.match(urlRegex) ?? [];
-}
-
-/**
- * Check if a string is a valid URL.
- *
- * @param str - The string to check
- * @returns True if valid URL
- */
-export function isValidUrl(str: string): boolean {
-  try {
-    new URL(str);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// =============================================================================
-// Retry Utilities
-// =============================================================================
-
-/**
- * Retry an async operation with exponential backoff.
- *
- * @param operation - The async operation to retry
- * @param options - Retry options
- * @returns The result of the operation
- */
-export async function withRetry<T>(
-  operation: () => Promise<T>,
-  options: {
-    maxRetries?: number;
-    baseDelayMs?: number;
-    maxDelayMs?: number;
-    shouldRetry?: (error: unknown) => boolean;
-  } = {}
-): Promise<T> {
-  const {
-    maxRetries = 3,
-    baseDelayMs = 1000,
-    maxDelayMs = 30000,
-    shouldRetry = () => true,
-  } = options;
-
-  let lastError: unknown;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-
-      if (attempt === maxRetries || !shouldRetry(error)) {
-        throw error;
-      }
-
-      // Exponential backoff with jitter
-      const delay = Math.min(
-        baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000,
-        maxDelayMs
-      );
-
-      await sleep(delay);
-    }
-  }
-
-  throw lastError;
-}
-
-/**
- * Sleep for a given number of milliseconds.
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-// =============================================================================
-// Validation Utilities
-// =============================================================================
-
-/**
- * Validate that a user is in the allowed list.
- *
- * @param username - Username to check
- * @param allowedUsers - Set of allowed usernames
- * @returns True if allowed
- */
-export function isUserAllowed(username: string, allowedUsers: Set<string>): boolean {
-  return allowedUsers.has(username) || allowedUsers.size === 0;
-}
-
-/**
- * Sanitize a message for logging (remove sensitive info).
- *
- * @param message - The message to sanitize
- * @returns Sanitized message
- */
-export function sanitizeForLogging(message: string): string {
-  // Remove potential tokens/secrets
-  return message
-    .replace(/Bearer\s+[^\s]+/gi, 'Bearer [REDACTED]')
-    .replace(/token[=:]\s*["']?[^"'\s]+["']?/gi, 'token=[REDACTED]')
-    .replace(/password[=:]\s*["']?[^"'\s]+["']?/gi, 'password=[REDACTED]')
-    .replace(/secret[=:]\s*["']?[^"'\s]+["']?/gi, 'secret=[REDACTED]');
 }
 
 // =============================================================================

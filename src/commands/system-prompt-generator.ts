@@ -135,15 +135,3 @@ Commands you should NOT use (counterproductive):
 ${avoidCommands.map(c => `- \`!${c.command}\` - ${c.reason}`).join('\n')}
 `.trim();
 }
-
-/**
- * Build the full system prompt with session context.
- */
-export function buildFullSystemPrompt(
-  platform: { platformType: string; displayName: string },
-  workingDir: string
-): string {
-  const sessionContext = buildSessionContext(platform, workingDir);
-  const chatPrompt = generateChatPlatformPrompt();
-  return `${sessionContext}\n\n${chatPrompt}`;
-}

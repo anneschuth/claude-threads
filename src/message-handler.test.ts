@@ -39,11 +39,19 @@ function createMockPlatform(botName = 'claude-bot') {
 
 // Create mock session manager
 function createMockSessionManager() {
+  const mockGetActiveThreadIds = mock(() => [] as string[]);
+  // Registry mocks - default to not finding sessions
+  const mockFindByThreadId = mock(() => undefined);
+  const mockGetPersistedByThreadId = mock(() => undefined);
   return {
-    isInSessionThread: mock(() => false),
-    hasPausedSession: mock(() => false),
+    // Note: isInSessionThread and hasPausedSession removed - code uses registry directly
     isUserAllowedInSession: mock(() => true),
-    getActiveThreadIds: mock(() => []),
+    getActiveThreadIds: mockGetActiveThreadIds,
+    registry: {
+      getActiveThreadIds: mockGetActiveThreadIds,
+      findByThreadId: mockFindByThreadId,
+      getPersistedByThreadId: mockGetPersistedByThreadId,
+    },
     getPersistedSession: mock(() => undefined),
     killAllSessions: mock(async () => {}),
     cancelSession: mock(async () => {}),
@@ -149,7 +157,8 @@ describe('handleMessage', () => {
 
   describe('active session thread', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      // Configure registry to return a session object (active session exists)
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
     test('handles !stop command', async () => {
@@ -380,8 +389,8 @@ describe('handleMessage', () => {
 
   describe('paused session', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(false);
-      (session.hasPausedSession as any).mockReturnValue(true);
+      // Configure registry to return a persisted session (paused session exists)
+      (session.registry.getPersistedByThreadId as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
       (session.getPersistedSession as any).mockReturnValue({
         sessionAllowedUsers: ['allowed-user'],
       });
@@ -591,7 +600,7 @@ describe('handleMessage', () => {
 
   describe('!permissions auto command', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
     test('rejects upgrade to auto permissions', async () => {
@@ -617,7 +626,7 @@ describe('handleMessage', () => {
 
   describe('!worktree commands', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
     test('handles !worktree switch without branch name', async () => {
@@ -714,7 +723,7 @@ describe('handleMessage', () => {
 
   describe('Claude Code slash commands', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
     test('handles !context command', async () => {
@@ -903,7 +912,7 @@ describe('handleMessage', () => {
 
   describe('!release-notes command', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
     test('shows release notes when available', async () => {
@@ -947,7 +956,7 @@ describe('handleMessage', () => {
 
   describe('pending worktree prompt', () => {
     beforeEach(() => {
-      (session.isInSessionThread as any).mockReturnValue(true);
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
       (session.hasPendingWorktreePrompt as any).mockReturnValue(true);
     });
 

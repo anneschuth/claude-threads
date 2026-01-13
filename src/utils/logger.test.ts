@@ -37,7 +37,7 @@ describe('createLogger', () => {
       process.env.DEBUG = '1';
       const logger = createLogger('test');
       logger.debug('test message');
-      expect(consoleLogSpy).toHaveBeenCalledWith('  [test] test message');
+      expect(consoleLogSpy).toHaveBeenCalledWith('[test      ] test message');
       expect(consoleErrorSpy).not.toHaveBeenCalled();
     });
 
@@ -45,7 +45,7 @@ describe('createLogger', () => {
       process.env.DEBUG = '1';
       const logger = createLogger('test', true);
       logger.debug('test message');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] test message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] test message');
       expect(consoleLogSpy).not.toHaveBeenCalled();
     });
 
@@ -61,13 +61,13 @@ describe('createLogger', () => {
     it('always logs to stdout when useStderr=false', () => {
       const logger = createLogger('test');
       logger.info('info message');
-      expect(consoleLogSpy).toHaveBeenCalledWith('  [test] info message');
+      expect(consoleLogSpy).toHaveBeenCalledWith('[test      ] info message');
     });
 
     it('logs to stderr when useStderr=true', () => {
       const logger = createLogger('test', true);
       logger.info('info message');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] info message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] info message');
     });
 
     it('logs even when DEBUG is not set', () => {
@@ -81,7 +81,7 @@ describe('createLogger', () => {
     it('always logs to console.warn', () => {
       const logger = createLogger('test');
       logger.warn('warn message');
-      expect(consoleWarnSpy).toHaveBeenCalledWith('  [test] ⚠️ warn message');
+      expect(consoleWarnSpy).toHaveBeenCalledWith('[test      ] ⚠️ warn message');
     });
 
     it('logs even when DEBUG is not set', () => {
@@ -95,13 +95,13 @@ describe('createLogger', () => {
     it('always logs to stderr with error emoji', () => {
       const logger = createLogger('test');
       logger.error('error message');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] ❌ error message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] ❌ error message');
     });
 
     it('logs to stderr even when useStderr=false', () => {
       const logger = createLogger('test', false);
       logger.error('error message');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] ❌ error message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] ❌ error message');
     });
 
     it('logs even when DEBUG is not set', () => {
@@ -115,7 +115,7 @@ describe('createLogger', () => {
       const logger = createLogger('test');
       const testError = new Error('test error');
       logger.error('error message', testError);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] ❌ error message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] ❌ error message');
       expect(consoleErrorSpy).toHaveBeenCalledWith(testError);
     });
 
@@ -124,28 +124,29 @@ describe('createLogger', () => {
       const testError = new Error('test error');
       logger.error('error message', testError);
       expect(consoleErrorSpy).toHaveBeenCalledTimes(1);
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [test] ❌ error message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[test      ] ❌ error message');
     });
   });
 
   describe('prefix formatting', () => {
-    it('includes component name in brackets with indent in debug messages', () => {
+    it('includes component name in brackets padded to fixed width', () => {
       process.env.DEBUG = '1';
-      const logger = createLogger('MyComponent');
+      const logger = createLogger('mycomp');
       logger.debug('my message');
-      expect(consoleLogSpy).toHaveBeenCalledWith('  [MyComponent] my message');
+      expect(consoleLogSpy).toHaveBeenCalledWith('[mycomp    ] my message');
     });
 
-    it('includes component name in brackets with indent in info messages', () => {
-      const logger = createLogger('MyComponent');
+    it('truncates long component names to fixed width', () => {
+      const logger = createLogger('verylongcomponent');
       logger.info('my message');
-      expect(consoleLogSpy).toHaveBeenCalledWith('  [MyComponent] my message');
+      // Component name truncated to 10 chars
+      expect(consoleLogSpy).toHaveBeenCalledWith('[verylongco] my message');
     });
 
-    it('includes component name in brackets with indent in error messages', () => {
-      const logger = createLogger('MyComponent');
+    it('pads short component names to fixed width', () => {
+      const logger = createLogger('short');
       logger.error('my message');
-      expect(consoleErrorSpy).toHaveBeenCalledWith('  [MyComponent] ❌ my message');
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[short     ] ❌ my message');
     });
   });
 });
@@ -174,7 +175,7 @@ describe('pre-configured loggers', () => {
   });
 });
 
-import { setLogHandler, lifecycleLogger, eventsLogger } from './logger.js';
+import { setLogHandler } from './logger.js';
 import { mock } from 'bun:test';
 
 describe('setLogHandler', () => {
@@ -202,10 +203,11 @@ describe('setLogHandler', () => {
     const handler = mock(() => {});
     setLogHandler(handler);
 
-    const logger = createLogger('mycomponent');
+    const logger = createLogger('mycomp');
     logger.info('Test message');
 
-    expect(handler).toHaveBeenCalledWith('info', 'mycomponent', 'Test message', undefined);
+    // Handler receives padded component name
+    expect(handler).toHaveBeenCalledWith('info', 'mycomp    ', 'Test message', undefined);
     expect(consoleLogSpy).not.toHaveBeenCalled();
   });
 
@@ -216,7 +218,7 @@ describe('setLogHandler', () => {
     const logger = createLogger('comp');
     logger.warn('Warning message');
 
-    expect(handler).toHaveBeenCalledWith('warn', 'comp', 'Warning message', undefined);
+    expect(handler).toHaveBeenCalledWith('warn', 'comp      ', 'Warning message', undefined);
   });
 
   it('routes error logs through custom handler', () => {
@@ -226,7 +228,7 @@ describe('setLogHandler', () => {
     const logger = createLogger('comp');
     logger.error('Error message');
 
-    expect(handler).toHaveBeenCalledWith('error', 'comp', 'Error message', undefined);
+    expect(handler).toHaveBeenCalledWith('error', 'comp      ', 'Error message', undefined);
   });
 
   it('routes debug logs through custom handler when DEBUG=1', () => {
@@ -237,7 +239,7 @@ describe('setLogHandler', () => {
     const logger = createLogger('comp');
     logger.debug('Debug message');
 
-    expect(handler).toHaveBeenCalledWith('debug', 'comp', 'Debug message', undefined);
+    expect(handler).toHaveBeenCalledWith('debug', 'comp      ', 'Debug message', undefined);
   });
 
   it('routes debugJson logs through custom handler when DEBUG=1', () => {
@@ -248,7 +250,7 @@ describe('setLogHandler', () => {
     const logger = createLogger('comp');
     logger.debugJson('Data', { key: 'value' });
 
-    expect(handler).toHaveBeenCalledWith('debug', 'comp', 'Data: {"key":"value"}', undefined);
+    expect(handler).toHaveBeenCalledWith('debug', 'comp      ', 'Data: {"key":"value"}', undefined);
   });
 
   it('reverts to console when handler is set to null', () => {
@@ -290,7 +292,7 @@ describe('forSession', () => {
     const sessionLogger = logger.forSession('session-123');
     sessionLogger.info('Session message');
 
-    expect(handler).toHaveBeenCalledWith('info', 'test', 'Session message', 'session-123');
+    expect(handler).toHaveBeenCalledWith('info', 'test      ', 'Session message', 'session-123');
   });
 
   it('returns a logger with all expected methods', () => {
@@ -315,7 +317,7 @@ describe('forSession', () => {
     sessionLogger2.info('Nested session');
 
     // The second forSession should override the sessionId
-    expect(handler).toHaveBeenCalledWith('info', 'test', 'Nested session', 'session-2');
+    expect(handler).toHaveBeenCalledWith('info', 'test      ', 'Nested session', 'session-2');
   });
 });
 
@@ -342,7 +344,7 @@ describe('debugJson', () => {
     const logger = createLogger('test');
     logger.debugJson('Data', { key: 'value' });
 
-    expect(consoleLogSpy).toHaveBeenCalledWith('  [test] Data: {"key":"value"}');
+    expect(consoleLogSpy).toHaveBeenCalledWith('[test      ] Data: {"key":"value"}');
   });
 
   it('does not log when DEBUG is not set', () => {
@@ -388,18 +390,7 @@ describe('debugJson', () => {
     const call = consoleLogSpy.mock.calls[0] as unknown[];
     const message = call[0] as string;
     expect(message).not.toContain('…');
-    expect(message).toBe('  [test] Small: {"x":1}');
+    expect(message).toBe('[test      ] Small: {"x":1}');
   });
 });
 
-describe('additional pre-configured loggers', () => {
-  it('lifecycleLogger exists and has forSession', () => {
-    expect(lifecycleLogger).toBeDefined();
-    expect(typeof lifecycleLogger.forSession).toBe('function');
-  });
-
-  it('eventsLogger exists and has debugJson', () => {
-    expect(eventsLogger).toBeDefined();
-    expect(typeof eventsLogger.debugJson).toBe('function');
-  });
-});

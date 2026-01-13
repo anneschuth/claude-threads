@@ -18,9 +18,8 @@ import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
 import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
-import { startUI, type UIInstance } from './ui/index.js';
+import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
-import { setSessionLogHandler } from './utils/format.js';
 import { handleMessage } from './message-handler.js';
 import { AutoUpdateManager } from './auto-update/index.js';
 import {
@@ -55,7 +54,7 @@ function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
   session: SessionManager,
-  ui: UIInstance
+  ui: UIProvider
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
@@ -304,7 +303,7 @@ async function main() {
   const sessionStore = new SessionStore();
 
   // Start the UI (Ink TUI or headless depending on mode)
-  const ui: UIInstance = await startUI({
+  const ui: UIProvider = await startUI({
     config: {
       version: VERSION,
       workingDir,
@@ -411,13 +410,7 @@ async function main() {
     ui.addLog({ level, component, message, sessionId });
   });
 
-  // Route session-specific logs through the UI
-  // Session ID allows routing to the correct session panel
-  setSessionLogHandler((level, message, sessionId) => {
-    ui.addLog({ level, component: 'session', message, sessionId });
-  });
-
-  // Now that output handler is set, enable keep-alive (will route logs through UI)
+  // Now that log handler is set, enable keep-alive (will route logs through UI)
   keepAlive.setEnabled(keepAliveEnabled);
 
   // Create session manager (shared across all platforms)

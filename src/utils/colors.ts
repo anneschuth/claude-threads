@@ -21,7 +21,5 @@ export const colors = {
 // Helper functions for styling text
 export const dim = (s: string): string => `${colors.dim}${s}${colors.reset}`;
 export const bold = (s: string): string => `${colors.bold}${s}${colors.reset}`;
-export const cyan = (s: string): string => `${colors.cyan}${s}${colors.reset}`;
 export const green = (s: string): string => `${colors.green}${s}${colors.reset}`;
 export const red = (s: string): string => `${colors.red}${s}${colors.reset}`;
-export const yellow = (s: string): string => `${colors.yellow}${s}${colors.reset}`;

@@ -10,6 +10,7 @@ import type { SessionManager } from './session/index.js';
 import { VERSION } from './version.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { parseCommand, generateHelpMessage } from './commands/index.js';
+import { logSilentError } from './utils/error-handler/index.js';
 
 /**
  * Logger interface for message handler
@@ -63,23 +64,23 @@ export async function handleMessage(
         return;
       }
       // Post confirmation to the channel where !kill was issued
-      const activeCount = session.getActiveThreadIds().length;
+      const activeCount = session.registry.getActiveThreadIds().length;
       try {
         await client.createPost(
           `🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} initiated by ${formatter.formatUserMention(username)} - killing ${activeCount} active session${activeCount !== 1 ? 's' : ''}`,
           threadRoot
         );
-      } catch {
-        /* ignore - we're shutting down anyway */
+      } catch (err) {
+        logSilentError('kill-confirmation-post', err);
       }
 
       // Notify all other active sessions before killing
-      for (const tid of session.getActiveThreadIds()) {
+      for (const tid of session.registry.getActiveThreadIds()) {
         if (tid === threadRoot) continue; // Skip the thread where we already posted
         try {
           await client.createPost(`🔴 ${formatter.formatBold('EMERGENCY SHUTDOWN')} by ${formatter.formatUserMention(username)}`, tid);
-        } catch {
-          /* ignore */
+        } catch (err) {
+          logSilentError('kill-notify-session', err);
         }
       }
       logger?.error(`EMERGENCY SHUTDOWN initiated by @${username}`);
@@ -91,7 +92,9 @@ export async function handleMessage(
     }
 
     // Follow-up in active thread
-    if (session.isInSessionThread(threadRoot)) {
+    // Use registry to check for active session directly
+    const hasActiveSession = session.registry.findByThreadId(threadRoot) !== undefined;
+    if (hasActiveSession) {
       // If message starts with @mention to someone else, ignore it (side conversation)
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
@@ -265,7 +268,9 @@ export async function handleMessage(
     }
 
     // Check for paused session that can be resumed
-    if (session.hasPausedSession(threadRoot)) {
+    // Use registry to check for persisted session directly
+    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
+    if (hasPausedSession) {
       // If message starts with @mention to someone else, ignore it (side conversation)
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
@@ -279,8 +284,7 @@ export async function handleMessage(
       // Check if user is allowed in the paused session
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        // Defensive: handle missing sessionAllowedUsers (old Bristol data)
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || []);
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
         if (!allowedUsers.has(username) && !client.isUserAllowed(username)) {
           // Not allowed - could request approval but that would require the session to be active
           await client.createPost(
@@ -345,8 +349,8 @@ export async function handleMessage(
     // Try to notify user if possible
     try {
       await client.createPost(`⚠️ An error occurred. Please try again.`, threadRoot);
-    } catch {
-      // Ignore if we can't post the error message
+    } catch (err) {
+      logSilentError('error-notification-post', err);
     }
   }
 }

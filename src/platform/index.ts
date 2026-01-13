@@ -11,10 +11,8 @@ export type { PlatformClient, PlatformClientEvents } from './client.js';
 export type { PlatformFormatter } from './formatter.js';
 export type {
   PermissionApi,
-  PermissionApiConfig,
   MattermostPermissionApiConfig,
   SlackPermissionApiConfig,
-  LegacyPermissionApiConfig,
   ReactionEvent,
   PostedMessage,
 } from './permission-api.js';
@@ -25,9 +23,6 @@ export type {
   PlatformPost,
   PlatformReaction,
   PlatformFile,
-  CreatePostRequest,
-  UpdatePostRequest,
-  AddReactionRequest,
   ThreadMessage,
 } from './types.js';
 

@@ -60,11 +60,18 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 **Session contains:**
 - `claude: ClaudeCli` - the Claude CLI process
 - `claudeSessionId: string` - UUID for session persistence/resume
-- `pendingApproval`, `pendingQuestionSet`, `pendingMessageApproval`, `pendingContextPrompt` - interactive state
+- `messageManager: MessageManager` - orchestrates all message operations and state
 - `sessionAllowedUsers: Set<string>` - per-session allowlist (includes session owner)
-- `updateTimer`, `typingTimer` - per-session timers
-- `activeSubagents: Map<toolUseId, postId>` - subagent tracking
 - `isResumed: boolean` - whether session was resumed after restart
+
+**MessageManager contains executors that own their state:**
+- `ContentExecutor` - content streaming state
+- `TaskListExecutor` - task list display state
+- `QuestionApprovalExecutor` - pending questions/approvals
+- `PromptExecutor` - context prompts, worktree prompts, update prompts
+- `SubagentExecutor` - active subagent tracking
+- `MessageApprovalExecutor` - unauthorized message approval
+- `BugReportExecutor` - bug report flow
 
 **MCP Permission Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
@@ -141,27 +148,55 @@ Configuration is stored in YAML only - no `.env` file support.
 | `src/config/migration.ts` | YAML config loading (`config.yaml`) |
 | `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
 
-### Session Management (Modular Architecture)
+### Session Management
 
-The session management is split into focused modules for maintainability:
+Session is a thin container; most logic lives in `src/operations/`:
 
 | File | Purpose |
 |------|---------|
-| `src/session/manager.ts` | **Orchestrator** - delegates to modules via unified SessionContext |
-| `src/session/context.ts` | **Unified context** - single interface for all module dependencies |
+| `src/session/manager.ts` | **Orchestrator** - creates sessions, routes messages/reactions |
 | `src/session/lifecycle.ts` | Session start, resume, exit, cleanup |
-| `src/session/events.ts` | Claude CLI event handling (assistant, tool_use, etc.) |
-| `src/session/commands.ts` | User commands (!cd, !invite, !kick, !permissions) |
-| `src/session/reactions.ts` | Emoji reaction handling (approvals, questions) |
-| `src/session/worktree.ts` | Git worktree management |
-| `src/session/streaming.ts` | Message batching and flushing to chat |
-| `src/session/context-prompt.ts` | Thread context prompt for mid-thread session starts |
-| `src/session/post-helpers.ts` | **NEW** - DRY utilities for posting messages (postInfo, postError, etc.) |
-| `src/session/error-handler.ts` | **NEW** - Centralized error handling with consistent patterns |
-| `src/session/types.ts` | TypeScript types (Session, PendingApproval, etc.) |
+| `src/session/types.ts` | TypeScript types (Session interface) |
+| `src/session/registry.ts` | Session lookup and registration |
+| `src/session/timer-manager.ts` | Per-session timer management |
 | `src/session/index.ts` | Public exports |
 
-**Design Pattern**: SessionManager uses a unified `SessionContext` interface to delegate to modules. This replaces the previous 4 separate context interfaces (LifecycleContext, EventContext, ReactionContext, CommandContext) with a single source of truth.
+### Operations Layer (The Brain)
+
+Most business logic lives in `src/operations/`:
+
+| File | Purpose |
+|------|---------|
+| `src/operations/message-manager.ts` | **The Brain** - orchestrates all operations via executors |
+| `src/operations/transformer.ts` | Transforms Claude events → MessageOperations |
+| `src/operations/types.ts` | Operation types (MessageOperation, TaskItem, etc.) |
+| `src/operations/post-helpers/` | DRY utilities for posting messages (postInfo, postError, etc.) |
+| `src/operations/events/handler.ts` | Claude CLI event handling |
+| `src/operations/commands/handler.ts` | User commands (!cd, !invite, !kick, !permissions) |
+| `src/operations/streaming/handler.ts` | Message batching and flushing to chat |
+| `src/operations/context-prompt/handler.ts` | Thread context prompt for mid-thread session starts |
+| `src/operations/worktree/handler.ts` | Git worktree management |
+| `src/operations/bug-report/handler.ts` | Bug report flow |
+| `src/operations/sticky-message/handler.ts` | Channel sticky message |
+| `src/operations/tool-formatters/` | Format tool use for display |
+
+### Executors (State Owners)
+
+Each executor owns a specific piece of interactive state:
+
+| File | Purpose |
+|------|---------|
+| `src/operations/executors/content.ts` | Content streaming state |
+| `src/operations/executors/task-list.ts` | Task list display |
+| `src/operations/executors/question-approval.ts` | Questions and plan approval |
+| `src/operations/executors/prompt.ts` | Context prompts, worktree prompts, update prompts |
+| `src/operations/executors/subagent.ts` | Subagent tracking |
+| `src/operations/executors/message-approval.ts` | Unauthorized message approval |
+| `src/operations/executors/bug-report.ts` | Bug report flow |
+| `src/operations/executors/system.ts` | System messages |
+| `src/operations/executors/worktree-prompt.ts` | Worktree prompts |
+
+**Design Pattern**: MessageManager delegates to executors. Each executor owns its state and handles its reactions. This keeps Session minimal while centralizing all message operations.
 
 ### Claude CLI
 | File | Purpose |
@@ -192,9 +227,14 @@ The session management is split into focused modules for maintainability:
 | File | Purpose |
 |------|---------|
 | `src/utils/emoji.ts` | Emoji constants and validators (platform-agnostic) |
-| `src/utils/tool-formatter.ts` | Format tool use for display |
-| `src/utils/logger.ts` | **Enhanced** - Component-based logging with pre-configured loggers |
-| `src/utils/format.ts` | **NEW** - ID formatting, session logging, time/number formatting |
+| `src/utils/logger.ts` | Component-based logging with session context |
+| `src/utils/session-log.ts` | Session-aware logging utilities |
+| `src/utils/format.ts` | ID formatting, time/duration formatting |
+| `src/utils/colors.ts` | Terminal color utilities |
+| `src/utils/keep-alive.ts` | Prevent system sleep during sessions |
+| `src/utils/battery.ts` | Battery status monitoring |
+| `src/utils/uptime.ts` | Session uptime tracking |
+| `src/utils/pr-detector.ts` | Detect PR URLs in Claude output |
 | `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
 | `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
 | `src/platform/permission-api.ts` | PermissionApi interface |
@@ -272,7 +312,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run unit tests (444 tests)
+bun test             # Run unit tests (~1700 tests)
 bun run lint         # Run ESLint
 ```
 
@@ -283,7 +323,7 @@ Integration tests run the actual bot against a real Mattermost instance with a m
 ```bash
 # Run locally (requires Docker)
 bun run test:integration:setup    # Start Mattermost in Docker + create users/channels
-bun run test:integration:run      # Run 111 integration tests
+bun run test:integration:run      # Run ~120 integration tests
 bun run test:integration:teardown # Stop Mattermost
 
 # Or run all at once (CI style)
@@ -491,22 +531,23 @@ cat ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/SESSION_ID.jsonl
 
 ## Key Implementation Details
 
-### Event Flow (src/session/events.ts)
-Claude CLI emits JSON events. Key event types:
-- `assistant` → Claude's text response (streamed in chunks)
-- `tool_use` → Claude wants to use a tool (Read, Write, Bash, etc.)
-- `tool_result` → Result of tool execution
-- `result` → Final result with cost info
+### Event Flow (src/operations/transformer.ts → MessageManager)
+Claude CLI emits JSON events. The transformer converts them to MessageOperations:
+- `assistant` → `AppendContentOp` (text response)
+- `tool_use` → `AppendContentOp` (tool display) or special ops (TaskListOp, QuestionOp, etc.)
+- `tool_result` → `AppendContentOp` (result indicator) + `FlushOp`
+- `result` → `FlushOp` + `StatusUpdateOp` (cost info)
 
-### Message Streaming (src/session/streaming.ts)
-- Messages are batched and flushed periodically
+### Message Streaming (src/operations/streaming/handler.ts)
+- Messages are batched and flushed periodically via `FlushOp`
 - Long content is split across multiple posts (16K limit)
 - Diffs and code blocks use syntax highlighting
 
-### Reaction Handling (src/session/reactions.ts + MCP server)
-- Main bot handles: plan approval, question answers, message approval
-- MCP server handles: permission prompts
-- Both filter to only process allowed users' reactions
+### Reaction Handling (MessageManager → Executors)
+- `MessageManager.handleReaction()` routes to appropriate executor
+- Each executor handles its own pending state (questions, approvals, prompts)
+- MCP server handles: permission prompts (separate from main bot)
+- All filter to only process allowed users' reactions
 
 ## Backward Compatibility Requirements
 
@@ -540,6 +581,58 @@ When making changes to persisted data:
 2. Upgrade to the NEW code
 3. Verify the session resumes correctly
 4. Verify all features work (tasks, permissions, worktrees, etc.)
+
+### Red-Green Testing for Regression Fixes
+
+> **CRITICAL: Always verify your test is RED without the fix!**
+>
+> A test that passes regardless of whether the fix exists is USELESS.
+> It won't catch future regressions. This is the most common testing mistake.
+
+**The RED-GREEN-REFACTOR cycle:**
+
+| Step | Action | Verification |
+|------|--------|--------------|
+| 1. **RED** | Write test, temporarily remove fix | Test FAILS |
+| 2. **GREEN** | Apply the fix | Test PASSES |
+| 3. **REFACTOR** | Clean up code | All tests still pass |
+
+**The #1 Rule:**
+```
+TEST THE ACTUAL CODE PATH, NOT A COPY OF THE LOGIC!
+```
+
+- **WRONG**: Test duplicates the if/then logic inline in the test
+  - Test passes even if someone deletes the fix
+  - Useless for catching regressions
+
+- **RIGHT**: Test calls the actual function that contains the fix
+  - Test fails if fix is removed
+  - Actually protects against regressions
+
+**How to verify your test is RED:**
+```bash
+# 1. Temporarily comment out or revert the fix
+git diff src/path/to/file.ts  # Note what you're removing
+
+# 2. Run JUST your test - it MUST fail
+bun test --test-name-pattern "your test name"
+
+# 3. If test passes → YOUR TEST IS BROKEN, rewrite it!
+#    If test fails → Good! Now restore the fix.
+
+# 4. Run test again with fix - should pass
+bun test --test-name-pattern "your test name"
+
+# 5. Run all tests
+bun test
+```
+
+**Key principles:**
+- Test the specific function/method that contains the fix
+- If code is hard to test, refactor for testability FIRST
+- A regression test MUST fail if someone removes the fix
+- "Documents behavior" is NOT the same as "tests the code"
 
 ### Files That Store Persisted Data
 

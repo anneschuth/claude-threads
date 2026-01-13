@@ -1,7 +1,8 @@
 import { describe, it, expect, mock } from 'bun:test';
 import * as lifecycle from './lifecycle.js';
-import type { SessionContext } from './context.js';
+import type { SessionContext } from '../operations/session-context/index.js';
 import type { Session } from './types.js';
+import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
@@ -41,9 +42,75 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
 }
 
 /**
+ * Create a mock message manager for testing
+ */
+function createMockMessageManager() {
+  return {
+    closeCurrentPost: mock(() => Promise.resolve()),
+    handleEvent: mock(() => Promise.resolve()),
+    flush: mock(() => Promise.resolve()),
+    prepareForUserMessage: mock(() => Promise.resolve()),
+    handleUserMessage: mock(() => Promise.resolve(true)),
+    getCurrentPostId: mock(() => null),
+    getCurrentPostContent: mock(() => ''),
+    hasPendingQuestions: mock(() => false),
+    hasPendingApproval: mock(() => false),
+    getPendingApproval: mock(() => null),
+    getPendingQuestionSet: mock(() => null),
+    clearPendingApproval: mock(() => {}),
+    clearPendingQuestionSet: mock(() => {}),
+    advanceQuestionIndex: mock(() => {}),
+    handleQuestionAnswer: mock(() => Promise.resolve(false)),
+    handleApprovalResponse: mock(() => Promise.resolve(false)),
+    handleSubagentToggle: mock(() => Promise.resolve(false)),
+    handleTaskListToggle: mock(() => Promise.resolve(false)),
+    bumpTaskList: mock(() => Promise.resolve()),
+    getTaskListState: mock(() => ({ postId: null, content: null, isMinimized: false, isCompleted: false })),
+    hydrateTaskListState: mock(() => {}),
+    setWorktreeInfo: mock(() => {}),
+    clearWorktreeInfo: mock(() => {}),
+    postInfo: mock(() => Promise.resolve(undefined)),
+    postWarning: mock(() => Promise.resolve(undefined)),
+    postError: mock(() => Promise.resolve(undefined)),
+    postSuccess: mock(() => Promise.resolve(undefined)),
+    reset: mock(() => {}),
+    dispose: mock(() => {}),
+  };
+}
+
+/**
  * Create a mock session for testing
  */
-function createMockSession(overrides?: Partial<Session>): Session {
+function createMockSession(overrides?: Partial<Session> & {
+  // Legacy flag aliases for backward compatibility in tests
+  isRestarting?: boolean;
+  isCancelled?: boolean;
+  isResumed?: boolean;
+  wasInterrupted?: boolean;
+  hasClaudeResponded?: boolean;
+}): Session {
+  // Build lifecycle state from overrides or defaults
+  let lifecycle = createSessionLifecycle();
+  if (overrides?.isResumed) {
+    lifecycle = createResumedLifecycle();
+  }
+  if (overrides?.isRestarting) {
+    lifecycle.state = 'restarting';
+  }
+  if (overrides?.isCancelled) {
+    lifecycle.state = 'cancelling';
+  }
+  if (overrides?.wasInterrupted) {
+    lifecycle.state = 'interrupted';
+  }
+  if (overrides?.hasClaudeResponded) {
+    lifecycle.hasClaudeResponded = true;
+  }
+  // Allow direct lifecycle override
+  if (overrides?.lifecycle) {
+    lifecycle = overrides.lifecycle;
+  }
+
   return {
     sessionId: 'test-platform:thread-123',
     threadId: 'thread-123',
@@ -66,14 +133,9 @@ function createMockSession(overrides?: Partial<Session>): Session {
     taskListBuffer: '',
     sessionAllowedUsers: new Set(['testuser']),
     workingDir: '/test',
-    activeSubagents: new Map(),
-    updateTimer: null,
-    typingTimer: null,
-    subagentUpdateTimer: null,
-    isResumed: false,
+    timers: createSessionTimers(),
+    lifecycle,
     sessionStartPostId: 'start-post-id',
-    currentPostContent: '',
-    pendingContent: '',
     timeoutWarningPosted: false,
     tasksCompleted: false,
     tasksMinimized: false,
@@ -81,6 +143,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     tasksPostId: null,
     skipPermissions: true,
     forceInteractivePermissions: false,
+    messageManager: createMockMessageManager() as any,
     ...overrides,
   } as Session;
 }
@@ -123,7 +186,6 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       startTyping: mock(() => {}),
       stopTyping: mock(() => {}),
       flush: mock(() => Promise.resolve()),
-      appendContent: mock(() => {}),
       updateStickyMessage: mock(() => Promise.resolve()),
       updateSessionHeader: mock(() => Promise.resolve()),
       persistSession: mock(() => {}),
@@ -132,7 +194,6 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       postWorktreePrompt: mock(() => Promise.resolve()),
       buildMessageContent: mock((prompt) => Promise.resolve(prompt)),
       offerContextPrompt: mock(() => Promise.resolve(false)),
-      bumpTasksToBottom: mock(() => Promise.resolve()),
       killSession: mock(() => Promise.resolve()),
       emitSessionAdd: mock(() => {}),
       emitSessionUpdate: mock(() => {}),
@@ -140,6 +201,10 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       registerWorktreeUser: mock(() => {}),
       unregisterWorktreeUser: mock(() => {}),
       hasOtherSessionsUsingWorktree: mock(() => false),
+      switchToWorktree: mock(async () => {}),
+      forceUpdate: mock(async () => {}),
+      deferUpdate: mock(() => {}),
+      handleBugReportApproval: mock(async () => {}),
     },
   };
 }
@@ -271,36 +336,8 @@ describe('Lifecycle Module', () => {
 });
 
 describe('Session State Management', () => {
-  it('tracks active subagents', () => {
-    const session = createMockSession();
-
-    expect(session.activeSubagents.size).toBe(0);
-
-    const subagent1 = {
-      postId: 'post-1',
-      startTime: Date.now(),
-      description: 'Test task 1',
-      subagentType: 'general',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    };
-    const subagent2 = {
-      postId: 'post-2',
-      startTime: Date.now(),
-      description: 'Test task 2',
-      subagentType: 'Explore',
-      isMinimized: false,
-      isComplete: false,
-      lastUpdateTime: Date.now(),
-    };
-
-    session.activeSubagents.set('tool-1', subagent1);
-    session.activeSubagents.set('tool-2', subagent2);
-
-    expect(session.activeSubagents.size).toBe(2);
-    expect(session.activeSubagents.get('tool-1')?.postId).toBe('post-1');
-  });
+  // NOTE: Subagent tracking tests moved to subagent.test.ts since SubagentExecutor
+  // now manages subagent state via MessageManager
 
   it('tracks session allowed users', () => {
     const session = createMockSession();
@@ -312,15 +349,6 @@ describe('Session State Management', () => {
     expect(session.sessionAllowedUsers.has('otheruser')).toBe(true);
   });
 
-  it('tracks pending content buffer', () => {
-    const session = createMockSession();
-
-    session.pendingContent = '';
-    session.pendingContent += 'Hello ';
-    session.pendingContent += 'World';
-
-    expect(session.pendingContent).toBe('Hello World');
-  });
 });
 
 describe('CHAT_PLATFORM_PROMPT', () => {
@@ -417,10 +445,12 @@ describe('cleanupIdleSessions extended', () => {
   it('does not skip sessions with pending approval when timed out', async () => {
     // Note: The current implementation does NOT skip sessions with pending items when timing out
     // This tests the actual behavior
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getPendingApproval as any).mockReturnValue({ postId: 'p1', toolUseId: 't1', type: 'action' });
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000), // 35 min ago
       timeoutWarningPosted: true,
-      pendingApproval: { postId: 'p1', toolUseId: 't1', type: 'action' },
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -437,10 +467,12 @@ describe('cleanupIdleSessions extended', () => {
 
   it('does not skip sessions with pending question when timed out', async () => {
     // Note: The current implementation does NOT skip sessions with pending items when timing out
+    const mockMsgManager = createMockMessageManager();
+    (mockMsgManager.getPendingQuestionSet as any).mockReturnValue({ toolUseId: 't1', currentIndex: 0, currentPostId: 'p1', questions: [] });
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
       timeoutWarningPosted: true,
-      pendingQuestionSet: { toolUseId: 't1', currentIndex: 0, currentPostId: 'p1', questions: [] },
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
@@ -488,10 +520,10 @@ describe('cleanupIdleSessions extended', () => {
 
 describe('killSession edge cases', () => {
   it('clears session timers', async () => {
-    const session = createMockSession({
-      updateTimer: setTimeout(() => {}, 10000) as any,
-      statusBarTimer: setInterval(() => {}, 10000) as any,
-    });
+    const session = createMockSession();
+    // Set up timers via the new timers object
+    session.timers.updateTimer = setTimeout(() => {}, 10000) as any;
+    session.timers.statusBarTimer = setInterval(() => {}, 10000) as any;
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
@@ -529,9 +561,9 @@ describe('killSession edge cases', () => {
 
 describe('killAllSessions edge cases', () => {
   it('handles sessions with timers', async () => {
-    const session = createMockSession({
-      updateTimer: setTimeout(() => {}, 10000) as any,
-    });
+    const session = createMockSession();
+    // Set up timer via the new timers object
+    session.timers.updateTimer = setTimeout(() => {}, 10000) as any;
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
@@ -563,48 +595,19 @@ describe('killAllSessions edge cases', () => {
 });
 
 describe('sendFollowUp', () => {
-  it('flushes pending content before sending new message', async () => {
+  it('delegates to messageManager.handleUserMessage', async () => {
+    // Mock messageManager with handleUserMessage
+    const mockMsgManager = createMockMessageManager();
     const session = createMockSession({
-      currentPostId: 'old-post-id',
-      currentPostContent: 'old content',
-      pendingContent: 'pending text',
+      messageManager: mockMsgManager as any,
     });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx, 'user', 'User Name');
 
-    // Should have called flush
-    expect(ctx.ops.flush).toHaveBeenCalledWith(session);
-  });
-
-  it('resets currentPostId so response starts in new message', async () => {
-    const session = createMockSession({
-      currentPostId: 'old-post-id',
-      currentPostContent: 'old content',
-    });
-    const sessions = new Map([['test-platform:thread-123', session]]);
-    const ctx = createMockSessionContext(sessions);
-
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
-
-    // currentPostId should be reset
-    expect(session.currentPostId).toBeNull();
-    expect(session.currentPostContent).toBe('');
-  });
-
-  it('bumps task list after resetting post state', async () => {
-    const session = createMockSession({
-      currentPostId: 'old-post-id',
-      tasksPostId: 'tasks-post',
-    });
-    const sessions = new Map([['test-platform:thread-123', session]]);
-    const ctx = createMockSessionContext(sessions);
-
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
-
-    // Should bump tasks after flushing
-    expect(ctx.ops.bumpTasksToBottom).toHaveBeenCalledWith(session);
+    // Should have delegated to handleUserMessage
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith('New message', undefined, 'user', 'User Name');
   });
 
   it('does not send if Claude is not running', async () => {
@@ -616,12 +619,17 @@ describe('sendFollowUp', () => {
 
     await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
 
-    // Should not have called sendMessage
-    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+    // Should not have called handleUserMessage (early return)
+    const mockMsgManager = session.messageManager as any;
+    expect(mockMsgManager.handleUserMessage).not.toHaveBeenCalled();
   });
 
   it('increments message counter', async () => {
-    const session = createMockSession({ messageCount: 5 });
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({
+      messageCount: 5,
+      messageManager: mockMsgManager as any,
+    });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
@@ -665,7 +673,11 @@ describe('handleExit', () => {
 
     expect(ctx.ops.persistSession).not.toHaveBeenCalled();
     expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
-    // isRestarting should be reset
-    expect(session.isRestarting).toBe(false);
+    // lifecycle state should be reset to active
+    expect(session.lifecycle.state).toBe('active');
   });
 });
+
+// NOTE: Task list bump on resume is tested in src/operations/message-manager.test.ts
+// under the "restoreTaskListFromPersistence" describe block. The tests there properly
+// verify the RED-GREEN behavior by testing the actual MessageManager method.

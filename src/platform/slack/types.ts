@@ -189,21 +189,6 @@ export interface SlackTextObject {
   verbatim?: boolean;
 }
 
-export interface SlackChannel {
-  id: string;
-  name: string;
-  is_channel: boolean;
-  is_group: boolean;
-  is_im: boolean;
-  is_mpim: boolean;
-  is_private: boolean;
-  is_archived: boolean;
-  is_member?: boolean;
-  topic?: { value: string; creator?: string; last_set?: number };
-  purpose?: { value: string; creator?: string; last_set?: number };
-  num_members?: number;
-}
-
 export interface SlackPin {
   type: string;
   created: number;
@@ -212,31 +197,11 @@ export interface SlackPin {
   channel?: string;
 }
 
-// API request/response types
-export interface PostMessageRequest {
-  channel: string;
-  text?: string;
-  thread_ts?: string;
-  reply_broadcast?: boolean;
-  unfurl_links?: boolean;
-  unfurl_media?: boolean;
-  mrkdwn?: boolean;
-  blocks?: SlackBlock[];
-  attachments?: SlackAttachment[];
-}
-
+// API response types
 export interface PostMessageResponse extends SlackApiResponse {
   channel: string;
   ts: string;
   message: SlackMessage;
-}
-
-export interface UpdateMessageRequest {
-  channel: string;
-  ts: string;
-  text?: string;
-  blocks?: SlackBlock[];
-  attachments?: SlackAttachment[];
 }
 
 export interface UpdateMessageResponse extends SlackApiResponse {
@@ -257,18 +222,6 @@ export interface ConversationsHistoryResponse extends SlackApiResponse {
   response_metadata?: {
     next_cursor: string;
   };
-}
-
-export interface ReactionsAddRequest {
-  channel: string;
-  timestamp: string;
-  name: string;
-}
-
-export interface ReactionsRemoveRequest {
-  channel: string;
-  timestamp: string;
-  name: string;
 }
 
 export interface UsersInfoResponse extends SlackApiResponse {
