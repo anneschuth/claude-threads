@@ -323,12 +323,25 @@ export class DefaultContentBreaker implements ContentBreaker {
     }
 
     // Priority 3: Look for end of code blocks
-    const codeBlockEndMatch = searchWindow.match(/^```$/m);
-    if (codeBlockEndMatch && codeBlockEndMatch.index !== undefined) {
-      const pos = startPos + codeBlockEndMatch.index + codeBlockEndMatch[0].length;
-      const nextChar = content[pos];
-      const finalPos = nextChar === '\n' ? pos + 1 : pos;
-      return { position: finalPos, type: 'code_block_end' };
+    // We need to find a CLOSING marker, not an opening one
+    // Use matchAll to find all ``` markers and identify which is a closing marker
+    const codeBlockMarkerRegex = /^```$/gm;
+    const matches = [...searchWindow.matchAll(codeBlockMarkerRegex)];
+    for (const match of matches) {
+      if (match.index !== undefined) {
+        const matchPos = startPos + match.index;
+        // Check if we're inside a code block at this position
+        // If we are, this ``` is a closing marker; if not, it's an opening marker
+        const stateAtMatch = this.getCodeBlockState(content, matchPos);
+        if (stateAtMatch.isInside) {
+          // This is a closing marker - break after it
+          const pos = matchPos + match[0].length;
+          const nextChar = content[pos];
+          const finalPos = nextChar === '\n' ? pos + 1 : pos;
+          return { position: finalPos, type: 'code_block_end' };
+        }
+        // Otherwise, this is an opening marker - continue to next match
+      }
     }
 
     // Priority 4: Look for paragraph breaks (double newlines)
@@ -390,4 +403,68 @@ export class DefaultContentBreaker implements ContentBreaker {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Utility Functions
+// ---------------------------------------------------------------------------
 
+/**
+ * Split content into chunks that won't trigger "Show more" collapse.
+ *
+ * This is a pure utility function for pre-splitting content before posting.
+ * Used when creating NEW posts (no existing post to update).
+ *
+ * Only splits at "good" breakpoints (paragraphs, code block ends, headings, tool markers).
+ * Does NOT split at arbitrary line breaks to avoid fragmenting content unnecessarily.
+ *
+ * @param content - The content to split
+ * @param contentBreaker - ContentBreaker instance for height checks and breakpoints
+ * @returns Array of content chunks, each safe to post without collapse
+ */
+export function splitContentForHeight(
+  content: string,
+  contentBreaker: ContentBreaker
+): string[] {
+  const chunks: string[] = [];
+  let remaining = content;
+
+  // Breakpoint types that are good for splitting (not arbitrary line breaks)
+  const goodBreakpointTypes = new Set(['paragraph', 'code_block_end', 'heading', 'tool_marker']);
+
+  // Keep splitting while content is too tall
+  while (remaining && contentBreaker.shouldFlushEarly(remaining)) {
+    // Look for a logical breakpoint starting from position 0
+    // Use a larger search window to find good breakpoints
+    const breakpoint = contentBreaker.findLogicalBreakpoint(remaining, 0, remaining.length);
+
+    if (!breakpoint || breakpoint.position <= 0 || breakpoint.position >= remaining.length) {
+      // No breakpoint found, keep as single chunk
+      break;
+    }
+
+    // Only split at "good" breakpoints - not arbitrary line breaks
+    if (!goodBreakpointTypes.has(breakpoint.type)) {
+      // Found only a line break, not a good place to split
+      break;
+    }
+
+    const firstPart = remaining.substring(0, breakpoint.position).trim();
+    const secondPart = remaining.substring(breakpoint.position).trim();
+
+    // Split if the first part is safe to post (won't trigger collapse)
+    // and we actually have content in the second part
+    if (!contentBreaker.shouldFlushEarly(firstPart) && secondPart.length > 0) {
+      chunks.push(firstPart);
+      remaining = secondPart;
+    } else {
+      // First chunk is still too tall, can't split effectively
+      break;
+    }
+  }
+
+  // Add whatever remains
+  if (remaining) {
+    chunks.push(remaining);
+  }
+
+  return chunks.length ? chunks : [content];
+}

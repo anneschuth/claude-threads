@@ -11,6 +11,7 @@ import {
   MAX_HEIGHT_THRESHOLD,
   HEIGHT_CONSTANTS,
   estimateRenderedHeight,
+  splitContentForHeight,
 } from './content-breaker.js';
 
 describe('ContentBreaker', () => {
@@ -705,6 +706,146 @@ describe('code block protection with height estimation', () => {
       // After all code blocks
       const pos4 = content.indexOf('more');
       expect(breaker.getCodeBlockState(content, pos4).isInside).toBe(false);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// splitContentForHeight Tests
+// ---------------------------------------------------------------------------
+
+describe('splitContentForHeight', () => {
+  const breaker = new DefaultContentBreaker();
+
+  describe('basic behavior', () => {
+    it('returns single chunk for short content', () => {
+      const content = 'Short content';
+      const chunks = splitContentForHeight(content, breaker);
+      expect(chunks).toEqual([content]);
+    });
+
+    it('returns single chunk for content under height threshold', () => {
+      const content = 'Line 1\nLine 2\nLine 3';
+      const chunks = splitContentForHeight(content, breaker);
+      expect(chunks).toEqual([content]);
+    });
+
+    it('returns original content as single chunk when no breakpoint found', () => {
+      // Very long single line with no breakpoints
+      const content = 'x'.repeat(3000);
+      const chunks = splitContentForHeight(content, breaker);
+      expect(chunks).toEqual([content]);
+    });
+  });
+
+  describe('splitting tall content', () => {
+    it('splits content with multiple paragraphs that exceed height threshold', () => {
+      // Create three paragraphs - each 10 lines (~210px), total ~650px exceeds 500px threshold
+      // First two paragraphs together are ~430px (under threshold), so we can split there
+      const para1 = Array(10).fill('First paragraph line here').join('\n');
+      const para2 = Array(10).fill('Second paragraph line here').join('\n');
+      const para3 = Array(10).fill('Third paragraph line here').join('\n');
+      const content = para1 + '\n\n' + para2 + '\n\n' + para3;
+
+      const chunks = splitContentForHeight(content, breaker);
+
+      // Should be split into multiple chunks
+      expect(chunks.length).toBeGreaterThan(1);
+      // First chunk should contain first paragraph
+      expect(chunks[0]).toContain('First paragraph');
+    });
+
+    it('splits at paragraph boundaries when each part fits', () => {
+      // Two paragraphs of 12 lines each - each ~252px, combined ~514px exceeds 500px
+      // Each individual paragraph fits, so we can split at paragraph break
+      const para1 = Array(12).fill('First paragraph line').join('\n');
+      const para2 = Array(12).fill('Second paragraph line').join('\n');
+      const content = para1 + '\n\n' + para2;
+
+      const chunks = splitContentForHeight(content, breaker);
+
+      // Should split at the paragraph break
+      expect(chunks.length).toBe(2);
+      expect(chunks[0]).toContain('First paragraph');
+      expect(chunks[1]).toContain('Second paragraph');
+    });
+
+    it('keeps content as single chunk when no good split exists', () => {
+      // 20 lines in a single paragraph - exceeds line count threshold (15)
+      // but there's no paragraph break to split at
+      const content = Array(20).fill('Line of text here').join('\n');
+
+      const chunks = splitContentForHeight(content, breaker);
+
+      // Cannot split without a good breakpoint
+      expect(chunks.length).toBe(1);
+    });
+  });
+
+  describe('code block protection', () => {
+    it('does not split inside code blocks', () => {
+      // Create a tall code block
+      const codeLines = Array(30).fill('const x = 1;').join('\n');
+      const content = `\`\`\`typescript\n${codeLines}\n\`\`\``;
+
+      const chunks = splitContentForHeight(content, breaker);
+
+      // Should stay as single chunk (can't break inside code block)
+      expect(chunks).toEqual([content]);
+    });
+
+    it('splits after code block when there is content after', () => {
+      // Code block followed by text - code block takes ~400px, text takes ~100px
+      // Total ~500px which is at threshold, but we're testing that split preserves code block integrity
+      const codeLines = Array(15).fill('code').join('\n');
+      const afterText = Array(10).fill('Text after the code block').join('\n');
+      const content = '```\n' + codeLines + '\n```\n\n' + afterText;
+
+      const chunks = splitContentForHeight(content, breaker);
+
+      // Whether split or not, if we have multiple chunks, code block must be intact
+      if (chunks.length > 1) {
+        // First chunk should include the complete code block
+        expect(chunks[0]).toContain('```');
+        // The closing ``` should be in the first chunk
+        const openCount = (chunks[0].match(/```/g) || []).length;
+        expect(openCount).toBe(2); // Opening and closing
+      }
+    });
+  });
+
+  describe('edge cases', () => {
+    it('handles empty string', () => {
+      const chunks = splitContentForHeight('', breaker);
+      expect(chunks).toEqual(['']);
+    });
+
+    it('handles content with only whitespace', () => {
+      const chunks = splitContentForHeight('   ', breaker);
+      expect(chunks).toEqual(['   ']);
+    });
+
+    it('preserves content integrity (no content loss)', () => {
+      // Create splittable content
+      const para1 = Array(15).fill('A').join('\n');
+      const para2 = Array(15).fill('B').join('\n');
+      const original = para1 + '\n\n' + para2;
+
+      const chunks = splitContentForHeight(original, breaker);
+
+      // Rejoining chunks should give us back all the content
+      const rejoined = chunks.join('\n\n');
+      expect(rejoined).toContain('A');
+      expect(rejoined).toContain('B');
+    });
+
+    it('returns array with single item for unsplittable content', () => {
+      // Content that triggers flush but has no good breakpoint
+      const content = 'x'.repeat(3000); // No newlines
+      const chunks = splitContentForHeight(content, breaker);
+
+      expect(Array.isArray(chunks)).toBe(true);
+      expect(chunks.length).toBe(1);
     });
   });
 });

@@ -10,7 +10,7 @@
 
 import { truncateMessageSafely } from '../../platform/utils.js';
 import { formatShortId } from '../../utils/format.js';
-import { MIN_BREAK_THRESHOLD } from '../content-breaker.js';
+import { MIN_BREAK_THRESHOLD, splitContentForHeight } from '../content-breaker.js';
 import type { AppendContentOp, FlushOp } from '../types.js';
 import type { ExecutorContext, ContentState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
@@ -231,12 +231,23 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         this.state.currentPostContent = '';
       }
     } else {
-      // Create new post
+      // Create new post(s) - split if content is too tall
+      const chunks = splitContentForHeight(content, ctx.contentBreaker);
       ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
         contentLength: content.length,
+        chunkCount: chunks.length,
         reason: 'no_currentPostId',
       }, 'flush');
-      await this.createNewPost(ctx, content, pendingAtFlushStart);
+
+      for (let i = 0; i < chunks.length; i++) {
+        await this.createNewPost(ctx, chunks[i], pendingAtFlushStart);
+        // Reset for next chunk so it creates a new post
+        // But keep state for the last chunk so getCurrentPostContent() works
+        if (i < chunks.length - 1) {
+          this.state.currentPostId = null;
+          this.state.currentPostContent = '';
+        }
+      }
     }
   }
 
