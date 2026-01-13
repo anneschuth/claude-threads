@@ -699,6 +699,46 @@ export async function updateStickyMessage(
 }
 
 /**
+ * Validate that lastMessageId still exists for sessions on this platform.
+ * If the message has been deleted, clear the lastMessageId so we fall back to the root post.
+ * This prevents broken links in the sticky message.
+ */
+async function validateLastMessageIds(
+  platform: PlatformClient,
+  sessions: Session[]
+): Promise<void> {
+  // Check all sessions that have a lastMessageId
+  const sessionsWithLastMessage = sessions.filter(s => s.lastMessageId);
+
+  if (sessionsWithLastMessage.length === 0) {
+    return;
+  }
+
+  // Validate each lastMessageId in parallel
+  const validationPromises = sessionsWithLastMessage.map(async (session) => {
+    const lastMessageId = session.lastMessageId;
+    if (!lastMessageId) return; // Already validated by filter above, but TS needs this
+
+    try {
+      const post = await platform.getPost(lastMessageId);
+      if (!post) {
+        // Message was deleted, clear the lastMessageId so we link to root post instead
+        log.debug(`lastMessageId ${lastMessageId.substring(0, 8)} for session ${session.sessionId} was deleted, clearing`);
+        session.lastMessageId = undefined;
+        session.lastMessageTs = undefined;
+      }
+    } catch (err) {
+      // Error fetching the post - assume it's deleted and clear
+      log.debug(`Failed to validate lastMessageId for session ${session.sessionId}, clearing: ${err}`);
+      session.lastMessageId = undefined;
+      session.lastMessageTs = undefined;
+    }
+  });
+
+  await Promise.all(validationPromises);
+}
+
+/**
  * Internal implementation of sticky message update.
  */
 async function updateStickyMessageImpl(
@@ -711,6 +751,10 @@ async function updateStickyMessageImpl(
   for (const s of platformSessions) {
     log.debug(`  - ${s.sessionId}: title="${s.sessionTitle}" firstPrompt="${s.firstPrompt?.substring(0, 30)}..."`);
   }
+
+  // Validate lastMessageIds before building the sticky message
+  // This prevents broken links when messages have been deleted
+  await validateLastMessageIds(platform, platformSessions);
 
   const formatter = platform.getFormatter();
   const content = await buildStickyMessage(
