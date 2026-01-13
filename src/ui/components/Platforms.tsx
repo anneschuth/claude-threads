@@ -28,11 +28,11 @@ export function Platforms({ platforms }: PlatformsProps) {
           {/* Platform type icon */}
           <Text>{getPlatformIcon(platform.platformType || 'mattermost')}</Text>
 
-          {/* Connection status indicator */}
+          {/* Connection status indicator with optional spinner */}
           {!platform.enabled ? (
             <Text dimColor>○</Text>
           ) : platform.reconnecting ? (
-            <Text color="yellow">◌</Text>
+            <Spinner type="dots" />
           ) : platform.connected ? (
             <Text color="green">●</Text>
           ) : (
@@ -42,17 +42,11 @@ export function Platforms({ platforms }: PlatformsProps) {
           {/* Bot name */}
           <Text color={platform.enabled ? "cyan" : undefined} dimColor={!platform.enabled}>@{platform.botName}</Text>
 
-          {/* Platform display name - show reconnecting status inline if reconnecting */}
-          {platform.reconnecting ? (
-            <>
-              <Spinner type="dots" />
-              <Text color="yellow">reconnecting ({platform.reconnectAttempts})</Text>
-            </>
-          ) : (
-            <>
-              <Text dimColor>on</Text>
-              <Text dimColor={!platform.enabled}>{platform.displayName}</Text>
-            </>
+          {/* Platform display name with optional reconnect count */}
+          <Text dimColor>on</Text>
+          <Text dimColor={!platform.enabled}>{platform.displayName}</Text>
+          {platform.reconnecting && (
+            <Text dimColor>(retry {platform.reconnectAttempts})</Text>
           )}
         </Box>
       ))}

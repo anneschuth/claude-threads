@@ -655,23 +655,53 @@ export class MattermostClient extends EventEmitter implements PlatformClient {
     }
   }
 
+  /**
+   * Clean up the WebSocket connection forcefully.
+   * This ensures we start fresh on reconnection instead of relying on stale sockets.
+   */
+  private cleanupWebSocket(): void {
+    this.stopHeartbeat();
+    if (this.ws) {
+      // Remove all listeners to prevent any callbacks from firing
+      this.ws.onopen = null;
+      this.ws.onmessage = null;
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      // Force close if still open
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        try {
+          this.ws.close();
+        } catch {
+          // Ignore errors on close
+        }
+      }
+      this.ws = null;
+    }
+  }
+
   private scheduleReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       log.error('Max reconnection attempts reached');
       return;
     }
 
+    // Clean up any existing WebSocket before reconnecting
+    // This is critical for recovery after long idle periods where the socket may be stale
+    this.cleanupWebSocket();
+
     // Mark that we're reconnecting (to trigger message recovery)
     this.isReconnecting = true;
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    wsLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     this.emit('reconnecting', this.reconnectAttempts);
 
     setTimeout(() => {
       this.connect().catch((err) => {
-        log.error(`Reconnection failed: ${err}`);
+        wsLogger.error(`Reconnection failed: ${err}`);
+        // Schedule another reconnect attempt
+        this.scheduleReconnect();
       });
     }, delay);
   }
