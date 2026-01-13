@@ -64,9 +64,11 @@ export class MattermostFormatter implements PlatformFormatter {
 
   formatTable(headers: string[], rows: string[][]): string {
     // Standard markdown table
-    const headerRow = `| ${headers.join(' | ')} |`;
+    // Escape pipe characters in cells to prevent breaking table structure
+    const escapeCell = (cell: string) => cell.replace(/\|/g, '\\|');
+    const headerRow = `| ${headers.map(escapeCell).join(' | ')} |`;
     const separatorRow = `| ${headers.map(() => '---').join(' | ')} |`;
-    const dataRows = rows.map(row => `| ${row.join(' | ')} |`);
+    const dataRows = rows.map(row => `| ${row.map(escapeCell).join(' | ')} |`);
     return [headerRow, separatorRow, ...dataRows].join('\n');
   }
 

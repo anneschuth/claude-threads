@@ -97,6 +97,24 @@ describe('MattermostFormatter', () => {
       expect(result).toContain('| A | B |');
       expect(result).toContain('| --- | --- |');
     });
+
+    it('escapes pipe characters in cells', () => {
+      const headers = ['Command', 'Description'];
+      const rows = [
+        ['`!permissions interactive|skip`', 'Toggle permission prompts'],
+      ];
+      const result = formatter.formatTable(headers, rows);
+      // Pipe inside cell should be escaped to prevent breaking table structure
+      expect(result).toContain('`!permissions interactive\\|skip`');
+      expect(result).toContain('Toggle permission prompts');
+    });
+
+    it('escapes pipe characters in headers', () => {
+      const headers = ['Option A|B', 'Description'];
+      const rows = [['value', 'desc']];
+      const result = formatter.formatTable(headers, rows);
+      expect(result).toContain('Option A\\|B');
+    });
   });
 
   describe('formatKeyValueList', () => {
