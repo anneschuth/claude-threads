@@ -931,6 +931,94 @@ describe('cleanupOldStickyMessages', () => {
     expect(unpinPost).not.toHaveBeenCalled();
     expect(deletePost).not.toHaveBeenCalled();
   });
+
+  it('excludes session header posts from cleanup when excludePostIds is provided', async () => {
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getPost = mock((postId: string) => Promise.resolve({
+      id: postId,
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'cleanup-test-5',
+    }));
+    // 3 pinned posts from the bot: orphaned sticky, session header, and current sticky
+    const getPinnedPosts = mock(() => Promise.resolve(['orphaned-sticky', 'session-header-post', 'current-sticky']));
+
+    const platform = {
+      ...createMockPlatform('cleanup-test-5'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    // Set up current sticky via initialize()
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['cleanup-test-5', 'current-sticky']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
+
+    // Pass excludePostIds containing the session header post
+    const excludePostIds = new Set(['session-header-post']);
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true, excludePostIds);
+
+    // Should only delete 'orphaned-sticky', NOT 'session-header-post' or 'current-sticky'
+    expect(unpinPost).toHaveBeenCalledTimes(1);
+    expect(deletePost).toHaveBeenCalledTimes(1);
+    expect(unpinPost).toHaveBeenCalledWith('orphaned-sticky');
+    expect(deletePost).toHaveBeenCalledWith('orphaned-sticky');
+    // Verify session header was NOT deleted
+    expect(unpinPost).not.toHaveBeenCalledWith('session-header-post');
+    expect(deletePost).not.toHaveBeenCalledWith('session-header-post');
+  });
+
+  it('excludes multiple session header posts from cleanup', async () => {
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getPost = mock((postId: string) => Promise.resolve({
+      id: postId,
+      userId: 'bot-user-123',
+      message: 'content',
+      channelId: 'channel1',
+      platformId: 'cleanup-test-6',
+    }));
+    // 4 pinned bot posts: 1 orphaned, 2 session headers, 1 current sticky
+    const getPinnedPosts = mock(() => Promise.resolve([
+      'orphaned-sticky',
+      'session1-header',
+      'session2-header',
+      'current-sticky'
+    ]));
+
+    const platform = {
+      ...createMockPlatform('cleanup-test-6'),
+      unpinPost,
+      deletePost,
+      getPost,
+      getPinnedPosts,
+    } as unknown as PlatformClient;
+
+    // Set up current sticky
+    const mockSessionStore = {
+      getStickyPostIds: mock(() => new Map([['cleanup-test-6', 'current-sticky']])),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+    };
+    initialize(mockSessionStore as any);
+
+    // Exclude both session header posts
+    const excludePostIds = new Set(['session1-header', 'session2-header']);
+    await cleanupOldStickyMessages(platform, 'bot-user-123', true, excludePostIds);
+
+    // Should only delete the orphaned sticky
+    expect(unpinPost).toHaveBeenCalledTimes(1);
+    expect(deletePost).toHaveBeenCalledTimes(1);
+    expect(unpinPost).toHaveBeenCalledWith('orphaned-sticky');
+    expect(deletePost).toHaveBeenCalledWith('orphaned-sticky');
+  });
 });
 
 describe('updateStickyMessage with bump', () => {
@@ -982,6 +1070,7 @@ describe('updateStickyMessage with bump', () => {
       getStickyPostIds: mock(() => new Map([['test-platform-bump', 'old-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      load: mock(() => new Map()),  // Return empty map (no sessions to exclude)
     };
     initialize(mockSessionStore as any);
 
