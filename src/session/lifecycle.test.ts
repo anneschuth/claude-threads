@@ -16,6 +16,8 @@ import { createMockFormatter } from '../test-utils/mock-formatter.js';
 function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient {
   return {
     platformId: 'test-platform',
+    platformType: 'mattermost',
+    displayName: 'Test Platform',
     createPost: mock(() => Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })),
     updatePost: mock(() => Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })),
     deletePost: mock(() => Promise.resolve()),
@@ -681,3 +683,10 @@ describe('handleExit', () => {
 // NOTE: Task list bump on resume is tested in src/operations/message-manager.test.ts
 // under the "restoreTaskListFromPersistence" describe block. The tests there properly
 // verify the RED-GREEN behavior by testing the actual MessageManager method.
+
+// NOTE: startSession worktree prompt skip tests are not included here because testing
+// startSession directly requires mocking the Claude CLI spawn, which is complex.
+// The fix is verified by:
+// 1. manager.ts startSessionWithWorktree passes { ...options, skipWorktreePrompt: true }
+// 2. lifecycle.ts startSession checks options.skipWorktreePrompt before shouldPromptForWorktree
+// See src/session/manager.ts:1280 and src/session/lifecycle.ts:692

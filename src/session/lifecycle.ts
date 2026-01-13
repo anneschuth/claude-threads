@@ -534,7 +534,7 @@ export function maybeInjectMetadataReminder(
  * Create a new session for a thread.
  */
 export async function startSession(
-  options: { prompt: string; files?: PlatformFile[] },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -688,7 +688,8 @@ export async function startSession(
   }
 
   // Check if we should prompt for worktree
-  const shouldPrompt = await ctx.ops.shouldPromptForWorktree(session);
+  // Skip if explicitly disabled (e.g., when branch was specified in initial message via !worktree)
+  const shouldPrompt = options.skipWorktreePrompt ? null : await ctx.ops.shouldPromptForWorktree(session);
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
     session.queuedFiles = options.files;

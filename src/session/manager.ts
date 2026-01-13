@@ -955,7 +955,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async startSession(
-    options: { prompt: string; files?: PlatformFile[] },
+    options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
     username: string,
     replyToPostId?: string,
     platformId: string = 'default',
@@ -1276,8 +1276,8 @@ export class SessionManager extends EventEmitter {
     platformId: string = 'default',
     displayName?: string
   ): Promise<void> {
-    // Start normal session first
-    await this.startSession(options, username, replyToPostId, platformId, displayName);
+    // Start normal session first, but skip worktree prompt since branch is already specified
+    await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName);
 
     // Then switch to worktree
     const threadId = replyToPostId || '';
