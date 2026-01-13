@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.8] - 2026-01-13
+
+### Fixed
+- **Maximize content per message when height-splitting** - Split algorithm now finds the optimal breakpoint to maximize content per message, instead of splitting at the first available breakpoint. Previously would split after Part 1 when Parts 1-4 could fit together.
+
 ## [1.0.7] - 2026-01-13
 
 ### Fixed
