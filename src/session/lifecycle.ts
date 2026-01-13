@@ -338,9 +338,101 @@ function createMessageManager(
 // Out-of-band metadata suggestions (fire-and-forget)
 // ---------------------------------------------------------------------------
 
+/** Retry configuration for metadata suggestions */
+const METADATA_RETRY_DELAY_MS = 2000;
+const METADATA_MAX_RETRIES = 2;
+
+/**
+ * Suggestion function types for dependency injection in tests.
+ */
+export type MetadataSuggestFn = typeof suggestSessionMetadata;
+export type TagSuggestFn = typeof suggestSessionTags;
+
+/**
+ * Options for attemptMetadataFetch, primarily for testing.
+ */
+export interface AttemptMetadataFetchOptions {
+  /** Override the metadata suggestion function (for testing) */
+  suggestMetadata?: MetadataSuggestFn;
+  /** Override the tag suggestion function (for testing) */
+  suggestTags?: TagSuggestFn;
+}
+
+/**
+ * Attempt to fetch metadata with retry logic.
+ * Returns true if both metadata and tags were successfully fetched.
+ *
+ * @internal Exported for testing only
+ */
+export async function attemptMetadataFetch(
+  session: Session,
+  prompt: string,
+  ctx: SessionContext,
+  attempt: number = 1,
+  options: AttemptMetadataFetchOptions = {}
+): Promise<{ success: boolean; metadataSet: boolean; tagsSet: boolean }> {
+  const sessionId = session.sessionId;
+
+  // Use injected functions or defaults
+  const suggestMetadataFn = options.suggestMetadata ?? suggestSessionMetadata;
+  const suggestTagsFn = options.suggestTags ?? suggestSessionTags;
+
+  // Run title/description and tags in parallel
+  const [metadata, tags] = await Promise.all([
+    suggestMetadataFn(prompt),
+    suggestTagsFn(prompt),
+  ]);
+
+  // Check if session still exists (might have been cleaned up while we awaited)
+  const currentSession = (ctx.state.sessions as Map<string, Session>).get(sessionId);
+  if (!currentSession) {
+    sessionLog(session).debug('Session gone before metadata suggestions completed');
+    return { success: false, metadataSet: false, tagsSet: false };
+  }
+
+  // Track what we successfully set
+  let metadataSet = false;
+  let tagsSet = false;
+  let updated = false;
+
+  // Only update if we got results and session doesn't already have metadata
+  if (metadata && !currentSession.sessionTitle) {
+    currentSession.sessionTitle = metadata.title;
+    currentSession.sessionDescription = metadata.description;
+    sessionLog(currentSession).debug(`Set title: "${metadata.title}" (attempt ${attempt})`);
+    metadataSet = true;
+    updated = true;
+  } else if (currentSession.sessionTitle) {
+    // Already has title from a previous attempt
+    metadataSet = true;
+  }
+
+  if (tags.length > 0 && (!currentSession.sessionTags || currentSession.sessionTags.length === 0)) {
+    currentSession.sessionTags = tags;
+    sessionLog(currentSession).debug(`Set tags: ${tags.join(', ')} (attempt ${attempt})`);
+    tagsSet = true;
+    updated = true;
+  } else if (currentSession.sessionTags && currentSession.sessionTags.length > 0) {
+    // Already has tags from a previous attempt
+    tagsSet = true;
+  }
+
+  // Update persistence and UI if anything changed
+  if (updated) {
+    ctx.ops.persistSession(currentSession);
+    await ctx.ops.updateStickyMessage();
+    await ctx.ops.updateSessionHeader(currentSession);
+  }
+
+  return { success: metadataSet && tagsSet, metadataSet, tagsSet };
+}
+
 /**
  * Fire metadata suggestions (title, description, tags) in the background.
  * This is fire-and-forget - it never blocks session startup and never throws.
+ *
+ * Includes retry logic: if metadata or tags fail to fetch, retries up to
+ * METADATA_MAX_RETRIES times with METADATA_RETRY_DELAY_MS delay between attempts.
  *
  * @param session - The session to update
  * @param prompt - The user's initial prompt
@@ -354,42 +446,39 @@ function fireMetadataSuggestions(
   // Fire immediately without awaiting
   void (async () => {
     try {
-      const sessionId = session.sessionId;
+      // First attempt
+      let result = await attemptMetadataFetch(session, prompt, ctx, 1);
 
-      // Run title/description and tags in parallel
-      const [metadata, tags] = await Promise.all([
-        suggestSessionMetadata(prompt),
-        suggestSessionTags(prompt),
-      ]);
+      // Retry if either metadata or tags failed
+      let attempt = 1;
+      while (!result.success && attempt < METADATA_MAX_RETRIES + 1) {
+        attempt++;
 
-      // Check if session still exists (might have been cleaned up while we awaited)
-      const currentSession = (ctx.state.sessions as Map<string, Session>).get(sessionId);
-      if (!currentSession) {
-        sessionLog(session).debug('Session gone before metadata suggestions completed');
-        return;
+        // Check if session still exists before retrying
+        const currentSession = (ctx.state.sessions as Map<string, Session>).get(session.sessionId);
+        if (!currentSession) {
+          sessionLog(session).debug('Session gone, stopping metadata retries');
+          return;
+        }
+
+        // Log what we're retrying for
+        const missing: string[] = [];
+        if (!result.metadataSet) missing.push('title/description');
+        if (!result.tagsSet) missing.push('tags');
+        sessionLog(session).debug(`Retrying metadata fetch for ${missing.join(', ')} (attempt ${attempt}/${METADATA_MAX_RETRIES + 1})`);
+
+        // Wait before retrying
+        await new Promise(resolve => setTimeout(resolve, METADATA_RETRY_DELAY_MS));
+
+        // Retry
+        result = await attemptMetadataFetch(session, prompt, ctx, attempt);
       }
 
-      // Only update if we got results and session doesn't already have metadata
-      let updated = false;
-
-      if (metadata && !currentSession.sessionTitle) {
-        currentSession.sessionTitle = metadata.title;
-        currentSession.sessionDescription = metadata.description;
-        sessionLog(currentSession).debug(`Set title: "${metadata.title}"`);
-        updated = true;
-      }
-
-      if (tags.length > 0 && (!currentSession.sessionTags || currentSession.sessionTags.length === 0)) {
-        currentSession.sessionTags = tags;
-        sessionLog(currentSession).debug(`Set tags: ${tags.join(', ')}`);
-        updated = true;
-      }
-
-      // Update persistence and UI if anything changed
-      if (updated) {
-        ctx.ops.persistSession(currentSession);
-        await ctx.ops.updateStickyMessage();
-        await ctx.ops.updateSessionHeader(currentSession);
+      if (!result.success) {
+        const missing: string[] = [];
+        if (!result.metadataSet) missing.push('title/description');
+        if (!result.tagsSet) missing.push('tags');
+        sessionLog(session).debug(`Metadata fetch incomplete after ${attempt} attempts: missing ${missing.join(', ')}`);
       }
     } catch (err) {
       // Fire-and-forget: log but never throw
