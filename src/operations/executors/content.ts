@@ -158,10 +158,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       combinedContent = content;
     }
 
-    // Check if we should break early (based on NEW content, not combined)
+    // Check if we should break early (based on COMBINED content height)
     const shouldBreakEarly = this.state.currentPostId &&
-      content.length > MIN_BREAK_THRESHOLD &&
-      ctx.contentBreaker.shouldFlushEarly(content);
+      combinedContent.length > MIN_BREAK_THRESHOLD &&
+      ctx.contentBreaker.shouldFlushEarly(combinedContent);
 
     // Handle message splitting - use combinedContent so existing post content is preserved
     if (this.state.currentPostId && (combinedContent.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
@@ -289,9 +289,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         }
       }
     } else {
-      // Soft break
-      const breakInfo = ctx.contentBreaker.findLogicalBreakpoint(content, 2000);
-      if (breakInfo && breakInfo.position < content.length) {
+      // Soft break (height-based) - search from beginning for a good breakpoint
+      // where the first part would be under the height threshold
+      const breakInfo = ctx.contentBreaker.findLogicalBreakpoint(content, 0, content.length);
+      if (breakInfo && breakInfo.position > 0 && breakInfo.position < content.length) {
         breakPoint = breakInfo.position;
       } else {
         // No good breakpoint - just update current post with ALL content

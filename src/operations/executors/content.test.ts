@@ -914,4 +914,89 @@ describe('ContentExecutor', () => {
       }
     });
   });
+
+  describe('Height-based splitting during streaming', () => {
+    it('splits when combined content (existing + new) exceeds height threshold', async () => {
+      // This test verifies that shouldFlushEarly checks COMBINED content, not just NEW content
+      // Bug: If existing post has 400px content and new content adds 300px, total is 700px
+      // which should trigger a split, but checking only new content (300px) would not.
+      const ctx = getContext();
+
+      // Verify contentBreaker works in this context
+      const { estimateRenderedHeight } = await import('../content-breaker.js');
+      const testHeight = estimateRenderedHeight('## Test\nSome text');
+      expect(testHeight).toBeGreaterThan(0);
+
+      // Create content that's ~350px when rendered (below 500px threshold)
+      // About 15 text lines at 21px each = ~315px
+      const existingContent = [
+        '## Part 1: Introduction',
+        'This is the introduction section with some text.',
+        'It contains multiple lines of content.',
+        '',
+        '## Part 2: Details',
+        'Here are the details of the implementation.',
+        'We need enough content to be significant.',
+        '',
+        '## Part 3: More Content',
+        'Adding more sections to build up height.',
+        'Each section contributes to the total.',
+        '',
+        '## Part 4: Additional Info',
+        'This section adds more height to the post.',
+        'We are getting closer to the threshold.',
+      ].join('\n');
+
+      // New content that's also ~300px (below threshold individually)
+      const newContent = [
+        '',
+        '## Part 5: New Section',
+        'This is new content being added.',
+        'It has several lines of text.',
+        '',
+        '## Part 6: Final Section',
+        'The final section of content.',
+        'With multiple lines as well.',
+        'And some extra text here.',
+        '',
+        '## Part 7: Conclusion',
+        'Wrapping up with final thoughts.',
+        'This completes the document.',
+      ].join('\n');
+
+      // First flush: create post with existing content
+      await executor.executeAppend(createAppendContentOp('test', existingContent), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const stateAfterFirst = executor.getState();
+      expect(stateAfterFirst.currentPostId).toBe('post_1');
+
+      // Reset mock counts to track what happens next
+      (platform.createPost as ReturnType<typeof mock>).mockClear();
+      (platform.updatePost as ReturnType<typeof mock>).mockClear();
+
+      // Second flush: add new content
+      // Combined height should be ~650px which exceeds 500px threshold
+      // This should trigger handleSplit, creating a continuation post
+
+      // Verify heights before flush - each individually under threshold, combined over
+      const existingHeight = estimateRenderedHeight(existingContent);
+      const newHeight = estimateRenderedHeight(newContent);
+      const combinedHeight = estimateRenderedHeight(existingContent + '\n\n' + newContent);
+      expect(existingHeight).toBeLessThan(500);
+      expect(newHeight).toBeLessThan(500);
+      expect(combinedHeight).toBeGreaterThan(500);
+
+      await executor.executeAppend(createAppendContentOp('test', newContent), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      // BUG: If only checking new content height, no split occurs and updatePost is called
+      // FIX: If checking combined content height, split occurs and createPost is called
+      const createCalls = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+
+      // If split happened correctly, createPost should have been called for continuation
+      // If bug exists, only updatePost would be called
+      expect(createCalls).toBeGreaterThan(0);
+    });
+  });
 });
