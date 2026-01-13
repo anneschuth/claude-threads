@@ -584,44 +584,55 @@ When making changes to persisted data:
 
 ### Red-Green Testing for Regression Fixes
 
-When fixing bugs, follow the red-green testing pattern to ensure tests actually catch the bug:
+> **CRITICAL: Always verify your test is RED without the fix!**
+>
+> A test that passes regardless of whether the fix exists is USELESS.
+> It won't catch future regressions. This is the most common testing mistake.
 
-1. **Write the test first** that exercises the buggy behavior
-2. **RED**: Run the test with the buggy code - it should FAIL
-3. **Apply the fix**
-4. **GREEN**: Run the test again - it should PASS
-5. **Verify all tests pass** before committing
+**The RED-GREEN-REFACTOR cycle:**
 
-This ensures:
-- The test actually catches the regression
-- The fix actually solves the problem
-- Future regressions will be caught
+| Step | Action | Verification |
+|------|--------|--------------|
+| 1. **RED** | Write test, temporarily remove fix | Test FAILS |
+| 2. **GREEN** | Apply the fix | Test PASSES |
+| 3. **REFACTOR** | Clean up code | All tests still pass |
 
-**Key principles:**
-- Test the actual code path, not a copy of the logic inline in the test
-- For unit tests, test the specific function/method that contains the fix
-- If the code is hard to test, consider refactoring to make it testable first
-- A regression test should FAIL if someone removes the fix
+**The #1 Rule:**
+```
+TEST THE ACTUAL CODE PATH, NOT A COPY OF THE LOGIC!
+```
 
-**Common mistake:** Writing a test that duplicates the logic inline → test passes even if fix is removed. Instead, test the actual function that contains the fix.
+- **WRONG**: Test duplicates the if/then logic inline in the test
+  - Test passes even if someone deletes the fix
+  - Useless for catching regressions
 
-**Example workflow:**
+- **RIGHT**: Test calls the actual function that contains the fix
+  - Test fails if fix is removed
+  - Actually protects against regressions
+
+**How to verify your test is RED:**
 ```bash
-# 1. Write test, revert the fix temporarily
-git checkout src/path/to/file.ts
+# 1. Temporarily comment out or revert the fix
+git diff src/path/to/file.ts  # Note what you're removing
 
-# 2. RED: Verify test fails
-bun test src/path/to/file.test.ts
+# 2. Run JUST your test - it MUST fail
+bun test --test-name-pattern "your test name"
 
-# 3. Apply the fix
-# ... edit the file ...
+# 3. If test passes → YOUR TEST IS BROKEN, rewrite it!
+#    If test fails → Good! Now restore the fix.
 
-# 4. GREEN: Verify test passes
-bun test src/path/to/file.test.ts
+# 4. Run test again with fix - should pass
+bun test --test-name-pattern "your test name"
 
-# 5. Verify all tests pass
+# 5. Run all tests
 bun test
 ```
+
+**Key principles:**
+- Test the specific function/method that contains the fix
+- If code is hard to test, refactor for testability FIRST
+- A regression test MUST fail if someone removes the fix
+- "Documents behavior" is NOT the same as "tests the code"
 
 ### Files That Store Persisted Data
 
