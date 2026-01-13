@@ -792,8 +792,22 @@ async function updateStickyMessageImpl(
 
     // Clean up any orphaned pinned posts from the bot (in case previous delete failed)
     // This is throttled (max once per 5 min) and only checks recent posts (last hour)
+    // Gather session header and task list post IDs to exclude from cleanup
+    const excludePostIds = new Set<string>();
+    if (sessionStore) {
+      for (const session of sessionStore.load().values()) {
+        if (session.platformId === platform.platformId) {
+          if (session.sessionStartPostId) {
+            excludePostIds.add(session.sessionStartPostId);
+          }
+          if (session.tasksPostId) {
+            excludePostIds.add(session.tasksPostId);
+          }
+        }
+      }
+    }
     const botUser = await platform.getBotUser();
-    cleanupOldStickyMessages(platform, botUser.id).catch(err => {
+    cleanupOldStickyMessages(platform, botUser.id, false, excludePostIds).catch(err => {
       log.debug(`Background cleanup failed: ${err}`);
     });
   } catch (err) {
@@ -856,7 +870,8 @@ function isRecentPost(postId: string): boolean {
 export async function cleanupOldStickyMessages(
   platform: PlatformClient,
   botUserId: string,
-  forceRun = false
+  forceRun = false,
+  excludePostIds?: Set<string>
 ): Promise<void> {
   const platformId = platform.platformId;
   const now = Date.now();
@@ -880,7 +895,12 @@ export async function cleanupOldStickyMessages(
     const pinnedPostIds = await platform.getPinnedPosts();
 
     // Filter to only recent posts (reduces API calls significantly)
-    const recentPinnedIds = pinnedPostIds.filter(id => id !== currentStickyId && isRecentPost(id));
+    // Also exclude the current sticky and any explicitly excluded posts (e.g., session headers, task lists)
+    const recentPinnedIds = pinnedPostIds.filter(id =>
+      id !== currentStickyId &&
+      !excludePostIds?.has(id) &&
+      isRecentPost(id)
+    );
 
     if (recentPinnedIds.length === 0) {
       log.debug(`No recent pinned posts to check (${pinnedPostIds.length} total, current: ${currentStickyId?.substring(0, 8) || '(none)'})`);

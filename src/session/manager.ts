@@ -893,18 +893,6 @@ export class SessionManager extends EventEmitter {
     this.sessionMonitor?.start();
     this.backgroundCleanup?.start();
 
-    // Clean up old sticky messages from the bot (from failed/crashed runs)
-    // Run in background - no need to block startup. forceRun=true bypasses throttle.
-    for (const platform of this.platforms.values()) {
-      platform.getBotUser().then(botUser => {
-        stickyMessage.cleanupOldStickyMessages(platform, botUser.id, true).catch(err => {
-          log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
-        });
-      }).catch(err => {
-        log.warn(`Failed to get bot user for cleanup on ${platform.platformId}: ${err}`);
-      });
-    }
-
     // Clean up stale sessions that timed out while bot was down
     // Use 2x timeout to be generous (bot might have been down for a while)
     const sessionTimeoutMs = this.limits.sessionTimeoutMinutes * 60 * 1000;
@@ -921,6 +909,40 @@ export class SessionManager extends EventEmitter {
 
     const persisted = this.sessionStore.load();
     log.info(`📂 Loaded ${persisted.size} session(s) from persistence`);
+
+    // Gather session header and task list post IDs by platform (to exclude from sticky cleanup)
+    // These are pinned posts that belong to active sessions and should NOT be deleted
+    const excludePostIdsByPlatform = new Map<string, Set<string>>();
+    for (const session of persisted.values()) {
+      const platformId = session.platformId;
+      let excludeSet = excludePostIdsByPlatform.get(platformId);
+      if (!excludeSet) {
+        excludeSet = new Set();
+        excludePostIdsByPlatform.set(platformId, excludeSet);
+      }
+      // Exclude session header posts
+      if (session.sessionStartPostId) {
+        excludeSet.add(session.sessionStartPostId);
+      }
+      // Exclude task list posts
+      if (session.tasksPostId) {
+        excludeSet.add(session.tasksPostId);
+      }
+    }
+
+    // Clean up old sticky messages from the bot (from failed/crashed runs)
+    // Run in background - no need to block startup. forceRun=true bypasses throttle.
+    // Pass session header and task list post IDs to exclude them from cleanup.
+    for (const platform of this.platforms.values()) {
+      const excludePostIds = excludePostIdsByPlatform.get(platform.platformId);
+      platform.getBotUser().then(botUser => {
+        stickyMessage.cleanupOldStickyMessages(platform, botUser.id, true, excludePostIds).catch(err => {
+          log.warn(`Failed to cleanup old sticky messages for ${platform.platformId}: ${err}`);
+        });
+      }).catch(err => {
+        log.warn(`Failed to get bot user for cleanup on ${platform.platformId}: ${err}`);
+      });
+    }
 
     if (persisted.size > 0) {
       // Split sessions into active (to resume) and paused (to skip)
