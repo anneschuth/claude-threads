@@ -1,6 +1,6 @@
 {
   "name": "claude-threads",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "description": "Share Claude Code sessions live in a Mattermost channel with interactive features",
   "main": "dist/index.js",
   "type": "module",
