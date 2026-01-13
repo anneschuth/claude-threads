@@ -650,5 +650,31 @@ describe('MessageManager', () => {
       const createPostCallsAfter = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
       expect(createPostCallsAfter).toBe(createPostCallsBefore);
     });
+
+    /**
+     * Regression test: When restoring a COMPLETED task list and then receiving
+     * new todo_write events, the new tasks should create a FRESH post, not
+     * update the old completed one.
+     *
+     * Without this fix, after resume, new tasks would update the old completed
+     * task list post (which is above the resume message) instead of creating
+     * a new one at the bottom.
+     */
+    it('clears tasksPostId for completed task lists so new tasks create fresh post', async () => {
+      // Restore a COMPLETED task list
+      const persistedState = {
+        tasksPostId: 'old-completed-task-post',
+        lastTasksContent: '📋 Tasks (8/8)',
+        tasksCompleted: true,
+        tasksMinimized: false,
+      };
+
+      await manager.restoreTaskListFromPersistence(persistedState);
+
+      // After restoring a completed task list, the tasksPostId should be cleared
+      // so that new todo_write events create a fresh post
+      const state = manager.getTaskListState();
+      expect(state.postId).toBeNull();
+    });
   });
 });

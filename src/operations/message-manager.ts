@@ -838,11 +838,21 @@ export class MessageManager {
     tasksCompleted?: boolean;
     tasksMinimized?: boolean;
   }): Promise<void> {
-    // First, hydrate the state
+    // If task list was completed, don't restore the postId - new tasks should
+    // create a fresh post at the bottom, not update the old completed one
+    if (persisted.tasksCompleted) {
+      this.hydrateTaskListState({
+        ...persisted,
+        tasksPostId: null,  // Clear so new tasks create fresh post
+      });
+      return;
+    }
+
+    // Hydrate the state for active task lists
     this.hydrateTaskListState(persisted);
 
-    // Then bump to bottom if there's an active (non-completed) task list
-    if (persisted.tasksPostId && persisted.lastTasksContent && !persisted.tasksCompleted) {
+    // Bump to bottom if there's an active task list
+    if (persisted.tasksPostId && persisted.lastTasksContent) {
       await this.bumpTaskList();
     }
   }
