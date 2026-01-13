@@ -194,8 +194,8 @@ class ThreadLoggerImpl implements ThreadLogger {
     this.bufferSize = options?.bufferSize ?? 10;
     this.flushIntervalMs = options?.flushIntervalMs ?? 1000;
 
-    // Compute log file path
-    this.logPath = join(LOGS_BASE_DIR, platformId, `${threadId}.jsonl`);
+    // Compute log file path - use sessionId (platform-agnostic) rather than threadId
+    this.logPath = join(LOGS_BASE_DIR, platformId, `${claudeSessionId}.jsonl`);
 
     if (this.enabled) {
       // Ensure directory exists
@@ -481,8 +481,8 @@ export function cleanupOldLogs(retentionDays: number = 30): number {
 /**
  * Get log file path for a session (for external use, e.g., debugging)
  */
-export function getLogFilePath(platformId: string, threadId: string): string {
-  return join(LOGS_BASE_DIR, platformId, `${threadId}.jsonl`);
+export function getLogFilePath(platformId: string, sessionId: string): string {
+  return join(LOGS_BASE_DIR, platformId, `${sessionId}.jsonl`);
 }
 
 /**
@@ -490,16 +490,16 @@ export function getLogFilePath(platformId: string, threadId: string): string {
  * Returns an array of parsed log entries (most recent last).
  *
  * @param platformId - Platform identifier
- * @param threadId - Thread identifier
+ * @param sessionId - Session identifier (claudeSessionId)
  * @param maxLines - Maximum number of lines to read (default: 50)
  * @returns Array of log entries, or empty array if file doesn't exist
  */
 export function readRecentLogEntries(
   platformId: string,
-  threadId: string,
+  sessionId: string,
   maxLines: number = 50
 ): LogEntry[] {
-  const logPath = getLogFilePath(platformId, threadId);
+  const logPath = getLogFilePath(platformId, sessionId);
   log.debug(`Reading log entries from: ${logPath}`);
 
   if (!existsSync(logPath)) {

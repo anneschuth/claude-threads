@@ -28,6 +28,11 @@ describe('ThreadLogger', () => {
     return `test-thread-${Date.now()}-${testCounter++}`;
   }
 
+  // Generate unique sessionId for each test to avoid accumulation
+  function getUniqueSessionId(): string {
+    return `test-session-${Date.now()}-${testCounter++}`;
+  }
+
   afterEach(async () => {
     if (logger) {
       const logPath = logger.getLogPath();
@@ -55,7 +60,8 @@ describe('ThreadLogger', () => {
     it('returns correct log path', () => {
       const threadId = getUniqueThreadId();
       logger = createThreadLogger(platformId, threadId, sessionId);
-      const expectedPath = getLogFilePath(platformId, threadId);
+      // Log file is named by sessionId, not threadId
+      const expectedPath = getLogFilePath(platformId, sessionId);
       expect(logger.getLogPath()).toBe(expectedPath);
     });
   });
@@ -328,26 +334,54 @@ describe('ThreadLogger', () => {
     });
   });
 
-  describe('multiple sessions same thread', () => {
-    it('appends to existing log file', async () => {
+  describe('session log file naming', () => {
+    it('creates separate log files for different sessions (same thread)', async () => {
       const threadId = getUniqueThreadId();
+      const sessionId1 = getUniqueSessionId();
+      const sessionId2 = getUniqueSessionId();
 
       // First session
-      const logger1 = createThreadLogger(platformId, threadId, 'session-1');
+      const logger1 = createThreadLogger(platformId, threadId, sessionId1);
       logger1.logLifecycle('start', { username: 'user1' });
       await logger1.close();
 
-      // Second session (same thread, different session ID)
-      const logger2 = createThreadLogger(platformId, threadId, 'session-2');
+      // Second session (same thread, different session ID = different file)
+      const logger2 = createThreadLogger(platformId, threadId, sessionId2);
+      logger2.logLifecycle('start', { username: 'user1' });
+      await logger2.close();
+
+      // Each session should have its own log file
+      const entries1 = parseJsonl(logger1.getLogPath());
+      const entries2 = parseJsonl(logger2.getLogPath());
+
+      expect(entries1.length).toBe(1);
+      expect(entries2.length).toBe(1);
+      expect((entries1[0] as LifecycleEntry).sessionId).toBe(sessionId1);
+      expect((entries2[0] as LifecycleEntry).sessionId).toBe(sessionId2);
+
+      // Clean up
+      rmSync(logger1.getLogPath());
+      rmSync(logger2.getLogPath());
+    });
+
+    it('appends to same log file for resumed session (same sessionId)', async () => {
+      const threadId = getUniqueThreadId();
+      const sharedSessionId = getUniqueSessionId();
+
+      // Initial session
+      const logger1 = createThreadLogger(platformId, threadId, sharedSessionId);
+      logger1.logLifecycle('start', { username: 'user1' });
+      await logger1.close();
+
+      // Resumed session (same sessionId = same file)
+      const logger2 = createThreadLogger(platformId, threadId, sharedSessionId);
       logger2.logLifecycle('resume', { username: 'user1' });
       await logger2.close();
 
       const entries = parseJsonl(logger1.getLogPath());
       expect(entries.length).toBe(2);
 
-      expect((entries[0] as LifecycleEntry).sessionId).toBe('session-1');
       expect((entries[0] as LifecycleEntry).action).toBe('start');
-      expect((entries[1] as LifecycleEntry).sessionId).toBe('session-2');
       expect((entries[1] as LifecycleEntry).action).toBe('resume');
 
       // Clean up
@@ -358,8 +392,9 @@ describe('ThreadLogger', () => {
 
 describe('getLogFilePath', () => {
   it('returns correct path format', () => {
-    const path = getLogFilePath('mattermost-main', 'thread-abc123');
-    expect(path).toContain('.claude-threads/logs/mattermost-main/thread-abc123.jsonl');
+    // Second parameter is sessionId (not threadId)
+    const path = getLogFilePath('mattermost-main', 'session-abc123');
+    expect(path).toContain('.claude-threads/logs/mattermost-main/session-abc123.jsonl');
   });
 });
 

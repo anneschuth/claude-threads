@@ -646,8 +646,8 @@ export async function updateSessionHeader(
 
   items.push(['🆔', 'Session ID', formatter.formatCode(session.claudeSessionId.substring(0, 8))]);
 
-  // Show log file path (sanitized)
-  const logPath = getLogFilePath(session.platform.platformId, session.threadId);
+  // Show log file path (sanitized) - use sessionId for the filename
+  const logPath = getLogFilePath(session.platform.platformId, session.claudeSessionId);
   const shortLogPath = logPath.replace(process.env.HOME || '', '~');
   items.push(['📋', 'Log File', formatter.formatCode(shortLogPath)]);
 
