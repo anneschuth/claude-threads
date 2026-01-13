@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.2] - 2026-01-13
+
+### Fixed
+- **Session header posts deleted by sticky cleanup** - Fixed bug where session header and task list posts were incorrectly deleted by the sticky message cleanup function (#204)
+- **Table rendering regression** - Fixed pipe escaping in `formatKeyValueList` and missing blank line before tables (#203)
+
 ## [1.0.1] - 2026-01-13
 
 ### Changed
