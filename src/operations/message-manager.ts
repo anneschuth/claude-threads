@@ -432,6 +432,7 @@ export class MessageManager {
       logger: log.forSession(this.sessionId),
       postTracker: this.postTracker,
       contentBreaker: this.contentBreaker,
+      threadLogger: this.session.threadLogger,
 
       // Helper methods that combine create + register + track
       createPost: async (content, options) => {

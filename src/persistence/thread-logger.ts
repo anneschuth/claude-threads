@@ -93,13 +93,26 @@ export interface ReactionEntry extends BaseLogEntry {
   answer?: string;
 }
 
+/**
+ * Executor operation events (task list, content, etc.)
+ * Used for debugging post creation/update/delete issues
+ */
+export interface ExecutorEntry extends BaseLogEntry {
+  type: 'executor';
+  executor: 'task_list' | 'content' | 'subagent' | 'system';
+  operation: 'create' | 'update' | 'delete' | 'bump' | 'complete' | 'error';
+  postId?: string;
+  details?: Record<string, unknown>;
+}
+
 export type LogEntry =
   | ClaudeEventEntry
   | UserMessageEntry
   | LifecycleEntry
   | CommandEntry
   | PermissionEntry
-  | ReactionEntry;
+  | ReactionEntry
+  | ExecutorEntry;
 
 // =============================================================================
 // ThreadLogger Interface
@@ -129,6 +142,14 @@ export interface ThreadLogger {
 
   /** Log reaction event */
   logReaction(action: ReactionEntry['action'], username: string, emoji?: string, answer?: string): void;
+
+  /** Log executor operation (for debugging post management) */
+  logExecutor(
+    executor: ExecutorEntry['executor'],
+    operation: ExecutorEntry['operation'],
+    postId?: string,
+    details?: Record<string, unknown>
+  ): void;
 
   /** Flush pending writes (for graceful shutdown) */
   flush(): Promise<void>;
@@ -284,6 +305,26 @@ class ThreadLoggerImpl implements ThreadLogger {
     this.addEntry(entry);
   }
 
+  logExecutor(
+    executor: ExecutorEntry['executor'],
+    operation: ExecutorEntry['operation'],
+    postId?: string,
+    details?: Record<string, unknown>
+  ): void {
+    if (!this.enabled || this.isClosed) return;
+
+    const entry: ExecutorEntry = {
+      ts: Date.now(),
+      sessionId: this.claudeSessionId,
+      type: 'executor',
+      executor,
+      operation,
+      postId,
+      details,
+    };
+    this.addEntry(entry);
+  }
+
   async flush(): Promise<void> {
     this.flushSync();
   }
@@ -343,6 +384,7 @@ class DisabledThreadLogger implements ThreadLogger {
   logCommand(): void { /* no-op */ }
   logPermission(): void { /* no-op */ }
   logReaction(): void { /* no-op */ }
+  logExecutor(): void { /* no-op */ }
   async flush(): Promise<void> { /* no-op */ }
   async close(): Promise<void> { /* no-op */ }
   isEnabled(): boolean { return false; }

@@ -9,6 +9,7 @@ import type { PlatformClient, PlatformPost, PlatformFormatter } from '../../plat
 import type { PostTracker, RegisterPostOptions, PostType, InteractionType } from '../post-tracker.js';
 import type { ContentBreaker } from '../content-breaker.js';
 import type { Logger } from '../../utils/logger.js';
+import type { ThreadLogger } from '../../persistence/thread-logger.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -42,6 +43,8 @@ export interface ExecutorContext {
   postTracker: PostTracker;
   /** Content breaker for message splitting */
   contentBreaker: ContentBreaker;
+  /** Thread logger for persisting session events (optional) */
+  threadLogger?: ThreadLogger;
   /** Debug mode */
   debug?: boolean;
 

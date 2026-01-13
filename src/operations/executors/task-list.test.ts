@@ -858,6 +858,36 @@ describe('TaskListExecutor', () => {
 
       expect(result).toBeNull();
     });
+
+    it('deletes old post when updatePost fails during bump', async () => {
+      // If we can't repurpose the old task post for content, we should delete it
+      // to avoid having an orphaned task list post visible to users
+      const ctx = getContext();
+
+      // Create initial task post (post_1)
+      await executor.execute(createTaskListOp('test', 'update', createSampleTasks()), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Reset mocks to track new calls
+      (platform.deletePost as ReturnType<typeof mock>).mockClear();
+
+      // Make updatePost fail
+      (platform.updatePost as ReturnType<typeof mock>) = mock(async () => {
+        throw new Error('Update failed');
+      });
+
+      // Bump should delete the old post when it can't be repurposed
+      const result = await executor.bumpAndGetOldPost(ctx, 'New content');
+
+      // Should return null since repurposing failed
+      expect(result).toBeNull();
+
+      // Old post (post_1) should be DELETED, not left orphaned
+      expect(platform.deletePost).toHaveBeenCalledWith('post_1');
+
+      // New task list (post_2) should be created
+      expect(executor.getState().tasksPostId).toBe('post_2');
+    });
   });
 
   // ===========================================================================
@@ -1034,6 +1064,131 @@ describe('TaskListExecutor', () => {
 
       expect(updateLastMessageMock).toHaveBeenCalled();
       expect(lastMessage?.id).toBe('post_1');
+    });
+  });
+
+  describe('Duplicate task list prevention', () => {
+    /**
+     * These tests verify that duplicate task lists are not created when
+     * platform operations fail.
+     *
+     * The key scenarios that can cause duplicates:
+     * 1. updatePost fails AND deletePost fails - old post remains, new post created
+     * 2. bumpToBottom creates new post AND updateTaskList also creates new post (race)
+     */
+
+    it('should NOT create duplicate when updatePost fails - should keep old post (FIX)', async () => {
+      const ctx = getContext();
+
+      // Create initial task list
+      const tasks = [
+        { content: 'Task 1', status: 'in_progress' as const, activeForm: 'Task 1' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Make updatePost fail (simulates network error or stale post reference)
+      const updatePostMock = platform.updatePost as ReturnType<typeof mock>;
+      updatePostMock.mockImplementation(async () => {
+        throw new Error('Post not found');
+      });
+
+      // Make deletePost also fail (simulates the post doesn't exist on platform)
+      const deletePostMock = platform.deletePost as ReturnType<typeof mock>;
+      deletePostMock.mockImplementation(async () => {
+        throw new Error('Delete failed - post not found');
+      });
+
+      // Update with new content
+      const newTasks = [
+        { content: 'New Task 1', status: 'in_progress' as const, activeForm: 'New Task 1' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', newTasks), ctx);
+
+      // EXPECTED BEHAVIOR (after fix):
+      // If delete fails, we should NOT create a new post because
+      // the old post might still exist. This prevents duplicates.
+      // Instead, we should set tasksPostId to null and the next update
+      // will create a fresh post.
+
+      // For now, this test will FAIL because the current behavior creates
+      // a new post even when delete fails (causing duplicates).
+
+      // With the fix:
+      // - If delete throws, don't create new post
+      // - Set tasksPostId to null
+      // - Log a warning
+      // - Next update will create fresh post
+      expect(executor.getState().tasksPostId).toBeNull();
+      expect(platform.createInteractivePost).toHaveBeenCalledTimes(1); // Only initial creation
+    });
+
+    it('bumpToBottom followed by failed updateTaskList does NOT create duplicate (FIXED)', async () => {
+      const ctx = getContext();
+
+      // Create initial task list at 75%
+      const tasks75 = [
+        { content: 'Task 1', status: 'completed' as const, activeForm: 'Task 1' },
+        { content: 'Task 2', status: 'completed' as const, activeForm: 'Task 2' },
+        { content: 'Task 3', status: 'completed' as const, activeForm: 'Task 3' },
+        { content: 'Task 4', status: 'in_progress' as const, activeForm: 'Task 4' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks75), ctx);
+
+      const originalPostId = executor.getState().tasksPostId;
+      expect(originalPostId).toBe('post_1');
+
+      // bumpToBottom (delete succeeds, creates new post)
+      await executor.execute(createTaskListOp('test', 'bump_to_bottom', []), ctx);
+
+      // After bump: tasksPostId should be post_2
+      expect(executor.getState().tasksPostId).toBe('post_2');
+
+      // Now make BOTH updatePost AND deletePost fail for the update operation
+      const updatePostMock = platform.updatePost as ReturnType<typeof mock>;
+      const deletePostMock = platform.deletePost as ReturnType<typeof mock>;
+
+      updatePostMock.mockImplementation(async () => {
+        throw new Error('Post not found');
+      });
+      deletePostMock.mockImplementation(async () => {
+        throw new Error('Delete failed');
+      });
+
+      // Update with 100% completion - this should fail gracefully
+      const tasks100 = tasks75.map(t => ({ ...t, status: 'completed' as const }));
+      await executor.execute(createTaskListOp('test', 'update', tasks100), ctx);
+
+      // FIXED BEHAVIOR: When both update and delete fail, we DON'T create a new post
+      // This prevents duplicates
+      expect(executor.getState().tasksPostId).toBeNull();
+      // Only 2 posts created: post_1 (initial) and post_2 (from bump)
+      expect(platform.createInteractivePost).toHaveBeenCalledTimes(2);
+    });
+
+    it('should clean up old task post when starting fresh task list after completed tasks', async () => {
+      const ctx = getContext();
+
+      // Create and complete a task list
+      const tasks = [
+        { content: 'Task 1', status: 'completed' as const, activeForm: 'Task 1' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', tasks), ctx);
+      await executor.execute(createTaskListOp('test', 'complete', tasks), ctx);
+
+      expect(executor.getState().tasksCompleted).toBe(true);
+      expect(executor.getState().tasksPostId).toBe('post_1');
+
+      // Now create a fresh task list (Claude started new work)
+      const newTasks = [
+        { content: 'New Task 1', status: 'in_progress' as const, activeForm: 'New Task 1' },
+      ];
+      await executor.execute(createTaskListOp('test', 'update', newTasks), ctx);
+
+      // The old completed post should be reused (not left behind as a duplicate)
+      expect(executor.getState().tasksPostId).toBe('post_1');
+      // No new post should be created
+      expect(platform.createInteractivePost).toHaveBeenCalledTimes(1);
     });
   });
 });
