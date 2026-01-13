@@ -13,8 +13,6 @@ import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
 import { getUpdateInfo } from '../../update-notifier.js';
-import { getReleaseNotes, getWhatsNewSummary } from '../../changelog.js';
-import { getLogo } from '../../logo.js';
 import { VERSION } from '../../version.js';
 import {
   APPROVAL_EMOJIS,
@@ -553,6 +551,11 @@ export async function updateSessionHeader(
   // Build status bar items
   const statusItems: string[] = [];
 
+  // Version info at the start (like sticky message)
+  const claudeVersion = getClaudeCliVersion();
+  const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
+  statusItems.push(formatter.formatCode(versionStr));
+
   // Model and context usage (if available)
   if (session.usageStats) {
     const stats = session.usageStats;
@@ -638,12 +641,6 @@ export async function updateSessionHeader(
     items.push(['👥', 'Participants', otherParticipants]);
   }
 
-  // Show Claude CLI version
-  const claudeVersion = getClaudeCliVersion();
-  if (claudeVersion) {
-    items.push(['🤖', 'Claude CLI', formatter.formatCode(claudeVersion)]);
-  }
-
   items.push(['🆔', 'Session ID', formatter.formatCode(session.claudeSessionId.substring(0, 8))]);
 
   // Show log file path (sanitized) - use sessionId for the filename
@@ -654,22 +651,15 @@ export async function updateSessionHeader(
   // Check for available updates
   const updateInfo = getUpdateInfo();
   const updateNotice = updateInfo
-    ? `\n> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n`
+    ? `> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n\n`
     : '';
 
-  // Get "What's new" from release notes
-  const releaseNotes = getReleaseNotes(VERSION);
-  const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
-  const whatsNewLine = whatsNew ? `\n> ✨ ${formatter.formatBold("What's new:")} ${whatsNew}\n` : '';
-
   const msg = [
-    getLogo(VERSION),
     updateNotice,
-    whatsNewLine,
     statusBar,
     '',
     formatter.formatKeyValueList(items),
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 
   const postId = session.sessionStartPostId;
   await updatePost(session, postId, msg);

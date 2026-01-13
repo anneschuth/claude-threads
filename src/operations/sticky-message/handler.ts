@@ -16,6 +16,7 @@ import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
 import { formatRelativeTimeShort, formatShortId } from '../../utils/format.js';
 import { VERSION } from '../../version.js';
+import { getReleaseNotes, getWhatsNewSummary } from '../../changelog.js';
 import { createLogger } from '../../utils/logger.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
 import { getClaudeCliVersion } from '../../claude/version-check.js';
@@ -549,6 +550,14 @@ export async function buildStickyMessage(
       }
     }
 
+    // Add "What's new" from release notes
+    const releaseNotes = getReleaseNotes(VERSION);
+    const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
+    if (whatsNew) {
+      lines.push('');
+      lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
+    }
+
     lines.push('');
     lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
 
@@ -640,6 +649,14 @@ export async function buildStickyMessage(
     for (const historySession of historySessions) {
       lines.push(...formatHistoryEntry(historySession, formatter, getThreadLink));
     }
+  }
+
+  // Add "What's new" from release notes
+  const releaseNotes = getReleaseNotes(VERSION);
+  const whatsNew = releaseNotes ? getWhatsNewSummary(releaseNotes) : '';
+  if (whatsNew) {
+    lines.push('');
+    lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
   }
 
   lines.push('');

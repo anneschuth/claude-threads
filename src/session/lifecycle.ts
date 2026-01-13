@@ -666,6 +666,11 @@ export async function startSession(
   // Update the header with full session info
   await ctx.ops.updateSessionHeader(session);
 
+  // Pin the header message
+  if (session.sessionStartPostId) {
+    await platform.pinPost(session.sessionStartPostId).catch(() => {});
+  }
+
   // Update sticky channel message with new session
   await ctx.ops.updateStickyMessage();
 
@@ -966,6 +971,11 @@ export async function resumeSession(
 
     // Update session header
     await ctx.ops.updateSessionHeader(session);
+
+    // Re-pin the header message (may have been unpinned)
+    if (session.sessionStartPostId) {
+      await session.platform.pinPost(session.sessionStartPostId).catch(() => {});
+    }
 
     // Update sticky channel message with resumed session
     await ctx.ops.updateStickyMessage();
