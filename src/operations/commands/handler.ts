@@ -663,6 +663,9 @@ export async function updateSessionHeader(
 
   const postId = session.sessionStartPostId;
   await updatePost(session, postId, msg);
+
+  // Defensively re-pin the header post (in case it was unpinned)
+  session.platform.pinPost(postId).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
