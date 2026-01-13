@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.4] - 2026-01-13
+
+### Changed
+- **Disable session header pinning** - Session headers are no longer pinned to avoid clutter (#208)
+
+### Fixed
+- **Sticky message link validation** - Fixed bug where invalid `lastMessageId` could cause malformed links in sticky messages (#209)
+
+### Refactored
+- **Extract BasePlatformClient** - Consolidated common code between Mattermost and Slack clients into a shared base class, reducing duplication (#205)
+
 ## [1.0.3] - 2026-01-13
 
 ### Fixed
