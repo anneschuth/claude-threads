@@ -8,6 +8,9 @@ import {
   SOFT_BREAK_THRESHOLD,
   MIN_BREAK_THRESHOLD,
   MAX_LINES_BEFORE_BREAK,
+  MAX_HEIGHT_THRESHOLD,
+  HEIGHT_CONSTANTS,
+  estimateRenderedHeight,
 } from './content-breaker.js';
 
 describe('ContentBreaker', () => {
@@ -358,6 +361,350 @@ describe('ContentBreaker', () => {
 
     it('MAX_LINES_BEFORE_BREAK is 15', () => {
       expect(MAX_LINES_BEFORE_BREAK).toBe(15);
+    });
+
+    it('MAX_HEIGHT_THRESHOLD is 500', () => {
+      expect(MAX_HEIGHT_THRESHOLD).toBe(500);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Height Estimation Tests
+// ---------------------------------------------------------------------------
+
+describe('estimateRenderedHeight', () => {
+  const H = HEIGHT_CONSTANTS;
+
+  describe('basic text', () => {
+    it('returns minimal height for empty string', () => {
+      // Empty string splits to one empty line
+      expect(estimateRenderedHeight('')).toBe(H.BLANK_LINE);
+    });
+
+    it('estimates single line of text', () => {
+      const content = 'Hello world';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.TEXT_LINE); // One line = 21px
+    });
+
+    it('estimates multiple lines of text', () => {
+      const content = 'Line 1\nLine 2\nLine 3';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.TEXT_LINE * 3); // 3 lines = 63px
+    });
+
+    it('estimates text wrapping for long lines', () => {
+      // 180 chars should wrap to ~2 lines at 90 chars/line
+      const content = 'x'.repeat(180);
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.TEXT_LINE * 2); // 2 wrapped lines = 42px
+    });
+
+    it('handles blank lines', () => {
+      const content = 'Line 1\n\nLine 2';
+      const height = estimateRenderedHeight(content);
+      // Line 1 (21) + blank (10) + Line 2 (21) = 52
+      expect(height).toBe(H.TEXT_LINE + H.BLANK_LINE + H.TEXT_LINE);
+    });
+  });
+
+  describe('code blocks', () => {
+    it('estimates code block with padding', () => {
+      const content = '```\ncode line\n```';
+      const height = estimateRenderedHeight(content);
+      // Code block: 3 lines * 18px + 32px padding = 86px
+      // Plus the replacement newline creates a blank line (10px)
+      // Total: 86 + 10 + 10 (empty before and after) = 106px
+      expect(height).toBe(3 * H.CODE_LINE + H.CODE_BLOCK_PADDING + H.BLANK_LINE * 2);
+    });
+
+    it('estimates multi-line code block', () => {
+      const content = '```typescript\nline 1\nline 2\nline 3\n```';
+      const height = estimateRenderedHeight(content);
+      // Code block: 5 lines * 18px + 32px padding = 122px
+      // Plus replacement newlines
+      expect(height).toBe(5 * H.CODE_LINE + H.CODE_BLOCK_PADDING + H.BLANK_LINE * 2);
+    });
+
+    it('estimates multiple code blocks', () => {
+      const content = '```\na\n```\n\n```\nb\n```';
+      const height = estimateRenderedHeight(content);
+      // Two code blocks + blank lines from replacement
+      const codeBlockHeight = 3 * H.CODE_LINE + H.CODE_BLOCK_PADDING;
+      // Actual height accounts for newlines between and around blocks (5 total)
+      expect(height).toBe(codeBlockHeight * 2 + H.BLANK_LINE * 5);
+    });
+
+    it('estimates mixed text and code', () => {
+      const content = 'Some text\n```\ncode\n```\nMore text';
+      const height = estimateRenderedHeight(content);
+      // Text + code block + text, with replacement newlines
+      const codeHeight = 3 * H.CODE_LINE + H.CODE_BLOCK_PADDING;
+      // Text (21) + blank from replacement (10) + code + blank (10) + Text (21)
+      expect(height).toBe(H.TEXT_LINE + H.BLANK_LINE + codeHeight + H.BLANK_LINE + H.TEXT_LINE);
+    });
+  });
+
+  describe('markdown elements', () => {
+    it('estimates headers', () => {
+      const content = '# Header 1\n## Header 2\n### Header 3';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.HEADER_LINE * 3); // 3 headers = 96px
+    });
+
+    it('estimates list items', () => {
+      const content = '- Item 1\n- Item 2\n* Item 3';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.LIST_ITEM * 3); // 3 items = 72px
+    });
+
+    it('estimates numbered list items', () => {
+      const content = '1. First\n2. Second\n10. Tenth';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.LIST_ITEM * 3); // 3 items = 72px
+    });
+
+    it('estimates blockquotes', () => {
+      const content = '> Quote line 1\n> Quote line 2';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.BLOCKQUOTE_LINE * 2); // 2 quotes = 48px
+    });
+
+    it('estimates table rows', () => {
+      const content = '| Col 1 | Col 2 |\n| --- | --- |\n| A | B |';
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.TABLE_ROW * 3); // 3 rows = 84px
+    });
+  });
+
+  describe('complex content', () => {
+    it('estimates typical Claude response with code', () => {
+      const content = `Here's the solution:
+
+\`\`\`typescript
+function add(a: number, b: number): number {
+  return a + b;
+}
+\`\`\`
+
+This function takes two numbers and returns their sum.`;
+
+      const height = estimateRenderedHeight(content);
+      // Line 1 (21) + blank (10) + code block (5 lines * 18 + 32) + blank (10) + Line 2 (21)
+      // = 21 + 10 + 122 + 10 + 21 = 184px
+      expect(height).toBeLessThan(MAX_HEIGHT_THRESHOLD);
+    });
+
+    it('triggers flush for tall content', () => {
+      // Create content that should exceed 500px height
+      const codeLines = Array(25).fill('const x = 1;').join('\n');
+      const content = `\`\`\`typescript\n${codeLines}\n\`\`\``;
+
+      const height = estimateRenderedHeight(content);
+      // 27 lines * 18 + 32 = 518px > 500px threshold
+      expect(height).toBeGreaterThan(MAX_HEIGHT_THRESHOLD);
+    });
+
+    it('handles content with all element types', () => {
+      const content = `# Header
+
+Some paragraph text here.
+
+- List item 1
+- List item 2
+
+> A blockquote
+
+\`\`\`
+code
+\`\`\`
+
+| A | B |
+| - | - |
+| 1 | 2 |`;
+
+      const height = estimateRenderedHeight(content);
+      // This should be calculable and consistent
+      expect(height).toBeGreaterThan(0);
+      expect(typeof height).toBe('number');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('handles unclosed code blocks gracefully', () => {
+      // The regex won't match unclosed blocks, so they're treated as text
+      const content = '```\nunclosed code';
+      const height = estimateRenderedHeight(content);
+      // Treated as 2 lines of text
+      expect(height).toBe(H.TEXT_LINE * 2);
+    });
+
+    it('handles very long single line', () => {
+      const content = 'x'.repeat(900); // 900 chars = 10 wrapped lines
+      const height = estimateRenderedHeight(content);
+      expect(height).toBe(H.TEXT_LINE * 10); // 210px
+    });
+
+    it('handles list items with long text that wraps', () => {
+      const content = '- ' + 'x'.repeat(180); // List item with 180 chars
+      const height = estimateRenderedHeight(content);
+      // Should wrap to 2 lines at 24px each
+      expect(height).toBe(H.LIST_ITEM * 2);
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// shouldFlushEarly with Height Estimation
+// ---------------------------------------------------------------------------
+
+describe('shouldFlushEarly with height estimation', () => {
+  const breaker = new DefaultContentBreaker();
+
+  it('flushes when estimated height exceeds threshold', () => {
+    // Create content that renders tall but has few characters
+    // 25 short lines = 25 * 21px = 525px > 500px threshold
+    const content = Array(25).fill('x').join('\n');
+    expect(breaker.shouldFlushEarly(content)).toBe(true);
+  });
+
+  it('does not flush for short content with few lines', () => {
+    const content = 'Short content\nWith two lines';
+    expect(breaker.shouldFlushEarly(content)).toBe(false);
+  });
+
+  it('flushes for code block that exceeds height threshold', () => {
+    // 25 lines of code * 18px + 32px padding = 482px
+    // Add a few more to exceed 500px
+    const codeLines = Array(28).fill('x').join('\n');
+    const content = `\`\`\`\n${codeLines}\n\`\`\``;
+    // 30 lines * 18 + 32 = 572px > 500
+    expect(breaker.shouldFlushEarly(content)).toBe(true);
+  });
+
+  it('still respects SOFT_BREAK_THRESHOLD as fallback', () => {
+    // Very long single line won't hit height threshold but hits char threshold
+    const content = 'x'.repeat(SOFT_BREAK_THRESHOLD + 1);
+    expect(breaker.shouldFlushEarly(content)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Code Block Protection Tests
+// ---------------------------------------------------------------------------
+
+describe('code block protection with height estimation', () => {
+  const breaker = new DefaultContentBreaker();
+
+  describe('findLogicalBreakpoint respects code blocks', () => {
+    it('does not break inside a code block even when height threshold exceeded', () => {
+      // Create a tall code block (exceeds 500px height)
+      const codeLines = Array(30).fill('const x = 1;').join('\n');
+      const content = `Some intro text\n\`\`\`typescript\n${codeLines}\n\`\`\`\nAfter code`;
+
+      // Height estimation says we should flush
+      expect(breaker.shouldFlushEarly(content)).toBe(true);
+
+      // But findLogicalBreakpoint should find the code block END, not break inside
+      const breakpoint = breaker.findLogicalBreakpoint(content, 0, content.length);
+      expect(breakpoint).not.toBeNull();
+      expect(breakpoint!.type).toBe('code_block_end');
+
+      // The break position should be AFTER the closing ```
+      const breakPos = breakpoint!.position;
+      const contentBeforeBreak = content.substring(0, breakPos);
+      const contentAfterBreak = content.substring(breakPos);
+
+      // Content before break should include the complete code block
+      expect(contentBeforeBreak).toContain('```typescript');
+      expect(contentBeforeBreak).toContain('```'); // closing
+      // Content after break should be the remaining text
+      expect(contentAfterBreak.trim()).toBe('After code');
+    });
+
+    it('returns null when inside unclosed code block (signals wait)', () => {
+      // Unclosed code block - we're streaming and haven't received the closing yet
+      const codeLines = Array(30).fill('const x = 1;').join('\n');
+      const content = `\`\`\`typescript\n${codeLines}`;
+
+      // Start searching from inside the code block
+      const breakpoint = breaker.findLogicalBreakpoint(content, 20, 100);
+
+      // Should return null because we can't safely break inside a code block
+      expect(breakpoint).toBeNull();
+    });
+
+    it('waits for code block to close before breaking', () => {
+      // Code block that starts at the beginning
+      const codeLines = Array(10).fill('code').join('\n');
+      const content = `\`\`\`\n${codeLines}\n\`\`\`\nMore text here`;
+
+      // When we're at position 0, we're inside the code block (after ```)
+      // The breakpoint finder should locate the closing ```
+      const stateAtStart = breaker.getCodeBlockState(content, 5); // After opening ```
+      expect(stateAtStart.isInside).toBe(true);
+
+      // Find breakpoint starting from inside the code block
+      const breakpoint = breaker.findLogicalBreakpoint(content, 5, content.length);
+      expect(breakpoint).not.toBeNull();
+      expect(breakpoint!.type).toBe('code_block_end');
+
+      // After the breakpoint, we should be outside the code block
+      const remainder = content.substring(breakpoint!.position);
+      expect(remainder.trim()).toBe('More text here');
+    });
+
+    it('breaks between code blocks, not inside them', () => {
+      const content = `\`\`\`\ncode1\n\`\`\`\n\nSome text\n\n\`\`\`\ncode2\n\`\`\``;
+
+      // Start searching from inside the first code block
+      const breakpoint = breaker.findLogicalBreakpoint(content, 5, content.length);
+      expect(breakpoint).not.toBeNull();
+
+      // Should break after first code block ends
+      expect(breakpoint!.type).toBe('code_block_end');
+
+      // The remainder should start with the text between the code blocks
+      const remainder = content.substring(breakpoint!.position);
+      expect(remainder.trim().startsWith('Some text')).toBe(true);
+    });
+  });
+
+  describe('getCodeBlockState accuracy', () => {
+    it('correctly identifies position inside code block', () => {
+      const content = `Text before\n\`\`\`typescript\nconst x = 1;\nconst y = 2;\n\`\`\`\nText after`;
+
+      // Position inside the code block (after the opening ```)
+      const insidePos = content.indexOf('const x');
+      const stateInside = breaker.getCodeBlockState(content, insidePos);
+      expect(stateInside.isInside).toBe(true);
+      expect(stateInside.language).toBe('typescript');
+
+      // Position after the code block
+      const afterPos = content.indexOf('Text after');
+      const stateAfter = breaker.getCodeBlockState(content, afterPos);
+      expect(stateAfter.isInside).toBe(false);
+    });
+
+    it('tracks multiple code blocks correctly', () => {
+      const content = `\`\`\`js\na\n\`\`\`\ntext\n\`\`\`python\nb\n\`\`\`\nmore`;
+
+      // Inside first code block
+      const pos1 = content.indexOf('a');
+      expect(breaker.getCodeBlockState(content, pos1).language).toBe('js');
+
+      // Between code blocks
+      const pos2 = content.indexOf('text');
+      expect(breaker.getCodeBlockState(content, pos2).isInside).toBe(false);
+
+      // Inside second code block
+      const pos3 = content.indexOf('b');
+      expect(breaker.getCodeBlockState(content, pos3).language).toBe('python');
+
+      // After all code blocks
+      const pos4 = content.indexOf('more');
+      expect(breaker.getCodeBlockState(content, pos4).isInside).toBe(false);
     });
   });
 });

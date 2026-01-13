@@ -34,6 +34,43 @@ export const MIN_BREAK_THRESHOLD = 500;
 export const MAX_LINES_BEFORE_BREAK = 15;
 
 // ---------------------------------------------------------------------------
+// Height Estimation Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * Mattermost collapses messages at ~600px rendered height.
+ * We use a lower threshold with safety margin.
+ */
+export const MAX_HEIGHT_THRESHOLD = 500;
+
+/**
+ * Height in pixels for different content types.
+ * Based on typical Mattermost rendering with default theme:
+ * - Body text: 14px font, 1.5 line-height = ~21px per line
+ * - Code: 13px monospace, 1.4 line-height = ~18px per line
+ */
+export const HEIGHT_CONSTANTS = {
+  /** Regular text line height (14px * 1.5 line-height) */
+  TEXT_LINE: 21,
+  /** Code block line height (13px * 1.4 line-height) */
+  CODE_LINE: 18,
+  /** Padding around code blocks (top + bottom) */
+  CODE_BLOCK_PADDING: 32,
+  /** Header line height (larger font) */
+  HEADER_LINE: 32,
+  /** List item height (includes bullet spacing) */
+  LIST_ITEM: 24,
+  /** Blockquote line height */
+  BLOCKQUOTE_LINE: 24,
+  /** Blank line height */
+  BLANK_LINE: 10,
+  /** Table row height */
+  TABLE_ROW: 28,
+  /** Approximate characters per line before text wraps */
+  CHARS_PER_LINE: 90,
+};
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -122,6 +159,74 @@ export interface ContentBreaker {
    * @returns The type of breakpoint at the end, or 'none'
    */
   endsAtBreakpoint(content: string): BreakpointType;
+}
+
+// ---------------------------------------------------------------------------
+// Height Estimation
+// ---------------------------------------------------------------------------
+
+/**
+ * Estimate the rendered pixel height of markdown content.
+ *
+ * Mattermost collapses messages based on rendered height (~600px), not character count.
+ * This function analyzes the content structure to estimate how tall it will render:
+ * - Code blocks: each line ~18px + 32px padding per block
+ * - Regular text: ~21px per line, wrapping at ~90 chars
+ * - Headers, lists, blockquotes: taller line heights
+ *
+ * @param content - The markdown content to estimate
+ * @returns Estimated height in pixels
+ */
+export function estimateRenderedHeight(content: string): number {
+  let height = 0;
+  const H = HEIGHT_CONSTANTS;
+
+  // Extract code blocks first (they have special rendering)
+  const codeBlockRegex = /```[\s\S]*?```/g;
+  const codeBlocks = content.match(codeBlockRegex) || [];
+  let textContent = content;
+
+  // Process code blocks
+  for (const block of codeBlocks) {
+    const lines = block.split('\n').length;
+    // Each code line is ~18px, plus 32px padding per block
+    height += lines * H.CODE_LINE + H.CODE_BLOCK_PADDING;
+    // Remove from text content so we don't double-count
+    textContent = textContent.replace(block, '\n');
+  }
+
+  // Process remaining text line by line
+  const lines = textContent.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (trimmed === '') {
+      // Blank line
+      height += H.BLANK_LINE;
+    } else if (/^#{1,6}\s/.test(trimmed)) {
+      // Markdown header
+      height += H.HEADER_LINE;
+    } else if (trimmed.startsWith('>')) {
+      // Blockquote - estimate wrapping
+      const textLength = trimmed.substring(1).trim().length;
+      const wrappedLines = Math.ceil(textLength / H.CHARS_PER_LINE) || 1;
+      height += wrappedLines * H.BLOCKQUOTE_LINE;
+    } else if (/^[-*+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed)) {
+      // List item - estimate wrapping
+      const textLength = trimmed.replace(/^[-*+\d.]+\s*/, '').length;
+      const wrappedLines = Math.ceil(textLength / H.CHARS_PER_LINE) || 1;
+      height += wrappedLines * H.LIST_ITEM;
+    } else if (trimmed.startsWith('|') && trimmed.endsWith('|')) {
+      // Table row
+      height += H.TABLE_ROW;
+    } else {
+      // Regular text - estimate wrapping
+      const wrappedLines = Math.ceil(line.length / H.CHARS_PER_LINE) || 1;
+      height += wrappedLines * H.TEXT_LINE;
+    }
+  }
+
+  return height;
 }
 
 // ---------------------------------------------------------------------------
@@ -250,10 +355,13 @@ export class DefaultContentBreaker implements ContentBreaker {
   }
 
   shouldFlushEarly(content: string): boolean {
-    // Count lines
-    const lineCount = (content.match(/\n/g) || []).length;
+    // Primary check: estimated rendered height
+    // Mattermost collapses at ~600px, we flush at 500px for safety margin
+    const estimatedHeight = estimateRenderedHeight(content);
+    if (estimatedHeight >= MAX_HEIGHT_THRESHOLD) return true;
 
-    // Check against thresholds
+    // Fallback checks for edge cases
+    const lineCount = (content.match(/\n/g) || []).length;
     if (content.length >= SOFT_BREAK_THRESHOLD) return true;
     if (lineCount >= MAX_LINES_BEFORE_BREAK) return true;
 
