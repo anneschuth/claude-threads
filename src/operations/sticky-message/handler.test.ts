@@ -209,7 +209,8 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    expect(result).not.toContain('Worktree');
+    // Should not show the worktree config indicator (but "Worktree" may appear in What's New)
+    expect(result).not.toContain('`🌿 Worktree:');
   });
 
   it('shows debug mode when enabled', async () => {

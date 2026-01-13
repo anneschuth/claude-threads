@@ -127,6 +127,24 @@ describe('MattermostFormatter', () => {
       expect(result).toContain('| 🔵 **Status** | Active |');
       expect(result).toContain('| 🏷️ **Version** | 1.0.0 |');
     });
+
+    it('escapes pipe characters in values', () => {
+      const items: [string, string, string][] = [
+        ['📝', 'Command', '`!permissions interactive|skip`'],
+      ];
+      const result = formatter.formatKeyValueList(items);
+      // Pipe inside value should be escaped to prevent breaking table structure
+      expect(result).toContain('`!permissions interactive\\|skip`');
+    });
+
+    it('escapes pipe characters in labels', () => {
+      const items: [string, string, string][] = [
+        ['📝', 'Option A|B', 'Some value'],
+      ];
+      const result = formatter.formatKeyValueList(items);
+      // Pipe inside label should be escaped
+      expect(result).toContain('Option A\\|B');
+    });
   });
 
   describe('formatHorizontalRule', () => {

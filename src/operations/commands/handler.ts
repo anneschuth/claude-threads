@@ -652,17 +652,20 @@ export async function updateSessionHeader(
   const updateInfo = getUpdateInfo();
   const updateNotice = updateInfo
     ? `> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n\n`
-    : '';
+    : undefined;
 
   const msg = [
     updateNotice,
     statusBar,
-    '',
+    '',  // Blank line needed before table for markdown rendering
     formatter.formatKeyValueList(items),
-  ].filter(Boolean).join('\n');
+  ].filter(item => item !== null && item !== undefined).join('\n');
 
   const postId = session.sessionStartPostId;
   await updatePost(session, postId, msg);
+
+  // Defensively re-pin the header post (in case it was unpinned)
+  session.platform.pinPost(postId).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------

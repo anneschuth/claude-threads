@@ -74,7 +74,9 @@ export class MattermostFormatter implements PlatformFormatter {
 
   formatKeyValueList(items: [string, string, string][]): string {
     // Render as table with icon+label in first column, value in second
-    const rows = items.map(([icon, label, value]) => `| ${icon} ${this.formatBold(label)} | ${value} |`);
+    // Escape pipe characters in labels and values to prevent breaking table structure
+    const escapeCell = (cell: string) => cell.replace(/\|/g, '\\|');
+    const rows = items.map(([icon, label, value]) => `| ${icon} ${this.formatBold(escapeCell(label))} | ${escapeCell(value)} |`);
     return ['| | |', '|---|---|', ...rows].join('\n');
   }
 
