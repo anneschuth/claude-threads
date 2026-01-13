@@ -617,19 +617,6 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   /**
-   * Schedule reconnect with WebSocket cleanup.
-   * Overrides base class to ensure stale sockets are cleaned up before reconnecting.
-   */
-  protected scheduleReconnect(): void {
-    // Clean up any existing WebSocket before reconnecting
-    // This is critical for recovery after long idle periods where the socket may be stale
-    this.forceCloseConnection();
-
-    // Call base class implementation
-    super.scheduleReconnect();
-  }
-
-  /**
    * Recover messages that were posted while disconnected.
    * Fetches posts after the last processed post and re-emits them as events.
    */

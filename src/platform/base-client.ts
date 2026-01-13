@@ -330,6 +330,10 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
       return;
     }
 
+    // Clean up any existing connection before reconnecting
+    // This is critical for recovery after long idle periods where the socket may be stale
+    this.forceCloseConnection();
+
     // Mark that we're reconnecting (to trigger message recovery)
     this.isReconnecting = true;
 
