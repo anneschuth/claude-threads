@@ -629,6 +629,7 @@ describe('ContentExecutor', () => {
         findLogicalBreakpoint: () => null, // No breakpoint found -> triggers getCodeBlockState
         getCodeBlockState: () => ({ isInside: true, openPosition: 0 }), // Code block at position 0
         shouldFlushEarly: () => false, // Don't trigger via shouldFlushEarly
+        exceedsHeightThreshold: () => false, // Don't trigger height-based split
         endsAtBreakpoint: () => 'none' as const,
       };
 
@@ -697,6 +698,7 @@ describe('ContentExecutor', () => {
         findLogicalBreakpoint: () => null, // No breakpoint found
         getCodeBlockState: () => ({ isInside: true, openPosition: 5 }), // Code block at position 5 (not 0)
         shouldFlushEarly: () => false,
+        exceedsHeightThreshold: () => false, // Don't trigger height-based split
         endsAtBreakpoint: () => 'none' as const,
       };
 
@@ -997,6 +999,130 @@ describe('ContentExecutor', () => {
       // If split happened correctly, createPost should have been called for continuation
       // If bug exists, only updatePost would be called
       expect(createCalls).toBeGreaterThan(0);
+    });
+
+    it('maximizes first part size when splitting - does not split too early', async () => {
+      // This test verifies we find the BEST breakpoint (largest first part that fits),
+      // not just the FIRST breakpoint. Splitting at Part 1 would be too aggressive.
+      const ctx = getContext();
+      const { estimateRenderedHeight } = await import('../content-breaker.js');
+
+      // Create 7 sections with enough content to exceed threshold
+      // Each section has multiple lines to build up height
+      const content = [
+        '## Part 1: Introduction',
+        'This is the introduction section with detailed explanation.',
+        'It contains multiple lines of important content.',
+        'We need to make sure each section has substance.',
+        '',
+        '## Part 2: Details',
+        'Here are the implementation details you need to know.',
+        'This section explains the technical approach.',
+        'Additional context is provided for clarity.',
+        '',
+        '## Part 3: More Content',
+        'Adding more content to build up the height.',
+        'Each section contributes to the total height.',
+        'We want to test the splitting behavior.',
+        '',
+        '## Part 4: Additional Info',
+        'This section provides additional information.',
+        'It helps us understand the full picture.',
+        'More lines to increase the content height.',
+        '',
+        '## Part 5: New Section',
+        'A new section with fresh content.',
+        'This adds more height to our test.',
+        'We are building towards the threshold.',
+        '',
+        '## Part 6: Final Section',
+        'The final major section of content.',
+        'It wraps up the main discussion.',
+        'Almost at the end of our test content.',
+        '',
+        '## Part 7: Conclusion',
+        'The concluding section summarizes everything.',
+        'This is the last part of our test.',
+        'Thank you for reading this test content.',
+      ].join('\n');
+
+      // Verify the full content exceeds height threshold
+      const totalHeight = estimateRenderedHeight(content);
+      expect(totalHeight).toBeGreaterThan(500);
+
+      // Calculate heights at each potential split point
+      const part1End = content.indexOf('## Part 2');
+      const part4End = content.indexOf('## Part 5');
+
+      const heightAtPart1 = estimateRenderedHeight(content.substring(0, part1End).trim());
+      const heightAtPart4 = estimateRenderedHeight(content.substring(0, part4End).trim());
+
+      // Track what gets posted
+      const postedContents: string[] = [];
+      const originalCreatePost = platform.createPost;
+      (platform.createPost as ReturnType<typeof mock>) = mock(async (postContent: string, threadId: string) => {
+        postedContents.push(postContent);
+        return originalCreatePost(postContent, threadId);
+      });
+
+      // First flush creates post (may trigger multiple posts due to splitting)
+      await executor.executeAppend(createAppendContentOp('test', content), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      // There should be at least 2 posts (a split occurred)
+      expect(postedContents.length).toBeGreaterThanOrEqual(2);
+
+      // The FIRST post should contain Part 1
+      const firstPost = postedContents[0];
+      expect(firstPost).toContain('Part 1');
+
+      // If heightAtPart4 < 500, then Part 1-4 should fit in first post
+      // This verifies we're not splitting too early (e.g., at Part 1)
+      if (heightAtPart4 < 500) {
+        expect(firstPost).toContain('Part 4');
+      }
+
+      // Part 1 alone is small (~100px), so first post should contain more than just Part 1
+      if (heightAtPart1 < 150) {
+        expect(firstPost).toContain('Part 2');
+      }
+    });
+
+    it('does not split when combined content is under threshold', async () => {
+      // If combined content fits, no split should occur - just update the existing post
+      const ctx = getContext();
+      const { estimateRenderedHeight } = await import('../content-breaker.js');
+
+      // Small existing content
+      const existingContent = '## Part 1\nShort intro.';
+
+      // Small new content
+      const newContent = '\n\n## Part 2\nShort addition.';
+
+      // First flush creates post
+      await executor.executeAppend(createAppendContentOp('test', existingContent), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      expect(executor.getState().currentPostId).toBe('post_1');
+
+      // Reset mock counts
+      (platform.createPost as ReturnType<typeof mock>).mockClear();
+      (platform.updatePost as ReturnType<typeof mock>).mockClear();
+
+      // Verify combined content is under threshold
+      const combinedHeight = estimateRenderedHeight(existingContent + newContent);
+      expect(combinedHeight).toBeLessThan(500);
+
+      // Second flush adds new content
+      await executor.executeAppend(createAppendContentOp('test', newContent), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      // Should update existing post, NOT create new one
+      const createCalls = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+      const updateCalls = (platform.updatePost as ReturnType<typeof mock>).mock.calls.length;
+
+      expect(createCalls).toBe(0);
+      expect(updateCalls).toBe(1);
     });
   });
 });

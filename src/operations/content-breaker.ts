@@ -152,6 +152,15 @@ export interface ContentBreaker {
   shouldFlushEarly(content: string): boolean;
 
   /**
+   * Check if content exceeds height threshold only (ignores line count and length).
+   * Used for finding optimal split points where we want to maximize content per chunk.
+   *
+   * @param content - Content to check
+   * @returns Whether content exceeds height threshold
+   */
+  exceedsHeightThreshold(content: string): boolean;
+
+  /**
    * Check if content ends at a logical breakpoint.
    * Used to detect when incoming content creates a natural break.
    *
@@ -381,6 +390,15 @@ export class DefaultContentBreaker implements ContentBreaker {
     return false;
   }
 
+  /**
+   * Check if content exceeds height threshold only (ignores line count and length).
+   * Used for finding optimal split points where we want to maximize content per chunk.
+   */
+  exceedsHeightThreshold(content: string): boolean {
+    const estimatedHeight = estimateRenderedHeight(content);
+    return estimatedHeight >= MAX_HEIGHT_THRESHOLD;
+  }
+
   endsAtBreakpoint(content: string): BreakpointType {
     const trimmed = content.trimEnd();
 
@@ -432,31 +450,46 @@ export function splitContentForHeight(
 
   // Keep splitting while content is too tall
   while (remaining && contentBreaker.shouldFlushEarly(remaining)) {
-    // Look for a logical breakpoint starting from position 0
-    // Use a larger search window to find good breakpoints
-    const breakpoint = contentBreaker.findLogicalBreakpoint(remaining, 0, remaining.length);
+    // Find the BEST breakpoint - largest first part that still fits under threshold
+    let bestBreakpoint: { position: number; type: string } | null = null;
+    let searchStart = 0;
 
-    if (!breakpoint || breakpoint.position <= 0 || breakpoint.position >= remaining.length) {
-      // No breakpoint found, keep as single chunk
+    while (searchStart < remaining.length) {
+      const breakpoint = contentBreaker.findLogicalBreakpoint(remaining, searchStart, remaining.length - searchStart);
+
+      if (!breakpoint || breakpoint.position <= searchStart || breakpoint.position >= remaining.length) {
+        break;
+      }
+
+      // Only consider good breakpoint types
+      if (!goodBreakpointTypes.has(breakpoint.type)) {
+        searchStart = breakpoint.position + 1;
+        continue;
+      }
+
+      const firstPart = remaining.substring(0, breakpoint.position).trim();
+      // Use height-only check to maximize content per chunk
+      if (!contentBreaker.exceedsHeightThreshold(firstPart)) {
+        // This breakpoint gives us a first part that fits - remember it as best so far
+        bestBreakpoint = breakpoint;
+      }
+
+      searchStart = breakpoint.position + 1;
+    }
+
+    if (!bestBreakpoint) {
+      // No good breakpoint found, keep remaining as single chunk
       break;
     }
 
-    // Only split at "good" breakpoints - not arbitrary line breaks
-    if (!goodBreakpointTypes.has(breakpoint.type)) {
-      // Found only a line break, not a good place to split
-      break;
-    }
+    const firstPart = remaining.substring(0, bestBreakpoint.position).trim();
+    const secondPart = remaining.substring(bestBreakpoint.position).trim();
 
-    const firstPart = remaining.substring(0, breakpoint.position).trim();
-    const secondPart = remaining.substring(breakpoint.position).trim();
-
-    // Split if the first part is safe to post (won't trigger collapse)
-    // and we actually have content in the second part
-    if (!contentBreaker.shouldFlushEarly(firstPart) && secondPart.length > 0) {
+    if (secondPart.length > 0) {
       chunks.push(firstPart);
       remaining = secondPart;
     } else {
-      // First chunk is still too tall, can't split effectively
+      // No content left after split, we're done
       break;
     }
   }

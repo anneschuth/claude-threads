@@ -309,7 +309,8 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         }
 
         const firstPart = content.substring(0, breakInfo.position).trim();
-        if (!ctx.contentBreaker.shouldFlushEarly(firstPart)) {
+        // Use height-only check to maximize content per chunk
+        if (!ctx.contentBreaker.exceedsHeightThreshold(firstPart)) {
           // This breakpoint gives us a first part that fits - remember it
           bestBreakPoint = breakInfo.position;
         }
