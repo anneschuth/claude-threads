@@ -582,4 +582,73 @@ describe('MessageManager', () => {
       expect(platform.createPost).toHaveBeenCalledTimes(2);
     });
   });
+
+  describe('restoreTaskListFromPersistence', () => {
+    /**
+     * Regression test: When a session is resumed with an active task list,
+     * the task list should be bumped to the bottom of the thread.
+     *
+     * Without this, the task list would stay at its old position (above
+     * the resume message) which confuses users.
+     */
+    it('bumps active task list to bottom after hydration', async () => {
+      // Simulate having an active task list in persisted state
+      const persistedState = {
+        tasksPostId: 'old-task-post-id',
+        lastTasksContent: '📋 Tasks (1/3)',
+        tasksCompleted: false,
+        tasksMinimized: false,
+      };
+
+      // Track how many interactive posts were created before restore
+      // (bump uses createInteractivePost because it adds the toggle emoji)
+      const createInteractivePostCallsBefore = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+
+      // Restore from persistence - this should hydrate AND bump
+      await manager.restoreTaskListFromPersistence(persistedState);
+
+      // Verify hydration happened (state was restored)
+      const restoredState = manager.getTaskListState();
+      expect(restoredState.content).toBe('📋 Tasks (1/3)');
+
+      // Verify bump happened - a new interactive post should have been created
+      // (bump deletes old post and creates new one with toggle emoji)
+      const createInteractivePostCallsAfter = (platform.createInteractivePost as ReturnType<typeof mock>).mock.calls.length;
+      expect(createInteractivePostCallsAfter).toBeGreaterThan(createInteractivePostCallsBefore);
+    });
+
+    it('does not bump completed task list', async () => {
+      const persistedState = {
+        tasksPostId: 'old-task-post-id',
+        lastTasksContent: '📋 Tasks (3/3)',
+        tasksCompleted: true,  // Completed - should not bump
+        tasksMinimized: false,
+      };
+
+      const createPostCallsBefore = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+
+      await manager.restoreTaskListFromPersistence(persistedState);
+
+      // No bump should happen for completed task lists
+      const createPostCallsAfter = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+      expect(createPostCallsAfter).toBe(createPostCallsBefore);
+    });
+
+    it('does not bump when no task list exists', async () => {
+      const persistedState = {
+        tasksPostId: null,
+        lastTasksContent: null,
+        tasksCompleted: false,
+        tasksMinimized: false,
+      };
+
+      const createPostCallsBefore = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+
+      await manager.restoreTaskListFromPersistence(persistedState);
+
+      // No bump should happen when there's no task list
+      const createPostCallsAfter = (platform.createPost as ReturnType<typeof mock>).mock.calls.length;
+      expect(createPostCallsAfter).toBe(createPostCallsBefore);
+    });
+  });
 });

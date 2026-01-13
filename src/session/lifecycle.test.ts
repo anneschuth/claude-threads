@@ -677,3 +677,7 @@ describe('handleExit', () => {
     expect(session.lifecycle.state).toBe('active');
   });
 });
+
+// NOTE: Task list bump on resume is tested in src/operations/message-manager.test.ts
+// under the "restoreTaskListFromPersistence" describe block. The tests there properly
+// verify the RED-GREEN behavior by testing the actual MessageManager method.

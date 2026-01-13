@@ -812,6 +812,8 @@ export class MessageManager {
   /**
    * Hydrate task list state from persisted session data.
    * Called during session resume to restore task list state.
+   * NOTE: For session resume, use restoreTaskListFromPersistence() instead,
+   * which also bumps the task list to the bottom.
    */
   hydrateTaskListState(persisted: {
     tasksPostId?: string | null;
@@ -820,6 +822,29 @@ export class MessageManager {
     tasksMinimized?: boolean;
   }): void {
     this.taskListExecutor.hydrateState(persisted);
+  }
+
+  /**
+   * Restore task list from persisted session data during resume.
+   * This hydrates the state AND bumps active task lists to the bottom.
+   *
+   * Why bump? Without this, the task list would stay at its old position
+   * (above the resume message) which confuses users. Task list should
+   * ALWAYS be at the bottom of the thread.
+   */
+  async restoreTaskListFromPersistence(persisted: {
+    tasksPostId?: string | null;
+    lastTasksContent?: string | null;
+    tasksCompleted?: boolean;
+    tasksMinimized?: boolean;
+  }): Promise<void> {
+    // First, hydrate the state
+    this.hydrateTaskListState(persisted);
+
+    // Then bump to bottom if there's an active (non-completed) task list
+    if (persisted.tasksPostId && persisted.lastTasksContent && !persisted.tasksCompleted) {
+      await this.bumpTaskList();
+    }
   }
 
   /**

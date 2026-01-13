@@ -597,6 +597,14 @@ This ensures:
 - The fix actually solves the problem
 - Future regressions will be caught
 
+**Key principles:**
+- Test the actual code path, not a copy of the logic inline in the test
+- For unit tests, test the specific function/method that contains the fix
+- If the code is hard to test, consider refactoring to make it testable first
+- A regression test should FAIL if someone removes the fix
+
+**Common mistake:** Writing a test that duplicates the logic inline → test passes even if fix is removed. Instead, test the actual function that contains the fix.
+
 **Example workflow:**
 ```bash
 # 1. Write test, revert the fix temporarily

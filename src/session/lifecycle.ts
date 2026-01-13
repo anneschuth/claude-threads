@@ -871,8 +871,8 @@ export async function resumeSession(
   // Create MessageManager for this session
   session.messageManager = createMessageManager(session, ctx);
 
-  // Hydrate MessageManager with persisted task state
-  session.messageManager.hydrateTaskListState({
+  // Restore task list from persisted state (hydrates + bumps to bottom)
+  await session.messageManager.restoreTaskListFromPersistence({
     tasksPostId: state.tasksPostId,
     lastTasksContent: state.lastTasksContent,
     tasksCompleted: state.tasksCompleted,
