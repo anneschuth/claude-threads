@@ -129,7 +129,7 @@ export async function handleError(
     try {
       const fmt = context.session.platform.getFormatter();
       await context.session.platform.createPost(
-        `⚠️ ${fmt.formatBold('Error')}: ${context.action} failed. Please try again.`,
+        `⚠️ ${fmt.formatBold('Error')}: ${context.action} failed - ${message}`,
         context.session.threadId
       );
     } catch (notifyError) {

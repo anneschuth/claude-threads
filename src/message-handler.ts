@@ -345,12 +345,13 @@ export async function handleMessage(
       user?.displayName
     );
   } catch (err) {
-    logger?.error(`Error handling message: ${err}`);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    logger?.error(`Error handling message: ${errorMessage}`);
     // Try to notify user if possible
     try {
-      await client.createPost(`⚠️ An error occurred. Please try again.`, threadRoot);
-    } catch (err) {
-      logSilentError('error-notification-post', err);
+      await client.createPost(`⚠️ An error occurred: ${errorMessage}`, threadRoot);
+    } catch (postErr) {
+      logSilentError('error-notification-post', postErr);
     }
   }
 }

@@ -7,11 +7,14 @@
 
 import { describe, it, expect, mock } from 'bun:test';
 import { gzipSync } from 'zlib';
+import yazl from 'yazl';
 import {
   // Constants
   MAX_PDF_SIZE,
   MAX_TEXT_FILE_SIZE,
   MAX_DECOMPRESSED_SIZE,
+  MAX_ZIP_SIZE,
+  MAX_ZIP_FILES,
   SUPPORTED_IMAGE_TYPES,
   SUPPORTED_TEXT_TYPES,
   TEXT_FILE_EXTENSIONS,
@@ -21,6 +24,7 @@ import {
   isPdfFile,
   isTextFile,
   isGzipFile,
+  isZipFile,
   categorizeFile,
 
   // File processing
@@ -28,6 +32,7 @@ import {
   processPdfFile,
   processTextFile,
   processGzipFile,
+  processZipFile,
   formatTextFileContent,
   detectDecompressedContentType,
   getUnsupportedFileSuggestion,
@@ -79,6 +84,28 @@ function createMockPlatform(downloadResult?: Buffer): PlatformClient {
   } as unknown as PlatformClient;
 }
 
+/**
+ * Helper to create a zip buffer with specified files.
+ * @param files - Array of {name, content} objects
+ */
+async function createZipBuffer(files: Array<{ name: string; content: string | Buffer }>): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const zipfile = new yazl.ZipFile();
+
+    for (const file of files) {
+      const content = typeof file.content === 'string' ? Buffer.from(file.content) : file.content;
+      zipfile.addBuffer(content, file.name);
+    }
+
+    zipfile.end();
+
+    const chunks: Buffer[] = [];
+    zipfile.outputStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+    zipfile.outputStream.on('end', () => resolve(Buffer.concat(chunks)));
+    zipfile.outputStream.on('error', reject);
+  });
+}
+
 // =============================================================================
 // Constants Tests
 // =============================================================================
@@ -94,6 +121,14 @@ describe('Constants', () => {
 
   it('has correct MAX_DECOMPRESSED_SIZE (10MB)', () => {
     expect(MAX_DECOMPRESSED_SIZE).toBe(10 * 1024 * 1024);
+  });
+
+  it('has correct MAX_ZIP_SIZE (50MB)', () => {
+    expect(MAX_ZIP_SIZE).toBe(50 * 1024 * 1024);
+  });
+
+  it('has correct MAX_ZIP_FILES (20)', () => {
+    expect(MAX_ZIP_FILES).toBe(20);
   });
 
   it('includes common image types', () => {
@@ -203,6 +238,23 @@ describe('isGzipFile', () => {
   });
 });
 
+describe('isZipFile', () => {
+  it('returns true for zip MIME types', () => {
+    expect(isZipFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe(true);
+    expect(isZipFile(createMockFile({ mimeType: 'application/x-zip-compressed', name: 'archive.zip' }))).toBe(true);
+  });
+
+  it('returns true for .zip extension even with wrong MIME type', () => {
+    expect(isZipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'data.zip' }))).toBe(true);
+    expect(isZipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'FILE.ZIP' }))).toBe(true);
+  });
+
+  it('returns false for non-zip files', () => {
+    expect(isZipFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(false);
+    expect(isZipFile(createMockFile({ mimeType: 'application/gzip', name: 'archive.gz' }))).toBe(false);
+  });
+});
+
 describe('categorizeFile', () => {
   it('categorizes images correctly', () => {
     expect(categorizeFile(createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' }))).toBe('image');
@@ -223,9 +275,14 @@ describe('categorizeFile', () => {
     expect(categorizeFile(createMockFile({ mimeType: 'application/json', name: 'data.json' }))).toBe('text');
   });
 
+  it('categorizes zip files correctly', () => {
+    expect(categorizeFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe('zip');
+    expect(categorizeFile(createMockFile({ mimeType: 'application/x-zip-compressed', name: 'data.zip' }))).toBe('zip');
+  });
+
   it('categorizes unsupported files correctly', () => {
     expect(categorizeFile(createMockFile({ mimeType: 'application/msword', name: 'doc.doc' }))).toBe('unsupported');
-    expect(categorizeFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe('unsupported');
+    expect(categorizeFile(createMockFile({ mimeType: 'application/x-rar-compressed', name: 'archive.rar' }))).toBe('unsupported');
   });
 });
 
@@ -437,6 +494,130 @@ describe('processGzipFile', () => {
   });
 });
 
+// =============================================================================
+// Zip Processing Tests
+// =============================================================================
+
+describe('processZipFile', () => {
+  it('processes zip with single JSON file', async () => {
+    const jsonContent = '{"data": "test value", "count": 42}';
+    const zipBuffer = await createZipBuffer([{ name: 'data.json', content: jsonContent }]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(1);
+    expect(result.skipped.length).toBe(0);
+    expect(result.blocks[0]?.type).toBe('text');
+    if (result.blocks[0]?.type === 'text') {
+      expect(result.blocks[0].text).toContain('data.json');
+      expect(result.blocks[0].text).toContain(jsonContent);
+    }
+  });
+
+  it('processes zip with multiple text files', async () => {
+    const zipBuffer = await createZipBuffer([
+      { name: 'file1.txt', content: 'Content of file 1' },
+      { name: 'file2.md', content: '# Markdown content' },
+      { name: 'config.json', content: '{"key": "value"}' },
+    ]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(3);
+    expect(result.skipped.length).toBe(0);
+  });
+
+  it('processes zip with PDF file', async () => {
+    const pdfContent = '%PDF-1.4 fake pdf content here';
+    const zipBuffer = await createZipBuffer([{ name: 'document.pdf', content: pdfContent }]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(1);
+    expect(result.skipped.length).toBe(0);
+    expect(result.blocks[0]?.type).toBe('document');
+  });
+
+  it('skips unsupported files inside zip', async () => {
+    const zipBuffer = await createZipBuffer([
+      { name: 'data.json', content: '{"valid": true}' },
+      { name: 'binary.exe', content: Buffer.from([0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE]) },
+    ]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(1);
+    expect(result.skipped.length).toBe(1);
+    expect(result.skipped[0]?.name).toBe('binary.exe');
+    expect(result.skipped[0]?.reason).toContain('Unsupported file type');
+  });
+
+  it('returns error for empty zip', async () => {
+    const zipBuffer = await createZipBuffer([]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'empty.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(0);
+    expect(result.skipped.length).toBe(1);
+    expect(result.skipped[0]?.reason).toContain('empty');
+  });
+
+  it('returns error for invalid zip data', async () => {
+    const invalidZip = Buffer.from('this is not a valid zip file');
+    const platform = createMockPlatform(invalidZip);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'invalid.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(0);
+    expect(result.skipped.length).toBe(1);
+    expect(result.skipped[0]?.reason).toContain('Failed to process zip');
+  });
+
+  it('returns error for zip exceeding size limit', async () => {
+    // Don't actually create a huge file, just mock the file size
+    const platform = createMockPlatform(Buffer.from(''));
+    const file = createMockFile({
+      mimeType: 'application/zip',
+      name: 'huge.zip',
+      size: MAX_ZIP_SIZE + 1,
+    });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(0);
+    expect(result.skipped.length).toBe(1);
+    expect(result.skipped[0]?.reason).toContain('exceeds');
+  });
+
+  it('skips directories inside zip', async () => {
+    // yazl doesn't add empty directories by default, but let's verify files in subdirs work
+    const zipBuffer = await createZipBuffer([
+      { name: 'subdir/file.txt', content: 'File in subdirectory' },
+    ]);
+    const platform = createMockPlatform(zipBuffer);
+    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
+
+    const result = await processZipFile(file, platform);
+
+    expect(result.blocks.length).toBe(1);
+    expect(result.skipped.length).toBe(0);
+    if (result.blocks[0]?.type === 'text') {
+      expect(result.blocks[0].text).toContain('subdir/file.txt');
+    }
+  });
+});
+
 describe('detectDecompressedContentType', () => {
   it('detects PDF by magic bytes', () => {
     const pdfBuffer = Buffer.from('%PDF-1.4 content');
@@ -498,8 +679,10 @@ describe('getUnsupportedFileSuggestion', () => {
     expect(getUnsupportedFileSuggestion(createMockFile({ name: 'slides.pptx' }))).toContain('PDF');
   });
 
-  it('suggests extraction for archives', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.zip' }))).toContain('Extract');
+  it('suggests extraction for unsupported archives (zip is now supported)', () => {
+    // Zip is now supported, so no suggestion
+    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.zip' }))).toBeUndefined();
+    // Other archives still suggest extraction
     expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.tar' }))).toContain('Extract');
     expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.rar' }))).toContain('Extract');
   });

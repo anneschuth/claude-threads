@@ -6,6 +6,7 @@
  */
 
 import { gunzipSync } from 'zlib';
+import yauzl from 'yauzl';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
 import type { ContentBlock } from '../../claude/cli.js';
@@ -25,6 +26,12 @@ export const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024;
 
 /** Maximum decompressed file size (10MB safety limit) */
 export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024;
+
+/** Maximum zip file size (50MB to prevent abuse) */
+export const MAX_ZIP_SIZE = 50 * 1024 * 1024;
+
+/** Maximum number of files to extract from a zip (prevent zip bombs) */
+export const MAX_ZIP_FILES = 20;
 
 /** Supported image MIME types */
 export const SUPPORTED_IMAGE_TYPES = [
@@ -125,11 +132,23 @@ export function isGzipFile(file: PlatformFile): boolean {
 }
 
 /**
+ * Check if a file is a zip archive.
+ */
+export function isZipFile(file: PlatformFile): boolean {
+  return (
+    file.mimeType === 'application/zip' ||
+    file.mimeType === 'application/x-zip-compressed' ||
+    file.name.toLowerCase().endsWith('.zip')
+  );
+}
+
+/**
  * Categorize a file by type.
  */
-export function categorizeFile(file: PlatformFile): 'image' | 'pdf' | 'text' | 'gzip' | 'unsupported' {
+export function categorizeFile(file: PlatformFile): 'image' | 'pdf' | 'text' | 'gzip' | 'zip' | 'unsupported' {
   if (isImageFile(file)) return 'image';
   if (isPdfFile(file)) return 'pdf';
+  if (isZipFile(file)) return 'zip';
   if (isGzipFile(file)) return 'gzip';
   if (isTextFile(file)) return 'text';
   return 'unsupported';
@@ -410,6 +429,219 @@ export async function processGzipFile(
 }
 
 /**
+ * Extract a single file entry from a zip archive.
+ */
+async function extractZipEntry(
+  zipfile: yauzl.ZipFile,
+  entry: yauzl.Entry
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    zipfile.openReadStream(entry, (err, readStream) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      if (!readStream) {
+        reject(new Error('No read stream'));
+        return;
+      }
+      const chunks: Buffer[] = [];
+      readStream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      readStream.on('end', () => resolve(Buffer.concat(chunks)));
+      readStream.on('error', reject);
+    });
+  });
+}
+
+/**
+ * Process a zip archive file.
+ * Extracts supported files and processes each one.
+ */
+export async function processZipFile(
+  file: PlatformFile,
+  platform: PlatformClient,
+  debug: boolean = false
+): Promise<{ blocks: ContentBlock[]; skipped: SkippedFile[] }> {
+  const blocks: ContentBlock[] = [];
+  const skipped: SkippedFile[] = [];
+
+  try {
+    // Check if platform supports file downloads
+    if (!platform.downloadFile) {
+      return {
+        blocks: [],
+        skipped: [{
+          name: file.name,
+          reason: 'Platform does not support file downloads',
+        }],
+      };
+    }
+
+    // Check file size first
+    if (file.size && file.size > MAX_ZIP_SIZE) {
+      return {
+        blocks: [],
+        skipped: [{
+          name: file.name,
+          reason: `Zip file exceeds ${Math.round(MAX_ZIP_SIZE / 1024 / 1024)}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`,
+        }],
+      };
+    }
+
+    // Download the zip file
+    const zipBuffer = await platform.downloadFile(file.id);
+
+    if (debug) {
+      log.debug(`Processing zip file ${file.name}: ${Math.round(zipBuffer.length / 1024)}KB`);
+    }
+
+    // Open zip file from buffer
+    const zipfile = await new Promise<yauzl.ZipFile>((resolve, reject) => {
+      yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zf) => {
+        if (err) reject(err);
+        else if (!zf) reject(new Error('Failed to open zip file'));
+        else resolve(zf);
+      });
+    });
+
+    // Collect all entries first
+    const entries: yauzl.Entry[] = [];
+    await new Promise<void>((resolve, reject) => {
+      zipfile.on('entry', (entry: yauzl.Entry) => {
+        // Skip directories
+        if (!entry.fileName.endsWith('/')) {
+          entries.push(entry);
+        }
+        zipfile.readEntry();
+      });
+      zipfile.on('end', resolve);
+      zipfile.on('error', reject);
+      zipfile.readEntry();
+    });
+
+    // Check number of files
+    if (entries.length > MAX_ZIP_FILES) {
+      zipfile.close();
+      return {
+        blocks: [],
+        skipped: [{
+          name: file.name,
+          reason: `Zip contains too many files (${entries.length}). Maximum is ${MAX_ZIP_FILES} files.`,
+          suggestion: 'Extract and upload the most relevant files individually',
+        }],
+      };
+    }
+
+    if (entries.length === 0) {
+      zipfile.close();
+      return {
+        blocks: [],
+        skipped: [{
+          name: file.name,
+          reason: 'Zip archive is empty',
+        }],
+      };
+    }
+
+    // Re-open to process entries (yauzl is forward-only)
+    const zipfile2 = await new Promise<yauzl.ZipFile>((resolve, reject) => {
+      yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zf) => {
+        if (err) reject(err);
+        else if (!zf) reject(new Error('Failed to open zip file'));
+        else resolve(zf);
+      });
+    });
+
+    // Process each entry
+    let processedCount = 0;
+    await new Promise<void>((resolve, reject) => {
+      zipfile2.on('entry', async (entry: yauzl.Entry) => {
+        try {
+          // Skip directories
+          if (entry.fileName.endsWith('/')) {
+            zipfile2.readEntry();
+            return;
+          }
+
+          // Check decompressed size
+          if (entry.uncompressedSize > MAX_DECOMPRESSED_SIZE) {
+            skipped.push({
+              name: entry.fileName,
+              reason: `File exceeds ${Math.round(MAX_DECOMPRESSED_SIZE / 1024 / 1024)}MB decompressed size limit`,
+            });
+            zipfile2.readEntry();
+            return;
+          }
+
+          // Extract the file
+          const buffer = await extractZipEntry(zipfile2, entry);
+          const contentType = detectDecompressedContentType(buffer, entry.fileName);
+
+          if (debug) {
+            log.debug(`Extracted ${entry.fileName}: ${Math.round(buffer.length / 1024)}KB, type: ${contentType}`);
+          }
+
+          if (contentType === 'pdf') {
+            const base64 = buffer.toString('base64');
+            blocks.push({
+              type: 'document',
+              source: {
+                type: 'base64',
+                media_type: 'application/pdf',
+                data: base64,
+              },
+            });
+            processedCount++;
+          } else if (contentType === 'text') {
+            const content = buffer.toString('utf-8');
+            const wrappedContent = formatTextFileContent(entry.fileName, content);
+            blocks.push({
+              type: 'text',
+              text: wrappedContent,
+            });
+            processedCount++;
+          } else {
+            skipped.push({
+              name: entry.fileName,
+              reason: 'Unsupported file type inside zip',
+              suggestion: 'Only text-based files and PDFs are supported',
+            });
+          }
+
+          zipfile2.readEntry();
+        } catch (err) {
+          skipped.push({
+            name: entry.fileName,
+            reason: `Failed to extract: ${err instanceof Error ? err.message : String(err)}`,
+          });
+          zipfile2.readEntry();
+        }
+      });
+      zipfile2.on('end', resolve);
+      zipfile2.on('error', reject);
+      zipfile2.readEntry();
+    });
+
+    zipfile2.close();
+
+    if (debug) {
+      log.debug(`Zip ${file.name}: processed ${processedCount} files, skipped ${skipped.length}`);
+    }
+
+    return { blocks, skipped };
+  } catch (err) {
+    log.error(`Failed to process zip file ${file.name}: ${err}`);
+    return {
+      blocks: [],
+      skipped: [{
+        name: file.name,
+        reason: `Failed to process zip: ${err instanceof Error ? err.message : String(err)}`,
+      }],
+    };
+  }
+}
+
+/**
  * Detect the content type of decompressed data.
  */
 export function detectDecompressedContentType(
@@ -493,9 +725,9 @@ export function getUnsupportedFileSuggestion(file: PlatformFile): string | undef
     return 'Convert to PDF for best results';
   }
 
-  // Archives
-  if (ext === 'zip' || ext === 'tar' || ext === 'rar' || ext === '7z') {
-    return 'Extract files and upload them individually';
+  // Archives (zip is supported, others are not)
+  if (ext === 'tar' || ext === 'rar' || ext === '7z') {
+    return 'Extract files and upload them individually, or use .zip format';
   }
 
   // Binary/executable
@@ -519,6 +751,7 @@ export function getUnsupportedFileSuggestion(file: PlatformFile): string | undef
  * - PDFs (via document content blocks)
  * - Text files (txt, md, json, csv, xml, yaml, source code)
  * - Gzip-compressed files (decompressed and processed based on content)
+ * - Zip archives (extracts and processes supported files inside)
  */
 export async function buildMessageContent(
   text: string,
@@ -562,6 +795,17 @@ export async function processFiles(
 
   for (const file of files) {
     const category = categorizeFile(file);
+
+    // Zip files return multiple blocks, handle separately
+    if (category === 'zip') {
+      const zipResult = await processZipFile(file, platform, debug);
+      blocks.push(...zipResult.blocks);
+      for (const s of zipResult.skipped) {
+        skipped.push(s);
+        log.warn(`Skipped file ${s.name}: ${s.reason}`);
+      }
+      continue;
+    }
 
     let result: { block?: ContentBlock; skipped?: SkippedFile };
 
