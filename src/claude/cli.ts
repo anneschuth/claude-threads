@@ -72,7 +72,7 @@ export interface ClaudeEvent {
   [key: string]: unknown;
 }
 
-// Content block types for messages with images
+// Content block types for messages with images and documents
 export interface TextContentBlock {
   type: 'text';
   text: string;
@@ -87,7 +87,17 @@ export interface ImageContentBlock {
   };
 }
 
-export type ContentBlock = TextContentBlock | ImageContentBlock;
+export interface DocumentContentBlock {
+  type: 'document';
+  source: {
+    type: 'base64';
+    media_type: 'application/pdf';
+    data: string;
+  };
+  title?: string;
+}
+
+export type ContentBlock = TextContentBlock | ImageContentBlock | DocumentContentBlock;
 
 export interface PlatformMcpConfig {
   type: string;
