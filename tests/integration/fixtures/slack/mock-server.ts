@@ -17,6 +17,7 @@
 
 import type { Server, ServerWebSocket } from 'bun';
 import { EventEmitter } from 'events';
+import { gzipSync } from 'zlib';
 
 // ============================================================================
 // Types
@@ -1393,6 +1394,88 @@ export function createTestImageFile(overrides: Partial<SlackFile> = {}): SlackFi
     filetype: 'png',
     size: pngHeader.length,
     _mock_content: overrides._mock_content || pngHeader,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a test PDF file with actual content for download testing
+ */
+export function createTestPdfFile(overrides: Partial<SlackFile> = {}): SlackFile {
+  const id = overrides.id || generateId('F');
+  // Create a minimal valid PDF
+  const pdfContent = Buffer.from(
+    '%PDF-1.4\n' +
+    '1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n' +
+    '2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n' +
+    '3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>\nendobj\n' +
+    'xref\n0 4\n0000000000 65535 f \n' +
+    '0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n' +
+    'trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n195\n%%EOF'
+  );
+
+  return {
+    id,
+    name: overrides.name || 'test-document.pdf',
+    mimetype: 'application/pdf',
+    filetype: 'pdf',
+    size: pdfContent.length,
+    _mock_content: overrides._mock_content || pdfContent,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a test text file (JSON, TXT, etc.) with actual content for download testing
+ */
+export function createTestTextFile(overrides: Partial<SlackFile> & { content?: string } = {}): SlackFile {
+  const id = overrides.id || generateId('F');
+  const content = overrides.content || '{"test": "data", "value": 42}';
+  const textContent = Buffer.from(content);
+
+  // Determine mimetype and filetype from name or defaults
+  const name = overrides.name || 'test-data.json';
+  let mimetype = overrides.mimetype || 'application/json';
+  let filetype = overrides.filetype || 'json';
+
+  if (name.endsWith('.txt')) {
+    mimetype = overrides.mimetype || 'text/plain';
+    filetype = overrides.filetype || 'txt';
+  } else if (name.endsWith('.md')) {
+    mimetype = overrides.mimetype || 'text/markdown';
+    filetype = overrides.filetype || 'md';
+  } else if (name.endsWith('.csv')) {
+    mimetype = overrides.mimetype || 'text/csv';
+    filetype = overrides.filetype || 'csv';
+  }
+
+  return {
+    id,
+    name,
+    mimetype,
+    filetype,
+    size: textContent.length,
+    _mock_content: overrides._mock_content || textContent,
+    ...overrides,
+  };
+}
+
+/**
+ * Create a test gzip file with actual compressed content for download testing
+ */
+export function createTestGzipFile(overrides: Partial<SlackFile> & { innerContent?: string } = {}): SlackFile {
+  const id = overrides.id || generateId('F');
+  const innerContent = overrides.innerContent || '{"compressed": true, "data": "test"}';
+
+  const compressedContent = gzipSync(Buffer.from(innerContent));
+
+  return {
+    id,
+    name: overrides.name || 'test-data.json.gz',
+    mimetype: 'application/gzip',
+    filetype: 'gz',
+    size: compressedContent.length,
+    _mock_content: overrides._mock_content || compressedContent,
     ...overrides,
   };
 }

@@ -61,6 +61,7 @@ import {
 } from './types.js';
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
+import { processFiles, type SkippedFile } from './streaming/handler.js';
 
 const log = createLogger('msg-mgr');
 
@@ -1037,7 +1038,14 @@ export class MessageManager {
     // Prepare for the new message (flush, reset, bump tasks)
     await this.prepareForUserMessage();
 
-    // Build message content (with images if provided)
+    // Process files to check for skipped files (for user feedback)
+    let skippedFiles: SkippedFile[] = [];
+    if (files && files.length > 0) {
+      const fileResult = await processFiles(this.platform, files);
+      skippedFiles = fileResult.skipped;
+    }
+
+    // Build message content (with files if provided)
     let content: string | ContentBlock[] = message;
     if (this.buildMessageContentCallback) {
       content = await this.buildMessageContentCallback(message, this.platform, files);
@@ -1045,6 +1053,12 @@ export class MessageManager {
 
     // Send to Claude
     this.session.claude.sendMessage(content);
+
+    // Post feedback for skipped files
+    if (skippedFiles.length > 0) {
+      const feedback = this.formatSkippedFilesFeedback(skippedFiles);
+      await this.platform.createPost(this.threadId, feedback);
+    }
 
     // Update activity time
     this.session.lastActivityAt = new Date();
@@ -1058,6 +1072,21 @@ export class MessageManager {
 
     logger.debug('User message sent to Claude');
     return true;
+  }
+
+  /**
+   * Format feedback message for skipped files.
+   */
+  private formatSkippedFilesFeedback(skippedFiles: SkippedFile[]): string {
+    const lines = ['⚠️ **Some files could not be processed:**'];
+    for (const file of skippedFiles) {
+      let line = `- **${file.name}**: ${file.reason}`;
+      if (file.suggestion) {
+        line += ` _(${file.suggestion})_`;
+      }
+      lines.push(line);
+    }
+    return lines.join('\n');
   }
 
   /**
