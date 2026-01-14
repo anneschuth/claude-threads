@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.10] - 2026-01-14
+
+### Added
+- **Zip archive support** - Extract and process files from zip archives (#217)
+  - Supports text files and PDFs inside zip archives
+  - Safety limits: 50MB max zip size, 20 max files, 10MB per decompressed file
+  - Skips unsupported files with helpful messages
+
+### Fixed
+- **Improved error messages** - Error notifications now include actual error details instead of generic "An error occurred" message
+
 ## [1.0.9] - 2026-01-14
 
 ### Added
