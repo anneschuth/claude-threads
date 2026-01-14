@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.9] - 2026-01-14
+
+### Added
+- **Support file attachments beyond images** - Added support for PDF, text, and gzip file attachments (#216)
+  - PDF files: Sent as document content blocks (32MB max)
+  - Text files: .txt, .md, .json, .csv, .xml, .yaml, and source code files (1MB max)
+  - Gzip files: Automatically decompressed and processed based on content type
+  - User feedback: Helpful messages for skipped/unsupported files with suggestions
+
+### Changed
+- **Dependency updates** - Updated actions/checkout to v6, actions/upload-pages-artifact to v4, hono to 4.11.4
+
 ## [1.0.8] - 2026-01-13
 
 ### Fixed
