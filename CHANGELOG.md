@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.12] - 2026-01-15
+
+### Fixed
+- **Skipped file feedback posting** - Fixed swapped arguments in createPost call that caused "Invalid RootId parameter" errors when posting feedback for skipped files (#221)
+
 ## [1.0.11] - 2026-01-15
 
 ### Added
