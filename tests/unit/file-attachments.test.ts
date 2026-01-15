@@ -14,6 +14,7 @@ import {
   MAX_TEXT_FILE_SIZE,
   MAX_DECOMPRESSED_SIZE,
   MAX_ZIP_SIZE,
+  MAX_GZIP_SIZE,
   MAX_ZIP_FILES,
   SUPPORTED_IMAGE_TYPES,
   SUPPORTED_TEXT_TYPES,
@@ -462,7 +463,9 @@ describe('processGzipFile', () => {
 
     expect(result.block).toBeUndefined();
     expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('Decompression failed');
+    // Improved error message is user-friendly
+    expect(result.skipped?.reason).toContain('Invalid gzip file');
+    expect(result.skipped?.suggestion).toBeDefined();
   });
 
   it('returns skipped for decompressed content exceeding size limit', async () => {
@@ -491,6 +494,70 @@ describe('processGzipFile', () => {
     expect(result.block).toBeUndefined();
     expect(result.skipped).toBeDefined();
     expect(result.skipped?.reason).toContain('not supported');
+  });
+
+  it('returns skipped for gzip file exceeding size limit before download', async () => {
+    const platform = createMockPlatform(Buffer.from('not downloaded'));
+    const file = createMockFile({
+      mimeType: 'application/gzip',
+      name: 'huge.txt.gz',
+      size: MAX_GZIP_SIZE + 1,
+    });
+
+    const result = await processGzipFile(file, platform);
+
+    expect(result.block).toBeUndefined();
+    expect(result.skipped).toBeDefined();
+    expect(result.skipped?.reason).toContain('Gzip file exceeds');
+    expect(result.skipped?.reason).toContain('MB limit');
+    expect(result.skipped?.suggestion).toContain('smaller file');
+    // Verify download was never called (size check happens before download)
+    expect(platform.downloadFile).not.toHaveBeenCalled();
+  });
+
+  it('returns skipped with user-friendly message for corrupted header', async () => {
+    // Invalid gzip header (just random bytes, not starting with gzip magic)
+    const invalidGzip = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+    const platform = createMockPlatform(invalidGzip);
+    const file = createMockFile({ mimeType: 'application/gzip', name: 'corrupted.gz' });
+
+    const result = await processGzipFile(file, platform);
+
+    expect(result.block).toBeUndefined();
+    expect(result.skipped).toBeDefined();
+    // Should get a user-friendly error, not raw zlib error
+    expect(result.skipped?.reason).toBeDefined();
+    expect(result.skipped?.suggestion).toBeDefined();
+  });
+
+  it('returns skipped with helpful suggestion for download failure', async () => {
+    const platform = {
+      ...createMockPlatform(),
+      downloadFile: mock(() => Promise.reject(new Error('Network timeout'))),
+    } as unknown as PlatformClient;
+    const file = createMockFile({ mimeType: 'application/gzip', name: 'network-error.gz' });
+
+    const result = await processGzipFile(file, platform);
+
+    expect(result.block).toBeUndefined();
+    expect(result.skipped).toBeDefined();
+    expect(result.skipped?.reason).toContain('Download failed');
+    expect(result.skipped?.reason).toContain('Network timeout');
+    expect(result.skipped?.suggestion).toContain('try again');
+  });
+
+  it('returns skipped when platform does not support downloads', async () => {
+    const platform = {
+      ...createMockPlatform(),
+      downloadFile: undefined,
+    } as unknown as PlatformClient;
+    const file = createMockFile({ mimeType: 'application/gzip', name: 'test.gz' });
+
+    const result = await processGzipFile(file, platform);
+
+    expect(result.block).toBeUndefined();
+    expect(result.skipped).toBeDefined();
+    expect(result.skipped?.reason).toContain('does not support file downloads');
   });
 });
 
