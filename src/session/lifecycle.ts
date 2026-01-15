@@ -19,7 +19,6 @@ import type { ClaudeCliOptions, ClaudeEvent } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
-import { getLogo } from '../logo.js';
 import { VERSION } from '../version.js';
 import { generateChatPlatformPrompt, buildSessionContext } from '../commands/index.js';
 import { randomUUID } from 'crypto';
@@ -661,11 +660,12 @@ export async function startSession(
     return;
   }
 
-  // Post initial session message
+  // Post initial session message (kept short to minimize popup notification size)
+  // The full session info is shown when updateSessionHeader() is called shortly after
   const startFormatter = platform.getFormatter();
   const startPost = await withErrorHandling(
     () => platform.createPost(
-      `${getLogo(VERSION)}\n\n${startFormatter.formatItalic('Starting session...')}`,
+      startFormatter.formatItalic('Claude Threads session starting...'),
       replyToPostId
     ),
     { action: 'Create session post' }
