@@ -1057,7 +1057,7 @@ export class MessageManager {
     // Post feedback for skipped files
     if (skippedFiles.length > 0) {
       const feedback = this.formatSkippedFilesFeedback(skippedFiles);
-      await this.platform.createPost(this.threadId, feedback);
+      await this.platform.createPost(feedback, this.threadId);
     }
 
     // Update activity time
