@@ -5,7 +5,9 @@
  * Content flushing is now handled by MessageManager/ContentExecutor.
  */
 
-import { gunzipSync } from 'zlib';
+import { createGunzip } from 'zlib';
+import { pipeline } from 'stream/promises';
+import { Readable, Writable } from 'stream';
 import yauzl from 'yauzl';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
@@ -29,6 +31,9 @@ export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024;
 
 /** Maximum zip file size (50MB to prevent abuse) */
 export const MAX_ZIP_SIZE = 50 * 1024 * 1024;
+
+/** Maximum gzip file size (50MB to prevent abuse) */
+export const MAX_GZIP_SIZE = 50 * 1024 * 1024;
 
 /** Maximum number of files to extract from a zip (prevent zip bombs) */
 export const MAX_ZIP_FILES = 20;
@@ -328,8 +333,37 @@ export function formatTextFileContent(filename: string, content: string): string
 }
 
 /**
+ * Decompress gzip data using streaming to avoid blocking.
+ * Returns the decompressed buffer or throws an error.
+ */
+async function decompressGzipStream(compressedBuffer: Buffer): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let totalSize = 0;
+
+  const gunzip = createGunzip();
+  const source = Readable.from(compressedBuffer);
+
+  // Create a writable stream that collects chunks and checks size limits
+  const collector = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      totalSize += chunk.length;
+      // Check decompressed size during streaming to fail fast on zip bombs
+      if (totalSize > MAX_DECOMPRESSED_SIZE) {
+        callback(new Error(`Decompressed size exceeds ${Math.round(MAX_DECOMPRESSED_SIZE / 1024 / 1024)}MB limit`));
+        return;
+      }
+      chunks.push(chunk);
+      callback();
+    },
+  });
+
+  await pipeline(source, gunzip, collector);
+  return Buffer.concat(chunks);
+}
+
+/**
  * Process a gzip-compressed file.
- * Decompresses and processes based on the underlying content type.
+ * Decompresses using streaming and processes based on the underlying content type.
  */
 export async function processGzipFile(
   file: PlatformFile,
@@ -337,6 +371,7 @@ export async function processGzipFile(
   debug: boolean = false
 ): Promise<{ block?: ContentBlock; skipped?: SkippedFile }> {
   try {
+    // Check if platform supports file downloads
     if (!platform.downloadFile) {
       return {
         skipped: {
@@ -346,28 +381,71 @@ export async function processGzipFile(
       };
     }
 
-    const compressedBuffer = await platform.downloadFile(file.id);
-
-    // Decompress
-    let decompressedBuffer: Buffer;
-    try {
-      decompressedBuffer = gunzipSync(compressedBuffer);
-    } catch (err) {
+    // Check compressed file size before downloading (like we do for zip files)
+    if (file.size && file.size > MAX_GZIP_SIZE) {
       return {
         skipped: {
           name: file.name,
-          reason: `Decompression failed: ${err instanceof Error ? err.message : String(err)}`,
+          reason: `Gzip file exceeds ${Math.round(MAX_GZIP_SIZE / 1024 / 1024)}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`,
+          suggestion: 'Try compressing a smaller file or splitting the content',
         },
       };
     }
 
-    // Check decompressed size
-    if (decompressedBuffer.length > MAX_DECOMPRESSED_SIZE) {
+    // Download the compressed file
+    let compressedBuffer: Buffer;
+    try {
+      compressedBuffer = await platform.downloadFile(file.id);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to download gzip file ${file.name}: ${errorMessage}`);
       return {
         skipped: {
           name: file.name,
-          reason: `Decompressed size exceeds ${Math.round(MAX_DECOMPRESSED_SIZE / 1024 / 1024)}MB limit (${Math.round(decompressedBuffer.length / 1024 / 1024)}MB)`,
-          suggestion: 'Try extracting only the relevant portions',
+          reason: `Download failed: ${errorMessage}`,
+          suggestion: 'Check if the file is still available and try again',
+        },
+      };
+    }
+
+    // Verify downloaded size matches expected size (if available)
+    if (file.size && compressedBuffer.length !== file.size) {
+      log.warn(`Downloaded size mismatch for ${file.name}: expected ${file.size}, got ${compressedBuffer.length}`);
+    }
+
+    // Decompress using streaming (non-blocking)
+    let decompressedBuffer: Buffer;
+    try {
+      decompressedBuffer = await decompressGzipStream(compressedBuffer);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+
+      // Provide more specific error messages based on common gzip errors
+      let reason: string;
+      let suggestion: string | undefined;
+
+      if (errorMessage.includes('incorrect header check')) {
+        reason = 'Invalid gzip file: the file header is corrupted or this is not a gzip file';
+        suggestion = 'Verify the file is a valid gzip archive';
+      } else if (errorMessage.includes('unexpected end of file')) {
+        reason = 'Incomplete gzip file: the file appears to be truncated';
+        suggestion = 'Re-download the file or check if the upload completed';
+      } else if (errorMessage.includes('invalid stored block lengths')) {
+        reason = 'Corrupted gzip file: the compressed data is damaged';
+        suggestion = 'Try re-compressing the original file';
+      } else if (errorMessage.includes('exceeds') && errorMessage.includes('limit')) {
+        reason = errorMessage;
+        suggestion = 'Try extracting only the relevant portions of the file';
+      } else {
+        reason = `Decompression failed: ${errorMessage}`;
+        suggestion = 'Verify the file is a valid gzip archive';
+      }
+
+      return {
+        skipped: {
+          name: file.name,
+          reason,
+          suggestion,
         },
       };
     }
@@ -418,11 +496,13 @@ export async function processGzipFile(
       };
     }
   } catch (err) {
-    log.error(`Failed to process gzip file ${file.name}: ${err}`);
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.error(`Failed to process gzip file ${file.name}: ${errorMessage}`);
     return {
       skipped: {
         name: file.name,
-        reason: `Processing failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: `Processing failed: ${errorMessage}`,
+        suggestion: 'An unexpected error occurred. Please try again or contact support if the issue persists',
       },
     };
   }
