@@ -139,7 +139,7 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
 
     // Emit message approval complete event
     if (this.events) {
-      this.events.emit('message-approval:complete', { decision, fromUser, originalMessage });
+      this.events.emit('message-approval:complete', { decision, fromUser, originalMessage, approvedBy: approver });
     }
 
     return true;

@@ -55,6 +55,7 @@ export interface MessageManagerEventMap {
     decision: 'allow' | 'invite' | 'deny';
     fromUser: string;
     originalMessage: string;
+    approvedBy: string;
   };
 
   /**
