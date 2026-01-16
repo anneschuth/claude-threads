@@ -93,11 +93,21 @@ export async function handleMessage(
 
     // Follow-up in active thread
     // Use registry to check for active session directly
-    const hasActiveSession = session.registry.findByThreadId(threadRoot) !== undefined;
-    if (hasActiveSession) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
+    const activeSession = session.registry.findByThreadId(threadRoot);
+    if (activeSession) {
+      // If message starts with @mention to someone else, track it as side conversation (if from approved user)
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
       if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+        // Track side conversation if from approved user
+        if (session.isUserAllowedInSession(threadRoot, username)) {
+          session.addSideConversation(threadRoot, {
+            fromUser: username,
+            mentionedUser: mentionMatch[1],
+            message: message,
+            timestamp: new Date(),
+            postId: post.id,
+          });
+        }
         return; // Side conversation, don't interrupt
       }
 
