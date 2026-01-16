@@ -332,7 +332,8 @@ export async function handleMessage(
         username,
         threadRoot,
         platformId,
-        user?.displayName
+        user?.displayName,
+        post.id  // triggeringPostId
       );
       return;
     }
@@ -342,7 +343,8 @@ export async function handleMessage(
       username,
       threadRoot,
       platformId,
-      user?.displayName
+      user?.displayName,
+      post.id  // triggeringPostId - the actual message that started the session
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
