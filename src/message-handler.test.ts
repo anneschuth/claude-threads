@@ -487,7 +487,8 @@ describe('handleMessage', () => {
         'allowed-user',
         'thread1',
         'test-platform',
-        'User'
+        'User',
+        'post1'  // triggeringPostId
       );
     });
 
@@ -529,7 +530,8 @@ describe('handleMessage', () => {
         'allowed-user',
         'thread1',
         'test-platform',
-        'User'
+        'User',
+        'post1'  // triggeringPostId
       );
     });
 
@@ -553,7 +555,8 @@ describe('handleMessage', () => {
         'allowed-user',
         'thread1',
         'test-platform',
-        'User'
+        'User',
+        'post1'  // triggeringPostId
       );
     });
   });

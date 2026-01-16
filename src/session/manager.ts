@@ -981,9 +981,10 @@ export class SessionManager extends EventEmitter {
     username: string,
     replyToPostId?: string,
     platformId: string = 'default',
-    displayName?: string
+    displayName?: string,
+    triggeringPostId?: string  // The actual message that triggered the session (for context exclusion)
   ): Promise<void> {
-    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext());
+    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext(), triggeringPostId);
   }
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
@@ -1296,10 +1297,11 @@ export class SessionManager extends EventEmitter {
     username: string,
     replyToPostId?: string,
     platformId: string = 'default',
-    displayName?: string
+    displayName?: string,
+    triggeringPostId?: string  // The actual message that triggered the session (for context exclusion)
   ): Promise<void> {
     // Start normal session first, but skip worktree prompt since branch is already specified
-    await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName);
+    await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName, triggeringPostId);
 
     // Then switch to worktree
     const threadId = replyToPostId || '';

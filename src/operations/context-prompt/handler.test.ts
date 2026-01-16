@@ -275,6 +275,34 @@ describe('context-prompt', () => {
       expect(count).toBe(1); // Excludes post with id '1'
     });
 
+    it('includes root message when excluding only the triggering reply', async () => {
+      // Scenario: User starts session mid-thread by @mentioning the bot in a reply (id='4')
+      // The thread has: root message (id='1'), two replies (id='2', '3'), and the @mention (id='4')
+      // When excluding '4' (the triggering message), the root ('1') should still be included
+      const messages: ThreadMessage[] = [
+        { id: '1', userId: 'user1', username: 'alice', message: 'Root message', createAt: 1000 },
+        { id: '2', userId: 'user2', username: 'bob', message: 'Reply 1', createAt: 2000 },
+        { id: '3', userId: 'user3', username: 'carol', message: 'Reply 2', createAt: 3000 },
+        { id: '4', userId: 'user4', username: 'dave', message: '@bot help me', createAt: 4000 },
+      ];
+
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(messages)),
+        },
+      });
+
+      // Exclude only the triggering message (id='4'), NOT the root (id='1')
+      const count = await getThreadContextCount(session, '4');
+      expect(count).toBe(3); // Should include root (1), reply 1 (2), reply 2 (3)
+
+      // Verify all messages except the excluded one are included
+      const contextMessages = await getThreadMessagesForContext(session, 10, '4');
+      expect(contextMessages.length).toBe(3);
+      expect(contextMessages.map(m => m.id)).toEqual(['1', '2', '3']);
+      expect(contextMessages[0].message).toBe('Root message'); // Root is included!
+    });
+
     it('returns 0 when getThreadHistory fails', async () => {
       const session = createMockSession({
         platformOverrides: {

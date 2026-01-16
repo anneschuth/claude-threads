@@ -620,6 +620,15 @@ export function maybeInjectMetadataReminder(
 
 /**
  * Create a new session for a thread.
+ *
+ * @param options - Session options including the initial prompt
+ * @param username - Username of the person starting the session
+ * @param displayName - Display name of the person starting the session
+ * @param replyToPostId - Thread root ID (for posting replies to the correct thread)
+ * @param platformId - Platform identifier
+ * @param ctx - Session context
+ * @param triggeringPostId - The actual post ID that triggered the session (for excluding from context).
+ *                           When starting mid-thread, this is the @mention message, not the thread root.
  */
 export async function startSession(
   options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
@@ -627,7 +636,8 @@ export async function startSession(
   displayName: string | undefined,
   replyToPostId: string | undefined,
   platformId: string,
-  ctx: SessionContext
+  ctx: SessionContext,
+  triggeringPostId?: string
 ): Promise<void> {
   const threadId = replyToPostId || '';
 
@@ -795,9 +805,11 @@ export async function startSession(
 
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
   // Offer context prompt if there are previous messages in the thread
-  // Pass replyToPostId to exclude the triggering message from the count
+  // Use triggeringPostId (the actual @mention message) to exclude from context, not replyToPostId (thread root)
   if (replyToPostId) {
-    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, options.files, replyToPostId);
+    // If triggeringPostId is provided, use it; otherwise fall back to replyToPostId for backwards compatibility
+    const excludePostId = triggeringPostId || replyToPostId;
+    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId);
     if (contextOffered) {
       // Context prompt was posted, message is queued
       // Don't persist yet - offerContextPrompt handles that
