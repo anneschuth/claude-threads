@@ -404,7 +404,7 @@ async function buildStatusBar(
   }
 
   // Version (claude-threads + Claude CLI)
-  const claudeVersion = getClaudeCliVersion();
+  const claudeVersion = getClaudeCliVersion().version;
   const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
   items.push(formatter.formatCode(versionStr));
 

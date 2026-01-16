@@ -228,27 +228,58 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     console.log('');
     console.log(dim('  ❌ Claude Code CLI not found'));
     console.log('');
-    console.log(dim('  Install it with:'));
-    console.log(dim('    bun install -g @anthropic-ai/claude-code'));
+    if (claudeCheck.error) {
+      console.log(dim(`  Error: ${claudeCheck.error}`));
+      console.log('');
+    }
+
+    // Show debugging info
+    console.log(dim('  Debug info:'));
+    const pathDirs = (process.env.PATH || '').split(':').slice(0, 5);
+    console.log(dim(`    PATH (first 5 dirs): ${pathDirs.join(':')}`));
     console.log('');
-    console.log(dim('  Then run `claude-threads` again.'));
+
+    console.log(dim('  Solutions:'));
+    console.log('');
+    console.log(dim('  1. Install Claude Code CLI:'));
+    console.log(dim('     npm install -g @anthropic-ai/claude-code'));
+    console.log('');
+    console.log(dim('  2. If already installed, find it and set CLAUDE_PATH:'));
+    console.log(dim('     # Find where it is:'));
+    console.log(dim('     which claude'));
+    console.log(dim('     # Or search common locations:'));
+    console.log(dim('     ls ~/.local/bin/claude ~/.bun/bin/claude /usr/local/bin/claude 2>/dev/null'));
+    console.log(dim('     # Then run with the path:'));
+    console.log(dim('     CLAUDE_PATH=/path/to/claude claude-threads'));
+    console.log('');
+    console.log(dim('  3. Add Claude\'s directory to PATH in your shell config'));
     console.log('');
     process.exit(1);
   }
 
   if (!claudeCheck.compatible) {
     console.log('');
-    console.log(dim(`  ⚠️  Claude Code CLI ${claudeCheck.version} is not compatible`));
-    console.log('');
-    console.log(dim(`  Install a compatible version:`));
-    console.log(dim('    bun install -g @anthropic-ai/claude-code@2.0.76'));
+    if (claudeCheck.version) {
+      console.log(dim(`  ⚠️  Claude Code CLI ${claudeCheck.version} is not compatible`));
+      console.log('');
+      console.log(dim(`  Install a compatible version:`));
+      console.log(dim('    npm install -g @anthropic-ai/claude-code@2.1.1'));
+    } else {
+      // Version unknown - Claude is installed but we couldn't parse the version
+      console.log(dim('  ⚠️  Claude Code CLI found but version could not be determined'));
+      if (claudeCheck.rawOutput) {
+        console.log(dim(`  Output from "claude --version": ${claudeCheck.rawOutput}`));
+      }
+      console.log('');
+      console.log(dim('  This may work fine - Claude was installed in a non-standard way.'));
+    }
     console.log('');
 
     const { continueAnyway } = await prompts({
       type: 'confirm',
       name: 'continueAnyway',
       message: 'Continue anyway? (may not work correctly)',
-      initial: false,
+      initial: !claudeCheck.version, // Default to yes if version unknown (likely fine)
     }, { onCancel });
 
     if (!continueAnyway) {
@@ -257,7 +288,8 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       process.exit(0);
     }
   } else {
-    console.log(dim(`  ✓ Claude Code CLI ${claudeCheck.version}`));
+    const versionInfo = claudeCheck.version ?? 'version unknown';
+    console.log(dim(`  ✓ Claude Code CLI ${versionInfo}`));
   }
 
   console.log('');

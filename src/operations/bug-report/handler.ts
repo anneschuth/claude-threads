@@ -367,7 +367,7 @@ export async function collectBugReportContext(
   return {
     // Environment
     version: VERSION,
-    claudeCliVersion: getClaudeCliVersion(),
+    claudeCliVersion: getClaudeCliVersion().version ?? 'unknown',
     platform: session.platform.displayName,
     platformType: session.platform.platformType,
     nodeVersion: process.version,

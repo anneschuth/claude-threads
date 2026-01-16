@@ -5,6 +5,7 @@ import {
   CLAUDE_CLI_VERSION_RANGE,
   validateClaudeCli,
   getClaudeCliVersion,
+  getClaudePath,
 } from './version-check.js';
 
 describe('version-check', () => {
@@ -59,31 +60,38 @@ describe('version-check', () => {
     it('returns version from claude --version output', () => {
       execSyncSpy = spyOn(childProcess, 'execSync').mockReturnValue('2.0.76 (Claude Code)\n');
 
-      const version = getClaudeCliVersion();
-      expect(version).toBe('2.0.76');
+      const result = getClaudeCliVersion();
+      expect(result.version).toBe('2.0.76');
+      expect(result.rawOutput).toBe('2.0.76 (Claude Code)');
+      expect(result.error).toBeNull();
     });
 
     it('handles version-only output format', () => {
       execSyncSpy = spyOn(childProcess, 'execSync').mockReturnValue('2.0.75\n');
 
-      const version = getClaudeCliVersion();
-      expect(version).toBe('2.0.75');
+      const result = getClaudeCliVersion();
+      expect(result.version).toBe('2.0.75');
+      expect(result.error).toBeNull();
     });
 
-    it('returns null when execSync throws', () => {
+    it('returns error info when execSync throws for all paths', () => {
       execSyncSpy = spyOn(childProcess, 'execSync').mockImplementation(() => {
         throw new Error('Command not found');
       });
 
-      const version = getClaudeCliVersion();
-      expect(version).toBeNull();
+      const result = getClaudeCliVersion();
+      expect(result.version).toBeNull();
+      expect(result.error).toBeTruthy();
+      expect(result.error).toContain('not found');
     });
 
-    it('returns null when output does not match version pattern', () => {
+    it('returns version null with rawOutput when output does not match version pattern', () => {
       execSyncSpy = spyOn(childProcess, 'execSync').mockReturnValue('not a version\n');
 
-      const version = getClaudeCliVersion();
-      expect(version).toBeNull();
+      const result = getClaudeCliVersion();
+      expect(result.version).toBeNull();
+      expect(result.rawOutput).toBe('not a version');
+      expect(result.error).toBeNull();
     });
 
     it('uses CLAUDE_PATH environment variable when set', () => {
@@ -92,10 +100,57 @@ describe('version-check', () => {
 
       getClaudeCliVersion();
 
+      // First call should be with CLAUDE_PATH (quoted for paths with spaces)
       expect(execSyncSpy).toHaveBeenCalledWith(
-        '/custom/path/claude --version',
+        '"/custom/path/claude" --version',
         expect.any(Object)
       );
+    });
+  });
+
+  describe('getClaudePath', () => {
+    let execSyncSpy: ReturnType<typeof spyOn>;
+    const originalClaudePath = process.env.CLAUDE_PATH;
+
+    beforeEach(() => {
+      delete process.env.CLAUDE_PATH;
+    });
+
+    afterEach(() => {
+      if (originalClaudePath !== undefined) {
+        process.env.CLAUDE_PATH = originalClaudePath;
+      } else {
+        delete process.env.CLAUDE_PATH;
+      }
+      execSyncSpy?.mockRestore();
+    });
+
+    it('returns CLAUDE_PATH when set', () => {
+      process.env.CLAUDE_PATH = '/custom/path/to/claude';
+      const path = getClaudePath();
+      expect(path).toBe('/custom/path/to/claude');
+    });
+
+    it('returns "claude" as fallback when not found', () => {
+      execSyncSpy = spyOn(childProcess, 'execSync').mockImplementation(() => {
+        throw new Error('Command not found');
+      });
+
+      const path = getClaudePath();
+      expect(path).toBe('claude');
+    });
+
+    it('returns path from "which claude" when available', () => {
+      execSyncSpy = spyOn(childProcess, 'execSync').mockImplementation(((cmd: string) => {
+        if (cmd === 'which claude') {
+          return '/usr/local/bin/claude\n';
+        }
+        // For the version check that follows
+        return '2.0.76\n';
+      }) as typeof childProcess.execSync);
+
+      const path = getClaudePath();
+      expect(path).toBe('/usr/local/bin/claude');
     });
   });
 
