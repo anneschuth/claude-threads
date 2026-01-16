@@ -89,6 +89,28 @@ export interface PendingWorktreeSuggestions {
 }
 
 // =============================================================================
+// Side Conversation Types
+// =============================================================================
+
+/**
+ * A side conversation message (not directed at the bot).
+ * These are messages from approved users that start with @someone-else.
+ * They are tracked and included as context with the next message to Claude.
+ */
+export interface SideConversation {
+  /** Username of the person who sent the message */
+  fromUser: string;
+  /** Username of the person who was @mentioned (not the bot) */
+  mentionedUser: string;
+  /** The message content */
+  message: string;
+  /** When the message was sent */
+  timestamp: Date;
+  /** Post ID for deduplication */
+  postId: string;
+}
+
+// =============================================================================
 // Session Lifecycle State Machine
 // =============================================================================
 
@@ -280,6 +302,11 @@ export interface Session {
 
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
+
+  // Side conversation tracking
+  // Messages from approved users that are directed at other users (not the bot).
+  // These are included as context with the next message sent to Claude.
+  pendingSideConversations?: SideConversation[];
 
   /**
    * MessageManager for handling operations (content, tasks, questions, subagents).

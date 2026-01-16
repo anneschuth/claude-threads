@@ -36,6 +36,7 @@ import {
   getThreadMessagesForContext,
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
+import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
 
 const log = createLogger('lifecycle');
@@ -1156,10 +1157,19 @@ export async function sendFollowUp(
     return;
   }
 
+  // Prepend side conversation context if any
+  let messageToSend = message;
+  if (session.pendingSideConversations && session.pendingSideConversations.length > 0) {
+    const sideContext = formatSideConversationsForClaude(session.pendingSideConversations);
+    messageToSend = sideContext + message;
+    // Clear after use - side conversations are ephemeral
+    session.pendingSideConversations = [];
+  }
+
   // Increment message counter
   session.messageCount++;
 
-  await session.messageManager.handleUserMessage(message, files, username, displayName);
+  await session.messageManager.handleUserMessage(messageToSend, files, username, displayName);
 }
 
 /**

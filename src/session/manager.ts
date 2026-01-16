@@ -1291,6 +1291,63 @@ export class SessionManager extends EventEmitter {
     return session.sessionAllowedUsers.has(username) || session.platform.isUserAllowed(username);
   }
 
+  // ---------------------------------------------------------------------------
+  // Side Conversation Tracking
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Add a side conversation to a session.
+   * Side conversations are messages from approved users that are directed at other users (not the bot).
+   * They are included as context with the next message sent to Claude.
+   */
+  addSideConversation(threadId: string, conv: import('./types.js').SideConversation): void {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+
+    // Initialize array if needed
+    if (!session.pendingSideConversations) {
+      session.pendingSideConversations = [];
+    }
+
+    // Add the conversation
+    session.pendingSideConversations.push(conv);
+
+    // Apply limits
+    this.applySideConversationLimits(session);
+  }
+
+  /**
+   * Apply limits to side conversations to prevent unbounded growth.
+   */
+  private applySideConversationLimits(session: Session): void {
+    const MAX_COUNT = 5;
+    const MAX_TOTAL_CHARS = 2000;
+    const MAX_AGE_MS = 30 * 60 * 1000; // 30 minutes
+
+    const now = Date.now();
+    let convs = session.pendingSideConversations || [];
+
+    // Filter by age
+    convs = convs.filter(c => now - c.timestamp.getTime() < MAX_AGE_MS);
+
+    // Keep only most recent N
+    if (convs.length > MAX_COUNT) {
+      convs = convs.slice(-MAX_COUNT);
+    }
+
+    // Enforce character limit (keep most recent that fit)
+    let totalChars = 0;
+    const limited: import('./types.js').SideConversation[] = [];
+    for (const c of [...convs].reverse()) {
+      if (totalChars + c.message.length <= MAX_TOTAL_CHARS) {
+        limited.unshift(c);
+        totalChars += c.message.length;
+      }
+    }
+
+    session.pendingSideConversations = limited;
+  }
+
   async startSessionWithWorktree(
     options: { prompt: string; files?: PlatformFile[] },
     branch: string,

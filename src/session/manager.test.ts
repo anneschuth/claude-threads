@@ -370,4 +370,120 @@ describe('SessionManager', () => {
       // Should not throw
     });
   });
+
+  describe('addSideConversation', () => {
+    test('does nothing for unknown thread', () => {
+      // Should not throw
+      manager.addSideConversation('unknown-thread', {
+        fromUser: 'alice',
+        mentionedUser: 'bob',
+        message: 'test message',
+        timestamp: new Date(),
+        postId: 'post1',
+      });
+    });
+
+    test('tracks side conversation for known thread', () => {
+      // Create a mock session in the registry
+      const mockSession = {
+        threadId: 'test-thread',
+        sessionId: 'test-platform:test-thread',
+        pendingSideConversations: undefined as any,
+      };
+      // Access registry directly (it's public)
+      (manager.registry as any).sessions.set('test-platform:test-thread', mockSession);
+
+      manager.addSideConversation('test-thread', {
+        fromUser: 'alice',
+        mentionedUser: 'bob',
+        message: 'test message',
+        timestamp: new Date(),
+        postId: 'post1',
+      });
+
+      expect(mockSession.pendingSideConversations).toBeDefined();
+      expect(mockSession.pendingSideConversations.length).toBe(1);
+      expect(mockSession.pendingSideConversations[0].fromUser).toBe('alice');
+    });
+
+    test('enforces max count limit', () => {
+      const mockSession = {
+        threadId: 'test-thread',
+        sessionId: 'test-platform:test-thread',
+        pendingSideConversations: [] as any[],
+      };
+      (manager.registry as any).sessions.set('test-platform:test-thread', mockSession);
+
+      // Add 7 conversations (more than the 5 limit)
+      for (let i = 0; i < 7; i++) {
+        manager.addSideConversation('test-thread', {
+          fromUser: `user${i}`,
+          mentionedUser: 'bob',
+          message: `message ${i}`,
+          timestamp: new Date(),
+          postId: `post${i}`,
+        });
+      }
+
+      // Should only keep the last 5
+      expect(mockSession.pendingSideConversations.length).toBe(5);
+      expect(mockSession.pendingSideConversations[0].fromUser).toBe('user2');
+      expect(mockSession.pendingSideConversations[4].fromUser).toBe('user6');
+    });
+
+    test('enforces max character limit', () => {
+      const mockSession = {
+        threadId: 'test-thread',
+        sessionId: 'test-platform:test-thread',
+        pendingSideConversations: [] as any[],
+      };
+      (manager.registry as any).sessions.set('test-platform:test-thread', mockSession);
+
+      // Add conversations with 500 chars each (exceeds 2000 total after 5 messages)
+      for (let i = 0; i < 5; i++) {
+        manager.addSideConversation('test-thread', {
+          fromUser: `user${i}`,
+          mentionedUser: 'bob',
+          message: 'A'.repeat(500),
+          timestamp: new Date(),
+          postId: `post${i}`,
+        });
+      }
+
+      // Should only keep messages that fit in 2000 chars (4 messages = 2000 chars exactly)
+      expect(mockSession.pendingSideConversations.length).toBe(4);
+    });
+
+    test('enforces max age limit', () => {
+      const mockSession = {
+        threadId: 'test-thread',
+        sessionId: 'test-platform:test-thread',
+        pendingSideConversations: [] as any[],
+      };
+      (manager.registry as any).sessions.set('test-platform:test-thread', mockSession);
+
+      // Add an old conversation (31 minutes ago)
+      const oldTimestamp = new Date(Date.now() - 31 * 60 * 1000);
+      manager.addSideConversation('test-thread', {
+        fromUser: 'olduser',
+        mentionedUser: 'bob',
+        message: 'old message',
+        timestamp: oldTimestamp,
+        postId: 'old-post',
+      });
+
+      // Add a recent conversation
+      manager.addSideConversation('test-thread', {
+        fromUser: 'newuser',
+        mentionedUser: 'bob',
+        message: 'new message',
+        timestamp: new Date(),
+        postId: 'new-post',
+      });
+
+      // Should only have the recent message (old one filtered by age)
+      expect(mockSession.pendingSideConversations.length).toBe(1);
+      expect(mockSession.pendingSideConversations[0].fromUser).toBe('newuser');
+    });
+  });
 });
