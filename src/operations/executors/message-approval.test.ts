@@ -90,15 +90,15 @@ function createTestContext(platform?: PlatformClient): ExecutorContext {
 describe('MessageApprovalExecutor', () => {
   let executor: MessageApprovalExecutor;
   let ctx: ExecutorContext;
-  let messageApprovalCompleted: { decision: string; fromUser: string; originalMessage: string } | null;
+  let messageApprovalCompleted: { decision: string; fromUser: string; originalMessage: string; approvedBy: string } | null;
 
   beforeEach(() => {
     messageApprovalCompleted = null;
 
     // Create event emitter and subscribe to events
     const events = createMessageManagerEvents();
-    events.on('message-approval:complete', ({ decision, fromUser, originalMessage }) => {
-      messageApprovalCompleted = { decision, fromUser, originalMessage };
+    events.on('message-approval:complete', ({ decision, fromUser, originalMessage, approvedBy }) => {
+      messageApprovalCompleted = { decision, fromUser, originalMessage, approvedBy };
     });
 
     executor = new MessageApprovalExecutor({
@@ -146,6 +146,7 @@ describe('MessageApprovalExecutor', () => {
       expect(messageApprovalCompleted!.decision).toBe('allow');
       expect(messageApprovalCompleted!.fromUser).toBe('unauthorized-user');
       expect(messageApprovalCompleted!.originalMessage).toBe('Hello world');
+      expect(messageApprovalCompleted!.approvedBy).toBe('approver-user');
     });
 
     it('handles invite decision', async () => {
@@ -166,6 +167,7 @@ describe('MessageApprovalExecutor', () => {
 
       expect(handled).toBe(true);
       expect(messageApprovalCompleted!.decision).toBe('invite');
+      expect(messageApprovalCompleted!.approvedBy).toBe('approver-user');
     });
 
     it('handles deny decision', async () => {
@@ -186,6 +188,7 @@ describe('MessageApprovalExecutor', () => {
 
       expect(handled).toBe(true);
       expect(messageApprovalCompleted!.decision).toBe('deny');
+      expect(messageApprovalCompleted!.approvedBy).toBe('approver-user');
     });
 
     it('ignores response for wrong post', async () => {

@@ -97,6 +97,20 @@ function cleanupPostIndex(ctx: SessionContext, threadId: string): void {
 }
 
 /**
+ * Format an approved message with source attribution.
+ * Similar to context message formatting, this tells Claude who sent the message
+ * and who approved it, so Claude knows it came from a different user.
+ *
+ * @param originalMessage - The original message content
+ * @param fromUser - The user who sent the message
+ * @param approvedBy - The user who approved the message
+ * @returns Formatted message with source attribution
+ */
+function formatApprovedMessage(originalMessage: string, fromUser: string, approvedBy: string): string {
+  return `[Message from @${fromUser}, approved by @${approvedBy}]\n${originalMessage}`;
+}
+
+/**
  * Options for cleanupSession helper.
  */
 interface CleanupSessionOptions {
@@ -236,21 +250,23 @@ function createMessageManager(
     session.claude.sendMessage(response);
   });
 
-  messageManager.events.on('message-approval:complete', async ({ decision, fromUser, originalMessage }) => {
+  messageManager.events.on('message-approval:complete', async ({ decision, fromUser, originalMessage, approvedBy }) => {
     if (decision === 'allow') {
-      // Allow this single message
-      session.claude.sendMessage(originalMessage);
+      // Allow this single message - format with source attribution
+      const formattedMessage = formatApprovedMessage(originalMessage, fromUser, approvedBy);
+      session.claude.sendMessage(formattedMessage);
       session.lastActivityAt = new Date();
       ctx.ops.startTyping(session);
-      sessionLog(session).info(`Message from @${fromUser} approved`);
+      sessionLog(session).info(`Message from @${fromUser} approved by @${approvedBy}`);
     } else if (decision === 'invite') {
-      // Invite user to session and send their message
+      // Invite user to session and send their message - format with source attribution
       session.sessionAllowedUsers.add(fromUser);
       await ctx.ops.updateSessionHeader(session);
-      session.claude.sendMessage(originalMessage);
+      const formattedMessage = formatApprovedMessage(originalMessage, fromUser, approvedBy);
+      session.claude.sendMessage(formattedMessage);
       session.lastActivityAt = new Date();
       ctx.ops.startTyping(session);
-      sessionLog(session).info(`@${fromUser} invited to session`);
+      sessionLog(session).info(`@${fromUser} invited to session by @${approvedBy}`);
     }
     // 'deny' - nothing extra to do, post already updated by MessageManager
   });

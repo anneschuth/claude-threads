@@ -61,6 +61,7 @@ describe('TypedEventEmitter', () => {
         decision: 'allow',
         fromUser: 'testuser',
         originalMessage: 'Hello',
+        approvedBy: 'approver',
       };
 
       emitter.on('message-approval:complete', handler);
@@ -445,6 +446,7 @@ describe('Event Payload Types', () => {
       decision: 'deny',
       fromUser: 'unauthorized',
       originalMessage: 'blocked message',
+      approvedBy: 'moderator',
     };
 
     emitter.on('message-approval:complete', handler);
@@ -459,6 +461,7 @@ describe('Event Payload Types', () => {
       decision: 'invite',
       fromUser: 'newuser',
       originalMessage: 'request to join',
+      approvedBy: 'admin',
     };
 
     emitter.on('message-approval:complete', handler);
