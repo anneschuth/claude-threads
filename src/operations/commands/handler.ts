@@ -552,7 +552,7 @@ export async function updateSessionHeader(
   const statusItems: string[] = [];
 
   // Version info at the start (like sticky message)
-  const claudeVersion = getClaudeCliVersion();
+  const claudeVersion = getClaudeCliVersion().version;
   const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
   statusItems.push(formatter.formatCode(versionStr));
 
