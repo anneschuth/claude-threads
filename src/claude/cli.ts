@@ -6,6 +6,7 @@ import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync,
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
+import { getClaudePath } from './version-check.js';
 
 const log = createLogger('claude');
 
@@ -217,7 +218,7 @@ export class ClaudeCli extends EventEmitter {
     // Clean up stale browser bridge sockets (workaround for Claude CLI bug)
     cleanupBrowserBridgeSockets();
 
-    const claudePath = process.env.CLAUDE_PATH || 'claude';
+    const claudePath = getClaudePath();
     const args = [
       '--input-format', 'stream-json',
       '--output-format', 'stream-json',
