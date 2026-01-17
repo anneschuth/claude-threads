@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-01-17
+
+### Fixed
+- **WebSocket reconnection restored** - Fixed critical bugs in reconnection logic that were introduced in v1.0.3 (#231)
+  - Heartbeat now properly triggers reconnection when detecting dead connections (was just closing without reconnecting)
+  - Auto-retry on reconnection failure restored (was lost when code was refactored to base class)
+  - TUI will no longer show "connected" when connection is actually dead
+  - All platforms (Mattermost and Slack) now benefit from robust reconnection logic
+
 ## [1.3.0] - 2026-01-17
 
 ### Added
