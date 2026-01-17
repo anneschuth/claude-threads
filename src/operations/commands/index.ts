@@ -13,6 +13,7 @@ export {
 
   // Directory management
   changeDirectory,
+  generateWorkSummary,
 
   // User collaboration
   inviteUser,

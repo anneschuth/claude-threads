@@ -22,7 +22,7 @@ import {
   writeWorktreeMetadata,
   isValidWorktreePath,
 } from '../../git/worktree.js';
-import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
+import type { ClaudeCliOptions, ClaudeEvent, ContentBlock } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
 import { logAndNotify } from '../../utils/error-handler/index.js';
@@ -38,6 +38,7 @@ import {
 import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { shortenPath } from '../index.js';
+import type { ThreadMessage } from '../../platform/index.js';
 
 const log = createLogger('worktree');
 const sessionLog = createSessionLog(log);
@@ -385,6 +386,11 @@ export async function createAndSwitchToWorktree(
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
     offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>;
+    buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<string | ContentBlock[]>;
+    // Context preservation for mid-session worktree creation
+    generateWorkSummary: (session: Session) => Promise<string | undefined>;
+    getThreadMessagesForContext: (session: Session, limit: number, excludePostId?: string) => Promise<ThreadMessage[]>;
+    formatContextForClaude: (messages: ThreadMessage[], previousWorkSummary?: string) => string;
     appendSystemPrompt?: string;
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
@@ -580,6 +586,16 @@ export async function createAndSwitchToWorktree(
     // Update working directory
     session.workingDir = worktreePath;
 
+    // For mid-session worktree creation, generate work summary BEFORE killing Claude
+    // This preserves context about what the user was working on
+    let workSummary: string | undefined;
+    if (!wasPending && session.claude.isRunning()) {
+      workSummary = await options.generateWorkSummary(session);
+      if (workSummary) {
+        sessionLog(session).debug(`🌿 Generated work summary for worktree context preservation`);
+      }
+    }
+
     // If Claude is already running, restart it in the new directory
     if (session.claude.isRunning()) {
       options.stopTyping(session);
@@ -634,18 +650,29 @@ export async function createAndSwitchToWorktree(
     options.persistSession(session);
 
     // Send the initial prompt to the new Claude CLI
-    // - If wasPending (worktree prompt at session start): use queuedPrompt
-    // - Otherwise (mid-session worktree): use firstPrompt
-    // Use offerContextPrompt to allow user to include thread history
-    // Exclude the worktree response post from context (it's just the branch name)
+    // - If wasPending (worktree prompt at session start): use offerContextPrompt (user decides on thread context)
+    // - Otherwise (mid-session worktree): auto-include ALL context (work summary + thread messages)
     if (session.claude.isRunning()) {
       const excludePostId = session.worktreeResponsePostId;
       if (wasPending && queuedPrompt) {
+        // Session start: let user choose how much thread context to include
         await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
       } else if (!wasPending && session.firstPrompt) {
-        // Note: firstPrompt doesn't have files stored - this is a mid-session worktree creation
-        // Files are only stored with queuedPrompt at session start
-        await options.offerContextPrompt(session, session.firstPrompt, undefined, excludePostId);
+        // Mid-session worktree creation: auto-include ALL context (continuity expected)
+        // Get all thread messages for context
+        const threadMessages = await options.getThreadMessagesForContext(session, 50, excludePostId);
+
+        // Build context with work summary + all thread messages
+        const contextPrefix = options.formatContextForClaude(threadMessages, workSummary);
+        const messageToSend = contextPrefix + session.firstPrompt;
+
+        // Build and send the message
+        session.messageCount++;
+        const content = await options.buildMessageContent(messageToSend, session, undefined);
+        session.claude.sendMessage(content);
+        options.startTyping(session);
+
+        sessionLog(session).debug(`🌿 Auto-included ${threadMessages.length} messages + work summary for mid-session worktree`);
       }
       // Clear the stored response post ID after use
       session.worktreeResponsePostId = undefined;

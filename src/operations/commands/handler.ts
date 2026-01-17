@@ -246,9 +246,9 @@ export async function approvePendingPlan(
 
 /**
  * Generate a summary of the work done in the current session.
- * Used to preserve context when changing directories.
+ * Used to preserve context when changing directories or creating worktrees.
  */
-async function generateWorkSummary(session: Session): Promise<string | undefined> {
+export async function generateWorkSummary(session: Session): Promise<string | undefined> {
   // Get recent thread history to summarize
   try {
     const messages = await session.platform.getThreadHistory(
