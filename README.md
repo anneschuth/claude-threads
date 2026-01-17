@@ -41,8 +41,8 @@
 
 ```bash
 # Install (pick one)
+bun install -g claude-threads   # with Bun (recommended)
 npm install -g claude-threads   # with Node
-bun install -g claude-threads   # with Bun
 
 # Run the setup wizard
 cd /your/project
@@ -59,7 +59,7 @@ The **interactive setup wizard** will guide you through everything:
 
 ### Prerequisites
 
-- **Node 18+** or **Bun** - [Install Node](https://nodejs.org/) or [Install Bun](https://bun.sh/)
+- **Bun** or **Node 18+** - [Install Bun](https://bun.sh/) or [Install Node](https://nodejs.org/)
 - **Claude Code CLI working** - test with `claude --version` (needs API key or subscription)
 
 ### Use
