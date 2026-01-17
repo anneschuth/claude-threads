@@ -83,6 +83,7 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   protected reconnectAttempts = 0;
   protected maxReconnectAttempts = 10;
   protected reconnectDelay = 1000;
+  protected reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================================================
   // Abstract Methods (must be implemented by subclasses)
@@ -273,6 +274,11 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     wsLogger.info('Disconnecting (intentional)');
     this.isIntentionalDisconnect = true;
     this.stopHeartbeat();
+    // Cancel any pending reconnect timeout to prevent reconnection after intentional disconnect
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
     this.forceCloseConnection();
   }
 
@@ -302,7 +308,9 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
       if (silentFor > this.HEARTBEAT_TIMEOUT_MS) {
         log.warn(`Connection dead (no activity for ${Math.round(silentFor / 1000)}s), reconnecting...`);
         this.stopHeartbeat();
-        this.forceCloseConnection();
+        // Don't just close - actually trigger reconnection!
+        // forceCloseConnection() removes the onclose handler, so we must call scheduleReconnect() explicitly
+        this.scheduleReconnect();
         return;
       }
 
@@ -325,6 +333,12 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    * Can be overridden by subclasses to add platform-specific behavior.
    */
   protected scheduleReconnect(): void {
+    // Clear any existing reconnect timeout to prevent duplicate attempts
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       log.error('Max reconnection attempts reached');
       return;
@@ -339,12 +353,20 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
 
     this.reconnectAttempts++;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    log.info(`Reconnecting... (attempt ${this.reconnectAttempts})`);
+    wsLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
     this.emit('reconnecting', this.reconnectAttempts);
 
-    setTimeout(() => {
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      // Check if disconnect was called while we were waiting
+      if (this.isIntentionalDisconnect) {
+        wsLogger.debug('Skipping reconnect: intentional disconnect was called');
+        return;
+      }
       this.connect().catch((err) => {
-        log.error(`Reconnection failed: ${err}`);
+        wsLogger.error(`Reconnection failed: ${err}`);
+        // Auto-retry: schedule another reconnect attempt on failure
+        this.scheduleReconnect();
       });
     }, delay);
   }
