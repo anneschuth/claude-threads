@@ -174,6 +174,59 @@ describe('context-prompt', () => {
       expect(result).toContain('---');
       expect(result).toContain('[Current request:]');
     });
+
+    it('includes previous work summary when provided', () => {
+      const messages: ThreadMessage[] = [
+        {
+          id: '1',
+          userId: 'user1',
+          username: 'alice',
+          message: 'Hello world',
+          createAt: Date.now(),
+        },
+      ];
+      const summary = 'User was working on implementing a new feature for authentication.';
+
+      const result = formatContextForClaude(messages, summary);
+      expect(result).toContain('[Summary of previous work (before directory change):]');
+      expect(result).toContain(summary);
+      expect(result).toContain('[Previous conversation in this thread:]');
+      expect(result).toContain('@alice: Hello world');
+      expect(result).toContain('[Current request:]');
+    });
+
+    it('includes only summary when no messages but summary provided', () => {
+      const summary = 'User was debugging a bug in the payment module.';
+
+      const result = formatContextForClaude([], summary);
+      expect(result).toContain('[Summary of previous work (before directory change):]');
+      expect(result).toContain(summary);
+      expect(result).toContain('[Current request:]');
+      expect(result).not.toContain('[Previous conversation in this thread:]');
+    });
+
+    it('places summary before messages in the output', () => {
+      const messages: ThreadMessage[] = [
+        {
+          id: '1',
+          userId: 'user1',
+          username: 'alice',
+          message: 'Test message',
+          createAt: Date.now(),
+        },
+      ];
+      const summary = 'Previous work summary here.';
+
+      const result = formatContextForClaude(messages, summary);
+      const summaryIndex = result.indexOf('[Summary of previous work');
+      const messagesIndex = result.indexOf('[Previous conversation');
+      expect(summaryIndex).toBeLessThan(messagesIndex);
+    });
+
+    it('returns empty string when no messages and no summary', () => {
+      const result = formatContextForClaude([]);
+      expect(result).toBe('');
+    });
   });
 
   describe('CONTEXT_OPTIONS', () => {

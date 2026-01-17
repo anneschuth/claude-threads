@@ -51,6 +51,9 @@ import { getCurrentBranch, isGitRepository } from '../../git/worktree.js';
 import { getClaudeCliVersion } from '../../claude/version-check.js';
 import { shortenPath } from '../index.js';
 import { getLogFilePath } from '../../persistence/thread-logger.js';
+import { quickQuery } from '../../claude/quick-query.js';
+import { CHAT_PLATFORM_PROMPT } from '../../session/lifecycle.js';
+import { buildSessionContext } from '../../commands/system-prompt-generator.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -242,6 +245,52 @@ export async function approvePendingPlan(
 // ---------------------------------------------------------------------------
 
 /**
+ * Generate a summary of the work done in the current session.
+ * Used to preserve context when changing directories or creating worktrees.
+ */
+export async function generateWorkSummary(session: Session): Promise<string | undefined> {
+  // Get recent thread history to summarize
+  try {
+    const messages = await session.platform.getThreadHistory(
+      session.threadId,
+      { limit: 20, excludeBotMessages: false }
+    );
+
+    if (messages.length === 0) {
+      return undefined;
+    }
+
+    // Format messages for the summary prompt
+    const conversationText = messages
+      .map(m => `${m.username}: ${m.message.substring(0, 500)}`)
+      .join('\n');
+
+    const summaryPrompt = `Summarize the following conversation in 2-3 sentences. Focus on what work was done, what was accomplished, and any important context that would be useful when continuing in a different directory:
+
+${conversationText}
+
+Summary:`;
+
+    const result = await quickQuery({
+      prompt: summaryPrompt,
+      model: 'haiku',
+      timeout: 10000,
+      workingDir: session.workingDir,
+    });
+
+    if (result.success && result.response) {
+      sessionLog(session).debug(`Generated work summary: ${result.response.substring(0, 100)}...`);
+      return result.response;
+    }
+
+    return undefined;
+  } catch (err) {
+    sessionLog(session).debug(`Failed to generate work summary: ${err}`);
+    return undefined;
+  }
+}
+
+/**
  * Change working directory for a session (restarts Claude CLI).
  */
 export async function changeDirectory(
@@ -286,12 +335,25 @@ export async function changeDirectory(
   sessionLog(session).info(`📂 Changing directory to ${shortDir}`);
   session.threadLogger?.logCommand('cd', absoluteDir, username);
 
+  // Generate summary of previous work before switching directories
+  // This runs in parallel with directory validation (which is already done)
+  const previousDir = session.workingDir;
+  const workSummary = await generateWorkSummary(session);
+  if (workSummary) {
+    session.previousWorkSummary = workSummary;
+    sessionLog(session).debug(`Stored work summary for context preservation`);
+  }
+
   // Update session working directory
   session.workingDir = absoluteDir;
 
   // Generate new session ID for fresh start in new directory
   const newSessionId = randomUUID();
   session.claudeSessionId = newSessionId;
+
+  // Build system prompt with platform context for the new directory
+  const sessionContext = buildSessionContext(session.platform, absoluteDir);
+  const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   const cliOptions: ClaudeCliOptions = {
     workingDir: absoluteDir,
@@ -301,6 +363,7 @@ export async function changeDirectory(
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
+    appendSystemPrompt,  // Include platform context and commands
     logSessionId: session.sessionId,  // Route logs to session panel
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
   };
@@ -312,8 +375,15 @@ export async function changeDirectory(
   // Update session header with new directory
   await updateSessionHeader(session, ctx);
 
+  // Build confirmation message with context info
+  let confirmationMsg = `${formatter.formatBold('Working directory changed')} to ${formatter.formatCode(shortDir)}\n`;
+  confirmationMsg += `${formatter.formatItalic(`Claude Code restarted in new directory (from ${shortenPath(previousDir)})`)}`;
+  if (workSummary) {
+    confirmationMsg += `\n\n${formatter.formatBold('Previous context preserved:')} ${workSummary.substring(0, 150)}${workSummary.length > 150 ? '...' : ''}`;
+  }
+
   // Post confirmation
-  await post(session, 'command', `${formatter.formatBold('Working directory changed')} to ${formatter.formatCode(shortDir)}\n${formatter.formatItalic('Claude Code restarted in new directory')}`);
+  await post(session, 'command', confirmationMsg);
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
   resetSessionActivity(session);

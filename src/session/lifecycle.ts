@@ -275,14 +275,25 @@ function createMessageManager(
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
     let messageToSend = queuedPrompt;
+
+    // Get any previous work summary (from directory change)
+    const previousWorkSummary = session.previousWorkSummary;
+    // Clear it after use - it's a one-time context transfer
+    session.previousWorkSummary = undefined;
+
     if (typeof selection === 'number' && selection > 0) {
       // User selected to include context - fetch and format messages
       const messages = await getThreadMessagesForContext(session, selection);
-      if (messages.length > 0) {
-        const contextPrefix = formatContextForClaude(messages);
+      if (messages.length > 0 || previousWorkSummary) {
+        const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
         messageToSend = contextPrefix + queuedPrompt;
       }
-      sessionLog(session).debug(`🧵 Including ${selection} messages as context`);
+      sessionLog(session).debug(`🧵 Including ${selection} messages as context${previousWorkSummary ? ' + work summary' : ''}`);
+    } else if (previousWorkSummary) {
+      // No thread context selected, but we have a work summary from directory change
+      const contextPrefix = formatContextForClaude([], previousWorkSummary);
+      messageToSend = contextPrefix + queuedPrompt;
+      sessionLog(session).debug(`🧵 Including work summary (no thread context)`);
     } else {
       // No context (selection is 0 for skip, or 'timeout')
       const reason = selection === 'timeout' ? 'timed out' : 'skipped';

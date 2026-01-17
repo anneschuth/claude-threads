@@ -41,6 +41,19 @@ mock.module('../../claude/cli.js', () => ({
   },
 }));
 
+// Mock functions for context preservation (passed via options, not mock.module)
+const mockGenerateWorkSummary = mock(() => Promise.resolve('Summary of previous work'));
+const mockGetThreadMessagesForContext = mock(() => Promise.resolve([
+  { id: '1', userId: 'user1', username: 'alice', message: 'Previous message', createAt: 1000 },
+]));
+const mockFormatContextForClaude = mock((messages: unknown[], summary?: string) => {
+  let result = '';
+  if (summary) result += `[Summary: ${summary}]\n`;
+  if (Array.isArray(messages) && messages.length > 0) result += `[Messages: ${messages.length}]\n`;
+  result += '[Current request:]';
+  return result;
+});
+
 // =============================================================================
 // Test Utilities
 // =============================================================================
@@ -150,6 +163,11 @@ function createMockOptions() {
     startTyping: mock(() => {}),
     stopTyping: mock(() => {}),
     offerContextPrompt: mock(() => Promise.resolve(false)),
+    buildMessageContent: mock((text: string) => Promise.resolve(text)),
+    // Context preservation functions (injected to avoid mock.module interference)
+    generateWorkSummary: mockGenerateWorkSummary,
+    getThreadMessagesForContext: mockGetThreadMessagesForContext,
+    formatContextForClaude: mockFormatContextForClaude,
     registerPost: mock(() => {}),
     updateStickyMessage: mock(() => Promise.resolve()),
   };
@@ -512,6 +530,116 @@ describe('Worktree Module', () => {
 
         // Should remove the x reaction from the prompt post
         expect(session.platform.removeReaction).toHaveBeenCalledWith('prompt-post-1', 'x');
+      });
+    });
+
+    describe('mid-session worktree creation (context preservation)', () => {
+      beforeEach(() => {
+        // Reset mocks for context-related functions
+        mockGenerateWorkSummary.mockReset();
+        mockGetThreadMessagesForContext.mockReset();
+        mockFormatContextForClaude.mockReset();
+
+        // Set default implementations
+        mockGenerateWorkSummary.mockImplementation(() => Promise.resolve('Summary of previous work'));
+        mockGetThreadMessagesForContext.mockImplementation(() => Promise.resolve([
+          { id: '1', userId: 'user1', username: 'alice', message: 'Previous message', createAt: 1000 },
+        ]));
+        mockFormatContextForClaude.mockImplementation((messages: unknown[], summary?: string) => {
+          let result = '';
+          if (summary) result += `[Summary: ${summary}]\n`;
+          if (Array.isArray(messages) && messages.length > 0) result += `[Messages: ${messages.length}]\n`;
+          result += '[Current request:]';
+          return result;
+        });
+      });
+
+      it('generates work summary before creating worktree', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Mid-session, not at session start
+          firstPrompt: 'continue my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Should generate work summary
+        expect(mockGenerateWorkSummary).toHaveBeenCalledWith(session);
+      });
+
+      it('auto-includes all thread context without prompting for mid-session worktree', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Mid-session
+          firstPrompt: 'continue my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Should NOT call offerContextPrompt (auto-include instead)
+        expect(options.offerContextPrompt).not.toHaveBeenCalled();
+
+        // Should fetch thread messages
+        expect(mockGetThreadMessagesForContext).toHaveBeenCalledWith(session, 50, undefined);
+
+        // Should format context with work summary and messages
+        expect(mockFormatContextForClaude).toHaveBeenCalled();
+
+        // Should build and send the message directly
+        expect(options.buildMessageContent).toHaveBeenCalled();
+        expect(options.startTyping).toHaveBeenCalled();
+      });
+
+      it('includes work summary in formatted context', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,
+          firstPrompt: 'continue my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // formatContextForClaude should be called with messages and summary
+        expect(mockFormatContextForClaude).toHaveBeenCalledWith(
+          expect.any(Array),
+          'Summary of previous work'
+        );
+      });
+
+      it('still uses offerContextPrompt for session-start worktree (wasPending=true)', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,  // Session start
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'start my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Should use offerContextPrompt (let user choose context)
+        expect(options.offerContextPrompt).toHaveBeenCalledWith(
+          session,
+          'start my work',
+          undefined,
+          undefined
+        );
+
+        // Should NOT auto-include context
+        expect(mockGenerateWorkSummary).not.toHaveBeenCalled();
+      });
+
+      it('increments message count when auto-including context', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,
+          firstPrompt: 'continue my work',
+          messageCount: 5,
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // Message count should be incremented
+        expect(session.messageCount).toBe(6);
       });
     });
 
