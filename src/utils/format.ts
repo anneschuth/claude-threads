@@ -10,6 +10,9 @@
  * - Maintainability: Easy to change formats globally
  */
 
+import { VERSION } from '../version.js';
+import { getClaudeCliVersion } from '../claude/version-check.js';
+
 // =============================================================================
 // ID Formatting
 // =============================================================================
@@ -90,6 +93,21 @@ export function formatRelativeTimeShort(date: Date): string {
   if (hours > 0) return `${hours}h ago`;
   if (minutes > 0) return `${minutes}m ago`;
   return '<1m ago';
+}
+
+// =============================================================================
+// Version Formatting
+// =============================================================================
+
+/**
+ * Format version string for status bar display.
+ * CT = claude-threads, CC = Claude Code (the CLI).
+ *
+ * @returns Formatted string like "CT v1.3.1 · CC v2.1.12" or "CT v1.3.1" if no CLI version
+ */
+export function formatVersionString(): string {
+  const claudeVersion = getClaudeCliVersion().version;
+  return claudeVersion ? `CT v${VERSION} · CC v${claudeVersion}` : `CT v${VERSION}`;
 }
 
 // =============================================================================

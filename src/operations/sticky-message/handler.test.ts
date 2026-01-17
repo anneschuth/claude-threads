@@ -159,8 +159,8 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    // Should contain version (with optional CLI version appended)
-    expect(result).toMatch(/`v\d+\.\d+\.\d+( · CLI \d+\.\d+\.\d+)?`/);
+    // Should contain version (CT = claude-threads, CC = Claude Code)
+    expect(result).toMatch(/`CT v\d+\.\d+\.\d+( · CC v\d+\.\d+\.\d+)?`/);
     // Should contain session count
     expect(result).toContain('`0/5 sessions`');
     // Should contain uptime
