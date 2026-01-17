@@ -276,7 +276,9 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
 
     // IMMEDIATELY create our lock and set it as the new queue
     // This ensures any concurrent call will wait for us
-    let releaseLock: () => void;
+    // Initialize with no-op to satisfy TypeScript - the Promise executor runs synchronously
+    // so releaseLock is always assigned before use
+    let releaseLock: () => void = () => {};
     this.bumpQueue = new Promise(resolve => {
       releaseLock = resolve;
     });
@@ -289,7 +291,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
       return await fn();
     } finally {
       // Release our lock so next operation can proceed
-      releaseLock!();
+      releaseLock();
     }
   }
 
