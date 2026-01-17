@@ -10,6 +10,7 @@ import {
   taskToolsFormatter,
   chromeToolsFormatter,
   webToolsFormatter,
+  skillToolsFormatter,
   shortenPath,
   parseMcpToolName,
   escapeRegExp,
@@ -351,6 +352,171 @@ describe('Web Tools Formatter', () => {
     expect(result!.display).toContain('🔍');
     expect(result!.display).toContain('Searching');
     expect(result!.display).toContain('typescript');
+  });
+});
+
+describe('Skill Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  describe('basic skill invocation', () => {
+    it('formats simple skill without namespace', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'commit' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('⚡');
+      expect(result!.display).toContain('**Skill**');
+      expect(result!.display).toContain('`/commit`');
+    });
+
+    it('formats skill with namespace', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'ralph-loop:ralph-loop' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('⚡');
+      expect(result!.display).toContain('**Skill**');
+      expect(result!.display).toContain('`/ralph-loop`');
+      expect(result!.display).toContain('_(ralph-loop)_');
+    });
+
+    it('formats skill with different namespace and command', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'ms-office-suite:pdf' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('`/pdf`');
+      expect(result!.display).toContain('_(ms-office-suite)_');
+    });
+  });
+
+  describe('skill with arguments', () => {
+    it('formats skill with short arguments', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'review-pr', args: '123' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('`/review-pr`');
+      expect(result!.display).toContain('"123"');
+    });
+
+    it('formats skill with longer arguments', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'ralph-loop:ralph-loop', args: 'Build a REST API for todos' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('`/ralph-loop`');
+      expect(result!.display).toContain('"Build a REST API for todos"');
+    });
+
+    it('truncates very long arguments', () => {
+      const longArgs = 'a'.repeat(100);
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'commit', args: longArgs },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('...');
+      // Should be truncated to ~80 chars
+      expect(result!.display!.length).toBeLessThan(150);
+    });
+  });
+
+  describe('permission text', () => {
+    it('includes full skill name in permission text', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'ralph-loop:ralph-loop', args: 'Build API' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.permissionText).toContain('`ralph-loop:ralph-loop`');
+      expect(result!.permissionText).toContain('with args: "Build API"');
+    });
+
+    it('permission text without args', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'commit' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.permissionText).toContain('`commit`');
+      expect(result!.permissionText).not.toContain('with args');
+    });
+  });
+
+  describe('edge cases', () => {
+    it('handles missing skill name', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        {},
+        options
+      );
+
+      expect(result).not.toBeNull();
+      expect(result!.display).toContain('`/unknown`');
+    });
+
+    it('handles empty args', () => {
+      const result = skillToolsFormatter.format(
+        'Skill',
+        { skill: 'commit', args: '' },
+        options
+      );
+
+      expect(result).not.toBeNull();
+      // Empty args should not be displayed
+      expect(result!.display).not.toContain('""');
+    });
+
+    it('returns null for non-Skill tools', () => {
+      const result = skillToolsFormatter.format(
+        'NotSkill',
+        { skill: 'commit' },
+        options
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe('registry integration', () => {
+    it('is properly registered in the registry', () => {
+      const registry = new ToolFormatterRegistry();
+      registry.register(skillToolsFormatter);
+
+      expect(registry.hasFormatter('Skill')).toBe(true);
+    });
+
+    it('formats through the default registry', () => {
+      // The default registry should have skillToolsFormatter registered
+      const result = formatToolUse('Skill', { skill: 'commit' }, mockFormatter);
+
+      expect(result).not.toBeNull();
+      expect(result).toContain('⚡');
+      expect(result).toContain('Skill');
+      expect(result).toContain('/commit');
+    });
   });
 });
 

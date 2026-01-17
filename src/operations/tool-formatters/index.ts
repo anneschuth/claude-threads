@@ -47,6 +47,7 @@ export { bashToolFormatter } from './bash-tools.js';
 export { taskToolsFormatter } from './task-tools.js';
 export { chromeToolsFormatter } from './chrome-tools.js';
 export { webToolsFormatter } from './web-tools.js';
+export { skillToolsFormatter } from './skill-tools.js';
 
 // ---------------------------------------------------------------------------
 // Register all built-in formatters
@@ -58,6 +59,7 @@ import { bashToolFormatter } from './bash-tools.js';
 import { taskToolsFormatter } from './task-tools.js';
 import { chromeToolsFormatter } from './chrome-tools.js';
 import { webToolsFormatter } from './web-tools.js';
+import { skillToolsFormatter } from './skill-tools.js';
 
 // Register all formatters with the default registry
 toolFormatterRegistry.register(fileToolsFormatter);
@@ -65,6 +67,7 @@ toolFormatterRegistry.register(bashToolFormatter);
 toolFormatterRegistry.register(taskToolsFormatter);
 toolFormatterRegistry.register(chromeToolsFormatter);
 toolFormatterRegistry.register(webToolsFormatter);
+toolFormatterRegistry.register(skillToolsFormatter);
 
 // ---------------------------------------------------------------------------
 // Convenience Functions
