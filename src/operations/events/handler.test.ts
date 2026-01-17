@@ -208,6 +208,50 @@ describe('handleEventPreProcessing', () => {
     // Should not persist again
     expect((ctx.ops.persistSession as ReturnType<typeof mock>).mock.calls.length).toBe(callCount);
   });
+
+  test('captures slash_commands from init event', () => {
+    expect(session.availableSlashCommands).toBeUndefined();
+
+    const initEvent = {
+      type: 'system',
+      subtype: 'init',
+      slash_commands: ['compact', 'context', 'cost', 'init', 'review', 'security-review'],
+    };
+
+    handleEventPreProcessing(session, initEvent, ctx);
+
+    expect(session.availableSlashCommands).toBeDefined();
+    expect(session.availableSlashCommands?.size).toBe(6);
+    expect(session.availableSlashCommands?.has('compact')).toBe(true);
+    expect(session.availableSlashCommands?.has('review')).toBe(true);
+  });
+
+  test('handles slash_commands with leading slashes', () => {
+    const initEvent = {
+      type: 'system',
+      subtype: 'init',
+      slash_commands: ['/compact', '/context', '/cost'],
+    };
+
+    handleEventPreProcessing(session, initEvent, ctx);
+
+    expect(session.availableSlashCommands?.size).toBe(3);
+    // Leading slashes should be stripped
+    expect(session.availableSlashCommands?.has('compact')).toBe(true);
+    expect(session.availableSlashCommands?.has('/compact')).toBe(false);
+  });
+
+  test('ignores init event without slash_commands', () => {
+    const initEvent = {
+      type: 'system',
+      subtype: 'init',
+      // No slash_commands field
+    };
+
+    handleEventPreProcessing(session, initEvent, ctx);
+
+    expect(session.availableSlashCommands).toBeUndefined();
+  });
 });
 
 describe('handleEventPostProcessing', () => {

@@ -798,6 +798,225 @@ describe('handleMessage', () => {
 
       expect(session.sendFollowUp).not.toHaveBeenCalled();
     });
+
+    test('handles dynamic slash commands from init event', async () => {
+      // Mock session with availableSlashCommands populated from init event
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        availableSlashCommands: new Set(['context', 'cost', 'compact', 'init', 'review', 'security-review']),
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!review',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review');
+    });
+
+    test('handles dynamic slash commands with arguments', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        availableSlashCommands: new Set(['context', 'cost', 'compact', 'init', 'review']),
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!review --detailed',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review --detailed');
+    });
+
+    test('does not pass through unknown commands', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        availableSlashCommands: new Set(['context', 'cost', 'compact']),
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!unknowncommand',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Unknown command should not be passed through
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('!plugin command', () => {
+    beforeEach(() => {
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+      // Add mock for plugin methods
+      (session as any).pluginList = mock(() => Promise.resolve());
+      (session as any).pluginInstall = mock(() => Promise.resolve());
+      (session as any).pluginUninstall = mock(() => Promise.resolve());
+    });
+
+    test('handles !plugin list command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin list',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect((session as any).pluginList).toHaveBeenCalledWith('thread1');
+    });
+
+    test('handles !plugin without subcommand (defaults to list)', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect((session as any).pluginList).toHaveBeenCalledWith('thread1');
+    });
+
+    test('handles !plugin install command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin install context7',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect((session as any).pluginInstall).toHaveBeenCalledWith('thread1', 'context7', 'allowed-user');
+    });
+
+    test('handles !plugin uninstall command', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin uninstall context7',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect((session as any).pluginUninstall).toHaveBeenCalledWith('thread1', 'context7', 'allowed-user');
+    });
+
+    test('shows error when !plugin install missing name', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin install',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(client.createPost).toHaveBeenCalled();
+      expect((client.createPost as any).mock.calls[0][0]).toContain('!plugin install <plugin-name>');
+    });
+
+    test('shows error when !plugin uninstall missing name', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin uninstall',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(client.createPost).toHaveBeenCalled();
+      expect((client.createPost as any).mock.calls[0][0]).toContain('!plugin uninstall <plugin-name>');
+    });
+
+    test('shows error for unknown plugin subcommand', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin unknown',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(client.createPost).toHaveBeenCalled();
+      expect((client.createPost as any).mock.calls[0][0]).toContain('Unknown subcommand');
+    });
+
+    test('does not allow unauthorized users to use plugin commands', async () => {
+      (session.isUserAllowedInSession as any).mockReturnValue(false);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!plugin install context7',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'outsider', displayName: 'Outsider' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect((session as any).pluginInstall).not.toHaveBeenCalled();
+    });
   });
 
   describe('!kill with active sessions', () => {

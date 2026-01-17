@@ -38,6 +38,7 @@ import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
 import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
+import * as plugin from '../operations/plugin/index.js';
 import type { Session } from './types.js';
 import { SessionRegistry } from './registry.js';
 import { post } from '../operations/post-helpers/index.js';
@@ -1111,6 +1112,25 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.deferUpdate(session, username, this.autoUpdateManager);
+  }
+
+  // Plugin commands
+  async pluginList(threadId: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await plugin.handlePluginList(session);
+  }
+
+  async pluginInstall(threadId: string, pluginName: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await plugin.handlePluginInstall(session, pluginName, username, this.getContext());
+  }
+
+  async pluginUninstall(threadId: string, pluginName: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await plugin.handlePluginUninstall(session, pluginName, username, this.getContext());
   }
 
   isSessionInteractive(threadId: string): boolean {

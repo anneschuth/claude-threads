@@ -36,6 +36,9 @@ export {
   // Bug reporting
   reportBug,
   handleBugReportApproval,
+
+  // Restart helper (used by plugin handler)
+  restartClaudeSession,
 } from './handler.js';
 
 export type { AutoUpdateManagerInterface } from './handler.js';
