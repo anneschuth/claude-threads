@@ -9,6 +9,12 @@
 # - 0: Clean exit, don't restart
 # - 1+: Error, optional restart based on flags
 #
+# PLATFORM SUPPORT:
+#   - Linux: Full support
+#   - macOS: Full support
+#   - Windows: Requires Git Bash, WSL, or similar bash environment
+#              Without bash, use claude-threads directly (no auto-restart)
+#
 # Usage:
 #   claude-threads-daemon [options]
 #   claude-threads-daemon --restart-on-error  # Also restart on errors
@@ -32,9 +38,13 @@ VERBOSE=false
 
 # Path to claude-threads binary (set by index.ts when spawning daemon)
 # Falls back to global 'claude-threads' command if not set
-# If CLAUDE_THREADS_BIN is a .js file, run it with node
+# If CLAUDE_THREADS_BIN is a .js file, run it with node (matches the shebang)
 if [ -n "$CLAUDE_THREADS_BIN" ]; then
     if [[ "$CLAUDE_THREADS_BIN" == *.js ]]; then
+        if ! command -v node &> /dev/null; then
+            echo "[daemon] Error: node not found in PATH" >&2
+            exit 1
+        fi
         CLAUDE_THREADS_CMD="node $CLAUDE_THREADS_BIN"
     else
         CLAUDE_THREADS_CMD="$CLAUDE_THREADS_BIN"
