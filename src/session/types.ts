@@ -268,6 +268,7 @@ export interface Session {
 
   // Thread context prompt support
   needsContextPromptOnNextMessage?: boolean;   // Offer context prompt on next follow-up message (after !cd)
+  previousWorkSummary?: string;                // Summary of work done before directory change (for context preservation)
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)

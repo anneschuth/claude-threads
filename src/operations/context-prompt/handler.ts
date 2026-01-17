@@ -289,21 +289,42 @@ export async function getThreadMessagesForContext(
 
 /**
  * Format thread messages as context for Claude.
+ * @param messages - Thread messages to include
+ * @param previousWorkSummary - Optional summary of work done before directory change
  */
-export function formatContextForClaude(messages: ThreadMessage[]): string {
-  if (messages.length === 0) return '';
+export function formatContextForClaude(messages: ThreadMessage[], previousWorkSummary?: string): string {
+  const lines: string[] = [];
 
-  const lines = ['[Previous conversation in this thread:]', ''];
-
-  for (const msg of messages) {
-    // Truncate very long messages
-    const content = msg.message.length > 500
-      ? msg.message.substring(0, 500) + '...'
-      : msg.message;
-    lines.push(`@${msg.username}: ${content}`);
+  // Include previous work summary if available (from directory change)
+  if (previousWorkSummary) {
+    lines.push('[Summary of previous work (before directory change):]');
+    lines.push('');
+    lines.push(previousWorkSummary);
+    lines.push('');
+    lines.push('---');
+    lines.push('');
   }
 
-  lines.push('', '---', '', '[Current request:]');
+  if (messages.length > 0) {
+    lines.push('[Previous conversation in this thread:]');
+    lines.push('');
+
+    for (const msg of messages) {
+      // Truncate very long messages
+      const content = msg.message.length > 500
+        ? msg.message.substring(0, 500) + '...'
+        : msg.message;
+      lines.push(`@${msg.username}: ${content}`);
+    }
+
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+  }
+
+  if (lines.length > 0) {
+    lines.push('[Current request:]');
+  }
 
   return lines.join('\n');
 }
@@ -368,12 +389,25 @@ export async function handleContextPromptTimeout(
   await updateContextPromptPost(session, pending.postId, 'timeout');
 
   // Get the queued prompt and files
-  const queuedPrompt = pending.queuedPrompt;
+  let queuedPrompt = pending.queuedPrompt;
   // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
   const queuedFiles = getContextPromptFilesForSession(session);
 
   // Clear pending context prompt (MessageManager and local storage)
   clearPendingContextPromptInManager(session);
+
+  // Get any previous work summary (from directory change)
+  // Even on timeout, we should include the work summary as it's valuable context
+  const previousWorkSummary = session.previousWorkSummary;
+  // Clear it after use - it's a one-time context transfer
+  session.previousWorkSummary = undefined;
+
+  // If we have a work summary, include it even though user didn't select thread context
+  if (previousWorkSummary) {
+    const contextPrefix = formatContextForClaude([], previousWorkSummary);
+    queuedPrompt = contextPrefix + queuedPrompt;
+    sessionLog(session).debug(`🧵 Including work summary despite timeout`);
+  }
 
   // Increment message counter
   session.messageCount++;
@@ -393,7 +427,7 @@ export async function handleContextPromptTimeout(
   // Persist updated state
   ctx.persistSession(session);
 
-  sessionLog(session).debug(`🧵 Context prompt timed out, continuing without context`);
+  sessionLog(session).debug(`🧵 Context prompt timed out, continuing without thread context`);
 }
 
 /**
@@ -413,9 +447,19 @@ export async function offerContextPrompt(
   const messageCount = await getThreadContextCount(session, excludePostId);
 
   if (messageCount === 0) {
-    // No previous messages, send directly with files
+    // No previous messages - but check for work summary from directory change
+    const previousWorkSummary = session.previousWorkSummary;
+    // Clear it after use - it's a one-time context transfer
+    session.previousWorkSummary = undefined;
+
     session.messageCount++;
-    const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
+    let messageToSend = queuedPrompt;
+    if (previousWorkSummary) {
+      const contextPrefix = formatContextForClaude([], previousWorkSummary);
+      messageToSend = contextPrefix + queuedPrompt;
+      sessionLog(session).debug(`🧵 Including work summary (no thread messages)`);
+    }
+    messageToSend = ctx.injectMetadataReminder(messageToSend, session);
     const content = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
     if (session.claude.isRunning()) {
       session.claude.sendMessage(content);
@@ -427,9 +471,15 @@ export async function offerContextPrompt(
   if (messageCount === 1) {
     // Only one message (the thread starter) - auto-include without asking
     const messages = await getThreadMessagesForContext(session, 1, excludePostId);
+
+    // Get any previous work summary (from directory change)
+    const previousWorkSummary = session.previousWorkSummary;
+    // Clear it after use - it's a one-time context transfer
+    session.previousWorkSummary = undefined;
+
     let messageToSend = queuedPrompt;
-    if (messages.length > 0) {
-      const contextPrefix = formatContextForClaude(messages);
+    if (messages.length > 0 || previousWorkSummary) {
+      const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
       messageToSend = contextPrefix + queuedPrompt;
     }
 
@@ -441,7 +491,7 @@ export async function offerContextPrompt(
       ctx.startTyping(session);
     }
 
-    sessionLog(session).debug(`🧵 Auto-included 1 message as context (thread starter)`);
+    sessionLog(session).debug(`🧵 Auto-included 1 message as context (thread starter)${previousWorkSummary ? ' + work summary' : ''}`);
 
     return false;
   }
