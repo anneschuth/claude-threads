@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-01-17
+
+### Added
+- **Dynamic slash command passthrough** - Unknown `!commands` are now checked against Claude CLI's available slash commands and passed through automatically (#229)
+  - Captures `slash_commands` from Claude CLI's `init` event
+  - `!foo` passes through to `/foo` if it's an available slash command
+- **`!plugin` command** - New command for managing Claude Code plugins (#229)
+  - `!plugin list` - Shows installed plugins
+  - `!plugin install <name>` - Installs a plugin and restarts Claude CLI
+  - `!plugin uninstall <name>` - Uninstalls a plugin and restarts Claude CLI
+
+### Fixed
+- **Package manager detection for updates** - Updates now use the same package manager (bun/npm) that was used to install claude-threads (#230)
+  - Prevents duplicate global installations when updating
+  - Respects `BUN_INSTALL` env var for custom bun install locations
+
 ## [1.2.1] - 2026-01-17
 
 ### Fixed
