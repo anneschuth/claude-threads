@@ -444,11 +444,14 @@ class UsernameAnonymizer {
   anonymize(username: string | undefined): string {
     if (!username) return '[unknown]';
 
-    if (!this.usernameMap.has(username)) {
-      this.counter++;
-      this.usernameMap.set(username, `User${this.counter}`);
+    const existing = this.usernameMap.get(username);
+    if (existing) {
+      return existing;
     }
-    return this.usernameMap.get(username)!;
+    this.counter++;
+    const anonymized = `User${this.counter}`;
+    this.usernameMap.set(username, anonymized);
+    return anonymized;
   }
 }
 

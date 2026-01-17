@@ -122,15 +122,16 @@ export class MattermostClient extends BasePlatformClient {
   private async processAndEmitPost(post: MattermostPost): Promise<void> {
     // Check if we need to fetch file metadata
     // WebSocket events include file_ids but may not include metadata.files
-    const hasFileIds = post.file_ids && post.file_ids.length > 0;
+    const fileIds = post.file_ids;
+    const hasFileIds = fileIds && fileIds.length > 0;
     const hasFileMetadata = post.metadata?.files && post.metadata.files.length > 0;
 
     if (hasFileIds && !hasFileMetadata) {
-      log.debug(`Post ${formatShortId(post.id)} has ${post.file_ids!.length} file(s), fetching metadata`);
+      log.debug(`Post ${formatShortId(post.id)} has ${fileIds.length} file(s), fetching metadata`);
       try {
         // Fetch file info for each file_id
         const files: MattermostFile[] = [];
-        for (const fileId of post.file_ids!) {
+        for (const fileId of fileIds) {
           try {
             const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
             files.push(file);

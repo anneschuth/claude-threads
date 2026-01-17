@@ -247,7 +247,21 @@ export function validateClaudeCli(): ClaudeValidationResult {
   }
 
   // Case 3: Got a version, check compatibility
-  const compatible = isVersionCompatible(result.version!);
+  // At this point, result.version must be defined:
+  // - Case 1 returned if result.error was truthy
+  // - Case 2 returned if result.version was falsy (with rawOutput)
+  // So if we reach here, result.version is defined
+  if (!result.version) {
+    // This should never happen, but satisfies TypeScript
+    return {
+      installed: true,
+      version: null,
+      compatible: true,
+      message: 'Claude CLI found (version unknown)',
+      rawOutput: result.rawOutput ?? undefined,
+    };
+  }
+  const compatible = isVersionCompatible(result.version);
 
   if (!compatible) {
     return {
