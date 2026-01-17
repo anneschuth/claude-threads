@@ -1,13 +1,13 @@
 /* Terminal-minimal CSS for claude-threads */
 
 :root {
-  --bg-primary: #0d1117;
-  --bg-secondary: #161b22;
-  --text-primary: #c9d1d9;
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --text-primary: #cccccc;
   --text-secondary: #8b949e;
-  --accent: #005fff;
-  --accent-orange: #ff875f;
-  --border: #30363d;
+  --accent: #5f87af;
+  --accent-orange: #d7af5f;
+  --border: #3c3c3c;
   --font-mono:
     "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace;
 }
@@ -75,10 +75,31 @@ h2 {
   margin-bottom: 1.5rem;
 }
 
+.ascii-logo .star {
+  color: var(--accent-orange);
+}
+
 .hero-text {
   color: var(--text-secondary);
   margin-bottom: 1.5rem;
   max-width: 500px;
+}
+
+.copyable {
+  cursor: pointer;
+}
+
+.copyable:hover .copy-hint {
+  opacity: 1;
+}
+
+.copy-hint {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  opacity: 0;
+  transition: opacity 0.2s;
+  margin-top: 0.25rem;
 }
 
 .install-cmd {
@@ -86,7 +107,6 @@ h2 {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   padding: 0.5rem 1rem;
-  margin-bottom: 0.5rem;
   font-size: 1rem;
 }
 
@@ -236,13 +256,18 @@ section {
 }
 
 /* Quickstart */
+.quickstart .copyable {
+  display: block;
+  margin-bottom: 1rem;
+}
+
 .quickstart pre {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   padding: 1rem;
   overflow-x: auto;
   font-size: 0.9rem;
-  margin-bottom: 1rem;
+  margin: 0;
 }
 
 .quickstart .prereq {

@@ -23,14 +23,17 @@
       <section class="hero">
         <div class="container">
           <!-- prettier-ignore -->
-          <pre class="ascii-logo"> ✴ ▄█▀ ███ ✴
-✴  █▀   █   ✴
- ✴ ▀█▄  █  ✴</pre>
+          <pre class="ascii-logo"> <span class="star">✴</span> ▄█▀ ███ <span class="star">✴</span>
+<span class="star">✴</span>  █▀   █   <span class="star">✴</span>
+ <span class="star">✴</span> ▀█▄  █  <span class="star">✴</span></pre>
           <p class="hero-text">
             Run Claude Code on your machine.<br />
             Team members watch and collaborate through Slack or Mattermost.
           </p>
-          <code class="install-cmd">bun install -g claude-threads</code>
+          <div class="copyable" onclick="copyText(this)">
+            <code class="install-cmd">bun install -g claude-threads</code>
+            <span class="copy-hint">click to copy</span>
+          </div>
           <div class="hero-links">
             <a
               href="https://github.com/anneschuth/claude-threads"
@@ -87,16 +90,16 @@
             I wanted my team to use Claude Code without everyone needing their
             own setup. Screen sharing works but only one person can type. With
             claude-threads, colleagues watch Claude work in Slack and can jump
-            in to help, approve actions, or ask questions&mdash;all from chat.
+            in to help, approve actions, or ask questions. All from chat.
           </p>
           <p>
             I also want people around me to learn by exposure. Watching Claude
             Code work teaches you what's possible. And I think collaborating
-            together in a session&mdash;multiple people guiding the same
-            AI&mdash;could be a mode that actually works.
+            together in a session (multiple people guiding the same AI) could be
+            a mode that actually works.
           </p>
           <p>
-            The bot runs on your machine—you control what projects Claude can
+            The bot runs on your machine. You control what projects Claude can
             access.
           </p>
         </div>
@@ -217,11 +220,14 @@
               >Claude Code CLI</a
             >
           </p>
-          <pre>
-$ bun install -g claude-threads
-$ cd /your/project
-$ claude-threads</pre
-          >
+          <div class="copyable" onclick="copyText(this)">
+            <pre>
+bun install -g claude-threads
+cd /your/project
+claude-threads</pre
+            >
+            <span class="copy-hint">click to copy</span>
+          </div>
           <p>
             The setup wizard will guide you through connecting Slack or
             Mattermost.
@@ -275,6 +281,20 @@ $ claude-threads</pre
     </footer>
 
     <script>
+      function copyText(el) {
+        const code = el.querySelector("code, pre");
+        const text = code.textContent.trim();
+        navigator.clipboard.writeText(text).then(() => {
+          const hint = el.querySelector(".copy-hint");
+          hint.textContent = "copied!";
+          el.classList.add("copied");
+          setTimeout(() => {
+            hint.textContent = "click to copy";
+            el.classList.remove("copied");
+          }, 2000);
+        });
+      }
+
       (function () {
         const container = document.querySelector(".screenshot-scroll");
         if (!container) return;
