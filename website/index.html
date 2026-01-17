@@ -3,10 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Claude Threads - Bring Claude Code to your team</title>
+    <title>claude-threads</title>
     <meta
       name="description"
-      content="Run Claude Code locally, share it live in Slack or Mattermost. Real-time streaming, team collaboration, and session persistence."
+      content="Run Claude Code on your machine. Team members watch and collaborate through Slack or Mattermost."
     />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
@@ -16,254 +16,236 @@
       <!-- Hero -->
       <section class="hero">
         <div class="container">
-          <div class="logo" aria-label="Claude Threads logo">
-            <img src="assets/logo.svg" alt="CT" width="180" height="80" />
-          </div>
-          <h1>Claude Threads</h1>
-          <p class="tagline">Bring Claude Code to your team</p>
-          <p class="subtitle">
-            Run Claude Code locally, share it live in Slack or Mattermost.<br />Think
-            of it as screen-sharing for AI pair programming, but everyone can
-            type.
+          <pre class="ascii-logo">
+┌─┐┬  ┌─┐┬ ┬┌┬┐┌─┐  ┌┬┐┬ ┬┬─┐┌─┐┌─┐┌┬┐┌─┐
+│  │  ├─┤│ │ ││├┤    │ ├─┤├┬┘├┤ ├─┤ ││└─┐
+└─┘┴─┘┴ ┴└─┘─┴┘└─┘   ┴ ┴ ┴┴└─└─┘┴ ┴─┴┘└─┘</pre
+          >
+          <p class="hero-text">
+            Run Claude Code on your machine.<br />
+            Team members watch and collaborate through Slack or Mattermost.
           </p>
-          <div class="cta-buttons">
-            <a href="#quickstart" class="btn btn-primary">Get Started</a>
+          <code class="install-cmd">bun install -g claude-threads</code>
+          <div class="hero-links">
             <a
               href="https://github.com/anneschuth/claude-threads"
-              class="btn btn-secondary"
+              class="btn"
               target="_blank"
               rel="noopener"
-              >View on GitHub</a
+              >GitHub</a
             >
+            <a
+              href="https://www.npmjs.com/package/claude-threads"
+              class="btn"
+              target="_blank"
+              rel="noopener"
+              >npm</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <!-- Screenshot -->
+      <section class="screenshot">
+        <div class="container">
+          <div class="screenshot-scroll">
+            <img
+              src="assets/screenshots/slack-long.png"
+              alt="Claude Code session in Slack"
+            />
           </div>
         </div>
       </section>
 
       <!-- Features -->
-      <section class="features" id="features">
+      <section class="features">
         <div class="container">
           <h2>Features</h2>
-          <div class="feature-grid">
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-                </svg>
+          <ul>
+            <li>Output streams live to chat as Claude works</li>
+            <li>Works with Slack and Mattermost</li>
+            <li>Multiple concurrent sessions (one per thread)</li>
+            <li>Sessions survive bot restarts</li>
+            <li>Invite teammates to collaborate on a session</li>
+            <li>Approve file writes and commands via emoji reactions</li>
+            <li>Attach images, PDFs, and files for Claude to analyze</li>
+            <li>Git worktrees to isolate changes in branches</li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Why I built this -->
+      <section class="why">
+        <div class="container">
+          <h2>Why I built this</h2>
+          <p>
+            I wanted my team to use Claude Code without everyone needing their
+            own setup. Screen sharing works but only one person can type. With
+            claude-threads, colleagues watch Claude work in Slack and can jump
+            in to help, approve actions, or ask questions&mdash;all from chat.
+          </p>
+          <p>
+            I also want people around me to learn by exposure. Watching Claude
+            Code work teaches you what's possible. And I think collaborating
+            together in a session&mdash;multiple people guiding the same
+            AI&mdash;could be a mode that actually works.
+          </p>
+          <p>
+            The bot runs on your machine—you control what projects Claude can
+            access.
+          </p>
+        </div>
+      </section>
+
+      <!-- Commands -->
+      <section class="commands">
+        <div class="container">
+          <h2>Commands</h2>
+          <table>
+            <tr>
+              <th>Command</th>
+              <th>Description</th>
+            </tr>
+            <tr>
+              <td><code>!help</code></td>
+              <td>Show available commands</td>
+            </tr>
+            <tr>
+              <td><code>!context</code></td>
+              <td>Show context usage</td>
+            </tr>
+            <tr>
+              <td><code>!cost</code></td>
+              <td>Show token usage and cost</td>
+            </tr>
+            <tr>
+              <td><code>!compact</code></td>
+              <td>Compress context</td>
+            </tr>
+            <tr>
+              <td><code>!cd &lt;path&gt;</code></td>
+              <td>Change working directory</td>
+            </tr>
+            <tr>
+              <td><code>!worktree &lt;branch&gt;</code></td>
+              <td>Create git worktree</td>
+            </tr>
+            <tr>
+              <td><code>!invite @user</code></td>
+              <td>Invite user to session</td>
+            </tr>
+            <tr>
+              <td><code>!kick @user</code></td>
+              <td>Remove invited user</td>
+            </tr>
+            <tr>
+              <td><code>!bug &lt;desc&gt;</code></td>
+              <td>Report a bug with context</td>
+            </tr>
+            <tr>
+              <td><code>!escape</code></td>
+              <td>Interrupt current task</td>
+            </tr>
+            <tr>
+              <td><code>!stop</code></td>
+              <td>Stop session</td>
+            </tr>
+          </table>
+        </div>
+      </section>
+
+      <!-- Controls -->
+      <section class="controls">
+        <div class="container">
+          <h2>Controls</h2>
+          <div class="controls-grid">
+            <div class="control-group">
+              <h3>Permissions</h3>
+              <p>When Claude wants to run a tool:</p>
+              <div class="emoji-row">
+                <span><span class="emoji">👍</span> allow</span>
+                <span><span class="emoji">✅</span> allow all</span>
+                <span><span class="emoji">👎</span> deny</span>
               </div>
-              <h3>Real-time Streaming</h3>
-              <p>
-                Claude Code's responses stream live to your chat as they're
-                generated
-              </p>
             </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="2" y="3" width="20" height="14" rx="2" />
-                  <path d="M8 21h8M12 17v4" />
-                </svg>
+            <div class="control-group">
+              <h3>Plans</h3>
+              <p>When Claude creates a plan:</p>
+              <div class="emoji-row">
+                <span><span class="emoji">👍</span> approve</span>
+                <span><span class="emoji">👎</span> reject</span>
               </div>
-              <h3>Multi-Platform</h3>
-              <p>Works with both Slack and Mattermost out of the box</p>
             </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path
-                    d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"
-                  />
-                </svg>
+            <div class="control-group">
+              <h3>Questions</h3>
+              <p>Multiple choice:</p>
+              <div class="emoji-row">
+                <span><span class="emoji">1️⃣</span></span>
+                <span><span class="emoji">2️⃣</span></span>
+                <span><span class="emoji">3️⃣</span></span>
+                <span><span class="emoji">4️⃣</span></span>
               </div>
-              <h3>Team Collaboration</h3>
-              <p>
-                Invite teammates with <code>!invite</code>, approve actions via
-                emoji reactions
-              </p>
             </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"
-                  />
-                </svg>
+            <div class="control-group">
+              <h3>Session</h3>
+              <p>Interrupt or cancel:</p>
+              <div class="emoji-row">
+                <span><span class="emoji">⏸️</span> interrupt</span>
+                <span><span class="emoji">❌</span> cancel</span>
               </div>
-              <h3>Concurrent Sessions</h3>
-              <p>Each thread gets its own isolated Claude Code session</p>
-            </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <path
-                    d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"
-                  />
-                  <polyline points="17 21 17 13 7 13 7 21" />
-                  <polyline points="7 3 7 8 15 8" />
-                </svg>
-              </div>
-              <h3>Session Persistence</h3>
-              <p>Sessions survive bot restarts and can be resumed</p>
-            </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <circle cx="12" cy="12" r="3" />
-                  <path
-                    d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"
-                  />
-                </svg>
-              </div>
-              <h3>Git Worktrees</h3>
-              <p>Isolate changes in separate branches automatically</p>
-            </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="3" y="11" width="18" height="11" rx="2" />
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-                </svg>
-              </div>
-              <h3>Interactive Permissions</h3>
-              <p>Approve Claude Code's actions with emoji reactions</p>
-            </div>
-            <div class="feature-card">
-              <div class="feature-icon">
-                <svg
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                >
-                  <rect x="3" y="3" width="18" height="18" rx="2" />
-                  <circle cx="8.5" cy="8.5" r="1.5" />
-                  <polyline points="21 15 16 10 5 21" />
-                </svg>
-              </div>
-              <h3>Image Attachments</h3>
-              <p>
-                Attach images in Slack or Mattermost for Claude Code to analyze
-              </p>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- Quick Start -->
-      <section class="quickstart" id="quickstart">
+      <!-- Quickstart -->
+      <section class="quickstart">
         <div class="container">
-          <h2>Quick Start</h2>
-          <div class="install-box">
-            <code id="install-cmd">bun install -g claude-threads</code>
-            <button
-              class="copy-btn"
-              onclick="copyInstall()"
-              aria-label="Copy install command"
+          <h2>Quickstart</h2>
+          <p class="prereq">
+            Requires
+            <a href="https://bun.sh/" target="_blank" rel="noopener"
+              >Bun 1.2.21+</a
             >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                width="18"
-                height="18"
-              >
-                <rect x="9" y="9" width="13" height="13" rx="2" />
-                <path
-                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
-                />
-              </svg>
-            </button>
-          </div>
-          <div class="steps">
-            <div class="step">
-              <span class="step-num">1</span>
-              <p>Install globally with Bun</p>
-            </div>
-            <div class="step">
-              <span class="step-num">2</span>
-              <p>Run <code>claude-threads</code> in your project directory</p>
-            </div>
-            <div class="step">
-              <span class="step-num">3</span>
-              <p>Follow the interactive setup to connect your chat platform</p>
-            </div>
-          </div>
-          <p class="docs-link">
-            <a
-              href="https://github.com/anneschuth/claude-threads#readme"
-              target="_blank"
-              rel="noopener"
-              >Read the full documentation &rarr;</a
+            and
+            <a href="https://claude.ai/download" target="_blank" rel="noopener"
+              >Claude Code CLI</a
             >
+          </p>
+          <pre>
+$ bun install -g claude-threads
+$ cd /your/project
+$ claude-threads</pre
+          >
+          <p>
+            The setup wizard will guide you through connecting Slack or
+            Mattermost.
           </p>
         </div>
       </section>
 
       <!-- Platforms -->
-      <section class="platforms" id="platforms">
+      <section class="platforms">
         <div class="container">
-          <h2>Supported Platforms</h2>
-          <div class="platform-grid">
+          <h2>Platforms</h2>
+          <div class="platform-links">
             <a
               href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#slack-setup"
-              class="platform-card"
+              class="platform-link"
               target="_blank"
               rel="noopener"
             >
-              <img src="assets/slack.svg" alt="Slack" class="platform-logo" />
-              <span>Slack</span>
-              <span class="platform-link">Setup Guide &rarr;</span>
+              <img src="assets/slack.svg" alt="" />
+              Slack setup guide
             </a>
             <a
               href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#mattermost-setup"
-              class="platform-card"
+              class="platform-link"
               target="_blank"
               rel="noopener"
             >
-              <img
-                src="assets/mattermost.svg"
-                alt="Mattermost"
-                class="platform-logo"
-              />
-              <span>Mattermost</span>
-              <span class="platform-link">Setup Guide &rarr;</span>
+              <img src="assets/mattermost.svg" alt="" />
+              Mattermost setup guide
             </a>
           </div>
         </div>
@@ -273,35 +255,54 @@
     <!-- Footer -->
     <footer>
       <div class="container">
-        <div class="footer-links">
-          <a
-            href="https://github.com/anneschuth/claude-threads"
-            target="_blank"
-            rel="noopener"
-            >GitHub</a
-          >
-          <a
-            href="https://www.npmjs.com/package/claude-threads"
-            target="_blank"
-            rel="noopener"
-            >npm</a
-          >
-          <a
-            href="https://github.com/anneschuth/claude-threads/blob/main/LICENSE"
-            target="_blank"
-            rel="noopener"
-            >Apache-2.0</a
-          >
-        </div>
-        <p class="footer-credit">
-          Built by
-          <a href="https://github.com/anneschuth" target="_blank" rel="noopener"
-            >Anne Schuth</a
-          >
-        </p>
+        <a href="https://github.com/anneschuth" target="_blank" rel="noopener"
+          >anneschuth</a
+        >
+        &middot;
+        <a
+          href="https://github.com/anneschuth/claude-threads"
+          target="_blank"
+          rel="noopener"
+          >source</a
+        >
+        &middot; Apache-2.0
       </div>
     </footer>
 
-    <script src="script.js"></script>
+    <script>
+      (function () {
+        const container = document.querySelector(".screenshot-scroll");
+        if (!container) return;
+        const img = container.querySelector("img");
+
+        function setup() {
+          // Skip animation on mobile - use native scroll instead
+          if (window.innerWidth <= 640) return;
+
+          const containerHeight = container.offsetHeight;
+          const imgHeight = img.offsetHeight;
+          const maxScroll = imgHeight - containerHeight;
+
+          if (maxScroll <= 0) return;
+
+          const initialTop = container.getBoundingClientRect().top;
+          const scrollRange = window.innerHeight * 0.5;
+
+          function onScroll() {
+            const rect = container.getBoundingClientRect();
+            // How far container has moved up from initial position
+            const moved = initialTop - rect.top;
+            const progress = Math.max(0, Math.min(1, moved / scrollRange));
+            img.style.transform = `translateY(${-maxScroll * progress}px)`;
+          }
+
+          window.addEventListener("scroll", onScroll, { passive: true });
+          onScroll();
+        }
+
+        if (img.complete) setup();
+        else img.onload = setup;
+      })();
+    </script>
   </body>
 </html>

@@ -32,7 +32,7 @@
 - **Collaboration** - Invite others to participate in your session
 - **Interactive permissions** - Approve Claude's actions via emoji reactions
 - **Git worktrees** - Isolate changes in separate branches
-- **Image attachments** - Attach images for Claude to analyze
+- **File attachments** - Attach images, PDFs, and files for Claude to analyze
 - **Chrome automation** - Control Chrome browser for web tasks
 
 ## Quick Start
@@ -83,6 +83,7 @@ Type `!help` in any session thread:
 | `!worktree <branch>` | Create and switch to a git worktree |
 | `!invite @user` | Invite a user to this session |
 | `!kick @user` | Remove an invited user |
+| `!bug <desc>` | Report a bug with context |
 | `!escape` | Interrupt current task |
 | `!stop` | Stop this session |
 
@@ -100,6 +101,18 @@ Type `!help` in any session thread:
 **Questions** - React with 1️⃣ 2️⃣ 3️⃣ 4️⃣ to answer multiple choice
 
 **Cancel session** - Type `!stop` or react with ❌
+
+## File Attachments
+
+Attach files to your messages for Claude to analyze:
+
+| Type | Formats | Max Size |
+|:-----|:--------|:---------|
+| Images | JPEG, PNG, GIF, WebP | - |
+| Documents | PDF | 32 MB |
+| Text | .txt, .md, .json, .csv, .xml, .yaml, source code | 1 MB |
+| Archives | .zip (auto-extracted, max 20 files) | 50 MB |
+| Compressed | .gz (auto-decompressed) | - |
 
 ## Collaboration
 

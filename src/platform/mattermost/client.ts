@@ -264,7 +264,8 @@ export class MattermostClient extends BasePlatformClient {
     const request: CreatePostRequest = {
       channel_id: this.channelId,
       message,
-      root_id: threadId,
+      // Only include root_id if it's a non-empty string (Mattermost rejects empty string)
+      root_id: threadId || undefined,
     };
     const post = await this.api<MattermostPost>('POST', '/posts', request);
     return this.normalizePlatformPost(post);
