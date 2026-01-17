@@ -15,7 +15,7 @@
 [![CI](https://github.com/anneschuth/claude-threads/actions/workflows/ci.yml/badge.svg)](https://github.com/anneschuth/claude-threads/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/anneschuth/4951f9235658e276208942986092e5ab/raw/coverage-badge.json)](https://github.com/anneschuth/claude-threads/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
-[![Bun](https://img.shields.io/badge/Bun-%3E%3D1.2.21-black.svg)](https://bun.sh/)
+[![Node](https://img.shields.io/badge/Node-%3E%3D18-green.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue.svg)](https://www.typescriptlang.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/anneschuth/claude-threads/pulls)
 
@@ -40,8 +40,9 @@
 ### Install & Run
 
 ```bash
-# Install
-bun install -g claude-threads
+# Install (pick one)
+bun install -g claude-threads   # with Bun (recommended)
+npm install -g claude-threads   # with Node
 
 # Run the setup wizard
 cd /your/project
@@ -58,7 +59,7 @@ The **interactive setup wizard** will guide you through everything:
 
 ### Prerequisites
 
-- **Bun 1.2.21+** - [Install Bun](https://bun.sh/)
+- **Bun** or **Node 18+** - [Install Bun](https://bun.sh/) or [Install Node](https://nodejs.org/)
 - **Claude Code CLI working** - test with `claude --version` (needs API key or subscription)
 
 ### Use
@@ -147,7 +148,7 @@ Leave the allowed users list empty to let anyone in the channel use the bot (be 
 ## Updates
 
 ```bash
-bun install -g claude-threads
+npm install -g claude-threads
 ```
 
 The bot checks for updates automatically and notifies you when new versions are available.

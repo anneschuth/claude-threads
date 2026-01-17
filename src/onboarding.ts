@@ -1,6 +1,8 @@
 import prompts from 'prompts';
 import { existsSync, readFileSync } from 'fs';
 import { join, dirname } from 'path';
+import { spawn } from 'child_process';
+import yaml from 'js-yaml';
 import { fileURLToPath } from 'url';
 import {
   CONFIG_PATH,
@@ -32,36 +34,29 @@ const onCancel = () => {
 async function copyToClipboard(text: string): Promise<boolean> {
   const platform = process.platform;
 
-  let command: string[];
+  const runCommand = (cmd: string, args: string[]): Promise<boolean> => {
+    return new Promise((resolve) => {
+      try {
+        const proc = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'] });
+        proc.stdin?.write(text);
+        proc.stdin?.end();
+        proc.on('close', (code) => resolve(code === 0));
+        proc.on('error', () => resolve(false));
+      } catch {
+        resolve(false);
+      }
+    });
+  };
+
   if (platform === 'darwin') {
-    command = ['pbcopy'];
+    return runCommand('pbcopy', []);
   } else if (platform === 'win32') {
-    command = ['clip'];
+    return runCommand('clip', []);
   } else {
     // Linux - try xclip first, fall back to xsel
-    command = ['xclip', '-selection', 'clipboard'];
-  }
-
-  try {
-    const proc = Bun.spawn(command, { stdin: 'pipe' });
-    proc.stdin.write(text);
-    proc.stdin.end();
-    const exitCode = await proc.exited;
-    return exitCode === 0;
-  } catch {
-    // On Linux, try xsel as fallback
-    if (platform === 'linux') {
-      try {
-        const proc = Bun.spawn(['xsel', '--clipboard', '--input'], { stdin: 'pipe' });
-        proc.stdin.write(text);
-        proc.stdin.end();
-        const exitCode = await proc.exited;
-        return exitCode === 0;
-      } catch {
-        return false;
-      }
-    }
-    return false;
+    const success = await runCommand('xclip', ['-selection', 'clipboard']);
+    if (success) return true;
+    return runCommand('xsel', ['--clipboard', '--input']);
   }
 }
 
@@ -198,7 +193,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
   if (reconfigure && existsSync(CONFIG_PATH)) {
     try {
       const content = readFileSync(CONFIG_PATH, 'utf-8');
-      existingConfig = Bun.YAML.parse(content) as Config;
+      existingConfig = yaml.load(content) as Config;
       console.log(dim('  Reconfiguring existing setup.'));
     } catch {
       console.log(dim('  Could not load existing config, starting fresh.'));

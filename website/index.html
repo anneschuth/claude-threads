@@ -30,12 +30,18 @@
             Run Claude Code on your machine.<br />
             Team members watch and collaborate through Slack or Mattermost.
           </p>
-          <p class="arch-note">
-            The bot runs locally and streams output to chat via WebSocket.
-          </p>
-          <div class="copyable" onclick="copyText(this)">
-            <code class="install-cmd">bun install -g claude-threads</code>
-            <span class="copy-hint">click to copy</span>
+          <div class="install-buttons">
+            <div class="copyable" onclick="copyText(this)">
+              <code class="install-cmd">bun install -g claude-threads</code>
+              <span class="copy-hint">click to copy</span>
+            </div>
+            <span class="separator">or</span>
+            <div class="copyable" onclick="copyText(this)">
+              <code class="install-cmd install-alt"
+                >npm install -g claude-threads</code
+              >
+              <span class="copy-hint">click to copy</span>
+            </div>
           </div>
           <div class="hero-links">
             <a
@@ -217,8 +223,10 @@
           <h2>Quickstart</h2>
           <p class="prereq">
             Requires
-            <a href="https://bun.sh/" target="_blank" rel="noopener"
-              >Bun 1.2.21+</a
+            <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
+            or
+            <a href="https://nodejs.org/" target="_blank" rel="noopener"
+              >Node 18+</a
             >
             and
             <a href="https://claude.ai/download" target="_blank" rel="noopener"
@@ -227,7 +235,7 @@
           </p>
           <div class="copyable" onclick="copyText(this)">
             <pre>
-bun install -g claude-threads
+bun install -g claude-threads    # or: npm install -g claude-threads
 cd /your/project
 claude-threads</pre
             >

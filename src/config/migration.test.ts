@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import yaml from 'js-yaml';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { saveConfig, loadConfigWithMigration, configExists, CONFIG_PATH, type Config } from './migration.js';
@@ -81,7 +82,7 @@ describe('saveConfig', () => {
     saveConfig(config, testConfigPath);
 
     const content = readFileSync(testConfigPath, 'utf-8');
-    const parsed = Bun.YAML.parse(content) as Config;
+    const parsed = yaml.load(content) as Config;
 
     expect(parsed.version).toBe(2);
     expect(parsed.workingDir).toBe('/home/user/project');

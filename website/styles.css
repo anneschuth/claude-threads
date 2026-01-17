@@ -102,12 +102,29 @@ h2 {
   margin-top: 0.25rem;
 }
 
+.install-buttons {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.install-buttons .separator {
+  color: var(--text-secondary);
+  line-height: 3.1;
+}
+
 .install-cmd {
   display: inline-block;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   padding: 0.5rem 1rem;
   font-size: 1rem;
+}
+
+.install-cmd.install-alt {
+  color: var(--text-secondary);
+  opacity: 0.6;
 }
 
 .install-cmd::before {
@@ -125,12 +142,6 @@ h2 {
 .license {
   color: var(--text-secondary);
   font-size: 0.85rem;
-}
-
-.arch-note {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
 }
 
 .btn {
@@ -159,7 +170,6 @@ h2 {
 /* Screenshot */
 .screenshot {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
 }
 
 .screenshot-scroll {
@@ -179,7 +189,6 @@ h2 {
 /* Sections */
 section {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
 }
 
 /* Features - simple list */
@@ -319,7 +328,6 @@ section {
 /* Footer */
 footer {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
   text-align: center;
   font-size: 0.85rem;
   color: var(--text-secondary);
