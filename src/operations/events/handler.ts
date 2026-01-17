@@ -174,9 +174,28 @@ export function handleEventPreProcessing(
     ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
   }
 
-  // Handle compaction events specially
+  // Handle system events specially
   if (event.type === 'system') {
-    const e = event as ClaudeEvent & { subtype?: string; status?: string; compact_metadata?: unknown };
+    const e = event as ClaudeEvent & {
+      subtype?: string;
+      status?: string;
+      compact_metadata?: unknown;
+      slash_commands?: string[];
+    };
+
+    // Capture available slash commands from init event
+    if (e.subtype === 'init' && e.slash_commands && Array.isArray(e.slash_commands)) {
+      session.availableSlashCommands = new Set(
+        e.slash_commands.map((cmd: string) =>
+          cmd.startsWith('/') ? cmd.slice(1) : cmd
+        )
+      );
+      sessionLog(session).info(
+        `Captured ${session.availableSlashCommands.size} slash commands from init: ${[...session.availableSlashCommands].join(', ')}`
+      );
+    }
+
+    // Handle compaction events
     if (e.subtype === 'status' && e.status === 'compacting') {
       handleCompactionStart(session, ctx);
     }

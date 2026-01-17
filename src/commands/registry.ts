@@ -199,6 +199,19 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     claudeCanExecute: true,
     returnsResultToClaude: false,
   },
+  {
+    command: 'plugin',
+    description: 'Manage Claude Code plugins',
+    args: '<subcommand> [name]',
+    category: 'system',
+    audience: 'user',  // User only - security concern
+    claudeNotes: 'User manages plugins themselves',
+    subcommands: [
+      { name: 'list', description: 'List installed plugins' },
+      { name: 'install', description: 'Install a plugin (restarts Claude)', args: '<name>' },
+      { name: 'uninstall', description: 'Uninstall a plugin (restarts Claude)', args: '<name>' },
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // Claude Code Passthrough (hidden from help, used in system prompt)

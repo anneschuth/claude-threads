@@ -225,16 +225,6 @@ export async function handleMessage(
             return;
           }
 
-          case 'context':
-          case 'cost':
-          case 'compact':
-            // Claude Code passthrough commands
-            if (isAllowed) {
-              const claudeCommand = '/' + parsed.command;
-              await session.sendFollowUp(threadRoot, claudeCommand);
-            }
-            return;
-
           case 'bug':
             // Bug reporting - pass any attached images
             if (isAllowed) {
@@ -246,6 +236,58 @@ export async function handleMessage(
           case 'kill':
             // Kill is handled earlier, but include for completeness
             return;
+
+          case 'plugin': {
+            // Plugin management
+            if (!isAllowed) return;
+            const pluginArgs = parsed.args?.split(/\s+/) || [];
+            const subcommand = pluginArgs[0]?.toLowerCase() || 'list';
+            const pluginName = pluginArgs.slice(1).join(' ');
+
+            switch (subcommand) {
+              case 'list':
+                await session.pluginList(threadRoot);
+                break;
+              case 'install':
+                if (!pluginName) {
+                  await client.createPost(`❌ Usage: ${formatter.formatCode('!plugin install <plugin-name>')}`, threadRoot);
+                } else {
+                  await session.pluginInstall(threadRoot, pluginName, username);
+                }
+                break;
+              case 'uninstall':
+                if (!pluginName) {
+                  await client.createPost(`❌ Usage: ${formatter.formatCode('!plugin uninstall <plugin-name>')}`, threadRoot);
+                } else {
+                  await session.pluginUninstall(threadRoot, pluginName, username);
+                }
+                break;
+              default:
+                await client.createPost(
+                  `❌ Unknown subcommand: ${formatter.formatCode(subcommand)}\nUsage: ${formatter.formatCode('!plugin <list|install|uninstall> [name]')}`,
+                  threadRoot
+                );
+            }
+            return;
+          }
+
+          // Dynamic slash command passthrough
+          // Check if this command is available from Claude CLI's init event
+          default: {
+            // Default commands that work before init event arrives
+            const defaultPassthroughCommands = new Set(['context', 'cost', 'compact']);
+            const availableCommands = activeSession.availableSlashCommands ?? defaultPassthroughCommands;
+
+            if (availableCommands.has(parsed.command)) {
+              // This is a valid slash command - pass it through
+              if (isAllowed) {
+                const claudeCommand = '/' + parsed.command + (parsed.args ? ' ' + parsed.args : '');
+                await session.sendFollowUp(threadRoot, claudeCommand);
+              }
+            }
+            // Whether known or unknown command, don't treat as regular message
+            return;
+          }
         }
       }
 

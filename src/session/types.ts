@@ -309,6 +309,10 @@ export interface Session {
   // These are included as context with the next message sent to Claude.
   pendingSideConversations?: SideConversation[];
 
+  // Dynamic slash commands (populated from Claude CLI init event)
+  // Commands like /context, /cost, /compact, /init, /review, etc.
+  availableSlashCommands?: Set<string>;
+
   /**
    * MessageManager for handling operations (content, tasks, questions, subagents).
    * Optional because it's assigned immediately after Session creation.

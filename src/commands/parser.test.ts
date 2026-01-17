@@ -182,8 +182,14 @@ describe('parseCommand', () => {
       expect(parseCommand('use !cd to change dirs')).toBeNull();
     });
 
-    test('returns null for unknown command', () => {
-      expect(parseCommand('!unknown')).toBeNull();
+    test('parses unknown command via dynamic pattern (for slash command passthrough)', () => {
+      // Unknown commands are parsed via the _dynamic pattern
+      // The message handler decides if it's a valid slash command from init event
+      expect(parseCommand('!unknown')).toEqual({
+        command: 'unknown',
+        args: undefined,
+        match: '!unknown',
+      });
     });
   });
 });

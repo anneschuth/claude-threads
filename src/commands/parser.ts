@@ -66,11 +66,19 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   ['cost', /^!cost\s*$/i],
   ['compact', /^!compact\s*$/i],
 
+  // Plugin management
+  ['plugin', /^!plugin(?:\s+(.+))?$/i],
+
   // Emergency
   ['kill', /^!kill\s*$/i],
 
   // Bug reporting
   ['bug', /^!bug(?:\s+(.+))?$/i],
+
+  // Catch-all for dynamic slash commands (checked last)
+  // Matches any !word or !word args pattern that wasn't caught above
+  // The handler will verify if it's a valid slash command from init event
+  ['_dynamic', /^!([a-z][-a-z0-9]*)(?:\s+(.+))?$/i],
 ];
 
 // =============================================================================
@@ -87,6 +95,14 @@ export function parseCommand(text: string): ParsedCommand | null {
   for (const [command, pattern] of COMMAND_PATTERNS) {
     const match = text.match(pattern);
     if (match) {
+      // Special handling for _dynamic pattern - extract actual command name
+      if (command === '_dynamic') {
+        return {
+          command: match[1].toLowerCase(),  // The actual command name (e.g., 'review')
+          args: match[2]?.trim(),            // The actual args (e.g., '--detailed')
+          match: match[0],
+        };
+      }
       return {
         command,
         args: match[1]?.trim(),

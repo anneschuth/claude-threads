@@ -67,7 +67,7 @@ const sessionLog = createSessionLog(log);
  * Handles the common pattern of kill -> flush -> create new CLI -> rebind -> start.
  * Returns true on success, false if start failed.
  */
-async function restartClaudeSession(
+export async function restartClaudeSession(
   session: Session,
   cliOptions: ClaudeCliOptions,
   ctx: SessionContext,
