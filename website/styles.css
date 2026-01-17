@@ -176,7 +176,6 @@ h2 {
 /* Screenshot */
 .screenshot {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
 }
 
 .screenshot-scroll {
@@ -196,7 +195,6 @@ h2 {
 /* Sections */
 section {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
 }
 
 /* Features - simple list */
@@ -336,7 +334,6 @@ section {
 /* Footer */
 footer {
   padding: 2rem 0;
-  border-top: 1px solid var(--border);
   text-align: center;
   font-size: 0.85rem;
   color: var(--text-secondary);
