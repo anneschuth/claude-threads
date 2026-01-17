@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.2] - 2026-01-17
+
+### Changed
+- **Clearer version display** - Status bars now show `CT v1.3.2 · CC v2.1.12` instead of `v1.3.2 · CLI 2.1.12` (#232)
+  - CT = claude-threads (this bot)
+  - CC = Claude Code (the CLI)
+
+### Fixed
+- **Resolve ESLint warnings** - Fix 5 `no-non-null-assertion` lint warnings (#233)
+
 ## [1.3.1] - 2026-01-17
 
 ### Fixed
