@@ -118,7 +118,19 @@ h2 {
 .hero-links {
   margin-top: 1.5rem;
   display: flex;
+  align-items: center;
   gap: 1.5rem;
+}
+
+.license {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+}
+
+.arch-note {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
 }
 
 .btn {
@@ -339,6 +351,7 @@ footer a:hover {
 
   .hero-links {
     flex-direction: column;
+    align-items: flex-start;
     gap: 0.75rem;
   }
 

@@ -30,6 +30,9 @@
             Run Claude Code on your machine.<br />
             Team members watch and collaborate through Slack or Mattermost.
           </p>
+          <p class="arch-note">
+            The bot runs locally and streams output to chat via WebSocket.
+          </p>
           <div class="copyable" onclick="copyText(this)">
             <code class="install-cmd">bun install -g claude-threads</code>
             <span class="copy-hint">click to copy</span>
@@ -49,6 +52,7 @@
               rel="noopener"
               >npm</a
             >
+            <span class="license">Apache-2.0</span>
           </div>
         </div>
       </section>
@@ -94,10 +98,10 @@
             in to help, approve actions, or ask questions. All from chat.
           </p>
           <p>
-            I also want people around me to learn by exposure. Watching Claude
-            Code work teaches you what's possible. And I think collaborating
-            together in a session (multiple people guiding the same AI) could be
-            a mode that actually works.
+            After the first minimal version, I built claude-threads using
+            claude-threads. Colleagues watched, asked questions, and caught bugs
+            in real time. It turns out that multiple people guiding the same AI
+            session actually works.
           </p>
           <p>
             The bot runs on your machine. You control what projects Claude can
