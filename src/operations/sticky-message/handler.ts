@@ -14,12 +14,11 @@ import type { SessionStore, PersistedSession } from '../../persistence/session-s
 import type { WorktreeMode } from '../../config.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
-import { formatRelativeTimeShort, formatShortId } from '../../utils/format.js';
+import { formatRelativeTimeShort, formatShortId, formatVersionString } from '../../utils/format.js';
 import { VERSION } from '../../version.js';
 import { getReleaseNotes, getWhatsNewSummary } from '../../changelog.js';
 import { createLogger } from '../../utils/logger.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
-import { getClaudeCliVersion } from '../../claude/version-check.js';
 import { keepAlive } from '../../utils/keep-alive.js';
 
 const log = createLogger('sticky');
@@ -403,10 +402,8 @@ async function buildStatusBar(
     }
   }
 
-  // Version (claude-threads + Claude CLI)
-  const claudeVersion = getClaudeCliVersion().version;
-  const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
-  items.push(formatter.formatCode(versionStr));
+  // Version (CT = claude-threads, CC = Claude Code)
+  items.push(formatter.formatCode(formatVersionString()));
 
   // Session count
   items.push(formatter.formatCode(`${sessionCount}/${config.maxSessions} sessions`));

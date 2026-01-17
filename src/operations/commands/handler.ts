@@ -13,7 +13,6 @@ import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
 import { getUpdateInfo } from '../../update-notifier.js';
-import { VERSION } from '../../version.js';
 import {
   APPROVAL_EMOJIS,
   DENIAL_EMOJIS,
@@ -48,7 +47,7 @@ import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
 import { getCurrentBranch, isGitRepository } from '../../git/worktree.js';
-import { getClaudeCliVersion } from '../../claude/version-check.js';
+import { formatVersionString } from '../../utils/format.js';
 import { shortenPath } from '../index.js';
 import { getLogFilePath } from '../../persistence/thread-logger.js';
 import { quickQuery } from '../../claude/quick-query.js';
@@ -622,8 +621,7 @@ export async function updateSessionHeader(
   const statusItems: string[] = [];
 
   // Version info at the start (like sticky message)
-  const claudeVersion = getClaudeCliVersion().version;
-  const versionStr = claudeVersion ? `v${VERSION} · CLI ${claudeVersion}` : `v${VERSION}`;
+  const versionStr = formatVersionString();
   statusItems.push(formatter.formatCode(versionStr));
 
   // Model and context usage (if available)
