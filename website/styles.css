@@ -78,10 +78,6 @@ h2 {
 
 .text-logo {
   display: none;
-  font-size: 1.5rem;
-  font-weight: 600;
-  color: var(--accent);
-  margin-bottom: 1.5rem;
 }
 
 .hero-text {
@@ -303,11 +299,7 @@ footer a:hover {
 /* Responsive */
 @media (max-width: 640px) {
   .ascii-logo {
-    display: none;
-  }
-
-  .text-logo {
-    display: block;
+    font-size: 8px;
   }
 
   .screenshot-scroll {
