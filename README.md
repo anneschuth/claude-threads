@@ -40,8 +40,9 @@
 ### Install & Run
 
 ```bash
-# Install
-npm install -g claude-threads
+# Install (pick one)
+npm install -g claude-threads   # with Node
+bun install -g claude-threads   # with Bun
 
 # Run the setup wizard
 cd /your/project
