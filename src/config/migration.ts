@@ -33,7 +33,7 @@ export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'conf
 export function loadConfigWithMigration(): Config | null {
   if (existsSync(CONFIG_PATH)) {
     const content = readFileSync(CONFIG_PATH, 'utf-8');
-    return Bun.YAML.parse(content) as Config;
+    return yaml.load(content) as Config;
   }
   return null; // No config found
 }

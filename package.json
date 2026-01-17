@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target bun && bun build src/mcp/permission-server.ts --outdir dist/mcp --target bun && bun build src/statusline/writer.ts --outdir dist/statusline --target bun",
+    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/permission-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
     "start": "bun dist/index.js",
     "test": "bun test src/",
     "test:watch": "bun test src/ --watch",
@@ -100,6 +100,7 @@
     "yazl": "^3.3.1"
   },
   "engines": {
+    "node": ">=18.0.0",
     "bun": ">=1.2.21"
   },
   "lint-staged": {
