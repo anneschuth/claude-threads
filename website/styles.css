@@ -104,8 +104,13 @@ h2 {
 
 .install-buttons {
   display: flex;
-  gap: 1rem;
+  align-items: center;
+  gap: 0.75rem;
   flex-wrap: wrap;
+}
+
+.install-buttons .separator {
+  color: var(--text-secondary);
 }
 
 .install-cmd {
@@ -117,9 +122,7 @@ h2 {
 }
 
 .install-cmd.install-alt {
-  font-size: 0.85rem;
-  padding: 0.4rem 0.8rem;
-  color: var(--text-secondary);
+  opacity: 0.6;
 }
 
 .install-cmd::before {
