@@ -102,12 +102,24 @@ h2 {
   margin-top: 0.25rem;
 }
 
+.install-buttons {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .install-cmd {
   display: inline-block;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   padding: 0.5rem 1rem;
   font-size: 1rem;
+}
+
+.install-cmd.install-alt {
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  color: var(--text-secondary);
 }
 
 .install-cmd::before {
