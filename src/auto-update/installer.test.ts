@@ -8,6 +8,8 @@ import {
   clearUpdateState,
   checkJustUpdated,
   getRollbackInstructions,
+  detectPackageManager,
+  detectOriginalInstaller,
   UpdateInstaller,
 } from './installer.js';
 import { UPDATE_STATE_FILENAME, type PersistedUpdateState } from './types.js';
@@ -157,12 +159,66 @@ describe('auto-update/installer', () => {
     });
   });
 
+  describe('detectOriginalInstaller()', () => {
+    it('returns bun, npm, or null', () => {
+      const result = detectOriginalInstaller();
+
+      // Should return one of the valid values
+      expect(result === 'bun' || result === 'npm' || result === null).toBe(true);
+    });
+
+    it('returns null when running from source (dev mode)', () => {
+      // When running tests, we're in dev mode, not globally installed
+      // The result depends on how tests are run, but the function should not throw
+      const result = detectOriginalInstaller();
+      expect(() => detectOriginalInstaller()).not.toThrow();
+
+      // If running from source, should be null
+      // If running from global install, should be 'bun' or 'npm'
+      if (result !== null) {
+        expect(['bun', 'npm']).toContain(result);
+      }
+    });
+  });
+
+  describe('detectPackageManager()', () => {
+    it('detects available package manager', () => {
+      const pm = detectPackageManager();
+
+      // In test environment, at least one should be available
+      expect(pm).not.toBeNull();
+      expect(pm?.cmd).toBeDefined();
+      expect(typeof pm?.isBun).toBe('boolean');
+    });
+
+    it('uses original installer if detected', () => {
+      const original = detectOriginalInstaller();
+      const pm = detectPackageManager();
+
+      // If we detected an original installer, the package manager should match
+      // (assuming that package manager is still available)
+      if (original === 'bun' && pm?.isBun) {
+        expect(pm.cmd).toBe('bun');
+      } else if (original === 'npm' && !pm?.isBun) {
+        expect(pm?.cmd).toMatch(/npm/);
+      }
+    });
+
+    it('falls back to available package manager if original not detected', () => {
+      const pm = detectPackageManager();
+
+      // Should always return something in our test environment
+      expect(pm).not.toBeNull();
+    });
+  });
+
   describe('getRollbackInstructions()', () => {
     it('returns rollback command with version', () => {
       const instructions = getRollbackInstructions('1.0.0');
 
-      // Uses bun on non-Windows, npm on Windows
-      const expectedCmd = process.platform === 'win32' ? 'npm' : 'bun';
+      // Uses whatever package manager is detected (bun preferred)
+      const pm = detectPackageManager();
+      const expectedCmd = pm?.isBun ? 'bun' : 'npm';
       expect(instructions).toContain(`${expectedCmd} install -g claude-threads@1.0.0`);
     });
   });

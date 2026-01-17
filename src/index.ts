@@ -176,6 +176,7 @@ async function main() {
     // Pass the path to this binary so daemon runs the local version, not global
     // The entry point is dist/index.js (where this code is running from)
     const binPath = __filename;
+
     const child = spawn(daemonPath, ['--restart-on-error', ...args], {
       stdio: 'inherit',
       env: {

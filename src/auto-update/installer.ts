@@ -4,7 +4,7 @@
  * Handles the actual bun/npm install and state persistence.
  */
 
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
@@ -14,6 +14,106 @@ import type { PersistedUpdateState, RuntimeSettings, UpdateInfo } from './types.
 import { UPDATE_STATE_FILENAME } from './types.js';
 
 const log = createLogger('installer');
+
+/**
+ * Detect which package manager originally installed claude-threads.
+ * This ensures updates use the same package manager to avoid duplicate installations.
+ *
+ * Detection order:
+ * 1. Check if running binary is in bun's global bin (~/.bun/bin/)
+ * 2. Check if running binary is in npm's global prefix
+ * 3. Fall back to preferring bun if available
+ *
+ * Returns the command to use and whether it's bun or npm.
+ */
+export function detectPackageManager(): { cmd: string; isBun: boolean } | null {
+  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+
+  // Try to detect the original installer by checking where the binary lives
+  const originalInstaller = detectOriginalInstaller();
+  if (originalInstaller) {
+    log.debug(`Detected original installer: ${originalInstaller}`);
+    if (originalInstaller === 'bun') {
+      // Verify bun is still available
+      const bunCheck = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+      if (bunCheck.status === 0) {
+        return { cmd: 'bun', isBun: true };
+      }
+      log.warn('Originally installed with bun, but bun not found. Falling back to npm.');
+    } else {
+      // Verify npm is still available
+      const npmCheck = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
+      if (npmCheck.status === 0) {
+        return { cmd: npmCmd, isBun: false };
+      }
+      log.warn('Originally installed with npm, but npm not found. Falling back to bun.');
+    }
+  }
+
+  // Fall back: prefer bun if available, otherwise npm
+  const bunCheck = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+  if (bunCheck.status === 0) {
+    return { cmd: 'bun', isBun: true };
+  }
+
+  const npmCheck = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
+  if (npmCheck.status === 0) {
+    return { cmd: npmCmd, isBun: false };
+  }
+
+  // Neither available
+  return null;
+}
+
+/**
+ * Normalize a path for comparison (handles Windows case-insensitivity).
+ */
+function normalizePath(p: string): string {
+  // On Windows, paths are case-insensitive
+  if (process.platform === 'win32') {
+    return p.toLowerCase();
+  }
+  return p;
+}
+
+/**
+ * Detect which package manager originally installed claude-threads
+ * by checking the location of the running binary.
+ */
+export function detectOriginalInstaller(): 'bun' | 'npm' | null {
+  try {
+    // Get the path of the currently running script
+    // In a globally installed package, this will be in the package manager's directory
+    const scriptPath = normalizePath(process.argv[1] || '');
+
+    // Bun global installs go to ~/.bun/bin/ or ~/.bun/install/global/
+    // Respects BUN_INSTALL env var for custom install locations
+    const bunGlobalDir = normalizePath(process.env.BUN_INSTALL || resolve(homedir(), '.bun'));
+    if (scriptPath.startsWith(bunGlobalDir)) {
+      return 'bun';
+    }
+
+    // Check npm's global prefix
+    // Use npm.cmd on Windows
+    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npmPrefixResult = spawnSync(npmCmd, ['prefix', '-g'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    if (npmPrefixResult.status === 0 && npmPrefixResult.stdout) {
+      const npmPrefix = normalizePath(npmPrefixResult.stdout.trim());
+      // npm global binaries are in {prefix}/bin/ or {prefix}/lib/node_modules/.bin/
+      if (scriptPath.startsWith(npmPrefix)) {
+        return 'npm';
+      }
+    }
+
+    // Could not determine - likely running from source (dev mode)
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // State file path
 const STATE_PATH = resolve(homedir(), '.config', 'claude-threads', UPDATE_STATE_FILENAME);
@@ -120,6 +220,14 @@ export function clearRuntimeSettings(): void {
 export async function installVersion(version: string): Promise<{ success: boolean; error?: string }> {
   log.info(`📦 Installing ${PACKAGE_NAME}@${version}...`);
 
+  // Detect available package manager
+  const pm = detectPackageManager();
+  if (!pm) {
+    const error = 'Neither bun nor npm found in PATH. Cannot install update.';
+    log.error(`❌ ${error}`);
+    return { success: false, error };
+  }
+
   // Save state before installing
   saveUpdateState({
     previousVersion: VERSION,
@@ -129,15 +237,10 @@ export async function installVersion(version: string): Promise<{ success: boolea
   });
 
   return new Promise((resolve) => {
-    // Use bun to install globally (preferred since this package requires bun)
-    // Fall back to npm on Windows where bun may not be available
-    const useBun = process.platform !== 'win32';
-    const cmd = useBun ? 'bun' : 'npm.cmd';
-    const args = useBun
-      ? ['install', '-g', `${PACKAGE_NAME}@${version}`]
-      : ['install', '-g', `${PACKAGE_NAME}@${version}`];
+    const { cmd, isBun } = pm;
+    const args = ['install', '-g', `${PACKAGE_NAME}@${version}`];
 
-    log.debug(`Using ${useBun ? 'bun' : 'npm'} for installation`);
+    log.debug(`Using ${isBun ? 'bun' : 'npm'} for installation`);
 
     const child = spawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -205,7 +308,8 @@ export async function installVersion(version: string): Promise<{ success: boolea
  * Get rollback instructions for the previous version.
  */
 export function getRollbackInstructions(previousVersion: string): string {
-  const cmd = process.platform === 'win32' ? 'npm' : 'bun';
+  const pm = detectPackageManager();
+  const cmd = pm?.isBun ? 'bun' : 'npm';
   return `To rollback to the previous version, run:\n  ${cmd} install -g ${PACKAGE_NAME}@${previousVersion}`;
 }
 
