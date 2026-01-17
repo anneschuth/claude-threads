@@ -111,7 +111,7 @@ h2 {
 
 .install-buttons .separator {
   color: var(--text-secondary);
-  line-height: 2.5;
+  line-height: 2.8;
 }
 
 .install-cmd {
@@ -124,6 +124,7 @@ h2 {
 
 .install-cmd.install-alt {
   color: var(--text-secondary);
+  opacity: 0.6;
 }
 
 .install-cmd::before {
