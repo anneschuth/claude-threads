@@ -68,17 +68,12 @@ h2 {
   padding: 3rem 0 2rem;
 }
 
-.ascii-logo-svg {
-  width: 100%;
-  max-width: 450px;
-  height: auto;
+.ascii-logo {
+  font-size: 2rem;
+  line-height: 1.1;
+  color: var(--accent);
   margin-bottom: 1.5rem;
-}
-
-.ascii-logo-svg text {
-  font-family: "JetBrains Mono", monospace;
-  font-size: 14px;
-  fill: var(--accent);
+  text-align: center;
 }
 
 .hero-text {
@@ -299,8 +294,8 @@ footer a:hover {
 
 /* Responsive */
 @media (max-width: 640px) {
-  .ascii-logo-svg {
-    max-width: 100%;
+  .ascii-logo {
+    font-size: 1.4rem;
   }
 
   .screenshot-scroll {
