@@ -53,8 +53,6 @@ export class SlackClient extends BasePlatformClient {
   private skipPermissions: boolean;
   private apiUrl: string;
 
-  // Additional reconnect timeout tracking (Slack-specific)
-  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
 
   // User caching
   private userCache: Map<string, SlackUser> = new Map();
@@ -584,47 +582,6 @@ export class SlackClient extends BasePlatformClient {
   }
 
   /**
-   * Schedule a reconnection with exponential backoff.
-   * Overrides base class to add Slack-specific timeout tracking and
-   * check for intentional disconnect while waiting.
-   */
-  protected scheduleReconnect(): void {
-    // Clear any existing reconnect timeout
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnection attempts reached');
-      return;
-    }
-
-    // Base class handles cleanup and state updates
-    // We just need to wrap the timeout to check for intentional disconnect
-    this.forceCloseConnection();
-    this.isReconnecting = true;
-    this.reconnectAttempts++;
-    const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-    wsLogger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-    this.emit('reconnecting', this.reconnectAttempts);
-
-    this.reconnectTimeout = setTimeout(() => {
-      this.reconnectTimeout = null;
-      // Check if disconnect was called while we were waiting
-      if (this.isIntentionalDisconnect) {
-        wsLogger.debug('Skipping reconnect: intentional disconnect was called');
-        return;
-      }
-      this.connect().catch((err) => {
-        wsLogger.error(`Reconnection failed: ${err}`);
-        // Schedule another reconnect attempt
-        this.scheduleReconnect();
-      });
-    }, delay);
-  }
-
-  /**
    * Recover messages that were posted while disconnected.
    */
   protected async recoverMissedMessages(): Promise<void> {
@@ -675,26 +632,6 @@ export class SlackClient extends BasePlatformClient {
     } catch (err) {
       log.warn(`Failed to recover missed messages: ${err}`);
     }
-  }
-
-  /**
-   * Disconnect from Socket Mode.
-   * Overrides base class to add Slack-specific cleanup.
-   */
-  disconnect(): void {
-    wsLogger.info('Disconnecting Socket Mode WebSocket (intentional)');
-    this.isIntentionalDisconnect = true;
-    this.stopHeartbeat();
-
-    // Cancel any pending reconnect timeout to prevent reconnection attempts
-    // after intentional disconnect (fixes flaky tests where reconnect fires
-    // after the mock server is shut down)
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
-
-    this.forceCloseConnection();
   }
 
   // ============================================================================
