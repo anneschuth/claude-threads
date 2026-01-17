@@ -144,12 +144,6 @@ h2 {
   font-size: 0.85rem;
 }
 
-.arch-note {
-  color: var(--text-secondary);
-  font-size: 0.85rem;
-  margin-bottom: 1rem;
-}
-
 .btn {
   display: inline-block;
   padding: 0.4rem 0.8rem;
