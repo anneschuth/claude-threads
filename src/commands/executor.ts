@@ -231,7 +231,12 @@ const handleWorktree: CommandHandler = async (ctx, args) => {
     // Handle known subcommands
     switch (subcommandOrBranch) {
       case 'list':
-        await ctx.sessionManager.listWorktreesCommand(ctx.threadId, ctx.username);
+        // In first-message context, use session-less version
+        if (ctx.commandContext === 'first-message') {
+          await ctx.sessionManager.listWorktreesWithoutSession(ctx.client.platformId, ctx.threadId);
+        } else {
+          await ctx.sessionManager.listWorktreesCommand(ctx.threadId, ctx.username);
+        }
         return { handled: true };
 
       case 'switch':

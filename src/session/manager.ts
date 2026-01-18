@@ -1271,6 +1271,31 @@ export class SessionManager extends EventEmitter {
     await worktreeModule.listWorktreesCommand(session);
   }
 
+  /**
+   * List worktrees without an active session.
+   * Used when !worktree list is used in a first message (no session exists yet).
+   */
+  async listWorktreesWithoutSession(platformId: string, threadId: string): Promise<void> {
+    const platform = this.platforms.get(platformId);
+    if (!platform) return;
+
+    const formatter = platform.getFormatter();
+
+    // Use the default working directory since there's no session
+    const message = await worktreeModule.buildWorktreeListMessageFromDir(
+      this.workingDir,
+      formatter,
+      this.workingDir
+    );
+
+    if (message === null) {
+      await platform.createPost(`❌ Current directory is not a git repository`, threadId);
+      return;
+    }
+
+    await platform.createPost(message, threadId);
+  }
+
   async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;

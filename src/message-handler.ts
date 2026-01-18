@@ -319,10 +319,11 @@ export async function handleMessage(
       }
     }
 
-    // If no prompt remains and no files, don't start session
-    if (!prompt.trim() && !files?.length) {
+    // If no prompt remains and no files and no worktree, don't start session
+    // But if we have a worktree branch, we can start session with empty prompt
+    if (!prompt.trim() && !files?.length && !worktreeBranch) {
       // Options were set but no actual prompt - could optionally start session anyway
-      // For now, require a prompt or files
+      // For now, require a prompt or files (unless worktree specified)
       await client.createPost(`Mention me with your request`, threadRoot);
       return;
     }
