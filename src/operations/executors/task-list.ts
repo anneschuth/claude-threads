@@ -617,7 +617,7 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
           }
           break;
         default:
-          icon = '⬜';
+          icon = '🔲';
           taskText = task.content;
       }
 

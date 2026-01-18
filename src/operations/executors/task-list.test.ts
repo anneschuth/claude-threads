@@ -441,7 +441,7 @@ describe('TaskListExecutor', () => {
       expect(content).toContain('33%'); // 1 of 3 = 33%
       expect(content).toContain('✅'); // completed task
       expect(content).toContain('🔄'); // in-progress task
-      expect(content).toContain('⬜'); // pending task
+      expect(content).toContain('🔲'); // pending task
     });
 
     it('uses activeForm for in-progress tasks', async () => {
