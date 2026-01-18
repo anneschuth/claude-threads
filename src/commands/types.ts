@@ -44,6 +44,8 @@ export interface InitialSessionOptions {
   workingDir?: string;
   /** Force interactive permissions mode */
   forceInteractivePermissions?: boolean;
+  /** Switch to existing worktree instead of creating new (from !worktree switch) */
+  switchToExisting?: boolean;
 }
 
 /** Result of command execution */

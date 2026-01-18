@@ -239,7 +239,7 @@ const handleWorktree: CommandHandler = async (ctx, args) => {
         }
         return { handled: true };
 
-      case 'switch':
+      case 'switch': {
         if (!subArgs) {
           await ctx.client.createPost(
             `❌ Usage: ${ctx.formatter.formatCode('!worktree switch <branch>')}`,
@@ -247,8 +247,35 @@ const handleWorktree: CommandHandler = async (ctx, args) => {
           );
           return { handled: true };
         }
-        await ctx.sessionManager.switchToWorktree(ctx.threadId, subArgs, ctx.username);
+
+        // Parse branch name (first word) and remaining text as prompt
+        const switchParts = subArgs.split(/\s+/);
+        const branchName = switchParts[0];
+        const remainingPrompt = switchParts.slice(1).join(' ').trim();
+
+        if (ctx.commandContext === 'first-message') {
+          // First message: if there's a prompt, start session in that worktree
+          if (remainingPrompt) {
+            return {
+              worktreeBranch: branchName,
+              continueProcessing: false,
+              remainingText: remainingPrompt,
+              sessionOptions: { switchToExisting: true },
+            };
+          }
+          // No prompt - just switch without starting session
+          await ctx.sessionManager.switchToWorktreeWithoutSession(
+            ctx.client.platformId,
+            ctx.threadId,
+            branchName
+          );
+          return { handled: true };
+        }
+
+        // In-session: switch to worktree
+        await ctx.sessionManager.switchToWorktree(ctx.threadId, branchName, ctx.username);
         return { handled: true };
+      }
 
       case 'remove':
         if (!subArgs) {
