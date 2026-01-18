@@ -5,7 +5,7 @@
  * Each line is a JSON object representing an event with timestamp.
  */
 
-import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync, rmdirSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, appendFileSync, readdirSync, statSync, unlinkSync, rmdirSync, readFileSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { join, dirname } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -366,8 +366,16 @@ class ThreadLoggerImpl implements ThreadLogger {
       // Convert entries to JSONL format
       const lines = this.buffer.map(entry => JSON.stringify(entry)).join('\n') + '\n';
 
+      // Check if file exists (for setting permissions on new files)
+      const isNewFile = !existsSync(this.logPath);
+
       // Append to file
-      appendFileSync(this.logPath, lines, 'utf8');
+      appendFileSync(this.logPath, lines, { encoding: 'utf8', mode: 0o600 });
+
+      // Set restrictive permissions on new files (appendFileSync mode only applies on create)
+      if (isNewFile) {
+        chmodSync(this.logPath, 0o600);
+      }
 
       // Clear buffer
       this.buffer = [];

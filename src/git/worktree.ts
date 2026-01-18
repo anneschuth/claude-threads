@@ -469,12 +469,15 @@ async function readMetadataStore(): Promise<WorktreeMetadataStore> {
 
 /**
  * Write the entire metadata store to disk.
+ * Sets restrictive permissions (0600) to protect session metadata.
  */
 async function writeMetadataStore(store: WorktreeMetadataStore): Promise<void> {
   try {
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(METADATA_STORE_PATH), { recursive: true });
-    await fs.writeFile(METADATA_STORE_PATH, JSON.stringify(store, null, 2), 'utf-8');
+    await fs.writeFile(METADATA_STORE_PATH, JSON.stringify(store, null, 2), { encoding: 'utf-8', mode: 0o600 });
+    // Ensure permissions are set correctly (writeFile mode may be affected by umask)
+    await fs.chmod(METADATA_STORE_PATH, 0o600);
   } catch (err) {
     log.warn(`Failed to write worktree metadata store: ${err}`);
   }
