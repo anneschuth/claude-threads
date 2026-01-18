@@ -39,7 +39,7 @@ import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import * as plugin from '../operations/plugin/index.js';
-import type { Session } from './types.js';
+import type { Session, InitialSessionOptions } from './types.js';
 import { SessionRegistry } from './registry.js';
 import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
@@ -983,9 +983,10 @@ export class SessionManager extends EventEmitter {
     replyToPostId?: string,
     platformId: string = 'default',
     displayName?: string,
-    triggeringPostId?: string  // The actual message that triggered the session (for context exclusion)
+    triggeringPostId?: string,  // The actual message that triggered the session (for context exclusion)
+    initialOptions?: InitialSessionOptions
   ): Promise<void> {
-    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext(), triggeringPostId);
+    await lifecycle.startSession(options, username, displayName, replyToPostId, platformId, this.getContext(), triggeringPostId, initialOptions);
   }
 
   // Helper to find session by threadId (sessions are keyed by composite platformId:threadId)
@@ -1100,6 +1101,58 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.showUpdateStatus(session, this.autoUpdateManager, this.getContext());
+  }
+
+  /**
+   * Show update status without an active session.
+   * Used when !update is the first message (no session exists yet).
+   */
+  async showUpdateStatusWithoutSession(
+    platformId: string,
+    threadId: string
+  ): Promise<void> {
+    const platform = this.platforms.get(platformId);
+    if (!platform) return;
+
+    const formatter = platform.getFormatter();
+
+    if (!this.autoUpdateManager) {
+      await platform.createPost(`ℹ️ Auto-update is not available`, threadId);
+      return;
+    }
+
+    if (!this.autoUpdateManager.isEnabled()) {
+      await platform.createPost(`ℹ️ Auto-update is disabled in configuration`, threadId);
+      return;
+    }
+
+    // Check for new updates
+    const updateInfo = await this.autoUpdateManager.checkNow();
+
+    if (!updateInfo || !updateInfo.available) {
+      await platform.createPost(`✅ ${formatter.formatBold('Up to date')} - no updates available`, threadId);
+      return;
+    }
+
+    const scheduledAt = this.autoUpdateManager.getScheduledRestartAt();
+    const config = this.autoUpdateManager.getConfig();
+
+    let statusLine: string;
+    if (scheduledAt) {
+      const secondsRemaining = Math.max(0, Math.round((scheduledAt.getTime() - Date.now()) / 1000));
+      statusLine = `Restarting in ${secondsRemaining} seconds`;
+    } else {
+      statusLine = `Mode: ${config.autoRestartMode}`;
+    }
+
+    const message =
+      `🔄 ${formatter.formatBold('Update available')}\n\n` +
+      `Current: v${updateInfo.currentVersion}\n` +
+      `Latest: v${updateInfo.latestVersion}\n` +
+      `${statusLine}\n\n` +
+      `Start a session to use ${formatter.formatCode('!update now')} or ${formatter.formatCode('!update defer')}`;
+
+    await platform.createPost(message, threadId);
   }
 
   async forceUpdateNow(threadId: string, username: string): Promise<void> {
@@ -1379,10 +1432,11 @@ export class SessionManager extends EventEmitter {
     replyToPostId?: string,
     platformId: string = 'default',
     displayName?: string,
-    triggeringPostId?: string  // The actual message that triggered the session (for context exclusion)
+    triggeringPostId?: string,  // The actual message that triggered the session (for context exclusion)
+    initialOptions?: InitialSessionOptions
   ): Promise<void> {
     // Start normal session first, but skip worktree prompt since branch is already specified
-    await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName, triggeringPostId);
+    await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName, triggeringPostId, initialOptions);
 
     // Then switch to worktree
     const threadId = replyToPostId || '';

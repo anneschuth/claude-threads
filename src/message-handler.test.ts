@@ -73,6 +73,7 @@ function createMockSessionManager() {
     startSession: mock(async () => {}),
     startSessionWithWorktree: mock(async () => {}),
     requestMessageApproval: mock(async () => {}),
+    showUpdateStatusWithoutSession: mock(async () => {}),
   } as unknown as SessionManager;
 }
 
@@ -488,7 +489,8 @@ describe('handleMessage', () => {
         'thread1',
         'test-platform',
         'User',
-        'post1'  // triggeringPostId
+        'post1',  // triggeringPostId
+        {}  // initialOptions
       );
     });
 
@@ -531,7 +533,8 @@ describe('handleMessage', () => {
         'thread1',
         'test-platform',
         'User',
-        'post1'  // triggeringPostId
+        'post1',  // triggeringPostId
+        {}  // initialOptions
       );
     });
 
@@ -556,8 +559,146 @@ describe('handleMessage', () => {
         'thread1',
         'test-platform',
         'User',
-        'post1'  // triggeringPostId
+        'post1',  // triggeringPostId
+        {}  // initialOptions
       );
+    });
+
+    // Tests for commands that work in the first message
+    describe('first message commands', () => {
+      test('!help in first message shows help without starting session', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !help',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).not.toHaveBeenCalled();
+        expect(client.createPost).toHaveBeenCalled();
+        const postContent = (client.createPost as any).mock.calls[0][0];
+        expect(postContent).toContain('Commands');  // Help message contains commands
+      });
+
+      test('!cd in first message passes workingDir to startSession', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !cd /tmp write a file',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).toHaveBeenCalledWith(
+          { prompt: 'write a file', files: undefined },
+          'allowed-user',
+          'thread1',
+          'test-platform',
+          'User',
+          'post1',
+          { workingDir: '/tmp' }  // initialOptions with workingDir
+        );
+      });
+
+      test('!permissions interactive in first message passes forceInteractivePermissions', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !permissions interactive fix a bug',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).toHaveBeenCalledWith(
+          { prompt: 'fix a bug', files: undefined },
+          'allowed-user',
+          'thread1',
+          'test-platform',
+          'User',
+          'post1',
+          { forceInteractivePermissions: true }  // initialOptions with permission flag
+        );
+      });
+
+      test('!update in first message shows update status without starting session', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !update',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).not.toHaveBeenCalled();
+        expect(session.showUpdateStatusWithoutSession).toHaveBeenCalledWith(
+          'test-platform',
+          'thread1'
+        );
+      });
+
+      test('combined !cd and !permissions in first message', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !cd /tmp !permissions interactive do something',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).toHaveBeenCalledWith(
+          { prompt: 'do something', files: undefined },
+          'allowed-user',
+          'thread1',
+          'test-platform',
+          'User',
+          'post1',
+          { workingDir: '/tmp', forceInteractivePermissions: true }
+        );
+      });
+
+      test('!release-notes in first message shows release notes without starting session', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !release-notes',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).not.toHaveBeenCalled();
+        expect(client.createPost).toHaveBeenCalled();
+      });
     });
   });
 

@@ -10,6 +10,7 @@ import type { SessionManager } from './session/index.js';
 import { VERSION } from './version.js';
 import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
 import { parseCommand, generateHelpMessage } from './commands/index.js';
+import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
 
 /**
@@ -364,7 +365,7 @@ export async function handleMessage(
       return;
     }
 
-    const prompt = client.extractPrompt(message);
+    let prompt = client.extractPrompt(message);
     const files = post.metadata?.files;
 
     if (!prompt && !files?.length) {
@@ -372,20 +373,103 @@ export async function handleMessage(
       return;
     }
 
-    // Check for inline branch syntax: "on branch X" or "!worktree X"
-    const branchMatch = prompt.match(/(?:on branch|!worktree)\s+(\S+)/i);
-    if (branchMatch) {
-      const branch = branchMatch[1];
-      // Remove the branch specification from the prompt
-      const cleanedPrompt = prompt.replace(/(?:on branch|!worktree)\s+\S+/i, '').trim();
+    // ---------------------------------------------------------------------------
+    // Parse and handle commands that work in the first message
+    // These use direct regex matching because the standard parseCommand
+    // patterns are designed for in-session use where commands are standalone.
+    // For first-message support, we need to extract the command and keep the rest.
+    // ---------------------------------------------------------------------------
+    const initialOptions: InitialSessionOptions = {};
+    let worktreeBranch: string | undefined;
+
+    // Process commands that can appear at the start of the first message
+    let continueProcessing = true;
+    while (continueProcessing) {
+      continueProcessing = false;
+
+      // !help - show help without starting session
+      if (/^!help\s*$/i.test(prompt)) {
+        const helpMessage = generateHelpMessage(formatter);
+        await client.createPost(helpMessage, threadRoot);
+        return;
+      }
+
+      // !release-notes - show release notes without starting session
+      if (/^!(?:release-notes|changelog)\s*$/i.test(prompt)) {
+        const notes = getReleaseNotes(VERSION);
+        if (notes) {
+          await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
+        } else {
+          await client.createPost(
+            `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
+            threadRoot
+          );
+        }
+        return;
+      }
+
+      // !update - show update status without starting session
+      if (/^!update\s*$/i.test(prompt)) {
+        await session.showUpdateStatusWithoutSession(platformId, threadRoot);
+        return;
+      }
+
+      // !cd <path> [rest] - start session in different directory
+      const cdMatch = prompt.match(/^!cd\s+(\S+)(?:\s+(.*))?$/i);
+      if (cdMatch) {
+        initialOptions.workingDir = cdMatch[1];
+        prompt = (cdMatch[2] || '').trim();
+        continueProcessing = true;
+        continue;
+      }
+
+      // !permissions interactive [rest] - start with interactive permissions
+      const permMatch = prompt.match(/^!permissions?\s+interactive(?:\s+(.*))?$/i);
+      if (permMatch) {
+        initialOptions.forceInteractivePermissions = true;
+        prompt = (permMatch[1] || '').trim();
+        continueProcessing = true;
+        continue;
+      }
+
+      // !worktree <branch> [rest] - start session with worktree
+      const worktreeMatch = prompt.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
+      if (worktreeMatch) {
+        worktreeBranch = worktreeMatch[1];
+        prompt = (worktreeMatch[2] || '').trim();
+        continueProcessing = true;
+        continue;
+      }
+    }
+
+    // Check for inline branch syntax: "on branch X" (legacy support)
+    if (!worktreeBranch) {
+      const branchMatch = prompt.match(/on branch\s+(\S+)/i);
+      if (branchMatch) {
+        worktreeBranch = branchMatch[1];
+        prompt = prompt.replace(/on branch\s+\S+/i, '').trim();
+      }
+    }
+
+    // If no prompt remains and no files, don't start session
+    if (!prompt.trim() && !files?.length) {
+      // Options were set but no actual prompt - could optionally start session anyway
+      // For now, require a prompt or files
+      await client.createPost(`Mention me with your request`, threadRoot);
+      return;
+    }
+
+    // Start session with worktree if branch specified
+    if (worktreeBranch) {
       await session.startSessionWithWorktree(
-        { prompt: cleanedPrompt || prompt, files },
-        branch,
+        { prompt, files },
+        worktreeBranch,
         username,
         threadRoot,
         platformId,
         user?.displayName,
-        post.id  // triggeringPostId
+        post.id,  // triggeringPostId
+        initialOptions
       );
       return;
     }
@@ -396,7 +480,8 @@ export async function handleMessage(
       threadRoot,
       platformId,
       user?.displayName,
-      post.id  // triggeringPostId - the actual message that started the session
+      post.id,  // triggeringPostId - the actual message that started the session
+      initialOptions
     );
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);

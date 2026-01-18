@@ -17,6 +17,21 @@ export type { SessionTimers };
 export { createSessionTimers, clearAllTimers } from './timer-manager.js';
 
 // =============================================================================
+// Initial Session Options (for commands in first message)
+// =============================================================================
+
+/**
+ * Options that can be set by commands in the first message.
+ * These are parsed from the initial @mention message and applied before session creation.
+ */
+export interface InitialSessionOptions {
+  /** Override working directory (from !cd command) */
+  workingDir?: string;
+  /** Force interactive permissions (from !permissions interactive) */
+  forceInteractivePermissions?: boolean;
+}
+
+// =============================================================================
 // Model and Usage Types
 // =============================================================================
 
