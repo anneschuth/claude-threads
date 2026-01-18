@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -454,10 +454,13 @@ export class SessionStore {
 
   /**
    * Write data atomically (write to temp file, then rename)
+   * Sets restrictive permissions (0600) to protect sensitive session data
    */
   private writeAtomic(data: SessionStoreData): void {
     const tempFile = `${this.sessionsFile}.tmp`;
-    writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+    writeFileSync(tempFile, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
     renameSync(tempFile, this.sessionsFile);
+    // Ensure final file has correct permissions (rename preserves temp file permissions)
+    chmodSync(this.sessionsFile, 0o600);
   }
 }

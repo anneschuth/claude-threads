@@ -173,21 +173,26 @@ async function handlePermission(
 // MCP Server Setup
 // =============================================================================
 
+// Define the input schema outside the function call to avoid TypeScript recursion issues
+const permissionInputSchema = {
+  tool_name: z.string().describe('Name of the tool requesting permission'),
+  input: z.record(z.string(), z.unknown()).describe('Tool input parameters'),
+};
+
 async function main() {
   const server = new McpServer({
     name: 'claude-threads-permissions',
     version: '1.0.0',
   });
 
-  server.tool(
+  // Use type assertion to work around TypeScript recursion depth issues with zod
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool(
     'permission_prompt',
     'Handle permission requests via chat platform reactions',
-    {
-      tool_name: z.string().describe('Name of the tool requesting permission'),
-      input: z.record(z.string(), z.unknown()).describe('Tool input parameters'),
-    },
-    async ({ tool_name, input }) => {
-      const result = await handlePermission(tool_name, input as Record<string, unknown>);
+    permissionInputSchema,
+    async ({ tool_name, input }: { tool_name: string; input: Record<string, unknown> }) => {
+      const result = await handlePermission(tool_name, input);
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };

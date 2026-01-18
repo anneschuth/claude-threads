@@ -473,6 +473,33 @@ When testing a specific fix:
 2. Verify the fix works as expected
 3. Check for regressions in related functionality
 
+## Data Retention & Security
+
+claude-threads stores sensitive session data locally. The following retention policies and security measures apply:
+
+### Data Storage Locations
+
+| Data | Location | Retention | Permissions |
+|------|----------|-----------|-------------|
+| Session state | `~/.config/claude-threads/sessions.json` | Active + 3 days after soft-delete | `0600` (owner only) |
+| Thread logs | `~/.claude-threads/logs/{platformId}/` | 30 days (configurable) | `0600` (owner only) |
+| Worktree metadata | `~/.claude-threads/worktrees.json` | Until worktree cleanup | `0600` (owner only) |
+| Configuration | `~/.config/claude-threads/config.yaml` | Permanent | `0600` (owner only) |
+
+### Automatic Cleanup
+
+- **Session purge**: Inactive sessions are soft-deleted after session timeout, then permanently removed after 3 days
+- **Thread logs**: Automatically deleted after 30 days (configurable via `threadLogs.retentionDays` in config)
+- **Worktrees**: Orphaned worktrees (no active session, >24h old) are cleaned up automatically
+- **Cleanup scheduler**: Runs hourly in the background
+
+### Security Measures
+
+- All sensitive files use restrictive permissions (`0600` - owner read/write only)
+- Session tokens and credentials are never written to disk (config file excluded)
+- Permission decisions are logged for audit purposes
+- Bot tokens should be stored securely (environment variables or secure config)
+
 ## Common Issues & Solutions
 
 ### "Permission server not responding"
