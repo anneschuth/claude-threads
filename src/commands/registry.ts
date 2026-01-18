@@ -51,6 +51,12 @@ export interface CommandDefinition {
    * When true, the command output is sent back to Claude in a <command-result> tag.
    */
   returnsResultToClaude?: boolean;
+  /**
+   * Whether this command can be used in the first message when starting a session.
+   * When true, the command will be parsed and applied before session creation.
+   * Commands that require an existing session (like !stop, !invite) should have this false/undefined.
+   */
+  worksInFirstMessage?: boolean;
 }
 
 /** Subcommand definition */
@@ -87,6 +93,24 @@ export interface ReactionDefinition {
  */
 export const COMMAND_REGISTRY: CommandDefinition[] = [
   // ---------------------------------------------------------------------------
+  // Info Commands (work without session)
+  // ---------------------------------------------------------------------------
+  {
+    command: 'help',
+    description: 'Show available commands',
+    category: 'system',
+    audience: 'user',
+    worksInFirstMessage: true,  // Show help without starting session
+  },
+  {
+    command: 'release-notes',
+    description: 'Show release notes for current version',
+    category: 'system',
+    audience: 'user',
+    worksInFirstMessage: true,  // Show release notes without starting session
+  },
+
+  // ---------------------------------------------------------------------------
   // Session Control
   // ---------------------------------------------------------------------------
   {
@@ -120,6 +144,7 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     category: 'worktree',
     audience: 'both',
     claudeNotes: 'Result is sent back to you in a <command-result> tag',
+    worksInFirstMessage: true,  // Can specify branch when starting session
     subcommands: [
       { name: 'list', description: 'List all worktrees for the repo', claudeCanExecute: true, returnsResultToClaude: true },
       { name: 'switch', description: 'Switch to an existing worktree', args: '<branch>' },
@@ -161,6 +186,7 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     claudeNotes: 'WARNING: This spawns a NEW Claude instance - you won\'t remember this conversation!',
     claudeCanExecute: true,
     returnsResultToClaude: false,
+    worksInFirstMessage: true,  // Start session in different directory
   },
   {
     command: 'permissions',
@@ -169,6 +195,7 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     category: 'settings',
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
+    worksInFirstMessage: true,  // Start session with interactive permissions
   },
 
   // ---------------------------------------------------------------------------
@@ -179,6 +206,7 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     description: 'Show auto-update status',
     category: 'system',
     audience: 'user',
+    worksInFirstMessage: true,  // Check for updates without starting session
     subcommands: [
       { name: 'now', description: 'Apply pending update immediately' },
       { name: 'defer', description: 'Defer pending update for 1 hour' },
@@ -318,3 +346,4 @@ export function buildClaudeAllowedCommandsSet(): Set<string> {
 
   return allowed;
 }
+

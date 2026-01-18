@@ -5,3 +5,4 @@
  */
 
 export { SessionManager } from './manager.js';
+export type { InitialSessionOptions } from './types.js';

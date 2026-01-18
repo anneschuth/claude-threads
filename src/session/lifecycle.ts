@@ -4,7 +4,7 @@
  * Handles session start, resume, exit, cleanup, and shutdown.
  */
 
-import type { Session } from './types.js';
+import type { Session, InitialSessionOptions } from './types.js';
 import {
   createSessionTimers,
   createSessionLifecycle,
@@ -665,7 +665,8 @@ export async function startSession(
   replyToPostId: string | undefined,
   platformId: string,
   ctx: SessionContext,
-  triggeringPostId?: string
+  triggeringPostId?: string,
+  initialOptions?: InitialSessionOptions
 ): Promise<void> {
   const threadId = replyToPostId || '';
 
@@ -715,17 +716,55 @@ export async function startSession(
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
 
+  // ---------------------------------------------------------------------------
+  // Apply initial options from first-message commands (!cd, !permissions)
+  // ---------------------------------------------------------------------------
+  let workingDir = ctx.config.workingDir;
+  let skipPermissions = ctx.config.skipPermissions;
+  let forceInteractivePermissions = false;
+  const formatter = platform.getFormatter();
+
+  if (initialOptions?.workingDir) {
+    // Resolve and validate the directory from !cd command
+    const { resolve } = await import('path');
+    const requestedDir = initialOptions.workingDir.startsWith('~')
+      ? initialOptions.workingDir.replace('~', process.env.HOME || '')
+      : initialOptions.workingDir;
+    const resolvedDir = resolve(requestedDir);
+
+    if (!existsSync(resolvedDir)) {
+      await platform.updatePost(startPost.id, `❌ Directory does not exist: ${formatter.formatCode(initialOptions.workingDir)}`);
+      return;
+    }
+
+    const { statSync } = await import('fs');
+    if (!statSync(resolvedDir).isDirectory()) {
+      await platform.updatePost(startPost.id, `❌ Not a directory: ${formatter.formatCode(initialOptions.workingDir)}`);
+      return;
+    }
+
+    workingDir = resolvedDir;
+    log.info(`Starting session in directory: ${workingDir} (from !cd command)`);
+  }
+
+  if (initialOptions?.forceInteractivePermissions) {
+    // !permissions interactive in first message
+    forceInteractivePermissions = true;
+    skipPermissions = false;
+    log.info(`Starting session with interactive permissions (from !permissions command)`);
+  }
+
   // Build system prompt with session context
-  const sessionContext = buildSessionContext(platform, ctx.config.workingDir);
+  const sessionContext = buildSessionContext(platform, workingDir);
   const systemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
 
   const cliOptions: ClaudeCliOptions = {
-    workingDir: ctx.config.workingDir,
+    workingDir,
     threadId: actualThreadId,
-    skipPermissions: ctx.config.skipPermissions,
+    skipPermissions,
     sessionId: claudeSessionId,
     resume: false,
     chrome: ctx.config.chromeEnabled,
@@ -748,11 +787,11 @@ export async function startSession(
     startedAt: new Date(),
     lastActivityAt: new Date(),
     sessionNumber: ctx.state.sessions.size + 1,
-    workingDir: ctx.config.workingDir,
+    workingDir,
     claude,
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
-    forceInteractivePermissions: false,
+    forceInteractivePermissions,
     sessionStartPostId: startPost.id,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
