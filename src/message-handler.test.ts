@@ -76,6 +76,7 @@ function createMockSessionManager() {
     requestMessageApproval: mock(async () => {}),
     showUpdateStatusWithoutSession: mock(async () => {}),
     listWorktreesWithoutSession: mock(async () => {}),
+    switchToWorktreeWithoutSession: mock(async () => {}),
   } as unknown as SessionManager;
 }
 
@@ -600,9 +601,8 @@ describe('handleMessage', () => {
       );
     });
 
-    test('handles !worktree switch in root message - should call switchToWorktree not create worktree', async () => {
-      // This tests the bug where "@bot !worktree switch feature-branch" in a root message
-      // was incorrectly creating a worktree named "switch" instead of switching to feature-branch
+    test('handles !worktree switch in root message without prompt - should switch and not start session', async () => {
+      // !worktree switch branch-name without additional prompt
       const post: PlatformPost = {
         id: 'post1',
         platformId: 'test',
@@ -616,10 +616,40 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      // Should call switchToWorktree with the branch name, NOT startSessionWithWorktree with "switch" as branch
-      expect(session.switchToWorktree).toHaveBeenCalledWith('thread1', 'feature-branch', 'allowed-user');
-      // Should NOT have tried to create a worktree named "switch"
+      // Should call switchToWorktreeWithoutSession (switch only, no session start)
+      expect(session.switchToWorktreeWithoutSession).toHaveBeenCalledWith('test-platform', 'thread1', 'feature-branch');
+      // Should NOT start a session since there's no prompt
+      expect(session.startSession).not.toHaveBeenCalled();
       expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree switch in root message WITH prompt - should switch and start session', async () => {
+      // BUG: "@bot !worktree switch bla hi! waar ben je nu?" should switch to "bla" worktree
+      // and start a session with prompt "hi! waar ben je nu?"
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree switch bla hi! waar ben je nu?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should start session with worktree "bla" and prompt "hi! waar ben je nu?"
+      expect(session.startSessionWithWorktree).toHaveBeenCalledWith(
+        { prompt: 'hi! waar ben je nu?', files: undefined },
+        'bla',
+        'allowed-user',
+        'thread1',
+        'test-platform',
+        'User',
+        'post1',
+        { switchToExisting: true }  // flag to switch to existing worktree instead of creating
+      );
     });
 
     test('handles !worktree list in root message - should list worktrees without session', async () => {

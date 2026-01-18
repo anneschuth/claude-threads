@@ -1296,6 +1296,51 @@ export class SessionManager extends EventEmitter {
     await platform.createPost(message, threadId);
   }
 
+  /**
+   * Switch to a worktree without an active session.
+   * Used when !worktree switch is used in a first message without additional prompt.
+   */
+  async switchToWorktreeWithoutSession(
+    platformId: string,
+    threadId: string,
+    branchOrPath: string
+  ): Promise<void> {
+    const platform = this.platforms.get(platformId);
+    if (!platform) return;
+
+    const formatter = platform.getFormatter();
+
+    // Find the worktree
+    const { listWorktrees, getRepositoryRoot, isGitRepository } = await import('../git/worktree.js');
+
+    const isRepo = await isGitRepository(this.workingDir);
+    if (!isRepo) {
+      await platform.createPost(`❌ Current directory is not a git repository`, threadId);
+      return;
+    }
+
+    const repoRoot = await getRepositoryRoot(this.workingDir);
+    const worktrees = await listWorktrees(repoRoot);
+
+    // Find matching worktree
+    const target = worktrees.find(
+      (wt: { branch: string; path: string }) => wt.branch === branchOrPath || wt.path === branchOrPath || wt.path.endsWith(`/${branchOrPath}`)
+    );
+
+    if (!target) {
+      await platform.createPost(
+        `❌ No worktree found for ${formatter.formatCode(branchOrPath)}`,
+        threadId
+      );
+      return;
+    }
+
+    await platform.createPost(
+      `✅ Switched to worktree ${formatter.formatCode(target.branch)} at ${formatter.formatCode(target.path)}\n\nMention me to start a session in this worktree.`,
+      threadId
+    );
+  }
+
   async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
@@ -1463,11 +1508,17 @@ export class SessionManager extends EventEmitter {
     // Start normal session first, but skip worktree prompt since branch is already specified
     await this.startSession({ ...options, skipWorktreePrompt: true }, username, replyToPostId, platformId, displayName, triggeringPostId, initialOptions);
 
-    // Then switch to worktree
+    // Then switch to or create worktree
     const threadId = replyToPostId || '';
     const session = this.registry.find(platformId, threadId);
     if (session) {
-      await this.createAndSwitchToWorktree(session.threadId, branch, username);
+      if (initialOptions?.switchToExisting) {
+        // Switch to existing worktree (from !worktree switch)
+        await this.switchToWorktree(session.threadId, branch, username);
+      } else {
+        // Create new worktree (from !worktree branch-name)
+        await this.createAndSwitchToWorktree(session.threadId, branch, username);
+      }
     }
   }
 
