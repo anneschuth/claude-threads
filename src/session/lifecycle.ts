@@ -713,6 +713,10 @@ export async function startSession(
   const actualThreadId = replyToPostId || startPost.id;
   const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
+  // Start typing indicator early so user sees activity during session setup
+  // We'll set up a proper interval-based typing indicator once the session is created
+  platform.sendTyping(actualThreadId);
+
   // Generate a unique session ID for this Claude session
   const claudeSessionId = randomUUID();
 
