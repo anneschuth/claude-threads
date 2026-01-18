@@ -110,7 +110,7 @@
     "website/**/*.{html,css,js}": "prettier --write"
   },
   "overrides": {
-    "hono": ">=4.11.4"
+    "hono": "$hono"
   },
   "resolutions": {
     "hono": "4.11.4"
