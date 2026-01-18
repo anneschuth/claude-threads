@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-18
+
+### Added
+- **Tool formatters for additional MCP tools** - New formatters for shell, notebook, playwright, figma, and context7 tools (#237)
+  - `TaskOutput`, `KillShell`, `BashOutput` for shell operations
+  - `NotebookEdit` for Jupyter notebook operations
+  - Playwright browser automation tools (navigate, screenshot, wait, etc.)
+  - Figma design tools (screenshot, metadata, design context)
+  - Context7 documentation tools (resolve-library-id, query-docs)
+- **Commands in first message** - `!commands` now work in the initial session message (#236)
+  - Supports `!permissions`, `!cd`, `!worktree`, `!invite`, `!context`
+  - Example: `@bot !permissions skip` starts session without permission prompts
+- **Skill tool formatter** - Display for `/skill` commands showing skill name and arguments (#234)
+
+### Security
+- **Security audit fixes and Trivy CI integration** - Added npm audit and Trivy scanning to CI workflow (#235)
+  - Fixed path traversal vulnerability in thread logger
+  - Fixed prototype pollution in thread logger
+  - Sanitized worktree branch names to prevent git command injection
+  - Sanitized session IDs to prevent directory traversal
+
 ## [1.3.2] - 2026-01-17
 
 ### Changed
