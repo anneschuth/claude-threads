@@ -7,9 +7,15 @@
 
 import type { PlatformClient, PlatformPost, PlatformUser } from './platform/index.js';
 import type { SessionManager } from './session/index.js';
-import { VERSION } from './version.js';
-import { getReleaseNotes, formatReleaseNotes } from './changelog.js';
-import { parseCommand, generateHelpMessage } from './commands/index.js';
+import {
+  parseCommand,
+  parseCommandWithRemainder,
+  executeCommand,
+  isDynamicSlashCommand,
+  handleDynamicSlashCommand,
+  COMMAND_REGISTRY,
+  type CommandExecutorContext,
+} from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
 
@@ -121,175 +127,42 @@ export async function handleMessage(
       if (parsed) {
         const isAllowed = session.isUserAllowedInSession(threadRoot, username);
 
-        switch (parsed.command) {
-          case 'stop':
-            if (isAllowed) await session.cancelSession(threadRoot, username);
-            return;
+        // Build executor context
+        const ctx: CommandExecutorContext = {
+          commandContext: 'in-session',
+          threadId: threadRoot,
+          username,
+          client,
+          sessionManager: session,
+          formatter,
+          isAllowed,
+          files: post.metadata?.files,
+        };
 
-          case 'escape':
-            if (isAllowed) await session.interruptSession(threadRoot, username);
-            return;
+        // Try unified command executor
+        const result = await executeCommand(parsed.command, parsed.args, ctx);
+        if (result.handled) {
+          return;
+        }
 
-          case 'approve':
-            if (isAllowed) await session.approvePendingPlan(threadRoot, username);
-            return;
+        // Handle dynamic slash commands (from Claude CLI's init event)
+        const defaultPassthroughCommands = new Set(['context', 'cost', 'compact']);
+        const availableCommands = activeSession.availableSlashCommands ?? defaultPassthroughCommands;
 
-          case 'help': {
-            // Generate help message from the unified command registry
-            const helpMessage = generateHelpMessage(formatter);
-            await client.createPost(helpMessage, threadRoot);
-            return;
-          }
-
-          case 'release-notes': {
-            const notes = getReleaseNotes(VERSION);
-            if (notes) {
-              await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
-            } else {
-              await client.createPost(
-                `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
-                threadRoot
-              );
-            }
-            return;
-          }
-
-          case 'invite':
-            if (parsed.args) await session.inviteUser(threadRoot, parsed.args, username);
-            return;
-
-          case 'kick':
-            if (parsed.args) await session.kickUser(threadRoot, parsed.args, username);
-            return;
-
-          case 'permissions':
-            if (parsed.args?.toLowerCase() === 'interactive') {
-              await session.enableInteractivePermissions(threadRoot, username);
-            } else {
-              await client.createPost(
-                `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
-                threadRoot
-              );
-            }
-            return;
-
-          case 'cd':
-            if (parsed.args) await session.changeDirectory(threadRoot, parsed.args, username);
-            return;
-
-          case 'update': {
-            const subcommand = parsed.args?.toLowerCase();
-            if (subcommand === 'now') {
-              await session.forceUpdateNow(threadRoot, username);
-            } else if (subcommand === 'defer') {
-              await session.deferUpdate(threadRoot, username);
-            } else {
-              await session.showUpdateStatus(threadRoot, username);
-            }
-            return;
-          }
-
-          case 'worktree': {
-            // Parse worktree subcommand from args
-            const worktreeArgs = parsed.args?.split(/\s+/) || [];
-            const subcommand = worktreeArgs[0]?.toLowerCase();
-            const subArgs = worktreeArgs.slice(1).join(' ');
-
-            switch (subcommand) {
-              case 'list':
-                await session.listWorktreesCommand(threadRoot, username);
-                break;
-              case 'switch':
-                if (!subArgs) {
-                  await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
-                } else {
-                  await session.switchToWorktree(threadRoot, subArgs, username);
-                }
-                break;
-              case 'remove':
-                if (!subArgs) {
-                  await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
-                } else {
-                  await session.removeWorktreeCommand(threadRoot, subArgs, username);
-                }
-                break;
-              case 'off':
-                await session.disableWorktreePrompt(threadRoot, username);
-                break;
-              case 'cleanup':
-                await session.cleanupWorktreeCommand(threadRoot, username);
-                break;
-              default:
-                // Treat as branch name: !worktree feature/foo
-                if (subcommand) await session.createAndSwitchToWorktree(threadRoot, subcommand, username);
-            }
-            return;
-          }
-
-          case 'bug':
-            // Bug reporting - pass any attached images
-            if (isAllowed) {
-              const files = post.metadata?.files;
-              await session.reportBug(threadRoot, parsed.args, username, files);
-            }
-            return;
-
-          case 'kill':
-            // Kill is handled earlier, but include for completeness
-            return;
-
-          case 'plugin': {
-            // Plugin management
-            if (!isAllowed) return;
-            const pluginArgs = parsed.args?.split(/\s+/) || [];
-            const subcommand = pluginArgs[0]?.toLowerCase() || 'list';
-            const pluginName = pluginArgs.slice(1).join(' ');
-
-            switch (subcommand) {
-              case 'list':
-                await session.pluginList(threadRoot);
-                break;
-              case 'install':
-                if (!pluginName) {
-                  await client.createPost(`❌ Usage: ${formatter.formatCode('!plugin install <plugin-name>')}`, threadRoot);
-                } else {
-                  await session.pluginInstall(threadRoot, pluginName, username);
-                }
-                break;
-              case 'uninstall':
-                if (!pluginName) {
-                  await client.createPost(`❌ Usage: ${formatter.formatCode('!plugin uninstall <plugin-name>')}`, threadRoot);
-                } else {
-                  await session.pluginUninstall(threadRoot, pluginName, username);
-                }
-                break;
-              default:
-                await client.createPost(
-                  `❌ Unknown subcommand: ${formatter.formatCode(subcommand)}\nUsage: ${formatter.formatCode('!plugin <list|install|uninstall> [name]')}`,
-                  threadRoot
-                );
-            }
-            return;
-          }
-
-          // Dynamic slash command passthrough
-          // Check if this command is available from Claude CLI's init event
-          default: {
-            // Default commands that work before init event arrives
-            const defaultPassthroughCommands = new Set(['context', 'cost', 'compact']);
-            const availableCommands = activeSession.availableSlashCommands ?? defaultPassthroughCommands;
-
-            if (availableCommands.has(parsed.command)) {
-              // This is a valid slash command - pass it through
-              if (isAllowed) {
-                const claudeCommand = '/' + parsed.command + (parsed.args ? ' ' + parsed.args : '');
-                await session.sendFollowUp(threadRoot, claudeCommand);
-              }
-            }
-            // Whether known or unknown command, don't treat as regular message
+        if (isDynamicSlashCommand(parsed.command, availableCommands)) {
+          const dynamicResult = await handleDynamicSlashCommand(parsed.command, parsed.args, ctx);
+          if (dynamicResult.handled) {
             return;
           }
         }
+
+        // Kill is handled earlier in the code, so we just return
+        if (parsed.command === 'kill') {
+          return;
+        }
+
+        // Unknown command - don't treat as regular message
+        return;
       }
 
       // Check for pending worktree prompt - treat message as branch name response
@@ -375,103 +248,66 @@ export async function handleMessage(
 
     // ---------------------------------------------------------------------------
     // Parse and handle commands that work in the first message
-    // These use direct regex matching because the standard parseCommand
-    // patterns are designed for in-session use where commands are standalone.
-    // For first-message support, we need to extract the command and keep the rest.
+    // Uses unified command executor with stacking support
     // ---------------------------------------------------------------------------
     const initialOptions: InitialSessionOptions = {};
     let worktreeBranch: string | undefined;
+
+    // Build executor context for first-message commands
+    const ctx: CommandExecutorContext = {
+      commandContext: 'first-message',
+      threadId: threadRoot,
+      username,
+      client,
+      sessionManager: session,
+      formatter,
+      isAllowed: true, // Already verified authorization above
+      files,
+    };
 
     // Process commands that can appear at the start of the first message
     let continueProcessing = true;
     while (continueProcessing) {
       continueProcessing = false;
 
-      // !help - show help without starting session
-      if (/^!help\s*$/i.test(prompt)) {
-        const helpMessage = generateHelpMessage(formatter);
-        await client.createPost(helpMessage, threadRoot);
+      // Try to parse a first-message command
+      const parsed = parseCommandWithRemainder(prompt);
+      if (!parsed) break;
+
+      // Check if this command works in first message
+      const cmdDef = COMMAND_REGISTRY.find(c => c.command === parsed.command);
+      if (!cmdDef?.worksInFirstMessage) break;
+
+      // Execute the command
+      const result = await executeCommand(parsed.command, parsed.args, ctx);
+
+      // If command fully handled (immediate commands like !help), we're done
+      if (result.handled) {
         return;
       }
 
-      // !release-notes - show release notes without starting session
-      if (/^!(?:release-notes|changelog)\s*$/i.test(prompt)) {
-        const notes = getReleaseNotes(VERSION);
-        if (notes) {
-          await client.createPost(formatReleaseNotes(notes, formatter), threadRoot);
-        } else {
-          await client.createPost(
-            `📋 ${formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,
-            threadRoot
-          );
-        }
-        return;
+      // Apply any session options from the command
+      if (result.sessionOptions) {
+        Object.assign(initialOptions, result.sessionOptions);
       }
 
-      // !update - show update status without starting session
-      if (/^!update\s*$/i.test(prompt)) {
-        await session.showUpdateStatusWithoutSession(platformId, threadRoot);
-        return;
+      // Set worktree branch if returned
+      if (result.worktreeBranch) {
+        worktreeBranch = result.worktreeBranch;
       }
 
-      // !cd <path> [rest] - start session in different directory
-      const cdMatch = prompt.match(/^!cd\s+(\S+)(?:\s+(.*))?$/i);
-      if (cdMatch) {
-        initialOptions.workingDir = cdMatch[1];
-        prompt = (cdMatch[2] || '').trim();
-        continueProcessing = true;
-        continue;
+      // Use remainder text for next iteration or as final prompt
+      // For worktree branch creation, use remainingText if provided
+      if (result.remainingText !== undefined) {
+        prompt = result.remainingText;
+      } else if (parsed.remainder !== undefined) {
+        prompt = parsed.remainder;
+      } else {
+        prompt = '';
       }
 
-      // !permissions interactive [rest] - start with interactive permissions
-      const permMatch = prompt.match(/^!permissions?\s+interactive(?:\s+(.*))?$/i);
-      if (permMatch) {
-        initialOptions.forceInteractivePermissions = true;
-        prompt = (permMatch[1] || '').trim();
-        continueProcessing = true;
-        continue;
-      }
-
-      // !worktree - handle worktree commands (subcommands or branch creation)
-      const worktreeMatch = prompt.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
-      if (worktreeMatch) {
-        const worktreeArgs = worktreeMatch[1].toLowerCase();
-        const subArgs = worktreeMatch[2]?.trim() || '';
-
-        // Check if this is a subcommand (switch, list, remove, cleanup, off)
-        // These need to be handled like in thread replies, not as branch names
-        switch (worktreeArgs) {
-          case 'switch':
-            if (!subArgs) {
-              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
-              return;
-            }
-            await session.switchToWorktree(threadRoot, subArgs, username);
-            return;
-          case 'list':
-            await session.listWorktreesCommand(threadRoot, username);
-            return;
-          case 'remove':
-            if (!subArgs) {
-              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
-              return;
-            }
-            await session.removeWorktreeCommand(threadRoot, subArgs, username);
-            return;
-          case 'cleanup':
-            await session.cleanupWorktreeCommand(threadRoot, username);
-            return;
-          case 'off':
-            await session.disableWorktreePrompt(threadRoot, username);
-            return;
-          default:
-            // Not a subcommand - treat as branch name for creating worktree
-            worktreeBranch = worktreeMatch[1];  // Use original case for branch name
-            prompt = (worktreeMatch[2] || '').trim();
-            continueProcessing = true;
-            continue;
-        }
-      }
+      // Continue if this is a stackable command with more text to process
+      continueProcessing = !!prompt && (cmdDef.isStackable || result.continueProcessing === true);
     }
 
     // Check for inline branch syntax: "on branch X" (legacy support)

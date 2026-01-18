@@ -57,6 +57,17 @@ export interface CommandDefinition {
    * Commands that require an existing session (like !stop, !invite) should have this false/undefined.
    */
   worksInFirstMessage?: boolean;
+  /**
+   * Whether this command is stackable in the first message.
+   * Stackable commands extract their value and allow further commands to be processed.
+   * Example: "@bot !cd /tmp !permissions interactive do work" stacks !cd and !permissions.
+   */
+  isStackable?: boolean;
+  /**
+   * Whether this command is immediate (handles without starting a session).
+   * Immediate commands like !help, !release-notes return after execution.
+   */
+  isImmediate?: boolean;
 }
 
 /** Subcommand definition */
@@ -71,6 +82,11 @@ export interface SubcommandDefinition {
   claudeCanExecute?: boolean;
   /** Whether this subcommand returns results to Claude */
   returnsResultToClaude?: boolean;
+  /**
+   * Whether this subcommand can be used in the first message (root message).
+   * When true, the subcommand can be executed without an existing session.
+   */
+  worksInFirstMessage?: boolean;
 }
 
 /** Reaction definition */
@@ -100,14 +116,16 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     description: 'Show available commands',
     category: 'system',
     audience: 'user',
-    worksInFirstMessage: true,  // Show help without starting session
+    worksInFirstMessage: true,
+    isImmediate: true,  // Returns help without starting session
   },
   {
     command: 'release-notes',
     description: 'Show release notes for current version',
     category: 'system',
     audience: 'user',
-    worksInFirstMessage: true,  // Show release notes without starting session
+    worksInFirstMessage: true,
+    isImmediate: true,  // Returns release notes without starting session
   },
 
   // ---------------------------------------------------------------------------
@@ -145,12 +163,13 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     audience: 'both',
     claudeNotes: 'Result is sent back to you in a <command-result> tag',
     worksInFirstMessage: true,  // Can specify branch when starting session
+    isStackable: true,  // !worktree branch-name can be followed by prompt
     subcommands: [
-      { name: 'list', description: 'List all worktrees for the repo', claudeCanExecute: true, returnsResultToClaude: true },
-      { name: 'switch', description: 'Switch to an existing worktree', args: '<branch>' },
-      { name: 'remove', description: 'Remove a worktree', args: '<branch>' },
-      { name: 'cleanup', description: 'Delete current worktree and switch back to repo' },
-      { name: 'off', description: 'Disable worktree prompts for this session' },
+      { name: 'list', description: 'List all worktrees for the repo', claudeCanExecute: true, returnsResultToClaude: true, worksInFirstMessage: true },
+      { name: 'switch', description: 'Switch to an existing worktree', args: '<branch>', worksInFirstMessage: true },
+      { name: 'remove', description: 'Remove a worktree', args: '<branch>', worksInFirstMessage: true },
+      { name: 'cleanup', description: 'Delete current worktree and switch back to repo', worksInFirstMessage: true },
+      { name: 'off', description: 'Disable worktree prompts for this session', worksInFirstMessage: true },
     ],
   },
 
@@ -186,7 +205,8 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     claudeNotes: 'WARNING: This spawns a NEW Claude instance - you won\'t remember this conversation!',
     claudeCanExecute: true,
     returnsResultToClaude: false,
-    worksInFirstMessage: true,  // Start session in different directory
+    worksInFirstMessage: true,
+    isStackable: true,  // !cd /path can be followed by more commands or prompt
   },
   {
     command: 'permissions',
@@ -195,7 +215,8 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     category: 'settings',
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
-    worksInFirstMessage: true,  // Start session with interactive permissions
+    worksInFirstMessage: true,
+    isStackable: true,  // !permissions interactive can be followed by more commands or prompt
   },
 
   // ---------------------------------------------------------------------------
@@ -206,7 +227,8 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     description: 'Show auto-update status',
     category: 'system',
     audience: 'user',
-    worksInFirstMessage: true,  // Check for updates without starting session
+    worksInFirstMessage: true,
+    isImmediate: true,  // Shows status without starting session
     subcommands: [
       { name: 'now', description: 'Apply pending update immediately' },
       { name: 'defer', description: 'Defer pending update for 1 hour' },

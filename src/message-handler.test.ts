@@ -14,6 +14,7 @@ function createMockPlatform(botName = 'claude-bot') {
   let postIdCounter = 1;
 
   return {
+    platformId: 'test-platform',
     createPost: mock(async (message: string, threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);

@@ -6,11 +6,30 @@
 export {
   parseCommand,
   parseClaudeCommand,
+  parseCommandWithRemainder,
   isClaudeAllowedCommand,
   removeCommandFromText,
   CLAUDE_ALLOWED_COMMANDS,
   type ParsedCommand,
+  type ParsedCommandWithRemainder,
 } from './parser.js';
+
+// Executor exports
+export {
+  executeCommand,
+  isDynamicSlashCommand,
+  handleDynamicSlashCommand,
+} from './executor.js';
+
+// Types exports
+export type {
+  CommandContext,
+  CommandExecutorContext,
+  CommandHandler,
+  CommandHandlerMap,
+  CommandResult,
+  InitialSessionOptions,
+} from './types.js';
 
 // Registry exports (single source of truth for commands)
 export {

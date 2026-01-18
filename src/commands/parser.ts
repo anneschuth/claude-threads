@@ -24,6 +24,14 @@ export interface ParsedCommand {
 }
 
 /**
+ * Extended parsed command with remainder text for stacking.
+ */
+export interface ParsedCommandWithRemainder extends ParsedCommand {
+  /** Text after the command (for first-message stacking) */
+  remainder?: string;
+}
+
+/**
  * Commands that Claude is allowed to execute from its output.
  * Only safe commands that don't modify access control or security settings.
  *
@@ -175,4 +183,77 @@ export function isClaudeAllowedCommand(command: string): boolean {
  */
 export function removeCommandFromText(text: string, command: ParsedCommand): string {
   return text.replace(command.match, '').trim();
+}
+
+// =============================================================================
+// First-Message Command Parsing (with stacking support)
+// =============================================================================
+
+/**
+ * Patterns for stackable first-message commands.
+ * These extract the command argument AND the remaining text for stacking.
+ *
+ * Pattern format: [command, regex, argGroup, remainderGroup]
+ * - argGroup: which capture group contains the command argument
+ * - remainderGroup: which capture group contains the remaining text
+ */
+const STACKABLE_PATTERNS: Array<[string, RegExp, number, number]> = [
+  // !cd <path> [remainder]
+  ['cd', /^!cd\s+(\S+)(?:\s+(.*))?$/i, 1, 2],
+  // !permissions interactive [remainder]
+  ['permissions', /^!permissions?\s+(interactive)(?:\s+(.*))?$/i, 1, 2],
+  // !worktree - capture everything after !worktree as args
+  // The executor will parse subcommand vs branch from the args
+  ['worktree', /^!worktree\s+(.+)$/i, 1, -1],  // -1 means no remainder group
+];
+
+/**
+ * Patterns for immediate first-message commands (no stacking, return immediately).
+ */
+const IMMEDIATE_PATTERNS: Array<[string, RegExp]> = [
+  ['help', /^!help\s*$/i],
+  ['release-notes', /^!(?:release-notes|changelog)\s*$/i],
+  ['update', /^!update\s*$/i],
+];
+
+/**
+ * Parse a command from first-message text, supporting stacking.
+ *
+ * For stackable commands like !cd and !permissions, extracts the command
+ * argument and returns the remaining text for further processing.
+ *
+ * For immediate commands like !help, returns no remainder (command handles everything).
+ *
+ * @param text - The text to parse (should be trimmed)
+ * @returns Parsed command with remainder, or null if no command found
+ */
+export function parseCommandWithRemainder(text: string): ParsedCommandWithRemainder | null {
+  // Try immediate patterns first
+  for (const [command, pattern] of IMMEDIATE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        command,
+        args: undefined,
+        match: match[0],
+        remainder: undefined,
+      };
+    }
+  }
+
+  // Try stackable patterns
+  for (const [command, pattern, argGroup, remainderGroup] of STACKABLE_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) {
+      return {
+        command,
+        args: match[argGroup]?.trim(),
+        match: match[0],
+        // -1 means no remainder group
+        remainder: remainderGroup >= 0 ? (match[remainderGroup]?.trim() || undefined) : undefined,
+      };
+    }
+  }
+
+  return null;
 }
