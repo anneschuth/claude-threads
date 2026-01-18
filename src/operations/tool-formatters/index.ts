@@ -48,6 +48,11 @@ export { taskToolsFormatter } from './task-tools.js';
 export { chromeToolsFormatter } from './chrome-tools.js';
 export { webToolsFormatter } from './web-tools.js';
 export { skillToolsFormatter } from './skill-tools.js';
+export { shellToolsFormatter } from './shell-tools.js';
+export { notebookToolsFormatter } from './notebook-tools.js';
+export { playwrightToolsFormatter } from './playwright-tools.js';
+export { figmaToolsFormatter } from './figma-tools.js';
+export { context7ToolsFormatter } from './context7-tools.js';
 
 // ---------------------------------------------------------------------------
 // Register all built-in formatters
@@ -60,6 +65,11 @@ import { taskToolsFormatter } from './task-tools.js';
 import { chromeToolsFormatter } from './chrome-tools.js';
 import { webToolsFormatter } from './web-tools.js';
 import { skillToolsFormatter } from './skill-tools.js';
+import { shellToolsFormatter } from './shell-tools.js';
+import { notebookToolsFormatter } from './notebook-tools.js';
+import { playwrightToolsFormatter } from './playwright-tools.js';
+import { figmaToolsFormatter } from './figma-tools.js';
+import { context7ToolsFormatter } from './context7-tools.js';
 
 // Register all formatters with the default registry
 toolFormatterRegistry.register(fileToolsFormatter);
@@ -68,6 +78,11 @@ toolFormatterRegistry.register(taskToolsFormatter);
 toolFormatterRegistry.register(chromeToolsFormatter);
 toolFormatterRegistry.register(webToolsFormatter);
 toolFormatterRegistry.register(skillToolsFormatter);
+toolFormatterRegistry.register(shellToolsFormatter);
+toolFormatterRegistry.register(notebookToolsFormatter);
+toolFormatterRegistry.register(playwrightToolsFormatter);
+toolFormatterRegistry.register(figmaToolsFormatter);
+toolFormatterRegistry.register(context7ToolsFormatter);
 
 // ---------------------------------------------------------------------------
 // Convenience Functions

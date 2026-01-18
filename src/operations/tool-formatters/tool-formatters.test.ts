@@ -11,6 +11,11 @@ import {
   chromeToolsFormatter,
   webToolsFormatter,
   skillToolsFormatter,
+  shellToolsFormatter,
+  notebookToolsFormatter,
+  playwrightToolsFormatter,
+  figmaToolsFormatter,
+  context7ToolsFormatter,
   shortenPath,
   parseMcpToolName,
   escapeRegExp,
@@ -97,6 +102,49 @@ describe('ToolFormatterRegistry', () => {
 
       expect(result.display).toContain('custom-tool');
       expect(result.display).toContain('custom-server');
+    });
+
+    it('uses plug emoji for generic MCP tools', () => {
+      const result = registry.format(
+        'mcp__my-mcp-server__some-action',
+        {},
+        { formatter: mockFormatter }
+      );
+
+      expect(result.display).toContain('🔌');
+    });
+
+    it('formats non-MCP unknown tools with bullet', () => {
+      const result = registry.format(
+        'SomeUnknownTool',
+        {},
+        { formatter: mockFormatter }
+      );
+
+      expect(result.display).toContain('●');
+      expect(result.display).toContain('SomeUnknownTool');
+    });
+
+    it('handles MCP tools with complex server names', () => {
+      const result = registry.format(
+        'mcp__plugin_my_custom_plugin__do-something',
+        {},
+        { formatter: mockFormatter }
+      );
+
+      expect(result.display).toContain('do-something');
+      expect(result.display).toContain('plugin_my_custom_plugin');
+    });
+
+    it('provides permissionText for generic MCP tools', () => {
+      const result = registry.format(
+        'mcp__server__tool',
+        {},
+        { formatter: mockFormatter }
+      );
+
+      expect(result.permissionText).toContain('tool');
+      expect(result.permissionText).toContain('server');
     });
   });
 });
@@ -517,6 +565,347 @@ describe('Skill Tools Formatter', () => {
       expect(result).toContain('Skill');
       expect(result).toContain('/commit');
     });
+  });
+});
+
+describe('Shell Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  describe('TaskOutput', () => {
+    it('formats TaskOutput with task_id', () => {
+      const result = shellToolsFormatter.format(
+        'TaskOutput',
+        { task_id: 'be8102a', block: true, timeout: 60000 },
+        options
+      );
+
+      expect(result!.display).toContain('📋');
+      expect(result!.display).toContain('TaskOutput');
+      expect(result!.display).toContain('be8102a');
+    });
+
+    it('shows timeout in seconds', () => {
+      const result = shellToolsFormatter.format(
+        'TaskOutput',
+        { task_id: 'abc123', block: true, timeout: 180000 },
+        options
+      );
+
+      expect(result!.display).toContain('180s');
+    });
+
+    it('shows non-blocking indicator', () => {
+      const result = shellToolsFormatter.format(
+        'TaskOutput',
+        { task_id: 'abc123', block: false },
+        options
+      );
+
+      expect(result!.display).toContain('non-blocking');
+    });
+
+    it('handles missing task_id gracefully', () => {
+      const result = shellToolsFormatter.format('TaskOutput', {}, options);
+
+      expect(result!.display).toContain('unknown');
+    });
+
+    it('is not marked as destructive', () => {
+      const result = shellToolsFormatter.format(
+        'TaskOutput',
+        { task_id: 'abc123' },
+        options
+      );
+
+      expect(result!.isDestructive).toBeUndefined();
+    });
+  });
+
+  describe('KillShell', () => {
+    it('formats KillShell with shell_id', () => {
+      const result = shellToolsFormatter.format(
+        'KillShell',
+        { shell_id: 'be8102a' },
+        options
+      );
+
+      expect(result!.display).toContain('🛑');
+      expect(result!.display).toContain('KillShell');
+      expect(result!.display).toContain('be8102a');
+    });
+
+    it('is marked as destructive', () => {
+      const result = shellToolsFormatter.format(
+        'KillShell',
+        { shell_id: 'abc123' },
+        options
+      );
+
+      expect(result!.isDestructive).toBe(true);
+    });
+
+    it('handles missing shell_id gracefully', () => {
+      const result = shellToolsFormatter.format('KillShell', {}, options);
+
+      expect(result!.display).toContain('unknown');
+    });
+  });
+
+  it('returns null for unknown tools', () => {
+    const result = shellToolsFormatter.format('UnknownTool', {}, options);
+    expect(result).toBeNull();
+  });
+
+  describe('BashOutput', () => {
+    it('formats BashOutput with bash_id', () => {
+      const result = shellToolsFormatter.format(
+        'BashOutput',
+        { bash_id: 'd0a0bf' },
+        options
+      );
+
+      expect(result!.display).toContain('💻');
+      expect(result!.display).toContain('BashOutput');
+      expect(result!.display).toContain('d0a0bf');
+    });
+
+    it('shows wait time in seconds', () => {
+      const result = shellToolsFormatter.format(
+        'BashOutput',
+        { bash_id: 'abc123', block: true, wait_up_to: 30 },
+        options
+      );
+
+      expect(result!.display).toContain('30s');
+    });
+
+    it('shows non-blocking indicator', () => {
+      const result = shellToolsFormatter.format(
+        'BashOutput',
+        { bash_id: 'abc123', block: false },
+        options
+      );
+
+      expect(result!.display).toContain('non-blocking');
+    });
+
+    it('handles missing bash_id gracefully', () => {
+      const result = shellToolsFormatter.format('BashOutput', {}, options);
+
+      expect(result!.display).toContain('unknown');
+    });
+  });
+});
+
+describe('Notebook Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats NotebookEdit with path and cell info', () => {
+    const result = notebookToolsFormatter.format(
+      'NotebookEdit',
+      {
+        notebook_path: '/path/to/notebook.ipynb',
+        cell_id: 'cell-29',
+        edit_mode: 'replace',
+        cell_type: 'code',
+      },
+      options
+    );
+
+    expect(result!.display).toContain('📓');
+    expect(result!.display).toContain('NotebookEdit');
+    expect(result!.display).toContain('notebook.ipynb');
+    expect(result!.display).toContain('cell-29');
+  });
+
+  it('shows insert emoji for insert mode', () => {
+    const result = notebookToolsFormatter.format(
+      'NotebookEdit',
+      { notebook_path: '/path/notebook.ipynb', edit_mode: 'insert', cell_type: 'markdown' },
+      options
+    );
+
+    expect(result!.display).toContain('➕');
+    expect(result!.display).toContain('insert');
+  });
+
+  it('shows delete emoji and marks as destructive for delete mode', () => {
+    const result = notebookToolsFormatter.format(
+      'NotebookEdit',
+      { notebook_path: '/path/notebook.ipynb', edit_mode: 'delete' },
+      options
+    );
+
+    expect(result!.display).toContain('🗑️');
+    expect(result!.isDestructive).toBe(true);
+  });
+
+  it('returns null for unknown tools', () => {
+    const result = notebookToolsFormatter.format('UnknownTool', {}, options);
+    expect(result).toBeNull();
+  });
+});
+
+describe('Playwright Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats browser_navigate with domain', () => {
+    const result = playwrightToolsFormatter.format(
+      'mcp__playwright__browser_navigate',
+      { url: 'https://example.com/page' },
+      options
+    );
+
+    expect(result!.display).toContain('🎭');
+    expect(result!.display).toContain('Playwright');
+    expect(result!.display).toContain('navigate');
+    expect(result!.display).toContain('example.com');
+  });
+
+  it('formats browser_take_screenshot', () => {
+    const result = playwrightToolsFormatter.format(
+      'mcp__playwright__browser_take_screenshot',
+      { filename: 'test.png', fullPage: true },
+      options
+    );
+
+    expect(result!.display).toContain('screenshot');
+    expect(result!.display).toContain('test.png');
+    expect(result!.display).toContain('full page');
+  });
+
+  it('formats browser_wait_for with time', () => {
+    const result = playwrightToolsFormatter.format(
+      'mcp__playwright__browser_wait_for',
+      { time: 5000 },
+      options
+    );
+
+    expect(result!.display).toContain('wait');
+    expect(result!.display).toContain('5000ms');
+  });
+
+  it('formats browser_close', () => {
+    const result = playwrightToolsFormatter.format(
+      'mcp__playwright__browser_close',
+      {},
+      options
+    );
+
+    expect(result!.display).toContain('close');
+  });
+
+  it('formats browser_run_code as destructive', () => {
+    const result = playwrightToolsFormatter.format(
+      'mcp__playwright__browser_run_code',
+      { code: 'document.body.innerHTML = ""' },
+      options
+    );
+
+    expect(result!.display).toContain('run');
+    expect(result!.isDestructive).toBe(true);
+  });
+
+  it('returns null for non-playwright tools', () => {
+    const result = playwrightToolsFormatter.format('mcp__other__tool', {}, options);
+    expect(result).toBeNull();
+  });
+});
+
+describe('Figma Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats get_screenshot with node reference', () => {
+    const result = figmaToolsFormatter.format(
+      'mcp__plugin_figma_figma__get_screenshot',
+      { fileKey: 'abc123xyz', nodeId: '48-2135' },
+      options
+    );
+
+    expect(result!.display).toContain('🎨');
+    expect(result!.display).toContain('Figma');
+    expect(result!.display).toContain('screenshot');
+    expect(result!.display).toContain('node:48-2135');
+  });
+
+  it('formats get_metadata', () => {
+    const result = figmaToolsFormatter.format(
+      'mcp__plugin_figma_figma__get_metadata',
+      { fileKey: 'abc123', nodeId: '100-200' },
+      options
+    );
+
+    expect(result!.display).toContain('metadata');
+  });
+
+  it('formats get_design_context', () => {
+    const result = figmaToolsFormatter.format(
+      'mcp__plugin_figma_figma__get_design_context',
+      { fileKey: 'abc123', nodeId: '100-200' },
+      options
+    );
+
+    expect(result!.display).toContain('context');
+  });
+
+  it('supports legacy mcp__figma__ prefix', () => {
+    const result = figmaToolsFormatter.format(
+      'mcp__figma__get_screenshot',
+      { fileKey: 'abc123' },
+      options
+    );
+
+    expect(result!.display).toContain('🎨');
+    expect(result!.display).toContain('Figma');
+  });
+
+  it('returns null for non-figma tools', () => {
+    const result = figmaToolsFormatter.format('mcp__other__tool', {}, options);
+    expect(result).toBeNull();
+  });
+});
+
+describe('Context7 Tools Formatter', () => {
+  const options = { formatter: mockFormatter };
+
+  it('formats resolve-library-id', () => {
+    const result = context7ToolsFormatter.format(
+      'mcp__plugin_context7_context7__resolve-library-id',
+      { libraryName: 'react', query: 'hooks' },
+      options
+    );
+
+    expect(result!.display).toContain('📚');
+    expect(result!.display).toContain('Context7');
+    expect(result!.display).toContain('resolve');
+    expect(result!.display).toContain('react');
+  });
+
+  it('formats query-docs with library and query', () => {
+    const result = context7ToolsFormatter.format(
+      'mcp__plugin_context7_context7__query-docs',
+      { libraryId: '/vercel/next.js', query: 'server components' },
+      options
+    );
+
+    expect(result!.display).toContain('next.js');
+    expect(result!.display).toContain('server components');
+  });
+
+  it('formats get-library-docs', () => {
+    const result = context7ToolsFormatter.format(
+      'mcp__plugin_context7_context7__get-library-docs',
+      { context7CompatibleLibraryID: '/facebook/react', topic: 'hooks' },
+      options
+    );
+
+    expect(result!.display).toContain('react');
+    expect(result!.display).toContain('hooks');
+  });
+
+  it('returns null for non-context7 tools', () => {
+    const result = context7ToolsFormatter.format('mcp__other__tool', {}, options);
+    expect(result).toBeNull();
   });
 });
 
