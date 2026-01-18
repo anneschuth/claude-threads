@@ -129,21 +129,35 @@ async function handlePermission(
       PLATFORM_THREAD_ID || undefined
     );
 
-    // Wait for user's reaction
-    const reaction = await api.waitForReaction(post.id, botUserId, PERMISSION_TIMEOUT_MS);
+    // Wait for authorized user's reaction (keep waiting if unauthorized users react)
+    const startTime = Date.now();
+    let reaction: Awaited<ReturnType<typeof api.waitForReaction>>;
+    let username: string | null = null;
 
-    if (!reaction) {
-      await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
-      mcpLogger.info(`Timeout: ${toolName}`);
-      return { behavior: 'deny', message: 'Permission request timed out' };
-    }
+    while (true) {
+      const remainingTime = PERMISSION_TIMEOUT_MS - (Date.now() - startTime);
+      if (remainingTime <= 0) {
+        await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
+        mcpLogger.info(`Timeout: ${toolName}`);
+        return { behavior: 'deny', message: 'Permission request timed out' };
+      }
 
-    // Get username and check if allowed
-    const username = await api.getUsername(reaction.userId);
-    if (!username || !api.isUserAllowed(username)) {
-      mcpLogger.debug(`Ignoring unauthorized user: ${username || reaction.userId}`);
-      // Keep waiting for authorized user - for now just deny
-      return { behavior: 'deny', message: 'Unauthorized user' };
+      reaction = await api.waitForReaction(post.id, botUserId, remainingTime);
+
+      if (!reaction) {
+        await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
+        mcpLogger.info(`Timeout: ${toolName}`);
+        return { behavior: 'deny', message: 'Permission request timed out' };
+      }
+
+      // Get username and check if allowed
+      username = await api.getUsername(reaction.userId);
+      if (username && api.isUserAllowed(username)) {
+        break; // Authorized user - process their reaction
+      }
+
+      // Unauthorized user - log and keep waiting
+      mcpLogger.debug(`Ignoring unauthorized user: ${username || reaction.userId}, waiting for authorized user`);
     }
 
     const emoji = reaction.emojiName;
