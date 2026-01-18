@@ -432,13 +432,45 @@ export async function handleMessage(
         continue;
       }
 
-      // !worktree <branch> [rest] - start session with worktree
+      // !worktree - handle worktree commands (subcommands or branch creation)
       const worktreeMatch = prompt.match(/^!worktree\s+(\S+)(?:\s+(.*))?$/i);
       if (worktreeMatch) {
-        worktreeBranch = worktreeMatch[1];
-        prompt = (worktreeMatch[2] || '').trim();
-        continueProcessing = true;
-        continue;
+        const worktreeArgs = worktreeMatch[1].toLowerCase();
+        const subArgs = worktreeMatch[2]?.trim() || '';
+
+        // Check if this is a subcommand (switch, list, remove, cleanup, off)
+        // These need to be handled like in thread replies, not as branch names
+        switch (worktreeArgs) {
+          case 'switch':
+            if (!subArgs) {
+              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree switch <branch>')}`, threadRoot);
+              return;
+            }
+            await session.switchToWorktree(threadRoot, subArgs, username);
+            return;
+          case 'list':
+            await session.listWorktreesCommand(threadRoot, username);
+            return;
+          case 'remove':
+            if (!subArgs) {
+              await client.createPost(`❌ Usage: ${formatter.formatCode('!worktree remove <branch>')}`, threadRoot);
+              return;
+            }
+            await session.removeWorktreeCommand(threadRoot, subArgs, username);
+            return;
+          case 'cleanup':
+            await session.cleanupWorktreeCommand(threadRoot, username);
+            return;
+          case 'off':
+            await session.disableWorktreePrompt(threadRoot, username);
+            return;
+          default:
+            // Not a subcommand - treat as branch name for creating worktree
+            worktreeBranch = worktreeMatch[1];  // Use original case for branch name
+            prompt = (worktreeMatch[2] || '').trim();
+            continueProcessing = true;
+            continue;
+        }
       }
     }
 
