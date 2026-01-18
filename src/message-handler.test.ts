@@ -14,6 +14,7 @@ function createMockPlatform(botName = 'claude-bot') {
   let postIdCounter = 1;
 
   return {
+    platformId: 'test-platform',
     createPost: mock(async (message: string, threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);
@@ -562,6 +563,140 @@ describe('handleMessage', () => {
         'post1',  // triggeringPostId
         {}  // initialOptions
       );
+    });
+
+    test('handles !worktree switch in root message - should call switchToWorktree not create worktree', async () => {
+      // This tests the bug where "@bot !worktree switch feature-branch" in a root message
+      // was incorrectly creating a worktree named "switch" instead of switching to feature-branch
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree switch feature-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should call switchToWorktree with the branch name, NOT startSessionWithWorktree with "switch" as branch
+      expect(session.switchToWorktree).toHaveBeenCalledWith('thread1', 'feature-branch', 'allowed-user');
+      // Should NOT have tried to create a worktree named "switch"
+      expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree list in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree list',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.listWorktreesCommand).toHaveBeenCalledWith('thread1', 'allowed-user');
+      expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree remove in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree remove old-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).toHaveBeenCalledWith('thread1', 'old-branch', 'allowed-user');
+      expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree cleanup in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree cleanup',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.cleanupWorktreeCommand).toHaveBeenCalledWith('thread1', 'allowed-user');
+      expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree off in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree off',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.disableWorktreePrompt).toHaveBeenCalledWith('thread1', 'allowed-user');
+      expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
+    });
+
+    test('handles !worktree switch without branch name in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree switch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.switchToWorktree).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      expect(postContent).toContain('Usage');
+    });
+
+    test('handles !worktree remove without branch name in root message', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree remove',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+      const postContent = (client.createPost as any).mock.calls[0][0];
+      expect(postContent).toContain('Usage');
     });
 
     // Tests for commands that work in the first message
