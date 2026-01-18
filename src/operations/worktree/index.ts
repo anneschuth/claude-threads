@@ -14,6 +14,7 @@ export {
   createAndSwitchToWorktree,
   switchToWorktree,
   buildWorktreeListMessage,
+  buildWorktreeListMessageFromDir,
   listWorktreesCommand,
   removeWorktreeCommand,
   disableWorktreePrompt,

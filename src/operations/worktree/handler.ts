@@ -788,10 +788,53 @@ export async function switchToWorktree(
 }
 
 /**
+ * Build worktree list message for a given working directory (without session).
+ * Returns the formatted message or null if not in a git repo.
+ */
+export async function buildWorktreeListMessageFromDir(
+  workingDir: string,
+  formatter: import('../../platform/index.js').PlatformFormatter,
+  currentWorkingDir?: string
+): Promise<string | null> {
+  // Check if we're in a git repo
+  const isRepo = await isGitRepository(workingDir);
+  if (!isRepo) {
+    return null;
+  }
+
+  // Get repo root
+  const repoRoot = await getRepositoryRoot(workingDir);
+  const worktrees = await listGitWorktrees(repoRoot);
+
+  if (worktrees.length === 0) {
+    return 'No worktrees found for this repository';
+  }
+
+  const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
+  let message = `📋 ${formatter.formatBold('Worktrees for')} ${formatter.formatCode(shortRepoRoot)}:\n\n`;
+
+  for (const wt of worktrees) {
+    // For main repo, keep the regular path; for worktrees, use [branch]/ format
+    const shortPath = wt.isMain
+      ? wt.path.replace(process.env.HOME || '', '~')
+      : shortenPath(wt.path, undefined, { path: wt.path, branch: wt.branch });
+    const isCurrent = currentWorkingDir === wt.path;
+    const marker = isCurrent ? ' ← current' : '';
+    const label = wt.isMain ? '(main repository)' : '';
+    message += `• ${formatter.formatCode(wt.branch)} → ${formatter.formatCode(shortPath)} ${label}${marker}\n`;
+  }
+
+  return message;
+}
+
+/**
  * Build worktree list message (without posting).
  * Returns the formatted message or null if not in a git repo.
  */
 export async function buildWorktreeListMessage(session: Session): Promise<string | null> {
+  // Use the session-less version with session's data
+  const repoRoot = session.worktreeInfo?.repoRoot;
+
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {
@@ -799,31 +842,13 @@ export async function buildWorktreeListMessage(session: Session): Promise<string
     return null;
   }
 
-  // Get repo root (either from worktree info or current dir)
-  const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
-  const worktrees = await listGitWorktrees(repoRoot);
-
-  if (worktrees.length === 0) {
-    sessionLog(session).debug(`🌿 No worktrees found`);
-    return 'No worktrees found for this repository';
-  }
-
-  const shortRepoRoot = repoRoot.replace(process.env.HOME || '', '~');
-  const fmt = session.platform.getFormatter();
-  let message = `📋 ${fmt.formatBold('Worktrees for')} ${fmt.formatCode(shortRepoRoot)}:\n\n`;
-
-  for (const wt of worktrees) {
-    // For main repo, keep the regular path; for worktrees, use [branch]/ format
-    const shortPath = wt.isMain
-      ? wt.path.replace(process.env.HOME || '', '~')
-      : shortenPath(wt.path, undefined, { path: wt.path, branch: wt.branch });
-    const isCurrent = session.workingDir === wt.path;
-    const marker = isCurrent ? ' ← current' : '';
-    const label = wt.isMain ? '(main repository)' : '';
-    message += `• ${fmt.formatCode(wt.branch)} → ${fmt.formatCode(shortPath)} ${label}${marker}\n`;
-  }
-
-  return message;
+  // If we have worktreeInfo, use its repoRoot, otherwise use workingDir
+  const workingDirForList = repoRoot || session.workingDir;
+  return buildWorktreeListMessageFromDir(
+    workingDirForList,
+    session.platform.getFormatter(),
+    session.workingDir
+  );
 }
 
 /**

@@ -75,6 +75,7 @@ function createMockSessionManager() {
     startSessionWithWorktree: mock(async () => {}),
     requestMessageApproval: mock(async () => {}),
     showUpdateStatusWithoutSession: mock(async () => {}),
+    listWorktreesWithoutSession: mock(async () => {}),
   } as unknown as SessionManager;
 }
 
@@ -539,7 +540,7 @@ describe('handleMessage', () => {
       );
     });
 
-    test('handles inline worktree syntax "!worktree X"', async () => {
+    test('handles inline worktree syntax "!worktree X" with prompt', async () => {
       const post: PlatformPost = {
         id: 'post1',
         platformId: 'test',
@@ -565,6 +566,40 @@ describe('handleMessage', () => {
       );
     });
 
+    test('handles !worktree branch-name WITHOUT prompt - should start session in worktree', async () => {
+      // BUG: "@bot !worktree try/try" (without additional text) returns "Mention me with your request"
+      // Expected: Should start a session in the worktree, possibly with empty prompt or showing worktree prompt
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !worktree try/try',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Should NOT show "Mention me with your request" error
+      const postCalls = (client.createPost as any).mock.calls;
+      const errorPost = postCalls.find((call: string[]) => call[0].includes('Mention me with your request'));
+      expect(errorPost).toBeUndefined();
+
+      // Should start session with worktree (empty prompt is OK for worktree-only sessions)
+      expect(session.startSessionWithWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({ prompt: '' }),  // Empty prompt is acceptable
+        'try/try',
+        'allowed-user',
+        'thread1',
+        'test-platform',
+        'User',
+        'post1',
+        {}
+      );
+    });
+
     test('handles !worktree switch in root message - should call switchToWorktree not create worktree', async () => {
       // This tests the bug where "@bot !worktree switch feature-branch" in a root message
       // was incorrectly creating a worktree named "switch" instead of switching to feature-branch
@@ -587,7 +622,10 @@ describe('handleMessage', () => {
       expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
     });
 
-    test('handles !worktree list in root message', async () => {
+    test('handles !worktree list in root message - should list worktrees without session', async () => {
+      // BUG: !worktree list in root message does nothing because listWorktreesCommand
+      // requires an active session. In root message context, we need to list worktrees
+      // directly without a session, or provide a way to list worktrees without session.
       const post: PlatformPost = {
         id: 'post1',
         platformId: 'test',
@@ -601,7 +639,10 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.listWorktreesCommand).toHaveBeenCalledWith('thread1', 'allowed-user');
+      // The current behavior calls listWorktreesCommand which does nothing without session
+      // We want to verify the EXPECTED behavior: worktrees should be listed to the user
+      expect(session.listWorktreesWithoutSession).toHaveBeenCalledWith('test-platform', 'thread1');
+      expect(session.startSession).not.toHaveBeenCalled();
       expect(session.startSessionWithWorktree).not.toHaveBeenCalled();
     });
 
