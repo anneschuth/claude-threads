@@ -113,6 +113,6 @@
     "hono": "$hono"
   },
   "resolutions": {
-    "hono": "4.11.4"
+    "hono": "4.11.7"
   }
 }
