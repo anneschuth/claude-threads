@@ -69,7 +69,7 @@
     "cli-spinners": "^3.3.0",
     "commander": "^14.0.2",
     "diff": "^8.0.3",
-    "hono": "^4.11.4",
+    "hono": "^4.11.7",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
     "js-yaml": "^4.1.1",
@@ -113,6 +113,6 @@
     "hono": "$hono"
   },
   "resolutions": {
-    "hono": "4.11.7"
+    "hono": "$hono"
   }
 }
