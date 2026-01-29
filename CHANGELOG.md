@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.6] - 2026-01-29
+
+### Security
+- **Bump hono to 4.11.7** - Resolves 4 moderate audit vulnerabilities (GHSA-9r54, GHSA-w332, GHSA-6wqw, GHSA-r354)
+
+### Dependencies
+- **Bump production dependencies** - commander 14.0.2, diff 8.0.3, hono 4.11.7, semver 7.7.3, zod 3.25.76 (#248)
+- **Bump dev dependencies** - @types/bun, @types/node 25.0.3, @types/react 19.2.7, eslint 9.39.2 (#247)
+- **Bump trivy-action** - aquasecurity/trivy-action from 0.31.0 to 0.33.1 (#243)
+
 ## [1.4.5] - 2026-01-18
 
 ### Fixed
