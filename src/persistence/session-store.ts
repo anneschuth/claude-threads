@@ -140,7 +140,7 @@ export class SessionStore {
     }
 
     try {
-      const data = JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
+      const data = this.loadRaw();
 
       // Migration: v1 → v2 (add platformId and convert keys to composite format)
       if (data.version === 1) {
@@ -446,7 +446,15 @@ export class SessionStore {
     }
 
     try {
-      return JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
+      const data = JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
+      // Ensure required fields exist (handles malformed/empty files)
+      if (!data.sessions || typeof data.sessions !== 'object') {
+        data.sessions = {};
+      }
+      if (!data.version) {
+        data.version = STORE_VERSION;
+      }
+      return data;
     } catch {
       return { version: STORE_VERSION, sessions: {} };
     }

@@ -1,4 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 import { SessionStore, PersistedSession } from './session-store.js';
 
 describe('SessionStore', () => {
@@ -407,6 +410,113 @@ describe('SessionStore', () => {
       store.clear();
 
       expect(store.load().size).toBe(0);
+    });
+  });
+
+  describe('malformed sessions file (#258)', () => {
+    let tempDir: string;
+    let tempFile: string;
+    let tempStore: SessionStore;
+
+    beforeEach(() => {
+      tempDir = join(tmpdir(), `session-store-test-${Date.now()}`);
+      mkdirSync(tempDir, { recursive: true });
+      tempFile = join(tempDir, 'sessions.json');
+    });
+
+    afterEach(() => {
+      if (existsSync(tempFile)) {
+        unlinkSync(tempFile);
+      }
+    });
+
+    it('load() handles {} file content gracefully', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      const sessions = tempStore.load();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('cleanStale() does not crash with empty/malformed sessions file', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      // Should not throw
+      const staleIds = tempStore.cleanStale(60 * 60 * 1000);
+      expect(staleIds).toEqual([]);
+    });
+
+    it('cleanHistory() does not crash with empty/malformed sessions file', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      const removedCount = tempStore.cleanHistory();
+      expect(removedCount).toBe(0);
+    });
+
+    it('getHistory() does not crash with empty/malformed sessions file', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      const history = tempStore.getHistory('test-platform');
+      expect(history).toEqual([]);
+    });
+
+    it('handles file with sessions set to null', () => {
+      writeFileSync(tempFile, '{"version": 2, "sessions": null}');
+      tempStore = new SessionStore(tempFile);
+
+      const sessions = tempStore.load();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('handles file with missing version', () => {
+      writeFileSync(tempFile, '{"sessions": {}}');
+      tempStore = new SessionStore(tempFile);
+
+      // Should not crash - version gets set to current
+      const sessions = tempStore.load();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('load() handles correct version but missing sessions field', () => {
+      writeFileSync(tempFile, '{"version": 2}');
+      tempStore = new SessionStore(tempFile);
+
+      const sessions = tempStore.load();
+      expect(sessions.size).toBe(0);
+    });
+
+    it('save() -> load() round-trip recovers after file corruption', () => {
+      // Start with a corrupted/empty file
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      // Save a session on top of the corrupted file
+      const session = createTestSession({ threadId: 'recovered-thread' });
+      tempStore.save('test-platform:recovered-thread', session);
+
+      // Load should recover the saved session
+      const loaded = tempStore.load();
+      expect(loaded.size).toBe(1);
+      expect(loaded.get('test-platform:recovered-thread')).toEqual(session);
+    });
+
+    it('findByThread() returns undefined with malformed file', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      const found = tempStore.findByThread('test-platform', 'thread-123');
+      expect(found).toBeUndefined();
+    });
+
+    it('findByPostId() returns undefined with malformed file', () => {
+      writeFileSync(tempFile, '{}');
+      tempStore = new SessionStore(tempFile);
+
+      const found = tempStore.findByPostId('test-platform', 'post-123');
+      expect(found).toBeUndefined();
     });
   });
 
