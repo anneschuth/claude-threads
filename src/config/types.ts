@@ -80,9 +80,9 @@ export function resolveLimits(limits?: LimitsConfig): Required<LimitsConfig> {
  * Sticky message customization
  */
 export interface StickyMessageCustomization {
-  /** Custom description shown below the status bar (e.g., what the bot does) */
+  /** Custom description shown below the title (e.g., what the bot does) */
   description?: string;
-  /** Custom footer content appended after the default footer line */
+  /** Custom footer content shown before the default "Mention me to start a session" line */
   footer?: string;
 }
 

@@ -760,10 +760,10 @@ export class SessionManager extends EventEmitter {
     await this.updateStickyMessage();
   }
 
-  /**
-   * Update runtime settings (called from keyboard toggles).
-   * These affect new sessions and sticky message display.
-   */
+  // ---------------------------------------------------------------------------
+  // Runtime settings (called from keyboard toggles or config)
+  // ---------------------------------------------------------------------------
+
   /** Set custom description and footer for the sticky channel message. */
   setStickyMessageCustomization(description?: string, footer?: string): void {
     this.customDescription = description;
