@@ -1281,4 +1281,33 @@ describe('updateStickyMessage validates lastMessageId', () => {
     expect(session.lastMessageId).toBeUndefined();
     expect(session.lastMessageTs).toBeUndefined();
   });
+
+  it('shows custom description when configured', async () => {
+    const sessions = new Map<string, Session>();
+    const customConfig = { ...testConfig, stickyDescription: 'Porygon — Mixpanel analytics bot' };
+    const result = await buildStickyMessage(sessions, 'test-platform', customConfig, mockFormatter, (tid) => `/_redirect/pl/${tid}`);
+
+    expect(result).toContain('Porygon — Mixpanel analytics bot');
+    expect(result).toContain('No active sessions');
+  });
+
+  it('shows custom footer when configured', async () => {
+    const sessions = new Map<string, Session>();
+    const customConfig = { ...testConfig, stickyFooter: '• !stop — End session\n• !compact — Compress context' };
+    const result = await buildStickyMessage(sessions, 'test-platform', customConfig, mockFormatter, (tid) => `/_redirect/pl/${tid}`);
+
+    expect(result).toContain('• !stop — End session');
+    expect(result).toContain('• !compact — Compress context');
+    // Default footer should still be present
+    expect(result).toContain('Mention me to start a session');
+  });
+
+  it('does not show description/footer when not configured', async () => {
+    const sessions = new Map<string, Session>();
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (tid) => `/_redirect/pl/${tid}`);
+
+    // Should still have the default content
+    expect(result).toContain('No active sessions');
+    expect(result).toContain('Mention me to start a session');
+  });
 });

@@ -428,6 +428,11 @@ async function main() {
     config.limits  // Resource limits (optional, has sensible defaults)
   );
 
+  // Set sticky message customization from config
+  if (config.stickyMessage) {
+    session.setStickyMessageCustomization(config.stickyMessage.description, config.stickyMessage.footer);
+  }
+
   // Set reference for toggle callbacks
   sessionManager = session;
 

@@ -155,6 +155,10 @@ export interface StickyMessageConfig {
   debug: boolean;
   /** Optional update status info */
   updateStatus?: UpdateStatusInfo;
+  /** Custom description shown below the status bar */
+  stickyDescription?: string;
+  /** Custom footer content appended after the default footer */
+  stickyFooter?: string;
 }
 
 // Store sticky post IDs per platform (in-memory cache)
@@ -534,8 +538,15 @@ export async function buildStickyMessage(
       '',
       formatter.formatBold('Active Claude Threads'),
       '',
-      formatter.formatItalic('No active sessions'),
     ];
+
+    // Add custom description if configured
+    if (config.stickyDescription) {
+      lines.push(config.stickyDescription);
+      lines.push('');
+    }
+
+    lines.push(formatter.formatItalic('No active sessions'));
 
     // Add history section if there are recent completed sessions
     if (historySessions.length > 0) {
@@ -555,6 +566,12 @@ export async function buildStickyMessage(
       lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
     }
 
+    // Add custom footer if configured
+    if (config.stickyFooter) {
+      lines.push('');
+      lines.push(config.stickyFooter);
+    }
+
     lines.push('');
     lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
 
@@ -572,6 +589,12 @@ export async function buildStickyMessage(
     formatter.formatBold(`Active Claude Threads (${totalCount})`),
     '',
   ];
+
+  // Add custom description if configured
+  if (config.stickyDescription) {
+    lines.push(config.stickyDescription);
+    lines.push('');
+  }
 
   // Helper to format a session entry
   const formatSessionEntry = (session: Session, isThisPlatform: boolean) => {
@@ -654,6 +677,12 @@ export async function buildStickyMessage(
   if (whatsNew) {
     lines.push('');
     lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
+  }
+
+  // Add custom footer if configured
+  if (config.stickyFooter) {
+    lines.push('');
+    lines.push(config.stickyFooter);
   }
 
   lines.push('');

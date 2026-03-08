@@ -76,6 +76,16 @@ export function resolveLimits(limits?: LimitsConfig): Required<LimitsConfig> {
   };
 }
 
+/**
+ * Sticky message customization
+ */
+export interface StickyMessageCustomization {
+  /** Custom description shown below the status bar (e.g., what the bot does) */
+  description?: string;
+  /** Custom footer content appended after the default footer line */
+  footer?: string;
+}
+
 export interface Config {
   version: number;
   workingDir: string;
@@ -85,6 +95,7 @@ export interface Config {
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   threadLogs?: ThreadLogsConfig; // Optional thread logging configuration
   limits?: LimitsConfig; // Optional resource limits and timeouts
+  stickyMessage?: StickyMessageCustomization; // Optional sticky message customization
   platforms: PlatformInstanceConfig[];
 }
 

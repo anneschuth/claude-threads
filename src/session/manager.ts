@@ -99,6 +99,10 @@ export class SessionManager extends EventEmitter {
   // Shutdown flag
   private isShuttingDown = false;
 
+  // Sticky message customization
+  private stickyDescription?: string;
+  private stickyFooter?: string;
+
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
 
@@ -743,6 +747,8 @@ export class SessionManager extends EventEmitter {
       worktreeMode: this.worktreeMode,
       workingDir: this.workingDir,
       debug: this.debug,
+      stickyDescription: this.stickyDescription,
+      stickyFooter: this.stickyFooter,
     });
   }
 
@@ -758,6 +764,11 @@ export class SessionManager extends EventEmitter {
    * Update runtime settings (called from keyboard toggles).
    * These affect new sessions and sticky message display.
    */
+  setStickyMessageCustomization(description?: string, footer?: string): void {
+    this.stickyDescription = description;
+    this.stickyFooter = footer;
+  }
+
   setSkipPermissions(value: boolean): void {
     this.skipPermissions = value;
   }
