@@ -63,13 +63,15 @@
     "package.json"
   ],
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
     "@inkjs/ui": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@redactpii/node": "^1.0.16",
     "cli-spinners": "^3.3.0",
     "commander": "^14.0.2",
     "diff": "^8.0.3",
-    "hono": "^4.12.3",
+    "express-rate-limit": "^8.3.0",
+    "hono": "^4.12.5",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
     "js-yaml": "^4.1.1",
@@ -110,9 +112,13 @@
     "website/**/*.{html,css,js}": "prettier --write"
   },
   "overrides": {
-    "hono": "$hono"
+    "hono": "$hono",
+    "@hono/node-server": "$@hono/node-server",
+    "express-rate-limit": "$express-rate-limit"
   },
   "resolutions": {
-    "hono": "$hono"
+    "hono": "$hono",
+    "@hono/node-server": "$@hono/node-server",
+    "express-rate-limit": "$express-rate-limit"
   }
 }

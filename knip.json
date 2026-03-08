@@ -11,7 +11,7 @@
   "ignore": [
     "src/test-utils/**/*"
   ],
-  "ignoreDependencies": ["prettier", "hono"],
+  "ignoreDependencies": ["prettier", "hono", "@hono/node-server", "express-rate-limit"],
   "ignoreBinaries": ["pkill", "sleep", "prettier", "knip", "dist/index.js"],
   "ignoreExportsUsedInFile": true
 }
