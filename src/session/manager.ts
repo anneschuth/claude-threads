@@ -100,8 +100,8 @@ export class SessionManager extends EventEmitter {
   private isShuttingDown = false;
 
   // Sticky message customization
-  private stickyDescription?: string;
-  private stickyFooter?: string;
+  private customDescription?: string;
+  private customFooter?: string;
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -747,8 +747,8 @@ export class SessionManager extends EventEmitter {
       worktreeMode: this.worktreeMode,
       workingDir: this.workingDir,
       debug: this.debug,
-      stickyDescription: this.stickyDescription,
-      stickyFooter: this.stickyFooter,
+      description: this.customDescription,
+      footer: this.customFooter,
     });
   }
 
@@ -764,9 +764,10 @@ export class SessionManager extends EventEmitter {
    * Update runtime settings (called from keyboard toggles).
    * These affect new sessions and sticky message display.
    */
+  /** Set custom description and footer for the sticky channel message. */
   setStickyMessageCustomization(description?: string, footer?: string): void {
-    this.stickyDescription = description;
-    this.stickyFooter = footer;
+    this.customDescription = description;
+    this.customFooter = footer;
   }
 
   setSkipPermissions(value: boolean): void {

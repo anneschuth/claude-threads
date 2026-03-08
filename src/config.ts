@@ -14,6 +14,7 @@ export type {
   MattermostPlatformConfig,
   WorktreeMode,
   LimitsConfig,
+  StickyMessageCustomization,
 } from './config/migration.js';
 
 export { resolveLimits, LIMITS_DEFAULTS } from './config/migration.js';

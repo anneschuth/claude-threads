@@ -104,6 +104,11 @@ workingDir: /home/user/repos/myproject
 chrome: false
 worktreeMode: prompt
 
+# Optional: Customize the sticky channel message
+stickyMessage:
+  description: "Porygon — Mixpanel analytics bot"    # Shown below the title
+  footer: "• !stop — End session\n• !help — Show help"  # Shown before the default footer
+
 platforms:
   # Mattermost configuration
   - id: mattermost-main

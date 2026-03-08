@@ -8,6 +8,7 @@ export type {
   WorktreeMode,
   ThreadLogsConfig,
   LimitsConfig,
+  StickyMessageCustomization,
   Config,
   PlatformInstanceConfig,
   MattermostPlatformConfig,

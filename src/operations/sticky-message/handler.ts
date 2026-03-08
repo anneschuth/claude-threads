@@ -155,10 +155,10 @@ export interface StickyMessageConfig {
   debug: boolean;
   /** Optional update status info */
   updateStatus?: UpdateStatusInfo;
-  /** Custom description shown below the status bar */
-  stickyDescription?: string;
-  /** Custom footer content appended after the default footer */
-  stickyFooter?: string;
+  /** Custom description shown below the title */
+  description?: string;
+  /** Custom footer content appended before the default footer */
+  footer?: string;
 }
 
 // Store sticky post IDs per platform (in-memory cache)
@@ -482,6 +482,26 @@ function formatTopicFromPrompt(prompt: string | undefined, formatter: PlatformFo
 
 
 /**
+ * Append custom description lines if configured.
+ */
+function appendDescription(lines: string[], config: StickyMessageConfig): void {
+  if (config.description) {
+    lines.push(config.description);
+    lines.push('');
+  }
+}
+
+/**
+ * Append custom footer lines if configured.
+ */
+function appendFooter(lines: string[], config: StickyMessageConfig): void {
+  if (config.footer) {
+    lines.push('');
+    lines.push(config.footer);
+  }
+}
+
+/**
  * Build the sticky message content showing all active sessions
  */
 export async function buildStickyMessage(
@@ -540,11 +560,7 @@ export async function buildStickyMessage(
       '',
     ];
 
-    // Add custom description if configured
-    if (config.stickyDescription) {
-      lines.push(config.stickyDescription);
-      lines.push('');
-    }
+    appendDescription(lines, config);
 
     lines.push(formatter.formatItalic('No active sessions'));
 
@@ -566,11 +582,7 @@ export async function buildStickyMessage(
       lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
     }
 
-    // Add custom footer if configured
-    if (config.stickyFooter) {
-      lines.push('');
-      lines.push(config.stickyFooter);
-    }
+    appendFooter(lines, config);
 
     lines.push('');
     lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
@@ -590,11 +602,7 @@ export async function buildStickyMessage(
     '',
   ];
 
-  // Add custom description if configured
-  if (config.stickyDescription) {
-    lines.push(config.stickyDescription);
-    lines.push('');
-  }
+  appendDescription(lines, config);
 
   // Helper to format a session entry
   const formatSessionEntry = (session: Session, isThisPlatform: boolean) => {
@@ -679,11 +687,7 @@ export async function buildStickyMessage(
     lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
   }
 
-  // Add custom footer if configured
-  if (config.stickyFooter) {
-    lines.push('');
-    lines.push(config.stickyFooter);
-  }
+  appendFooter(lines, config);
 
   lines.push('');
   lines.push(`${formatter.formatItalic('Mention me to start a session')} · ${formatter.formatCode('bun install -g claude-threads')} · ${formatter.formatLink('claude-threads.run', 'https://claude-threads.run/')}`);
