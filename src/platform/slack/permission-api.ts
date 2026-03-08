@@ -10,6 +10,7 @@
  * - User mentions use <@USER_ID> format, not @username
  */
 
+import { WebSocket } from '../../utils/websocket.js';
 import type {
   PermissionApi,
   ReactionEvent,

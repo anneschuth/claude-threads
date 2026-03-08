@@ -4,7 +4,7 @@
  * Handles permission requests via Mattermost API and WebSocket.
  */
 
-// Native WebSocket - no import needed in Bun
+import { WebSocket } from '../../utils/websocket.js';
 import type { PermissionApi, MattermostPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';

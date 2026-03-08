@@ -1,3 +1,4 @@
+import { WebSocket } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/migration.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName } from '../utils.js';

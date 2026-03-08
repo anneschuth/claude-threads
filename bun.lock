@@ -21,6 +21,7 @@
         "react": "^19.2.3",
         "semver": "^7.7.3",
         "update-notifier": "^7.3.1",
+        "ws": "^8.18.0",
         "yauzl": "^3.2.0",
         "zod": "^4.3.6",
       },
@@ -33,6 +34,7 @@
         "@types/react": "^19.2.7",
         "@types/semver": "^7.7.1",
         "@types/update-notifier": "^6.0.8",
+        "@types/ws": "^8.18.0",
         "@types/yauzl": "^2.10.3",
         "@types/yazl": "^3.3.0",
         "eslint": "^9.39.2",
@@ -112,6 +114,8 @@
     "@types/semver": ["@types/semver@7.7.1", "", {}, "sha512-FmgJfu+MOcQ370SD0ev7EI8TlCAfKYU+B4m5T3yXc1CiRN94g/SZPtsCkk506aUDtlMnFZvasDwHHUcZUEaYuA=="],
 
     "@types/update-notifier": ["@types/update-notifier@6.0.8", "", { "dependencies": { "@types/configstore": "*", "boxen": "^7.1.1" } }, "sha512-IlDFnfSVfYQD+cKIg63DEXn3RFmd7W1iYtKQsJodcHK9R1yr8aKbKaPKfBxzPpcHCq2DU8zUq4PIPmy19Thjfg=="],
+
+    "@types/ws": ["@types/ws@8.18.1", "", { "dependencies": { "@types/node": "*" } }, "sha512-ThVF6DCVhA8kUGy+aazFQ4kXQ7E1Ty7A3ypFOe0IcJV8O/M511G99AW24irKrW56Wt44yG9+ij8FaqoBGkuBXg=="],
 
     "@types/yauzl": ["@types/yauzl@2.10.3", "", { "dependencies": { "@types/node": "*" } }, "sha512-oJoftv0LSuaDZE3Le4DbKX+KS9G36NzOeSap90UIK0yMA/NhKJhqlSGtNDORNRaIbQfzjXDrQa0ytJ6mNRGz/Q=="],
 
