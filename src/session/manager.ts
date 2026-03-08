@@ -1038,6 +1038,18 @@ export class SessionManager extends EventEmitter {
     return this.registry.getPersistedByThreadId(threadId);
   }
 
+  /**
+   * Cancel a paused (persisted but not active) session by soft-deleting it.
+   * Used when !stop is issued in a thread with a paused session.
+   */
+  cancelPausedSession(threadId: string): void {
+    const persisted = this.registry.getPersistedByThreadId(threadId);
+    if (persisted) {
+      const sessionId = `${persisted.platformId}:${persisted.threadId}`;
+      this.sessionStore.softDelete(sessionId);
+    }
+  }
+
   async killSession(threadId: string, unpersist = true): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;

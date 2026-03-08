@@ -207,6 +207,27 @@ export async function handleMessage(
         ? client.extractPrompt(message)
         : message.trim();
 
+      // Parse commands even for paused sessions - !stop should cancel, not resume
+      const pausedParsed = parseCommand(content);
+      if (pausedParsed) {
+        if (pausedParsed.command === 'stop') {
+          // Clean up the paused session instead of resuming it
+          const persistedSession = session.getPersistedSession(threadRoot);
+          if (persistedSession) {
+            const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+            if (allowedUsers.has(username) || client.isUserAllowed(username)) {
+              session.cancelPausedSession(threadRoot);
+              await client.createPost(
+                `🛑 ${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`,
+                threadRoot
+              );
+            }
+          }
+        }
+        // All commands in paused state are consumed (not passed as prompts)
+        return;
+      }
+
       // Check if user is allowed in the paused session
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {

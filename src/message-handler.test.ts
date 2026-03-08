@@ -71,6 +71,7 @@ function createMockSessionManager() {
     handleWorktreeBranchResponse: mock(async () => false),
     sendFollowUp: mock(async () => {}),
     resumePausedSession: mock(async () => {}),
+    cancelPausedSession: mock(() => {}),
     startSession: mock(async () => {}),
     startSessionWithWorktree: mock(async () => {}),
     requestMessageApproval: mock(async () => {}),
@@ -433,6 +434,63 @@ describe('handleMessage', () => {
 
       expect(session.resumePausedSession).not.toHaveBeenCalled();
       expect(client.createPost).toHaveBeenCalled();
+    });
+
+    test('!stop cancels paused session instead of resuming it', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!stop',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(session.cancelPausedSession).toHaveBeenCalledWith('thread1');
+      // Should post a cancellation confirmation
+      const postCalls = (client.createPost as any).mock.calls;
+      const lastMessage = postCalls[postCalls.length - 1]?.[0];
+      expect(lastMessage).toContain('Session cancelled');
+    });
+
+    test('!cancel also cancels paused session', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!cancel',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(session.cancelPausedSession).toHaveBeenCalledWith('thread1');
+    });
+
+    test('other commands in paused session do not resume', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!help',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
     });
   });
 
