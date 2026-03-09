@@ -36,7 +36,7 @@ export class InkProvider implements UIProvider {
     const { config, onQuit, toggleCallbacks } = this.options;
 
     // Check for TTY - fail fast if not interactive
-    if (!process.stdout.isTTY) {
+    if (!process.stdout.isTTY || !process.stdin.isTTY) {
       throw new Error('InkProvider requires an interactive terminal (TTY). Use HeadlessProvider for non-TTY environments.');
     }
 
