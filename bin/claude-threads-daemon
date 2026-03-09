@@ -134,7 +134,7 @@ while true; do
     # Run claude-threads with any remaining arguments
     # Note: CLAUDE_THREADS_CMD may be "bun /path/to/file.js" so we use eval
     set +e
-    eval $CLAUDE_THREADS_CMD '"$@"' </dev/tty &
+    eval $CLAUDE_THREADS_CMD '"$@"' &
     child_pid=$!
     wait $child_pid
     exit_code=$?

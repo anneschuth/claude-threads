@@ -124,7 +124,7 @@ function hasRequiredCliArgs(args: typeof opts): boolean {
 
 async function main() {
   // Determine headless mode: explicit flag or auto-detect when no TTY
-  const isHeadless = opts.headless || !process.stdout.isTTY;
+  const isHeadless = opts.headless || !process.stdout.isTTY || !process.stdin.isTTY;
 
   // Clear screen for a clean start (only in interactive mode)
   if (!isHeadless) {
