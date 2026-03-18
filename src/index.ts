@@ -117,15 +117,15 @@ program
 
 const opts = program.opts();
 
+// Determine headless mode: explicit flag or auto-detect when no TTY
+const isHeadless = opts.headless || !process.stdout.isTTY || !process.stdin.isTTY;
+
 // Check if required args are provided via CLI
 function hasRequiredCliArgs(args: typeof opts): boolean {
   return !!(args.url && args.token && args.channel);
 }
 
 async function main() {
-  // Determine headless mode: explicit flag or auto-detect when no TTY
-  const isHeadless = opts.headless || !process.stdout.isTTY || !process.stdin.isTTY;
-
   // Clear screen for a clean start (only in interactive mode)
   if (!isHeadless) {
     process.stdout.write('\x1b[2J\x1b[H');
@@ -201,8 +201,10 @@ async function main() {
     child.on('error', (err) => {
       if (process.platform === 'win32') {
         console.error(`Failed to start daemon: ${err.message}`);
-        console.error('Auto-restart requires bash (Git for Windows or WSL). Running without auto-restart.');
-        // Fall through to normal startup by calling main() logic below
+        console.error('Auto-restart requires bash (Git for Windows or WSL). Starting without auto-restart...');
+        console.error('');
+        // Continue normal startup without the daemon
+        startWithoutDaemon();
         return;
       }
       console.error(`Failed to start daemon: ${err.message}`);
@@ -215,6 +217,17 @@ async function main() {
 
     return; // Don't continue with normal startup
   }
+
+  // Start the bot without the auto-restart daemon wrapper
+  await startWithoutDaemon();
+}
+
+/**
+ * Start the bot directly (without daemon wrapper).
+ * This is the normal startup path, also used as fallback when
+ * the daemon can't be spawned (e.g., Windows without bash).
+ */
+async function startWithoutDaemon() {
 
   // Check for updates (non-blocking, shows notification if available)
   checkForUpdates();

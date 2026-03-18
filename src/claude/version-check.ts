@@ -1,5 +1,6 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
+import { join } from 'path';
 import { satisfies, coerce } from 'semver';
 
 /**
@@ -9,12 +10,12 @@ import { satisfies, coerce } from 'semver';
 const COMMON_CLAUDE_PATHS: string[] = process.platform === 'win32'
   ? [
     // Windows: npm global installs create .cmd wrappers in the prefix directory
-    ...(process.env.APPDATA ? [`${process.env.APPDATA}\\npm\\claude.cmd`] : []),
-    ...(process.env.LOCALAPPDATA ? [`${process.env.LOCALAPPDATA}\\npm\\claude.cmd`] : []),
+    ...(process.env.APPDATA ? [join(process.env.APPDATA, 'npm', 'claude.cmd')] : []),
+    ...(process.env.LOCALAPPDATA ? [join(process.env.LOCALAPPDATA, 'npm', 'claude.cmd')] : []),
     // nvm-windows installs
-    ...(process.env.NVM_SYMLINK ? [`${process.env.NVM_SYMLINK}\\claude.cmd`] : []),
+    ...(process.env.NVM_SYMLINK ? [join(process.env.NVM_SYMLINK, 'claude.cmd')] : []),
     // bun global on Windows
-    ...(process.env.USERPROFILE ? [`${process.env.USERPROFILE}\\.bun\\bin\\claude.cmd`] : []),
+    ...(process.env.USERPROFILE ? [join(process.env.USERPROFILE, '.bun', 'bin', 'claude.cmd')] : []),
   ]
   : [
     '/usr/local/bin/claude',
