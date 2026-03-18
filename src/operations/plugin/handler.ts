@@ -5,7 +5,7 @@
  * Handles install, uninstall, and list operations.
  */
 
-import { spawn } from 'child_process';
+import { crossSpawn } from '../../utils/spawn.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
@@ -37,7 +37,7 @@ async function runPluginCommand(
 ): Promise<PluginResult> {
   return new Promise((resolve) => {
     const claudePath = process.env.CLAUDE_PATH || 'claude';
-    const proc = spawn(claudePath, ['plugin', ...args], {
+    const proc = crossSpawn(claudePath, ['plugin', ...args], {
       cwd,
       timeout,
     });

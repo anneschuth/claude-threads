@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { crossSpawn } from '../utils/spawn.js';
 import { randomUUID } from 'crypto';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -37,7 +37,7 @@ async function execGit(args: string[], cwd: string): Promise<string> {
   log.debug(`Executing: ${cmd}`);
 
   return new Promise((resolve, reject) => {
-    const proc = spawn('git', args, { cwd });
+    const proc = crossSpawn('git', args, { cwd });
     let stdout = '';
     let stderr = '';
 

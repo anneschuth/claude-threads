@@ -6,15 +6,25 @@ import { satisfies, coerce } from 'semver';
  * Common paths where Claude CLI might be installed.
  * These are checked if the binary isn't found in PATH.
  */
-const COMMON_CLAUDE_PATHS = [
-  '/usr/local/bin/claude',
-  '/opt/homebrew/bin/claude',
-  `${process.env.HOME}/.local/bin/claude`,
-  `${process.env.HOME}/.npm-global/bin/claude`,
-  `${process.env.HOME}/.bun/bin/claude`,
-  // npm global on macOS
-  '/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js',
-];
+const COMMON_CLAUDE_PATHS: string[] = process.platform === 'win32'
+  ? [
+    // Windows: npm global installs create .cmd wrappers in the prefix directory
+    ...(process.env.APPDATA ? [`${process.env.APPDATA}\\npm\\claude.cmd`] : []),
+    ...(process.env.LOCALAPPDATA ? [`${process.env.LOCALAPPDATA}\\npm\\claude.cmd`] : []),
+    // nvm-windows installs
+    ...(process.env.NVM_SYMLINK ? [`${process.env.NVM_SYMLINK}\\claude.cmd`] : []),
+    // bun global on Windows
+    ...(process.env.USERPROFILE ? [`${process.env.USERPROFILE}\\.bun\\bin\\claude.cmd`] : []),
+  ]
+  : [
+    '/usr/local/bin/claude',
+    '/opt/homebrew/bin/claude',
+    `${process.env.HOME}/.local/bin/claude`,
+    `${process.env.HOME}/.npm-global/bin/claude`,
+    `${process.env.HOME}/.bun/bin/claude`,
+    // npm global on macOS
+    '/usr/local/lib/node_modules/@anthropic-ai/claude-code/cli.js',
+  ];
 
 /**
  * Known compatible Claude CLI version range.
@@ -77,17 +87,20 @@ function tryClaudeVersion(claudePath: string): ClaudeVersionResult {
 }
 
 /**
- * Try to find where 'claude' is located using 'which'.
+ * Try to find where 'claude' is located using 'which' (Unix) or 'where' (Windows).
  * Returns the path or null if not found.
  */
 function findClaudeInPath(): string | null {
   try {
-    const result = execSync('which claude', {
+    const findCommand = process.platform === 'win32' ? 'where claude' : 'which claude';
+    const result = execSync(findCommand, {
       encoding: 'utf8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
     }).trim();
-    return result || null;
+    // 'where' on Windows may return multiple lines; use the first result
+    const firstLine = result.split(/\r?\n/)[0];
+    return firstLine || null;
   } catch {
     return null;
   }

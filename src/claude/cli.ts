@@ -1,4 +1,5 @@
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
+import { crossSpawn } from '../utils/spawn.js';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -290,7 +291,7 @@ export class ClaudeCli extends EventEmitter {
     // Configure status line to write context data to a temp file
     // This gives us accurate context window usage information
     if (this.options.sessionId) {
-      this.statusFilePath = `/tmp/claude-threads-status-${this.options.sessionId}.json`;
+      this.statusFilePath = join(tmpdir(), `claude-threads-status-${this.options.sessionId}.json`);
       const statusLineWriterPath = this.getStatusLineWriterPath();
       const statusLineSettings = {
         statusLine: {
@@ -304,7 +305,7 @@ export class ClaudeCli extends EventEmitter {
 
     this.log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
 
-    this.process = spawn(claudePath, args, {
+    this.process = crossSpawn(claudePath, args, {
       cwd: this.options.workingDir,
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -11,7 +11,7 @@
  * Defaults to haiku for speed/cost efficiency.
  */
 
-import { spawn } from 'child_process';
+import { crossSpawn } from '../utils/spawn.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('query');
@@ -84,7 +84,7 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
     let stderr = '';
     let resolved = false;
 
-    const proc = spawn(claudePath, args, {
+    const proc = crossSpawn(claudePath, args, {
       cwd: workingDir || process.cwd(),
       env: process.env,
       stdio: ['pipe', 'pipe', 'pipe'],

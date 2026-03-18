@@ -17,7 +17,8 @@
  */
 
 import { writeFileSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
+import { tmpdir } from 'os';
 
 // Read session ID from command line args
 const sessionId = process.argv[2];
@@ -63,7 +64,7 @@ process.stdin.on('end', () => {
       };
 
       // Write to temp file
-      const filePath = `/tmp/claude-threads-status-${sessionId}.json`;
+      const filePath = join(tmpdir(), `claude-threads-status-${sessionId}.json`);
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, JSON.stringify(output, null, 2));
     }

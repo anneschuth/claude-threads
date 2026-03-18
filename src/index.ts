@@ -177,15 +177,34 @@ async function main() {
     // The entry point is dist/index.js (where this code is running from)
     const binPath = __filename;
 
-    const child = spawn(daemonPath, ['--restart-on-error', ...args], {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        CLAUDE_THREADS_BIN: binPath,
-      },
-    });
+    // On Windows, the daemon is a bash script that can't be spawned directly.
+    // Use bash (from Git for Windows / WSL) if available, otherwise skip daemon.
+    let child;
+    if (process.platform === 'win32') {
+      child = spawn('bash', [daemonPath, '--restart-on-error', ...args], {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          CLAUDE_THREADS_BIN: binPath,
+        },
+      });
+    } else {
+      child = spawn(daemonPath, ['--restart-on-error', ...args], {
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          CLAUDE_THREADS_BIN: binPath,
+        },
+      });
+    }
 
     child.on('error', (err) => {
+      if (process.platform === 'win32') {
+        console.error(`Failed to start daemon: ${err.message}`);
+        console.error('Auto-restart requires bash (Git for Windows or WSL). Running without auto-restart.');
+        // Fall through to normal startup by calling main() logic below
+        return;
+      }
       console.error(`Failed to start daemon: ${err.message}`);
       process.exit(1);
     });
