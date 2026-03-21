@@ -7,7 +7,7 @@
  * writes it to a file for claude-threads to read, and outputs
  * a minimal status line (or empty string to not affect user's status line).
  *
- * The file is written to /tmp/claude-threads-status-<session-id>.json
+ * The file is written to <os.tmpdir()>/claude-threads-status-<session-id>.json
  *
  * Usage (configured in Claude Code settings):
  *   statusLine: {
