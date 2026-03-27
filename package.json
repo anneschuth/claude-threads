@@ -117,12 +117,14 @@
     "hono": "$hono",
     "@hono/node-server": "$@hono/node-server",
     "express-rate-limit": "$express-rate-limit",
-    "flatted": ">=3.4.0"
+    "flatted": ">=3.4.0",
+    "picomatch": ">=2.3.2"
   },
   "resolutions": {
     "hono": "$hono",
     "@hono/node-server": "$@hono/node-server",
     "express-rate-limit": "$express-rate-limit",
-    "flatted": ">=3.4.0"
+    "flatted": ">=3.4.0",
+    "picomatch": ">=2.3.2"
   }
 }
