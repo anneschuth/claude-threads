@@ -117,8 +117,11 @@ program
 
 const opts = program.opts();
 
-// Determine headless mode: explicit flag or auto-detect when no TTY
-const isHeadless = opts.headless || !process.stdout.isTTY || !process.stdin.isTTY;
+// Determine headless mode: explicit flag or auto-detect when no TTY.
+// CLAUDE_THREADS_INTERACTIVE is set by the daemon wrapper to override TTY detection,
+// since background jobs (&) lose TTY assignment even when the parent terminal is interactive.
+const forcedInteractive = !!process.env.CLAUDE_THREADS_INTERACTIVE;
+const isHeadless = opts.headless || (!forcedInteractive && (!process.stdout.isTTY || !process.stdin.isTTY));
 
 // Check if required args are provided via CLI
 function hasRequiredCliArgs(args: typeof opts): boolean {
@@ -186,6 +189,10 @@ async function main() {
         env: {
           ...process.env,
           CLAUDE_THREADS_BIN: binPath,
+          // Tell the child process we started from an interactive terminal.
+          // The daemon runs the child as a background job (&) which loses TTY,
+          // causing false headless detection without this flag.
+          ...(process.stdout.isTTY ? { CLAUDE_THREADS_INTERACTIVE: '1' } : {}),
         },
       });
     } else {
@@ -194,6 +201,7 @@ async function main() {
         env: {
           ...process.env,
           CLAUDE_THREADS_BIN: binPath,
+          ...(process.stdout.isTTY ? { CLAUDE_THREADS_INTERACTIVE: '1' } : {}),
         },
       });
     }

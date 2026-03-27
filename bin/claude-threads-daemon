@@ -23,6 +23,9 @@
 # Environment variables:
 #   CLAUDE_THREADS_MAX_RESTARTS - Maximum restart attempts (default: unlimited)
 #   CLAUDE_THREADS_RESTART_DELAY - Delay between restarts in seconds (default: 2)
+#   CLAUDE_THREADS_INTERACTIVE - Set by index.ts when spawning the daemon to
+#                                indicate the parent had an interactive terminal.
+#                                Passed through to the child process.
 #
 
 set -e
