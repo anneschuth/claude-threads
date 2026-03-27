@@ -371,7 +371,6 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     }, { onCancel });
 
     if (platformType === 'done') {
-      addMore = false;
       break;
     }
 
@@ -477,9 +476,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
 
 async function runReconfigureFlow(existingConfig: Config): Promise<void> {
   let config = { ...existingConfig, platforms: [...existingConfig.platforms] };
-  let keepReconfiguring = true;
-
-  while (keepReconfiguring) {
+  while (true) {
     console.log('');
     console.log(bold('  What would you like to reconfigure?'));
     console.log('');
@@ -518,7 +515,6 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
     }, { onCancel });
 
     if (action === 'done') {
-      keepReconfiguring = false;
       break;
     }
 

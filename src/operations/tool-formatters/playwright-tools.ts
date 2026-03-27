@@ -33,7 +33,7 @@ export const playwrightToolsFormatter: ToolFormatter = {
       case 'browser_navigate': {
         const url = (input.url as string) || '';
         // Extract domain from URL for display
-        let domain = url;
+        let domain: string;
         try {
           domain = new URL(url).hostname;
         } catch {
@@ -61,7 +61,7 @@ export const playwrightToolsFormatter: ToolFormatter = {
         const time = input.time as number | undefined;
         const selector = input.selector as string | undefined;
 
-        let waitFor = '';
+        let waitFor: string;
         if (time) waitFor = `${time}ms`;
         else if (selector) waitFor = truncateWithEllipsis(selector, 30);
         else waitFor = 'condition';

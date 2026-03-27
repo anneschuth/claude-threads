@@ -19,7 +19,7 @@ import type { UIProvider, StartUIOptions } from './types.js';
 export class InkProvider implements UIProvider {
   private options: StartUIOptions;
   private handlers: AppHandlers | null = null;
-  private waitUntilExitFn: (() => Promise<void>) | null = null;
+  private waitUntilExitFn: (() => Promise<unknown>) | null = null;
   private onResize: (() => void) | null = null;
   private exitPromiseResolve: (() => void) | null = null;
   private exitPromise: Promise<void>;
@@ -99,7 +99,8 @@ export class InkProvider implements UIProvider {
 
   async waitUntilExit(): Promise<void> {
     if (this.waitUntilExitFn) {
-      return this.waitUntilExitFn();
+      await this.waitUntilExitFn();
+      return;
     }
     return this.exitPromise;
   }

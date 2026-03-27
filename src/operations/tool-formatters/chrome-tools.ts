@@ -38,10 +38,9 @@ export const chromeToolsFormatter: ToolFormatter = {
     const url = (input.url as string) || '';
     const text = (input.text as string) || '';
 
-    let detail = '';
-
     switch (tool) {
       case 'computer': {
+        let detail: string;
         switch (action) {
           case 'screenshot':
             detail = 'screenshot';
