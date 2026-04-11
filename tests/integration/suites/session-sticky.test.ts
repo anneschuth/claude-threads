@@ -29,19 +29,20 @@ const TEST_PLATFORMS = (process.env.TEST_PLATFORMS || 'mattermost').split(',') a
 const STICKY_REGEX = /claude-threads|Claude.*Threads|Active.*Claude/i;
 
 /**
- * Poll for the sticky message to appear in pinned posts.
- * The bot's createPost can retry on 500 errors (500ms delay), so we need
- * to wait longer than a fixed 100ms.
+ * Poll for the sticky message to appear in channel posts.
+ * Uses channel posts instead of pinned posts because bot accounts
+ * in Mattermost don't have pin permissions by default.
+ * The bot's createPost can retry on 500 errors, so we poll.
  */
 async function waitForStickyPost(
   adminApi: MattermostTestApi,
   channelId: string,
-  timeoutMs = 15000,
+  timeoutMs = 10000,
 ): Promise<{ message: string; id: string } | undefined> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
-    const pinned = await adminApi.getPinnedPosts(channelId);
-    const sticky = pinned.find((p) => STICKY_REGEX.test(p.message));
+    const { posts } = await adminApi.getChannelPosts(channelId, { per_page: 20 });
+    const sticky = Object.values(posts).find((p) => STICKY_REGEX.test(p.message));
     if (sticky) return sticky;
     await new Promise((r) => setTimeout(r, 250));
   }
