@@ -511,18 +511,24 @@ export class ClaudeCli extends EventEmitter {
   }
 
   private getMcpServerPath(): string {
-    // Get the path to the MCP permission server
-    // When running from source: src/mcp/permission-server.ts -> dist/mcp/permission-server.js
-    // When installed globally: the bin entry points to dist/mcp/permission-server.js
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
+    // When bundled with bun build, __dirname is dist/ (not dist/claude/)
+    // Try the bundled path first, then fall back to source layout
+    const bundledPath = resolve(__dirname, 'mcp', 'permission-server.js');
+    if (existsSync(bundledPath)) {
+      return bundledPath;
+    }
     return resolve(__dirname, '..', 'mcp', 'permission-server.js');
   }
 
   private getStatusLineWriterPath(): string {
-    // Get the path to the status line writer script
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
+    const bundledPath = resolve(__dirname, 'statusline', 'writer.js');
+    if (existsSync(bundledPath)) {
+      return bundledPath;
+    }
     return resolve(__dirname, '..', 'statusline', 'writer.js');
   }
 }
