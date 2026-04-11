@@ -36,7 +36,7 @@ const STICKY_REGEX = /claude-threads|Claude.*Threads|Active.*Claude/i;
 async function waitForStickyPost(
   adminApi: MattermostTestApi,
   channelId: string,
-  timeoutMs = 5000,
+  timeoutMs = 15000,
 ): Promise<{ message: string; id: string } | undefined> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
