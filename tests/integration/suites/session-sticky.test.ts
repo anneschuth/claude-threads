@@ -96,7 +96,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
 
         // The sticky message should contain bot branding
         const stickyPost = pinnedPosts.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
         expect(stickyPost).toBeDefined();
       });
@@ -120,7 +120,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         await new Promise((r) => setTimeout(r, 100));
         const initialPinned = await adminApi.getPinnedPosts(ctx.channelId);
         const initialSticky = initialPinned.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
 
         // Start a session
@@ -135,7 +135,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         // Get updated sticky message
         const updatedPinned = await adminApi.getPinnedPosts(ctx.channelId);
         const updatedSticky = updatedPinned.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
 
         expect(updatedSticky).toBeDefined();
@@ -179,7 +179,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         // Check sticky message reflects multiple sessions
         const pinnedPosts = await adminApi.getPinnedPosts(ctx.channelId);
         const stickyPost = pinnedPosts.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
 
         expect(stickyPost).toBeDefined();
@@ -215,7 +215,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
 
         const pinnedPosts = await adminApi.getPinnedPosts(ctx.channelId);
         const stickyPost = pinnedPosts.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
 
         expect(stickyPost).toBeDefined();
@@ -237,7 +237,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
 
         const pinnedPosts = await adminApi.getPinnedPosts(ctx.channelId);
         const stickyPost = pinnedPosts.find((p) =>
-          /claude-threads|Chat.*Claude/i.test(p.message)
+          /claude-threads|Claude.*Threads|Active.*Claude/i.test(p.message)
         );
 
         expect(stickyPost).toBeDefined();
