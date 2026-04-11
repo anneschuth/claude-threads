@@ -97,9 +97,12 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
         // Wait for bot to respond with tool_use content
         // The mock scenario emits: assistant (with tool_use) -> tool_result -> assistant (done) -> result
+        // Wait for the completion message to appear (not just a post count)
+        // The mock scenario posts: header, tool_use content, then "Done! I've written..."
+        // With CI POST /posts retries, posts can be delayed, so wait for actual content.
         await waitForBotResponse(ctx, rootPost.id, {
           timeout: 30000,
-          minResponses: 2, // Session header + response with tool_use
+          pattern: /Done|written/i,
         });
 
         // Wait for session to end (result event)
@@ -108,12 +111,6 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const allPosts = await getThreadPosts(ctx, rootPost.id);
         const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
 
-        // Debug: Log all bot posts to understand what's happening
-        console.error(`[TEST DEBUG] Found ${botPosts.length} bot posts:`);
-        botPosts.forEach((p, i) => {
-          console.error(`[TEST DEBUG] Post ${i}: ${p.message.substring(0, 200)}...`);
-        });
-
         // Verify we have meaningful responses
         expect(botPosts.length).toBeGreaterThanOrEqual(2);
 
@@ -121,14 +118,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const hasToolContent = botPosts.some((p) =>
           p.message.includes('Write') || p.message.includes('write') || p.message.includes('file')
         );
-        console.error(`[TEST DEBUG] hasToolContent: ${hasToolContent}`);
         expect(hasToolContent).toBe(true);
-
-        // Check that completion message was posted
-        const hasCompletionMessage = botPosts.some((p) =>
-          p.message.includes('Done') || p.message.includes('written')
-        );
-        expect(hasCompletionMessage).toBe(true);
       });
 
       it('should show tool name and action in tool_use posts', async () => {
@@ -141,10 +131,10 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const rootPost = await startSession(ctx, 'Create a test file', getBotUsername());
         testThreadIds.push(rootPost.id);
 
-        // Wait for bot to respond
+        // Wait for the write action to appear in bot posts
         await waitForBotResponse(ctx, rootPost.id, {
           timeout: 30000,
-          minResponses: 2,
+          pattern: /write|file/i,
         });
 
         // Wait for session to end
@@ -158,12 +148,6 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         // - "I'll write that to a file for you" + Write tool info
         // - "Done! I've written the content..."
         expect(botPosts.length).toBeGreaterThanOrEqual(2);
-
-        // Verify the response flow is complete
-        const hasWriteAction = botPosts.some((p) =>
-          /write|file/i.test(p.message)
-        );
-        expect(hasWriteAction).toBe(true);
       });
     });
 
@@ -178,26 +162,15 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const rootPost = await startSession(ctx, 'Write without asking', getBotUsername());
         testThreadIds.push(rootPost.id);
 
-        // Wait for completion - with skipPermissions, tools execute without prompts
+        // Wait for the completion message (not just a post count).
+        // With CI POST /posts retries, posts can be delayed.
         await waitForBotResponse(ctx, rootPost.id, {
           timeout: 30000,
-          minResponses: 2,
+          pattern: /done|written|success/i,
         });
 
         // Wait for session to end
         await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 10000 });
-
-        const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
-
-        // Should have responses and tool execution completed
-        expect(botPosts.length).toBeGreaterThanOrEqual(2);
-
-        // Verify tool completed without prompts (look for completion message)
-        const hasCompletion = botPosts.some((p) =>
-          /done|written|success/i.test(p.message)
-        );
-        expect(hasCompletion).toBe(true);
 
         // Session should be ended (no pending permission prompts blocking)
         expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
