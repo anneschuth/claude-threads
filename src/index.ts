@@ -189,10 +189,10 @@ async function main() {
         env: {
           ...process.env,
           CLAUDE_THREADS_BIN: binPath,
-          // Tell the child process we started from an interactive terminal.
-          // The daemon runs the child as a background job (&) which loses TTY,
-          // causing false headless detection without this flag.
-          ...(process.stdout.isTTY ? { CLAUDE_THREADS_INTERACTIVE: '1' } : {}),
+          // Clear CLAUDE_THREADS_INTERACTIVE so the daemon subprocess detects
+          // its own TTY state. The daemon runs with piped stdio (no TTY), so
+          // forwarding the parent's TTY state would cause InkProvider to crash.
+          CLAUDE_THREADS_INTERACTIVE: '',
         },
       });
     } else {
@@ -201,7 +201,7 @@ async function main() {
         env: {
           ...process.env,
           CLAUDE_THREADS_BIN: binPath,
-          ...(process.stdout.isTTY ? { CLAUDE_THREADS_INTERACTIVE: '1' } : {}),
+          CLAUDE_THREADS_INTERACTIVE: '',
         },
       });
     }
