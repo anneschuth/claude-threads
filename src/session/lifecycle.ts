@@ -57,6 +57,19 @@ function mutableSessions(ctx: SessionContext): Map<string, Session> {
 }
 
 /**
+ * Count of startSession() calls that have passed the maxSessions cap check but
+ * haven't yet committed themselves to the sessions map. Every await between
+ * the check and the commit is a window where a concurrent startSession can
+ * also pass the check, so we count reservations synchronously alongside the
+ * map's size. Every exit path in startSession decrements via releasePendingStart().
+ */
+let pendingStartsCount = 0;
+
+function releasePendingStart(): void {
+  if (pendingStartsCount > 0) pendingStartsCount--;
+}
+
+/**
  * Get postIndex map with correct mutable type.
  * Reduces type casting noise throughout the module.
  */
@@ -735,8 +748,11 @@ export async function startSession(
     throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
   }
 
-  // Check max sessions limit
-  if (ctx.state.sessions.size >= ctx.config.maxSessions) {
+  // Check max sessions limit. Count pending starts alongside committed sessions
+  // — without this, concurrent startSession() calls all see the same stale size
+  // across the awaits below and over-admit above the configured cap.
+  const activeOrPending = ctx.state.sessions.size + pendingStartsCount;
+  if (activeOrPending >= ctx.config.maxSessions) {
     const formatter = platform.getFormatter();
     // Create a temporary pseudo-session just for posting the message
     // (we don't have a real session yet since we're at capacity)
@@ -745,9 +761,14 @@ export async function startSession(
       threadId: replyToPostId || '',
       sessionId: 'temp',
     } as Session;
-    await post(tempSession, 'warning', `${formatter.formatBold('Too busy')} - ${ctx.state.sessions.size} sessions active. Please try again later.`);
+    await post(tempSession, 'warning', `${formatter.formatBold('Too busy')} - ${activeOrPending} sessions active. Please try again later.`);
     return;
   }
+
+  // Reserve a slot synchronously so concurrent starts see the correct count
+  // at their own cap check. Every early-exit below must release; the success
+  // path releases after the session is committed to the sessions map.
+  pendingStartsCount++;
 
   // Post initial session message (kept short to minimize popup notification size)
   // The full session info is shown when updateSessionHeader() is called shortly after
@@ -759,7 +780,10 @@ export async function startSession(
     ),
     { action: 'Create session post' }
   );
-  if (!startPost) return;
+  if (!startPost) {
+    releasePendingStart();
+    return;
+  }
   const actualThreadId = replyToPostId || startPost.id;
   const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
@@ -788,12 +812,14 @@ export async function startSession(
 
     if (!existsSync(resolvedDir)) {
       await platform.updatePost(startPost.id, `❌ Directory does not exist: ${formatter.formatCode(initialOptions.workingDir)}`);
+      releasePendingStart();
       return;
     }
 
     const { statSync } = await import('fs');
     if (!statSync(resolvedDir).isDirectory()) {
       await platform.updatePost(startPost.id, `❌ Not a directory: ${formatter.formatCode(initialOptions.workingDir)}`);
+      releasePendingStart();
       return;
     }
 
@@ -881,8 +907,10 @@ export async function startSession(
     workingDir: ctx.config.workingDir,
   });
 
-  // Register session
+  // Register session — the reservation can now be released since the real
+  // entry is now in the map and counted by .size.
   mutableSessions(ctx).set(sessionId, session);
+  releasePendingStart();
   ctx.ops.registerPost(startPost.id, actualThreadId);
   ctx.ops.emitSessionAdd(session);
   sessionLog(session).info(`▶ Session started by @${username}`);
