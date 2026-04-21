@@ -143,6 +143,12 @@ async function main() {
     if (opts.autoRestart === false) return false;
     if (opts.autoRestart === true) return true;
 
+    // The daemon wrapper runs the child with piped stdio (bash `&`), so the
+    // Ink TUI can't render. When the user has an interactive terminal and
+    // hasn't explicitly asked for --headless, skip the daemon so they keep
+    // the UI. They can opt in with --auto-restart or run --headless.
+    if (!isHeadless && process.stdout.isTTY) return false;
+
     // Check config for autoUpdate.enabled (if config exists)
     // Default is enabled=true, so only disable if explicitly set to false
     if (await checkConfigExists()) {
