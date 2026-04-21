@@ -337,20 +337,32 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | Set `1` for debug logging |
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials from Bash, hook, and stdio-MCP subprocesses it spawns. Recommended when the bot's users are not fully trusted. Requires Claude CLI 2.1.83+. |
+
+The bot also sets two Claude CLI tuning flags by default on the child process,
+and only if you haven't already set them in the parent env:
+
+- `MCP_CONNECTION_NONBLOCKING=true` — caps `--mcp-config` server connects at 5s
+  so a slow MCP server never blocks session start (Claude CLI 2.1.89+).
+- `ENABLE_PROMPT_CACHING_1H=true` — opts into the 1-hour prompt cache TTL,
+  reducing re-caching cost on long-lived threads (Claude CLI 2.1.108+).
+
+Export either with a non-default value (e.g. `MCP_CONNECTION_NONBLOCKING=false`)
+to disable.
 
 ### Claude CLI Version Requirements
 
 claude-threads requires a compatible version of the Claude CLI (`@anthropic-ai/claude-code`).
 
-**Compatible versions:** `>=2.0.74 <=2.0.76`
+**Compatible versions:** `>=2.0.74 <2.2.0` (covers the full 2.1.x line; latest verified: 2.1.116)
 
 The version is checked at startup. If an incompatible version is detected:
 - The bot will display an error message and exit
 - Use `--skip-version-check` to bypass (not recommended)
 
-To install a specific compatible version:
+To install the latest verified compatible version:
 ```bash
-npm install -g @anthropic-ai/claude-code@2.0.76
+npm install -g @anthropic-ai/claude-code@2.1.116
 ```
 
 The Claude CLI version is displayed:

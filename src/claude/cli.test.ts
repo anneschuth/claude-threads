@@ -3,7 +3,12 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { ClaudeCli, type ClaudeCliOptions, type StatusLineData } from './cli.js';
+import {
+  ClaudeCli,
+  buildClaudeChildEnv,
+  type ClaudeCliOptions,
+  type StatusLineData,
+} from './cli.js';
 
 describe('ClaudeCli', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -198,6 +203,61 @@ describe('ClaudeCli', () => {
       callGuard(cli, 'context limit approaching');
 
       expect(hits).toHaveLength(0);
+    });
+  });
+
+  describe('buildClaudeChildEnv', () => {
+    test('applies always-on tuning flags when parent env has none', () => {
+      const env = buildClaudeChildEnv({ PATH: '/usr/bin' });
+      expect(env.MCP_CONNECTION_NONBLOCKING).toBe('true');
+      expect(env.ENABLE_PROMPT_CACHING_1H).toBe('true');
+      expect(env.PATH).toBe('/usr/bin');
+    });
+
+    test('respects parent overrides for tuning flags', () => {
+      const env = buildClaudeChildEnv({
+        MCP_CONNECTION_NONBLOCKING: 'false',
+        ENABLE_PROMPT_CACHING_1H: '0',
+      });
+      expect(env.MCP_CONNECTION_NONBLOCKING).toBe('false');
+      expect(env.ENABLE_PROMPT_CACHING_1H).toBe('0');
+    });
+
+    test('passes through opt-in hardening flags like SUBPROCESS_ENV_SCRUB', () => {
+      const env = buildClaudeChildEnv({ CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: '1' });
+      expect(env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB).toBe('1');
+    });
+
+    test('account.home swaps HOME and clears competing credentials', () => {
+      const parent = {
+        HOME: '/home/bot',
+        ANTHROPIC_API_KEY: 'sk-bot',
+        CLAUDE_CODE_OAUTH_TOKEN: 'oauth-bot',
+      };
+      const env = buildClaudeChildEnv(parent, { id: 'a', home: '/home/alt' });
+      expect(env.HOME).toBe('/home/alt');
+      expect(env.USERPROFILE).toBe('/home/alt');
+      expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    });
+
+    test('account.apiKey overrides key and clears inherited OAuth token', () => {
+      const parent = {
+        HOME: '/home/bot',
+        CLAUDE_CODE_OAUTH_TOKEN: 'oauth-bot',
+      };
+      const env = buildClaudeChildEnv(parent, { id: 'b', apiKey: 'sk-alt' });
+      expect(env.ANTHROPIC_API_KEY).toBe('sk-alt');
+      expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+      // HOME must not move when only apiKey is set.
+      expect(env.HOME).toBe('/home/bot');
+    });
+
+    test('does not mutate the passed-in parent env', () => {
+      const parent: NodeJS.ProcessEnv = { PATH: '/usr/bin' };
+      buildClaudeChildEnv(parent);
+      expect(parent.MCP_CONNECTION_NONBLOCKING).toBeUndefined();
+      expect(parent.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
     });
   });
 });

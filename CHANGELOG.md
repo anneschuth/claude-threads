@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Pass `MCP_CONNECTION_NONBLOCKING=true` to the Claude child** — caps `--mcp-config` connects at 5s so a slow MCP server never delays session startup. Requires Claude CLI 2.1.89+. Set it explicitly in the bot's own env to override.
+- **Pass `ENABLE_PROMPT_CACHING_1H=true` to the Claude child** — opts into the 1-hour prompt cache TTL, meaningfully reducing re-caching cost on long-lived threads that idle past the default 5-minute window. Requires Claude CLI 2.1.108+. Set it explicitly in the bot's own env to override.
+- **Documented `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`** as an opt-in hardening flag. When set on the bot's env it passes through to Claude, which then strips Anthropic and cloud credentials from any Bash, hook, or stdio MCP subprocess it spawns. Recommended when bot users are not fully trusted. Requires Claude CLI 2.1.83+.
+
+### Fixed
+- **Stale Claude CLI version range in `CLAUDE.md`** — the docs said `>=2.0.74 <=2.0.76`, but the actual pin in `version-check.ts` has been `>=2.0.74 <2.2.0` since v1.x. Also bumped the "install a compatible version" hint in the runtime error from `@2.1.1` to `@2.1.116`.
+
 ## [1.7.1] - 2026-04-21
 
 ### Fixed

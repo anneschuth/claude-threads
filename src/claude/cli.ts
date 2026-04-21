@@ -144,6 +144,43 @@ export interface ClaudeCliAccount {
 }
 
 /**
+ * Assemble the env that Claude CLI will spawn with. Pure function so it can be
+ * unit-tested without instantiating the class. See `ClaudeCli.buildChildEnv`
+ * for the behavior contract — this function implements it.
+ */
+export function buildClaudeChildEnv(
+  parentEnv: NodeJS.ProcessEnv,
+  account?: ClaudeCliAccount
+): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...parentEnv };
+
+  // Always-on tuning flags (opt-out by setting them in the parent env).
+  if (env.MCP_CONNECTION_NONBLOCKING === undefined) {
+    env.MCP_CONNECTION_NONBLOCKING = 'true';
+  }
+  if (env.ENABLE_PROMPT_CACHING_1H === undefined) {
+    env.ENABLE_PROMPT_CACHING_1H = 'true';
+  }
+
+  if (account?.home) {
+    env.HOME = account.home;
+    env.USERPROFILE = account.home;
+    // OAuth lives under HOME, so clear env vars that would otherwise beat
+    // the file-based credentials we're pointing at: an inherited API key
+    // or OAuth token from the bot's own parent env would silently swap the
+    // account we thought we were using.
+    delete env.ANTHROPIC_API_KEY;
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  } else if (account?.apiKey) {
+    env.ANTHROPIC_API_KEY = account.apiKey;
+    // Clear an inherited OAuth token so API key billing wins.
+    delete env.CLAUDE_CODE_OAUTH_TOKEN;
+  }
+
+  return env;
+}
+
+/**
  * True when a Claude `result` event carries an error payload. Gates the
  * rate-limit scanner so assistant text in successful turns (which can legally
  * contain phrases like "rate_limit_error" when the user asks about them) can't
@@ -601,8 +638,19 @@ export class ClaudeCli extends EventEmitter {
   /**
    * Build the env object for the spawned Claude process.
    *
-   * Without `options.account` we pass `process.env` through unchanged so
-   * existing single-account users see no difference. With an account:
+   * Starts from `process.env` so the parent's environment (including any
+   * opt-in hardening like `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1`) is inherited,
+   * then layers in two always-on tuning flags and optional account overrides.
+   *
+   * Always-on tuning:
+   * - `MCP_CONNECTION_NONBLOCKING=true` caps `--mcp-config` server connects
+   *   at 5s (Claude CLI 2.1.89+), so a slow MCP server never delays startup.
+   * - `ENABLE_PROMPT_CACHING_1H=true` opts into the 1-hour prompt cache TTL
+   *   (Claude CLI 2.1.108+), which meaningfully reduces re-caching cost on
+   *   long-lived threads that idle past the default 5-minute window.
+   * Both only take effect when not already set, so users can still override.
+   *
+   * Account overrides (when `options.account` is set):
    * - `home` set → override `HOME` (and `USERPROFILE` on Windows). Claude
    *   reads `.credentials.json`, `.claude/projects/*`, and MCP config from
    *   this directory, so the child session runs fully under that account's
@@ -616,28 +664,7 @@ export class ClaudeCli extends EventEmitter {
    * env-assembly logic straightforward to audit.
    */
   private buildChildEnv(): NodeJS.ProcessEnv {
-    const account = this.options.account;
-    if (!account) return process.env;
-
-    const env: NodeJS.ProcessEnv = { ...process.env };
-
-    if (account.home) {
-      env.HOME = account.home;
-      env.USERPROFILE = account.home;
-      // OAuth lives under HOME, so clear env vars that would otherwise beat
-      // the file-based credentials we're pointing at: an inherited API key
-      // (ANTHROPIC_API_KEY) or an inherited OAuth token
-      // (CLAUDE_CODE_OAUTH_TOKEN) from the bot's own parent env would both
-      // silently swap the account we thought we were using.
-      delete env.ANTHROPIC_API_KEY;
-      delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    } else if (account.apiKey) {
-      env.ANTHROPIC_API_KEY = account.apiKey;
-      // Clear an inherited OAuth token so API key billing wins.
-      delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    }
-
-    return env;
+    return buildClaudeChildEnv(process.env, this.options.account);
   }
 
   private getMcpServerPath(): string {

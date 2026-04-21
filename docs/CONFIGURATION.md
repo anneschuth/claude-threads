@@ -107,6 +107,19 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `SESSION_TIMEOUT_MS` | Idle timeout in milliseconds | `1800000` (30 min) |
 | `NO_UPDATE_NOTIFIER` | Disable update checks | - |
 | `DEBUG` | Enable verbose logging | - |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip Anthropic and cloud credentials from subprocesses Claude spawns (Bash, hooks, stdio MCP). Recommended when bot users are not fully trusted. Requires Claude CLI 2.1.83+. | - |
+
+### Forwarded to Claude CLI automatically
+
+The bot sets two tuning flags on the Claude child process when they aren't
+already present in the bot's environment:
+
+| Variable | Effect | Requires |
+|----------|--------|----------|
+| `MCP_CONNECTION_NONBLOCKING=true` | Caps `--mcp-config` connects at 5s so a slow MCP server never delays startup | Claude CLI 2.1.89+ |
+| `ENABLE_PROMPT_CACHING_1H=true` | Opts into 1-hour prompt cache TTL, cutting re-caching cost on long-lived threads | Claude CLI 2.1.108+ |
+
+Export either with a different value in the bot's own env to disable.
 
 ## CLI Options
 

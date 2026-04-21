@@ -283,7 +283,7 @@ export function validateClaudeCli(): ClaudeValidationResult {
       version: result.version,
       compatible: false,
       message: `Claude CLI version ${result.version} is not compatible. Required: ${CLAUDE_CLI_VERSION_RANGE}\n` +
-        `Install a compatible version: npm install -g @anthropic-ai/claude-code@2.1.1`,
+        `Install a compatible version: npm install -g @anthropic-ai/claude-code@2.1.116`,
       rawOutput: result.rawOutput ?? undefined,
     };
   }
