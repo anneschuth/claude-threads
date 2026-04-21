@@ -337,7 +337,7 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | Set `1` for debug logging |
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
-| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials from Bash, hook, and stdio-MCP subprocesses it spawns. Recommended when the bot's users are not fully trusted. Requires Claude CLI 2.1.83+. |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `GOOGLE_APPLICATION_CREDENTIALS`) from Bash, hook, and stdio-MCP subprocesses it spawns. Bot env vars like `PLATFORM_TOKEN` / `MATTERMOST_TOKEN` / `SLACK_BOT_TOKEN` pass through untouched — verified empirically against CLI 2.1.116. **Side effect:** setting this also forces permission mode to `default` — Claude will refuse `--dangerously-skip-permissions` and log a warning. Only enable if all your sessions run with interactive permissions. Requires Claude CLI 2.1.83+. |
 
 The bot also sets two Claude CLI tuning flags by default on the child process,
 and only if you haven't already set them in the parent env:

@@ -310,6 +310,29 @@ async function startWithoutDaemon() {
     process.exit(1);
   }
 
+  // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
+  // forces Claude CLI into permissionMode: default and rejects
+  // --dangerously-skip-permissions (verified on CLI 2.1.116). If any platform is
+  // configured with skipPermissions: true, the user will see repeated warnings
+  // from Claude and their sessions won't behave as configured.
+  if (process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB === '1') {
+    const hasSkipPermissionPlatform = config.platforms.some(
+      (p) => (p as MattermostPlatformConfig | SlackPlatformConfig).skipPermissions === true
+    );
+    if (hasSkipPermissionPlatform) {
+      console.error(
+        red('  ⚠️  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1 is set but a platform has skipPermissions: true.')
+      );
+      console.error(
+        dim('     Claude CLI will force permissionMode: default and reject --dangerously-skip-permissions.')
+      );
+      console.error(
+        dim('     Either unset the env var or set skipPermissions: false on all platforms.')
+      );
+      console.error('');
+    }
+  }
+
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
 

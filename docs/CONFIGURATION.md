@@ -107,7 +107,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `SESSION_TIMEOUT_MS` | Idle timeout in milliseconds | `1800000` (30 min) |
 | `NO_UPDATE_NOTIFIER` | Disable update checks | - |
 | `DEBUG` | Enable verbose logging | - |
-| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip Anthropic and cloud credentials from subprocesses Claude spawns (Bash, hooks, stdio MCP). Recommended when bot users are not fully trusted. Requires Claude CLI 2.1.83+. | - |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*` / `AWS_*_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN` / `GOOGLE_APPLICATION_CREDENTIALS` etc. from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`** — `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
 
 ### Forwarded to Claude CLI automatically
 
