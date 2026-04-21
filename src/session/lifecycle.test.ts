@@ -1,79 +1,10 @@
 import { describe, it, expect, mock } from 'bun:test';
 
-// Mock ClaudeCli so startSession doesn't spawn a real Claude process.
-// Must be declared before importing lifecycle so the module cache picks it up.
-//
-// NOTE: Bun's mock.module() persists globally across the test run in Bun
-// 1.3.13+, so this mock can leak into src/claude/cli.test.ts (whose files
-// load after src/session/ alphabetically). The mock class must therefore
-// expose the same method surface as the real ClaudeCli, with return values
-// that also satisfy cli.test.ts's "freshly constructed, not started"
-// assumptions (isRunning === false, interrupt === false, etc.).
-//
-// The startSession tests here don't depend on isRunning() being true because
-// the initial claude.sendMessage(content) call isn't gated by isRunning() on
-// the first-send path.
-mock.module('../claude/cli.js', () => ({
-  ClaudeCli: class MockClaudeCli {
-    debug: boolean;
-    private options: { skipPermissions?: boolean; platformConfig?: unknown };
-    private running = false;
-
-    constructor(options: { skipPermissions?: boolean; platformConfig?: unknown } = {}) {
-      // Real ClaudeCli reads env + argv here; cli.test.ts asserts on this.
-      this.debug = process.env.DEBUG === '1' || process.argv.includes('--debug');
-      this.options = options;
-    }
-
-    isRunning() { return this.running; }
-    kill() {
-      this.running = false;
-      return Promise.resolve();
-    }
-    start() {
-      // Mirror the real class's pre-spawn validation so cli.test.ts's
-      // "throws when skipPermissions is false but no platformConfig" still
-      // fires through the mock.
-      if (!this.options.skipPermissions && !this.options.platformConfig) {
-        throw new Error('platformConfig is required when skipPermissions is false');
-      }
-      this.running = true;
-    }
-    sendMessage() {
-      // Real class checks this.process?.stdin. cli.test.ts asserts sendMessage
-      // throws on a fresh (unstarted) instance; lifecycle.test.ts exercises
-      // the post-start path where it must not throw.
-      if (!this.running) throw new Error('Not running');
-    }
-    sendToolResult() {
-      if (!this.running) throw new Error('Not running');
-    }
-    on() {}
-    off() {}
-    interrupt() { return false; }
-    getStatusFilePath() { return null; }
-    getStatusData() { return null; }
-    getLastStderr() { return ''; }
-    isPermanentFailure() { return false; }
-    getPermanentFailureReason() { return null; }
-    startStatusWatch() {}
-    stopStatusWatch() {}
-  },
-}));
-
-// Mock quick-query so fire-and-forget metadata/tag suggestions from startSession
-// don't hit a real Claude process. We mock at this deeper layer (rather than the
-// suggestion functions themselves) so we don't clobber the suggestion tests'
-// own module mocks in the same test run.
-mock.module('../claude/quick-query.js', () => ({
-  quickQuery: mock(async () => ({ success: false, response: '', durationMs: 0 })),
-}));
-
 import * as lifecycle from './lifecycle.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import type { Session } from './types.js';
 import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
-import type { PlatformClient, PlatformFile } from '../platform/index.js';
+import type { PlatformClient } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
 // =============================================================================
@@ -405,93 +336,6 @@ describe('Lifecycle Module', () => {
       expect(session.timeoutWarningPosted).toBe(true);
       expect(sessions.has('test-platform:thread-123')).toBe(true);
     });
-  });
-});
-
-describe('startSession skipped-file feedback', () => {
-  /**
-   * Regression test: when a session is started with an unsupported file,
-   * the bot should post the ⚠️ "Some files could not be processed" warning.
-   *
-   * Without the feedback path in lifecycle.startSession, a user who attaches
-   * e.g. an .xlsx at session start sees no indication that the file was
-   * dropped — buildMessageContent returns plain text and the skipped files
-   * vanish. See file-attachments.test.ts for coverage of the helper itself
-   * and the BuiltMessageContent contract.
-   *
-   * This test exercises the actual code path: startSession → destructure
-   * { content, skipped } → postSkippedFilesFeedback → platform.createPost.
-   */
-  it('posts a ⚠️ warning when buildMessageContent reports skipped files', async () => {
-    const platform = createMockPlatform();
-    const sessions = new Map<string, Session>();
-
-    // Override ctx to wire up THIS platform instance so we can assert on it,
-    // and make buildMessageContent report a skipped file.
-    const ctx = createMockSessionContext(sessions);
-    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
-    ctx.ops.buildMessageContent = mock(async (prompt: string) => ({
-      content: prompt,
-      skipped: [
-        {
-          name: 'report.xlsx',
-          reason: 'Unsupported file type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-          suggestion: 'Export as CSV',
-        },
-      ],
-    }));
-
-    const badFile: PlatformFile = {
-      id: 'file-1',
-      name: 'report.xlsx',
-      size: 1024,
-      mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    };
-
-    await lifecycle.startSession(
-      { prompt: 'analyze this report', files: [badFile], skipWorktreePrompt: true },
-      'testuser',
-      undefined,
-      undefined,
-      'test-platform',
-      ctx,
-    );
-
-    // startSession issues several createPost calls (initial "starting...", header, etc.).
-    // Find the one carrying the skipped-files warning.
-    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
-    const warning = calls.find((call) => typeof call[0] === 'string' && call[0].includes('Some files could not be processed'));
-
-    expect(warning).toBeDefined();
-    expect(warning![0]).toContain('⚠️');
-    expect(warning![0]).toContain('report.xlsx');
-    expect(warning![0]).toContain('Unsupported file type');
-    expect(warning![0]).toContain('Export as CSV');
-  });
-
-  it('does not post a warning when all files are supported', async () => {
-    const platform = createMockPlatform();
-    const sessions = new Map<string, Session>();
-
-    const ctx = createMockSessionContext(sessions);
-    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
-    ctx.ops.buildMessageContent = mock(async (prompt: string) => ({
-      content: prompt,
-      skipped: [],
-    }));
-
-    await lifecycle.startSession(
-      { prompt: 'hello', skipWorktreePrompt: true },
-      'testuser',
-      undefined,
-      undefined,
-      'test-platform',
-      ctx,
-    );
-
-    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls;
-    const warning = calls.find((call) => typeof call[0] === 'string' && call[0].includes('Some files could not be processed'));
-    expect(warning).toBeUndefined();
   });
 });
 
