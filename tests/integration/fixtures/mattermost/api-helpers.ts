@@ -82,13 +82,23 @@ export class MattermostTestApi {
   }
 
   /**
-   * Make an API request
+   * Make an API request.
+   *
+   * Retries on HTTP 500 with exponential backoff (500ms, 1s, 2s — same shape
+   * as src/platform/mattermost/client.ts). Mattermost's CreatePost path has
+   * a residual thread-write race even on 10.11.15 that surfaces as transient
+   * 500s ~5 times per integration suite run; the production bot client
+   * absorbs them but this test helper used to throw on the first one,
+   * killing whichever test was unlucky enough to hit it.
    */
   private async api<T>(
     method: string,
     path: string,
     body?: unknown,
+    retryCount = 0,
   ): Promise<T> {
+    const MAX_RETRIES = 3;
+
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
     };
@@ -102,6 +112,12 @@ export class MattermostTestApi {
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
+
+    if (response.status === 500 && retryCount < MAX_RETRIES) {
+      const delay = 500 * Math.pow(2, retryCount);
+      await new Promise((r) => setTimeout(r, delay));
+      return this.api<T>(method, path, body, retryCount + 1);
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

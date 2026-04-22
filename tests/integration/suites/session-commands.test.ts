@@ -429,7 +429,12 @@ describe.skipIf(SKIP)('Session Commands', () => {
         );
 
         expect(confirmPost).toBeDefined();
-        // Session should still be tracked (it restarts, doesn't end)
+        // Session should still be tracked (it restarts, doesn't end). The
+        // confirmation post is emitted before the new Claude process is fully
+        // running, so isInSessionThread (which requires claude.isRunning())
+        // can briefly return false. Wait for the session to be active again
+        // after the restart.
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
         expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
       });
 
