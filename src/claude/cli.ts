@@ -445,9 +445,10 @@ export class ClaudeCli extends EventEmitter {
       ? content.substring(0, 50)
       : `[${content.length} blocks]`;
     this.log.debug(`Sending: ${preview}...`);
-    // Diagnostic for integration tests: trace every sendMessage call.
+    // Diagnostic for integration tests: trace every sendMessage call with caller.
     if (process.env.INTEGRATION_TEST === '1') {
-      process.stderr.write(`[claude-cli sendMessage pid=${this.process.pid}] ${preview}\n`);
+      const stack = new Error().stack?.split('\n').slice(2, 6).join(' > ').replace(/\s+at\s+/g, ' < ') ?? '?';
+      process.stderr.write(`[claude-cli sendMessage pid=${this.process.pid}] ${preview} | ${stack}\n`);
     }
     this.process.stdin.write(msg);
   }
