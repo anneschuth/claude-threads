@@ -965,25 +965,33 @@ export async function startSession(
   const messageText = typeof content === 'string' ? content : options.prompt;
 
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
-  // Offer context prompt if there are previous messages in the thread
-  // Use triggeringPostId (the actual @mention message) to exclude from context, not replyToPostId (thread root)
+  // Offer context prompt if there are previous messages in the thread.
+  // Use triggeringPostId (the actual @mention message) to exclude from
+  // context, not replyToPostId (thread root).
+  //
+  // offerContextPrompt's return value contract:
+  // - returns true:  it posted a prompt (queued the message) — the message
+  //   will be sent later when the user responds.
+  // - returns false: it ALREADY sent the message itself (auto-include or
+  //   no-context branches). Caller must not send again.
+  //
+  // The previous version of this code interpreted false as "didn't send,
+  // please send", causing a duplicate send to Claude — visible in CI as
+  // mock-claude receiving each user message twice and emitting all events
+  // twice. Caught by stack-trace diagnostic in PR #340.
   if (replyToPostId) {
-    // If triggeringPostId is provided, use it; otherwise fall back to replyToPostId for backwards compatibility
     const excludePostId = triggeringPostId || replyToPostId;
-    const contextOffered = await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId);
-    if (contextOffered) {
-      // Context prompt was posted, message is queued
-      // Surface skipped-file warnings before returning so the user sees them early
-      await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
-      // Don't persist yet - offerContextPrompt handles that
-      return;
-    }
+    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId);
+    // Either path inside offerContextPrompt sends or queues. Surface any
+    // skipped-file warnings and return — the fallback claude.sendMessage()
+    // below would be a duplicate.
+    await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
+    return;
   }
 
-  // Increment message counter for first message
+  // No replyToPostId — top-level mention with no thread to inspect.
+  // Increment counter and send directly.
   session.messageCount++;
-
-  // Send the message to Claude (no context prompt, or no previous messages)
   claude.sendMessage(content);
 
   // Surface any skipped attachments to the user
