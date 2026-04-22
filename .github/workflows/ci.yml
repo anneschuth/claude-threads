@@ -10,6 +10,11 @@ on:
     # Run security scan daily at 6 AM UTC
     - cron: "0 6 * * *"
 
+env:
+  # Pin Bun to a known version so a Bun release can't silently break CI.
+  # Bump in lockstep with what's developed against locally.
+  BUN_VERSION: 1.3.3
+
 jobs:
   security:
     runs-on: ubuntu-latest
@@ -19,7 +24,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - run: bun install
 
@@ -45,7 +50,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - run: bun install
 
@@ -63,7 +68,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - run: bun install
 
@@ -78,7 +83,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - run: bun install
 
@@ -130,7 +135,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
       - run: bun install
 
@@ -143,3 +148,37 @@ jobs:
 
       - name: Smoke test - verify binary starts
         run: bun dist/index.js --help
+
+  # The published binary runs under Node, not Bun. Smoke-test under each
+  # currently-supported Node line so we catch accidental use of an API that
+  # only exists on newer Node, which would silently break users on the floor.
+  # Floor (20) is what publish.yml builds against. 22 and 24 are active LTS
+  # and current LTS as of 2026-04.
+  node-smoke:
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: ["20", "22", "24"]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - run: bun install
+      - run: bun run build
+
+      - name: Smoke test under Node ${{ matrix.node-version }}
+        run: |
+          node --version
+          node dist/index.js --help
+          node dist/index.js --version
+          node dist/mcp/permission-server.js --help || true

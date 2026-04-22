@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
 
+env:
+  # Pin Bun to a known version so a Bun release can't silently break a publish.
+  # Bump in lockstep with .github/workflows/ci.yml.
+  BUN_VERSION: 1.3.3
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -12,8 +17,12 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: ${{ env.BUN_VERSION }}
 
+      # Build under the engines.node floor so we catch unsafe API use that
+      # would silently break users on Node 20. CI's node-smoke matrix verifies
+      # the built artifact also runs on 22 and 24. Do not bump this past the
+      # floor without updating engines.node in package.json.
       - uses: actions/setup-node@v6
         with:
           node-version: '20'

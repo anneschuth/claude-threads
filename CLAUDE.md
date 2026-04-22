@@ -350,6 +350,28 @@ and only if you haven't already set them in the parent env:
 Export either with a non-default value (e.g. `MCP_CONNECTION_NONBLOCKING=false`)
 to disable.
 
+### Runtime Version Policy
+
+**Floor**: Node 20 (in maintenance LTS through April 2026), Bun 1.2.21.
+Both are declared in `package.json#engines`.
+
+**Why Node 20 and not higher**: no production dep requires more, and bumping
+the floor strands users on otherwise-supported LTS lines. Forced to 20 by
+`@hono/node-server@2` in v1.8.2.
+
+**CI strategy**:
+- Bun is pinned (`BUN_VERSION` env in every workflow) so a Bun release can't
+  silently break us. Bump in lockstep when upgrading.
+- `publish.yml` builds under Node 20 (the floor) so any unsafe API call that
+  only exists on newer Node breaks the build before reaching users.
+- `ci.yml` has a `node-smoke` matrix (`[20, 22, 24]`) that runs the built
+  binary under each currently-relevant Node line.
+
+**When to bump the floor**: only when a real dep forces it. Update
+`package.json#engines.node`, `publish.yml` Node version, the `node-smoke`
+matrix floor, the README prereqs line, and call it out as breaking in the
+CHANGELOG.
+
 ### Claude CLI Version Requirements
 
 claude-threads requires a compatible version of the Claude CLI (`@anthropic-ai/claude-code`).
