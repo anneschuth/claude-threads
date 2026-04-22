@@ -74,6 +74,13 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       await new Promise((r) => setTimeout(r, 200));
     });
 
+    // The permission-request mock scenario takes ~750ms of internal mock delay,
+    // then ~4 sequential bot posts, each subject to Mattermost's 500-retry
+    // budget (up to 3.5s per recovered post). Worst-case under CI load is
+    // well over 30s. 60s gives enough headroom without slowing happy-path
+    // local runs (mock is fast there).
+    const responseTimeout = process.env.CI ? 60000 : 30000;
+
     // Get the bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
@@ -101,7 +108,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         // The mock scenario posts: header, tool_use content, then "Done! I've written..."
         // With CI POST /posts retries, posts can be delayed, so wait for actual content.
         await waitForBotResponse(ctx, rootPost.id, {
-          timeout: 30000,
+          timeout: responseTimeout,
           pattern: /Done|written/i,
         });
 
@@ -133,7 +140,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
         // Wait for the write action to appear in bot posts
         await waitForBotResponse(ctx, rootPost.id, {
-          timeout: 30000,
+          timeout: responseTimeout,
           pattern: /write|file/i,
         });
 
@@ -165,7 +172,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         // Wait for the completion message (not just a post count).
         // With CI POST /posts retries, posts can be delayed.
         await waitForBotResponse(ctx, rootPost.id, {
-          timeout: 30000,
+          timeout: responseTimeout,
           pattern: /done|written|success/i,
         });
 
@@ -196,7 +203,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
         // Wait for any bot response
         const responses = await waitForBotResponse(ctx, rootPost.id, {
-          timeout: 30000,
+          timeout: responseTimeout,
           minResponses: 1,
         });
 
