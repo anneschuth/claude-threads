@@ -76,11 +76,15 @@ describe.skipIf(SKIP)('Session Limits', () => {
     });
 
     // Five sequential session starts in the rejection test. CI overhead
-    // per start fluctuates — observed: 21.9s (20s), 32.6s (30s), 42.7s (40s).
-    // Each iteration was just-over-budget. 60s gives ~1.5x headroom over
-    // the worst observed value, well under the 120s per-bun-test cap.
-    // Local stays at 10s.
-    const startTimeout = process.env.CI ? 60000 : 10000;
+    // per start fluctuates wildly — observed failure points: 21.9s (20s
+    // budget), 32.6s (30s), 42.7s (40s), 62.0s (60s). Variance comes from
+    // Mattermost-server-side race conditions under concurrent post creation:
+    // even on 10.11.15 there are residual `pq: duplicate key` failures on
+    // the Posts table that require client-side retries (3.5s budget each).
+    // 90s gives 1.5x headroom over the worst observed value (62s) and
+    // sits comfortably under the 120s per-bun-test cap.
+    // Local stays at 10s — local Mattermost is fast.
+    const startTimeout = process.env.CI ? 90000 : 10000;
 
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
