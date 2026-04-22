@@ -81,6 +81,11 @@ export interface StartBotOptions {
   slackChannelId?: string;
   /** Slack bot name for testing (default: 'claude-test-bot') */
   slackBotName?: string;
+  /**
+   * Override the maxSessions limit. Useful for capacity-limit tests so they
+   * don't have to start MAX-1 real sessions just to hit the cap.
+   */
+  maxSessions?: number;
 }
 
 /**
@@ -106,6 +111,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     slackAppToken,
     slackChannelId,
     slackBotName = 'claude-test-bot',
+    maxSessions,
   } = options;
 
   // Load test config
@@ -212,6 +218,9 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     false, // chrome disabled
     worktreeMode,
     sessionsPath, // isolated session storage
+    true,  // threadLogsEnabled (default)
+    30,    // threadLogsRetentionDays (default)
+    maxSessions !== undefined ? { maxSessions } : undefined,
   );
 
   // Register platform (this wires up reaction handlers)
