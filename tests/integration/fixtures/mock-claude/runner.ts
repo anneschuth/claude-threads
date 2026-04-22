@@ -106,11 +106,14 @@ function loadScenario(name: string): MockScenario {
 // Utilities
 // ============================================================================
 
-const DEBUG = process.env.DEBUG === '1';
+// Always log in integration tests — the output goes to the bot's stderr
+// capture and is invaluable for diagnosing flakes. Previously gated on
+// DEBUG=1, which meant silent mysteries in CI.
+const MOCK_ALWAYS_LOG = process.env.INTEGRATION_TEST === '1' || process.env.DEBUG === '1';
 
 function log(message: string): void {
-  if (DEBUG) {
-    console.error(`[mock-claude] ${message}`);
+  if (MOCK_ALWAYS_LOG) {
+    console.error(`[mock-claude pid=${process.pid}] ${message}`);
   }
 }
 

@@ -411,6 +411,11 @@ export class ClaudeCli extends EventEmitter {
         this.stderrBuffer = this.stderrBuffer.slice(-10240);
       }
       this.log.debug(`stderr: ${text.trim()}`);
+      // In integration tests, forward child stderr to our stderr so the
+      // CI log captures mock-claude diagnostics. Prod never sets this env.
+      if (process.env.INTEGRATION_TEST === '1') {
+        process.stderr.write(text);
+      }
       this.maybeEmitRateLimit(text);
     });
 
