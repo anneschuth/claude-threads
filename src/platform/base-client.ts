@@ -287,6 +287,15 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    // Detach all event listeners so any in-flight 'message' handler the
+    // websocket queued just before close can't still trigger startSession
+    // on a half-shut-down bot. Critical for integration tests: without it,
+    // back-to-back startTestBot/bot.stop sees the previous bot's listener
+    // still react to the next test's @mention, producing two concurrent
+    // sessions on the same Mattermost bot token (visible in CI as a
+    // "Session started" log immediately followed by another from a
+    // different bot, two mock-claude pids, and downstream test failures).
+    this.removeAllListeners();
     return this.forceCloseConnection();
   }
 
