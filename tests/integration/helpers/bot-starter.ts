@@ -271,11 +271,18 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
         console.log('[test-bot] Stopping...');
       }
       // Kill all sessions, then await full WebSocket close before returning.
-      // disconnect() now resolves only when the close handshake completes
-      // (or hits its 1s safety timeout), so the next startTestBot() can't
-      // race a half-closed socket Mattermost still has bound to our token.
+      // disconnect() now resolves when the close handshake completes (or
+      // hits its 1s safety timeout) AND removes EventEmitter listeners.
       await sessionManager.killAllSessions();
       await platformClient.disconnect();
+      // Server-side propagation delay: even after our socket closes, the
+      // Mattermost server can take ~hundreds of ms to process the close
+      // and stop sending events to that connection. Without this wait,
+      // back-to-back tests see two bot tokens with TWO active server-
+      // side connections during the transition window — visible in CI
+      // as duplicate session starts (two pids per @mention). 500ms is
+      // empirically sufficient.
+      await new Promise((r) => setTimeout(r, 500));
       // Note: Don't delete CLAUDE_PATH/CLAUDE_SCENARIO here - the next test will
       // set them anyway, and deleting them can cause race conditions with async
       // operations that are still running.
@@ -293,6 +300,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       // Kill sessions but keep persistence (simulates graceful shutdown)
       await sessionManager.killAllSessions();
       await platformClient.disconnect();
+      await new Promise((r) => setTimeout(r, 500));
       // Note: Keep all env vars - CLAUDE_PATH/CLAUDE_SCENARIO will be set by next test,
       // and CLAUDE_THREADS_SESSIONS_PATH needs to persist for session resume testing
       if (debug) {
