@@ -24,9 +24,11 @@ services:
       - /var/lib/postgresql/data
 
   mattermost:
-    # Use ARM64 native image on Apple Silicon, AMD64 image elsewhere
+    # Use ARM64 native image on Apple Silicon, AMD64 image elsewhere.
     # ARM64: ghcr.io/supersunho/docker-mattermost/mattermost:v11.0.4-team-arm64
-    # AMD64: mattermost/mattermost-enterprise-edition:9.11
+    # AMD64: mattermost/mattermost-team-edition:10.11.15
+    # Match the CI image (.github/workflows/integration.yml) — both must be on
+    # a release that includes the MM-39713 thread-write race fix (>= 9.5).
     image: ${MATTERMOST_IMAGE:-ghcr.io/supersunho/docker-mattermost/mattermost:v11.0.4-team-arm64}
     container_name: claude-threads-test-mattermost
     depends_on:

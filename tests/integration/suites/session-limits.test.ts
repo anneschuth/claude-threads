@@ -70,18 +70,12 @@ describe.skipIf(SKIP)('Session Limits', () => {
     });
 
     afterEach(async () => {
-      // Kill all sessions between tests to avoid interference
+      // Kill all sessions between tests to avoid interference. killAllSessions
+      // already awaits — no extra sleep needed.
       await bot.sessionManager.killAllSessions();
-      // Longer delay in CI to ensure cleanup completes before next test
-      await new Promise((r) => setTimeout(r, process.env.CI ? 1000 : 200));
     });
 
-    // The Mattermost docker container in CI throws transient 500s on /posts
-    // which trigger the client's 500ms→1s→2s retry backoff. Each session start
-    // burns ~1-2s extra under that load, so a 6-session test on a tight 10s
-    // per-step budget tips over. Bump the per-step budget for CI; localhost
-    // Mattermost / mock-Slack are fast enough not to need it.
-    const startTimeout = process.env.CI ? 20000 : 10000;
+    const startTimeout = 10000;
 
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
@@ -156,9 +150,8 @@ describe.skipIf(SKIP)('Session Limits', () => {
         // Verify we have 5 sessions
         expect(bot.sessionManager.getActiveThreadIds().length).toBe(5);
 
-        // Kill one session to free up space
+        // Kill one session to free up space. killSession already awaits.
         await bot.sessionManager.killSession(rootPosts[0]);
-        await new Promise((r) => setTimeout(r, process.env.CI ? 1000 : 500)); // Longer wait for CI
 
         // Should now have 4 sessions
         expect(bot.sessionManager.getActiveThreadIds().length).toBe(4);

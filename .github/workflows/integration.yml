@@ -56,7 +56,12 @@ jobs:
       - name: Start Mattermost
         if: matrix.platform == 'mattermost'
         run: |
-          # Use official AMD64 image for CI (GitHub Actions runners are AMD64)
+          # team-edition 10.11.15 — extended LTS line. We were previously on 9.11
+          # which carried a thread-write race (MM-39713 / MM-46916) that fired
+          # on every test where the bot streamed multiple posts to the same
+          # thread, surfacing as a flood of 500 "duplicate key value violates
+          # unique constraint threads_pkey" responses on POST /posts. Fixed
+          # upstream in 9.5+; we hold on the LTS line to track local compose.
           docker run -d \
             --name mattermost \
             --network host \
@@ -69,7 +74,7 @@ jobs:
             -e MM_LOGSETTINGS_CONSOLELEVEL=ERROR \
             -e MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false \
             -e MM_RATELIMITSETTINGS_ENABLE=false \
-            mattermost/mattermost-enterprise-edition:9.11
+            mattermost/mattermost-team-edition:10.11.15
 
       - name: Wait for Mattermost to be ready
         if: matrix.platform == 'mattermost'
