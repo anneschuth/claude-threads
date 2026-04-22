@@ -114,8 +114,11 @@ jobs:
           echo "Slack mock server is ready!"
 
       # Run integration tests
+      # Per-test cap: 120s. Some tests (Skip Permissions, Tool Use Display)
+      # take 60-90s in CI under Mattermost retry pressure. Keep in sync with
+      # package.json's test:integration:run script.
       - name: Run integration tests
-        run: bun test tests/integration/suites --timeout 60000
+        run: bun test tests/integration/suites --timeout 120000
         env:
           MATTERMOST_URL: http://localhost:8065
           SLACK_MOCK_URL: http://localhost:3457/api
