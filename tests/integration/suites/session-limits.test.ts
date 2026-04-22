@@ -76,6 +76,13 @@ describe.skipIf(SKIP)('Session Limits', () => {
       await new Promise((r) => setTimeout(r, process.env.CI ? 1000 : 200));
     });
 
+    // The Mattermost docker container in CI throws transient 500s on /posts
+    // which trigger the client's 500ms→1s→2s retry backoff. Each session start
+    // burns ~1-2s extra under that load, so a 6-session test on a tight 10s
+    // per-step budget tips over. Bump the per-step budget for CI; localhost
+    // Mattermost / mock-Slack are fast enough not to need it.
+    const startTimeout = process.env.CI ? 20000 : 10000;
+
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
         const botUsername = platformType === 'mattermost'
@@ -88,27 +95,27 @@ describe.skipIf(SKIP)('Session Limits', () => {
         // Start first session
         const rootPost1 = await startSession(ctx, 'Session 1', botUsername);
         testThreadIds.push(rootPost1.id);
-        await waitForSessionActive(bot.sessionManager, rootPost1.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost1.id, { timeout: startTimeout });
 
         // Start second session
         const rootPost2 = await startSession(ctx, 'Session 2', botUsername);
         testThreadIds.push(rootPost2.id);
-        await waitForSessionActive(bot.sessionManager, rootPost2.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost2.id, { timeout: startTimeout });
 
         // Start third session
         const rootPost3 = await startSession(ctx, 'Session 3', botUsername);
         testThreadIds.push(rootPost3.id);
-        await waitForSessionActive(bot.sessionManager, rootPost3.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost3.id, { timeout: startTimeout });
 
         // Start fourth session
         const rootPost4 = await startSession(ctx, 'Session 4', botUsername);
         testThreadIds.push(rootPost4.id);
-        await waitForSessionActive(bot.sessionManager, rootPost4.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost4.id, { timeout: startTimeout });
 
         // Start fifth session (at limit now)
         const rootPost5 = await startSession(ctx, 'Session 5', botUsername);
         testThreadIds.push(rootPost5.id);
-        await waitForSessionActive(bot.sessionManager, rootPost5.id, { timeout: 10000 });
+        await waitForSessionActive(bot.sessionManager, rootPost5.id, { timeout: startTimeout });
 
         // Verify we have 5 active sessions
         expect(bot.sessionManager.getActiveThreadIds().length).toBe(5);
@@ -118,7 +125,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
         testThreadIds.push(rootPost6.id);
 
         // Wait for "Too busy" message
-        const busyPost = await waitForPostMatching(ctx, rootPost6.id, /Too busy/i, { timeout: 10000 });
+        const busyPost = await waitForPostMatching(ctx, rootPost6.id, /Too busy/i, { timeout: startTimeout });
         expect(busyPost).toBeDefined();
         expect(busyPost.message).toContain('5 sessions active');
         expect(busyPost.message).toContain('Please try again later');
