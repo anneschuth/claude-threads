@@ -76,10 +76,10 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
     // The permission-request mock scenario takes ~750ms of internal mock delay,
     // then ~4 sequential bot posts, each subject to Mattermost's 500-retry
-    // budget (up to 3.5s per recovered post). Worst-case under CI load is
-    // well over 30s. 60s gives enough headroom without slowing happy-path
-    // local runs (mock is fast there).
-    const responseTimeout = process.env.CI ? 60000 : 30000;
+    // budget (up to 3.5s per recovered post). Saw a 60s timeout in CI; 90s
+    // gives more breathing room while staying well under the 120s test cap.
+    // Local stays at 30s.
+    const responseTimeout = process.env.CI ? 90000 : 30000;
 
     // Get the bot username based on platform
     const getBotUsername = () => {

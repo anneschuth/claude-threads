@@ -75,13 +75,11 @@ describe.skipIf(SKIP)('Session Limits', () => {
       await bot.sessionManager.killAllSessions();
     });
 
-    // Five sequential session starts in the rejection test, each waiting for
-    // the bot to respond + Mattermost retries on transient 500s + general
-    // GitHub Actions slowness. 20s wasn't enough — saw a 21.9s failure in
-    // CI after the disconnect refactor added per-test cleanup time. 30s
-    // gives enough headroom without risking the test suite's 120s
-    // per-bun-test cap. Local stays at 10s.
-    const startTimeout = process.env.CI ? 30000 : 10000;
+    // Five sequential session starts in the rejection test. CI Mattermost
+    // overhead per start fluctuates — saw failures at 21.9s (20s budget),
+    // 32.6s (30s budget). Going to 40s to give real headroom. Well within
+    // the 120s per-bun-test cap. Local stays at 10s.
+    const startTimeout = process.env.CI ? 40000 : 10000;
 
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
