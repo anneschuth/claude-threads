@@ -233,8 +233,20 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     });
   });
 
-  // Connect to platform
-  await platformClient.connect();
+  // Connect to platform. Wrap to surface the actual error — MattermostClient's
+  // connect() rejects with the raw WebSocket error event, which serializes as
+  // "[object Event]" in test failure output, making CI flakes impossible to
+  // diagnose from logs alone.
+  try {
+    await platformClient.connect();
+  } catch (err) {
+    const detail = err instanceof Error
+      ? err.message
+      : typeof err === 'object' && err !== null
+        ? JSON.stringify({ type: (err as { type?: string }).type, code: (err as { code?: number }).code, message: (err as { message?: string }).message })
+        : String(err);
+    throw new Error(`[test-bot] platformClient.connect() failed: ${detail}`, { cause: err });
+  }
 
   // Initialize session manager (loads persisted sessions)
   await sessionManager.initialize();
@@ -260,10 +272,15 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       }
       // Kill all sessions
       await sessionManager.killAllSessions();
-      // Disconnect from platform
+      // Disconnect from platform (sync; WebSocket close handshake is async)
       platformClient.disconnect();
-      // Wait a bit for processes to terminate fully
-      await new Promise((r) => setTimeout(r, 100));
+      // Wait for the disconnect to fully propagate. The previous 100ms was
+      // long enough on a fast box but flaky in CI: a back-to-back
+      // startTestBot would race the prior bot's WebSocket teardown and the
+      // next bot's connect() would see Mattermost reject or hang on a
+      // second connection from the same token. 500ms gives the close
+      // handshake room without meaningfully slowing the suite.
+      await new Promise((r) => setTimeout(r, 500));
       // Note: Don't delete CLAUDE_PATH/CLAUDE_SCENARIO here - the next test will
       // set them anyway, and deleting them can cause race conditions with async
       // operations that are still running.
@@ -282,8 +299,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       await sessionManager.killAllSessions();
       // Disconnect from platform
       platformClient.disconnect();
-      // Wait a bit for processes to terminate fully
-      await new Promise((r) => setTimeout(r, 100));
+      // Same 500ms wait as stop() — see comment there for rationale.
+      await new Promise((r) => setTimeout(r, 500));
       // Note: Keep all env vars - CLAUDE_PATH/CLAUDE_SCENARIO will be set by next test,
       // and CLAUDE_THREADS_SESSIONS_PATH needs to persist for session resume testing
       if (debug) {
