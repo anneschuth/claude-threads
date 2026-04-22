@@ -79,7 +79,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
     // the bot to respond + Mattermost retries on transient 500s + general
     // GitHub Actions slowness. 20s wasn't enough — saw a 21.9s failure in
     // CI after the disconnect refactor added per-test cleanup time. 30s
-    // gives enough headroom without risking the test suite's 60s
+    // gives enough headroom without risking the test suite's 120s
     // per-bun-test cap. Local stays at 10s.
     const startTimeout = process.env.CI ? 30000 : 10000;
 
