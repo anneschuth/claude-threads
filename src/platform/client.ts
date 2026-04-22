@@ -65,9 +65,12 @@ export interface PlatformClient extends EventEmitter {
   connect(): Promise<void>;
 
   /**
-   * Disconnect from the platform
+   * Disconnect from the platform.
+   *
+   * Returns a Promise that resolves when the underlying socket has fully
+   * closed. Production callers may fire-and-forget; tests should `await`.
    */
-  disconnect(): void;
+  disconnect(): Promise<void>;
 
   /**
    * Prepare for reconnection after intentional disconnect

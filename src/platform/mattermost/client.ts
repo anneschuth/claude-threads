@@ -598,24 +598,43 @@ export class MattermostClient extends BasePlatformClient {
    * Force close the WebSocket connection.
    * Cleans up listeners and ensures we start fresh on reconnection.
    * This is critical for recovery after long idle periods where the socket may be stale.
+   *
+   * Returns a Promise that resolves when the underlying socket has actually
+   * closed (or after a 1s safety timeout). Production callers can fire-and-
+   * forget; integration tests await it to avoid racing the next connect()
+   * against a half-closed socket Mattermost still has bound to the same token.
    */
-  protected forceCloseConnection(): void {
-    if (this.ws) {
-      // Remove all listeners to prevent any callbacks from firing
-      this.ws.onopen = null;
-      this.ws.onmessage = null;
-      this.ws.onclose = null;
-      this.ws.onerror = null;
-      // Force close if still open
-      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+  protected forceCloseConnection(): Promise<void> {
+    const ws = this.ws;
+    this.ws = null;
+    if (!ws) return Promise.resolve();
+
+    // Remove existing listeners; we install a one-shot close watcher below.
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+
+    if (ws.readyState === WebSocket.CLOSED) {
+      ws.onclose = null;
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        ws.onclose = null;
+        resolve();
+      };
+      ws.onclose = done;
+      // Safety: don't wait forever if the close handshake hangs.
+      setTimeout(done, 1000);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
         try {
-          this.ws.close();
+          ws.close();
         } catch {
-          // Ignore errors on close
+          done();
         }
       }
-      this.ws = null;
-    }
+    });
   }
 
   /**
