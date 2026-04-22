@@ -75,11 +75,12 @@ describe.skipIf(SKIP)('Session Limits', () => {
       await bot.sessionManager.killAllSessions();
     });
 
-    // Five sequential session starts in the rejection test. CI Mattermost
-    // overhead per start fluctuates — saw failures at 21.9s (20s budget),
-    // 32.6s (30s budget). Going to 40s to give real headroom. Well within
-    // the 120s per-bun-test cap. Local stays at 10s.
-    const startTimeout = process.env.CI ? 40000 : 10000;
+    // Five sequential session starts in the rejection test. CI overhead
+    // per start fluctuates — observed: 21.9s (20s), 32.6s (30s), 42.7s (40s).
+    // Each iteration was just-over-budget. 60s gives ~1.5x headroom over
+    // the worst observed value, well under the 120s per-bun-test cap.
+    // Local stays at 10s.
+    const startTimeout = process.env.CI ? 60000 : 10000;
 
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
@@ -87,33 +88,12 @@ describe.skipIf(SKIP)('Session Limits', () => {
           ? config.mattermost.bot.username
           : 'claude-test-bot';
 
-        // Get the max sessions limit (default is 5)
-        // We'll start max sessions, then try to start one more
-
-        // Start first session
-        const rootPost1 = await startSession(ctx, 'Session 1', botUsername);
-        testThreadIds.push(rootPost1.id);
-        await waitForSessionActive(bot.sessionManager, rootPost1.id, { timeout: startTimeout });
-
-        // Start second session
-        const rootPost2 = await startSession(ctx, 'Session 2', botUsername);
-        testThreadIds.push(rootPost2.id);
-        await waitForSessionActive(bot.sessionManager, rootPost2.id, { timeout: startTimeout });
-
-        // Start third session
-        const rootPost3 = await startSession(ctx, 'Session 3', botUsername);
-        testThreadIds.push(rootPost3.id);
-        await waitForSessionActive(bot.sessionManager, rootPost3.id, { timeout: startTimeout });
-
-        // Start fourth session
-        const rootPost4 = await startSession(ctx, 'Session 4', botUsername);
-        testThreadIds.push(rootPost4.id);
-        await waitForSessionActive(bot.sessionManager, rootPost4.id, { timeout: startTimeout });
-
-        // Start fifth session (at limit now)
-        const rootPost5 = await startSession(ctx, 'Session 5', botUsername);
-        testThreadIds.push(rootPost5.id);
-        await waitForSessionActive(bot.sessionManager, rootPost5.id, { timeout: startTimeout });
+        // Loop the 5 setup session starts so the test stays compact.
+        for (let i = 1; i <= 5; i++) {
+          const rp = await startSession(ctx, `Session ${i}`, botUsername);
+          testThreadIds.push(rp.id);
+          await waitForSessionActive(bot.sessionManager, rp.id, { timeout: startTimeout });
+        }
 
         // Verify we have 5 active sessions
         expect(bot.sessionManager.getActiveThreadIds().length).toBe(5);
@@ -141,14 +121,12 @@ describe.skipIf(SKIP)('Session Limits', () => {
           : 'claude-test-bot';
 
         // Start 5 sessions to hit the limit
-        // Use longer timeout in CI as starting multiple sessions can be slow
         const rootPosts: string[] = [];
-
         for (let i = 1; i <= 5; i++) {
           const rootPost = await startSession(ctx, `Session ${i}`, botUsername);
           testThreadIds.push(rootPost.id);
           rootPosts.push(rootPost.id);
-          await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
+          await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: startTimeout });
         }
 
         // Verify we have 5 sessions
@@ -164,8 +142,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
         const newRootPost = await startSession(ctx, 'New session after kill', botUsername);
         testThreadIds.push(newRootPost.id);
 
-        // Wait for session to become active (longer timeout in CI due to resource contention)
-        await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: 20000 });
+        await waitForSessionActive(bot.sessionManager, newRootPost.id, { timeout: startTimeout });
 
         // New session should be active
         expect(bot.sessionManager.isInSessionThread(newRootPost.id)).toBe(true);
