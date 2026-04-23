@@ -84,7 +84,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     // Get the bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       // Slack uses a different format
       return config.slack?.botUsername || 'claude-test-bot';
@@ -116,7 +116,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Verify we have meaningful responses
         expect(botPosts.length).toBeGreaterThanOrEqual(2);
@@ -148,7 +148,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // With the permission-request scenario, we should see:
         // - Session header
@@ -212,7 +212,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
         // Bot should have created posts without crashing
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
     });

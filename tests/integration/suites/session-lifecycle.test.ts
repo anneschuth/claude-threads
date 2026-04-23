@@ -49,7 +49,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
     // Helper to get bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       // Slack mock server uses 'claude-test-bot' by default
       return 'claude-test-bot';
@@ -142,7 +142,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
         // Bot should have posted something (session header or response)
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
 
@@ -339,7 +339,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
         // Verify bot did respond
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
     });
@@ -363,8 +363,8 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         const posts1 = await getThreadPosts(ctx, rootPost1.id);
         const posts2 = await getThreadPosts(ctx, rootPost2.id);
 
-        const botPosts1 = posts1.filter((p) => p.userId === ctx.botUserId);
-        const botPosts2 = posts2.filter((p) => p.userId === ctx.botUserId);
+        const botPosts1 = posts1.filter((p) => ctx.botUserIds.includes(p.userId));
+        const botPosts2 = posts2.filter((p) => ctx.botUserIds.includes(p.userId));
 
         expect(botPosts1.length).toBeGreaterThanOrEqual(1);
         expect(botPosts2.length).toBeGreaterThanOrEqual(1);

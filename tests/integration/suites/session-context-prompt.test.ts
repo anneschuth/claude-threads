@@ -85,7 +85,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
      */
     function getBotUsername(): string {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       // Slack - use default or config
       return config.slack?.botUsername || 'claude-test-bot';
@@ -194,7 +194,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         // Should NOT see a context prompt (auto-included)
         const posts = await getThreadPosts(ctx, rootId);
         const hasContextPrompt = posts.some((p) =>
-          p.userId === ctx.botUserId && /Include thread context/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /Include thread context/i.test(p.message)
         );
 
         // With only 1 message, it should auto-include without asking

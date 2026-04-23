@@ -23,7 +23,17 @@ import { SessionStore } from '../../../src/persistence/session-store.js';
 export interface TestSessionContext {
   api: PlatformTestApi;
   platformType: PlatformType;
+  /**
+   * Default bot user ID (mirrors the first pool bot for back-compat).
+   * Use `botUserIds` for filters that want to match ANY bot from the pool.
+   */
   botUserId: string;
+  /**
+   * All bot user IDs from the test bot pool. Internal helpers
+   * (waitForBotResponse, waitForStableBotPostCount, etc.) use this to
+   * match posts from any pool bot, since each test gets a different one.
+   */
+  botUserIds: string[];
   channelId: string;
   testUserId: string;
   testUserToken: string;
@@ -50,10 +60,11 @@ export function initTestContext(platformType: PlatformType = 'mattermost'): Test
     return {
       api,
       platformType: 'slack',
-      botUserId: 'U_BOT_USER', // Mock server default
+      botUserId: 'U_BOT_USER',
+      botUserIds: ['U_BOT_USER'],
       channelId: slackConfig.channelId,
       testUserId: slackConfig.testUsers[0]?.userId || 'U_TEST_USER1',
-      testUserToken: slackConfig.botToken, // Slack uses bot token for all operations
+      testUserToken: slackConfig.botToken,
     };
   }
 
@@ -80,6 +91,9 @@ export function initTestContext(platformType: PlatformType = 'mattermost'): Test
     api,
     platformType: 'mattermost',
     botUserId: config.mattermost.bot.userId,
+    botUserIds: config.mattermost.bots
+      .map(b => b.userId)
+      .filter((id): id is string => !!id),
     channelId: config.mattermost.channel.id,
     testUserId: config.mattermost.testUsers[0].userId,
     testUserToken: config.mattermost.testUsers[0].token,
@@ -156,7 +170,7 @@ export async function waitForBotResponse(
       // Posts are already sorted by createAt from the adapter
 
       // Filter to bot posts only
-      const botPosts = threadPosts.filter((p) => p.userId === ctx.botUserId);
+      const botPosts = threadPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
       // Apply pattern filter if provided
       const matchingPosts = pattern
@@ -220,7 +234,7 @@ export async function waitForSessionHeader(
   return waitFor(
     async () => {
       const threadPosts = await ctx.api.getThreadPosts(threadId);
-      const botPosts = threadPosts.filter((p) => p.userId === ctx.botUserId);
+      const botPosts = threadPosts.filter((p) => ctx.botUserIds.includes(p.userId));
       return botPosts.find((p) => sessionHeaderPattern.test(p.message)) || null;
     },
     {
@@ -555,7 +569,7 @@ export async function waitForStableBotPostCount(
 
   while (Date.now() - startTime < timeout) {
     const posts = await getThreadPosts(ctx, threadId);
-    const botPostCount = posts.filter((p) => p.userId === ctx.botUserId).length;
+    const botPostCount = posts.filter((p) => ctx.botUserIds.includes(p.userId)).length;
 
     if (botPostCount !== lastCount) {
       lastCount = botPostCount;

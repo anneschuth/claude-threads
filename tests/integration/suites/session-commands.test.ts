@@ -53,7 +53,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
     // Helper to get bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       return 'claude-test-bot';
     };
@@ -404,7 +404,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
         const cdPost = allPosts.find((p) =>
-          p.userId === ctx.botUserId && /changed|directory|\/tmp/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /changed|directory|\/tmp/i.test(p.message)
         );
 
         expect(cdPost).toBeDefined();
@@ -425,7 +425,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
         const confirmPost = allPosts.find((p) =>
-          p.userId === ctx.botUserId && /Working directory changed|restarted/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /Working directory changed|restarted/i.test(p.message)
         );
 
         expect(confirmPost).toBeDefined();
@@ -562,7 +562,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
         // Check for rejection message - bot should post "only @user1 or allowed users can change permissions"
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Look for rejection/error message from bot
         const hasRejectionMessage = botPosts.some((p) =>

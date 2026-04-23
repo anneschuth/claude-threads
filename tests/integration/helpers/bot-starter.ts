@@ -35,6 +35,23 @@ function generateTestSessionsPath(): string {
   return join(sessionsDir, `sessions-${testRunId}.json`);
 }
 
+/**
+ * Round-robin cursor into the Mattermost bot pool. Each call to
+ * startTestBot picks the next bot. Avoids two test bots sharing the same
+ * Mattermost user token (which would cause WebSocket events to be
+ * delivered to both — the cross-test interference that broke MAX_SESSIONS).
+ */
+let mattermostBotPoolCursor = 0;
+function nextMattermostBot(testConfig: ReturnType<typeof loadConfig>) {
+  const pool = testConfig.mattermost.bots;
+  if (!pool || pool.length === 0) {
+    return testConfig.mattermost.bot; // fallback for older .env.test
+  }
+  const bot = pool[mattermostBotPoolCursor % pool.length];
+  mattermostBotPoolCursor++;
+  return bot;
+}
+
 export interface TestBot {
   sessionManager: SessionManager;
   /** @deprecated Use `platformClient` instead for platform-agnostic access */
@@ -44,6 +61,15 @@ export interface TestBot {
   platformId: string;
   /** The isolated sessions file path for this test bot */
   sessionsPath: string;
+  /**
+   * The bot's mention name. For Mattermost this is the unique pool bot
+   * username (e.g. "claude-test-bot-3"); for Slack it's the configured
+   * mock bot name. Use this to construct `@mention` strings — the config
+   * default may belong to a different test's bot.
+   */
+  botUsername: string;
+  /** The bot's user ID — match this when filtering bot posts. */
+  botUserId: string;
   /** Stop the bot and unpersist all sessions (normal cleanup) */
   stop(): Promise<void>;
   /** Stop the bot but preserve persisted sessions (for restart testing) */
@@ -148,6 +174,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Create platform client based on platform type
   let platformClient: PlatformClient;
   let platformId: string;
+  let botUsername: string;
+  let botUserId: string;
 
   if (platform === 'slack') {
     // Validate required Slack options
@@ -181,27 +209,33 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     };
 
     platformClient = new SlackClient(slackConfig);
+    botUsername = slackBotName;
+    botUserId = 'U_BOT_USER';
   } else {
-    // Default: Mattermost
+    // Default: Mattermost — pick the next bot from the pool so each test
+    // has its own user token (no cross-test event interference).
     platformId = 'test-mattermost';
     const allowedUsers = allowedUsersOverride ?? [
       ...testConfig.mattermost.testUsers.map(u => u.username),
       ...extraAllowedUsers,
     ];
+    const poolBot = nextMattermostBot(testConfig);
 
     const platformConfig = {
       id: platformId,
       type: 'mattermost' as const,
       displayName: 'Test Mattermost',
       url: testConfig.mattermost.url,
-      token: testConfig.mattermost.bot.token!,
+      token: poolBot.token!,
       channelId: testConfig.mattermost.channel.id!,
-      botName: testConfig.mattermost.bot.username,
+      botName: poolBot.username,
       allowedUsers,
       skipPermissions,
     };
 
     platformClient = new MattermostClient(platformConfig);
+    botUsername = poolBot.username;
+    botUserId = poolBot.userId!;
   }
 
   // Create the session manager (no UI, no chrome for tests)
@@ -266,6 +300,8 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     platformClient,
     platformId,
     sessionsPath,
+    botUsername,
+    botUserId,
     async stop() {
       if (debug) {
         console.log('[test-bot] Stopping...');

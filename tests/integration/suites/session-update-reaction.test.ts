@@ -82,7 +82,7 @@ describe.skipIf(SKIP)('Session Update Reaction', () => {
     // Helper to get bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       return 'claude-test-bot';
     };

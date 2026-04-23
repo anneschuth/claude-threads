@@ -79,7 +79,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
     // Get the bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       // Slack uses a different format
       return config.slack?.botUsername || 'claude-test-bot';
@@ -167,7 +167,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
 
         // Either the original post was updated or there's a confirmation message
         const hasConfirmation = updatedPosts.some((p) =>
-          p.userId === ctx.botUserId && /approved|executing|proceeding/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /approved|executing|proceeding/i.test(p.message)
         );
 
         // At minimum, session should still be active (plan was approved)
@@ -194,7 +194,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
         // The post should be updated to show rejection
         const updatedPosts = await getThreadPosts(ctx, rootPost.id);
         const hasRejection = updatedPosts.some((p) =>
-          p.userId === ctx.botUserId && /rejected|denied|changes/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /rejected|denied|changes/i.test(p.message)
         );
 
         // Either rejection message or the session handles it gracefully

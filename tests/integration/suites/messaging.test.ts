@@ -52,6 +52,9 @@ describe.skipIf(SKIP)('Messaging', () => {
             api: botApi,
             platformType: 'mattermost',
             botUserId: config.mattermost.bot.userId!,
+            botUserIds: config.mattermost.bots
+              .map(b => b.userId)
+              .filter((id): id is string => !!id),
             channelId: config.mattermost.channel.id!,
             testUserId: config.mattermost.bot.userId!,
             testUserToken: config.mattermost.bot.token,

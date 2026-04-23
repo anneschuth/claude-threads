@@ -108,58 +108,55 @@ async function setupChannel(): Promise<void> {
 }
 
 /**
- * Create bot account with access token
+ * Provision a single bot account, idempotent.
  */
-async function setupBot(): Promise<void> {
-  console.log('Setting up bot account...');
-
-  const { bot, team, channel } = config.mattermost;
-
+async function setupOneBot(
+  bot: { username: string; displayName: string; token?: string; userId?: string },
+  teamId: string | undefined,
+  channelId: string | undefined,
+): Promise<void> {
   try {
-    // Check if bot already exists by trying to get the user
     const existingUser = await api.getUserByUsername(bot.username);
     bot.userId = existingUser.id;
-    console.log(`  Bot user already exists: ${existingUser.username} (${existingUser.id})`);
-
-    // Create a new token for the existing bot
     const tokenResponse = await api.createBotAccessToken(existingUser.id, 'Integration test token');
     bot.token = tokenResponse.token;
-    console.log(`  Created new access token for bot`);
+    console.log(`  Bot ${bot.username} ready (existing): ${existingUser.id}`);
   } catch {
-    // Create new bot
-    console.log('  Creating new bot...');
     const newBot = await api.createBot({
       username: bot.username,
       display_name: bot.displayName,
       description: 'Integration test bot for claude-threads',
     });
     bot.userId = newBot.user_id;
-    console.log(`  Created bot: ${newBot.username} (${newBot.user_id})`);
-
-    // Create access token for bot
     const tokenResponse = await api.createBotAccessToken(newBot.user_id, 'Integration test token');
     bot.token = tokenResponse.token;
-    console.log(`  Created access token for bot`);
+    console.log(`  Bot ${newBot.username} created: ${newBot.user_id}`);
+  }
+  if (teamId && bot.userId) {
+    try { await api.addUserToTeam(teamId, bot.userId); } catch { /* already in team */ }
+  }
+  if (channelId && bot.userId) {
+    try { await api.addUserToChannel(channelId, bot.userId); } catch { /* already in channel */ }
+  }
+}
+
+/**
+ * Provision the bot pool. Multiple bot accounts so concurrent test bots
+ * don't share a Mattermost user token (which would cause cross-test event
+ * interference — the same WebSocket events delivered to two bots).
+ */
+async function setupBot(): Promise<void> {
+  console.log('Setting up bot pool...');
+  const { bot, bots, team, channel } = config.mattermost;
+
+  for (const b of bots) {
+    await setupOneBot(b, team.id, channel.id);
   }
 
-  // Add bot to team and channel
-  if (team.id && bot.userId) {
-    try {
-      await api.addUserToTeam(team.id, bot.userId);
-      console.log(`  Added bot to team`);
-    } catch {
-      console.log(`  Bot already in team`);
-    }
-  }
-
-  if (channel.id && bot.userId) {
-    try {
-      await api.addUserToChannel(channel.id, bot.userId);
-      console.log(`  Added bot to channel`);
-    } catch {
-      console.log(`  Bot already in channel`);
-    }
-  }
+  // Mirror bots[0] to default `bot` for back-compat with existing code.
+  bot.token = bots[0].token;
+  bot.userId = bots[0].userId;
+  console.log(`  Pool ready: ${bots.length} bots`);
 }
 
 /**

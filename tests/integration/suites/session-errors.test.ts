@@ -90,7 +90,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
         // Check for error indication in posts
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Should have at least the assistant response
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
@@ -122,7 +122,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
         // Check that an error or session end message was posted
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Should have assistant message and potentially an error/end message
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
@@ -172,7 +172,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
         // Should have the assistant response
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
     });

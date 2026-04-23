@@ -46,13 +46,24 @@ export interface MattermostTestConfig {
     token?: string;
     userId?: string;
   };
-  /** Bot account configuration */
+  /** Default bot account configuration (mirrors bots[0]) */
   bot: {
     username: string;
     displayName: string;
     token?: string;
     userId?: string;
   };
+  /**
+   * Pool of bot accounts. Each test bot picks one from the pool round-robin
+   * to eliminate cross-test interference (multiple test bots sharing one
+   * Mattermost user token would both receive the same WebSocket events).
+   */
+  bots: Array<{
+    username: string;
+    displayName: string;
+    token?: string;
+    userId?: string;
+  }>;
   /** Test team */
   team: {
     name: string;
@@ -127,6 +138,12 @@ export const DEFAULT_CONFIG: IntegrationTestConfig = {
       username: 'claude-test-bot',
       displayName: 'Claude Test Bot',
     },
+    bots: [
+      { username: 'claude-test-bot', displayName: 'Claude Test Bot' },
+      { username: 'claude-test-bot-2', displayName: 'Claude Test Bot 2' },
+      { username: 'claude-test-bot-3', displayName: 'Claude Test Bot 3' },
+      { username: 'claude-test-bot-4', displayName: 'Claude Test Bot 4' },
+    ],
     team: {
       name: 'test-team',
       displayName: 'Test Team',
@@ -192,6 +209,18 @@ export function loadConfig(): IntegrationTestConfig {
     if (env.ADMIN_USER_ID) config.mattermost.admin.userId = env.ADMIN_USER_ID;
     if (env.BOT_TOKEN) config.mattermost.bot.token = env.BOT_TOKEN;
     if (env.BOT_USER_ID) config.mattermost.bot.userId = env.BOT_USER_ID;
+    // Bot pool credentials (token and userId per bot)
+    for (let i = 0; i < config.mattermost.bots.length; i++) {
+      const tokenKey = `BOT_${i + 1}_TOKEN`;
+      const userIdKey = `BOT_${i + 1}_USER_ID`;
+      if (env[tokenKey]) config.mattermost.bots[i].token = env[tokenKey];
+      if (env[userIdKey]) config.mattermost.bots[i].userId = env[userIdKey];
+    }
+    // Mirror first pool bot to default `bot` for back-compat
+    if (config.mattermost.bots[0]?.token) {
+      config.mattermost.bot.token = config.mattermost.bots[0].token;
+      config.mattermost.bot.userId = config.mattermost.bots[0].userId;
+    }
     if (env.TEAM_ID) config.mattermost.team.id = env.TEAM_ID;
     if (env.CHANNEL_ID) config.mattermost.channel.id = env.CHANNEL_ID;
 
@@ -244,9 +273,15 @@ export function saveConfig(config: IntegrationTestConfig): void {
     `ADMIN_TOKEN=${config.mattermost.admin.token || ''}`,
     `ADMIN_USER_ID=${config.mattermost.admin.userId || ''}`,
     '',
-    '# Bot credentials',
+    '# Bot credentials (default = first pool bot)',
     `BOT_TOKEN=${config.mattermost.bot.token || ''}`,
     `BOT_USER_ID=${config.mattermost.bot.userId || ''}`,
+    '',
+    '# Bot pool credentials (one per concurrent test bot)',
+    ...config.mattermost.bots.flatMap((b, i) => [
+      `BOT_${i + 1}_TOKEN=${b.token || ''}`,
+      `BOT_${i + 1}_USER_ID=${b.userId || ''}`,
+    ]),
     '',
     '# Team and channel',
     `TEAM_ID=${config.mattermost.team.id || ''}`,

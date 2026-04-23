@@ -72,7 +72,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
     // Get the bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       // Slack uses a different format
       return config.slack?.botUsername || 'claude-test-bot';
@@ -94,7 +94,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         await new Promise((r) => setTimeout(r, 200));
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
 
@@ -123,7 +123,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         await new Promise((r) => setTimeout(r, 200));
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Find question post
         const questionPost = botPosts.find((p) =>
@@ -177,7 +177,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
 
         // Check for plan-like content
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
 
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });

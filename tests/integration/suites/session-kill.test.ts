@@ -63,13 +63,14 @@ describe.skipIf(SKIP)('!kill Command', () => {
     });
 
     /**
-     * Get the bot username for the current platform
+     * Get the bot username for the current platform.
+     * Pass the bot to use its specific username (Mattermost pool gives each
+     * test bot a unique username); falls back to the default config.
      */
-    function getBotUsername(): string {
+    function getBotUsername(testBot?: { botUsername?: string }): string {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return testBot?.botUsername ?? config.mattermost.bot.username;
       }
-      // Slack - use default or config
       return config.slack?.botUsername || 'claude-test-bot';
     }
 
@@ -123,7 +124,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
         }));
 
         // Start a session first
-        const rootPost = await startSession(ctx, 'Test session', getBotUsername());
+        const rootPost = await startSession(ctx, 'Test session', getBotUsername(bot));
         testThreadIds.push(rootPost.id);
 
         await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
@@ -172,13 +173,13 @@ describe.skipIf(SKIP)('!kill Command', () => {
         }));
 
         // Start two sessions
-        const rootPost1 = await startSession(ctx, 'Session 1 for kill test', getBotUsername());
+        const rootPost1 = await startSession(ctx, 'Session 1 for kill test', getBotUsername(bot));
         testThreadIds.push(rootPost1.id);
 
         await waitForBotResponse(ctx, rootPost1.id, { timeout: 30000, minResponses: 1 });
         await waitForSessionActive(bot.sessionManager, rootPost1.id, { timeout: 10000 });
 
-        const rootPost2 = await startSession(ctx, 'Session 2 for kill test', getBotUsername());
+        const rootPost2 = await startSession(ctx, 'Session 2 for kill test', getBotUsername(bot));
         testThreadIds.push(rootPost2.id);
 
         await waitForBotResponse(ctx, rootPost2.id, { timeout: 30000, minResponses: 1 });
@@ -220,7 +221,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
         }));
 
         // Start a session
-        const rootPost = await startSession(ctx, 'Kill via mention', getBotUsername());
+        const rootPost = await startSession(ctx, 'Kill via mention', getBotUsername(bot));
         testThreadIds.push(rootPost.id);
 
         await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
@@ -229,7 +230,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
         // Send @bot !kill
         await ctx.api.createPost({
           channelId: ctx.channelId,
-          message: `@${getBotUsername()} !kill`,
+          message: `@${getBotUsername(bot)} !kill`,
           rootId: rootPost.id,
           userId: ctx.testUserId,
         });

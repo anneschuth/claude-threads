@@ -231,7 +231,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
         // Optionally verify worktree was created by checking for confirmation message
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         // Should have worktree prompt + possibly confirmation/session header
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
@@ -269,7 +269,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
         // Verify no worktree prompt was posted
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => p.userId === ctx.botUserId);
+        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         const worktreePromptPosts = botPosts.filter((p) =>
           /uncommitted changes|create a worktree|branch name/i.test(p.message)
         );

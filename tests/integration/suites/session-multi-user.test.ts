@@ -55,7 +55,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
     // Helper to get bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return config.mattermost.bot.username;
+        return bot?.botUsername ?? config.mattermost.bot.username;
       }
       return 'claude-test-bot';
     };
@@ -259,7 +259,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         await waitForPostMatching(ctx, rootPost.id, /kicked|removed/i, { timeout: 10000 });
 
         const postsBeforeUser2 = await getThreadPosts(ctx, rootPost.id);
-        const botPostsBeforeUser2 = postsBeforeUser2.filter((p) => p.userId === ctx.botUserId);
+        const botPostsBeforeUser2 = postsBeforeUser2.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // User2 tries to send message after being kicked
         await user2Api.createPost({
@@ -273,7 +273,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         await new Promise((r) => setTimeout(r, 500));
 
         const postsAfterUser2 = await getThreadPosts(ctx, rootPost.id);
-        const botPostsAfterUser2 = postsAfterUser2.filter((p) => p.userId === ctx.botUserId);
+        const botPostsAfterUser2 = postsAfterUser2.filter((p) => ctx.botUserIds.includes(p.userId));
 
         // Bot should NOT process user2's message as a normal Claude input
         // It should either:
