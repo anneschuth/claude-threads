@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.9.0] - 2026-04-24
 
 ### Added
 - **Three-way permission modes** — `default` | `auto` | `bypass`. Claude CLI 2.1.x introduced a classifier-based `auto` permission mode; claude-threads now exposes it alongside the historical `default` (MCP-prompt-everything) and `bypass` (`--dangerously-skip-permissions`) modes. Set via `permissionMode` in `config.yaml`, the `--permission-mode` CLI flag, or the `!permissions default|auto|bypass` in-session command (legacy `interactive`/`skip` aliases still work). Onboarding wizard now picks `auto` as the recommended default. UI toggle key `[p]` cycles through the three modes. (#343)
@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **`content.ts` thread log lost exception text on updatePost failure** — the refactor that collapsed five try/catch blocks into a `tryUpdatePost` helper in #342 dropped the `error: String(err)` field from the flush-path thread log. Restored. (#342)
+- **`!permissions <mode>` right after session start aborted Claude** with `No conversation found with session ID`. The respawn paths hardcoded `--resume`, but pre-first-turn sessions have no conversation to resume. Now gated on `session.lifecycle.hasClaudeResponded`. Same fix applied to plugin install/uninstall respawn. (#345)
+- **`!help` showed stale `!permissions interactive\|skip`** with a pipe that rendered as the literal `\|` inside a Mattermost markdown table. Registry updated to `default / auto / bypass` (no table-breaking pipe) with a three-mode description. (#345)
+- **Session header kept showing the bot-wide mode after `!permissions auto`** — Claude respawned with the correct flag but the session object didn't track the override, so the header read bot-wide. Added `Session.permissionModeOverride` and a single `effectivePermissionMode` helper that all call sites (header, `isSessionInteractive`, respawn on `!cd`/plugin/worktree) now route through. (#345)
 
 ### Removed
 - **`src/mattermost/api.ts`** — the standalone REST helpers folded into `src/platform/mattermost/permission-api.ts` (only consumer). Net removal: 194 lines of code + 459 lines of redundant tests; equivalent HTTP-level coverage now lives in `src/platform/mattermost/client.test.ts`. (#342)
@@ -35,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test coverage floor raised** before the structural refactors above. New test files for MCP permission server, plugin handler, Mattermost client, and permission-API helpers. Existing `lifecycle.test.ts` and `manager.test.ts` expanded for branch coverage. Totals: 1970 → 2101 tests (+131). Coverage on `src/mcp/permission-server.ts`: 0% → 80% lines; `src/operations/plugin/handler.ts`: 0% → 100% funcs; `src/session/lifecycle.ts`: 21% → 31% lines. (#341)
 - **Small testability refactor in `src/mcp/permission-server.ts`** — extracted `handlePermissionWith()` so the permission flow is unit-testable without spinning up the real `PermissionApi` or reading `process.env` at module load. No behavior change. (#341)
 - **5 try/catch blocks in `src/operations/executors/content.ts`** collapsed into a `tryUpdatePost` helper with `onSuccess`/`onFailure` callbacks — keeps the three distinct failure-state reset variants explicit via callbacks rather than hiding them. (#342)
-- **DRY permission-mode helpers**: `permissionModeDisplay`, `permissionModeDescription`, and `permissionModeForRestart` live in `src/config/types.ts` as single sources of truth. A `MODE_INFO: Record<PermissionMode, …>` table backs the display + description helpers. (#343)
+- **DRY permission-mode helpers**: `permissionModeDisplay`, `permissionModeDescription`, and `effectivePermissionMode` live in `src/config/types.ts` as single sources of truth. A `MODE_INFO: Record<PermissionMode, …>` table backs the display + description helpers. The original `permissionModeForRestart` helper was introduced in #343 and then collapsed into `effectivePermissionMode` in #345 once the precedence logic for "respawn mode" and "current effective mode" had converged. (#343, #345)
 
 ## [1.8.3] - 2026-04-24
 
