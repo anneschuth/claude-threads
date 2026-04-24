@@ -17,7 +17,7 @@ import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { SessionStore } from '../../persistence/session-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ClaudeAccount } from '../../config.js';
+import type { ClaudeAccount } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -44,6 +44,8 @@ export interface SessionConfig {
   threadLogsRetentionDays?: number;
   /** Permission approval timeout in ms (default: 120000) */
   permissionTimeoutMs?: number;
+  /** Streaming flush cadence in ms (default: 500). Lower = snappier updates. */
+  flushDelayMs?: number;
 }
 
 // =============================================================================

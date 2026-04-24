@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { writeFileSync, mkdirSync, existsSync, unlinkSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, unlinkSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { SessionStore, PersistedSession } from './session-store.js';
@@ -566,6 +566,48 @@ describe('SessionStore', () => {
 
       const found = tempStore.findByPostId('test-platform', 'post-123');
       expect(found).toBeUndefined();
+    });
+  });
+
+  // ===========================================================================
+  // File permissions — sessions.json contains session metadata (threads,
+  // post ids, working dirs, optional allow-lists). Not literal secrets, but
+  // owner-only mode is the documented expectation (CLAUDE.md "Data Retention
+  // & Security"). The write path uses the atomic temp-file → rename pattern
+  // with `{ mode: 0o600 }` on write, then a defensive chmod after rename.
+  // ===========================================================================
+  describe('file permissions', () => {
+    it('writes sessions.json with mode 0600 (owner rw only)', () => {
+      // Unix-only: mode bits are meaningful. On Windows, fs mode is emulated
+      // and this assertion would be noise.
+      if (process.platform === 'win32') return;
+
+      const tempFile = join(tmpdir(), `session-store-perms-${Date.now()}.json`);
+      const tempStore = new SessionStore(tempFile);
+      try {
+        const session: PersistedSession = {
+          platformId: 'test-platform',
+          threadId: 'thread-perm',
+          claudeSessionId: 'uuid-perm',
+          startedBy: 'testuser',
+          startedAt: new Date().toISOString(),
+          lastActivityAt: new Date().toISOString(),
+          sessionNumber: 1,
+          workingDir: '/tmp',
+          planApproved: false,
+          sessionAllowedUsers: ['testuser'],
+          forceInteractivePermissions: false,
+          sessionStartPostId: 'post-1',
+          tasksPostId: null,
+          lastTasksContent: null,
+        };
+        tempStore.save('test-platform:thread-perm', session);
+
+        const mode = statSync(tempFile).mode & 0o777;
+        expect(mode).toBe(0o600);
+      } finally {
+        if (existsSync(tempFile)) unlinkSync(tempFile);
+      }
     });
   });
 

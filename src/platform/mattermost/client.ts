@@ -1,5 +1,5 @@
 import { WebSocket } from '../../utils/websocket.js';
-import type { MattermostPlatformConfig } from '../../config/migration.js';
+import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp } from '../utils.js';

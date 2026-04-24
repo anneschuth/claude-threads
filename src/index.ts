@@ -7,8 +7,8 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
-} from './config/migration.js';
-import type { CliArgs } from './config.js';
+} from './config/index.js';
+import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';

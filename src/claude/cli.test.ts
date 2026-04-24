@@ -2,12 +2,17 @@
  * Tests for claude/cli.ts - ClaudeCli class
  */
 
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, it } from 'bun:test';
+import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, readdirSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   ClaudeCli,
   buildClaudeChildEnv,
+  materializeMcpConfig,
   type ClaudeCliOptions,
   type StatusLineData,
+  type McpConfigBlob,
 } from './cli.js';
 
 describe('ClaudeCli', () => {
@@ -302,3 +307,90 @@ describe('StatusLineData interface', () => {
     expect(data.cost).toBeNull();
   });
 });
+
+// ============================================================================
+// materializeMcpConfig — default is tempfile (owner-only) so the platform
+// token does not appear in `ps`. The rollback flag keeps the inline path.
+// ============================================================================
+describe('materializeMcpConfig', () => {
+  let scratchDir: string;
+  let originalInlineEnv: string | undefined;
+
+  beforeEach(() => {
+    scratchDir = mkdtempSync(join(tmpdir(), 'mcp-config-test-'));
+    originalInlineEnv = process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
+    delete process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
+  });
+
+  afterEach(() => {
+    rmSync(scratchDir, { recursive: true, force: true });
+    if (originalInlineEnv === undefined) {
+      delete process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
+    } else {
+      process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE = originalInlineEnv;
+    }
+  });
+
+  function makeConfig(): McpConfigBlob {
+    return {
+      mcpServers: {
+        'claude-threads-permissions': {
+          type: 'stdio',
+          command: 'node',
+          args: ['/path/to/permission-server.js'],
+          env: { PLATFORM_TOKEN: 'SECRET-TOKEN', PLATFORM_TYPE: 'mattermost' },
+        },
+      },
+    };
+  }
+
+  it('writes config to a tempfile with mode 0o600 by default (Unix)', () => {
+    if (process.platform === 'win32') return; // mode bits are emulated on Windows
+    const result = materializeMcpConfig(makeConfig(), 'session-abc', { tmpDirOverride: scratchDir });
+    expect(result.mode).toBe('file');
+    if (result.mode !== 'file') return;
+    expect(existsSync(result.path)).toBe(true);
+    const mode = statSync(result.path).mode & 0o777;
+    expect(mode).toBe(0o600);
+    rmSync(result.path);
+  });
+
+  it('writes the full config JSON to the tempfile (round-trips)', () => {
+    const result = materializeMcpConfig(makeConfig(), 'session-xyz', { tmpDirOverride: scratchDir });
+    if (result.mode !== 'file') throw new Error('expected file mode');
+    const parsed = JSON.parse(readFileSync(result.path, 'utf8')) as McpConfigBlob;
+    const server = parsed.mcpServers['claude-threads-permissions'];
+    expect(server.env.PLATFORM_TOKEN).toBe('SECRET-TOKEN');
+    rmSync(result.path);
+  });
+
+  it('puts the sessionId in the filename for cross-session debugging', () => {
+    const result = materializeMcpConfig(makeConfig(), 'abc-123', { tmpDirOverride: scratchDir });
+    if (result.mode !== 'file') throw new Error('expected file mode');
+    expect(result.path).toContain('abc-123');
+    rmSync(result.path);
+  });
+
+  it('returns inline JSON when CLAUDE_THREADS_MCP_CONFIG_INLINE=1 is set', () => {
+    process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE = '1';
+    const result = materializeMcpConfig(makeConfig(), 'session-abc', { tmpDirOverride: scratchDir });
+    expect(result.mode).toBe('inline');
+    if (result.mode !== 'inline') return;
+    expect(result.value).toContain('SECRET-TOKEN');
+    // Critical: no stray file written when inline mode selected.
+    expect(readdirOrEmpty(scratchDir)).toEqual([]);
+  });
+
+  it('honors the explicit inline opt-in even without env var', () => {
+    const result = materializeMcpConfig(makeConfig(), 'session-abc', { inline: true, tmpDirOverride: scratchDir });
+    expect(result.mode).toBe('inline');
+  });
+});
+
+function readdirOrEmpty(dir: string): string[] {
+  try {
+    return readdirSync(dir);
+  } catch {
+    return [];
+  }
+}

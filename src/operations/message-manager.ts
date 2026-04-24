@@ -112,6 +112,12 @@ export interface MessageManagerOptions {
   startTyping?: StartTypingCallback;
   /** Callback to emit session update events */
   emitSessionUpdate?: EmitSessionUpdateCallback;
+  /**
+   * Delay between the first streaming chunk and flushing, in ms. When undefined,
+   * uses MessageManager.DEFAULT_FLUSH_DELAY_MS (500ms). Plumbed from
+   * ResolvedLimits.flushDelayMs.
+   */
+  flushDelayMs?: number;
 }
 
 /**
@@ -159,7 +165,8 @@ export class MessageManager {
 
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
-  private static FLUSH_DELAY_MS = 500;
+  private static readonly DEFAULT_FLUSH_DELAY_MS = 500;
+  private readonly flushDelayMs: number;
 
   /**
    * Event emitter for MessageManager events.
@@ -204,6 +211,7 @@ export class MessageManager {
     this.buildMessageContentCallback = options.buildMessageContent;
     this.startTypingCallback = options.startTyping;
     this.emitSessionUpdateCallback = options.emitSessionUpdate;
+    this.flushDelayMs = options.flushDelayMs ?? MessageManager.DEFAULT_FLUSH_DELAY_MS;
 
     // Create event emitter
     this.events = createMessageManagerEvents();
@@ -417,7 +425,7 @@ export class MessageManager {
       this.flushTimer = null;
       const flushOp = createFlushOp(this.sessionId, 'soft_threshold');
       await this.contentExecutor.executeFlush(flushOp, ctx);
-    }, MessageManager.FLUSH_DELAY_MS);
+    }, this.flushDelayMs);
   }
 
   /**

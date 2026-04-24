@@ -23,7 +23,9 @@ export interface ThreadLogsConfig {
 
 /**
  * Resource limits and timeouts configuration
- * All fields are optional with sensible defaults
+ * All fields are optional with sensible defaults. Additions here must stay
+ * backward-compatible (optional + defaulted) — `config.yaml` files in the
+ * wild predate most of these fields.
  */
 export interface LimitsConfig {
   /** Maximum concurrent sessions (default: 5) */
@@ -40,12 +42,33 @@ export interface LimitsConfig {
   cleanupWorktrees?: boolean;
   /** Timeout for permission approval reactions, in seconds (default: 120) */
   permissionTimeoutSeconds?: number;
+  /**
+   * Delay between the first streaming chunk and flushing the batched output
+   * to the platform, in ms (default: 500). Lower = snappier updates +
+   * more API calls. Higher = fewer posts + coarser visible streaming.
+   */
+  flushDelayMs?: number;
+}
+
+/**
+ * Resolved limits. Every field is non-optional so downstream code doesn't
+ * defend itself.
+ */
+export interface ResolvedLimits {
+  maxSessions: number;
+  sessionTimeoutMinutes: number;
+  sessionWarningMinutes: number;
+  cleanupIntervalMinutes: number;
+  maxWorktreeAgeHours: number;
+  cleanupWorktrees: boolean;
+  permissionTimeoutSeconds: number;
+  flushDelayMs: number;
 }
 
 /**
  * Default values for LimitsConfig
  */
-export const LIMITS_DEFAULTS: Required<LimitsConfig> = {
+export const LIMITS_DEFAULTS: ResolvedLimits = {
   maxSessions: 5,
   sessionTimeoutMinutes: 30,
   sessionWarningMinutes: 5,
@@ -53,12 +76,13 @@ export const LIMITS_DEFAULTS: Required<LimitsConfig> = {
   maxWorktreeAgeHours: 24,
   cleanupWorktrees: true,
   permissionTimeoutSeconds: 120,
+  flushDelayMs: 500,
 };
 
 /**
  * Resolve limits config with defaults, supporting env var fallback for backward compatibility
  */
-export function resolveLimits(limits?: LimitsConfig): Required<LimitsConfig> {
+export function resolveLimits(limits?: LimitsConfig): ResolvedLimits {
   // Support legacy env vars as fallback
   const envMaxSessions = process.env.MAX_SESSIONS ? parseInt(process.env.MAX_SESSIONS, 10) : undefined;
   const envSessionTimeout = process.env.SESSION_TIMEOUT_MS
@@ -73,6 +97,7 @@ export function resolveLimits(limits?: LimitsConfig): Required<LimitsConfig> {
     maxWorktreeAgeHours: limits?.maxWorktreeAgeHours ?? LIMITS_DEFAULTS.maxWorktreeAgeHours,
     cleanupWorktrees: limits?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
     permissionTimeoutSeconds: limits?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
+    flushDelayMs: limits?.flushDelayMs ?? LIMITS_DEFAULTS.flushDelayMs,
   };
 }
 

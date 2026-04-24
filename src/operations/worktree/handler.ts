@@ -6,7 +6,7 @@
 
 import type { Session } from '../../session/types.js';
 import { transitionTo } from '../../session/types.js';
-import type { WorktreeMode } from '../../config.js';
+import type { WorktreeMode } from '../../config/index.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
 import {

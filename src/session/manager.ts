@@ -16,7 +16,7 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { WorktreeMode, type LimitsConfig, type ClaudeAccount, resolveLimits } from '../config.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, resolveLimits } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
@@ -77,7 +77,7 @@ export class SessionManager extends EventEmitter {
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
-  private readonly limits: Required<LimitsConfig>;
+  private readonly limits: ResolvedLimits;
   // Debug is a getter so it reads current process.env.DEBUG (can be toggled at runtime)
   private get debug(): boolean {
     return process.env.DEBUG === '1' || process.argv.includes('--debug');
@@ -253,6 +253,7 @@ export class SessionManager extends EventEmitter {
       threadLogsEnabled: this.threadLogsEnabled,
       threadLogsRetentionDays: this.threadLogsRetentionDays,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
+      flushDelayMs: this.limits.flushDelayMs,
     };
 
     const state: SessionState = {
@@ -436,6 +437,17 @@ export class SessionManager extends EventEmitter {
     // This is the primary authorization gate for all reaction-based actions.
     // All reactions are validated here before reaching MessageManager/executors.
     if (!session.sessionAllowedUsers.has(username) && !session.platform.isUserAllowed(username)) {
+      // Audit trail: record unauthorized reaction attempts so operators can
+      // detect probing. Structured fields stay searchable across platforms.
+      log.info(`🚫 rejected reaction from unauthorized user`, {
+        event: 'reaction.rejected',
+        platformId,
+        sessionId: session.sessionId,
+        postId,
+        emoji: normalizedEmoji,
+        action,
+        user: username,
+      });
       return;
     }
 

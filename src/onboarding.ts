@@ -13,7 +13,7 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type LimitsConfig,
-} from './config/migration.js';
+} from './config/index.js';
 import { bold, dim, green } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 

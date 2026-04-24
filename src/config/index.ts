@@ -8,6 +8,7 @@ export type {
   WorktreeMode,
   ThreadLogsConfig,
   LimitsConfig,
+  ResolvedLimits,
   StickyMessageCustomization,
   ClaudeAccount,
   Config,
@@ -20,7 +21,7 @@ export type {
 } from './types.js';
 export { LIMITS_DEFAULTS, resolveLimits } from './types.js';
 
-import type { Config } from './types.js';
+import type { Config, WorktreeMode as WorktreeModeType } from './types.js';
 
 // YAML config path
 export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'config.yaml');
@@ -77,4 +78,23 @@ export function saveConfig(config: Config, path: string = CONFIG_PATH): void {
  */
 export function configExists(): boolean {
   return existsSync(CONFIG_PATH);
+}
+
+// =============================================================================
+// CLI argument types
+// =============================================================================
+
+/**
+ * CLI arguments that can override config
+ */
+export interface CliArgs {
+  url?: string;
+  token?: string;
+  channel?: string;
+  botName?: string;
+  allowedUsers?: string;
+  skipPermissions?: boolean;
+  chrome?: boolean;
+  worktreeMode?: WorktreeModeType;
+  keepAlive?: boolean;
 }

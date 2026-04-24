@@ -1,9 +1,10 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, it } from 'bun:test';
+import { resolveLimits, LIMITS_DEFAULTS } from './index.js';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { saveConfig, loadConfigWithMigration, configExists, CONFIG_PATH, type Config } from './migration.js';
+import { saveConfig, loadConfigWithMigration, configExists, CONFIG_PATH, type Config } from './index.js';
 
 describe('saveConfig', () => {
   let testDir: string;
@@ -204,5 +205,23 @@ describe('loadConfigWithMigration', () => {
       expect(result).toHaveProperty('platforms');
       expect(Array.isArray(result.platforms)).toBe(true);
     }
+  });
+});
+
+describe('resolveLimits — flushDelayMs tunable', () => {
+  it('defaults to 500ms when unset', () => {
+    expect(resolveLimits().flushDelayMs).toBe(LIMITS_DEFAULTS.flushDelayMs);
+    expect(resolveLimits({}).flushDelayMs).toBe(500);
+  });
+
+  it('honors explicit flushDelayMs from config', () => {
+    expect(resolveLimits({ flushDelayMs: 100 }).flushDelayMs).toBe(100);
+    expect(resolveLimits({ flushDelayMs: 2000 }).flushDelayMs).toBe(2000);
+  });
+
+  it('preserves defaults for unset siblings when flushDelayMs is set', () => {
+    const r = resolveLimits({ flushDelayMs: 123 });
+    expect(r.maxSessions).toBe(LIMITS_DEFAULTS.maxSessions);
+    expect(r.sessionTimeoutMinutes).toBe(LIMITS_DEFAULTS.sessionTimeoutMinutes);
   });
 });

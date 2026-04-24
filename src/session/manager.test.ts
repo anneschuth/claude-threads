@@ -6,6 +6,7 @@ import { describe, test, expect, beforeEach, mock } from 'bun:test';
 import { SessionManager } from './manager.js';
 import type { PlatformClient, PlatformPost } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
+import { setLogHandler } from '../utils/logger.js';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -604,6 +605,32 @@ describe('SessionManager', () => {
       await (manager as any).handleReaction('test-platform', 'start-post', 'x', 'mallory', 'added');
       // killSession should not have been called (cancel would trigger it).
       expect(session.claude.kill).not.toHaveBeenCalled();
+    });
+
+    test('logs an audit entry when rejecting an unauthorized reaction', async () => {
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
+        sessionStartPostId: 'start-post',
+        sessionAllowedUsers: new Set(['alice']),
+      });
+      (manager as any).registry.postIndex = (manager as any).registry.postIndex || new Map();
+      (manager as any).registry.registerPost?.('start-post', 'thread-X', session.sessionId);
+
+      // Logger emits through globalLogHandler when one is set (the UI layer
+      // installs one at startup). In tests we install our own capture.
+      const captured: Array<{ level: string; msg: string }> = [];
+      setLogHandler((level, _component, msg) => {
+        captured.push({ level, msg });
+      });
+      try {
+        await (manager as any).handleReaction('test-platform', 'start-post', 'x', 'mallory', 'added');
+      } finally {
+        setLogHandler(null);
+      }
+
+      const audit = captured.find(entry => entry.msg.includes('reaction.rejected'));
+      expect(audit).toBeDefined();
+      expect(audit?.level).toBe('info');
+      expect(audit?.msg).toContain('mallory');
     });
   });
 

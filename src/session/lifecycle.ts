@@ -297,6 +297,8 @@ function createMessageManager(
     emitSessionUpdate: (updates) => {
       ctx.ops.emitSessionUpdate(session.sessionId, updates);
     },
+    // Tunable streaming cadence (ResolvedLimits.flushDelayMs → SessionConfig).
+    flushDelayMs: ctx.config.flushDelayMs,
   });
 
   // Subscribe to events from MessageManager

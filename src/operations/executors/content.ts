@@ -71,6 +71,39 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   }
 
   /**
+   * Wrap `ctx.platform.updatePost` with the three-way outcome this file uses
+   * repeatedly: (success: log + caller-supplied state update) vs (failure: log
+   * + caller-supplied state reset). Shared fields — component name, postId,
+   * threadLogger tag — are set here so call sites only specify what differs.
+   *
+   * Each call site's success and failure state mutation stays explicit via the
+   * `onSuccess` / `onFailure` callbacks. Do NOT bake a single "correct" state
+   * reset into this helper: the 5 original sites drifted (some clear
+   * currentPostContent, some don't), and hiding those differences would be a
+   * regression hazard.
+   */
+  private async tryUpdatePost(
+    ctx: ExecutorContext,
+    postId: string,
+    content: string,
+    logTag: string,
+    successDetails: Record<string, unknown>,
+    failureDetails: Record<string, unknown>,
+    onSuccess: () => void,
+    onFailure: () => void,
+  ): Promise<void> {
+    try {
+      await ctx.platform.updatePost(postId, content);
+      onSuccess();
+      ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
+    } catch (err) {
+      ctx.logger.debug(`Update failed (${logTag}): ${err}`);
+      ctx.threadLogger?.logExecutor('content', 'error', postId, failureDetails, logTag);
+      onFailure();
+    }
+  }
+
+  /**
    * Close the current post, signaling that subsequent content should go to a new post.
    * Called when user sends a message or after compaction.
    */
@@ -213,23 +246,22 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         return;
       }
 
-      try {
-        await ctx.platform.updatePost(postId, combinedContent);
-        this.state.currentPostContent = combinedContent;
-        this.clearFlushedContent(pendingAtFlushStart);
-        ctx.threadLogger?.logExecutor('content', 'update', postId, {
-          newContentLength: content.length,
-          combinedLength: combinedContent.length,
-        }, 'flush');
-      } catch (err) {
-        ctx.logger.debug(`Update failed, will create new post on next flush: ${err}`);
-        ctx.threadLogger?.logExecutor('content', 'error', postId, {
-          failedOp: 'updatePost',
-          error: String(err),
-        }, 'flush');
-        this.state.currentPostId = null;
-        this.state.currentPostContent = '';
-      }
+      await this.tryUpdatePost(
+        ctx,
+        postId,
+        combinedContent,
+        'flush',
+        { newContentLength: content.length, combinedLength: combinedContent.length },
+        { failedOp: 'updatePost' },
+        () => {
+          this.state.currentPostContent = combinedContent;
+          this.clearFlushedContent(pendingAtFlushStart);
+        },
+        () => {
+          this.state.currentPostId = null;
+          this.state.currentPostContent = '';
+        },
+      );
     } else {
       // Create new post(s) - split if content is too tall
       const chunks = splitContentForHeight(content, ctx.contentBreaker);
@@ -321,25 +353,28 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (bestBreakPoint !== null && bestBreakPoint > 0) {
         breakPoint = bestBreakPoint;
       } else {
-        // No good breakpoint - just update current post with ALL content
-        // We must update the post AND update state to prevent duplication on next flush
+        // No good breakpoint - just update current post with ALL content.
+        // We must update the post AND update state to prevent duplication on next flush.
+        // Failure branch nulls postId but deliberately leaves currentPostContent intact
+        // (unlike other sites) so the existing content is preserved for the continuation.
         if (this.state.currentPostId) {
-          try {
-            await ctx.platform.updatePost(this.state.currentPostId, content);
-            // CRITICAL: Update state to match what's in the post
-            this.state.currentPostContent = content;
-            this.clearFlushedContent(pendingAtFlushStart);
-            ctx.threadLogger?.logExecutor('content', 'update', this.state.currentPostId, {
-              reason: 'soft_break_no_breakpoint',
-              contentLength: content.length,
-            }, 'handleSplit');
-          } catch {
-            ctx.logger.debug('Update failed (no breakpoint), will create new post on next flush');
-            ctx.threadLogger?.logExecutor('content', 'error', this.state.currentPostId, {
-              reason: 'soft_break_no_breakpoint_failed',
-            }, 'handleSplit');
-            this.state.currentPostId = null;
-          }
+          const postId = this.state.currentPostId;
+          await this.tryUpdatePost(
+            ctx,
+            postId,
+            content,
+            'handleSplit',
+            { reason: 'soft_break_no_breakpoint', contentLength: content.length },
+            { reason: 'soft_break_no_breakpoint_failed' },
+            () => {
+              // CRITICAL: Update state to match what's in the post
+              this.state.currentPostContent = content;
+              this.clearFlushedContent(pendingAtFlushStart);
+            },
+            () => {
+              this.state.currentPostId = null;
+            },
+          );
         }
         return;
       }
@@ -348,25 +383,26 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // Split at code block start if needed
     if (codeBlockOpenPosition !== undefined) {
       if (codeBlockOpenPosition === 0) {
-        // Code block at start - just update and wait
+        // Code block at start - just update and wait.
         if (this.state.currentPostId) {
-          try {
-            await ctx.platform.updatePost(this.state.currentPostId, content);
-            // CRITICAL: Update state to match what's in the post to prevent duplication
-            this.state.currentPostContent = content;
-            this.clearFlushedContent(pendingAtFlushStart);
-            ctx.threadLogger?.logExecutor('content', 'update', this.state.currentPostId, {
-              reason: 'code_block_at_start',
-              contentLength: content.length,
-            }, 'handleSplit');
-          } catch {
-            ctx.logger.debug('Update failed (code block at start)');
-            ctx.threadLogger?.logExecutor('content', 'error', this.state.currentPostId, {
-              reason: 'code_block_at_start_failed',
-            }, 'handleSplit');
-            this.state.currentPostId = null;
-            this.state.currentPostContent = '';
-          }
+          const postId = this.state.currentPostId;
+          await this.tryUpdatePost(
+            ctx,
+            postId,
+            content,
+            'handleSplit',
+            { reason: 'code_block_at_start', contentLength: content.length },
+            { reason: 'code_block_at_start_failed' },
+            () => {
+              // CRITICAL: Update state to match what's in the post to prevent duplication
+              this.state.currentPostContent = content;
+              this.clearFlushedContent(pendingAtFlushStart);
+            },
+            () => {
+              this.state.currentPostId = null;
+              this.state.currentPostContent = '';
+            },
+          );
         }
         return;
       }
@@ -376,23 +412,24 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         breakPoint = breakBeforeCodeBlock;
       } else {
         if (this.state.currentPostId) {
-          try {
-            await ctx.platform.updatePost(this.state.currentPostId, content);
-            // CRITICAL: Update state to match what's in the post to prevent duplication
-            this.state.currentPostContent = content;
-            this.clearFlushedContent(pendingAtFlushStart);
-            ctx.threadLogger?.logExecutor('content', 'update', this.state.currentPostId, {
-              reason: 'no_break_before_code_block',
-              contentLength: content.length,
-            }, 'handleSplit');
-          } catch {
-            ctx.logger.debug('Update failed (no break before code block)');
-            ctx.threadLogger?.logExecutor('content', 'error', this.state.currentPostId, {
-              reason: 'no_break_before_code_block_failed',
-            }, 'handleSplit');
-            this.state.currentPostId = null;
-            this.state.currentPostContent = '';
-          }
+          const postId = this.state.currentPostId;
+          await this.tryUpdatePost(
+            ctx,
+            postId,
+            content,
+            'handleSplit',
+            { reason: 'no_break_before_code_block', contentLength: content.length },
+            { reason: 'no_break_before_code_block_failed' },
+            () => {
+              // CRITICAL: Update state to match what's in the post to prevent duplication
+              this.state.currentPostContent = content;
+              this.clearFlushedContent(pendingAtFlushStart);
+            },
+            () => {
+              this.state.currentPostId = null;
+              this.state.currentPostContent = '';
+            },
+          );
         }
         return;
       }
@@ -408,19 +445,20 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // is the portion that should be in this post. Combining would cause duplication
     // since pendingContent accumulates and isn't always cleared properly.
     if (this.state.currentPostId) {
-      try {
-        await ctx.platform.updatePost(this.state.currentPostId, firstPart);
-        ctx.threadLogger?.logExecutor('content', 'update', this.state.currentPostId, {
-          reason: 'split_first_part',
-          firstPartLength: firstPart.length,
-          remainderLength: remainder.length,
-        }, 'handleSplit');
-      } catch {
-        ctx.logger.debug('Update failed during split, continuing with new post');
-        ctx.threadLogger?.logExecutor('content', 'error', this.state.currentPostId, {
-          reason: 'split_first_part_failed',
-        }, 'handleSplit');
-      }
+      const postId = this.state.currentPostId;
+      // Split first part: no state mutation on either branch — the caller
+      // unconditionally nulls currentPostId and clears currentPostContent
+      // below to start fresh for the remainder.
+      await this.tryUpdatePost(
+        ctx,
+        postId,
+        firstPart,
+        'handleSplit',
+        { reason: 'split_first_part', firstPartLength: firstPart.length, remainderLength: remainder.length },
+        { reason: 'split_first_part_failed' },
+        () => { /* no-op: caller resets state below */ },
+        () => { /* no-op: caller resets state below */ },
+      );
     }
 
     // Start new post for remainder

@@ -3,7 +3,7 @@ import { crossSpawn } from '../utils/spawn.js';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync, readdirSync } from 'fs';
+import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync, readdirSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -197,6 +197,51 @@ function isErrorResultEvent(event: ClaudeEvent): boolean {
   return false;
 }
 
+/**
+ * Shape of an MCP `--mcp-config` blob for the Claude CLI. Exported for tests.
+ */
+export interface McpConfigBlob {
+  mcpServers: Record<string, {
+    type: 'stdio';
+    command: string;
+    args: string[];
+    env: Record<string, string>;
+  }>;
+}
+
+/**
+ * Materialize an MCP config for handoff to Claude CLI. Either writes it to an
+ * owner-only tempfile (default) and returns the path, or returns the inline
+ * JSON string when the `CLAUDE_THREADS_MCP_CONFIG_INLINE=1` rollback env is set.
+ *
+ * Exported so tests can assert file mode + contents without spawning Claude.
+ */
+export function materializeMcpConfig(
+  config: McpConfigBlob,
+  sessionId: string | undefined,
+  opts: { inline?: boolean; tmpDirOverride?: string } = {},
+): { mode: 'inline'; value: string } | { mode: 'file'; path: string } {
+  if (opts.inline ?? process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE === '1') {
+    return { mode: 'inline', value: JSON.stringify(config) };
+  }
+  const dir = opts.tmpDirOverride ?? tmpdir();
+  const path = join(dir, `claude-threads-mcp-${sessionId ?? process.pid}-${Date.now()}.json`);
+  writeFileSync(path, JSON.stringify(config), { mode: 0o600 });
+  return { mode: 'file', path };
+}
+
+// Per-instance stderr cap (enough to surface the most recent error chain).
+const STDERR_PER_INSTANCE_CAP = 10_240; // 10KB
+// Process-wide soft cap across all live ClaudeCli instances. Once exceeded,
+// individual instances start trimming to 1KB instead of the 10KB default, so
+// a runaway fleet cannot push the bot's heap above this. 10MB is generous
+// relative to any plausible MAX_SESSIONS (5 default; even 1000 sessions at
+// 1KB = 1MB); anything beyond 10MB indicates something is very wrong.
+const STDERR_AGGREGATE_SOFT_CAP = 10 * 1024 * 1024; // 10MB
+// Tracks the sum of stderr buffer lengths across all ClaudeCli instances.
+// Module-private — safe to share: every ClaudeCli runs in the same process.
+let totalStderrBytes = 0;
+
 export class ClaudeCli extends EventEmitter {
   private process: ChildProcess | null = null;
   private options: ClaudeCliOptions;
@@ -205,6 +250,7 @@ export class ClaudeCli extends EventEmitter {
   private statusFilePath: string | null = null;
   private lastStatusData: StatusLineData | null = null;
   private stderrBuffer = '';  // Capture stderr for error detection
+  private mcpConfigTempFile: string | null = null;  // Set when MCP config is passed via tempfile (default)
   // Deadline of the last rate-limit hit we emitted. Zero means we haven't
   // emitted one yet. Used to dedupe repeated hits at the same severity while
   // still letting a LATER deadline through — see maybeEmitRateLimit().
@@ -290,7 +336,9 @@ export class ClaudeCli extends EventEmitter {
   start(): void {
     if (this.process) throw new Error('Already running');
 
-    // Clear stderr buffer and rate-limit dedupe flag from any previous run
+    // Clear stderr buffer and rate-limit dedupe flag from any previous run.
+    // Release this instance's contribution to the aggregate stderr cap first.
+    totalStderrBytes -= this.stderrBuffer.length;
     this.stderrBuffer = '';
     this.lastEmittedRateLimitDeadline = 0;
 
@@ -342,7 +390,7 @@ export class ClaudeCli extends EventEmitter {
         mcpEnv.PLATFORM_APP_TOKEN = platformConfig.appToken;
       }
 
-      const mcpConfig = {
+      const mcpConfig: McpConfigBlob = {
         mcpServers: {
           'claude-threads-permissions': {
             type: 'stdio',
@@ -352,7 +400,22 @@ export class ClaudeCli extends EventEmitter {
           },
         },
       };
-      args.push('--mcp-config', JSON.stringify(mcpConfig));
+      // SECURITY: The MCP config contains the bot's platform token. Passing
+      // it as a --mcp-config '<JSON>' argv exposes the token in `ps` output
+      // on systems that let unprivileged users read other processes' argv.
+      // Default: write to an owner-only tempfile (mode 0600) and pass the
+      // path. Opt out with CLAUDE_THREADS_MCP_CONFIG_INLINE=1 for one release
+      // as a rollback hatch in case the file form regresses on any 2.1.x.
+      //
+      // Claude CLI `--mcp-config <configs...>` accepts "JSON files or
+      // strings" — file form verified against 2.1.x via `claude --help`.
+      const materialized = materializeMcpConfig(mcpConfig, this.options.sessionId);
+      if (materialized.mode === 'file') {
+        this.mcpConfigTempFile = materialized.path;
+        args.push('--mcp-config', materialized.path);
+      } else {
+        args.push('--mcp-config', materialized.value);
+      }
       args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
     }
 
@@ -405,11 +468,19 @@ export class ClaudeCli extends EventEmitter {
 
     this.process.stderr?.on('data', (chunk: Buffer) => {
       const text = chunk.toString();
+      const before = this.stderrBuffer.length;
       this.stderrBuffer += text;
-      // Keep only the last 10KB of stderr to prevent memory issues
-      if (this.stderrBuffer.length > 10240) {
-        this.stderrBuffer = this.stderrBuffer.slice(-10240);
+      // Under-pressure trim: once the aggregate across all sessions exceeds
+      // STDERR_AGGREGATE_SOFT_CAP, trim aggressively (1KB) so a single runaway
+      // session cannot keep claiming 10KB while the rest of the fleet is
+      // competing for heap. Normal operation uses the 10KB per-instance cap.
+      const cap = totalStderrBytes > STDERR_AGGREGATE_SOFT_CAP
+        ? 1024
+        : STDERR_PER_INSTANCE_CAP;
+      if (this.stderrBuffer.length > cap) {
+        this.stderrBuffer = this.stderrBuffer.slice(-cap);
       }
+      totalStderrBytes += this.stderrBuffer.length - before;
       this.log.debug(`stderr: ${text.trim()}`);
       // In integration tests, forward child stderr to our stderr so the
       // CI log captures mock-claude diagnostics. Prod never sets this env.
@@ -428,6 +499,18 @@ export class ClaudeCli extends EventEmitter {
       this.log.debug(`Exited ${code}`);
       this.process = null;
       this.buffer = '';
+      // Release this instance's stderr budget so other sessions can use it.
+      // We intentionally DON'T clear stderrBuffer here — getLastStderr() is
+      // called during crash-diagnosis after exit.
+      totalStderrBytes -= this.stderrBuffer.length;
+      // Unlink the MCP config tempfile if one was written. Best-effort: if
+      // cleanup fails (perms, race, ENOENT from a concurrent cleanup), the
+      // file lives in os.tmpdir() and will be reaped by the OS eventually.
+      if (this.mcpConfigTempFile) {
+        const path = this.mcpConfigTempFile;
+        this.mcpConfigTempFile = null;
+        try { unlinkSync(path); } catch { /* best-effort */ }
+      }
       this.emit('exit', code);
     });
   }

@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { MattermostClient } from './client.js';
-import type { MattermostPlatformConfig } from '../../config/migration.js';
+import type { MattermostPlatformConfig } from '../../config/index.js';
 
 // -----------------------------------------------------------------------------
 // Fetch harness
