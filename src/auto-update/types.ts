@@ -114,7 +114,17 @@ export type UpdateStatus =
 
 /** Runtime settings that can be toggled via UI */
 export interface RuntimeSettings {
-  /** Skip permission prompts (auto-approve) */
+  /**
+   * Effective permission mode. New code reads this; `skipPermissions` below
+   * is kept as a derived boolean for persisted-settings compatibility with
+   * older daemon restarts.
+   */
+  permissionMode?: 'default' | 'auto' | 'bypass';
+
+  /**
+   * @deprecated Read `permissionMode` instead. Still written for backward
+   * compatibility with older persisted settings files.
+   */
   skipPermissions?: boolean;
 
   /** Enable Claude in Chrome integration */

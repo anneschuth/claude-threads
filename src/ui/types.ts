@@ -1,6 +1,7 @@
 /**
  * Types for the Ink-based CLI UI
  */
+import type { PermissionMode } from '../config/index.js';
 
 export interface SessionInfo {
   id: string;
@@ -49,7 +50,7 @@ export interface AppConfig {
   workingDir: string;
   claudeVersion: string;
   claudeCompatible: boolean;
-  skipPermissions: boolean;
+  permissionMode: PermissionMode;
   chromeEnabled: boolean;
   keepAliveEnabled: boolean;
 }
@@ -71,7 +72,8 @@ export interface UpdatePanelState {
  */
 export interface ToggleState {
   debugMode: boolean;
-  skipPermissions: boolean;  // Default for new sessions
+  /** Default permission mode for new sessions (bot-wide). */
+  permissionMode: PermissionMode;
   chromeEnabled: boolean;    // Default for new sessions
   keepAliveEnabled: boolean;
   updateModalVisible: boolean;  // Whether the update modal is shown
@@ -83,7 +85,12 @@ export interface ToggleState {
  */
 export interface ToggleCallbacks {
   onDebugToggle?: (enabled: boolean) => void;
-  onPermissionsToggle?: (skipPermissions: boolean) => void;
+  /**
+   * Fires when the user cycles the permission-mode keyboard toggle. The new
+   * mode is one of `'default' | 'auto' | 'bypass'`; callers should update
+   * runtime config + persist for daemon restart.
+   */
+  onPermissionsToggle?: (mode: PermissionMode) => void;
   onChromeToggle?: (enabled: boolean) => void;
   onKeepAliveToggle?: (enabled: boolean) => void;
   onPlatformToggle?: (platformId: string, enabled: boolean) => void;

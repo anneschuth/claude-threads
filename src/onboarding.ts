@@ -8,14 +8,46 @@ import {
   CONFIG_PATH,
   saveConfig,
   LIMITS_DEFAULTS,
+  resolvePermissionMode,
+  permissionModeDisplay,
   type Config,
   type PlatformInstanceConfig,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type LimitsConfig,
+  type PermissionMode,
 } from './config/index.js';
 import { bold, dim, green } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
+
+/**
+ * Common choices list for the three-way permission-mode picker, reused by
+ * both the Mattermost and Slack platform flows. `auto` is the recommended
+ * default — Claude's classifier handles low-risk tool-uses so operators
+ * aren't desensitized by prompt fatigue, while high-risk tool-uses still
+ * fall through to human approval via the MCP server.
+ */
+const PERMISSION_MODE_CHOICES = [
+  {
+    title: 'Auto (recommended)',
+    value: 'auto' as PermissionMode,
+    description: 'Classifier auto-approves low-risk; high-risk tools still prompt via reactions',
+  },
+  {
+    title: 'Default',
+    value: 'default' as PermissionMode,
+    description: 'Every tool-use prompts — strictest mode, can be noisy for everyday work',
+  },
+  {
+    title: 'Bypass',
+    value: 'bypass' as PermissionMode,
+    description: 'No prompts, all tools allowed — use only in trusted environments',
+  },
+];
+
+function permissionModeChoiceIndex(mode: PermissionMode): number {
+  return PERMISSION_MODE_CHOICES.findIndex((c) => c.value === mode);
+}
 
 // Get the path to the Slack app manifest file
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -731,7 +763,7 @@ async function showConfigSummary(config: Config): Promise<void> {
         ? mm.allowedUsers.join(', ')
         : 'ANYONE (⚠️  no restrictions)';
       console.log(dim(`      Allowed Users: ${allowedUsers}`));
-      console.log(dim(`      Auto-approve: ${mm.skipPermissions ? 'Yes' : 'No (interactive)'}`));
+      console.log(dim(`      Permission Mode: ${permissionModeDisplay(resolvePermissionMode({ permissionMode: mm.permissionMode, skipPermissions: mm.skipPermissions })).chip}`));
     } else {
       const slack = platform as SlackPlatformConfig;
       console.log(dim(`      Channel: ${slack.channelId}`));
@@ -741,7 +773,7 @@ async function showConfigSummary(config: Config): Promise<void> {
         ? slack.allowedUsers.join(', ')
         : 'ANYONE (⚠️  no restrictions)';
       console.log(dim(`      Allowed Users: ${allowedUsers}`));
-      console.log(dim(`      Auto-approve: ${slack.skipPermissions ? 'Yes' : 'No (interactive)'}`));
+      console.log(dim(`      Permission Mode: ${permissionModeDisplay(resolvePermissionMode({ permissionMode: slack.permissionMode, skipPermissions: slack.skipPermissions })).chip}`));
     }
   }
 
@@ -982,7 +1014,15 @@ async function setupMattermostPlatform(
   let lastChannelId = existingMattermost?.channelId || '';
   let lastBotName = existingMattermost?.botName || 'claude-code';
   let lastAllowedUsers = existingMattermost?.allowedUsers?.join(',') || '';
-  let lastRequireApproval = existingMattermost ? !existingMattermost.skipPermissions : true;
+  // New configs default to `auto` (the onboarding recommendation). Existing
+  // configs keep whatever they had — never silently change an operator's
+  // permission posture during reconfigure.
+  let lastPermissionMode: PermissionMode = existingMattermost
+    ? resolvePermissionMode({
+        permissionMode: existingMattermost.permissionMode,
+        skipPermissions: existingMattermost.skipPermissions,
+      })
+    : 'auto';
 
   // Main loop - allows retrying when validation fails
   while (true) {
@@ -1098,13 +1138,13 @@ async function setupMattermostPlatform(
       }
     }
 
-    // Now ask about approval (after user access is settled)
-    const { requireApproval } = await prompts({
-      type: 'confirm',
-      name: 'requireApproval',
-      message: 'Require approval for Claude actions?',
-      initial: lastRequireApproval,
-      hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
+    // Now ask about permission mode (after user access is settled)
+    const { permissionMode } = await prompts({
+      type: 'select',
+      name: 'permissionMode',
+      message: 'Permission mode for Claude tool-uses?',
+      choices: PERMISSION_MODE_CHOICES,
+      initial: permissionModeChoiceIndex(lastPermissionMode),
     }, { onCancel });
 
     // Save entered values for potential retry
@@ -1114,7 +1154,7 @@ async function setupMattermostPlatform(
     lastChannelId = basicSettings.channelId;
     lastBotName = basicSettings.botName;
     lastAllowedUsers = allowedUsers.join(',');
-    lastRequireApproval = requireApproval;
+    lastPermissionMode = permissionMode;
 
     // Validate credentials
     console.log('');
@@ -1184,7 +1224,7 @@ async function setupMattermostPlatform(
       channelId: basicSettings.channelId,
       botName: basicSettings.botName,
       allowedUsers,
-      skipPermissions: !requireApproval,
+      permissionMode: lastPermissionMode,
     };
   }
 }
@@ -1364,7 +1404,12 @@ async function setupSlackPlatform(
   let lastChannelId = existingSlack?.channelId || '';
   let lastBotName = existingSlack?.botName || 'claude';
   let lastAllowedUsers = existingSlack?.allowedUsers?.join(',') || '';
-  let lastRequireApproval = existingSlack ? !existingSlack.skipPermissions : true;
+  let lastPermissionMode: PermissionMode = existingSlack
+    ? resolvePermissionMode({
+        permissionMode: existingSlack.permissionMode,
+        skipPermissions: existingSlack.skipPermissions,
+      })
+    : 'auto';
 
   // Main loop - allows retrying when validation fails
   while (true) {
@@ -1488,13 +1533,13 @@ async function setupSlackPlatform(
       }
     }
 
-    // Now ask about approval (after user access is settled)
-    const { requireApproval } = await prompts({
-      type: 'confirm',
-      name: 'requireApproval',
-      message: 'Require approval for Claude actions?',
-      initial: lastRequireApproval,
-      hint: 'Yes = approve via reactions (recommended), No = auto-approve everything',
+    // Now ask about permission mode (after user access is settled)
+    const { permissionMode } = await prompts({
+      type: 'select',
+      name: 'permissionMode',
+      message: 'Permission mode for Claude tool-uses?',
+      choices: PERMISSION_MODE_CHOICES,
+      initial: permissionModeChoiceIndex(lastPermissionMode),
     }, { onCancel });
 
     // Save entered values for potential retry
@@ -1504,7 +1549,7 @@ async function setupSlackPlatform(
     lastChannelId = basicSettings.channelId;
     lastBotName = basicSettings.botName;
     lastAllowedUsers = allowedUsers.join(',');
-    lastRequireApproval = requireApproval;
+    lastPermissionMode = permissionMode;
 
     // Validate credentials
     console.log('');
@@ -1580,7 +1625,7 @@ async function setupSlackPlatform(
       channelId: basicSettings.channelId,
       botName: basicSettings.botName,
       allowedUsers,
-      skipPermissions: !requireApproval,
+      permissionMode: lastPermissionMode,
     };
   }
 }

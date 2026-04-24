@@ -29,6 +29,7 @@ import { OverlayModal } from './components/OverlayModal.js';
 import { useAppState } from './hooks/useAppState.js';
 import { useKeyboard } from './hooks/useKeyboard.js';
 import type { AppConfig, SessionInfo, LogEntry, PlatformStatus, ToggleState, ToggleCallbacks, UpdatePanelState } from './types.js';
+import { nextPermissionMode } from '../config/permission-mode-cycle.js';
 
 interface AppProps {
   config: AppConfig;
@@ -77,7 +78,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
   // Runtime toggle state - initialized from config
   const [toggles, setToggles] = React.useState<ToggleState>({
     debugMode: process.env.DEBUG === '1',
-    skipPermissions: config.skipPermissions,
+    permissionMode: config.permissionMode,
     chromeEnabled: config.chromeEnabled,
     keepAliveEnabled: config.keepAliveEnabled,
     updateModalVisible: false,
@@ -106,9 +107,9 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
 
   const handlePermissionsToggle = React.useCallback(() => {
     setToggles(prev => {
-      const newValue = !prev.skipPermissions;
-      toggleCallbacks?.onPermissionsToggle?.(newValue);
-      return { ...prev, skipPermissions: newValue };
+      const newMode = nextPermissionMode(prev.permissionMode);
+      toggleCallbacks?.onPermissionsToggle?.(newMode);
+      return { ...prev, permissionMode: newMode };
     });
   }, [toggleCallbacks]);
 

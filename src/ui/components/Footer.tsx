@@ -7,6 +7,7 @@ import React from 'react';
 import { Box, Text } from 'ink';
 import { Spinner } from './Spinner.js';
 import type { ToggleState, PlatformStatus, UpdatePanelState } from '../types.js';
+import { permissionModeDisplay } from '../../config/index.js';
 
 interface FooterProps {
   ready: boolean;
@@ -33,6 +34,26 @@ function ToggleKey({ keyChar, label, enabled, color }: {
       <Text color={displayColor} bold>{keyChar}</Text>
       <Text dimColor>]</Text>
       <Text color={displayColor}>{label}</Text>
+    </Box>
+  );
+}
+
+/**
+ * Three-way permission-mode indicator bound to the `p` key. Cycles through
+ * default → auto → bypass → default. Color-codes the severity of each mode:
+ * green for 'default' (strictest), yellow for 'auto', red for 'bypass'.
+ */
+function PermissionModeKey({ mode }: { mode: 'default' | 'auto' | 'bypass' }) {
+  const color =
+    mode === 'default' ? 'green' :
+    mode === 'auto'    ? 'yellow' :
+    /* bypass */        'red';
+  return (
+    <Box gap={0}>
+      <Text dimColor>[</Text>
+      <Text color={color} bold>p</Text>
+      <Text dimColor>]</Text>
+      <Text color={color}>erms:{permissionModeDisplay(mode).label.toLowerCase()}</Text>
     </Box>
   );
 }
@@ -107,7 +128,10 @@ export function Footer({
 
             {/* Core toggles */}
             <ToggleKey keyChar="d" label="ebug" enabled={toggles.debugMode} />
-            <ToggleKey keyChar="p" label="erms" enabled={!toggles.skipPermissions} />
+            {/* Three-way permission-mode display. Green for 'default'
+                (safest), yellow for 'auto', red-ish for 'bypass' to flag
+                the weaker setting at a glance. */}
+            <PermissionModeKey mode={toggles.permissionMode} />
             <ToggleKey keyChar="c" label="hrome" enabled={toggles.chromeEnabled} />
             <ToggleKey keyChar="k" label="eep" enabled={toggles.keepAliveEnabled} />
             <ToggleKey keyChar="l" label="ogs" enabled={toggles.logsFocused} color={toggles.logsFocused ? 'cyan' : 'gray'} />

@@ -29,7 +29,7 @@
 - **Concurrent sessions** - Each thread gets its own Claude session
 - **Session persistence** - Sessions survive bot restarts
 - **Collaboration** - Invite others to participate in your session
-- **Interactive permissions** - Approve Claude's actions via emoji reactions
+- **Permission modes** - Three-way control over Claude's tool-use: `default` (every action prompts for 👍/✅/👎 approval via emoji), `auto` (Claude's classifier auto-approves low-risk; high-risk still prompts — recommended), or `bypass` (no prompts, all tools allowed). Set via config, `--permission-mode` CLI flag, or in-session with `!permissions default|auto|bypass`.
 - **Git worktrees** - Isolate changes in separate branches
 - **File attachments** - Attach images, PDFs, and files for Claude to analyze
 - **Chrome automation** - Control Chrome browser for web tasks

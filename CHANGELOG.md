@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Three-way permission modes** — `default` | `auto` | `bypass`. Claude CLI 2.1.x introduced a classifier-based `auto` permission mode; claude-threads now exposes it alongside the historical `default` (MCP-prompt-everything) and `bypass` (`--dangerously-skip-permissions`) modes. Set via `permissionMode` in `config.yaml`, the `--permission-mode` CLI flag, or the `!permissions default|auto|bypass` in-session command (legacy `interactive`/`skip` aliases still work). Onboarding wizard now picks `auto` as the recommended default. UI toggle key `[p]` cycles through the three modes. (#343)
+- **Security hardening: MCP config via owner-only tempfile** — the Claude subprocess's MCP permission config contains the bot's platform token. It used to be passed inline on `--mcp-config` argv, exposing the token in `ps`. Now written to a mode-`0600` tempfile and passed by path; cleaned up on Claude exit. Gated by `CLAUDE_THREADS_MCP_CONFIG_INLINE=1` rollback flag for one release. (#342)
+- **Audit log for rejected reactions** — `SessionManager.handleReaction` now emits a structured `reaction.rejected` event when the allowlist check drops a reaction. Observable signal for probing attempts without changing enforcement behavior. (#342)
+- **Bounded aggregate stderr cap across `ClaudeCli` instances** — per-instance 10KB cap stays; under aggregate pressure (>10MB) instances trim to 1KB so a runaway fleet cannot dominate the bot's heap. (#342)
+- **Tunable `flushDelayMs`** — streaming cadence (default 500ms) is now configurable via `limits.flushDelayMs` in `config.yaml`. (#342)
+
+### Changed
+- **Onboarding and UI speak the three-mode language.** The wizard question changed from `Require approval for Claude actions? (Y/n)` to a three-way picker, defaulting to `auto`. The keyboard `[p]erms` indicator in the footer cycles default → auto → bypass with color-coded severity (green/yellow/red) instead of a green/gray on/off chip.
+- **`!permissions` command accepts all three modes** plus legacy aliases. `!permissions interactive` → `default`; `!permissions skip` → `bypass`. The confirmation post shows the canonical mode name and a one-sentence description of what it does.
+- **Sticky message and session header** show the three-mode chip (`🔐 Default`, `⚡ Auto`, `⚠️ Bypass`) consistently. Previously the sticky used `⚡ Auto` to mean bypass.
+
+### Deprecated
+- **`skipPermissions: boolean` in platform config** — keeps working as an alias. `permissionMode: 'default'|'auto'|'bypass'` is the new canonical field. Precedence: `permissionMode` wins when both are set. (#343)
+- **`--skip-permissions` / `--no-skip-permissions` CLI flags** — kept as aliases for `--permission-mode bypass` / `--permission-mode default`. (#343)
+
+### Fixed
+- **`content.ts` thread log lost exception text on updatePost failure** — the refactor that collapsed five try/catch blocks into a `tryUpdatePost` helper in #342 dropped the `error: String(err)` field from the flush-path thread log. Restored. (#342)
+
+### Removed
+- **`src/mattermost/api.ts`** — the standalone REST helpers folded into `src/platform/mattermost/permission-api.ts` (only consumer). Net removal: 194 lines of code + 459 lines of redundant tests; equivalent HTTP-level coverage now lives in `src/platform/mattermost/client.test.ts`. (#342)
+- **`src/config.ts`** — 37 lines of re-exports. `src/config/migration.ts` renamed to `src/config/index.ts` so the config module's entry point reflects what it actually is. (#342)
+- **Internal `skipPermissions` shadow fields** — removed from `SessionConfig`, `ClaudeCliOptions`, `StickyMessageConfig`, and a private `SessionManager` getter once the new `permissionMode` was plumbed end-to-end. (#343)
+
+### Internals
+- **Test coverage floor raised** before the structural refactors above. New test files for MCP permission server, plugin handler, Mattermost client, and permission-API helpers. Existing `lifecycle.test.ts` and `manager.test.ts` expanded for branch coverage. Totals: 1970 → 2101 tests (+131). Coverage on `src/mcp/permission-server.ts`: 0% → 80% lines; `src/operations/plugin/handler.ts`: 0% → 100% funcs; `src/session/lifecycle.ts`: 21% → 31% lines. (#341)
+- **Small testability refactor in `src/mcp/permission-server.ts`** — extracted `handlePermissionWith()` so the permission flow is unit-testable without spinning up the real `PermissionApi` or reading `process.env` at module load. No behavior change. (#341)
+- **5 try/catch blocks in `src/operations/executors/content.ts`** collapsed into a `tryUpdatePost` helper with `onSuccess`/`onFailure` callbacks — keeps the three distinct failure-state reset variants explicit via callbacks rather than hiding them. (#342)
+- **DRY permission-mode helpers**: `permissionModeDisplay`, `permissionModeDescription`, and `permissionModeForRestart` live in `src/config/types.ts` as single sources of truth. A `MODE_INFO: Record<PermissionMode, …>` table backs the display + description helpers. (#343)
+
 ## [1.8.3] - 2026-04-24
 
 ### Fixed

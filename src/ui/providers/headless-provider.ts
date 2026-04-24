@@ -27,7 +27,7 @@ export class HeadlessProvider implements UIProvider {
     // Initialize toggles from config
     this.toggles = {
       debugMode: process.env.DEBUG === '1',
-      skipPermissions: options.config.skipPermissions,
+      permissionMode: options.config.permissionMode,
       chromeEnabled: options.config.chromeEnabled,
       keepAliveEnabled: options.config.keepAliveEnabled,
       updateModalVisible: false,

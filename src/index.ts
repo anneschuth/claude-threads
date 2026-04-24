@@ -327,7 +327,6 @@ async function startWithoutDaemon() {
       cliArgs.skipPermissions
       ?? firstPlatformConfig.skipPermissions,
   });
-  const initialSkipPermissions = initialPermissionMode === 'bypass';
 
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
@@ -380,10 +379,17 @@ async function startWithoutDaemon() {
   }
 
   // Mutable runtime config (can be changed via keyboard toggles)
-  // These affect new sessions and sticky message display
-  // On daemon restart, restore previous settings; otherwise use config defaults
+  // These affect new sessions and sticky message display.
+  // On daemon restart, restore previous settings; otherwise use config
+  // defaults. `permissionMode` is the source of truth; `skipPermissions` is
+  // the derived boolean kept around for any legacy persisted-settings reader.
+  const restoredPermissionMode: PermissionMode = restoredSettings?.permissionMode
+    ?? (restoredSettings?.skipPermissions === true ? 'bypass'
+      : restoredSettings?.skipPermissions === false ? 'default'
+      : initialPermissionMode);
   const runtimeConfig = {
-    skipPermissions: restoredSettings?.skipPermissions ?? initialSkipPermissions,
+    permissionMode: restoredPermissionMode,
+    skipPermissions: restoredPermissionMode === 'bypass',
     chromeEnabled: restoredSettings?.chromeEnabled ?? (config.chrome ?? false),
     keepAliveEnabled: restoredSettings?.keepAliveEnabled ?? keepAliveEnabled,
   };
@@ -404,7 +410,7 @@ async function startWithoutDaemon() {
       workingDir,
       claudeVersion: claudeValidation.version || 'unknown',
       claudeCompatible: claudeValidation.compatible,
-      skipPermissions: runtimeConfig.skipPermissions,
+      permissionMode: runtimeConfig.permissionMode,
       chromeEnabled: runtimeConfig.chromeEnabled,
       keepAliveEnabled: runtimeConfig.keepAliveEnabled,
     },
@@ -421,17 +427,26 @@ async function startWithoutDaemon() {
         // Trigger sticky message update to reflect debug state
         sessionManager?.updateAllStickyMessages();
       },
-      onPermissionsToggle: (skipPermissions) => {
-        runtimeConfig.skipPermissions = skipPermissions;
-        // Persist for daemon restart
-        saveRuntimeSettings({ ...getRuntimeSettings(), skipPermissions });
-        // Update ALL platform configs so new sessions use this setting
+      onPermissionsToggle: (mode) => {
+        runtimeConfig.permissionMode = mode;
+        // Persist for daemon restart. We also write the legacy
+        // `skipPermissions` boolean (derived) so older daemon-restart paths
+        // that still read it keep working; precedence in resolvePermissionMode
+        // keeps `permissionMode` authoritative on next startup.
+        saveRuntimeSettings({
+          ...getRuntimeSettings(),
+          permissionMode: mode,
+          skipPermissions: mode === 'bypass',
+        });
+        // Update ALL platform configs so new sessions use this setting.
         for (const platformConfig of config.platforms) {
-          (platformConfig as MattermostPlatformConfig | SlackPlatformConfig).skipPermissions = skipPermissions;
+          const pc = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
+          pc.permissionMode = mode;
+          pc.skipPermissions = mode === 'bypass';
         }
         // Update SessionManager's internal state for sticky message
-        sessionManager?.setSkipPermissions(skipPermissions);
-        ui.addLog({ level: 'info', component: 'toggle', message: `Permissions ${skipPermissions ? 'auto (skip prompts)' : 'interactive'}` });
+        sessionManager?.setPermissionMode(mode);
+        ui.addLog({ level: 'info', component: 'toggle', message: `Permission mode: ${mode}` });
         sessionManager?.updateAllStickyMessages();
       },
       onChromeToggle: (enabled) => {
