@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.8.3] - 2026-04-24
 
 ### Fixed
 - **Duplicate `claude.sendMessage()` on every session start** — `lifecycle.startSession()` was misreading `offerContextPrompt`'s return contract: the helper returns `false` after sending the message itself in the auto-include / no-context branches, but `lifecycle.ts` interpreted that as "didn't send, please send" and fired a duplicate. Every session start was sending the user's prompt to Claude twice. Net effect on production: ~2× the API turns at session start. Fix: trust the helper's return contract and don't double-send. (#340)
