@@ -119,7 +119,7 @@ function createSessionContext(): SessionContext {
     config: {
       debug: false,
       workingDir: '/test',
-      skipPermissions: true,
+      permissionMode: 'bypass',
       chromeEnabled: false,
       maxSessions: 5,
     },

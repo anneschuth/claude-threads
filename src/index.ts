@@ -4,9 +4,11 @@ import { program } from 'commander';
 import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
+  resolvePermissionMode,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
+  type PermissionMode,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -100,8 +102,9 @@ program
   .option('--channel <id>', 'Mattermost channel ID')
   .option('--bot-name <name>', 'Bot mention name (default: claude-code)')
   .option('--allowed-users <users>', 'Comma-separated allowed usernames')
-  .option('--skip-permissions', 'Skip interactive permission prompts')
-  .option('--no-skip-permissions', 'Enable interactive permission prompts (override env)')
+  .option('--permission-mode <mode>', 'Permission mode: default | auto | bypass (default: from config)')
+  .option('--skip-permissions', '[deprecated] Alias for --permission-mode bypass')
+  .option('--no-skip-permissions', '[deprecated] Alias for --permission-mode default')
   .option('--chrome', 'Enable Claude in Chrome integration')
   .option('--no-chrome', 'Disable Claude in Chrome integration')
   .option('--worktree-mode <mode>', 'Git worktree mode: off, prompt, require (default: prompt)')
@@ -251,6 +254,16 @@ async function startWithoutDaemon() {
     process.env.DEBUG = '1';
   }
 
+  // Validate --permission-mode if provided. Commander passes it through
+  // verbatim, so we need to check it's one of the three canonical values.
+  if (
+    opts.permissionMode !== undefined &&
+    !['default', 'auto', 'bypass'].includes(opts.permissionMode)
+  ) {
+    console.error(red(`  ❌ Invalid --permission-mode: "${opts.permissionMode}". Must be one of: default, auto, bypass.`));
+    process.exit(1);
+  }
+
   // Build CLI args object
   const cliArgs: CliArgs = {
     url: opts.url,
@@ -259,6 +272,7 @@ async function startWithoutDaemon() {
     botName: opts.botName,
     allowedUsers: opts.allowedUsers,
     skipPermissions: opts.skipPermissions,
+    permissionMode: opts.permissionMode as PermissionMode | undefined,
     chrome: opts.chrome,
     worktreeMode: opts.worktreeMode,
     keepAlive: opts.keepAlive,
@@ -299,10 +313,21 @@ async function startWithoutDaemon() {
 
   const config = newConfig;
 
-  // Get the first platform's skipPermissions setting as the default
-  // (for backwards compatibility with single-platform setups)
+  // Get the first platform's effective permission mode as the default
+  // (for backwards compatibility with single-platform setups). Precedence:
+  // --permission-mode CLI flag > --skip-permissions / --no-skip-permissions
+  // (legacy) > platform config's `permissionMode` > platform config's legacy
+  // `skipPermissions` > 'default' (safe fallback).
   const firstPlatformConfig = config.platforms[0] as MattermostPlatformConfig | SlackPlatformConfig;
-  const initialSkipPermissions = firstPlatformConfig.skipPermissions ?? false;
+  const initialPermissionMode: PermissionMode = resolvePermissionMode({
+    permissionMode:
+      cliArgs.permissionMode
+      ?? firstPlatformConfig.permissionMode,
+    skipPermissions:
+      cliArgs.skipPermissions
+      ?? firstPlatformConfig.skipPermissions,
+  });
+  const initialSkipPermissions = initialPermissionMode === 'bypass';
 
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
@@ -483,12 +508,14 @@ async function startWithoutDaemon() {
   // Now that log handler is set, enable keep-alive (will route logs through UI)
   keepAlive.setEnabled(keepAliveEnabled);
 
-  // Create session manager (shared across all platforms)
+  // Create session manager (shared across all platforms).
+  // Pass the resolved permission mode string (not the legacy boolean) so the
+  // manager tracks all three modes correctly.
   const threadLogsEnabled = config.threadLogs?.enabled ?? true;
   const threadLogsRetentionDays = config.threadLogs?.retentionDays ?? 30;
   const session = new SessionManager(
     workingDir,
-    initialSkipPermissions,
+    initialPermissionMode,
     config.chrome,
     config.worktreeMode,
     undefined,  // sessionsPath - use default

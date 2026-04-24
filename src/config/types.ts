@@ -160,6 +160,128 @@ export interface PlatformInstanceConfig {
   [key: string]: unknown;
 }
 
+// =============================================================================
+// Permission modes
+// =============================================================================
+
+/**
+ * How tool-use permissions are enforced for Claude sessions.
+ *
+ * - `default`: Claude always asks before using a tool; the bot posts a permission
+ *   prompt in the thread and the user reacts 👍 / ✅ / 👎 to allow/allow-all/deny.
+ *   This is the safest option and the historical behavior when
+ *   `skipPermissions: false`.
+ *
+ * - `auto`: Claude's built-in classifier decides per-tool-use. Low-risk tools
+ *   (Read, Grep, Write within the working dir) are auto-approved; high-risk
+ *   tools (shell with external effects, writes outside the working dir) still
+ *   prompt via the MCP permission server. Introduced in Claude CLI 2.1.x.
+ *   New in this config; no backward-compat shim needed.
+ *
+ * - `bypass`: No prompts, no classifier — every tool-use is allowed. Equivalent
+ *   to passing `--dangerously-skip-permissions` to the Claude CLI. This is what
+ *   the legacy `skipPermissions: true` maps to.
+ */
+export type PermissionMode = 'default' | 'auto' | 'bypass';
+
+/**
+ * Resolve the effective permission mode from new + legacy fields. New config
+ * wins; legacy `skipPermissions` is honored when `permissionMode` is unset.
+ *
+ * Returns `'default'` when both are unset — the safe choice for ambiguous
+ * configs (asks the user to decide rather than silently bypassing).
+ */
+export function resolvePermissionMode(opts: {
+  permissionMode?: PermissionMode;
+  /** @deprecated Use `permissionMode` instead. Kept for backward compat. */
+  skipPermissions?: boolean;
+}): PermissionMode {
+  if (opts.permissionMode) return opts.permissionMode;
+  if (opts.skipPermissions === true) return 'bypass';
+  if (opts.skipPermissions === false) return 'default';
+  return 'default';
+}
+
+/**
+ * Single source of truth for user-facing metadata per permission mode.
+ * Every consumer (sticky message, session header, `!permissions` post) reads
+ * from this record — add a new field here and it's available everywhere.
+ */
+const MODE_INFO: Record<PermissionMode, {
+  icon: string;
+  label: string;
+  description: string;
+}> = {
+  default: {
+    icon: '🔐',
+    label: 'Default',
+    description: 'Every tool-use prompts for approval.',
+  },
+  auto: {
+    icon: '⚡',
+    label: 'Auto',
+    description: 'Claude classifier auto-approves low-risk tools; high-risk still prompts.',
+  },
+  bypass: {
+    icon: '⚠️',
+    label: 'Bypass',
+    description: 'No prompts — every tool-use is allowed.',
+  },
+};
+
+/**
+ * Display metadata for a permission mode. One source of truth for the
+ * `{icon} {label}` chips used in the sticky message, session header, and the
+ * `!permissions` confirmation post.
+ */
+export function permissionModeDisplay(
+  mode: PermissionMode,
+): { icon: string; label: string; /** "🔐 Default" */ chip: string } {
+  const info = MODE_INFO[mode];
+  return { icon: info.icon, label: info.label, chip: `${info.icon} ${info.label}` };
+}
+
+/**
+ * Human-readable description of what a permission mode actually does.
+ * Used in `!permissions` confirmation posts so users know what they opted into.
+ */
+export function permissionModeDescription(mode: PermissionMode): string {
+  return MODE_INFO[mode].description;
+}
+
+/**
+ * Mode to spawn Claude with when respawning an existing session (because of
+ * `!cd`, plugin install/uninstall, or worktree switch).
+ *
+ * Semantics:
+ * - If the bot-wide mode is `'bypass'` (permissions globally off), the
+ *   respawn stays `'bypass'` — a global bypass isn't selectively re-tightened
+ *   per-session.
+ * - If the session explicitly opted into `'default'` via `!permissions`
+ *   (i.e. `forceInteractivePermissions === true`), the respawn stays
+ *   `'default'` — the user's opt-in is sticky.
+ * - Otherwise, the respawn inherits the current mode verbatim. A session
+ *   running in `'auto'` stays in `'auto'` after `!cd`.
+ *
+ * The pre-PR-343 formula was
+ * `skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions`,
+ * which also demoted `'default'` sessions to `'bypass'` unless the user had
+ * explicitly opted in. Now that the bot knows about three modes the demotion
+ * is unnecessary; the function just honors the current mode.
+ */
+export function permissionModeForRestart(
+  sessionHasInteractiveOverride: boolean,
+  currentMode: PermissionMode,
+): PermissionMode {
+  if (currentMode === 'bypass') return 'bypass';
+  if (sessionHasInteractiveOverride) return 'default';
+  return currentMode;
+}
+
+// =============================================================================
+// Platform configs
+// =============================================================================
+
 export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   type: 'mattermost';
   url: string;
@@ -167,7 +289,13 @@ export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   channelId: string;
   botName: string;
   allowedUsers: string[];
-  skipPermissions: boolean;
+  /**
+   * @deprecated Use `permissionMode` instead. Kept for backward compatibility
+   * with existing config.yaml files. When both are set, `permissionMode` wins.
+   */
+  skipPermissions?: boolean;
+  /** Preferred way to configure permissions. See `PermissionMode`. */
+  permissionMode?: PermissionMode;
 }
 
 export interface SlackPlatformConfig extends PlatformInstanceConfig {
@@ -177,7 +305,13 @@ export interface SlackPlatformConfig extends PlatformInstanceConfig {
   channelId: string;
   botName: string;
   allowedUsers: string[];
-  skipPermissions: boolean;
+  /**
+   * @deprecated Use `permissionMode` instead. Kept for backward compatibility
+   * with existing config.yaml files. When both are set, `permissionMode` wins.
+   */
+  skipPermissions?: boolean;
+  /** Preferred way to configure permissions. See `PermissionMode`. */
+  permissionMode?: PermissionMode;
   /** Optional API URL override for testing (defaults to https://slack.com/api) */
   apiUrl?: string;
 }

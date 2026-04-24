@@ -152,7 +152,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
 
 function createMockOptions() {
   return {
-    skipPermissions: true,
+    permissionMode: 'bypass' as const,
     chromeEnabled: false,
     worktreeMode: 'prompt' as const,
     handleEvent: mock(() => {}),

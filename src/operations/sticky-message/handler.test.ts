@@ -9,7 +9,7 @@ import { mockFormatter } from '../../test-utils/mock-formatter.js';
 const testConfig: StickyMessageConfig = {
   maxSessions: 5,
   chromeEnabled: false,
-  skipPermissions: false,
+  permissionMode: 'default',
   worktreeMode: 'prompt',
   workingDir: '/home/user/projects',
   debug: false,
@@ -182,19 +182,27 @@ describe('buildStickyMessage', () => {
     expect(result).not.toContain('Chrome');
   });
 
-  it('shows Interactive permission mode by default', async () => {
+  it('shows Default permission mode for permissionMode=default', async () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    expect(result).toContain('`🔐 Interactive`');
+    expect(result).toContain('`🔐 Default`');
   });
 
-  it('shows Auto permission mode when skipPermissions is true', async () => {
+  it('shows Auto permission mode for permissionMode=auto', async () => {
     const sessions = new Map<string, Session>();
-    const autoConfig = { ...testConfig, skipPermissions: true };
+    const autoConfig = { ...testConfig, permissionMode: 'auto' as const, skipPermissions: false };
     const result = await buildStickyMessage(sessions, 'test-platform', autoConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`⚡ Auto`');
+  });
+
+  it('shows Bypass permission mode for permissionMode=bypass', async () => {
+    const sessions = new Map<string, Session>();
+    const bypassConfig = { ...testConfig, permissionMode: 'bypass' as const, skipPermissions: true };
+    const result = await buildStickyMessage(sessions, 'test-platform', bypassConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
+
+    expect(result).toContain('`⚠️ Bypass`');
   });
 
   it('shows worktree mode when not default prompt', async () => {

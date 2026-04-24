@@ -4,6 +4,7 @@
 
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
+import type { PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, ErrorContext } from '../operations/bug-report/index.js';
@@ -27,7 +28,18 @@ export { createSessionTimers, clearAllTimers } from './timer-manager.js';
 export interface InitialSessionOptions {
   /** Override working directory (from !cd command) */
   workingDir?: string;
-  /** Force interactive permissions (from !permissions interactive) */
+  /**
+   * Explicit permission mode for this session, overriding the bot-wide default.
+   * Set from `!permissions <mode>` in the first message. When set, the session
+   * starts with this mode AND the session tracks it as a sticky override so
+   * resume after bot restart preserves the user's choice (via
+   * `Session.forceInteractivePermissions` for the 'default' case).
+   */
+  permissionMode?: PermissionMode;
+  /**
+   * @deprecated Use `permissionMode` instead. Equivalent to
+   * `permissionMode: 'default'`. Kept so existing callers keep working.
+   */
   forceInteractivePermissions?: boolean;
   /** Switch to existing worktree instead of creating new (from !worktree switch) */
   switchToExisting?: boolean;
@@ -259,7 +271,20 @@ export interface Session {
   // Collaboration - per-session allowlist
   sessionAllowedUsers: Set<string>;
 
-  // Permission override - can only downgrade (skip → interactive), not upgrade
+  /**
+   * Sticky session-level opt-in to `permissionMode: 'default'`. When `true`,
+   * this session runs with `default` mode (every tool-use prompts) even if
+   * the bot-wide mode is `auto` or `bypass`, AND the opt-in is preserved
+   * across bot restart (via `PersistedSession.forceInteractivePermissions`).
+   *
+   * Set by `!permissions default` (or the `!permissions interactive` alias).
+   * The `auto` and `bypass` modes are NOT sticky per-session — they revert
+   * to the bot-wide mode on resume.
+   *
+   * Historically this was the only way to express "force-interactive on
+   * this session"; now there are three modes, but only `default` persists
+   * because it's the only strictly-safer-than-default override.
+   */
   forceInteractivePermissions: boolean;
 
   // Display state

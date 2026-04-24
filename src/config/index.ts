@@ -18,10 +18,18 @@ export type {
   AutoUpdateConfig,
   AutoRestartMode,
   ScheduledWindow,
+  PermissionMode,
 } from './types.js';
-export { LIMITS_DEFAULTS, resolveLimits } from './types.js';
+export {
+  LIMITS_DEFAULTS,
+  resolveLimits,
+  resolvePermissionMode,
+  permissionModeDisplay,
+  permissionModeDescription,
+  permissionModeForRestart,
+} from './types.js';
 
-import type { Config, WorktreeMode as WorktreeModeType } from './types.js';
+import type { Config, WorktreeMode as WorktreeModeType, PermissionMode } from './types.js';
 
 // YAML config path
 export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'config.yaml');
@@ -93,7 +101,10 @@ export interface CliArgs {
   channel?: string;
   botName?: string;
   allowedUsers?: string;
+  /** @deprecated Use `permissionMode` instead. Kept for backward compatibility. */
   skipPermissions?: boolean;
+  /** Explicit permission mode — `default`, `auto`, or `bypass`. */
+  permissionMode?: PermissionMode;
   chrome?: boolean;
   worktreeMode?: WorktreeModeType;
   keepAlive?: boolean;

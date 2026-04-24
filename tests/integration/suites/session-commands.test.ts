@@ -456,53 +456,51 @@ describe.skipIf(SKIP)('Session Commands', () => {
     });
 
     describe('!permissions Command', () => {
-      it('should enable interactive permissions', async () => {
-        // Note: Bot was started with skipPermissions: true
+      it('should switch to interactive (default) permissions', async () => {
+        // Note: Bot was started with skipPermissions: true (→ bypass mode)
         const rootPost = await startSession(ctx, 'Test permissions command', getBotUsername());
         testThreadIds.push(rootPost.id);
 
         await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
         await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
 
-        // Enable interactive permissions
+        // `!permissions interactive` is the legacy alias for the `default` mode.
         await sendCommand(ctx, rootPost.id, '!permissions interactive');
 
-        // Wait for confirmation message (restart takes time)
+        // New confirmation post format: "Permission mode: Default set for this session by @user"
         const confirmPost = await waitForPostMatching(
           ctx,
           rootPost.id,
-          /interactive permissions enabled|permission prompts/i,
+          /permission mode:\s*default/i,
           { timeout: 15000 }
         );
 
         expect(confirmPost).toBeDefined();
-        expect(confirmPost.message).toMatch(/interactive|permission/i);
 
         // Session should still be active (restarted with new permissions)
         expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
       });
 
-      it('should reject upgrade to auto permissions', async () => {
+      it('should switch to auto permissions (classifier mode)', async () => {
+        // `auto` is now a supported mode (new in PR #343) — previously rejected.
         const rootPost = await startSession(ctx, 'Test auto permissions', getBotUsername());
         testThreadIds.push(rootPost.id);
 
         await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
         await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
 
-        // Try to enable auto permissions (should be rejected)
         await sendCommand(ctx, rootPost.id, '!permissions auto');
 
-        // Wait for rejection message
-        const rejectPost = await waitForPostMatching(
+        const confirmPost = await waitForPostMatching(
           ctx,
           rootPost.id,
-          /cannot upgrade|only downgrade/i,
-          { timeout: 10000 }
+          /permission mode:\s*auto/i,
+          { timeout: 15000 }
         );
 
-        expect(rejectPost).toBeDefined();
-        // Accept either Unicode emoji or shortcode (Mattermost converts for mobile)
-        expect(rejectPost.message).toMatch(/⚠️|:warning:/);
+        expect(confirmPost).toBeDefined();
+        // Session stays active; Claude was respawned with --permission-mode auto.
+        expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(true);
       });
 
       it('should only allow session-allowed users to change permissions', async () => {

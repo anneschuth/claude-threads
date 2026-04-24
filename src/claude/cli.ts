@@ -9,6 +9,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import type { PermissionMode } from '../config/types.js';
 
 const log = createLogger('claude');
 
@@ -119,7 +120,17 @@ export interface PlatformMcpConfig {
 export interface ClaudeCliOptions {
   workingDir: string;
   threadId?: string;  // Thread ID for permission requests
-  skipPermissions?: boolean;  // If true, use --dangerously-skip-permissions
+  /**
+   * How tool-use permissions are enforced.
+   *
+   * - `'default'`: MCP permission server posts prompts; user reacts to approve.
+   * - `'auto'`: Claude's classifier decides per-tool; high-risk tools still prompt
+   *   via the MCP server (so `platformConfig` is still required).
+   * - `'bypass'`: pass `--dangerously-skip-permissions`; no MCP server spawned.
+   *
+   * Defaults to `'default'` when omitted.
+   */
+  permissionMode?: PermissionMode;
   sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
   resume?: boolean;    // If true, use --resume instead of --session-id
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
@@ -228,6 +239,79 @@ export function materializeMcpConfig(
   const path = join(dir, `claude-threads-mcp-${sessionId ?? process.pid}-${Date.now()}.json`);
   writeFileSync(path, JSON.stringify(config), { mode: 0o600 });
   return { mode: 'file', path };
+}
+
+/**
+ * Compute the permission-related CLI arguments for Claude and, when applicable,
+ * materialize the MCP config tempfile. Extracted so the three-mode branching
+ * is covered by unit tests (spawning the real Claude CLI is not viable).
+ *
+ * Returns `{ args, tempFile }`. `tempFile` is set only when the MCP config
+ * was written to disk (i.e. not inline-mode) and must be cleaned up by the
+ * caller on process exit.
+ */
+export function buildPermissionArgs(opts: {
+  permissionMode: PermissionMode;
+  mcpServerPath: string;
+  platformConfig: PlatformMcpConfig | undefined;
+  threadId: string | undefined;
+  sessionId: string | undefined;
+  permissionTimeoutMs: number;
+  debug: boolean;
+  inline?: boolean; // for tests
+}): { args: string[]; tempFile: string | null } {
+  const args: string[] = [];
+  if (opts.permissionMode === 'bypass') {
+    args.push('--dangerously-skip-permissions');
+    return { args, tempFile: null };
+  }
+
+  if (!opts.platformConfig) {
+    throw new Error(
+      `platformConfig is required when permissionMode is '${opts.permissionMode}'`,
+    );
+  }
+
+  const mcpEnv: Record<string, string> = {
+    PLATFORM_TYPE: opts.platformConfig.type,
+    PLATFORM_URL: opts.platformConfig.url,
+    PLATFORM_TOKEN: opts.platformConfig.token,
+    PLATFORM_CHANNEL_ID: opts.platformConfig.channelId,
+    PLATFORM_THREAD_ID: opts.threadId || '',
+    ALLOWED_USERS: opts.platformConfig.allowedUsers.join(','),
+    DEBUG: opts.debug ? '1' : '',
+    PERMISSION_TIMEOUT_MS: String(opts.permissionTimeoutMs),
+  };
+  if (opts.platformConfig.appToken) {
+    mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
+  }
+
+  const mcpConfig: McpConfigBlob = {
+    mcpServers: {
+      'claude-threads-permissions': {
+        type: 'stdio',
+        command: 'node',
+        args: [opts.mcpServerPath],
+        env: mcpEnv,
+      },
+    },
+  };
+
+  const materialized = materializeMcpConfig(mcpConfig, opts.sessionId, { inline: opts.inline });
+  let tempFile: string | null = null;
+  if (materialized.mode === 'file') {
+    tempFile = materialized.path;
+    args.push('--mcp-config', materialized.path);
+  } else {
+    args.push('--mcp-config', materialized.value);
+  }
+  args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
+
+  if (opts.permissionMode === 'auto') {
+    args.push('--permission-mode', 'auto');
+  }
+
+  return { args, tempFile };
 }
 
 // Per-instance stderr cap (enough to surface the most recent error chain).
@@ -361,63 +445,29 @@ export class ClaudeCli extends EventEmitter {
       }
     }
 
-    // Either use skip permissions or the MCP-based permission system
-    if (this.options.skipPermissions) {
-      args.push('--dangerously-skip-permissions');
-    } else {
-      // Configure the permission MCP server
-      const mcpServerPath = this.getMcpServerPath();
+    // Resolve the effective permission mode. New `permissionMode` wins; legacy
+    // `skipPermissions` is honored when `permissionMode` is unset. Default is
+    // 'default' (prompt user) — the safe choice when config is ambiguous.
+    const permissionMode: PermissionMode =
+      this.options.permissionMode ?? 'default';
 
-      // Platform config is required for MCP permission server
-      const platformConfig = this.options.platformConfig;
-      if (!platformConfig) {
-        throw new Error('platformConfig is required when skipPermissions is false');
-      }
-      // Platform-agnostic environment variables for MCP permission server
-      const mcpEnv: Record<string, string> = {
-        PLATFORM_TYPE: platformConfig.type,
-        PLATFORM_URL: platformConfig.url,
-        PLATFORM_TOKEN: platformConfig.token,
-        PLATFORM_CHANNEL_ID: platformConfig.channelId,
-        PLATFORM_THREAD_ID: this.options.threadId || '',
-        ALLOWED_USERS: platformConfig.allowedUsers.join(','),
-        DEBUG: this.debug ? '1' : '',
-        PERMISSION_TIMEOUT_MS: String(this.options.permissionTimeoutMs ?? 120000),
-      };
-
-      // Add Slack-specific app token if present (needed for Socket Mode)
-      if (platformConfig.appToken) {
-        mcpEnv.PLATFORM_APP_TOKEN = platformConfig.appToken;
-      }
-
-      const mcpConfig: McpConfigBlob = {
-        mcpServers: {
-          'claude-threads-permissions': {
-            type: 'stdio',
-            command: 'node',
-            args: [mcpServerPath],
-            env: mcpEnv,
-          },
-        },
-      };
-      // SECURITY: The MCP config contains the bot's platform token. Passing
-      // it as a --mcp-config '<JSON>' argv exposes the token in `ps` output
-      // on systems that let unprivileged users read other processes' argv.
-      // Default: write to an owner-only tempfile (mode 0600) and pass the
-      // path. Opt out with CLAUDE_THREADS_MCP_CONFIG_INLINE=1 for one release
-      // as a rollback hatch in case the file form regresses on any 2.1.x.
-      //
-      // Claude CLI `--mcp-config <configs...>` accepts "JSON files or
-      // strings" — file form verified against 2.1.x via `claude --help`.
-      const materialized = materializeMcpConfig(mcpConfig, this.options.sessionId);
-      if (materialized.mode === 'file') {
-        this.mcpConfigTempFile = materialized.path;
-        args.push('--mcp-config', materialized.path);
-      } else {
-        args.push('--mcp-config', materialized.value);
-      }
-      args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
-    }
+    // SECURITY NOTE ON MCP CONFIG: The `--mcp-config` blob includes the
+    // platform bot token. Passing it as an argv string would expose the
+    // token in `ps`. `buildPermissionArgs` writes it to an owner-only
+    // tempfile (mode 0600) and records the path on `this` for cleanup on
+    // exit. Set CLAUDE_THREADS_MCP_CONFIG_INLINE=1 to fall back to inline
+    // JSON as a one-release rollback hatch.
+    const permResult = buildPermissionArgs({
+      permissionMode,
+      mcpServerPath: this.getMcpServerPath(),
+      platformConfig: this.options.platformConfig,
+      threadId: this.options.threadId,
+      sessionId: this.options.sessionId,
+      permissionTimeoutMs: this.options.permissionTimeoutMs ?? 120000,
+      debug: this.debug,
+    });
+    args.push(...permResult.args);
+    this.mcpConfigTempFile = permResult.tempFile;
 
     // Chrome integration
     if (this.options.chrome) {

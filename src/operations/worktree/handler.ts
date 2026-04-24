@@ -6,7 +6,8 @@
 
 import type { Session } from '../../session/types.js';
 import { transitionTo } from '../../session/types.js';
-import type { WorktreeMode } from '../../config/index.js';
+import type { WorktreeMode, PermissionMode } from '../../config/index.js';
+import { permissionModeForRestart } from '../../config/index.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
 import {
@@ -375,7 +376,7 @@ export async function createAndSwitchToWorktree(
   branch: string,
   username: string,
   options: {
-    skipPermissions: boolean;
+    permissionMode: PermissionMode;
     chromeEnabled: boolean;
     worktreeMode: WorktreeMode;
     permissionTimeoutMs?: number;
@@ -473,7 +474,7 @@ export async function createAndSwitchToWorktree(
         const cliOptions: ClaudeCliOptions = {
           workingDir: existing.path,
           threadId: session.threadId,
-          skipPermissions: options.skipPermissions || !session.forceInteractivePermissions,
+          permissionMode: permissionModeForRestart(session.forceInteractivePermissions, options.permissionMode),
           sessionId: newSessionId,
           resume: false,
           chrome: options.chromeEnabled,
@@ -619,7 +620,7 @@ export async function createAndSwitchToWorktree(
       const cliOptions: ClaudeCliOptions = {
         workingDir: worktreePath,
         threadId: session.threadId,
-        skipPermissions: options.skipPermissions || !session.forceInteractivePermissions,
+        permissionMode: permissionModeForRestart(session.forceInteractivePermissions, options.permissionMode),
         sessionId: newSessionId,
         resume: false,  // Fresh start - can't resume across directories
         chrome: options.chromeEnabled,
