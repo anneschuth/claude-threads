@@ -42,14 +42,17 @@ function generateTestSessionsPath(): string {
  * delivered to both — the cross-test interference that broke MAX_SESSIONS).
  */
 let mattermostBotPoolCursor = 0;
-function nextMattermostBot(testConfig: ReturnType<typeof loadConfig>) {
+function nextMattermostBot(testConfig: ReturnType<typeof loadConfig>): {
+  bot: { username: string; displayName: string; token?: string; userId?: string };
+  index: number;
+} {
   const pool = testConfig.mattermost.bots;
   if (!pool || pool.length === 0) {
-    return testConfig.mattermost.bot; // fallback for older .env.test
+    return { bot: testConfig.mattermost.bot, index: 0 };
   }
-  const bot = pool[mattermostBotPoolCursor % pool.length];
+  const idx = mattermostBotPoolCursor % pool.length;
   mattermostBotPoolCursor++;
-  return bot;
+  return { bot: pool[idx], index: idx };
 }
 
 export interface TestBot {
@@ -213,13 +216,16 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     botUserId = 'U_BOT_USER';
   } else {
     // Default: Mattermost — pick the next bot from the pool so each test
-    // has its own user token (no cross-test event interference).
-    platformId = 'test-mattermost';
+    // has its own user token (no cross-test event interference). Use a
+    // unique platformId per pool slot so module-level state in
+    // src/operations/sticky-message/handler.ts doesn't conflate bots
+    // (its stickyPostIds Map is keyed by platformId).
+    const { bot: poolBot, index: poolIndex } = nextMattermostBot(testConfig);
+    platformId = `test-mattermost-${poolIndex}`;
     const allowedUsers = allowedUsersOverride ?? [
       ...testConfig.mattermost.testUsers.map(u => u.username),
       ...extraAllowedUsers,
     ];
-    const poolBot = nextMattermostBot(testConfig);
 
     const platformConfig = {
       id: platformId,
