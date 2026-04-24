@@ -41,7 +41,7 @@ describe('ClaudeCli', () => {
       const options: ClaudeCliOptions = {
         workingDir: '/test/dir',
         threadId: 'thread-123',
-        skipPermissions: true,
+        permissionMode: 'bypass',
         sessionId: 'session-uuid',
         resume: false,
         chrome: true,
@@ -130,8 +130,8 @@ describe('ClaudeCli', () => {
   });
 
   describe('start', () => {
-    test('throws when skipPermissions is false but no platformConfig', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', skipPermissions: false });
+    test('throws when permissionMode is not bypass but platformConfig is missing', () => {
+      const cli = new ClaudeCli({ workingDir: '/test', permissionMode: 'default' });
       expect(() => cli.start()).toThrow('platformConfig is required');
     });
   });

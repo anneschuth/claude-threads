@@ -152,8 +152,6 @@ export interface StickyMessageConfig {
   maxSessions: number;
   chromeEnabled: boolean;
   permissionMode: 'default' | 'auto' | 'bypass';
-  /** @deprecated Read `permissionMode` instead. Derived for legacy call sites. */
-  skipPermissions: boolean;
   worktreeMode: WorktreeMode;
   workingDir: string;
   debug: boolean;

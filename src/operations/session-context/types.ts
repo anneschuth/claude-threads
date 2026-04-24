@@ -30,17 +30,8 @@ import type { AccountPoolStatus } from '../../claude/account-pool.js';
 export interface SessionConfig {
   /** Base working directory for sessions */
   workingDir: string;
-  /**
-   * Effective permission mode. See `PermissionMode` for semantics. New code
-   * should read this; `skipPermissions` (below) is kept as a derived boolean
-   * for legacy consumers that only need to know "is this bypass or not".
-   */
+  /** Effective permission mode. See `PermissionMode` for semantics. */
   permissionMode: 'default' | 'auto' | 'bypass';
-  /**
-   * @deprecated Read `permissionMode` instead. True iff
-   * `permissionMode === 'bypass'`.
-   */
-  skipPermissions: boolean;
   /** Whether Chrome browser automation is enabled */
   chromeEnabled: boolean;
   /** Debug mode flag */

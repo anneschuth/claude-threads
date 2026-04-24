@@ -10,7 +10,6 @@ const testConfig: StickyMessageConfig = {
   maxSessions: 5,
   chromeEnabled: false,
   permissionMode: 'default',
-  skipPermissions: false,
   worktreeMode: 'prompt',
   workingDir: '/home/user/projects',
   debug: false,

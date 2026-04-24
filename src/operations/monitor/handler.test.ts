@@ -15,7 +15,6 @@ function createMockContext(): SessionContext {
     config: {
       workingDir: '/tmp',
       permissionMode: 'bypass',
-      skipPermissions: true,
       chromeEnabled: false,
       debug: false,
       maxSessions: 5,

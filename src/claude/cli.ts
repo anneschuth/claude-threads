@@ -127,11 +127,9 @@ export interface ClaudeCliOptions {
    *   via the MCP server (so `platformConfig` is still required).
    * - `'bypass'`: pass `--dangerously-skip-permissions`; no MCP server spawned.
    *
-   * When omitted, falls back to the legacy `skipPermissions` boolean.
+   * Defaults to `'default'` when omitted.
    */
   permissionMode?: 'default' | 'auto' | 'bypass';
-  /** @deprecated Use `permissionMode` instead. Kept for backward compatibility. */
-  skipPermissions?: boolean;
   sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
   resume?: boolean;    // If true, use --resume instead of --session-id
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
@@ -450,8 +448,7 @@ export class ClaudeCli extends EventEmitter {
     // `skipPermissions` is honored when `permissionMode` is unset. Default is
     // 'default' (prompt user) — the safe choice when config is ambiguous.
     const permissionMode: 'default' | 'auto' | 'bypass' =
-      this.options.permissionMode
-      ?? (this.options.skipPermissions ? 'bypass' : 'default');
+      this.options.permissionMode ?? 'default';
 
     // SECURITY NOTE ON MCP CONFIG: The `--mcp-config` blob includes the
     // platform bot token. Passing it as an argv string would expose the

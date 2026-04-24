@@ -71,19 +71,8 @@ export class SessionManager extends EventEmitter {
   // Platform management
   private platforms: Map<string, PlatformClient> = new Map();
   private workingDir: string;
-  /**
-   * Effective permission mode. New code reads/writes this; `skipPermissions` in
-   * legacy call sites now shadows it via the `skipPermissions` getter below.
-   */
+  /** Effective permission mode. Mutated via `setPermissionMode`. */
   private permissionMode: PermissionMode;
-  /**
-   * Derived from `permissionMode` for backward compatibility with code that
-   * still asks "is this bypass?". True iff mode === 'bypass'. Do not write —
-   * use `setPermissionMode`.
-   */
-  private get skipPermissions(): boolean {
-    return this.permissionMode === 'bypass';
-  }
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
   private threadLogsEnabled: boolean;
@@ -269,7 +258,6 @@ export class SessionManager extends EventEmitter {
     const config: SessionConfig = {
       workingDir: this.workingDir,
       permissionMode: this.permissionMode,
-      skipPermissions: this.skipPermissions, // derived from permissionMode
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
@@ -793,7 +781,6 @@ export class SessionManager extends EventEmitter {
       maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
       permissionMode: this.permissionMode,
-      skipPermissions: this.skipPermissions, // derived; kept for backward-compat reads
       worktreeMode: this.worktreeMode,
       workingDir: this.workingDir,
       debug: this.debug,
@@ -1295,10 +1282,17 @@ export class SessionManager extends EventEmitter {
     await plugin.handlePluginUninstall(session, pluginName, username, this.getContext());
   }
 
+  /**
+   * Whether a session's tool-uses will trigger permission prompts. True when
+   * either (a) the bot-wide mode is not `bypass`, or (b) the session opted
+   * into `default` via `!permissions` and thus prompts regardless of the
+   * bot-wide mode.
+   */
   isSessionInteractive(threadId: string): boolean {
+    const botWideInteractive = this.permissionMode !== 'bypass';
     const session = this.findSessionByThreadId(threadId);
-    if (!session) return !this.skipPermissions;
-    if (!this.skipPermissions) return true;
+    if (!session) return botWideInteractive;
+    if (botWideInteractive) return true;
     return session.forceInteractivePermissions;
   }
 
