@@ -120,13 +120,16 @@ export async function handlePluginInstall(
     `✅ Plugin installed: ${formatter.formatCode(pluginName)}\n🔄 Restarting Claude to load plugin...`
   );
 
-  // Build CLI options from session state (can't access private session.claude.options)
+  // Build CLI options from session state (can't access private session.claude.options).
+  // Only resume when Claude has actually responded — an early restart (e.g.
+  // plugin install before the first turn) has no conversation to resume and
+  // Claude CLI rejects `--resume <uuid>` with "No conversation found".
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
     permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
     sessionId: session.claudeSessionId,
-    resume: true, // Resume to keep conversation context
+    resume: session.lifecycle.hasClaudeResponded,
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,
@@ -178,13 +181,16 @@ export async function handlePluginUninstall(
     `✅ Plugin uninstalled: ${formatter.formatCode(pluginName)}\n🔄 Restarting Claude...`
   );
 
-  // Build CLI options from session state (can't access private session.claude.options)
+  // Build CLI options from session state (can't access private session.claude.options).
+  // Only resume when Claude has actually responded — an early restart (e.g.
+  // plugin install before the first turn) has no conversation to resume and
+  // Claude CLI rejects `--resume <uuid>` with "No conversation found".
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
     permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
     sessionId: session.claudeSessionId,
-    resume: true, // Resume to keep conversation context
+    resume: session.lifecycle.hasClaudeResponded,
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,

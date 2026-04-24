@@ -539,12 +539,19 @@ export async function setSessionPermissionMode(
   sessionLog(session).info(`🔐 Setting permission mode to "${mode}"`);
   session.threadLogger?.logCommand('permissions', mode, username);
 
+  // If Claude has never responded (user ran `!permissions` before the first
+  // turn), there is nothing to resume — Claude CLI will reject `--resume
+  // <uuid>` with "No conversation found with session ID". In that case we
+  // start fresh under the same UUID so the chat thread continuity is
+  // preserved (it lives in the platform, not Claude).
+  const canResume = session.lifecycle.hasClaudeResponded;
+
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
     permissionMode: mode,
     sessionId: session.claudeSessionId,
-    resume: true,
+    resume: canResume,
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,

@@ -210,13 +210,13 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   },
   {
     command: 'permissions',
-    description: 'Toggle permission prompts',
-    args: 'interactive|skip',
+    description: 'Set permission mode (default prompts; auto lets Claude classify; bypass skips all)',
+    args: 'default / auto / bypass',
     category: 'settings',
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
     worksInFirstMessage: true,
-    isStackable: true,  // !permissions interactive can be followed by more commands or prompt
+    isStackable: true,  // !permissions <mode> can be followed by more commands or prompt
   },
 
   // ---------------------------------------------------------------------------
