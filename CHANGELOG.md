@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.1] - 2026-04-24
+
+### Internals
+- **Unified `Executor<TState>` contract.** New interface in `src/operations/executors/types.ts` formalizes what `MessageManager` actually relies on: `getState` / `reset` required, `handleReaction` / `serialize` optional. `BaseExecutor<T>` implements it. A new `contract.test.ts` iterates every executor and asserts the shape — catches drift when someone adds an executor without the required members. (#346)
+- **Uniform `handleReaction` signature across all seven reaction executors** — `(postId, emoji, user, action, ctx) => Promise<boolean>`. Previously `TaskList`, `Subagent`, and `WorktreePrompt` had slightly different shapes. `MessageManager.handleReaction` now dispatches via a `reactionDispatchList()` table instead of an if/else chain. (#346)
+- **`MessageManager.serialize()` aggregates executor state** for `SessionManager.persistSession`. The writer no longer reaches into individual executors via named getters (`getTaskListState()`, `getPendingContextPrompt()`). Legacy getters kept as `@deprecated` shims — they still have non-persistence consumers. (#346)
+- **Byte-identical `sessions.json` guarantee.** New snapshot tests in `manager.test.ts` pin the full payload's field set and run the new and legacy (`CLAUDE_THREADS_SERIALIZE_V2=0`) paths through a parity assertion. No persisted-schema change on disk. (#346)
+- **Rollback hatch:** `CLAUDE_THREADS_SERIALIZE_V2=0` falls back to the pre-refactor per-getter writer for one release. Removed in the next minor. (#346)
+
 ## [1.9.0] - 2026-04-24
 
 ### Added
