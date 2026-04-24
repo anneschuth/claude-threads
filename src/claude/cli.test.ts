@@ -10,6 +10,7 @@ import {
   ClaudeCli,
   buildClaudeChildEnv,
   materializeMcpConfig,
+  buildPermissionArgs,
   type ClaudeCliOptions,
   type StatusLineData,
   type McpConfigBlob,
@@ -394,3 +395,97 @@ function readdirOrEmpty(dir: string): string[] {
     return [];
   }
 }
+
+// ============================================================================
+// buildPermissionArgs — verifies the three-mode permission spawn logic
+// (bypass → --dangerously-skip-permissions; default → MCP server only;
+//  auto → MCP server + --permission-mode auto).
+// ============================================================================
+describe('buildPermissionArgs', () => {
+  const baseOpts = {
+    mcpServerPath: '/path/to/permission-server.js',
+    platformConfig: {
+      type: 'mattermost' as const,
+      url: 'https://example.test',
+      token: 'SECRET-TOKEN',
+      channelId: 'c-1',
+      allowedUsers: ['alice'],
+    },
+    threadId: 't-1',
+    sessionId: 's-1',
+    permissionTimeoutMs: 120_000,
+    debug: false,
+    inline: true, // keep tests off disk
+  };
+
+  it("bypass: emits --dangerously-skip-permissions and nothing else", () => {
+    const { args, tempFile } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
+    expect(args).toEqual(['--dangerously-skip-permissions']);
+    expect(tempFile).toBeNull();
+    // Critical: the token is NOT in the argv.
+    expect(args.join(' ')).not.toContain('SECRET-TOKEN');
+  });
+
+  it("default: emits --mcp-config + --permission-prompt-tool, no --permission-mode", () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    expect(args).toContain('--mcp-config');
+    expect(args).toContain('--permission-prompt-tool');
+    expect(args).toContain('mcp__claude-threads-permissions__permission_prompt');
+    expect(args).not.toContain('--permission-mode');
+    expect(args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it("auto: emits --mcp-config AND --permission-mode auto", () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'auto' });
+    expect(args).toContain('--mcp-config');
+    expect(args).toContain('--permission-prompt-tool');
+    expect(args).toContain('--permission-mode');
+    // The `auto` value must follow `--permission-mode` (commander-style argv).
+    const modeIndex = args.indexOf('--permission-mode');
+    expect(args[modeIndex + 1]).toBe('auto');
+    expect(args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  it("default + auto throw if platformConfig is missing (MCP path can't run without credentials)", () => {
+    expect(() => buildPermissionArgs({
+      ...baseOpts,
+      platformConfig: undefined,
+      permissionMode: 'default',
+    })).toThrow(/platformConfig is required/);
+
+    expect(() => buildPermissionArgs({
+      ...baseOpts,
+      platformConfig: undefined,
+      permissionMode: 'auto',
+    })).toThrow(/platformConfig is required/);
+  });
+
+  it("bypass: does NOT require platformConfig (no MCP server is spawned)", () => {
+    expect(() => buildPermissionArgs({
+      ...baseOpts,
+      platformConfig: undefined,
+      permissionMode: 'bypass',
+    })).not.toThrow();
+  });
+
+  it("inline mode returns tempFile=null (rollback flag path)", () => {
+    const { tempFile } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default', inline: true });
+    expect(tempFile).toBeNull();
+  });
+
+  it("file mode returns a path for later cleanup", () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'perm-args-'));
+    try {
+      // Temporarily override the tmpdir the test will write to.
+      const { tempFile } = buildPermissionArgs({
+        ...baseOpts,
+        permissionMode: 'default',
+        inline: false,
+      });
+      expect(tempFile).toBeString();
+      if (tempFile) rmSync(tempFile);
+    } finally {
+      rmSync(scratch, { recursive: true, force: true });
+    }
+  });
+});

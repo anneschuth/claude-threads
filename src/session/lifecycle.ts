@@ -800,7 +800,10 @@ export async function startSession(
   // Apply initial options from first-message commands (!cd, !permissions)
   // ---------------------------------------------------------------------------
   let workingDir = ctx.config.workingDir;
-  let skipPermissions = ctx.config.skipPermissions;
+  // Start from the bot-wide default. The legacy `skipPermissions` boolean is
+  // still consumed by some callers, but the effective mode is what drives
+  // Claude CLI spawn below.
+  let permissionMode = ctx.config.permissionMode;
   let forceInteractivePermissions = false;
   const formatter = platform.getFormatter();
 
@@ -829,10 +832,18 @@ export async function startSession(
     log.info(`Starting session in directory: ${workingDir} (from !cd command)`);
   }
 
-  if (initialOptions?.forceInteractivePermissions) {
-    // !permissions interactive in first message
+  // First-message `!permissions <mode>` — honor the explicit mode.
+  // `forceInteractivePermissions` is the only mode that's sticky across
+  // bot restarts (matches legacy behavior); `auto` and `bypass` revert to
+  // the bot-wide default on resume.
+  if (initialOptions?.permissionMode) {
+    permissionMode = initialOptions.permissionMode;
+    forceInteractivePermissions = permissionMode === 'default';
+    log.info(`Starting session with permission mode "${permissionMode}" (from !permissions command)`);
+  } else if (initialOptions?.forceInteractivePermissions) {
+    // Legacy alias: forceInteractivePermissions === 'default'.
     forceInteractivePermissions = true;
-    skipPermissions = false;
+    permissionMode = 'default';
     log.info(`Starting session with interactive permissions (from !permissions command)`);
   }
 
@@ -852,7 +863,7 @@ export async function startSession(
   const cliOptions: ClaudeCliOptions = {
     workingDir,
     threadId: actualThreadId,
-    skipPermissions,
+    permissionMode,
     sessionId: claudeSessionId,
     resume: false,
     chrome: ctx.config.chromeEnabled,
@@ -1072,8 +1083,11 @@ export async function resumeSession(
   const platformId = state.platformId;
   const sessionId = ctx.ops.getSessionId(platformId, state.threadId);
 
-  // Create Claude CLI with resume flag
-  const skipPerms = ctx.config.skipPermissions && !state.forceInteractivePermissions;
+  // Resume: honor the bot's current permissionMode, but a session that was
+  // started with !permissions interactive keeps that stricter setting across
+  // bot restarts — it persists via state.forceInteractivePermissions.
+  const resumePermissionMode: 'default' | 'auto' | 'bypass' =
+    state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
   const platformMcpConfig = platform.getMcpConfig();
 
   // Include system prompt for resumed sessions (provides platform context and command info)
@@ -1094,7 +1108,7 @@ export async function resumeSession(
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
     threadId: state.threadId,
-    skipPermissions: skipPerms,
+    permissionMode: resumePermissionMode,
     sessionId: state.claudeSessionId,
     resume: true,
     chrome: ctx.config.chromeEnabled,

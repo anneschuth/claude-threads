@@ -16,7 +16,7 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, resolveLimits } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
@@ -71,7 +71,19 @@ export class SessionManager extends EventEmitter {
   // Platform management
   private platforms: Map<string, PlatformClient> = new Map();
   private workingDir: string;
-  private skipPermissions: boolean;
+  /**
+   * Effective permission mode. New code reads/writes this; `skipPermissions` in
+   * legacy call sites now shadows it via the `skipPermissions` getter below.
+   */
+  private permissionMode: PermissionMode;
+  /**
+   * Derived from `permissionMode` for backward compatibility with code that
+   * still asks "is this bypass?". True iff mode === 'bypass'. Do not write —
+   * use `setPermissionMode`.
+   */
+  private get skipPermissions(): boolean {
+    return this.permissionMode === 'bypass';
+  }
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
   private threadLogsEnabled: boolean;
@@ -112,7 +124,14 @@ export class SessionManager extends EventEmitter {
 
   constructor(
     workingDir: string,
-    skipPermissions = false,
+    /**
+     * Permission mode. Accepts either the new `PermissionMode` string OR the
+     * legacy `skipPermissions: boolean` for backward compatibility:
+     * - `true`  → 'bypass'
+     * - `false` → 'default'
+     * - omitted → 'default'
+     */
+    permissionModeOrSkipFlag: PermissionMode | boolean = 'default',
     chromeEnabled = false,
     worktreeMode: WorktreeMode = 'prompt',
     sessionsPath?: string,
@@ -123,7 +142,10 @@ export class SessionManager extends EventEmitter {
   ) {
     super();
     this.workingDir = workingDir;
-    this.skipPermissions = skipPermissions;
+    this.permissionMode =
+      typeof permissionModeOrSkipFlag === 'boolean'
+        ? (permissionModeOrSkipFlag ? 'bypass' : 'default')
+        : permissionModeOrSkipFlag;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
     this.threadLogsEnabled = threadLogsEnabled;
@@ -246,7 +268,8 @@ export class SessionManager extends EventEmitter {
   getContext(): SessionContext {
     const config: SessionConfig = {
       workingDir: this.workingDir,
-      skipPermissions: this.skipPermissions,
+      permissionMode: this.permissionMode,
+      skipPermissions: this.skipPermissions, // derived from permissionMode
       chromeEnabled: this.chromeEnabled,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
@@ -769,7 +792,8 @@ export class SessionManager extends EventEmitter {
     await stickyMessage.updateAllStickyMessages(this.platforms, this.registry.getSessions(), {
       maxSessions: this.limits.maxSessions,
       chromeEnabled: this.chromeEnabled,
-      skipPermissions: this.skipPermissions,
+      permissionMode: this.permissionMode,
+      skipPermissions: this.skipPermissions, // derived; kept for backward-compat reads
       worktreeMode: this.worktreeMode,
       workingDir: this.workingDir,
       debug: this.debug,
@@ -797,8 +821,26 @@ export class SessionManager extends EventEmitter {
     this.customFooter = footer;
   }
 
+  /**
+   * Set the effective permission mode.
+   */
+  setPermissionMode(mode: PermissionMode): void {
+    this.permissionMode = mode;
+  }
+
+  /**
+   * @deprecated Use `setPermissionMode` instead. Kept so the headless/UI
+   * toggle entry points don't need to change in lockstep. Maps
+   * `true → 'bypass'`, `false → 'default'`; the `'auto'` mode must be set
+   * via `setPermissionMode`.
+   */
   setSkipPermissions(value: boolean): void {
-    this.skipPermissions = value;
+    this.permissionMode = value ? 'bypass' : 'default';
+  }
+
+  /** Read the effective permission mode (for UI + event payloads). */
+  getPermissionMode(): PermissionMode {
+    return this.permissionMode;
   }
 
   setChromeEnabled(value: boolean): void {
@@ -1136,10 +1178,26 @@ export class SessionManager extends EventEmitter {
     await commands.kickUser(session, kickedUser, kickedBy, this.getContext());
   }
 
-  async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
+  /**
+   * Change the permission mode of an active session. Respawns Claude with the
+   * new mode. Session owner or a globally-allowed user only.
+   */
+  async setSessionPermissionMode(
+    threadId: string,
+    username: string,
+    mode: PermissionMode,
+  ): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
-    await commands.enableInteractivePermissions(session, username, this.getContext());
+    await commands.setSessionPermissionMode(session, username, mode, this.getContext());
+  }
+
+  /**
+   * @deprecated Use `setSessionPermissionMode(threadId, username, 'default')`.
+   * Kept so the `commands/executor.ts` legacy call path keeps working.
+   */
+  async enableInteractivePermissions(threadId: string, username: string): Promise<void> {
+    await this.setSessionPermissionMode(threadId, username, 'default');
   }
 
   async reportBug(threadId: string, description: string | undefined, username: string, files?: PlatformFile[]): Promise<void> {
@@ -1278,7 +1336,7 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await worktreeModule.createAndSwitchToWorktree(session, branch, username, {
-      skipPermissions: this.skipPermissions,
+      permissionMode: this.permissionMode,
       chromeEnabled: this.chromeEnabled,
       worktreeMode: this.worktreeMode,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,

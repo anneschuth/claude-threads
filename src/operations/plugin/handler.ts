@@ -9,6 +9,7 @@ import { crossSpawn } from '../../utils/spawn.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
+import { permissionModeForRestart } from '../../config/index.js';
 import { post, postError } from '../post-helpers/index.js';
 import { restartClaudeSession } from '../commands/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -123,7 +124,7 @@ export async function handlePluginInstall(
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
-    skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions,
+    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
     sessionId: session.claudeSessionId,
     resume: true, // Resume to keep conversation context
     chrome: ctx.config.chromeEnabled,
@@ -181,7 +182,7 @@ export async function handlePluginUninstall(
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
-    skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions,
+    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
     sessionId: session.claudeSessionId,
     resume: true, // Resume to keep conversation context
     chrome: ctx.config.chromeEnabled,

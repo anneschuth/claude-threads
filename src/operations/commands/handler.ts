@@ -8,6 +8,11 @@ import type { Session } from '../../session/types.js';
 import { transitionTo } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../../claude/cli.js';
+import {
+  permissionModeDisplay,
+  permissionModeDescription,
+  permissionModeForRestart,
+} from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
@@ -379,7 +384,8 @@ export async function changeDirectory(
   const cliOptions: ClaudeCliOptions = {
     workingDir: absoluteDir,
     threadId: session.threadId,
-    skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions,
+    // Preserve the pre-existing formula (see `permissionModeForRestart`).
+    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
@@ -507,67 +513,59 @@ export async function kickUser(
 // ---------------------------------------------------------------------------
 
 /**
- * Enable interactive permissions for a session.
+ * Change the effective permission mode for a single session.
+ *
+ * The bot-wide mode is used as a ceiling for how-strict the default is; this
+ * function always accepts any of the three modes (so operators can relax too).
+ * Claude is respawned with the new mode via `restartClaudeSession`.
  */
-export async function enableInteractivePermissions(
+export async function setSessionPermissionMode(
   session: Session,
   username: string,
-  ctx: SessionContext
+  mode: 'default' | 'auto' | 'bypass',
+  ctx: SessionContext,
 ): Promise<void> {
-  // Only session owner or globally allowed users can change permissions
   if (!await requireSessionOwner(session, username, 'change permissions')) {
     return;
   }
 
-  // Can only downgrade, not upgrade
-  if (!ctx.config.skipPermissions) {
-    await post(session, 'info', `Permissions are already interactive for this session`);
-    sessionLog(session).debug(`🔐 Permissions already interactive (global setting)`);
-    return;
-  }
+  // Sticky-override flag: only 'default' (interactive) carries across restarts
+  // as a session-scoped override. 'auto' and 'bypass' revert to bot-wide mode
+  // on bot restart. This matches pre-existing behavior of
+  // `forceInteractivePermissions`.
+  session.forceInteractivePermissions = mode === 'default';
 
-  // Already enabled for this session
-  if (session.forceInteractivePermissions) {
-    await post(session, 'info', `Interactive permissions already enabled for this session`);
-    sessionLog(session).debug(`🔐 Permissions already interactive (session override)`);
-    return;
-  }
+  sessionLog(session).info(`🔐 Setting permission mode to "${mode}"`);
+  session.threadLogger?.logCommand('permissions', mode, username);
 
-  // Set the flag
-  session.forceInteractivePermissions = true;
-
-  sessionLog(session).info(`🔐 Enabling interactive permissions`);
-  session.threadLogger?.logCommand('permissions', 'interactive', username);
-
-  // Create new CLI options with interactive permissions
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
-    skipPermissions: false, // Force interactive permissions
+    permissionMode: mode,
     sessionId: session.claudeSessionId,
-    resume: true, // Resume to keep conversation context
+    resume: true,
     chrome: ctx.config.chromeEnabled,
     platformConfig: session.platform.getMcpConfig(),
-    logSessionId: session.sessionId,  // Route logs to session panel
+    logSessionId: session.sessionId,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
     account: sessionAccountOption(session, ctx),
   };
 
-  // Restart Claude with new options
-  const success = await restartClaudeSession(session, cliOptions, ctx, 'Enable interactive permissions');
+  const success = await restartClaudeSession(
+    session, cliOptions, ctx, `Set permission mode to ${mode}`,
+  );
   if (!success) return;
 
-  // Update session header with new permission status
   await updateSessionHeader(session, ctx);
 
-  // Post confirmation
   const formatter = session.platform.getFormatter();
-  await post(session, 'secure', `${formatter.formatBold('Interactive permissions enabled')} for this session by ${formatter.formatUserMention(username)}\n${formatter.formatItalic('Claude Code restarted with permission prompts')}`);
-  sessionLog(session).info(`🔐 Interactive permissions enabled by @${username}`);
-
-  // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)
-  resetSessionActivity(session);
-  ctx.ops.persistSession(session);
+  const display = permissionModeDisplay(mode);
+  await post(session, 'secure',
+    `${display.icon} ${formatter.formatBold(`Permission mode: ${display.label}`)} set for this session by ${formatter.formatUserMention(username)}\n` +
+    `${formatter.formatItalic(permissionModeDescription(mode))}\n` +
+    `${formatter.formatItalic('Claude Code restarted.')}`,
+  );
+  sessionLog(session).info(`🔐 Permission mode set to "${mode}" by @${username}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -631,9 +629,13 @@ export async function updateSessionHeader(
     ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
     : undefined;
   const shortDir = shortenPath(session.workingDir, undefined, worktreeContext);
-  // Check session-level permission override
-  const isInteractive = !ctx.config.skipPermissions || session.forceInteractivePermissions;
-  const permMode = isInteractive ? '🔐 Interactive' : '⚡ Auto';
+  // Effective permission mode for this session: session-scoped interactive
+  // override (legacy forceInteractivePermissions === 'default' sticky) wins
+  // over the bot-wide mode. 'auto' and 'bypass' are not sticky per-session.
+  const effectiveMode = session.forceInteractivePermissions
+    ? 'default'
+    : ctx.config.permissionMode;
+  const permMode = permissionModeDisplay(effectiveMode).chip;
 
   // Build participants list (excluding owner)
   const otherParticipants = [...session.sessionAllowedUsers]

@@ -183,30 +183,62 @@ const handleCd: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Normalize a `!permissions` argument to one of the three canonical modes.
+ * Accepts `default`, `auto`, `bypass` directly plus legacy aliases
+ * `interactive` (→ default) and `skip` (→ bypass).
+ * Returns null for unknown values.
+ */
+function parsePermissionMode(
+  arg: string | undefined,
+): 'default' | 'auto' | 'bypass' | null {
+  switch (arg?.toLowerCase()) {
+    case 'default':
+    case 'interactive':
+      return 'default';
+    case 'auto':
+      return 'auto';
+    case 'bypass':
+    case 'skip':
+      return 'bypass';
+    default:
+      return null;
+  }
+}
+
+/**
  * Handle !permissions command.
+ *
+ * Accepts `default` | `auto` | `bypass` (canonical) and `interactive` | `skip`
+ * (legacy aliases). In first-message context, sets the session's initial mode.
+ * In-session, respawns Claude with the new mode.
  */
 const handlePermissions: CommandHandler = async (ctx, args) => {
-  const mode = args?.toLowerCase();
+  const mode = parsePermissionMode(args);
 
   if (ctx.commandContext === 'first-message') {
-    if (mode === 'interactive') {
+    if (mode) {
       return {
-        sessionOptions: { forceInteractivePermissions: true },
+        sessionOptions: {
+          permissionMode: mode,
+          // Legacy field kept in sync so older consumers still see the downgrade.
+          forceInteractivePermissions: mode === 'default',
+        },
         continueProcessing: true,
       };
     }
     return { handled: false };
   }
 
-  // In-session: toggle permissions
-  if (mode === 'interactive') {
-    await ctx.sessionManager.enableInteractivePermissions(ctx.threadId, ctx.username);
-  } else {
+  // In-session: change mode and respawn.
+  if (!mode) {
     await ctx.client.createPost(
-      `⚠️ Cannot upgrade to auto permissions - can only downgrade to interactive`,
-      ctx.threadId
+      `⚠️ Unknown permission mode. Usage: \`!permissions default|auto|bypass\` (aliases: \`interactive\`, \`skip\`).`,
+      ctx.threadId,
     );
+    return { handled: true };
   }
+
+  await ctx.sessionManager.setSessionPermissionMode(ctx.threadId, ctx.username, mode);
   return { handled: true };
 };
 

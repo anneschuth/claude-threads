@@ -1,5 +1,12 @@
 import { describe, test, expect, beforeEach, afterEach, it } from 'bun:test';
-import { resolveLimits, LIMITS_DEFAULTS } from './index.js';
+import {
+  resolveLimits,
+  LIMITS_DEFAULTS,
+  resolvePermissionMode,
+  permissionModeDisplay,
+  permissionModeDescription,
+  permissionModeForRestart,
+} from './index.js';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
 import { join } from 'path';
@@ -223,5 +230,65 @@ describe('resolveLimits — flushDelayMs tunable', () => {
     const r = resolveLimits({ flushDelayMs: 123 });
     expect(r.maxSessions).toBe(LIMITS_DEFAULTS.maxSessions);
     expect(r.sessionTimeoutMinutes).toBe(LIMITS_DEFAULTS.sessionTimeoutMinutes);
+  });
+});
+
+describe('resolvePermissionMode', () => {
+  it('returns permissionMode verbatim when set', () => {
+    expect(resolvePermissionMode({ permissionMode: 'auto' })).toBe('auto');
+    expect(resolvePermissionMode({ permissionMode: 'bypass' })).toBe('bypass');
+    expect(resolvePermissionMode({ permissionMode: 'default' })).toBe('default');
+  });
+
+  it('prefers permissionMode over legacy skipPermissions when both set', () => {
+    expect(resolvePermissionMode({ permissionMode: 'auto', skipPermissions: true })).toBe('auto');
+    expect(resolvePermissionMode({ permissionMode: 'default', skipPermissions: true })).toBe('default');
+  });
+
+  it('falls back to skipPermissions when permissionMode is unset', () => {
+    expect(resolvePermissionMode({ skipPermissions: true })).toBe('bypass');
+    expect(resolvePermissionMode({ skipPermissions: false })).toBe('default');
+  });
+
+  it("defaults to 'default' when neither is set", () => {
+    expect(resolvePermissionMode({})).toBe('default');
+  });
+});
+
+describe('permissionModeDisplay', () => {
+  it('returns icon + label + chip for each mode', () => {
+    expect(permissionModeDisplay('default')).toEqual({ icon: '🔐', label: 'Default', chip: '🔐 Default' });
+    expect(permissionModeDisplay('auto')).toEqual({ icon: '⚡', label: 'Auto', chip: '⚡ Auto' });
+    expect(permissionModeDisplay('bypass')).toEqual({ icon: '⚠️', label: 'Bypass', chip: '⚠️ Bypass' });
+  });
+});
+
+describe('permissionModeDescription', () => {
+  it('returns a distinct human-readable description per mode', () => {
+    const d = permissionModeDescription('default');
+    const a = permissionModeDescription('auto');
+    const b = permissionModeDescription('bypass');
+    expect(d).not.toBe(a);
+    expect(a).not.toBe(b);
+    expect(d).toContain('prompt');
+    expect(b.toLowerCase()).toContain('allow');
+  });
+});
+
+describe('permissionModeForRestart', () => {
+  it("bypass: session respawn stays 'bypass' regardless of override", () => {
+    expect(permissionModeForRestart(false, 'bypass')).toBe('bypass');
+    expect(permissionModeForRestart(true, 'bypass')).toBe('bypass');
+  });
+
+  it("default bot mode without session override → 'bypass' (pre-existing quirk)", () => {
+    // This preserves the legacy formula; see `permissionModeForRestart` doc.
+    expect(permissionModeForRestart(false, 'default')).toBe('bypass');
+    expect(permissionModeForRestart(false, 'auto')).toBe('bypass');
+  });
+
+  it("with forceInteractivePermissions=true, respawn stays 'default' for non-bypass modes", () => {
+    expect(permissionModeForRestart(true, 'default')).toBe('default');
+    expect(permissionModeForRestart(true, 'auto')).toBe('default');
   });
 });

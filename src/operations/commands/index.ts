@@ -20,7 +20,7 @@ export {
   kickUser,
 
   // Permission management
-  enableInteractivePermissions,
+  setSessionPermissionMode,
 
   // Message approval
   requestMessageApproval,

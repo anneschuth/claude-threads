@@ -27,7 +27,18 @@ export { createSessionTimers, clearAllTimers } from './timer-manager.js';
 export interface InitialSessionOptions {
   /** Override working directory (from !cd command) */
   workingDir?: string;
-  /** Force interactive permissions (from !permissions interactive) */
+  /**
+   * Explicit permission mode for this session, overriding the bot-wide default.
+   * Set from `!permissions <mode>` in the first message. When set, the session
+   * starts with this mode AND the session tracks it as a sticky override so
+   * resume after bot restart preserves the user's choice (via
+   * `Session.forceInteractivePermissions` for the 'default' case).
+   */
+  permissionMode?: 'default' | 'auto' | 'bypass';
+  /**
+   * @deprecated Use `permissionMode` instead. Equivalent to
+   * `permissionMode: 'default'`. Kept so existing callers keep working.
+   */
   forceInteractivePermissions?: boolean;
   /** Switch to existing worktree instead of creating new (from !worktree switch) */
   switchToExisting?: boolean;

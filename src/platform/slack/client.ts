@@ -86,7 +86,7 @@ export class SlackClient extends BasePlatformClient {
     this.channelId = platformConfig.channelId;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
-    this.skipPermissions = platformConfig.skipPermissions;
+    this.skipPermissions = platformConfig.skipPermissions ?? false;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
   }
 

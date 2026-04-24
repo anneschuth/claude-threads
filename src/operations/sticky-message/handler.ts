@@ -12,6 +12,7 @@ import type { PlatformClient, PlatformFormatter } from '../../platform/index.js'
 import { getPlatformIcon } from '../../platform/utils.js';
 import type { SessionStore, PersistedSession } from '../../persistence/session-store.js';
 import type { WorktreeMode } from '../../config/index.js';
+import { permissionModeDisplay } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
@@ -150,6 +151,8 @@ export interface UpdateStatusInfo {
 export interface StickyMessageConfig {
   maxSessions: number;
   chromeEnabled: boolean;
+  permissionMode: 'default' | 'auto' | 'bypass';
+  /** @deprecated Read `permissionMode` instead. Derived for legacy call sites. */
   skipPermissions: boolean;
   worktreeMode: WorktreeMode;
   workingDir: string;
@@ -429,9 +432,8 @@ async function buildStatusBar(
     items.push(formatter.formatCode(label));
   }
 
-  // Permission mode
-  const permMode = config.skipPermissions ? '⚡ Auto' : '🔐 Interactive';
-  items.push(formatter.formatCode(permMode));
+  // Permission mode chip: single source of truth in `permissionModeDisplay`.
+  items.push(formatter.formatCode(permissionModeDisplay(config.permissionMode).chip));
 
   // Worktree mode (only show if not default 'prompt')
   if (config.worktreeMode === 'require') {

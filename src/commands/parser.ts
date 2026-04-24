@@ -63,8 +63,9 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   ['invite', /^!invite\s+@?([\w.-]+)\s*$/i],
   ['kick', /^!kick\s+@?([\w.-]+)\s*$/i],
 
-  // Permissions
-  ['permissions', /^!permissions?\s+(interactive|auto)\s*$/i],
+  // Permissions — accepts the canonical modes (default|auto|bypass) plus the
+  // legacy `interactive` (→ default) and `skip` (→ bypass) aliases.
+  ['permissions', /^!permissions?\s+(default|auto|bypass|interactive|skip)\s*$/i],
 
   // Updates
   ['update', /^!update(?:\s+(now|defer))?\s*$/i],
@@ -200,8 +201,8 @@ export function removeCommandFromText(text: string, command: ParsedCommand): str
 const STACKABLE_PATTERNS: Array<[string, RegExp, number, number]> = [
   // !cd <path> [remainder]
   ['cd', /^!cd\s+(\S+)(?:\s+(.*))?$/i, 1, 2],
-  // !permissions interactive [remainder]
-  ['permissions', /^!permissions?\s+(interactive)(?:\s+(.*))?$/i, 1, 2],
+  // !permissions <mode> [remainder]. Accepts all canonical and legacy modes.
+  ['permissions', /^!permissions?\s+(default|auto|bypass|interactive|skip)(?:\s+(.*))?$/i, 1, 2],
   // !worktree - capture everything after !worktree as args
   // The executor will parse subcommand vs branch from the args
   ['worktree', /^!worktree\s+(.+)$/i, 1, -1],  // -1 means no remainder group

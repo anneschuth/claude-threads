@@ -60,6 +60,7 @@ function createMockSessionManager() {
     inviteUser: mock(async () => {}),
     kickUser: mock(async () => {}),
     enableInteractivePermissions: mock(async () => {}),
+    setSessionPermissionMode: mock(async () => {}),
     changeDirectory: mock(async () => {}),
     listWorktreesCommand: mock(async () => {}),
     switchToWorktree: mock(async () => {}),
@@ -284,7 +285,9 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.enableInteractivePermissions).toHaveBeenCalledWith('thread1', 'allowed-user');
+      // 'interactive' is the legacy alias for 'default'; the command now
+      // dispatches through setSessionPermissionMode with the canonical name.
+      expect(session.setSessionPermissionMode).toHaveBeenCalledWith('thread1', 'allowed-user', 'default');
     });
 
     test('handles !cd command', async () => {
@@ -896,7 +899,7 @@ describe('handleMessage', () => {
           'test-platform',
           'User',
           'post1',
-          { forceInteractivePermissions: true }  // initialOptions with permission flag
+          { permissionMode: 'default', forceInteractivePermissions: true }  // initialOptions with permission mode
         );
       });
 
@@ -942,7 +945,7 @@ describe('handleMessage', () => {
           'test-platform',
           'User',
           'post1',
-          { workingDir: '/tmp', forceInteractivePermissions: true }
+          { workingDir: '/tmp', permissionMode: 'default', forceInteractivePermissions: true }
         );
       });
 
@@ -1011,7 +1014,7 @@ describe('handleMessage', () => {
       (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
     });
 
-    test('rejects upgrade to auto permissions', async () => {
+    test('dispatches !permissions auto through setSessionPermissionMode', async () => {
       const post: PlatformPost = {
         id: 'post1',
         platformId: 'test',
@@ -1025,10 +1028,44 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.enableInteractivePermissions).not.toHaveBeenCalled();
-      expect(client.createPost).toHaveBeenCalled();
-      const postContent = (client.createPost as any).mock.calls[0][0];
-      expect(postContent).toContain('Cannot upgrade to auto');
+      // `auto` is a canonical mode; it should respawn Claude with --permission-mode auto.
+      expect(session.setSessionPermissionMode).toHaveBeenCalledWith('thread1', 'allowed-user', 'auto');
+    });
+
+    test('dispatches !permissions bypass through setSessionPermissionMode', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!permissions bypass',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.setSessionPermissionMode).toHaveBeenCalledWith('thread1', 'allowed-user', 'bypass');
+    });
+
+    test('rejects !permissions with unknown mode', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!permissions bogus',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Parser regex doesn't match; command is ignored. `setSessionPermissionMode`
+      // is not called.
+      expect(session.setSessionPermissionMode).not.toHaveBeenCalled();
     });
   });
 

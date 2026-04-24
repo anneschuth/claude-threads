@@ -116,6 +116,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
   return {
     config: {
       workingDir: '/test',
+      permissionMode: 'bypass',
       skipPermissions: true,
       chromeEnabled: false,
       debug: false,
