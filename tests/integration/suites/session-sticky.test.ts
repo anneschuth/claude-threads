@@ -118,15 +118,15 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           throw new Error('Admin API required for this test');
         }
 
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Wait for initial sticky message
         const initialSticky = await waitForStickyPost(adminApi, ctx.channelId);
@@ -156,14 +156,14 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           throw new Error('Admin API required for this test');
         }
 
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
         }));
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start two sessions
         const rootPost1 = await startSession(ctx, 'First session', botUsername);

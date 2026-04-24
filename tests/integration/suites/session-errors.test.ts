@@ -70,16 +70,16 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
       });
 
       it('should handle error response from Claude CLI', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
         // Start bot with error-response scenario
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'error-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session
         const rootPost = await startSession(ctx, 'Trigger an error', botUsername);
@@ -101,15 +101,15 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
       });
 
       it('should display error message to user', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'error-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         const rootPost = await startSession(ctx, 'Show me an error', botUsername);
         testThreadIds.push(rootPost.id);
@@ -147,16 +147,16 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
       });
 
       it('should handle session ending with simple response', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
         // Use simple-response which sends a result event
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         const rootPost = await startSession(ctx, 'Quick question', botUsername);
         testThreadIds.push(rootPost.id);
@@ -187,9 +187,10 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
       });
 
       it('should allow starting new session after error', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
+        const botUsernameFor = (b: TestBot | undefined) =>
+          platformType === 'mattermost'
+            ? (b?.botUsername ?? config.mattermost.bot.username)
+            : 'claude-test-bot';
 
         // First session with error
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -198,7 +199,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           debug: process.env.DEBUG === '1',
         }));
 
-        const rootPost1 = await startSession(ctx, 'First session', botUsername);
+        const rootPost1 = await startSession(ctx, 'First session', botUsernameFor(bot));
         testThreadIds.push(rootPost1.id);
 
         await waitForBotResponse(ctx, rootPost1.id, { timeout: 30000, minResponses: 1 });
@@ -220,8 +221,8 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           debug: process.env.DEBUG === '1',
         }));
 
-        // Start second session
-        const rootPost2 = await startSession(ctx, 'Second session', botUsername);
+        // Start second session — use the new bot's username (pool gives us a different one)
+        const rootPost2 = await startSession(ctx, 'Second session', botUsernameFor(bot));
         testThreadIds.push(rootPost2.id);
 
         // Wait for session to be active (persistent-session keeps it alive)

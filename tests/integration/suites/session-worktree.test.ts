@@ -122,14 +122,6 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
     describe('Worktree Prompt on Uncommitted Changes', () => {
       it('should prompt for worktree when repo has uncommitted changes', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        // Add uncommitted changes
-        addUncommittedChanges(testRepoPath);
-
-        // Start bot with worktree mode = prompt and using test repo as working dir
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
@@ -138,6 +130,14 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
         }));
+
+        // Add uncommitted changes
+        addUncommittedChanges(testRepoPath);
+
+        // Start bot with worktree mode = prompt and using test repo as working dir
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session
         const rootPost = await startSession(ctx, 'Help with this code', botUsername);
@@ -153,13 +153,6 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
       });
 
       it('should skip worktree when user reacts with x', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        // Add uncommitted changes
-        addUncommittedChanges(testRepoPath);
-
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
@@ -168,6 +161,13 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
         }));
+
+        // Add uncommitted changes
+        addUncommittedChanges(testRepoPath);
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session
         const rootPost = await startSession(ctx, 'Continue without worktree', botUsername);
@@ -191,13 +191,6 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
       });
 
       it('should create worktree when user provides branch name', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        // Add uncommitted changes
-        addUncommittedChanges(testRepoPath);
-
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
@@ -206,6 +199,13 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
         }));
+
+        // Add uncommitted changes
+        addUncommittedChanges(testRepoPath);
+
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session
         const rootPost = await startSession(ctx, 'Create worktree for me', botUsername);
@@ -239,14 +239,6 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
     describe('Worktree Mode Off', () => {
       it('should not prompt for worktree when mode is off', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        // Add uncommitted changes
-        addUncommittedChanges(testRepoPath);
-
-        // Start bot with worktree mode off
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
@@ -255,6 +247,14 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           clearPersistedSessions: true,
           worktreeMode: 'off', // Explicitly disable worktree prompts
         }));
+
+        // Add uncommitted changes
+        addUncommittedChanges(testRepoPath);
+
+        // Start bot with worktree mode off
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session
         const rootPost = await startSession(ctx, 'Simple request', botUsername);

@@ -70,15 +70,14 @@ describe.skipIf(SKIP)('Task List Display', () => {
       });
 
       it('should display task list when Claude uses TodoWrite', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         // Start a session with a message that triggers the task-list scenario
         const rootPost = await startSession(ctx, 'Help me plan the task list steps', botUsername);
@@ -99,15 +98,14 @@ describe.skipIf(SKIP)('Task List Display', () => {
       });
 
       it('should show task progress updates', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         const rootPost = await startSession(ctx, 'Help me plan the task list steps', botUsername);
         testThreadIds.push(rootPost.id);
@@ -124,15 +122,14 @@ describe.skipIf(SKIP)('Task List Display', () => {
       });
 
       it('should show completed status when all tasks done', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         const rootPost = await startSession(ctx, 'Help me plan the task list steps', botUsername);
         testThreadIds.push(rootPost.id);
@@ -163,15 +160,14 @@ describe.skipIf(SKIP)('Task List Display', () => {
       });
 
       it('should create visible task list post in thread', async () => {
-        const botUsername = platformType === 'mattermost'
-          ? (bot?.botUsername ?? config.mattermost.bot.username)
-          : 'claude-test-bot';
-
-        bot = await startTestBot(getPlatformBotOptions(platformType, {
+                bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
         }));
+        const botUsername = platformType === 'mattermost'
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
+          : 'claude-test-bot';
 
         const rootPost = await startSession(ctx, 'Help me plan the task list steps', botUsername);
         testThreadIds.push(rootPost.id);
