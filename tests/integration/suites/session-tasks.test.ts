@@ -71,7 +71,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
       it('should display task list when Claude uses TodoWrite', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -100,7 +100,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
       it('should show task progress updates', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -125,7 +125,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
       it('should show completed status when all tasks done', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -164,7 +164,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
       it('should create visible task list post in thread', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {

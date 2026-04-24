@@ -85,7 +85,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
      */
     function getBotUsername(): string {
       if (platformType === 'mattermost') {
-        return bot?.botUsername ?? config.mattermost.bot.username;
+        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
       }
       // Slack - use default or config
       return config.slack?.botUsername || 'claude-test-bot';

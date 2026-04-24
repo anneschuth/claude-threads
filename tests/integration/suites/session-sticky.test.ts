@@ -119,7 +119,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         }
 
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -157,7 +157,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         }
 
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {

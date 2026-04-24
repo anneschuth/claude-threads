@@ -71,7 +71,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
       it('should handle error response from Claude CLI', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Start bot with error-response scenario
@@ -102,7 +102,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
       it('should display error message to user', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         bot = await startTestBot(getPlatformBotOptions(platformType, {
@@ -148,7 +148,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
       it('should handle session ending with simple response', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Use simple-response which sends a result event
@@ -188,7 +188,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
       it('should allow starting new session after error', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // First session with error

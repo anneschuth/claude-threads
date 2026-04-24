@@ -84,7 +84,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     // Get the bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return bot?.botUsername ?? config.mattermost.bot.username;
+        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
       }
       // Slack uses a different format
       return config.slack?.botUsername || 'claude-test-bot';

@@ -123,7 +123,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
     describe('Worktree Prompt on Uncommitted Changes', () => {
       it('should prompt for worktree when repo has uncommitted changes', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Add uncommitted changes
@@ -154,7 +154,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
       it('should skip worktree when user reacts with x', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Add uncommitted changes
@@ -192,7 +192,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
       it('should create worktree when user provides branch name', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Add uncommitted changes
@@ -240,7 +240,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
     describe('Worktree Mode Off', () => {
       it('should not prompt for worktree when mode is off', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Add uncommitted changes

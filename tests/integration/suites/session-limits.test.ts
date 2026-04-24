@@ -89,7 +89,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
     describe('MAX_SESSIONS Limit', () => {
       it('should reject new session when at capacity', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Loop the 5 setup session starts so the test stays compact.
@@ -121,7 +121,7 @@ describe.skipIf(SKIP)('Session Limits', () => {
 
       it('should allow new session after one ends', async () => {
         const botUsername = platformType === 'mattermost'
-          ? config.mattermost.bot.username
+          ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
 
         // Start 5 sessions to hit the limit

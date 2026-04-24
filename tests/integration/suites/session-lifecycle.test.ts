@@ -49,7 +49,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
     // Helper to get bot username based on platform
     const getBotUsername = () => {
       if (platformType === 'mattermost') {
-        return bot?.botUsername ?? config.mattermost.bot.username;
+        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
       }
       // Slack mock server uses 'claude-test-bot' by default
       return 'claude-test-bot';
