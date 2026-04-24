@@ -26,7 +26,7 @@ export {
   resolvePermissionMode,
   permissionModeDisplay,
   permissionModeDescription,
-  permissionModeForRestart,
+  effectivePermissionMode,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode } from './types.js';

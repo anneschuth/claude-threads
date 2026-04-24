@@ -11,7 +11,7 @@ import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../../claude/c
 import {
   permissionModeDisplay,
   permissionModeDescription,
-  permissionModeForRestart,
+  effectivePermissionMode,
 } from '../../config/index.js';
 import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
@@ -385,8 +385,12 @@ export async function changeDirectory(
   const cliOptions: ClaudeCliOptions = {
     workingDir: absoluteDir,
     threadId: session.threadId,
-    // Preserve the pre-existing formula (see `permissionModeForRestart`).
-    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
+    // Keep the session in its current effective mode across the respawn.
+    permissionMode: effectivePermissionMode({
+      override: session.permissionModeOverride,
+      sessionHasInteractiveOverride: session.forceInteractivePermissions,
+      botWideMode: ctx.config.permissionMode,
+    }),
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
@@ -530,10 +534,14 @@ export async function setSessionPermissionMode(
     return;
   }
 
-  // Sticky-override flag: only 'default' (interactive) carries across restarts
-  // as a session-scoped override. 'auto' and 'bypass' revert to bot-wide mode
-  // on bot restart. This matches pre-existing behavior of
-  // `forceInteractivePermissions`.
+  // Two flags track the mode for this session:
+  // - `permissionModeOverride` captures the current in-process mode. It's
+  //   used by the session header, `isSessionInteractive`, and any code that
+  //   asks "what mode is THIS session in?". Not persisted.
+  // - `forceInteractivePermissions` is the sticky legacy flag that only
+  //   encodes the `default` opt-in. Persists across bot restart so a user
+  //   who opted into `default` doesn't silently lose it on resume.
+  session.permissionModeOverride = mode;
   session.forceInteractivePermissions = mode === 'default';
 
   sessionLog(session).info(`🔐 Setting permission mode to "${mode}"`);
@@ -637,12 +645,11 @@ export async function updateSessionHeader(
     ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
     : undefined;
   const shortDir = shortenPath(session.workingDir, undefined, worktreeContext);
-  // Effective permission mode for this session: session-scoped interactive
-  // override (legacy forceInteractivePermissions === 'default' sticky) wins
-  // over the bot-wide mode. 'auto' and 'bypass' are not sticky per-session.
-  const effectiveMode = session.forceInteractivePermissions
-    ? 'default'
-    : ctx.config.permissionMode;
+  const effectiveMode = effectivePermissionMode({
+    override: session.permissionModeOverride,
+    sessionHasInteractiveOverride: session.forceInteractivePermissions,
+    botWideMode: ctx.config.permissionMode,
+  });
   const permMode = permissionModeDisplay(effectiveMode).chip;
 
   // Build participants list (excluding owner)

@@ -16,7 +16,7 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
 import {
@@ -1283,17 +1283,19 @@ export class SessionManager extends EventEmitter {
   }
 
   /**
-   * Whether a session's tool-uses will trigger permission prompts. True when
-   * either (a) the bot-wide mode is not `bypass`, or (b) the session opted
-   * into `default` via `!permissions` and thus prompts regardless of the
-   * bot-wide mode.
+   * Whether a session's tool-uses will trigger permission prompts. True for
+   * `default` and `auto` modes (both consult the MCP server for at least
+   * some tool-uses), false for `bypass`. Respects per-session overrides.
    */
   isSessionInteractive(threadId: string): boolean {
-    const botWideInteractive = this.permissionMode !== 'bypass';
     const session = this.findSessionByThreadId(threadId);
-    if (!session) return botWideInteractive;
-    if (botWideInteractive) return true;
-    return session.forceInteractivePermissions;
+    if (!session) return this.permissionMode !== 'bypass';
+    const effective = effectivePermissionMode({
+      override: session.permissionModeOverride,
+      sessionHasInteractiveOverride: session.forceInteractivePermissions,
+      botWideMode: this.permissionMode,
+    });
+    return effective !== 'bypass';
   }
 
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {

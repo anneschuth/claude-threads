@@ -250,32 +250,28 @@ export function permissionModeDescription(mode: PermissionMode): string {
 }
 
 /**
- * Mode to spawn Claude with when respawning an existing session (because of
- * `!cd`, plugin install/uninstall, or worktree switch).
+ * Compute a session's effective permission mode.
  *
- * Semantics:
- * - If the bot-wide mode is `'bypass'` (permissions globally off), the
- *   respawn stays `'bypass'` — a global bypass isn't selectively re-tightened
- *   per-session.
- * - If the session explicitly opted into `'default'` via `!permissions`
- *   (i.e. `forceInteractivePermissions === true`), the respawn stays
- *   `'default'` — the user's opt-in is sticky.
- * - Otherwise, the respawn inherits the current mode verbatim. A session
- *   running in `'auto'` stays in `'auto'` after `!cd`.
+ * Precedence (highest wins):
+ *   1. `override` — explicit in-process override set by `!permissions <mode>`
+ *      on this session. Not persisted.
+ *   2. `sessionHasInteractiveOverride` — sticky `default` opt-in flag
+ *      (persists across bot restart via `PersistedSession.forceInteractivePermissions`).
+ *   3. `botWideMode` — the bot's current default mode.
  *
- * The pre-PR-343 formula was
- * `skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions`,
- * which also demoted `'default'` sessions to `'bypass'` unless the user had
- * explicitly opted in. Now that the bot knows about three modes the demotion
- * is unnecessary; the function just honors the current mode.
+ * Used both for user-facing display (session header, `isSessionInteractive`)
+ * and for choosing the mode when respawning Claude after `!cd` / plugin
+ * install/uninstall / worktree switch. In both cases the semantic is the
+ * same: "what mode should THIS session run under right now?"
  */
-export function permissionModeForRestart(
-  sessionHasInteractiveOverride: boolean,
-  currentMode: PermissionMode,
-): PermissionMode {
-  if (currentMode === 'bypass') return 'bypass';
-  if (sessionHasInteractiveOverride) return 'default';
-  return currentMode;
+export function effectivePermissionMode(input: {
+  override?: PermissionMode;
+  sessionHasInteractiveOverride: boolean;
+  botWideMode: PermissionMode;
+}): PermissionMode {
+  if (input.override) return input.override;
+  if (input.sessionHasInteractiveOverride) return 'default';
+  return input.botWideMode;
 }
 
 // =============================================================================

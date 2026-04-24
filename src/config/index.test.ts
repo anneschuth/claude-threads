@@ -5,7 +5,7 @@ import {
   resolvePermissionMode,
   permissionModeDisplay,
   permissionModeDescription,
-  permissionModeForRestart,
+  effectivePermissionMode,
 } from './index.js';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
@@ -275,19 +275,24 @@ describe('permissionModeDescription', () => {
   });
 });
 
-describe('permissionModeForRestart', () => {
-  it("bypass: respawn stays 'bypass' regardless of session override", () => {
-    expect(permissionModeForRestart(false, 'bypass')).toBe('bypass');
-    expect(permissionModeForRestart(true, 'bypass')).toBe('bypass');
+describe('effectivePermissionMode', () => {
+  const noOverride = undefined;
+
+  it('returns bot-wide mode when no session-level overrides are set', () => {
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: false, botWideMode: 'default' })).toBe('default');
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: false, botWideMode: 'auto' })).toBe('auto');
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: false, botWideMode: 'bypass' })).toBe('bypass');
   });
 
-  it("session without override: respawn inherits the current mode verbatim", () => {
-    expect(permissionModeForRestart(false, 'default')).toBe('default');
-    expect(permissionModeForRestart(false, 'auto')).toBe('auto');
+  it('forceInteractivePermissions forces default, even over auto or bypass bot-wide', () => {
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: true, botWideMode: 'default' })).toBe('default');
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: true, botWideMode: 'auto' })).toBe('default');
+    expect(effectivePermissionMode({ override: noOverride, sessionHasInteractiveOverride: true, botWideMode: 'bypass' })).toBe('default');
   });
 
-  it("session with forceInteractivePermissions=true: respawn is 'default' (the user opted in)", () => {
-    expect(permissionModeForRestart(true, 'default')).toBe('default');
-    expect(permissionModeForRestart(true, 'auto')).toBe('default');
+  it('explicit override wins over both sticky flag and bot-wide', () => {
+    expect(effectivePermissionMode({ override: 'auto', sessionHasInteractiveOverride: false, botWideMode: 'bypass' })).toBe('auto');
+    expect(effectivePermissionMode({ override: 'bypass', sessionHasInteractiveOverride: true, botWideMode: 'default' })).toBe('bypass');
+    expect(effectivePermissionMode({ override: 'default', sessionHasInteractiveOverride: false, botWideMode: 'auto' })).toBe('default');
   });
 });

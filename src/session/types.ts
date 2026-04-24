@@ -287,6 +287,17 @@ export interface Session {
    */
   forceInteractivePermissions: boolean;
 
+  /**
+   * Current effective permission mode for THIS session when it differs from
+   * the bot-wide default. Set by `!permissions <mode>`. Not persisted —
+   * on bot restart, `auto` and `bypass` overrides revert to bot-wide mode
+   * (which is usually what operators want; see PR #343 doc). `default`
+   * overrides persist via `forceInteractivePermissions`.
+   *
+   * `undefined` means "inherit bot-wide mode from `SessionConfig`".
+   */
+  permissionModeOverride?: PermissionMode;
+
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
 

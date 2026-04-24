@@ -9,7 +9,7 @@ import { crossSpawn } from '../../utils/spawn.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
-import { permissionModeForRestart } from '../../config/index.js';
+import { effectivePermissionMode } from '../../config/index.js';
 import { post, postError } from '../post-helpers/index.js';
 import { restartClaudeSession } from '../commands/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -127,7 +127,11 @@ export async function handlePluginInstall(
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
-    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
+    permissionMode: effectivePermissionMode({
+      override: session.permissionModeOverride,
+      sessionHasInteractiveOverride: session.forceInteractivePermissions,
+      botWideMode: ctx.config.permissionMode,
+    }),
     sessionId: session.claudeSessionId,
     resume: session.lifecycle.hasClaudeResponded,
     chrome: ctx.config.chromeEnabled,
@@ -188,7 +192,11 @@ export async function handlePluginUninstall(
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
-    permissionMode: permissionModeForRestart(session.forceInteractivePermissions, ctx.config.permissionMode),
+    permissionMode: effectivePermissionMode({
+      override: session.permissionModeOverride,
+      sessionHasInteractiveOverride: session.forceInteractivePermissions,
+      botWideMode: ctx.config.permissionMode,
+    }),
     sessionId: session.claudeSessionId,
     resume: session.lifecycle.hasClaudeResponded,
     chrome: ctx.config.chromeEnabled,
