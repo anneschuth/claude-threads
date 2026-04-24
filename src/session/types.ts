@@ -12,6 +12,7 @@ import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
 import type { QuestionOption } from '../operations/types.js';
 import type { SessionTimers } from './timer-manager.js';
+import { checkTransition } from './lifecycle-fsm.js';
 
 // Re-export timer types
 export type { SessionTimers };
@@ -216,8 +217,14 @@ export function isSessionCancelled(session: Session): boolean {
 
 /**
  * Transition session to a new lifecycle state.
+ *
+ * Routes through the FSM in `lifecycle-fsm.ts` — illegal transitions are
+ * logged at `warn` level by default, and throw when
+ * `CLAUDE_THREADS_FSM_STRICT=1` is set. The state assignment still happens
+ * either way (warn mode is observational, not enforcing).
  */
 export function transitionTo(session: Session, newState: SessionLifecycleState): void {
+  checkTransition(session.lifecycle.state, newState, session.sessionId);
   session.lifecycle.state = newState;
 }
 

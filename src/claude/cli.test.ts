@@ -310,26 +310,19 @@ describe('StatusLineData interface', () => {
 });
 
 // ============================================================================
-// materializeMcpConfig — default is tempfile (owner-only) so the platform
-// token does not appear in `ps`. The rollback flag keeps the inline path.
+// materializeMcpConfig — production always writes to an owner-only tempfile
+// so the platform token does not appear in `ps`. The `inline` opt is kept
+// for tests only.
 // ============================================================================
 describe('materializeMcpConfig', () => {
   let scratchDir: string;
-  let originalInlineEnv: string | undefined;
 
   beforeEach(() => {
     scratchDir = mkdtempSync(join(tmpdir(), 'mcp-config-test-'));
-    originalInlineEnv = process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
-    delete process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
   });
 
   afterEach(() => {
     rmSync(scratchDir, { recursive: true, force: true });
-    if (originalInlineEnv === undefined) {
-      delete process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE;
-    } else {
-      process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE = originalInlineEnv;
-    }
   });
 
   function makeConfig(): McpConfigBlob {
@@ -372,19 +365,13 @@ describe('materializeMcpConfig', () => {
     rmSync(result.path);
   });
 
-  it('returns inline JSON when CLAUDE_THREADS_MCP_CONFIG_INLINE=1 is set', () => {
-    process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE = '1';
-    const result = materializeMcpConfig(makeConfig(), 'session-abc', { tmpDirOverride: scratchDir });
+  it('returns inline JSON when the opt-in is explicitly set (test-only)', () => {
+    const result = materializeMcpConfig(makeConfig(), 'session-abc', { inline: true, tmpDirOverride: scratchDir });
     expect(result.mode).toBe('inline');
     if (result.mode !== 'inline') return;
     expect(result.value).toContain('SECRET-TOKEN');
     // Critical: no stray file written when inline mode selected.
     expect(readdirOrEmpty(scratchDir)).toEqual([]);
-  });
-
-  it('honors the explicit inline opt-in even without env var', () => {
-    const result = materializeMcpConfig(makeConfig(), 'session-abc', { inline: true, tmpDirOverride: scratchDir });
-    expect(result.mode).toBe('inline');
   });
 });
 

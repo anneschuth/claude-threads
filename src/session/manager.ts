@@ -560,37 +560,21 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
-    // Aggregate every executor's persistable state in a single call.
-    // Rollback: `CLAUDE_THREADS_SERIALIZE_V2=0` re-enables the old per-getter
-    // path for one release, in case a downstream consumer depends on it.
-    const useSerializeV2 = process.env.CLAUDE_THREADS_SERIALIZE_V2 !== '0';
+    // Aggregate every executor's persistable state in one call. Byte-parity
+    // with the pre-PR-3 writer is guarded by the snapshot tests in
+    // `manager.test.ts` — adding a field here without updating the snapshot
+    // expected-keys set will fail CI.
     let taskListSnapshot:
       | { postId: string | null; content: string | null; isMinimized: boolean; isCompleted: boolean }
       | undefined;
     let contextPromptSnapshot: PersistedContextPrompt | undefined;
 
-    if (useSerializeV2 && session.messageManager) {
+    if (session.messageManager) {
       const serialized = session.messageManager.serialize();
       taskListSnapshot = serialized.taskList;
       if (serialized.contextPrompt) {
         contextPromptSnapshot = serialized.contextPrompt;
       }
-    } else {
-      // Legacy path (rollback flag) — kept so a user who trips over a
-      // regression can unset the flag and get the pre-PR-3 behavior back
-      // without a release.
-      const legacyPrompt = session.messageManager?.getPendingContextPrompt();
-      if (legacyPrompt) {
-        contextPromptSnapshot = {
-          postId: legacyPrompt.postId,
-          queuedPrompt: legacyPrompt.queuedPrompt,
-          queuedFiles: legacyPrompt.queuedFiles,
-          threadMessageCount: legacyPrompt.threadMessageCount,
-          createdAt: legacyPrompt.createdAt,
-          availableOptions: legacyPrompt.availableOptions,
-        };
-      }
-      taskListSnapshot = session.messageManager?.getTaskListState();
     }
 
     const state: PersistedSession = {

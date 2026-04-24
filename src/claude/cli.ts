@@ -221,9 +221,10 @@ export interface McpConfigBlob {
 }
 
 /**
- * Materialize an MCP config for handoff to Claude CLI. Either writes it to an
- * owner-only tempfile (default) and returns the path, or returns the inline
- * JSON string when the `CLAUDE_THREADS_MCP_CONFIG_INLINE=1` rollback env is set.
+ * Materialize an MCP config for handoff to Claude CLI. Writes it to an
+ * owner-only tempfile (mode 0600) and returns the path. The `inline` opt
+ * is for tests that want to keep Claude invocation off disk — production
+ * always goes via tempfile so the bot's platform token doesn't appear in `ps`.
  *
  * Exported so tests can assert file mode + contents without spawning Claude.
  */
@@ -232,7 +233,7 @@ export function materializeMcpConfig(
   sessionId: string | undefined,
   opts: { inline?: boolean; tmpDirOverride?: string } = {},
 ): { mode: 'inline'; value: string } | { mode: 'file'; path: string } {
-  if (opts.inline ?? process.env.CLAUDE_THREADS_MCP_CONFIG_INLINE === '1') {
+  if (opts.inline) {
     return { mode: 'inline', value: JSON.stringify(config) };
   }
   const dir = opts.tmpDirOverride ?? tmpdir();
@@ -455,8 +456,7 @@ export class ClaudeCli extends EventEmitter {
     // platform bot token. Passing it as an argv string would expose the
     // token in `ps`. `buildPermissionArgs` writes it to an owner-only
     // tempfile (mode 0600) and records the path on `this` for cleanup on
-    // exit. Set CLAUDE_THREADS_MCP_CONFIG_INLINE=1 to fall back to inline
-    // JSON as a one-release rollback hatch.
+    // exit.
     const permResult = buildPermissionArgs({
       permissionMode,
       mcpServerPath: this.getMcpServerPath(),

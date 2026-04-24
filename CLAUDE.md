@@ -210,6 +210,7 @@ Session is a thin container; most logic lives in `src/operations/`:
 | File | Purpose |
 |------|---------|
 | `src/session/manager.ts` | **Orchestrator** - creates sessions, routes messages/reactions |
+| `src/session/reaction-router.ts` | Reaction dispatch: allowlist gate, resume-from-reaction, session-level reactions, MessageManager fallthrough |
 | `src/session/lifecycle.ts` | Session start, resume, exit, cleanup |
 | `src/session/types.ts` | TypeScript types (Session interface) |
 | `src/session/registry.ts` | Session lookup and registration |

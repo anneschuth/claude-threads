@@ -821,10 +821,9 @@ export class MessageManager {
   }
 
   /**
-   * Get task list state for persistence.
-   *
-   * @deprecated Use `serialize()` instead; this wrapper is kept for
-   * one release as a rollback path (`CLAUDE_THREADS_SERIALIZE_V2=0`).
+   * Task list snapshot. Used by callers that read task state outside the
+   * persistence writer — sticky-message handler, lifecycle exit cleanup.
+   * Persistence itself goes through `serialize()`.
    */
   getTaskListState(): {
     postId: string | null;

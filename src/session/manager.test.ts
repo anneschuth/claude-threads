@@ -772,45 +772,5 @@ describe('SessionManager', () => {
       expect(written.tasksMinimized).toBe(false);
       expect(written.pendingContextPrompt).toBeUndefined();
     });
-
-    test('legacy path (SERIALIZE_V2=0) produces the same payload as the new path', () => {
-      const original = process.env.CLAUDE_THREADS_SERIALIZE_V2;
-      const capturedNew: unknown[] = [];
-      const capturedLegacy: unknown[] = [];
-      (manager as any).sessionStore.save = (_id: string, data: unknown) => {
-        if (process.env.CLAUDE_THREADS_SERIALIZE_V2 === '0') capturedLegacy.push(data);
-        else capturedNew.push(data);
-      };
-
-      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-eq', {
-        sessionTitle: 'Parity',
-      });
-      session.messageManager = {
-        serialize: () => ({
-          taskList: { postId: 'T', content: 'x', isMinimized: true, isCompleted: true },
-          contextPrompt: null,
-        }),
-        getTaskListState: () => ({ postId: 'T', content: 'x', isMinimized: true, isCompleted: true }),
-        getPendingContextPrompt: () => null,
-      } as any;
-
-      try {
-        delete process.env.CLAUDE_THREADS_SERIALIZE_V2;
-        (manager as any).persistSession(session);
-        process.env.CLAUDE_THREADS_SERIALIZE_V2 = '0';
-        (manager as any).persistSession(session);
-      } finally {
-        if (original === undefined) {
-          delete process.env.CLAUDE_THREADS_SERIALIZE_V2;
-        } else {
-          process.env.CLAUDE_THREADS_SERIALIZE_V2 = original;
-        }
-      }
-
-      // Payloads must be byte-identical. This is what protects users on
-      // the rollback path (`CLAUDE_THREADS_SERIALIZE_V2=0`) from a divergent
-      // `sessions.json` format.
-      expect(JSON.stringify(capturedNew[0])).toEqual(JSON.stringify(capturedLegacy[0]));
-    });
   });
 });
