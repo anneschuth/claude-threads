@@ -14,7 +14,7 @@
  * that `handleReaction` presents to platform clients.
  */
 
-import { describe, test, expect, mock, beforeEach } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
 import { handleReaction, type ReactionRouterDeps } from './reaction-router.js';
 import type { Session } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
@@ -75,11 +75,6 @@ function makeDeps(
 }
 
 describe('ReactionRouter.handleReaction', () => {
-  beforeEach(() => {
-    // Bun's mock.fn resets per-test only if we reach through the registry,
-    // which we re-create via makeSession/makeDeps each test.
-  });
-
   describe('no session', () => {
     test('is a no-op when no session matches the post', async () => {
       const deps = makeDeps(null);
@@ -118,13 +113,17 @@ describe('ReactionRouter.handleReaction', () => {
     });
 
     test('allows users permitted by the platform allowlist even if not session-local', async () => {
+      // Session allowlist is `{alice}` (from the default fixture) and does
+      // NOT contain `bob`. Only the platform's `isUserAllowed` returning
+      // true can open the gate — if the router ever stopped consulting it,
+      // `bob` would be dropped and `handleReaction` would never be called.
+      const isUserAllowed = mock((user: string) => user === 'bob');
       const session = makeSession({
-        platform: {
-          isUserAllowed: mock(() => true),
-        } as unknown as PlatformClient,
+        platform: { isUserAllowed } as unknown as PlatformClient,
       });
       const deps = makeDeps(session);
       await handleReaction(deps, 'test', 'any', 'x', 'bob', 'added');
+      expect(isUserAllowed).toHaveBeenCalledWith('bob');
       expect(session.messageManager!.handleReaction).toHaveBeenCalled();
     });
   });
