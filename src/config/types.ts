@@ -203,6 +203,33 @@ export function resolvePermissionMode(opts: {
 }
 
 /**
+ * Single source of truth for user-facing metadata per permission mode.
+ * Every consumer (sticky message, session header, `!permissions` post) reads
+ * from this record — add a new field here and it's available everywhere.
+ */
+const MODE_INFO: Record<PermissionMode, {
+  icon: string;
+  label: string;
+  description: string;
+}> = {
+  default: {
+    icon: '🔐',
+    label: 'Default',
+    description: 'Every tool-use prompts for approval.',
+  },
+  auto: {
+    icon: '⚡',
+    label: 'Auto',
+    description: 'Claude classifier auto-approves low-risk tools; high-risk still prompts.',
+  },
+  bypass: {
+    icon: '⚠️',
+    label: 'Bypass',
+    description: 'No prompts — every tool-use is allowed.',
+  },
+};
+
+/**
  * Display metadata for a permission mode. One source of truth for the
  * `{icon} {label}` chips used in the sticky message, session header, and the
  * `!permissions` confirmation post.
@@ -210,14 +237,8 @@ export function resolvePermissionMode(opts: {
 export function permissionModeDisplay(
   mode: PermissionMode,
 ): { icon: string; label: string; /** "🔐 Default" */ chip: string } {
-  switch (mode) {
-    case 'default':
-      return { icon: '🔐', label: 'Default', chip: '🔐 Default' };
-    case 'auto':
-      return { icon: '⚡', label: 'Auto',    chip: '⚡ Auto' };
-    case 'bypass':
-      return { icon: '⚠️', label: 'Bypass',  chip: '⚠️ Bypass' };
-  }
+  const info = MODE_INFO[mode];
+  return { icon: info.icon, label: info.label, chip: `${info.icon} ${info.label}` };
 }
 
 /**
@@ -225,34 +246,36 @@ export function permissionModeDisplay(
  * Used in `!permissions` confirmation posts so users know what they opted into.
  */
 export function permissionModeDescription(mode: PermissionMode): string {
-  switch (mode) {
-    case 'default': return 'Every tool-use prompts for approval.';
-    case 'auto':    return 'Claude classifier auto-approves low-risk tools; high-risk still prompts.';
-    case 'bypass':  return 'No prompts — every tool-use is allowed.';
-  }
+  return MODE_INFO[mode].description;
 }
 
 /**
  * Mode to spawn Claude with when respawning an existing session (because of
  * `!cd`, plugin install/uninstall, or worktree switch).
  *
- * This preserves pre-existing behavior from before PR #343: the old code was
- * `skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions`.
- * That formula has a subtle quirk — it downgrades 'default' sessions to
- * 'bypass' on respawn unless the session explicitly opted into interactive
- * via `!permissions`. Kept here verbatim to avoid smuggling a behavior
- * change into a refactor; separately tracked for a follow-up.
+ * Semantics:
+ * - If the bot-wide mode is `'bypass'` (permissions globally off), the
+ *   respawn stays `'bypass'` — a global bypass isn't selectively re-tightened
+ *   per-session.
+ * - If the session explicitly opted into `'default'` via `!permissions`
+ *   (i.e. `forceInteractivePermissions === true`), the respawn stays
+ *   `'default'` — the user's opt-in is sticky.
+ * - Otherwise, the respawn inherits the current mode verbatim. A session
+ *   running in `'auto'` stays in `'auto'` after `!cd`.
  *
- * @param sessionHasInteractiveOverride `Session.forceInteractivePermissions`
- * @param currentMode current effective permission mode (bot-wide or override)
+ * The pre-PR-343 formula was
+ * `skipPermissions: ctx.config.skipPermissions || !session.forceInteractivePermissions`,
+ * which also demoted `'default'` sessions to `'bypass'` unless the user had
+ * explicitly opted in. Now that the bot knows about three modes the demotion
+ * is unnecessary; the function just honors the current mode.
  */
 export function permissionModeForRestart(
   sessionHasInteractiveOverride: boolean,
   currentMode: PermissionMode,
 ): PermissionMode {
-  return currentMode === 'bypass' || !sessionHasInteractiveOverride
-    ? 'bypass'
-    : 'default';
+  if (currentMode === 'bypass') return 'bypass';
+  if (sessionHasInteractiveOverride) return 'default';
+  return currentMode;
 }
 
 // =============================================================================

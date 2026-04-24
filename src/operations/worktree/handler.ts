@@ -6,7 +6,7 @@
 
 import type { Session } from '../../session/types.js';
 import { transitionTo } from '../../session/types.js';
-import type { WorktreeMode } from '../../config/index.js';
+import type { WorktreeMode, PermissionMode } from '../../config/index.js';
 import { permissionModeForRestart } from '../../config/index.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
@@ -376,7 +376,7 @@ export async function createAndSwitchToWorktree(
   branch: string,
   username: string,
   options: {
-    permissionMode: 'default' | 'auto' | 'bypass';
+    permissionMode: PermissionMode;
     chromeEnabled: boolean;
     worktreeMode: WorktreeMode;
     permissionTimeoutMs?: number;

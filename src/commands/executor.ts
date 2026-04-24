@@ -6,6 +6,7 @@
  */
 
 import { COMMAND_REGISTRY } from './registry.js';
+import type { PermissionMode } from '../config/index.js';
 import type {
   CommandExecutorContext,
   CommandHandler,
@@ -190,7 +191,7 @@ const handleCd: CommandHandler = async (ctx, args) => {
  */
 function parsePermissionMode(
   arg: string | undefined,
-): 'default' | 'auto' | 'bypass' | null {
+): PermissionMode | null {
   switch (arg?.toLowerCase()) {
     case 'default':
     case 'interactive':

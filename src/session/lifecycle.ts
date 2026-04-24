@@ -13,6 +13,7 @@ import {
   isSessionRestarting,
   isSessionCancelled,
 } from './types.js';
+import type { PermissionMode } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
@@ -1083,10 +1084,15 @@ export async function resumeSession(
   const platformId = state.platformId;
   const sessionId = ctx.ops.getSessionId(platformId, state.threadId);
 
-  // Resume: honor the bot's current permissionMode, but a session that was
-  // started with !permissions interactive keeps that stricter setting across
-  // bot restarts — it persists via state.forceInteractivePermissions.
-  const resumePermissionMode: 'default' | 'auto' | 'bypass' =
+  // Resume: honor the bot's current permissionMode, with one asymmetry:
+  // - A session that opted into `default` via `!permissions default|interactive`
+  //   keeps `default` across bot restart (stickiness persists via
+  //   `state.forceInteractivePermissions`). Safer-than-default overrides win.
+  // - `auto` and `bypass` per-session overrides are NOT persisted — resumed
+  //   sessions inherit whatever the bot-wide mode is at resume time. If a
+  //   user had run `!permissions auto` before a crash, they pick up the
+  //   bot-wide default on resume and would need to rerun the command.
+  const resumePermissionMode: PermissionMode =
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
   const platformMcpConfig = platform.getMcpConfig();
 

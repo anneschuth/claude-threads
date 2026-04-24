@@ -13,6 +13,7 @@ import {
   permissionModeDescription,
   permissionModeForRestart,
 } from '../../config/index.js';
+import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { randomUUID } from 'crypto';
@@ -522,7 +523,7 @@ export async function kickUser(
 export async function setSessionPermissionMode(
   session: Session,
   username: string,
-  mode: 'default' | 'auto' | 'bypass',
+  mode: PermissionMode,
   ctx: SessionContext,
 ): Promise<void> {
   if (!await requireSessionOwner(session, username, 'change permissions')) {

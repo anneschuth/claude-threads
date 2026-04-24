@@ -8,6 +8,7 @@ import {
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
+  type PermissionMode,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -271,7 +272,7 @@ async function startWithoutDaemon() {
     botName: opts.botName,
     allowedUsers: opts.allowedUsers,
     skipPermissions: opts.skipPermissions,
-    permissionMode: opts.permissionMode as 'default' | 'auto' | 'bypass' | undefined,
+    permissionMode: opts.permissionMode as PermissionMode | undefined,
     chrome: opts.chrome,
     worktreeMode: opts.worktreeMode,
     keepAlive: opts.keepAlive,
@@ -318,7 +319,7 @@ async function startWithoutDaemon() {
   // (legacy) > platform config's `permissionMode` > platform config's legacy
   // `skipPermissions` > 'default' (safe fallback).
   const firstPlatformConfig = config.platforms[0] as MattermostPlatformConfig | SlackPlatformConfig;
-  const initialPermissionMode: 'default' | 'auto' | 'bypass' = resolvePermissionMode({
+  const initialPermissionMode: PermissionMode = resolvePermissionMode({
     permissionMode:
       cliArgs.permissionMode
       ?? firstPlatformConfig.permissionMode,

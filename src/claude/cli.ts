@@ -9,6 +9,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import type { PermissionMode } from '../config/types.js';
 
 const log = createLogger('claude');
 
@@ -129,7 +130,7 @@ export interface ClaudeCliOptions {
    *
    * Defaults to `'default'` when omitted.
    */
-  permissionMode?: 'default' | 'auto' | 'bypass';
+  permissionMode?: PermissionMode;
   sessionId?: string;  // Claude session ID (UUID) for --session-id or --resume
   resume?: boolean;    // If true, use --resume instead of --session-id
   chrome?: boolean;    // If true, enable Chrome integration with --chrome
@@ -250,7 +251,7 @@ export function materializeMcpConfig(
  * caller on process exit.
  */
 export function buildPermissionArgs(opts: {
-  permissionMode: 'default' | 'auto' | 'bypass';
+  permissionMode: PermissionMode;
   mcpServerPath: string;
   platformConfig: PlatformMcpConfig | undefined;
   threadId: string | undefined;
@@ -447,7 +448,7 @@ export class ClaudeCli extends EventEmitter {
     // Resolve the effective permission mode. New `permissionMode` wins; legacy
     // `skipPermissions` is honored when `permissionMode` is unset. Default is
     // 'default' (prompt user) — the safe choice when config is ambiguous.
-    const permissionMode: 'default' | 'auto' | 'bypass' =
+    const permissionMode: PermissionMode =
       this.options.permissionMode ?? 'default';
 
     // SECURITY NOTE ON MCP CONFIG: The `--mcp-config` blob includes the

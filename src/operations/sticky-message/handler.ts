@@ -11,7 +11,7 @@ import { getSessionStatus } from '../../session/types.js';
 import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
 import { getPlatformIcon } from '../../platform/utils.js';
 import type { SessionStore, PersistedSession } from '../../persistence/session-store.js';
-import type { WorktreeMode } from '../../config/index.js';
+import type { WorktreeMode, PermissionMode } from '../../config/index.js';
 import { permissionModeDisplay } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
@@ -151,7 +151,7 @@ export interface UpdateStatusInfo {
 export interface StickyMessageConfig {
   maxSessions: number;
   chromeEnabled: boolean;
-  permissionMode: 'default' | 'auto' | 'bypass';
+  permissionMode: PermissionMode;
   worktreeMode: WorktreeMode;
   workingDir: string;
   debug: boolean;

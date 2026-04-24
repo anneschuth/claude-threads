@@ -276,18 +276,17 @@ describe('permissionModeDescription', () => {
 });
 
 describe('permissionModeForRestart', () => {
-  it("bypass: session respawn stays 'bypass' regardless of override", () => {
+  it("bypass: respawn stays 'bypass' regardless of session override", () => {
     expect(permissionModeForRestart(false, 'bypass')).toBe('bypass');
     expect(permissionModeForRestart(true, 'bypass')).toBe('bypass');
   });
 
-  it("default bot mode without session override → 'bypass' (pre-existing quirk)", () => {
-    // This preserves the legacy formula; see `permissionModeForRestart` doc.
-    expect(permissionModeForRestart(false, 'default')).toBe('bypass');
-    expect(permissionModeForRestart(false, 'auto')).toBe('bypass');
+  it("session without override: respawn inherits the current mode verbatim", () => {
+    expect(permissionModeForRestart(false, 'default')).toBe('default');
+    expect(permissionModeForRestart(false, 'auto')).toBe('auto');
   });
 
-  it("with forceInteractivePermissions=true, respawn stays 'default' for non-bypass modes", () => {
+  it("session with forceInteractivePermissions=true: respawn is 'default' (the user opted in)", () => {
     expect(permissionModeForRestart(true, 'default')).toBe('default');
     expect(permissionModeForRestart(true, 'auto')).toBe('default');
   });

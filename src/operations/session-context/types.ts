@@ -17,7 +17,7 @@ import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { SessionStore } from '../../persistence/session-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ClaudeAccount } from '../../config/index.js';
+import type { ClaudeAccount, PermissionMode } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -31,7 +31,7 @@ export interface SessionConfig {
   /** Base working directory for sessions */
   workingDir: string;
   /** Effective permission mode. See `PermissionMode` for semantics. */
-  permissionMode: 'default' | 'auto' | 'bypass';
+  permissionMode: PermissionMode;
   /** Whether Chrome browser automation is enabled */
   chromeEnabled: boolean;
   /** Debug mode flag */
