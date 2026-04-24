@@ -887,3 +887,206 @@ describe('attemptMetadataFetch', () => {
     expect(ctx.ops.updateSessionHeader).toHaveBeenCalled();
   });
 });
+
+// ============================================================================
+// handleExit branch coverage — PR 1 safety net
+// ============================================================================
+
+/** Build a session whose .claude mock has isPermanentFailure & reason hooks. */
+function createExitTestSession(overrides: Partial<Session> & {
+  isPermanent?: boolean;
+  permanentReason?: string;
+  isRestarting?: boolean;
+  isCancelled?: boolean;
+  wasInterrupted?: boolean;
+  hasClaudeResponded?: boolean;
+  resumeFailCount?: number;
+} = {}): Session {
+  const session = createMockSession(overrides);
+  session.claude = {
+    ...session.claude,
+    isPermanentFailure: mock(() => overrides.isPermanent ?? false),
+    getPermanentFailureReason: mock(() => overrides.permanentReason ?? null),
+  } as any;
+  if (overrides.resumeFailCount !== undefined) {
+    session.lifecycle.resumeFailCount = overrides.resumeFailCount;
+  }
+  return session;
+}
+
+describe('handleExit', () => {
+  it('is a no-op when session is not found', async () => {
+    const ctx = createMockSessionContext(new Map());
+    await expect(lifecycle.handleExit('test-platform:missing', 0, ctx)).resolves.toBeUndefined();
+    expect(ctx.ops.updateStickyMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips cleanup and resets state when session is restarting', async () => {
+    const session = createExitTestSession({ isRestarting: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+    expect(session.lifecycle.state).toBe('active');
+    expect(sessions.has(session.sessionId)).toBe(true);
+    expect(ctx.ops.updateStickyMessage).not.toHaveBeenCalled();
+  });
+
+  it('skips cleanup when session was cancelled', async () => {
+    const session = createExitTestSession({ isCancelled: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 137, ctx);
+    // killSession handles cleanup; handleExit just returns.
+    expect(ctx.ops.updateStickyMessage).not.toHaveBeenCalled();
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+  });
+
+  it('preserves persistence when bot is shutting down', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.state as { isShuttingDown: boolean }).isShuttingDown = true;
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+  });
+
+  it('pauses session after interrupt when Claude has responded', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true, wasInterrupted: true });
+    const mockCreatePost = mock(() => Promise.resolve({
+      id: 'pause-post', platformId: 'test-platform', channelId: 'c', userId: 'bot', message: '', createAt: 0,
+    }));
+    session.platform = createMockPlatform({ createPost: mockCreatePost as any });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+
+    expect(session.lifecycle.state).toBe('paused');
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+    expect(sessions.has(session.sessionId)).toBe(false);
+    expect(ctx.ops.updateStickyMessage).toHaveBeenCalled();
+  });
+
+  it('does not persist interrupt when Claude has not yet responded', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: false, wasInterrupted: true });
+    session.platform = createMockPlatform({
+      createPost: mock(() => Promise.resolve({
+        id: 'p', platformId: 'test-platform', channelId: 'c', userId: 'bot', message: '', createAt: 0,
+      })) as any,
+    });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+  });
+
+  it('warns and cleans up when session exits before Claude responded', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: false });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 1, ctx);
+    expect(sessions.has(session.sessionId)).toBe(false);
+    expect(ctx.ops.updateStickyMessage).toHaveBeenCalled();
+  });
+
+  it('immediately unpersists on permanent failure for a resumed session', async () => {
+    const session = createExitTestSession({
+      hasClaudeResponded: true,
+      isPermanent: true,
+      permanentReason: 'corrupt session state',
+      resumeFailCount: 1,
+    });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 2, ctx);
+    expect(ctx.ops.unpersistSession).toHaveBeenCalledWith(session.sessionId);
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+  });
+
+  it('unpersists resumed session after MAX_RESUME_FAILURES', async () => {
+    const session = createExitTestSession({
+      hasClaudeResponded: true,
+      resumeFailCount: 2, // will increment to 3 = MAX
+    });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 1, ctx);
+    expect(session.lifecycle.resumeFailCount).toBe(3);
+    expect(ctx.ops.unpersistSession).toHaveBeenCalledWith(session.sessionId);
+  });
+
+  it('persists resumed session with retries left after transient failure', async () => {
+    const session = createExitTestSession({
+      hasClaudeResponded: true,
+      resumeFailCount: 0, // will increment to 1
+    });
+    // Force "resumed" state so handleExit hits the wasResumed branch.
+    session.lifecycle.state = 'active';
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 1, ctx);
+    expect(session.lifecycle.resumeFailCount).toBe(1);
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+  });
+
+  it('unpersists on normal (code 0) exit', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+    expect(ctx.ops.unpersistSession).toHaveBeenCalledWith(session.sessionId);
+    expect(sessions.has(session.sessionId)).toBe(false);
+  });
+
+  it('preserves persistence on non-zero exit (retry on restart)', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 137, ctx);
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+    expect(sessions.has(session.sessionId)).toBe(false);
+  });
+
+  it('unregisters worktree user when session has worktreeInfo', async () => {
+    const session = createExitTestSession({
+      hasClaudeResponded: true,
+      worktreeInfo: {
+        worktreePath: '/tmp/wt/abc',
+        branch: 'feature/x',
+        createdAt: new Date().toISOString(),
+      } as any,
+    });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx);
+    expect(ctx.ops.unregisterWorktreeUser).toHaveBeenCalledWith('/tmp/wt/abc', session.sessionId);
+  });
+
+  it('posts [Exited: code] notification on non-zero exit', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const mockCreatePost = mock(() => Promise.resolve({
+      id: 'p', platformId: 'test-platform', channelId: 'c', userId: 'bot', message: '', createAt: 0,
+    }));
+    session.platform = createMockPlatform({ createPost: mockCreatePost as any });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 42, ctx);
+    const posts = (mockCreatePost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(posts.some((msg: string) => msg.includes('[Exited: 42]'))).toBe(true);
+  });
+});
+
+

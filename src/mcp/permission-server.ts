@@ -90,31 +90,52 @@ let allowAllSession = false;
 // Permission Handler
 // =============================================================================
 
-interface PermissionResult {
+export interface PermissionResult {
   behavior: 'allow' | 'deny';
   updatedInput?: Record<string, unknown>;
   message?: string;
 }
 
-async function handlePermission(
+/**
+ * Runtime configuration for the permission handler. Passed explicitly so the
+ * handler can be tested without module-level env state.
+ */
+export interface PermissionHandlerConfig {
+  api: PermissionApi;
+  threadId?: string;
+  timeoutMs: number;
+  platformConfigured: boolean;
+  getAllowAll: () => boolean;
+  setAllowAll: (value: boolean) => void;
+  now?: () => number;
+}
+
+/**
+ * Pure(-ish) permission handler — exported for testing. Side effects flow
+ * through the injected `api` and `get/setAllowAll` callbacks.
+ */
+export async function handlePermissionWith(
   toolName: string,
-  toolInput: Record<string, unknown>
+  toolInput: Record<string, unknown>,
+  cfg: PermissionHandlerConfig
 ): Promise<PermissionResult> {
   mcpLogger.debug(`handlePermission called for ${toolName}`);
 
   // Auto-approve if "allow all" was selected earlier
-  if (allowAllSession) {
+  if (cfg.getAllowAll()) {
     mcpLogger.debug(`Auto-allowing ${toolName} (allow all active)`);
     return { behavior: 'allow', updatedInput: toolInput };
   }
 
-  if (!PLATFORM_URL || !PLATFORM_TOKEN || !PLATFORM_CHANNEL_ID) {
+  if (!cfg.platformConfigured) {
     mcpLogger.error('Missing platform config');
     return { behavior: 'deny', message: 'Permission service not configured' };
   }
 
+  const now = cfg.now ?? Date.now;
+
   try {
-    const api = getApi();
+    const api = cfg.api;
     const formatter = api.getFormatter();
 
     // Post permission request with reaction options
@@ -126,16 +147,16 @@ async function handlePermission(
     const post = await api.createInteractivePost(
       message,
       [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
-      PLATFORM_THREAD_ID || undefined
+      cfg.threadId
     );
 
     // Wait for authorized user's reaction (keep waiting if unauthorized users react)
-    const startTime = Date.now();
+    const startTime = now();
     let reaction: Awaited<ReturnType<typeof api.waitForReaction>>;
     let username: string | null = null;
 
     while (true) {
-      const remainingTime = PERMISSION_TIMEOUT_MS - (Date.now() - startTime);
+      const remainingTime = cfg.timeoutMs - (now() - startTime);
       if (remainingTime <= 0) {
         await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
         mcpLogger.info(`Timeout: ${toolName}`);
@@ -168,7 +189,7 @@ async function handlePermission(
       mcpLogger.info(`Allowed: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
     } else if (isAllowAllEmoji(emoji)) {
-      allowAllSession = true;
+      cfg.setAllowAll(true);
       await api.updatePost(post.id, `✅ ${formatter.formatBold('Allowed all')} by ${formatter.formatUserMention(username)}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed all: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
@@ -181,6 +202,20 @@ async function handlePermission(
     mcpLogger.error(`Permission error: ${error}`);
     return { behavior: 'deny', message: String(error) };
   }
+}
+
+async function handlePermission(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): Promise<PermissionResult> {
+  return handlePermissionWith(toolName, toolInput, {
+    api: getApi(),
+    threadId: PLATFORM_THREAD_ID || undefined,
+    timeoutMs: PERMISSION_TIMEOUT_MS,
+    platformConfigured: Boolean(PLATFORM_URL && PLATFORM_TOKEN && PLATFORM_CHANNEL_ID),
+    getAllowAll: () => allowAllSession,
+    setAllowAll: (v) => { allowAllSession = v; },
+  });
 }
 
 // =============================================================================
