@@ -1,7 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely, escapeRegExp, getEmojiName } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 
 const log = createLogger('slack');
@@ -381,14 +381,15 @@ export class SlackClient extends BasePlatformClient {
 
       this.ws.onerror = (event) => {
         clearTimeout(connectionTimeout);
-        wsLogger.warn(`Socket Mode: WebSocket error: ${event}`);
+        const msg = formatWebSocketError(event);
+        wsLogger.warn(`Socket Mode: WebSocket error: ${msg}`);
         // Only emit error event if this is not an intentional disconnect and not a reconnection attempt.
         // During reconnection, errors are already handled by the .catch() in scheduleReconnect().
         // This avoids unhandled error events during test cleanup when mock server is shut down.
         if (!this.isIntentionalDisconnect && !this.isReconnecting) {
-          this.emit('error', new Error('Socket Mode WebSocket error'));
+          this.emit('error', new Error(`Socket Mode WebSocket error: ${msg}`));
         }
-        doReject(new Error('Socket Mode WebSocket error'));
+        doReject(new Error(`Socket Mode WebSocket error: ${msg}`));
       };
     });
   }

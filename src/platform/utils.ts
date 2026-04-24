@@ -24,6 +24,31 @@ export function escapeRegExp(string: string): string {
   return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Format a WebSocket error event into a readable string.
+ *
+ * Node's `ws` library and `undici` deliver two different shapes to `onerror`:
+ * a plain `Error` (older) and a browser-style `ErrorEvent` wrapper with a
+ * `.error` / `.message` field (newer). A template literal on the latter
+ * produces the useless `[object ErrorEvent]`. Pull the first field that
+ * carries signal and fall back to `String(x)`.
+ */
+export function formatWebSocketError(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (err && typeof err === 'object') {
+    const e = err as { message?: unknown; error?: unknown; type?: unknown; code?: unknown };
+    if (typeof e.message === 'string' && e.message) return e.message;
+    if (e.error instanceof Error) return e.error.message;
+    if (typeof e.error === 'string' && e.error) return e.error;
+    if (typeof e.type === 'string' && e.type) {
+      return typeof e.code === 'string' || typeof e.code === 'number'
+        ? `${e.type} (code: ${e.code})`
+        : e.type;
+    }
+  }
+  return String(err);
+}
+
 // =============================================================================
 // Platform Icons
 // =============================================================================

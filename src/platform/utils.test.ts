@@ -6,6 +6,7 @@ import {
   getEmojiName,
   convertMarkdownTablesToSlack,
   convertMarkdownToSlack,
+  formatWebSocketError,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -347,5 +348,51 @@ Check out [the docs](https://example.com) for more info.`;
       const input = '- First item\n- Second item\n- Third item';
       expect(convertMarkdownToSlack(input)).toBe(input);
     });
+  });
+});
+
+describe('formatWebSocketError', () => {
+  it('returns message from plain Error', () => {
+    expect(formatWebSocketError(new Error('connection refused'))).toBe('connection refused');
+  });
+
+  it('extracts message from browser-style ErrorEvent-shaped object', () => {
+    // This is the shape recent Node/undici pass to ws.onerror — a template
+    // literal on this object produces the useless `[object ErrorEvent]`.
+    const event = { type: 'error', message: 'socket hang up', error: new Error('socket hang up') };
+    expect(formatWebSocketError(event)).toBe('socket hang up');
+  });
+
+  it('falls back to nested .error.message when .message is absent', () => {
+    const event = { type: 'error', error: new Error('ECONNRESET') };
+    expect(formatWebSocketError(event)).toBe('ECONNRESET');
+  });
+
+  it('uses .type with .code when only the wrapper is populated', () => {
+    const event = { type: 'error', code: 1006 };
+    expect(formatWebSocketError(event)).toBe('error (code: 1006)');
+  });
+
+  it('falls back to String() for truly opaque values', () => {
+    expect(formatWebSocketError('raw string')).toBe('raw string');
+    expect(formatWebSocketError(42)).toBe('42');
+    expect(formatWebSocketError(null)).toBe('null');
+  });
+
+  it('never produces the [object ErrorEvent] sentinel', () => {
+    // Regression guard: the bug was that `${event}` on a browser-style
+    // ErrorEvent stringified to `[object ErrorEvent]`. Any shape we feed
+    // the formatter must produce something that is not that literal.
+    const shapes: unknown[] = [
+      new Error('x'),
+      { type: 'error', message: 'y' },
+      { type: 'error', error: new Error('z') },
+      { type: 'error', code: 1006 },
+      'raw',
+      null,
+    ];
+    for (const s of shapes) {
+      expect(formatWebSocketError(s)).not.toContain('[object');
+    }
   });
 });

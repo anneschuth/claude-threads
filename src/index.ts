@@ -84,7 +84,8 @@ function wirePlatformEvents(
     ui.setPlatformStatus(platformId, { reconnecting: true, reconnectAttempts: attempt });
   });
   client.on('error', (e) => {
-    ui.addLog({ level: 'error', component: platformId, message: String(e) });
+    const message = e instanceof Error ? e.message : String(e);
+    ui.addLog({ level: 'error', component: platformId, message });
   });
 }
 

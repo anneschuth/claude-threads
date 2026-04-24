@@ -994,3 +994,32 @@ describe('Worktree Module', () => {
     });
   });
 });
+
+describe('parseWorktreeError', () => {
+  it('matches the "parent branch blocks nested branch" git error', () => {
+    // Real error git produces when a user requests `test/add-unit-coverage`
+    // but a flat branch named `test` already exists. Without this match
+    // the error fell through to the generic fallback and the user got no
+    // actionable hint.
+    const err = new Error(
+      "Command failed: git worktree add -b test/add-unit-coverage /tmp/x\n" +
+      "Preparing worktree (new branch 'test/add-unit-coverage')\n" +
+      "fatal: 'refs/heads/test' exists; cannot create 'refs/heads/test/add-unit-coverage'\n",
+    );
+    const { summary, suggestion } = worktree.parseWorktreeError(err);
+    expect(summary).toBe('Branch test already exists and blocks test/add-unit-coverage');
+    expect(suggestion).toContain('Pick a name that does not start with test/');
+  });
+
+  it('falls back to generic message for unrecognized errors', () => {
+    const err = new Error('some weird failure we have not seen before');
+    const { summary } = worktree.parseWorktreeError(err);
+    expect(summary).toBe('Failed to create worktree');
+  });
+
+  it('still recognizes the generic "already exists" shape', () => {
+    const err = new Error('fatal: A branch named "foo" already exists.');
+    const { summary } = worktree.parseWorktreeError(err);
+    expect(summary).toBe('A worktree or branch with this name already exists');
+  });
+});
