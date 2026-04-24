@@ -19,14 +19,6 @@ import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persi
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
-import {
-  isCancelEmoji,
-  isEscapeEmoji,
-  isResumeEmoji,
-  getNumberEmojiIndex,
-  isBugReportEmoji,
-} from '../utils/emoji.js';
-import { normalizeEmojiName } from '../platform/utils.js';
 import { CleanupScheduler } from '../cleanup/index.js';
 import { SessionMonitor } from '../operations/monitor/index.js';
 
@@ -42,6 +34,7 @@ import * as stickyMessage from '../operations/sticky-message/index.js';
 import * as plugin from '../operations/plugin/index.js';
 import type { Session, InitialSessionOptions } from './types.js';
 import { SessionRegistry } from './registry.js';
+import * as reactionRouter from './reaction-router.js';
 import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -420,6 +413,13 @@ export class SessionManager extends EventEmitter {
 
   // ---------------------------------------------------------------------------
   // Reaction Handling
+  //
+  // Delegated to `reaction-router.ts`. The router handles:
+  // - emoji normalization (`thumbsup` vs `+1`)
+  // - resume-from-reaction for timed-out sessions
+  // - allowlist check + audit log
+  // - session-level reactions (cancel, escape, worktree, bug report)
+  // - MessageManager delegation for executor-owned reactions
   // ---------------------------------------------------------------------------
 
   private async handleReaction(
@@ -427,164 +427,30 @@ export class SessionManager extends EventEmitter {
     postId: string,
     emojiName: string,
     username: string,
-    action: 'added' | 'removed'
+    action: 'added' | 'removed',
   ): Promise<void> {
-    // Normalize emoji name to handle platform differences (e.g., Slack's "thumbsup" vs Mattermost's "+1")
-    const normalizedEmoji = normalizeEmojiName(emojiName);
-
-    // First, check if this is a resume emoji for a timed-out session (only on add)
-    if (action === 'added' && isResumeEmoji(normalizedEmoji)) {
-      const resumed = await this.tryResumeFromReaction(platformId, postId, username);
-      if (resumed) return;
-    }
-
-    const session = this.getSessionByPost(postId);
-    if (!session) return;
-
-    // Verify this reaction is from the same platform
-    if (session.platformId !== platformId) return;
-
-    // SECURITY: Only process reactions from allowed users
-    // This is the primary authorization gate for all reaction-based actions.
-    // All reactions are validated here before reaching MessageManager/executors.
-    if (!session.sessionAllowedUsers.has(username) && !session.platform.isUserAllowed(username)) {
-      // Audit trail: record unauthorized reaction attempts so operators can
-      // detect probing. Structured fields stay searchable across platforms.
-      log.info(`🚫 rejected reaction from unauthorized user`, {
-        event: 'reaction.rejected',
-        platformId,
-        sessionId: session.sessionId,
-        postId,
-        emoji: normalizedEmoji,
-        action,
-        user: username,
-      });
-      return;
-    }
-
-    await this.handleSessionReaction(session, postId, normalizedEmoji, username, action);
+    await reactionRouter.handleReaction(
+      this.getReactionRouterDeps(),
+      platformId,
+      postId,
+      emojiName,
+      username,
+      action,
+    );
   }
 
-  /**
-   * Try to resume a timed-out session via emoji reaction on timeout post or session header.
-   * Returns true if a session was resumed, false otherwise.
-   */
-  private async tryResumeFromReaction(platformId: string, postId: string, username: string): Promise<boolean> {
-    // Find a persisted session by the post ID (timeout post or session header)
-    const persistedSession = this.sessionStore.findByPostId(platformId, postId);
-    if (!persistedSession) return false;
-
-    // Check if this session is already active
-    const sessionId = `${platformId}:${persistedSession.threadId}`;
-    if (this.registry.hasById(sessionId)) return false;
-
-    // Check if user is allowed
-    const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
-    const platform = this.platforms.get(platformId);
-    if (!allowedUsers.has(username) && !platform?.isUserAllowed(username)) {
-      if (platform) {
-        await platform.createPost(
-          `⚠️ @${username} is not authorized to resume this session`,
-          persistedSession.threadId
-        );
-      }
-      return false;
-    }
-
-    // Check max sessions limit
-    if (this.registry.size >= this.limits.maxSessions) {
-      if (platform) {
-        const fmt = platform.getFormatter();
-        await platform.createPost(
-          `⚠️ ${fmt.formatBold('Too busy')} - ${this.registry.size} sessions active. Please try again later.`,
-          persistedSession.threadId
-        );
-      }
-      return false;
-    }
-
-    const shortId = persistedSession.threadId.substring(0, 8);
-    log.info(`🔄 Resuming session ${shortId}... via emoji reaction by @${username}`);
-
-    // Resume the session
-    await lifecycle.resumeSession(persistedSession, this.getContext());
-    return true;
-  }
-
-  private async handleSessionReaction(
-    session: Session,
-    postId: string,
-    emojiName: string,
-    username: string,
-    action: 'added' | 'removed'
-  ): Promise<void> {
-    // =========================================================================
-    // Session-level reactions (lifecycle, worktrees, updates, bug reports)
-    // These are NOT handled by MessageManager and must stay in SessionManager
-    // =========================================================================
-
-    if (action === 'added') {
-      // Handle cancel/escape reactions on session start post
-      if (session.sessionStartPostId === postId) {
-        if (isCancelEmoji(emojiName)) {
-          await commands.cancelSession(session, username, this.getContext());
-          return;
-        }
-        if (isEscapeEmoji(emojiName)) {
-          await commands.interruptSession(session, username);
-          return;
-        }
-      }
-
-      // Handle ❌ on worktree prompt
-      if (session.worktreePromptPostId === postId && emojiName === 'x') {
-        await worktreeModule.handleWorktreeSkip(
-          session,
-          username,
-          (s) => this.persistSession(s),
-          (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
-        );
-        return;
-      }
-
-      // Handle number emoji on worktree prompt (branch suggestion selection)
-      if (session.pendingWorktreeSuggestions?.postId === postId) {
-        const emojiIndex = getNumberEmojiIndex(emojiName);
-        if (emojiIndex >= 0) {
-          const handled = await worktreeModule.handleBranchSuggestionReaction(
-            session,
-            postId,
-            emojiIndex,
-            username,
-            (tid, branch, user) => this.createAndSwitchToWorktree(tid, branch, user)
-          );
-          if (handled) return;
-        }
-      }
-
-      // Handle bug report emoji reaction on error posts
-      // (Inlined from reactions.handleBugReportReaction to eliminate dependency)
-      if (session.lastError?.postId === postId && isBugReportEmoji(emojiName)) {
-        // Only session owner or allowed users can report bugs
-        if (session.startedBy === username ||
-            session.platform.isUserAllowed(username) ||
-            session.sessionAllowedUsers.has(username)) {
-          log.info(`🐛 @${username} triggered bug report from error reaction`);
-          await commands.reportBug(session, undefined, username, this.getContext(), session.lastError);
-          return;
-        }
-      }
-    }
-
-    // =========================================================================
-    // MessageManager-delegated reactions (questions, approvals, toggles, etc.)
-    // These are routed through MessageManager.handleReaction()
-    // =========================================================================
-
-    if (session.messageManager) {
-      const handled = await session.messageManager.handleReaction(postId, emojiName, username, action);
-      if (handled) return;
-    }
+  private getReactionRouterDeps(): reactionRouter.ReactionRouterDeps {
+    return {
+      registry: this.registry,
+      sessionStore: this.sessionStore,
+      platforms: this.platforms,
+      limits: this.limits,
+      getContext: () => this.getContext(),
+      getContextPromptHandler: () => this.getContextPromptHandler(),
+      persistSession: (s) => this.persistSession(s),
+      createAndSwitchToWorktree: (tid, branch, user) =>
+        this.createAndSwitchToWorktree(tid, branch, user),
+    };
   }
 
   // ---------------------------------------------------------------------------
