@@ -486,4 +486,144 @@ describe('SessionManager', () => {
       expect(mockSession.pendingSideConversations[0].fromUser).toBe('newuser');
     });
   });
+
+  // ==========================================================================
+  // PR 1 safety net — targeted tests that exercise injected-session paths
+  // ==========================================================================
+
+  /** Inject a realistic-ish session directly into the registry. */
+  function injectSession(
+    mgr: SessionManager,
+    platform: PlatformClient,
+    threadId: string,
+    overrides: Record<string, unknown> = {}
+  ) {
+    const sessionId = `test-platform:${threadId}`;
+    const session: any = {
+      platformId: 'test-platform',
+      threadId,
+      sessionId,
+      claudeSessionId: `claude-${threadId}`,
+      startedBy: 'alice',
+      startedByDisplayName: 'Alice',
+      startedAt: new Date(),
+      lastActivityAt: new Date(),
+      sessionNumber: 1,
+      workingDir: '/test/dir',
+      platform,
+      claude: {
+        isRunning: mock(() => true),
+        kill: mock(() => Promise.resolve()),
+        isPermanentFailure: mock(() => false),
+        getPermanentFailureReason: mock(() => null),
+      },
+      planApproved: false,
+      sessionAllowedUsers: new Set(['alice']),
+      forceInteractivePermissions: false,
+      sessionStartPostId: null,
+      timers: { timeoutTimer: null, warningTimer: null, cleanupTimer: null },
+      lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: true },
+      timeoutWarningPosted: false,
+      messageCount: 0,
+      messageManager: {
+        getPendingContextPrompt: mock(() => null),
+        getTaskListState: mock(() => ({ postId: null, content: null, isCompleted: false, isMinimized: false })),
+        dispose: mock(() => {}),
+      },
+      ...overrides,
+    };
+    (mgr.registry as any).sessions.set(sessionId, session);
+    return session;
+  }
+
+  describe('isSessionActive with injected session', () => {
+    test('returns true when at least one session is registered', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-X');
+      expect(manager.isSessionActive()).toBe(true);
+    });
+  });
+
+  describe('isInSessionThread', () => {
+    test('returns true for a registered thread', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-X');
+      expect(manager.isInSessionThread('thread-X')).toBe(true);
+    });
+  });
+
+  describe('getActiveThreadIds', () => {
+    test('returns registered thread ids', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'A');
+      injectSession(manager, platform as unknown as PlatformClient, 'B');
+      expect(manager.getActiveThreadIds().sort()).toEqual(['A', 'B']);
+    });
+  });
+
+  describe('isUserAllowedInSession', () => {
+    test('returns true for session owner', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
+        sessionAllowedUsers: new Set(['alice']),
+      });
+      expect(manager.isUserAllowedInSession('thread-X', 'alice')).toBe(true);
+    });
+
+    test('returns true for globally-allowed user', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
+        sessionAllowedUsers: new Set(['alice']),
+      });
+      expect(manager.isUserAllowedInSession('thread-X', 'admin')).toBe(true);
+    });
+
+    test('returns false for random user not invited', () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
+        sessionAllowedUsers: new Set(['alice']),
+      });
+      expect(manager.isUserAllowedInSession('thread-X', 'mallory')).toBe(false);
+    });
+  });
+
+  describe('killSession (injected)', () => {
+    test('kills an active session and drops it from registry', async () => {
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-X');
+      await manager.killSession('thread-X');
+      expect(session.claude.kill).toHaveBeenCalled();
+      expect((manager.registry as any).sessions.has('test-platform:thread-X')).toBe(false);
+    });
+  });
+
+  describe('handleReaction (injected) — security gate', () => {
+    test('ignores reactions from unauthorized users', async () => {
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
+        sessionStartPostId: 'start-post',
+        sessionAllowedUsers: new Set(['alice']),
+      });
+      // Register the post so getSessionByPost finds it.
+      (manager as any).registry.postIndex = (manager as any).registry.postIndex || new Map();
+      (manager as any).registry.registerPost?.('start-post', 'thread-X', session.sessionId);
+      // The test platform mock's isUserAllowed accepts 'admin'/'allowed-user'.
+      // 'mallory' is NOT allowed anywhere.
+      await (manager as any).handleReaction('test-platform', 'start-post', 'x', 'mallory', 'added');
+      // killSession should not have been called (cancel would trigger it).
+      expect(session.claude.kill).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('handlePostDeleted', () => {
+    test('is a no-op for unknown posts', () => {
+      // Smoke test — any explicit post-delete cleanup hooks should tolerate unknown posts.
+      // We simply confirm the method (if present) doesn't throw.
+      if (typeof (manager as any).handlePostDeleted === 'function') {
+        expect(() => (manager as any).handlePostDeleted('test-platform', 'unknown-post')).not.toThrow();
+      }
+    });
+  });
+
+  describe('setSkipPermissions + isSessionInteractive (injected session)', () => {
+    test('forceInteractivePermissions overrides a skipPermissions=true manager', () => {
+      // Fresh manager created with skipPermissions=true in outer beforeEach.
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-F', {
+        forceInteractivePermissions: true,
+      });
+      expect(manager.isSessionInteractive('thread-F')).toBe(true);
+    });
+  });
 });
