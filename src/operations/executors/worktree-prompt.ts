@@ -11,6 +11,7 @@
 import { isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import { createLogger } from '../../utils/logger.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
+import type { ExecutorContext } from './types.js';
 
 const log = createLogger('wt-prompt');
 
@@ -252,11 +253,23 @@ export class WorktreePromptExecutor extends BaseExecutor<WorktreePromptState> {
   /**
    * Handle a reaction on a worktree prompt post.
    *
-   * @returns true if the reaction was handled, false otherwise
+   * Note: this executor's prompts are user-agnostic (anyone in the session
+   * can ✅/❌ a worktree prompt), and it does not need the executor ctx —
+   * the signature still takes both to satisfy `Executor.handleReaction`
+   * so `MessageManager`'s dispatch loop can call it uniformly if this
+   * executor is ever wired into the loop.
+   *
+   * @returns Promise&lt;true&gt; if the reaction was handled, Promise&lt;false&gt; otherwise
    */
-  handleReaction(postId: string, emoji: string, _action: 'added' | 'removed'): boolean {
+  async handleReaction(
+    postId: string,
+    emoji: string,
+    _user: string,
+    action: 'added' | 'removed',
+    _ctx: ExecutorContext,
+  ): Promise<boolean> {
     // Only handle 'added' actions for prompts
-    if (_action !== 'added') return false;
+    if (action !== 'added') return false;
 
     // Check initial prompt
     if (this.state.pendingInitialPrompt?.postId === postId) {

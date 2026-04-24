@@ -653,4 +653,164 @@ describe('SessionManager', () => {
       expect(manager.isSessionInteractive('thread-F')).toBe(true);
     });
   });
+
+  // ==========================================================================
+  // persistSession byte-level snapshot — guarantees PR 3's refactor of
+  // persistSession (use MessageManager.serialize() instead of the two per-
+  // getter reaches) doesn't change the on-disk shape of `sessions.json`.
+  //
+  // CLAUDE.md's backward-compat rule is strict: field set must remain
+  // identical to what existing users have on disk. If a PR changes the
+  // byte-level shape, this test fails before the persisted state does.
+  // ==========================================================================
+  describe('persistSession snapshot (backward compat)', () => {
+    test('persists a fully-populated session with the expected field set', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      // Intercept sessionStore.save to capture the written payload without
+      // actually writing to disk.
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-snap', {
+        claudeSessionId: 'claude-uuid-1',
+        startedByDisplayName: 'Alice',
+        sessionAllowedUsers: new Set(['alice', 'bob']),
+        forceInteractivePermissions: true,
+        planApproved: true,
+        sessionStartPostId: 'start-1',
+        messageCount: 3,
+        sessionTitle: 'Test session',
+        sessionDescription: 'A description',
+        sessionTags: ['bug-fix'],
+        pullRequestUrl: 'https://github.com/x/y/pull/1',
+        lifecyclePostId: 'lifecycle-1',
+        firstPrompt: 'Hello',
+      });
+
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: 'tasks-1', content: '- [ ] a', isMinimized: false, isCompleted: false },
+          contextPrompt: {
+            postId: 'ctx-1',
+            queuedPrompt: 'followup',
+            queuedFiles: undefined,
+            threadMessageCount: 5,
+            createdAt: 1_700_000_000_000,
+            availableOptions: [],
+          },
+        }),
+        // Keep legacy getters working as fallback if something probes them.
+        getTaskListState: () => ({ postId: 'tasks-1', content: '- [ ] a', isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => ({
+          postId: 'ctx-1',
+          queuedPrompt: 'followup',
+          queuedFiles: undefined,
+          threadMessageCount: 5,
+          createdAt: 1_700_000_000_000,
+          availableOptions: [],
+        }),
+      } as any;
+
+      (manager as any).persistSession(session);
+
+      expect(savedCalls).toHaveLength(1);
+      const written = savedCalls[0].data as Record<string, unknown>;
+
+      // Field set must match the pre-PR-3 shape exactly. Extra or missing
+      // keys would signal schema drift.
+      const expectedKeys = new Set([
+        'platformId', 'threadId', 'claudeSessionId', 'startedBy', 'startedByDisplayName',
+        'startedAt', 'lastActivityAt', 'sessionNumber', 'workingDir', 'planApproved',
+        'sessionAllowedUsers', 'forceInteractivePermissions', 'sessionStartPostId',
+        'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
+        'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
+        'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
+        'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
+        'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
+        'resumeFailCount', 'claudeAccountId',
+      ]);
+      expect(new Set(Object.keys(written))).toEqual(expectedKeys);
+
+      // Spot-check a few critical fields — the ones sourced from
+      // `MessageManager.serialize()` rather than `session.*`.
+      expect(written.tasksPostId).toBe('tasks-1');
+      expect(written.lastTasksContent).toBe('- [ ] a');
+      expect(written.tasksCompleted).toBe(false);
+      expect(written.tasksMinimized).toBe(false);
+      const ctxPrompt = written.pendingContextPrompt as Record<string, unknown>;
+      expect(ctxPrompt.postId).toBe('ctx-1');
+      expect(ctxPrompt.queuedPrompt).toBe('followup');
+      expect(written.forceInteractivePermissions).toBe(true);
+      expect(written.sessionTitle).toBe('Test session');
+    });
+
+    test('persists a minimal session (no task list, no context prompt)', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-min');
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: null, content: null, isMinimized: false, isCompleted: false },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: null, content: null, isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      (manager as any).persistSession(session);
+      const written = savedCalls[0].data as Record<string, unknown>;
+
+      // Null task-list fields: critical that we write `null`, not `undefined`.
+      // Persistence readers expect these to always be present.
+      expect(written.tasksPostId).toBeNull();
+      expect(written.lastTasksContent).toBeNull();
+      expect(written.tasksCompleted).toBe(false);
+      expect(written.tasksMinimized).toBe(false);
+      expect(written.pendingContextPrompt).toBeUndefined();
+    });
+
+    test('legacy path (SERIALIZE_V2=0) produces the same payload as the new path', () => {
+      const original = process.env.CLAUDE_THREADS_SERIALIZE_V2;
+      const capturedNew: unknown[] = [];
+      const capturedLegacy: unknown[] = [];
+      (manager as any).sessionStore.save = (_id: string, data: unknown) => {
+        if (process.env.CLAUDE_THREADS_SERIALIZE_V2 === '0') capturedLegacy.push(data);
+        else capturedNew.push(data);
+      };
+
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-eq', {
+        sessionTitle: 'Parity',
+      });
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: 'T', content: 'x', isMinimized: true, isCompleted: true },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: 'T', content: 'x', isMinimized: true, isCompleted: true }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      try {
+        delete process.env.CLAUDE_THREADS_SERIALIZE_V2;
+        (manager as any).persistSession(session);
+        process.env.CLAUDE_THREADS_SERIALIZE_V2 = '0';
+        (manager as any).persistSession(session);
+      } finally {
+        if (original === undefined) {
+          delete process.env.CLAUDE_THREADS_SERIALIZE_V2;
+        } else {
+          process.env.CLAUDE_THREADS_SERIALIZE_V2 = original;
+        }
+      }
+
+      // Payloads must be byte-identical. This is what protects users on
+      // the rollback path (`CLAUDE_THREADS_SERIALIZE_V2=0`) from a divergent
+      // `sessions.json` format.
+      expect(JSON.stringify(capturedNew[0])).toEqual(JSON.stringify(capturedLegacy[0]));
+    });
+  });
 });

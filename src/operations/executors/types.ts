@@ -253,3 +253,59 @@ export type RegisterPostCallback = (
  * Callback for updating last message tracking.
  */
 export type UpdateLastMessageCallback = (post: PlatformPost) => void;
+
+// ---------------------------------------------------------------------------
+// Executor Contract
+// ---------------------------------------------------------------------------
+
+/**
+ * The action half of a platform reaction event — `'added'` when the user
+ * just applied the emoji, `'removed'` when they took it back.
+ */
+export type ReactionAction = 'added' | 'removed';
+
+/**
+ * Structural contract every executor satisfies. `BaseExecutor<T>` already
+ * implements `getState` and `reset`; the two optional members are declared
+ * by individual executors that need them.
+ *
+ * This is the type `MessageManager` iterates over when dispatching reactions
+ * and when collecting persistence payloads.
+ */
+export interface Executor<TState extends object = object> {
+  /** Snapshot of current state. Implementations return a shallow copy. */
+  getState(): Readonly<TState>;
+
+  /** Reset state to initial values (e.g. on session restart). */
+  reset(): void;
+
+  /**
+   * Optional: handle a reaction on a post owned by this executor. Return
+   * `true` iff the reaction was consumed by this executor (so the dispatcher
+   * stops considering later executors). Implementations that don't care
+   * about reactions omit this method.
+   *
+   * All six executors that currently implement `handleReaction` use the
+   * signature below; the parameter list is fixed so the dispatch table in
+   * MessageManager can call them uniformly.
+   */
+  handleReaction?(
+    postId: string,
+    emoji: string,
+    user: string,
+    action: ReactionAction,
+    ctx: ExecutorContext,
+  ): Promise<boolean>;
+
+  /**
+   * Optional: serialize this executor's persistable state for
+   * `SessionManager.persistSession`. Only executors whose state is part of
+   * `PersistedSession` (TaskList, Prompt) implement it; others return
+   * nothing and their output is ignored.
+   *
+   * The shape is executor-specific — `MessageManager.serialize()` keys the
+   * results by executor name so the persistence writer can pull the right
+   * fields without reaching into executor internals.
+   */
+  serialize?(): unknown;
+}

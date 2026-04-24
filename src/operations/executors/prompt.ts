@@ -118,6 +118,15 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   }
 
   /**
+   * Serialize the pending context prompt for `PersistedSession`. Returns
+   * `null` when there is no prompt awaiting a reaction — the persistence
+   * writer treats absent and null identically.
+   */
+  serialize(): PendingContextPrompt | null {
+    return this.state.pendingContextPrompt;
+  }
+
+  /**
    * Check if there's a pending context prompt.
    */
   hasPendingContextPrompt(): boolean {
