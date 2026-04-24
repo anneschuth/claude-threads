@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Duplicate `claude.sendMessage()` on every session start** — `lifecycle.startSession()` was misreading `offerContextPrompt`'s return contract: the helper returns `false` after sending the message itself in the auto-include / no-context branches, but `lifecycle.ts` interpreted that as "didn't send, please send" and fired a duplicate. Every session start was sending the user's prompt to Claude twice. Net effect on production: ~2× the API turns at session start. Fix: trust the helper's return contract and don't double-send. (#340)
+- **Listener leak on `disconnect()`** — `disconnect()` was synchronous: it called `ws.close()` and returned, but EventEmitter listeners stayed attached. Any in-flight `'message'` event the WebSocket queued just before close still fired the bot's `startSession`. Mostly invisible in production (shutdown paths don't reconnect immediately) but caused integration test bots to receive duplicate session-start events during back-to-back test transitions. `disconnect()` now removes all event listeners before closing, and returns `Promise<void>` resolving when the close handshake completes (1s safety timeout). Production callers in shutdown paths can fire-and-forget; tests can `await`. (#340)
+- **Integration test flake (~30-40% pass-rate gap)** — multiple root causes addressed:
+  - Each integration-test bot now uses its own Mattermost user account from a 4-bot pool. Previously all test bots shared one token, so transient overlapping `disconnect()` / `connect()` windows delivered the same WebSocket events to multiple bots, producing duplicate session starts.
+  - Each pool bot uses a unique `platformId`. Module-level state in `src/operations/sticky-message/handler.ts` (a `Map<platformId, postId>`) was conflating bots when they all shared `platformId='test-mattermost'`, causing 403 permission errors on cross-bot post operations.
+  - Test helper `MattermostTestApi` now retries 500s with exponential backoff (mirroring the production client). Mattermost throws transient 500s on `/posts` due to a residual `pq: duplicate key` race even on 10.11.15; the test fixture used to throw on the first one.
+  - `bot.stop()` now awaits the WebSocket close handshake instead of a fixed sleep.
+  - CI workflow `--timeout` aligned with `package.json` script (`120000`); the previous hardcoded `60000` silently overrode test-level timeouts. (#340)
+
+### Changed
+- **`PlatformClient.disconnect()` is now `Promise<void>`** instead of `void`. Existing callers in `src/index.ts` and `src/message-handler.ts` are shutdown paths that fire-and-forget; the change is source-compatible (the returned Promise can be ignored). (#340)
+
 ## [1.8.2] - 2026-04-22
 
 ### Breaking

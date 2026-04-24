@@ -989,8 +989,11 @@ export async function startSession(
     return;
   }
 
-  // No replyToPostId — top-level mention with no thread to inspect.
-  // Increment counter and send directly.
+  // No replyToPostId — defensive path for callers that don't pass a thread
+  // root. In practice handleMessage always supplies one (post.rootId ||
+  // post.id), so this branch is unreachable through the bot's WebSocket
+  // pipeline; kept because SessionManager.startSession's signature allows
+  // omitting replyToPostId.
   session.messageCount++;
   claude.sendMessage(content);
 
