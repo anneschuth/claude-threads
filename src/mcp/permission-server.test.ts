@@ -158,6 +158,29 @@ describe('handlePermissionWith', () => {
     expect(api.updatedPosts[0].message).toContain('Allowed all');
   });
 
+  it('allow-all sticks across subsequent calls — second call auto-approves without the reaction loop', async () => {
+    const api = new FakeApi({
+      // Only one queued reaction: used by the FIRST call. If the second call
+      // reached `waitForReaction` it would hit the empty queue and time out,
+      // causing the assertion on behavior='allow' to fail.
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' }],
+    });
+    const cfg = makeCfg(api);
+
+    const first = await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+    expect(first.behavior).toBe('allow');
+    expect(cfg.getAllowAllState()).toBe(true);
+    expect(api.waitForReactionCalls).toHaveLength(1);
+    expect(api.createdPosts).toHaveLength(1);
+
+    const second = await handlePermissionWith('Write', { path: '/tmp/x' }, cfg);
+    expect(second.behavior).toBe('allow');
+    expect(second.updatedInput).toEqual({ path: '/tmp/x' });
+    // Second call short-circuited: no new post, no new reaction poll.
+    expect(api.waitForReactionCalls).toHaveLength(1);
+    expect(api.createdPosts).toHaveLength(1);
+  });
+
   it('denies when authorized user reacts with -1', async () => {
     const api = new FakeApi({
       reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '-1' }],

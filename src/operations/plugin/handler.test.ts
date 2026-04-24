@@ -55,6 +55,11 @@ mock.module('../../utils/spawn.js', () => ({
   crossSpawn: crossSpawnMock,
 }));
 
+// bun's `mock.module` is process-global and one-way — there is no native
+// "unmock". The best we can do is overwrite it with a pass-through factory
+// that returns the real module, so later test files loading this path behave
+// as if it were never mocked. This is NOT a true restore; it works only
+// because `realSpawn` is still the real live module object.
 afterAll(() => {
   mock.module('../../utils/spawn.js', () => realSpawn);
 });
