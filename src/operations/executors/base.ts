@@ -8,7 +8,7 @@
  * - State management (getState, reset)
  */
 
-import type { RegisterPostCallback, UpdateLastMessageCallback } from './types.js';
+import type { RegisterPostCallback, UpdateLastMessageCallback, Executor } from './types.js';
 import type { TypedEventEmitter } from '../message-manager-events.js';
 
 // ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ export interface ExecutorOptions {
  *
  * @template TState - The state type managed by the executor
  */
-export abstract class BaseExecutor<TState extends object> {
+export abstract class BaseExecutor<TState extends object> implements Executor<TState> {
   /** Executor state - subclasses access via protected */
   protected state: TState;
 

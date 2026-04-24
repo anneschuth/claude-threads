@@ -442,12 +442,40 @@ export class TaskListExecutor extends BaseExecutor<TaskListState> {
   }
 
   /**
+   * Serialize the task list state for `PersistedSession`. Field names match
+   * the historical `getTaskListState()` shape so `SessionManager.persistSession`
+   * can plug the result straight into the persisted-session record.
+   *
+   * Returning `null` would be valid too (no pending task list), but returning
+   * zeroed-out values is simpler and keeps the persisted JSON shape stable
+   * regardless of whether Claude has started a task list yet.
+   */
+  serialize(): {
+    postId: string | null;
+    content: string | null;
+    isMinimized: boolean;
+    isCompleted: boolean;
+  } {
+    return {
+      postId: this.state.tasksPostId,
+      content: this.state.lastTasksContent,
+      isMinimized: this.state.tasksMinimized,
+      isCompleted: this.state.tasksCompleted,
+    };
+  }
+
+  /**
    * Handle a reaction event on a post.
    * Returns true if the reaction was handled, false otherwise.
+   *
+   * `_user` is part of the standard `Executor.handleReaction` signature
+   * (dispatched uniformly by MessageManager); this executor's minimize
+   * toggle is user-agnostic, so the argument is ignored.
    */
   async handleReaction(
     postId: string,
     emoji: string,
+    _user: string,
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {

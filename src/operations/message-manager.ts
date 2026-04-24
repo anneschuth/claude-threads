@@ -31,6 +31,7 @@ import type {
   ContextPromptSelection,
 } from './executors/prompt.js';
 import type {
+  Executor,
   ExecutorContext,
   RegisterPostCallback,
   UpdateLastMessageCallback,
@@ -820,7 +821,10 @@ export class MessageManager {
   }
 
   /**
-   * Get task list state for persistence
+   * Get task list state for persistence.
+   *
+   * @deprecated Use `serialize()` instead; this wrapper is kept for
+   * one release as a rollback path (`CLAUDE_THREADS_SERIALIZE_V2=0`).
    */
   getTaskListState(): {
     postId: string | null;
@@ -828,12 +832,25 @@ export class MessageManager {
     isMinimized: boolean;
     isCompleted: boolean;
   } {
-    const state = this.taskListExecutor.getState();
+    return this.taskListExecutor.serialize();
+  }
+
+  /**
+   * Aggregate every executor's persistable state into a single payload for
+   * `SessionManager.persistSession`. Removes the need for persistSession
+   * to reach into individual executors via named getters.
+   *
+   * Shape is stable: `taskList` always present, `contextPrompt` is `null`
+   * when no prompt is pending. The keys are what `PersistedSession` expects,
+   * so the writer can spread them straight into the persisted record.
+   */
+  serialize(): {
+    taskList: ReturnType<TaskListExecutor['serialize']>;
+    contextPrompt: PendingContextPrompt | null;
+  } {
     return {
-      postId: state.tasksPostId,
-      content: state.lastTasksContent,
-      isMinimized: state.tasksMinimized,
-      isCompleted: state.tasksCompleted,
+      taskList: this.taskListExecutor.serialize(),
+      contextPrompt: this.promptExecutor.serialize(),
     };
   }
 
@@ -1098,6 +1115,29 @@ export class MessageManager {
    * @param action - Whether the reaction was 'added' or 'removed'
    * @returns true if the reaction was handled, false otherwise
    */
+  /**
+   * Executor dispatch order for `handleReaction`. Order matters — earlier
+   * entries get the first shot at a reaction and return `true` to short-
+   * circuit the rest. Previously this was an if/else chain; encoding it
+   * as data makes it obvious when re-ordering and lets `serialize()`
+   * iterate the same list for persistence payloads.
+   *
+   * Each entry includes a name for the dispatch log and the executor
+   * instance. `as Executor[]` because TypeScript can't infer the union
+   * of concrete classes — they all implement `Executor` but with different
+   * state types.
+   */
+  private reactionDispatchList(): Array<{ name: string; executor: Executor }> {
+    return [
+      { name: 'QuestionApprovalExecutor', executor: this.questionApprovalExecutor as Executor },
+      { name: 'MessageApprovalExecutor',  executor: this.messageApprovalExecutor as Executor },
+      { name: 'PromptExecutor',           executor: this.promptExecutor as Executor },
+      { name: 'BugReportExecutor',        executor: this.bugReportExecutor as Executor },
+      { name: 'TaskListExecutor',         executor: this.taskListExecutor as Executor },
+      { name: 'SubagentExecutor',         executor: this.subagentExecutor as Executor },
+    ];
+  }
+
   async handleReaction(
     postId: string,
     emoji: string,
@@ -1109,40 +1149,12 @@ export class MessageManager {
 
     logger.debug(`Routing reaction: postId=${postId}, emoji=${emoji}, user=${user}, action=${action}`);
 
-    // Try question/approval executor first
-    if (await this.questionApprovalExecutor.handleReaction(postId, emoji, user, action, ctx)) {
-      logger.debug('Reaction handled by QuestionApprovalExecutor');
-      return true;
-    }
-
-    // Try message approval executor
-    if (await this.messageApprovalExecutor.handleReaction(postId, emoji, user, action, ctx)) {
-      logger.debug('Reaction handled by MessageApprovalExecutor');
-      return true;
-    }
-
-    // Try prompt executor (context, worktree, update prompts)
-    if (await this.promptExecutor.handleReaction(postId, emoji, user, action, ctx)) {
-      logger.debug('Reaction handled by PromptExecutor');
-      return true;
-    }
-
-    // Try bug report executor
-    if (await this.bugReportExecutor.handleReaction(postId, emoji, user, action, ctx)) {
-      logger.debug('Reaction handled by BugReportExecutor');
-      return true;
-    }
-
-    // Try task list executor (minimize toggle)
-    if (await this.taskListExecutor.handleReaction(postId, emoji, action, ctx)) {
-      logger.debug('Reaction handled by TaskListExecutor');
-      return true;
-    }
-
-    // Try subagent executor (minimize toggle)
-    if (await this.subagentExecutor.handleReaction(postId, emoji, action, ctx)) {
-      logger.debug('Reaction handled by SubagentExecutor');
-      return true;
+    for (const { name, executor } of this.reactionDispatchList()) {
+      if (!executor.handleReaction) continue;
+      if (await executor.handleReaction(postId, emoji, user, action, ctx)) {
+        logger.debug(`Reaction handled by ${name}`);
+        return true;
+      }
     }
 
     logger.debug('Reaction not handled by any executor');

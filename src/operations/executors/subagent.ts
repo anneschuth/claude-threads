@@ -291,10 +291,15 @@ export class SubagentExecutor extends BaseExecutor<SubagentState> {
   /**
    * Handle a reaction on a subagent post.
    * Returns true if handled, false otherwise.
+   *
+   * `_user` is part of the standard `Executor.handleReaction` signature
+   * (dispatched uniformly by MessageManager); this executor's toggle
+   * behavior is user-agnostic, so the argument is ignored.
    */
   async handleReaction(
     postId: string,
     emoji: string,
+    _user: string,
     action: 'added' | 'removed',
     ctx: ExecutorContext
   ): Promise<boolean> {

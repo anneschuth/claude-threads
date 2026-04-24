@@ -142,7 +142,7 @@ describe('WorktreePromptExecutor', () => {
       });
 
       // Use emoji name '-1' (thumbsdown) for denial
-      const handled = executor.handleReaction('prompt-post', '-1', 'added');
+      const handled = await executor.handleReaction('prompt-post', '-1', 'tester', 'added', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(true);
       expect(executor.hasPendingPrompt()).toBe(false);
 
@@ -163,30 +163,30 @@ describe('WorktreePromptExecutor', () => {
       });
 
       // Use emoji name 'two' for second option (index 1)
-      const handled = executor.handleReaction('prompt-post', 'two', 'added');
+      const handled = await executor.handleReaction('prompt-post', 'two', 'tester', 'added', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(true);
 
       await eventReceived;
     });
 
-    test('ignores reaction on wrong post', () => {
+    test('ignores reaction on wrong post', async () => {
       executor.setPendingInitialPrompt({
         postId: 'prompt-post',
         suggestions: ['branch-1'],
       });
 
-      const handled = executor.handleReaction('other-post', '-1', 'added');
+      const handled = await executor.handleReaction('other-post', '-1', 'tester', 'added', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(false);
       expect(executor.hasPendingPrompt()).toBe(true);
     });
 
-    test('ignores removed reactions', () => {
+    test('ignores removed reactions', async () => {
       executor.setPendingInitialPrompt({
         postId: 'prompt-post',
         suggestions: ['branch-1'],
       });
 
-      const handled = executor.handleReaction('prompt-post', '-1', 'removed');
+      const handled = await executor.handleReaction('prompt-post', '-1', 'tester', 'removed', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(false);
       expect(executor.hasPendingPrompt()).toBe(true);
     });
@@ -208,20 +208,20 @@ describe('WorktreePromptExecutor', () => {
       });
 
       // Use emoji name '-1' (thumbsdown) for denial
-      const handled = executor.handleReaction('failure-post', '-1', 'added');
+      const handled = await executor.handleReaction('failure-post', '-1', 'tester', 'added', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(true);
 
       await eventReceived;
     });
 
-    test('ignores invalid number emoji for initial prompt', () => {
+    test('ignores invalid number emoji for initial prompt', async () => {
       executor.setPendingInitialPrompt({
         postId: 'prompt-post',
         suggestions: ['branch-1'],
       });
 
       // 'four' is out of bounds (only 1 suggestion at index 0)
-      const handled = executor.handleReaction('prompt-post', 'four', 'added');
+      const handled = await executor.handleReaction('prompt-post', 'four', 'tester', 'added', {} as unknown as Parameters<typeof executor.handleReaction>[4]);
       expect(handled).toBe(false);
       expect(executor.hasPendingPrompt()).toBe(true);
     });

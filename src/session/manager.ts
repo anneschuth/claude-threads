@@ -694,22 +694,38 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
-    // Get context prompt state from MessageManager (source of truth)
-    let persistedContextPrompt: PersistedContextPrompt | undefined;
-    const contextPromptState = session.messageManager?.getPendingContextPrompt();
-    if (contextPromptState) {
-      persistedContextPrompt = {
-        postId: contextPromptState.postId,
-        queuedPrompt: contextPromptState.queuedPrompt,
-        queuedFiles: contextPromptState.queuedFiles,
-        threadMessageCount: contextPromptState.threadMessageCount,
-        createdAt: contextPromptState.createdAt,
-        availableOptions: contextPromptState.availableOptions,
-      };
-    }
+    // Aggregate every executor's persistable state in a single call.
+    // Rollback: `CLAUDE_THREADS_SERIALIZE_V2=0` re-enables the old per-getter
+    // path for one release, in case a downstream consumer depends on it.
+    const useSerializeV2 = process.env.CLAUDE_THREADS_SERIALIZE_V2 !== '0';
+    let taskListSnapshot:
+      | { postId: string | null; content: string | null; isMinimized: boolean; isCompleted: boolean }
+      | undefined;
+    let contextPromptSnapshot: PersistedContextPrompt | undefined;
 
-    // Get task list state from MessageManager (source of truth)
-    const taskState = session.messageManager?.getTaskListState();
+    if (useSerializeV2 && session.messageManager) {
+      const serialized = session.messageManager.serialize();
+      taskListSnapshot = serialized.taskList;
+      if (serialized.contextPrompt) {
+        contextPromptSnapshot = serialized.contextPrompt;
+      }
+    } else {
+      // Legacy path (rollback flag) — kept so a user who trips over a
+      // regression can unset the flag and get the pre-PR-3 behavior back
+      // without a release.
+      const legacyPrompt = session.messageManager?.getPendingContextPrompt();
+      if (legacyPrompt) {
+        contextPromptSnapshot = {
+          postId: legacyPrompt.postId,
+          queuedPrompt: legacyPrompt.queuedPrompt,
+          queuedFiles: legacyPrompt.queuedFiles,
+          threadMessageCount: legacyPrompt.threadMessageCount,
+          createdAt: legacyPrompt.createdAt,
+          availableOptions: legacyPrompt.availableOptions,
+        };
+      }
+      taskListSnapshot = session.messageManager?.getTaskListState();
+    }
 
     const state: PersistedSession = {
       platformId: session.platformId,
@@ -725,11 +741,11 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       sessionStartPostId: session.sessionStartPostId,
-      // Task state from MessageManager (single source of truth)
-      tasksPostId: taskState?.postId ?? null,
-      lastTasksContent: taskState?.content ?? null,
-      tasksCompleted: taskState?.isCompleted ?? false,
-      tasksMinimized: taskState?.isMinimized ?? false,
+      // Task state from MessageManager serialize() (single source of truth).
+      tasksPostId: taskListSnapshot?.postId ?? null,
+      lastTasksContent: taskListSnapshot?.content ?? null,
+      tasksCompleted: taskListSnapshot?.isCompleted ?? false,
+      tasksMinimized: taskListSnapshot?.isMinimized ?? false,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
@@ -737,7 +753,7 @@ export class SessionManager extends EventEmitter {
       queuedPrompt: session.queuedPrompt,
       queuedFiles: session.queuedFiles,
       firstPrompt: session.firstPrompt,
-      pendingContextPrompt: persistedContextPrompt,
+      pendingContextPrompt: contextPromptSnapshot,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
       isPaused: session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted',

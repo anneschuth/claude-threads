@@ -769,6 +769,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'post_1',
         MINIMIZE_TOGGLE_EMOJIS[0],
+        'tester',
         'added',
         ctx
       );
@@ -784,6 +785,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'post_1',
         MINIMIZE_TOGGLE_EMOJIS[0],
+        'tester',
         'added',
         ctx
       );
@@ -799,6 +801,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'post_1',
         '+1', // thumbs up, not toggle
+        'tester',
         'added',
         ctx
       );
@@ -815,6 +818,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'post_1',
         MINIMIZE_TOGGLE_EMOJIS[0],
+        'tester',
         'removed',
         ctx
       );
@@ -832,6 +836,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'other-post-id',
         MINIMIZE_TOGGLE_EMOJIS[0],
+        'tester',
         'added',
         ctx
       );
@@ -845,6 +850,7 @@ describe('TaskListExecutor', () => {
       const result = await executor.handleReaction(
         'post_1',
         MINIMIZE_TOGGLE_EMOJIS[0],
+        'tester',
         'added',
         ctx
       );
