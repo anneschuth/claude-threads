@@ -2,7 +2,7 @@ import { WebSocket } from '../../utils/websocket.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
-import { escapeRegExp } from '../utils.js';
+import { escapeRegExp, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 
 const log = createLogger('mattermost');
@@ -520,9 +520,10 @@ export class MattermostClient extends BasePlatformClient {
       };
 
       this.ws.onerror = (event) => {
-        wsLogger.warn(`WebSocket error: ${event}`);
-        this.emit('error', event);
-        reject(event);
+        const msg = formatWebSocketError(event);
+        wsLogger.warn(`WebSocket error: ${msg}`);
+        this.emit('error', new Error(`WebSocket error: ${msg}`));
+        reject(new Error(`WebSocket error: ${msg}`));
       };
     });
   }

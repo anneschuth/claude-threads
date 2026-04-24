@@ -53,7 +53,7 @@ const sessionLog = createSessionLog(log);
  * - Permission denied
  * - Disk space issues
  */
-function parseWorktreeError(error: unknown): { summary: string; suggestion: string } {
+export function parseWorktreeError(error: unknown): { summary: string; suggestion: string } {
   const message = error instanceof Error ? error.message : String(error);
   const lowerMessage = message.toLowerCase();
 
@@ -62,6 +62,22 @@ function parseWorktreeError(error: unknown): { summary: string; suggestion: stri
     return {
       summary: 'Branch is already checked out in another worktree',
       suggestion: 'Try a different branch name, or use `!worktree list` to see existing worktrees',
+    };
+  }
+
+  // Parent branch blocks nested branch — git refuses when a flat branch
+  // (e.g. `test`) exists and a nested name (e.g. `test/add-unit-coverage`)
+  // is requested. Message shape:
+  //   fatal: 'refs/heads/<parent>' exists; cannot create '<nested>'
+  const parentBlocksMatch = message.match(
+    /'refs\/heads\/([^']+)' exists; cannot create '(?:refs\/heads\/)?([^']+)'/i,
+  );
+  if (parentBlocksMatch) {
+    const parent = parentBlocksMatch[1];
+    const nested = parentBlocksMatch[2];
+    return {
+      summary: `Branch ${parent} already exists and blocks ${nested}`,
+      suggestion: `Pick a name that does not start with ${parent}/, or delete the existing ${parent} branch first.`,
     };
   }
 

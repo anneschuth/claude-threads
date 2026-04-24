@@ -13,6 +13,7 @@ import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
+import { formatWebSocketError } from '../utils.js';
 
 // =============================================================================
 // Mattermost REST API helpers (internal)
@@ -308,7 +309,7 @@ class MattermostPermissionApi implements PermissionApi {
       };
 
       ws.onerror = (event) => {
-        mcpLogger.error(`WebSocket error: ${event}`);
+        mcpLogger.error(`WebSocket error: ${formatWebSocketError(event)}`);
         if (!resolved) {
           resolved = true;
           clearTimeout(timeout);

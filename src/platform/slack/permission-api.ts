@@ -27,6 +27,7 @@ import type {
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
 import { SlackFormatter } from './formatter.js';
+import { formatWebSocketError } from '../utils.js';
 
 // =============================================================================
 // Slack Permission API Configuration
@@ -324,7 +325,7 @@ class SlackPermissionApi implements PermissionApi {
           };
 
           ws.onerror = (event) => {
-            mcpLogger.error(`Socket Mode WebSocket error: ${event}`);
+            mcpLogger.error(`Socket Mode WebSocket error: ${formatWebSocketError(event)}`);
             if (!resolved) {
               resolved = true;
               clearTimeout(timeout);
