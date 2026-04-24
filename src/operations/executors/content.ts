@@ -88,7 +88,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     content: string,
     logTag: string,
     successDetails: Record<string, unknown>,
-    failureDetails: Record<string, unknown>,
+    failureDetails: Record<string, unknown> | ((err: unknown) => Record<string, unknown>),
     onSuccess: () => void,
     onFailure: () => void,
   ): Promise<void> {
@@ -98,7 +98,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
       ctx.logger.debug(`Update failed (${logTag}): ${err}`);
-      ctx.threadLogger?.logExecutor('content', 'error', postId, failureDetails, logTag);
+      const resolvedFailureDetails = typeof failureDetails === 'function'
+        ? failureDetails(err)
+        : failureDetails;
+      ctx.threadLogger?.logExecutor('content', 'error', postId, resolvedFailureDetails, logTag);
       onFailure();
     }
   }
@@ -252,7 +255,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         combinedContent,
         'flush',
         { newContentLength: content.length, combinedLength: combinedContent.length },
-        { failedOp: 'updatePost' },
+        // Preserve the pre-refactor thread-log shape: the flush path includes
+        // the exception text so operators can diagnose updatePost failures
+        // without cross-referencing the debug log.
+        (err) => ({ failedOp: 'updatePost', error: String(err) }),
         () => {
           this.state.currentPostContent = combinedContent;
           this.clearFlushedContent(pendingAtFlushStart);
