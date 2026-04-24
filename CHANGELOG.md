@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.9.2] - 2026-04-24
+
+### Fixed
+- **Unreadable `[object ErrorEvent]` in WebSocket error logs.** Recent Node / undici deliver a browser-style `ErrorEvent` (not a plain `Error`) to `ws.onerror`, and `` `${event}` `` stringifies that wrapper to `[object ErrorEvent]` — the original failure cause was being dropped. New `formatWebSocketError(err)` helper in `src/platform/utils.ts` pulls the first usable signal (`.message` → `.error.message` → `.type (code: .code)` → `String(err)`), wired into all five WebSocket error sites across Slack + Mattermost main clients, both MCP permission-server clients, and the UI re-emit. The Slack client's rejection and re-emitted `Error` now carry the underlying message too, instead of the opaque `"Socket Mode WebSocket error"`. (#347)
+- **Worktree creation under a parent branch gave a generic "Failed to create worktree" message.** When a flat branch `test` already exists and the user requests `test/add-unit-coverage`, git refuses with `fatal: 'refs/heads/test' exists; cannot create 'refs/heads/test/add-unit-coverage'`. `parseWorktreeError` now matches this specific shape and reports `Branch <parent> already exists and blocks <nested>` with the suggestion to pick a non-nested name or delete the parent branch first. (#347)
+
 ## [1.9.1] - 2026-04-24
 
 ### Internals
