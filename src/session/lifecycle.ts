@@ -806,6 +806,10 @@ export async function startSession(
   // Claude CLI spawn below.
   let permissionMode = ctx.config.permissionMode;
   let forceInteractivePermissions = false;
+  // Per-session override tracked on the Session object so the header + any
+  // subsequent `effectivePermissionMode` call sees the mode the user chose
+  // in the first message (not just the bot-wide default).
+  let sessionPermissionModeOverride: PermissionMode | undefined;
   const formatter = platform.getFormatter();
 
   if (initialOptions?.workingDir) {
@@ -840,6 +844,11 @@ export async function startSession(
   if (initialOptions?.permissionMode) {
     permissionMode = initialOptions.permissionMode;
     forceInteractivePermissions = permissionMode === 'default';
+    // Record the explicit override so the session header reflects it. Only
+    // needed for 'auto' and 'bypass' — 'default' is covered by
+    // forceInteractivePermissions, but we set the override uniformly for
+    // clarity.
+    sessionPermissionModeOverride = permissionMode;
     log.info(`Starting session with permission mode "${permissionMode}" (from !permissions command)`);
   } else if (initialOptions?.forceInteractivePermissions) {
     // Legacy alias: forceInteractivePermissions === 'default'.
@@ -896,6 +905,7 @@ export async function startSession(
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions,
+    permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost.id,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
