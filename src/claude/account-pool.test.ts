@@ -1,7 +1,7 @@
 /**
  * Tests for AccountPool.
  */
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, setSystemTime } from 'bun:test';
 import { AccountPool } from './account-pool.js';
 
 describe('AccountPool', () => {
@@ -114,6 +114,114 @@ describe('AccountPool', () => {
       const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
       pool.markCooling('a', Date.now() - 1); // already expired
       expect(pool.acquire()?.id).toBe('a');
+    });
+  });
+
+  describe('sticky-by-thread binding', () => {
+    // Regression: in claude-threads <=1.8.2 the pool was strictly round-robin,
+    // and the claudeAccountId persisted to sessions.json could drift away from
+    // the $HOME Claude actually spawned under (race between multiple acquires
+    // and the writeAtomic of the whole sessions map). After a bot restart that
+    // mismatch produced "conversation history no longer exists" → soft-delete.
+    // Sticky binding by hash(threadId) closes the race deterministically.
+
+    it('always returns the same account for a given threadId', () => {
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+        { id: 'c', home: '/tmp/c' },
+      ]);
+      const first = pool.acquire(undefined, 'thread-xyz');
+      // Many subsequent acquires for the same thread must return the same id,
+      // independent of intervening calls from other threads.
+      pool.acquire(undefined, 'thread-other-1');
+      pool.acquire(undefined, 'thread-other-2');
+      pool.acquire(); // anonymous round-robin must not affect sticky binding
+      pool.acquire(undefined, 'thread-other-3');
+      for (let i = 0; i < 20; i++) {
+        expect(pool.acquire(undefined, 'thread-xyz')?.id).toBe(first?.id);
+      }
+    });
+
+    it('does not advance roundRobinIndex when sticky path serves the request', () => {
+      // Design invariant: sticky-bound threads must not perturb the cursor
+      // the anonymous round-robin path uses. Otherwise heavy use of one
+      // sticky thread silently shifts how anonymous acquires distribute,
+      // which is exactly the kind of subtle drift this fix is meant to
+      // eliminate.
+      //
+      // n=2 is required for RED-GREEN: with n=3 the cursor cycles back to 0
+      // after 3 RR calls "by luck" and the test passes either way. With n=2,
+      // 3 RR calls leave the cursor at index 1, so the anonymous acquire
+      // returns 'b' under the broken code path and 'a' under the fix.
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      pool.acquire(undefined, 'sticky-1');
+      pool.acquire(undefined, 'sticky-2');
+      pool.acquire(undefined, 'sticky-3');
+      // Sticky path didn't touch the cursor → first anonymous acquire still
+      // starts at index 0.
+      expect(pool.acquire()?.id).toBe('a');
+    });
+
+    it('falls back to round-robin when sticky pick is cooling, then restores once cooldown lifts', () => {
+      // n=3 is required to make this test RED-GREEN — with n=2, plain
+      // round-robin happens to alternate back to the original account on the
+      // third call by sheer luck and the test would pass without the sticky
+      // branch. With n=3, plain round-robin walks 'a','b','c' regardless of
+      // threadId, so the third call returns 'c'; only sticky restores the
+      // original account after cooldown.
+      //
+      // setSystemTime advances the clock past the cooldown rather than
+      // re-calling markCooling — markCooling has a "never shortens" guard
+      // that makes a backwards-time call a no-op and silently breaks the
+      // assertion.
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+        { id: 'c', home: '/tmp/c' },
+      ]);
+      try {
+        const sticky = pool.acquire(undefined, 'pin-thread');
+        pool.release(sticky!.id);
+        const cooldownUntil = Date.now() + 60_000;
+        pool.markCooling(sticky!.id, cooldownUntil);
+
+        // Next acquire for the same thread must NOT return the cooling account.
+        const next = pool.acquire(undefined, 'pin-thread');
+        expect(next?.id).not.toBe(sticky?.id);
+        expect(next).not.toBeNull();
+
+        // Advance time past cooldown so the sticky binding can reassert
+        // itself. This is the property that distinguishes sticky from plain
+        // round-robin and makes the test RED without the sticky branch.
+        setSystemTime(new Date(cooldownUntil + 1));
+        expect(pool.acquire(undefined, 'pin-thread')?.id).toBe(sticky?.id);
+      } finally {
+        setSystemTime(); // restore real clock for sibling tests
+      }
+    });
+
+    it('preferredId still wins over threadId binding (resume invariant)', () => {
+      // Resume path: even if hash(threadId) would pick 'a', a persisted
+      // claudeAccountId of 'b' must still be honored — the conversation
+      // history lives under b's HOME.
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      const sticky = pool.acquire(undefined, 'thread-z');
+      pool.release(sticky!.id);
+      const other = sticky!.id === 'a' ? 'b' : 'a';
+      expect(pool.acquire(other, 'thread-z')?.id).toBe(other);
+    });
+
+    it('returns null when only account is cooling, even with threadId', () => {
+      const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
+      pool.markCooling('a', Date.now() + 60_000);
+      expect(pool.acquire(undefined, 'thread-q')).toBeNull();
     });
   });
 

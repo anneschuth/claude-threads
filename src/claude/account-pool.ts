@@ -17,6 +17,21 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('account-pool');
 
+/**
+ * FNV-1a 32-bit hash. Pure, deterministic, dependency-free — chosen so the
+ * sticky-by-thread account binding picks the same account across bot restarts
+ * without leaning on Node's `crypto`. Avalanche is good enough for routing
+ * threads onto a handful of accounts.
+ */
+function hashThreadId(threadId: string): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < threadId.length; i++) {
+    h ^= threadId.charCodeAt(i);
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
 /** Snapshot of pool state for UI/debug. */
 export interface AccountPoolStatus {
   id: string;
@@ -67,16 +82,25 @@ export class AccountPool {
   }
 
   /**
-   * Acquire the next available account via round-robin, skipping cooling ones.
+   * Acquire an account for a session.
    *
-   * If `preferredId` is given and that account exists, it is returned as-is —
-   * even if it's currently cooling. This path is used when resuming an existing
-   * session whose conversation history lives under that account's HOME.
+   * Selection priority:
+   * 1. `preferredId` (if known) — returned as-is, even if cooling. Resume path:
+   *    OAuth history lives under that account's HOME and can't move.
+   * 2. `threadId` (if given) — deterministic sticky binding via
+   *    `accounts[hash(threadId) % n]`, so a thread always lands on the same
+   *    account across the session's lifetime. The `claudeAccountId` written
+   *    to `sessions.json` and the `$HOME` Claude actually spawned under can
+   *    no longer drift apart under multi-session race conditions (which
+   *    previously produced "conversation history no longer exists" failures
+   *    after a bot restart). If the sticky account is cooling, falls through
+   *    to round-robin.
+   * 3. Round-robin over non-cooling accounts.
    *
    * Returns `null` when the pool is empty, or when every account is cooling
    * and no `preferredId` was supplied.
    */
-  acquire(preferredId?: string): ClaudeAccount | null {
+  acquire(preferredId?: string, threadId?: string): ClaudeAccount | null {
     if (this.isEmpty) return null;
 
     if (preferredId) {
@@ -90,6 +114,20 @@ export class AccountPool {
 
     const now = Date.now();
     const n = this.accounts.length;
+
+    if (threadId) {
+      const sticky = this.accounts[hashThreadId(threadId) % n];
+      const cooling = this.coolingUntil.get(sticky.id) ?? 0;
+      if (cooling <= now) {
+        this.incrementActive(sticky.id);
+        return sticky;
+      }
+      // Sticky account is cooling — drop to round-robin so the session can
+      // still start. Resume of this thread will re-derive the same sticky id,
+      // but the sessions.json entry will record whatever round-robin picks
+      // here, which is fine because resume passes that id as preferredId.
+    }
+
     for (let i = 0; i < n; i++) {
       const idx = (this.roundRobinIndex + i) % n;
       const candidate = this.accounts[idx];

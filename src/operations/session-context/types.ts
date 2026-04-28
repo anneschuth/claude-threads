@@ -240,8 +240,15 @@ export interface SessionOperations {
    *
    * `preferredId` is honored even if the account is currently cooling — this
    * is required for resume, because OAuth history lives under a specific HOME.
+   *
+   * `threadId` enables sticky-by-thread distribution for new sessions: the
+   * pool deterministically picks `accounts[hash(threadId) % n]`, so a thread
+   * always lands on the same account regardless of multi-session ordering.
+   * This closes the race between round-robin selection and `sessions.json`
+   * persistence that previously caused `claudeAccountId` to drift away from
+   * the `$HOME` Claude actually spawned under.
    */
-  acquireClaudeAccount(preferredId?: string): ClaudeAccount | null;
+  acquireClaudeAccount(preferredId?: string, threadId?: string): ClaudeAccount | null;
 
   /**
    * Look up the Claude account metadata for a session that already holds one.

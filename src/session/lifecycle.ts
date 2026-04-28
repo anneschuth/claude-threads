@@ -866,8 +866,14 @@ export async function startSession(
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
 
-  // Reserve a Claude account from the pool (null = single-account mode)
-  const claudeAccount = ctx.ops.acquireClaudeAccount();
+  // Reserve a Claude account from the pool (null = single-account mode).
+  // Pass threadId so the pool sticky-binds this thread to a deterministic
+  // account: the chosen $HOME at spawn time and the claudeAccountId persisted
+  // to sessions.json are derived from the same hash, so they can no longer
+  // drift apart under concurrent acquisitions (which previously left resumed
+  // sessions pointing at the wrong account's HOME → "conversation history no
+  // longer exists" failure on bot restart).
+  const claudeAccount = ctx.ops.acquireClaudeAccount(undefined, actualThreadId);
   if (claudeAccount) {
     log.info(`Session ${sessionId.substring(0, 20)} reserved Claude account "${claudeAccount.id}"`);
   }
@@ -1116,7 +1122,10 @@ export async function resumeSession(
   // Resume MUST re-use the same Claude account the session started on —
   // for OAuth accounts the conversation history lives under that HOME.
   // acquireClaudeAccount honors preferredId even if it is currently cooling.
-  const claudeAccount = ctx.ops.acquireClaudeAccount(state.claudeAccountId);
+  // threadId is passed as a fallback for legacy sessions persisted before
+  // sticky-by-thread binding existed: when state.claudeAccountId is missing,
+  // the pool can re-derive the same sticky account from the thread.
+  const claudeAccount = ctx.ops.acquireClaudeAccount(state.claudeAccountId, state.threadId);
   if (state.claudeAccountId && !claudeAccount) {
     log.warn(
       `Persisted session referenced Claude account "${state.claudeAccountId}" ` +

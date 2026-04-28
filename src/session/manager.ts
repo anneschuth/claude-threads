@@ -326,7 +326,7 @@ export class SessionManager extends EventEmitter {
       emitSessionRemove: (sid) => this.emitSessionRemove(sid),
 
       // Claude account pool (null when single-account mode)
-      acquireClaudeAccount: (preferredId) => this.accountPool.acquire(preferredId),
+      acquireClaudeAccount: (preferredId, threadId) => this.accountPool.acquire(preferredId, threadId),
       getClaudeAccount: (id) => this.accountPool.get(id),
       releaseClaudeAccount: (id) => this.accountPool.release(id),
       markClaudeAccountCooling: (id, untilMs) => this.accountPool.markCooling(id, untilMs),
