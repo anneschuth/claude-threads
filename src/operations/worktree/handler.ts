@@ -25,6 +25,7 @@ import {
 } from '../../git/worktree.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
+import { buildSessionContext } from '../../commands/system-prompt-generator.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
 import { randomUUID } from 'crypto';
 import { logAndNotify } from '../../utils/error-handler/index.js';
@@ -487,6 +488,9 @@ export async function createAndSwitchToWorktree(
 
         // Create new CLI with new working directory
         const needsTitlePrompt = !session.sessionTitle;
+        const sessionContext = needsTitlePrompt
+          ? buildSessionContext(session.platform, existing.path, session.threadId)
+          : null;
         const cliOptions: ClaudeCliOptions = {
           workingDir: existing.path,
           threadId: session.threadId,
@@ -499,7 +503,7 @@ export async function createAndSwitchToWorktree(
           resume: false,
           chrome: options.chromeEnabled,
           platformConfig: session.platform.getMcpConfig(),
-          appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
+          appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
           logSessionId: session.sessionId,
           permissionTimeoutMs: options.permissionTimeoutMs,
         };
@@ -636,6 +640,9 @@ export async function createAndSwitchToWorktree(
       // Include system prompt if session doesn't have a title yet
       // This ensures Claude will generate a title on its next response
       const needsTitlePrompt = !session.sessionTitle;
+      const sessionContext = needsTitlePrompt
+        ? buildSessionContext(session.platform, worktreePath, session.threadId)
+        : null;
 
       const cliOptions: ClaudeCliOptions = {
         workingDir: worktreePath,
@@ -649,7 +656,7 @@ export async function createAndSwitchToWorktree(
         resume: false,  // Fresh start - can't resume across directories
         chrome: options.chromeEnabled,
         platformConfig: session.platform.getMcpConfig(),
-        appendSystemPrompt: needsTitlePrompt ? options.appendSystemPrompt : undefined,
+        appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
         logSessionId: session.sessionId,  // Route logs to session panel
         permissionTimeoutMs: options.permissionTimeoutMs,
       };
