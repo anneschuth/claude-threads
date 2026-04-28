@@ -77,11 +77,20 @@ describe('generateChatPlatformPrompt', () => {
 });
 
 describe('buildSessionContext', () => {
+  const mattermostPlatform = {
+    platformType: 'mattermost',
+    displayName: 'Test Server',
+    getThreadLink: (threadId: string) => `https://chat.example.com/_redirect/pl/${threadId}`,
+  };
+
+  const slackPlatform = {
+    platformType: 'slack',
+    displayName: 'Workspace',
+    getThreadLink: (threadId: string) => `https://slack.example.com/archives/C123/p${threadId}`,
+  };
+
   it('formats platform and working directory', () => {
-    const context = buildSessionContext(
-      { platformType: 'mattermost', displayName: 'Test Server' },
-      '/home/user/project'
-    );
+    const context = buildSessionContext(mattermostPlatform, '/home/user/project', 'thread-1');
 
     expect(context).toContain('Platform:');
     expect(context).toContain('Mattermost');
@@ -91,13 +100,37 @@ describe('buildSessionContext', () => {
   });
 
   it('capitalizes platform type', () => {
-    const context = buildSessionContext(
-      { platformType: 'slack', displayName: 'Workspace' },
-      '/path'
-    );
+    const context = buildSessionContext(slackPlatform, '/path', 'thread-1');
 
     expect(context).toContain('Slack');
-    expect(context).not.toContain('slack');
+    // The full string still contains lowercase 'slack' inside the URL —
+    // assert that the *capitalized* form precedes the URL segment so the
+    // intent of the assertion (label, not URL) is preserved.
+    const labelSegment = context.split('|')[0];
+    expect(labelSegment).toContain('Slack');
+    expect(labelSegment).not.toMatch(/\bslack\b/);
+  });
+
+  it('includes the Thread permalink so Claude can reference the conversation', () => {
+    // Regression-defender: the chat link is what lets Claude paste a
+    // back-reference into MR/ticket descriptions it generates. Without
+    // this segment that affordance is gone — Claude has no way to know
+    // the thread URL.
+    const captured: string[] = [];
+    const platform = {
+      platformType: 'mattermost',
+      displayName: 'Team',
+      getThreadLink: (threadId: string) => {
+        captured.push(threadId);
+        return `https://chat.example.com/_redirect/pl/${threadId}`;
+      },
+    };
+
+    const context = buildSessionContext(platform, '/repo', 'thread-abc');
+
+    expect(captured).toEqual(['thread-abc']);
+    expect(context).toContain('**Thread:**');
+    expect(context).toContain('https://chat.example.com/_redirect/pl/thread-abc');
   });
 });
 
