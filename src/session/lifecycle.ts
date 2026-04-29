@@ -168,6 +168,7 @@ async function cleanupSession(
   if (doCloseLogger) {
     await closeThreadLogger(session, action, details);
   }
+  session.messageManager?.dispose();
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   if (doCleanupPostIndex) {
@@ -203,6 +204,7 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
  * @param ctx - Session context for state access
  */
 function removeFromRegistry(session: Session, ctx: SessionContext): void {
+  session.messageManager?.dispose();
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);

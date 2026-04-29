@@ -1181,6 +1181,7 @@ export class MessageManager {
    */
   dispose(): void {
     this.cancelScheduledFlush();
+    this.postTracker.clearSession(this.sessionId);
     this.reset();
   }
 }

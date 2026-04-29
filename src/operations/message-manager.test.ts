@@ -223,6 +223,24 @@ describe('MessageManager', () => {
       // Should not throw
       expect(manager.hasPendingQuestions()).toBe(false);
     });
+
+    it('clears its postTracker entries on dispose', () => {
+      // Register a few posts under this session and an unrelated session.
+      postTracker.register('post-a', 'thread-123', 'test:session-1', { type: 'content' });
+      postTracker.register('post-b', 'thread-123', 'test:session-1', { type: 'content' });
+      postTracker.register('post-c', 'thread-other', 'test:other-session', { type: 'content' });
+
+      expect(postTracker.getPostsForSession('test:session-1')).toHaveLength(2);
+      expect(postTracker.getPostsForSession('test:other-session')).toHaveLength(1);
+
+      manager.dispose();
+
+      // Without the dispose() fix, this leaked across sessions and contributed
+      // to OOM crashes after long uptimes (issue #351).
+      expect(postTracker.getPostsForSession('test:session-1')).toHaveLength(0);
+      // Other sessions must not be affected.
+      expect(postTracker.getPostsForSession('test:other-session')).toHaveLength(1);
+    });
   });
 
   describe('Event Handling', () => {

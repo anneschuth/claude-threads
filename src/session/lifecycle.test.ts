@@ -274,6 +274,19 @@ describe('Lifecycle Module', () => {
 
       expect(ctx.ops.stopTyping).toHaveBeenCalledWith(session);
     });
+
+    // Regression test for issue #351 (memory leak). Without dispose() in
+    // removeFromRegistry, PostTracker entries accumulated across every
+    // kill/exit, eventually causing V8 OOM after long uptimes.
+    it('disposes the message manager so post-tracker entries are released', async () => {
+      const session = createMockSession();
+      const sessions = new Map([['test-platform:thread-123', session]]);
+      const ctx = createMockSessionContext(sessions);
+
+      await lifecycle.killSession(session, true, ctx);
+
+      expect(session.messageManager?.dispose).toHaveBeenCalled();
+    });
   });
 
   describe('killAllSessions', () => {
@@ -992,6 +1005,19 @@ describe('handleExit', () => {
     await lifecycle.handleExit(session.sessionId, 1, ctx);
     expect(sessions.has(session.sessionId)).toBe(false);
     expect(ctx.ops.updateStickyMessage).toHaveBeenCalled();
+  });
+
+  // Regression test for issue #351 (memory leak). Without dispose() in
+  // cleanupSession, every early-exit/shutdown/resume-fail path leaked the
+  // MessageManager's PostTracker entries.
+  it('disposes the message manager on early exit', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: false });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 1, ctx);
+
+    expect(session.messageManager?.dispose).toHaveBeenCalled();
   });
 
   it('immediately unpersists on permanent failure for a resumed session', async () => {
