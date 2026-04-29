@@ -56,13 +56,24 @@ function formatClaudeCommand(cmd: CommandDefinition): string {
 
 /**
  * Build session context line for the system prompt.
+ *
+ * The `**Thread:**` URL gives Claude a stable handle for the conversation it
+ * is running inside. It is included so Claude can reference the chat from
+ * artifacts it produces — e.g. paste it into the description of a merge
+ * request or ticket so reviewers can trace the work back to the discussion.
  */
 export function buildSessionContext(
-  platform: { platformType: string; displayName: string },
-  workingDir: string
+  platform: {
+    platformType: string;
+    displayName: string;
+    getThreadLink(threadId: string): string;
+  },
+  workingDir: string,
+  threadId: string,
 ): string {
   const platformName = platform.platformType.charAt(0).toUpperCase() + platform.platformType.slice(1);
-  return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir}`;
+  const threadUrl = platform.getThreadLink(threadId);
+  return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir} | **Thread:** ${threadUrl}`;
 }
 
 /**

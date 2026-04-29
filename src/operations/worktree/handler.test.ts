@@ -61,6 +61,8 @@ const mockFormatContextForClaude = mock((messages: unknown[], summary?: string) 
 function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient {
   return {
     platformId: 'test-platform',
+    platformType: 'mattermost',
+    displayName: 'Test Platform',
     createPost: mock(() => Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })),
     updatePost: mock(() => Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })),
     deletePost: mock(() => Promise.resolve()),
@@ -82,6 +84,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     getPinnedPosts: mock(() => Promise.resolve([])),
     getPost: mock(() => Promise.resolve(null)),
     getFormatter: mock(() => createMockFormatter()),
+    getThreadLink: mock((threadId: string) => `https://test.example.com/_redirect/pl/${threadId}`),
     ...overrides,
   } as unknown as PlatformClient;
 }

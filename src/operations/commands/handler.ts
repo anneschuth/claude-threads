@@ -379,7 +379,7 @@ export async function changeDirectory(
   session.claudeSessionId = newSessionId;
 
   // Build system prompt with platform context for the new directory
-  const sessionContext = buildSessionContext(session.platform, absoluteDir);
+  const sessionContext = buildSessionContext(session.platform, absoluteDir, session.threadId);
   const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   const cliOptions: ClaudeCliOptions = {

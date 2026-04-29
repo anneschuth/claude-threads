@@ -860,7 +860,7 @@ export async function startSession(
   }
 
   // Build system prompt with session context
-  const sessionContext = buildSessionContext(platform, workingDir);
+  const sessionContext = buildSessionContext(platform, workingDir, actualThreadId);
   const systemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   // Create Claude CLI with options
@@ -1116,7 +1116,7 @@ export async function resumeSession(
   const platformMcpConfig = platform.getMcpConfig();
 
   // Include system prompt for resumed sessions (provides platform context and command info)
-  const sessionContext = buildSessionContext(platform, state.workingDir);
+  const sessionContext = buildSessionContext(platform, state.workingDir, state.threadId);
   const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   // Resume MUST re-use the same Claude account the session started on —
