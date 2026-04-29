@@ -966,6 +966,7 @@ export async function startSession(
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
     ctx.ops.stopTyping(session);
+    session.messageManager?.dispose();
     ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     releaseAccountIfHeld(session, ctx);
@@ -1303,6 +1304,7 @@ export async function resumeSession(
     ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
+    session.messageManager?.dispose();
     ctx.ops.emitSessionRemove(sessionId);
     mutableSessions(ctx).delete(sessionId);
     ctx.state.sessionStore.remove(sessionId);

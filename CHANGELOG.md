@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Memory leak across session lifecycles.** `PostTracker` registered every post created during a session but its `clearSession(sessionId)` was only invoked on full bot shutdown. Across many sessions the in-memory map grew without bound and contributed to V8 mark-compact becoming ineffective and an eventual OOM abort (observed at ~14 h uptime). `MessageManager.dispose()` now clears its session's `PostTracker` bucket, and dispose is wired into all five session-removal paths in `src/session/lifecycle.ts`: normal exit, kill, idle timeout, pause, shutdown, early exit, resume-fail, plus the start-failure and resume-failure error branches that bypass the shared cleanup helpers. (#356, fixes #351)
+
 ## [1.9.3] - 2026-04-24
 
 ### Internals
