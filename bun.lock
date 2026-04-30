@@ -5,7 +5,7 @@
     "": {
       "name": "claude-threads",
       "dependencies": {
-        "@hono/node-server": "^1.19.11",
+        "@hono/node-server": "^2.0.0",
         "@inkjs/ui": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@redactpii/node": "^1.0.16",
@@ -48,7 +48,7 @@
     },
   },
   "overrides": {
-    "@hono/node-server": "^1.19.11",
+    "@hono/node-server": "^2.0.0",
     "express-rate-limit": "^8.3.0",
     "flatted": ">=3.4.0",
     "hono": "^4.12.5",
@@ -74,7 +74,7 @@
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.6.1", "", { "dependencies": { "@eslint/core": "^1.1.1", "levn": "^0.4.1" } }, "sha512-iH1B076HoAshH1mLpHMgwdGeTs0CYwL0SPMkGuSebZrwBp16v415e9NZXg2jtrqPVQjf6IANe2Vtlr5KswtcZQ=="],
 
-    "@hono/node-server": ["@hono/node-server@1.19.11", "", { "peerDependencies": { "hono": "^4" } }, "sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g=="],
+    "@hono/node-server": ["@hono/node-server@2.0.0", "", { "peerDependencies": { "hono": "^4" } }, "sha512-n3GfHwwCvHCkGmOwKfxUPOlbfzuO64Sbc5XC4NGPIXxkuOnJrdgExdRKmHfF924r914WRJPT397GdqLvdYTeyQ=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.1", "", {}, "sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA=="],
 

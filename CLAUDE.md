@@ -476,7 +476,7 @@ npm version minor --no-git-tag-version  # 0.47.0 → 0.48.0 (new features)
 npm version major --no-git-tag-version  # 0.47.0 → 1.0.0 (breaking changes)
 
 # 8. Commit and tag
-git add package.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
+git add package.json package-lock.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
 
 # 9. Push to GitHub with tags
 git push && git push --tags
@@ -505,7 +505,7 @@ git add CHANGELOG.md && git commit -m "Update CHANGELOG for vX.Y.Z"
 npm version patch --no-git-tag-version  # then commit and tag manually
 
 # 4. Commit and tag
-git add package.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
+git add package.json package-lock.json && git commit -m "X.Y.Z" && git tag vX.Y.Z
 
 # 5. Push to GitHub with tags
 git push && git push --tags
