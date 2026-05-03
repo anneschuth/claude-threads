@@ -8,10 +8,9 @@
  * Content flushing is handled by MessageManager/ContentExecutor.
  */
 
-import { mkdir, rm, writeFile } from 'fs/promises';
+import { lstat, mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { basename, join } from 'path';
-import { randomBytes } from 'crypto';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
 import { createLogger } from '../../utils/logger.js';
@@ -100,19 +99,28 @@ export async function cleanupSessionUploads(platformId: string, threadId: string
 // ---------------------------------------------------------------------------
 
 /**
- * Strip path components from a user-supplied filename. Prevents `../escape`
- * and absolute-path attacks; falls back to `attachment` if the name reduces
- * to nothing safe.
+ * Strip path components and unsafe characters from a user-supplied filename.
+ * Prevents `../escape`, absolute-path attacks, and prompt-injection via
+ * embedded newlines or control chars in the name we render back to Claude.
+ * Falls back to `attachment` if the name reduces to nothing safe.
  */
 function sanitizeFilename(name: string): string {
-  // basename strips directories on the runtime's separator. Strip both '/' and
-  // '\' regardless of platform so a Windows-style path on Linux is also safe.
-  const stripped = basename(name.replace(/\\/g, '/'));
-  // Reject names that are empty, dot-only, or otherwise unusable.
-  if (!stripped || stripped === '.' || stripped === '..') {
+  // Strip directory separators on both POSIX and Windows shapes.
+  const flat = basename(name.replace(/\\/g, '/'));
+  // Strip control chars (newlines, tabs, NULs, escape sequences) — these
+  // would otherwise be rendered into the prompt as if they were system text.
+  // eslint-disable-next-line no-control-regex
+  const cleaned = flat.replace(/[\x00-\x1F\x7F]/g, '_').trim();
+  if (!cleaned || cleaned === '.' || cleaned === '..') {
     return 'attachment';
   }
-  return stripped;
+  return cleaned;
+}
+
+/** Strip control chars from a value we'll interpolate into Claude's prompt. */
+function sanitizeForPrompt(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\x00-\x1F\x7F]/g, '');
 }
 
 /** Format a byte count as a short human-readable string. */
@@ -144,10 +152,24 @@ export async function saveFilesToUploadDir(
     return { saved, skipped };
   }
 
-  // Per-message subdirectory: timestamp + random suffix.
-  const stamp = `${Date.now().toString(36)}-${randomBytes(2).toString('hex')}`;
-  const messageDir = join(uploadDir, stamp);
-  await mkdir(messageDir, { recursive: true, mode: 0o700 });
+  // Refuse to write into a symlinked upload dir — a local attacker on a
+  // shared host could otherwise pre-create the (predictable) per-thread path
+  // as a symlink to a sensitive directory and have the bot write attacker-
+  // controlled bytes into it. mkdtemp + 'wx' close most of the race window;
+  // the lstat check closes the rest.
+  await mkdir(uploadDir, { recursive: true, mode: 0o700 });
+  const stat = await lstat(uploadDir);
+  if (stat.isSymbolicLink()) {
+    for (const file of files) {
+      skipped.push({ name: file.name, reason: 'Refusing to write under symlinked upload directory' });
+    }
+    log.error(`Upload dir is a symlink, refusing all writes: ${uploadDir}`);
+    return { saved, skipped };
+  }
+
+  // mkdtemp gives us an atomically-created leaf with a random suffix —
+  // collisions between concurrent messages are impossible.
+  const messageDir = await mkdtemp(join(uploadDir, `${Date.now().toString(36)}-`));
 
   for (const file of files) {
     if (file.size > MAX_UPLOAD_SIZE) {
@@ -163,7 +185,10 @@ export async function saveFilesToUploadDir(
       const buffer = await platform.downloadFile(file.id);
       const safeName = sanitizeFilename(file.name);
       const absolutePath = join(messageDir, safeName);
-      await writeFile(absolutePath, buffer, { mode: 0o600 });
+      // 'wx' = O_CREAT | O_EXCL: fail rather than follow a pre-existing
+      // symlink at the target. Together with the per-message mkdtemp this
+      // closes the symlink race even if uploadDir was racy before lstat.
+      await writeFile(absolutePath, buffer, { mode: 0o600, flag: 'wx' });
       saved.push({
         originalName: file.name,
         absolutePath,
@@ -218,7 +243,7 @@ export async function buildMessageContent(
   }
 
   const fileLines = saved.map(
-    f => `- ${f.absolutePath} (${f.mimeType || 'application/octet-stream'}, ${formatBytes(f.size)})`,
+    f => `- ${f.absolutePath} (${sanitizeForPrompt(f.mimeType) || 'application/octet-stream'}, ${formatBytes(f.size)})`,
   );
   const header = `${FILE_LIST_HEADER}\n${fileLines.join('\n')}`;
   const content = text.trim().length > 0 ? `${header}\n\n${text}` : header;
