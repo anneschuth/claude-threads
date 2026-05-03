@@ -66,20 +66,27 @@ export interface BuiltMessageContent {
 // Per-session upload directory
 // ---------------------------------------------------------------------------
 
+/** Reduce an id to a single path-safe segment so it can't escape uploadDir. */
+function safeIdSegment(id: string): string {
+  return id.replace(/[^A-Za-z0-9._-]/g, '_');
+}
+
 /**
  * Returns the per-thread upload directory path. The directory is keyed by the
  * composite (platformId, threadId) so it survives session resume — a resumed
  * session writes new uploads to the same place its previous incarnation did.
  */
 export function getSessionUploadDir(platformId: string, threadId: string): string {
-  return join(tmpdir(), UPLOAD_ROOT_DIR, `${platformId}-${threadId}`);
+  return join(tmpdir(), UPLOAD_ROOT_DIR, `${safeIdSegment(platformId)}-${safeIdSegment(threadId)}`);
 }
 
 /**
  * Best-effort removal of the per-thread upload directory and its contents.
- * Called from session cleanup; never throws.
+ * Called from session cleanup; never throws. Tolerant of partial Session
+ * objects (test fixtures, early-failure paths) where ids may be missing.
  */
 export async function cleanupSessionUploads(platformId: string, threadId: string): Promise<void> {
+  if (!platformId || !threadId) return;
   const dir = getSessionUploadDir(platformId, threadId);
   try {
     await rm(dir, { recursive: true, force: true });

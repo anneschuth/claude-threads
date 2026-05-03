@@ -92,6 +92,16 @@ describe('getSessionUploadDir', () => {
   it('different threads produce different paths', () => {
     expect(getSessionUploadDir('p', 't1')).not.toBe(getSessionUploadDir('p', 't2'));
   });
+
+  it('cannot escape the uploads root via traversal in platformId or threadId', () => {
+    const tmp = tmpdir();
+    const escape = getSessionUploadDir('../../etc', '../../passwd');
+    // Must still be a single segment under the uploads root.
+    expect(escape.startsWith(join(tmp, 'claude-threads-uploads') + '/')).toBe(true);
+    // After the uploads-root prefix, no further '/' segments allowed.
+    const tail = escape.slice(join(tmp, 'claude-threads-uploads').length + 1);
+    expect(tail.includes('/')).toBe(false);
+  });
 });
 
 describe('cleanupSessionUploads', () => {
@@ -120,6 +130,15 @@ describe('cleanupSessionUploads', () => {
     const threadId = `t-${Date.now()}-${Math.random()}`;
     await cleanupSessionUploads(platformId, threadId);
     await cleanupSessionUploads(platformId, threadId);
+  });
+
+  it('tolerates partial sessions with missing ids without throwing', async () => {
+    // Lifecycle exit paths can fire on sessions that never fully initialized
+    // (test fixtures, early-failure branches). Cleanup must be a no-op there,
+    // not a TypeError.
+    await cleanupSessionUploads(undefined as unknown as string, 'thread');
+    await cleanupSessionUploads('platform', undefined as unknown as string);
+    await cleanupSessionUploads('', '');
   });
 });
 
