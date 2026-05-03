@@ -116,10 +116,15 @@ export interface SessionOperations {
   /** Stop typing indicator for session */
   stopTyping(session: Session): void;
 
-  /** Build message content with optional file attachments. Returns both content and skipped files. */
+  /**
+   * Build message content with optional file attachments. Files are written to
+   * `uploadDir`; their absolute paths are prepended to the returned content so
+   * Claude can Read or move/copy them.
+   */
   buildMessageContent(
     text: string,
     platform: PlatformClient,
+    uploadDir: string,
     files?: PlatformFile[]
   ): Promise<BuiltMessageContent>;
 

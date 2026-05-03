@@ -285,7 +285,7 @@ export class SessionManager extends EventEmitter {
       },
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      buildMessageContent: (t, p, f) => streaming.buildMessageContent(t, p, f, this.debug),
+      buildMessageContent: (t, p, uploadDir, f) => streaming.buildMessageContent(t, p, uploadDir, f, this.debug),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -463,7 +463,10 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
       injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
-      buildMessageContent: (text, session, files) => streaming.buildMessageContent(text, session.platform, files, this.debug),
+      buildMessageContent: (text, session, files) => {
+        const uploadDir = streaming.getSessionUploadDir(session.platformId, session.threadId);
+        return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug);
+      },
     };
   }
 
@@ -1214,7 +1217,10 @@ export class SessionManager extends EventEmitter {
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
       offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
-      buildMessageContent: (text, s, files) => streaming.buildMessageContent(text, s.platform, files, this.debug),
+      buildMessageContent: (text, s, files) => {
+        const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
+        return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug);
+      },
       generateWorkSummary: (s) => commands.generateWorkSummary(s),
       getThreadMessagesForContext: (s, limit, excludePostId) => contextPrompt.getThreadMessagesForContext(s, limit, excludePostId),
       formatContextForClaude: (messages, summary) => contextPrompt.formatContextForClaude(messages, summary),

@@ -80,33 +80,6 @@ export interface ClaudeEvent {
   [key: string]: unknown;
 }
 
-// Content block types for messages with images and documents
-export interface TextContentBlock {
-  type: 'text';
-  text: string;
-}
-
-export interface ImageContentBlock {
-  type: 'image';
-  source: {
-    type: 'base64';
-    media_type: string;
-    data: string;
-  };
-}
-
-export interface DocumentContentBlock {
-  type: 'document';
-  source: {
-    type: 'base64';
-    media_type: 'application/pdf';
-    data: string;
-  };
-  title?: string;
-}
-
-export type ContentBlock = TextContentBlock | ImageContentBlock | DocumentContentBlock;
-
 export interface PlatformMcpConfig {
   type: string;
   url: string;
@@ -565,18 +538,15 @@ export class ClaudeCli extends EventEmitter {
     });
   }
 
-  // Send a user message via JSON stdin
-  // content can be a string or an array of content blocks (for images)
-  sendMessage(content: string | ContentBlock[]): void {
+  // Send a user message via JSON stdin.
+  sendMessage(content: string): void {
     if (!this.process?.stdin) throw new Error('Not running');
 
     const msg = JSON.stringify({
       type: 'user',
       message: { role: 'user', content }
     }) + '\n';
-    const preview = typeof content === 'string'
-      ? content.substring(0, 50)
-      : `[${content.length} blocks]`;
+    const preview = content.substring(0, 50);
     this.log.debug(`Sending: ${preview}...`);
     // Diagnostic for integration tests: trace every sendMessage call with caller.
     if (process.env.INTEGRATION_TEST === '1') {

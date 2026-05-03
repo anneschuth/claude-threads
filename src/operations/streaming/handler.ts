@@ -1,17 +1,19 @@
 /**
  * Message streaming utilities
  *
- * Handles typing indicators and file attachments (images, PDFs, text files, compressed files).
- * Content flushing is now handled by MessageManager/ContentExecutor.
+ * Handles typing indicators and file attachments. File attachments are written
+ * to a per-session directory under os.tmpdir(); Claude is given the absolute
+ * path so it can Read or move/copy the file as needed.
+ *
+ * Content flushing is handled by MessageManager/ContentExecutor.
  */
 
-import { createGunzip } from 'zlib';
-import { pipeline } from 'stream/promises';
-import { Readable, Writable } from 'stream';
-import yauzl from 'yauzl';
+import { mkdir, rm, writeFile } from 'fs/promises';
+import { tmpdir } from 'os';
+import { basename, join } from 'path';
+import { randomBytes } from 'crypto';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
-import type { ContentBlock } from '../../claude/cli.js';
 import { createLogger } from '../../utils/logger.js';
 
 const log = createLogger('streaming');
@@ -20,852 +22,201 @@ const log = createLogger('streaming');
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Maximum PDF file size (32MB as per Claude API limit) */
-export const MAX_PDF_SIZE = 32 * 1024 * 1024;
+/**
+ * Sanity ceiling on a single uploaded file. Files above this are skipped to
+ * avoid pathological disk usage; everything below is written to disk and the
+ * path is handed to Claude.
+ */
+export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 
-/** Maximum text file size (1MB to avoid context overflow) */
-export const MAX_TEXT_FILE_SIZE = 1 * 1024 * 1024;
-
-/** Maximum decompressed file size (10MB safety limit) */
-export const MAX_DECOMPRESSED_SIZE = 10 * 1024 * 1024;
-
-/** Maximum zip file size (50MB to prevent abuse) */
-export const MAX_ZIP_SIZE = 50 * 1024 * 1024;
-
-/** Maximum gzip file size (50MB to prevent abuse) */
-export const MAX_GZIP_SIZE = 50 * 1024 * 1024;
-
-/** Maximum number of files to extract from a zip (prevent zip bombs) */
-export const MAX_ZIP_FILES = 20;
-
-/** Supported image MIME types */
-export const SUPPORTED_IMAGE_TYPES = [
-  'image/jpeg',
-  'image/png',
-  'image/gif',
-  'image/webp',
-] as const;
-
-/** Supported text file MIME types */
-export const SUPPORTED_TEXT_TYPES = [
-  'text/plain',
-  'text/markdown',
-  'text/csv',
-  'text/xml',
-  'text/yaml',
-  'text/x-yaml',
-  'application/json',
-  'application/xml',
-  'application/x-yaml',
-  'application/yaml',
-] as const;
-
-/** Text file extensions (fallback when MIME type is generic) */
-export const TEXT_FILE_EXTENSIONS = [
-  '.txt', '.md', '.markdown', '.json', '.csv', '.xml', '.yaml', '.yml',
-  '.har', '.log',
-  '.js', '.ts', '.jsx', '.tsx', '.py', '.rb', '.go', '.rs', '.java',
-  '.c', '.cpp', '.h', '.hpp', '.cs', '.php', '.swift', '.kt', '.scala',
-  '.sh', '.bash', '.zsh', '.fish', '.ps1', '.bat', '.cmd',
-  '.html', '.htm', '.css', '.scss', '.sass', '.less',
-  '.sql', '.graphql', '.gql',
-  '.toml', '.ini', '.cfg', '.conf', '.env', '.properties',
-  '.dockerfile', '.gitignore', '.gitattributes', '.editorconfig',
-] as const;
+const UPLOAD_ROOT_DIR = 'claude-threads-uploads';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Result of processing a file */
-export interface FileProcessingResult {
-  /** Content blocks to send to Claude */
-  blocks: ContentBlock[];
-  /** Files that were skipped with reasons */
-  skipped: SkippedFile[];
+/** A file we successfully wrote to disk. */
+export interface SavedFile {
+  /** The original filename as the user uploaded it. */
+  originalName: string;
+  /** Absolute path on disk where the file was written. */
+  absolutePath: string;
+  /** Reported MIME type from the platform. */
+  mimeType: string;
+  /** Size in bytes. */
+  size: number;
 }
 
-/** Information about a skipped file */
+/** A file we couldn't process; surfaced to the user. */
 export interface SkippedFile {
   name: string;
   reason: string;
   suggestion?: string;
 }
 
-// ---------------------------------------------------------------------------
-// File type detection
-// ---------------------------------------------------------------------------
-
-/**
- * Check if a file is a supported image type.
- */
-export function isImageFile(file: PlatformFile): boolean {
-  return (
-    file.mimeType.startsWith('image/') &&
-    (SUPPORTED_IMAGE_TYPES as readonly string[]).includes(file.mimeType)
-  );
-}
-
-/**
- * Check if a file is a PDF.
- */
-export function isPdfFile(file: PlatformFile): boolean {
-  return file.mimeType === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-}
-
-/**
- * Check if a file is a text-based file.
- */
-export function isTextFile(file: PlatformFile): boolean {
-  // Check MIME type
-  if ((SUPPORTED_TEXT_TYPES as readonly string[]).includes(file.mimeType)) {
-    return true;
-  }
-  // Check extension as fallback (many platforms report generic MIME types)
-  const lowerName = file.name.toLowerCase();
-  return TEXT_FILE_EXTENSIONS.some(ext => lowerName.endsWith(ext));
-}
-
-/**
- * Check if a file is a gzip-compressed file.
- */
-export function isGzipFile(file: PlatformFile): boolean {
-  return (
-    file.mimeType === 'application/gzip' ||
-    file.mimeType === 'application/x-gzip' ||
-    file.name.toLowerCase().endsWith('.gz')
-  );
-}
-
-/**
- * Check if a file is a zip archive.
- */
-export function isZipFile(file: PlatformFile): boolean {
-  return (
-    file.mimeType === 'application/zip' ||
-    file.mimeType === 'application/x-zip-compressed' ||
-    file.name.toLowerCase().endsWith('.zip')
-  );
-}
-
-/**
- * Categorize a file by type.
- */
-export function categorizeFile(file: PlatformFile): 'image' | 'pdf' | 'text' | 'gzip' | 'zip' | 'unsupported' {
-  if (isImageFile(file)) return 'image';
-  if (isPdfFile(file)) return 'pdf';
-  if (isZipFile(file)) return 'zip';
-  if (isGzipFile(file)) return 'gzip';
-  if (isTextFile(file)) return 'text';
-  return 'unsupported';
+/** Result of building message content for Claude. */
+export interface BuiltMessageContent {
+  /** Text payload to send to Claude (may include a header listing saved files). */
+  content: string;
+  /** Files that could not be saved — callers should surface these to the user. */
+  skipped: SkippedFile[];
 }
 
 // ---------------------------------------------------------------------------
-// File processing
+// Per-session upload directory
 // ---------------------------------------------------------------------------
 
 /**
- * Process an image file into a content block.
+ * Returns the per-thread upload directory path. The directory is keyed by the
+ * composite (platformId, threadId) so it survives session resume — a resumed
+ * session writes new uploads to the same place its previous incarnation did.
  */
-export async function processImageFile(
-  file: PlatformFile,
-  platform: PlatformClient,
-  debug: boolean = false
-): Promise<{ block?: ContentBlock; skipped?: SkippedFile }> {
+export function getSessionUploadDir(platformId: string, threadId: string): string {
+  return join(tmpdir(), UPLOAD_ROOT_DIR, `${platformId}-${threadId}`);
+}
+
+/**
+ * Best-effort removal of the per-thread upload directory and its contents.
+ * Called from session cleanup; never throws.
+ */
+export async function cleanupSessionUploads(platformId: string, threadId: string): Promise<void> {
+  const dir = getSessionUploadDir(platformId, threadId);
   try {
-    if (!platform.downloadFile) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: 'Platform does not support file downloads',
-        },
-      };
-    }
-
-    const buffer = await platform.downloadFile(file.id);
-    const base64 = buffer.toString('base64');
-
-    if (debug) {
-      log.debug(`Attached image: ${file.name} (${file.mimeType}, ${Math.round(buffer.length / 1024)}KB)`);
-    }
-
-    return {
-      block: {
-        type: 'image',
-        source: {
-          type: 'base64',
-          media_type: file.mimeType,
-          data: base64,
-        },
-      },
-    };
+    await rm(dir, { recursive: true, force: true });
   } catch (err) {
-    log.error(`Failed to download image ${file.name}: ${err}`);
-    return {
-      skipped: {
-        name: file.name,
-        reason: `Download failed: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
+    log.debug(`Upload cleanup for ${platformId}:${threadId} failed (ignored): ${err}`);
   }
 }
 
+// ---------------------------------------------------------------------------
+// File saving
+// ---------------------------------------------------------------------------
+
 /**
- * Process a PDF file into a document content block.
+ * Strip path components from a user-supplied filename. Prevents `../escape`
+ * and absolute-path attacks; falls back to `attachment` if the name reduces
+ * to nothing safe.
  */
-export async function processPdfFile(
-  file: PlatformFile,
-  platform: PlatformClient,
-  debug: boolean = false
-): Promise<{ block?: ContentBlock; skipped?: SkippedFile }> {
-  try {
-    if (!platform.downloadFile) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: 'Platform does not support file downloads',
-        },
-      };
-    }
-
-    const buffer = await platform.downloadFile(file.id);
-
-    // Check size limit
-    if (buffer.length > MAX_PDF_SIZE) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: `PDF exceeds ${Math.round(MAX_PDF_SIZE / 1024 / 1024)}MB limit (${Math.round(buffer.length / 1024 / 1024)}MB)`,
-          suggestion: 'Try splitting the PDF into smaller parts',
-        },
-      };
-    }
-
-    const base64 = buffer.toString('base64');
-
-    if (debug) {
-      log.debug(`Attached PDF: ${file.name} (${Math.round(buffer.length / 1024)}KB)`);
-    }
-
-    return {
-      block: {
-        type: 'document',
-        source: {
-          type: 'base64',
-          media_type: 'application/pdf',
-          data: base64,
-        },
-        title: file.name,
-      },
-    };
-  } catch (err) {
-    log.error(`Failed to process PDF ${file.name}: ${err}`);
-    return {
-      skipped: {
-        name: file.name,
-        reason: `Processing failed: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
+function sanitizeFilename(name: string): string {
+  // basename strips directories on the runtime's separator. Strip both '/' and
+  // '\' regardless of platform so a Windows-style path on Linux is also safe.
+  const stripped = basename(name.replace(/\\/g, '/'));
+  // Reject names that are empty, dot-only, or otherwise unusable.
+  if (!stripped || stripped === '.' || stripped === '..') {
+    return 'attachment';
   }
+  return stripped;
+}
+
+/** Format a byte count as a short human-readable string. */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 /**
- * Process a text file into a text content block with filename header.
+ * Download each file and write it to a fresh subdirectory under uploadDir.
+ * Each call gets its own subdirectory so two messages uploading the same
+ * filename don't collide.
  */
-export async function processTextFile(
-  file: PlatformFile,
+export async function saveFilesToUploadDir(
   platform: PlatformClient,
-  debug: boolean = false
-): Promise<{ block?: ContentBlock; skipped?: SkippedFile }> {
-  try {
-    if (!platform.downloadFile) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: 'Platform does not support file downloads',
-        },
-      };
-    }
-
-    const buffer = await platform.downloadFile(file.id);
-
-    // Check size limit
-    if (buffer.length > MAX_TEXT_FILE_SIZE) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: `File exceeds ${Math.round(MAX_TEXT_FILE_SIZE / 1024)}KB limit (${Math.round(buffer.length / 1024)}KB)`,
-          suggestion: 'Try splitting the file or extracting relevant portions',
-        },
-      };
-    }
-
-    const content = buffer.toString('utf-8');
-
-    if (debug) {
-      log.debug(`Attached text file: ${file.name} (${Math.round(buffer.length / 1024)}KB)`);
-    }
-
-    // Wrap content with filename header
-    const wrappedContent = formatTextFileContent(file.name, content);
-
-    return {
-      block: {
-        type: 'text',
-        text: wrappedContent,
-      },
-    };
-  } catch (err) {
-    log.error(`Failed to process text file ${file.name}: ${err}`);
-    return {
-      skipped: {
-        name: file.name,
-        reason: `Processing failed: ${err instanceof Error ? err.message : String(err)}`,
-      },
-    };
-  }
-}
-
-/**
- * Format text file content with filename header.
- */
-export function formatTextFileContent(filename: string, content: string): string {
-  return `📄 **${filename}**:\n\`\`\`\n${content}\n\`\`\``;
-}
-
-/**
- * Decompress gzip data using streaming to avoid blocking.
- * Returns the decompressed buffer or throws an error.
- */
-async function decompressGzipStream(compressedBuffer: Buffer): Promise<Buffer> {
-  const chunks: Buffer[] = [];
-  let totalSize = 0;
-
-  const gunzip = createGunzip();
-  const source = Readable.from(compressedBuffer);
-
-  // Create a writable stream that collects chunks and checks size limits
-  const collector = new Writable({
-    write(chunk: Buffer, _encoding, callback) {
-      totalSize += chunk.length;
-      // Check decompressed size during streaming to fail fast on zip bombs
-      if (totalSize > MAX_DECOMPRESSED_SIZE) {
-        callback(new Error(`Decompressed size exceeds ${Math.round(MAX_DECOMPRESSED_SIZE / 1024 / 1024)}MB limit`));
-        return;
-      }
-      chunks.push(chunk);
-      callback();
-    },
-  });
-
-  await pipeline(source, gunzip, collector);
-  return Buffer.concat(chunks);
-}
-
-/**
- * Process a gzip-compressed file.
- * Decompresses using streaming and processes based on the underlying content type.
- */
-export async function processGzipFile(
-  file: PlatformFile,
-  platform: PlatformClient,
-  debug: boolean = false
-): Promise<{ block?: ContentBlock; skipped?: SkippedFile }> {
-  try {
-    // Check if platform supports file downloads
-    if (!platform.downloadFile) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: 'Platform does not support file downloads',
-        },
-      };
-    }
-
-    // Check compressed file size before downloading (like we do for zip files)
-    if (file.size && file.size > MAX_GZIP_SIZE) {
-      return {
-        skipped: {
-          name: file.name,
-          reason: `Gzip file exceeds ${Math.round(MAX_GZIP_SIZE / 1024 / 1024)}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`,
-          suggestion: 'Try compressing a smaller file or splitting the content',
-        },
-      };
-    }
-
-    // Download the compressed file
-    let compressedBuffer: Buffer;
-    try {
-      compressedBuffer = await platform.downloadFile(file.id);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-      log.error(`Failed to download gzip file ${file.name}: ${errorMessage}`);
-      return {
-        skipped: {
-          name: file.name,
-          reason: `Download failed: ${errorMessage}`,
-          suggestion: 'Check if the file is still available and try again',
-        },
-      };
-    }
-
-    // Verify downloaded size matches expected size (if available)
-    if (file.size && compressedBuffer.length !== file.size) {
-      log.warn(`Downloaded size mismatch for ${file.name}: expected ${file.size}, got ${compressedBuffer.length}`);
-    }
-
-    // Decompress using streaming (non-blocking)
-    let decompressedBuffer: Buffer;
-    try {
-      decompressedBuffer = await decompressGzipStream(compressedBuffer);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : String(err);
-
-      // Provide more specific error messages based on common gzip errors
-      let reason: string;
-      let suggestion: string | undefined;
-
-      if (errorMessage.includes('incorrect header check')) {
-        reason = 'Invalid gzip file: the file header is corrupted or this is not a gzip file';
-        suggestion = 'Verify the file is a valid gzip archive';
-      } else if (errorMessage.includes('unexpected end of file')) {
-        reason = 'Incomplete gzip file: the file appears to be truncated';
-        suggestion = 'Re-download the file or check if the upload completed';
-      } else if (errorMessage.includes('invalid stored block lengths')) {
-        reason = 'Corrupted gzip file: the compressed data is damaged';
-        suggestion = 'Try re-compressing the original file';
-      } else if (errorMessage.includes('exceeds') && errorMessage.includes('limit')) {
-        reason = errorMessage;
-        suggestion = 'Try extracting only the relevant portions of the file';
-      } else {
-        reason = `Decompression failed: ${errorMessage}`;
-        suggestion = 'Verify the file is a valid gzip archive';
-      }
-
-      return {
-        skipped: {
-          name: file.name,
-          reason,
-          suggestion,
-        },
-      };
-    }
-
-    // Determine the inner filename (remove .gz extension)
-    const innerFilename = file.name.toLowerCase().endsWith('.gz')
-      ? file.name.slice(0, -3)
-      : file.name;
-
-    // Detect content type from decompressed data
-    const contentType = detectDecompressedContentType(decompressedBuffer, innerFilename);
-
-    if (debug) {
-      log.debug(`Decompressed ${file.name}: ${Math.round(decompressedBuffer.length / 1024)}KB, detected type: ${contentType}`);
-    }
-
-    if (contentType === 'pdf') {
-      // Process as PDF
-      const base64 = decompressedBuffer.toString('base64');
-      return {
-        block: {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: 'application/pdf',
-            data: base64,
-          },
-          title: innerFilename,
-        },
-      };
-    } else if (contentType === 'text') {
-      // Process as text file
-      const content = decompressedBuffer.toString('utf-8');
-      const wrappedContent = formatTextFileContent(innerFilename, content);
-      return {
-        block: {
-          type: 'text',
-          text: wrappedContent,
-        },
-      };
-    } else {
-      return {
-        skipped: {
-          name: file.name,
-          reason: 'Decompressed content type not supported',
-          suggestion: 'Only text-based files and PDFs are supported after decompression',
-        },
-      };
-    }
-  } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : String(err);
-    log.error(`Failed to process gzip file ${file.name}: ${errorMessage}`);
-    return {
-      skipped: {
-        name: file.name,
-        reason: `Processing failed: ${errorMessage}`,
-        suggestion: 'An unexpected error occurred. Please try again or contact support if the issue persists',
-      },
-    };
-  }
-}
-
-/**
- * Extract a single file entry from a zip archive.
- */
-async function extractZipEntry(
-  zipfile: yauzl.ZipFile,
-  entry: yauzl.Entry
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    zipfile.openReadStream(entry, (err, readStream) => {
-      if (err) {
-        reject(err);
-        return;
-      }
-      if (!readStream) {
-        reject(new Error('No read stream'));
-        return;
-      }
-      const chunks: Buffer[] = [];
-      readStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-      readStream.on('end', () => resolve(Buffer.concat(chunks)));
-      readStream.on('error', reject);
-    });
-  });
-}
-
-/**
- * Process a zip archive file.
- * Extracts supported files and processes each one.
- */
-export async function processZipFile(
-  file: PlatformFile,
-  platform: PlatformClient,
-  debug: boolean = false
-): Promise<{ blocks: ContentBlock[]; skipped: SkippedFile[] }> {
-  const blocks: ContentBlock[] = [];
+  uploadDir: string,
+  files: PlatformFile[],
+  debug: boolean = false,
+): Promise<{ saved: SavedFile[]; skipped: SkippedFile[] }> {
+  const saved: SavedFile[] = [];
   const skipped: SkippedFile[] = [];
 
-  try {
-    // Check if platform supports file downloads
-    if (!platform.downloadFile) {
-      return {
-        blocks: [],
-        skipped: [{
-          name: file.name,
-          reason: 'Platform does not support file downloads',
-        }],
-      };
+  if (!platform.downloadFile) {
+    for (const file of files) {
+      skipped.push({ name: file.name, reason: 'Platform does not support file downloads' });
     }
+    return { saved, skipped };
+  }
 
-    // Check file size first
-    if (file.size && file.size > MAX_ZIP_SIZE) {
-      return {
-        blocks: [],
-        skipped: [{
-          name: file.name,
-          reason: `Zip file exceeds ${Math.round(MAX_ZIP_SIZE / 1024 / 1024)}MB limit (${Math.round(file.size / 1024 / 1024)}MB)`,
-        }],
-      };
-    }
+  // Per-message subdirectory: timestamp + random suffix.
+  const stamp = `${Date.now().toString(36)}-${randomBytes(2).toString('hex')}`;
+  const messageDir = join(uploadDir, stamp);
+  await mkdir(messageDir, { recursive: true, mode: 0o700 });
 
-    // Download the zip file
-    const zipBuffer = await platform.downloadFile(file.id);
-
-    if (debug) {
-      log.debug(`Processing zip file ${file.name}: ${Math.round(zipBuffer.length / 1024)}KB`);
-    }
-
-    // Open zip file from buffer
-    const zipfile = await new Promise<yauzl.ZipFile>((resolve, reject) => {
-      yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zf) => {
-        if (err) reject(err);
-        else if (!zf) reject(new Error('Failed to open zip file'));
-        else resolve(zf);
-      });
-    });
-
-    // Collect all entries first
-    const entries: yauzl.Entry[] = [];
-    await new Promise<void>((resolve, reject) => {
-      zipfile.on('entry', (entry: yauzl.Entry) => {
-        // Skip directories
-        if (!entry.fileName.endsWith('/')) {
-          entries.push(entry);
-        }
-        zipfile.readEntry();
-      });
-      zipfile.on('end', resolve);
-      zipfile.on('error', reject);
-      zipfile.readEntry();
-    });
-
-    // Check number of files
-    if (entries.length > MAX_ZIP_FILES) {
-      zipfile.close();
-      return {
-        blocks: [],
-        skipped: [{
-          name: file.name,
-          reason: `Zip contains too many files (${entries.length}). Maximum is ${MAX_ZIP_FILES} files.`,
-          suggestion: 'Extract and upload the most relevant files individually',
-        }],
-      };
-    }
-
-    if (entries.length === 0) {
-      zipfile.close();
-      return {
-        blocks: [],
-        skipped: [{
-          name: file.name,
-          reason: 'Zip archive is empty',
-        }],
-      };
-    }
-
-    // Re-open to process entries (yauzl is forward-only)
-    const zipfile2 = await new Promise<yauzl.ZipFile>((resolve, reject) => {
-      yauzl.fromBuffer(zipBuffer, { lazyEntries: true }, (err, zf) => {
-        if (err) reject(err);
-        else if (!zf) reject(new Error('Failed to open zip file'));
-        else resolve(zf);
-      });
-    });
-
-    // Process each entry
-    let processedCount = 0;
-    await new Promise<void>((resolve, reject) => {
-      zipfile2.on('entry', async (entry: yauzl.Entry) => {
-        try {
-          // Skip directories
-          if (entry.fileName.endsWith('/')) {
-            zipfile2.readEntry();
-            return;
-          }
-
-          // Check decompressed size
-          if (entry.uncompressedSize > MAX_DECOMPRESSED_SIZE) {
-            skipped.push({
-              name: entry.fileName,
-              reason: `File exceeds ${Math.round(MAX_DECOMPRESSED_SIZE / 1024 / 1024)}MB decompressed size limit`,
-            });
-            zipfile2.readEntry();
-            return;
-          }
-
-          // Extract the file
-          const buffer = await extractZipEntry(zipfile2, entry);
-          const contentType = detectDecompressedContentType(buffer, entry.fileName);
-
-          if (debug) {
-            log.debug(`Extracted ${entry.fileName}: ${Math.round(buffer.length / 1024)}KB, type: ${contentType}`);
-          }
-
-          if (contentType === 'pdf') {
-            const base64 = buffer.toString('base64');
-            blocks.push({
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64,
-              },
-            });
-            processedCount++;
-          } else if (contentType === 'text') {
-            const content = buffer.toString('utf-8');
-            const wrappedContent = formatTextFileContent(entry.fileName, content);
-            blocks.push({
-              type: 'text',
-              text: wrappedContent,
-            });
-            processedCount++;
-          } else {
-            skipped.push({
-              name: entry.fileName,
-              reason: 'Unsupported file type inside zip',
-              suggestion: 'Only text-based files and PDFs are supported',
-            });
-          }
-
-          zipfile2.readEntry();
-        } catch (err) {
-          skipped.push({
-            name: entry.fileName,
-            reason: `Failed to extract: ${err instanceof Error ? err.message : String(err)}`,
-          });
-          zipfile2.readEntry();
-        }
-      });
-      zipfile2.on('end', resolve);
-      zipfile2.on('error', reject);
-      zipfile2.readEntry();
-    });
-
-    zipfile2.close();
-
-    if (debug) {
-      log.debug(`Zip ${file.name}: processed ${processedCount} files, skipped ${skipped.length}`);
-    }
-
-    return { blocks, skipped };
-  } catch (err) {
-    log.error(`Failed to process zip file ${file.name}: ${err}`);
-    return {
-      blocks: [],
-      skipped: [{
+  for (const file of files) {
+    if (file.size > MAX_UPLOAD_SIZE) {
+      skipped.push({
         name: file.name,
-        reason: `Failed to process zip: ${err instanceof Error ? err.message : String(err)}`,
-      }],
-    };
-  }
-}
+        reason: `File too large (${formatBytes(file.size)} > ${formatBytes(MAX_UPLOAD_SIZE)} limit)`,
+        suggestion: 'Split the file or share it via an external link',
+      });
+      continue;
+    }
 
-/**
- * Detect the content type of decompressed data.
- */
-export function detectDecompressedContentType(
-  buffer: Buffer,
-  filename: string
-): 'pdf' | 'text' | 'unknown' {
-  // Check for PDF magic bytes (%PDF-)
-  if (buffer.length >= 5 && buffer.toString('ascii', 0, 5) === '%PDF-') {
-    return 'pdf';
-  }
-
-  // Check filename extension
-  const lowerFilename = filename.toLowerCase();
-  if (lowerFilename.endsWith('.pdf')) {
-    return 'pdf';
-  }
-
-  // Check if it's a text-based file by extension
-  if (TEXT_FILE_EXTENSIONS.some(ext => lowerFilename.endsWith(ext))) {
-    return 'text';
-  }
-
-  // Try to detect JSON (common for profiler traces)
-  if (buffer.length > 0) {
-    const firstChar = String.fromCharCode(buffer[0]);
-    if (firstChar === '{' || firstChar === '[') {
-      // Likely JSON
-      return 'text';
+    try {
+      const buffer = await platform.downloadFile(file.id);
+      const safeName = sanitizeFilename(file.name);
+      const absolutePath = join(messageDir, safeName);
+      await writeFile(absolutePath, buffer, { mode: 0o600 });
+      saved.push({
+        originalName: file.name,
+        absolutePath,
+        mimeType: file.mimeType,
+        size: buffer.length,
+      });
+      if (debug) {
+        log.debug(`Saved ${file.name} → ${absolutePath} (${formatBytes(buffer.length)})`);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`Failed to save uploaded file ${file.name}: ${message}`);
+      skipped.push({
+        name: file.name,
+        reason: `Download failed: ${message}`,
+      });
     }
   }
 
-  // Check if the content is valid UTF-8 text
-  try {
-    const text = buffer.toString('utf-8');
-    // If it contains mostly printable characters, treat as text
-    const printableRatio = countPrintableChars(text) / text.length;
-    if (printableRatio > 0.9) {
-      return 'text';
-    }
-  } catch {
-    // Not valid UTF-8
-  }
-
-  return 'unknown';
-}
-
-/**
- * Count printable characters in a string.
- */
-function countPrintableChars(text: string): number {
-  let count = 0;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    // Printable ASCII (32-126), tabs, newlines, carriage returns
-    if ((code >= 32 && code <= 126) || code === 9 || code === 10 || code === 13) {
-      count++;
-    }
-  }
-  return count;
-}
-
-/**
- * Get a suggestion for an unsupported file type.
- */
-export function getUnsupportedFileSuggestion(file: PlatformFile): string | undefined {
-  const ext = file.name.toLowerCase().split('.').pop();
-  const mime = file.mimeType.toLowerCase();
-
-  // Word documents
-  if (ext === 'doc' || ext === 'docx' || mime.includes('msword') || mime.includes('wordprocessingml')) {
-    return 'Convert to PDF for best results';
-  }
-
-  // Excel spreadsheets
-  if (ext === 'xls' || ext === 'xlsx' || mime.includes('spreadsheet')) {
-    return 'Export as CSV for text-based analysis';
-  }
-
-  // PowerPoint
-  if (ext === 'ppt' || ext === 'pptx' || mime.includes('presentation')) {
-    return 'Convert to PDF for best results';
-  }
-
-  // Archives (zip is supported, others are not)
-  if (ext === 'tar' || ext === 'rar' || ext === '7z') {
-    return 'Extract files and upload them individually, or use .zip format';
-  }
-
-  // Binary/executable
-  if (ext === 'exe' || ext === 'dll' || ext === 'so' || ext === 'dylib') {
-    return 'Binary files are not supported';
-  }
-
-  return undefined;
+  return { saved, skipped };
 }
 
 // ---------------------------------------------------------------------------
 // Message content building
 // ---------------------------------------------------------------------------
 
-/** Result of building message content for Claude. */
-export interface BuiltMessageContent {
-  /** Content to send to Claude (plain text or content blocks). */
-  content: string | ContentBlock[];
-  /** Files that could not be processed — callers should surface these to the user. */
-  skipped: SkippedFile[];
-}
+const FILE_LIST_HEADER = '[Attached files from chat — saved to disk, use Read or move/copy as needed:]';
 
 /**
- * Build message content for Claude, including files if present.
+ * Build the content string for a user message, writing any attachments to
+ * the per-session upload directory and prepending a list of their absolute
+ * paths so Claude can find them.
  *
- * Returns both the content and any skipped files so every caller surfaces the
- * same warning uniformly — see postSkippedFilesFeedback().
- *
- * Supports:
- * - Images (JPEG, PNG, GIF, WebP)
- * - PDFs (via document content blocks)
- * - Text files (txt, md, json, csv, xml, yaml, source code)
- * - Gzip-compressed files (decompressed and processed based on content)
- * - Zip archives (extracts and processes supported files inside)
+ * Returns the content plus any files that were skipped, so callers can
+ * surface a warning via postSkippedFilesFeedback().
  */
 export async function buildMessageContent(
   text: string,
   platform: PlatformClient,
+  uploadDir: string,
   files?: PlatformFile[],
-  debug: boolean = false
+  debug: boolean = false,
 ): Promise<BuiltMessageContent> {
-  const result = await processFiles(platform, files, debug);
-
-  // If no files were processed, return plain text
-  if (result.blocks.length === 0) {
-    return { content: text, skipped: result.skipped };
+  if (!files || files.length === 0) {
+    return { content: text, skipped: [] };
   }
 
-  // Add the text message at the end if present
-  if (text) {
-    result.blocks.push({
-      type: 'text',
-      text,
-    });
+  const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, files, debug);
+
+  if (saved.length === 0) {
+    return { content: text, skipped };
   }
 
-  return { content: result.blocks, skipped: result.skipped };
+  const fileLines = saved.map(
+    f => `- ${f.absolutePath} (${f.mimeType || 'application/octet-stream'}, ${formatBytes(f.size)})`,
+  );
+  const header = `${FILE_LIST_HEADER}\n${fileLines.join('\n')}`;
+  const content = text.trim().length > 0 ? `${header}\n\n${text}` : header;
+
+  return { content, skipped };
 }
 
 /**
@@ -875,79 +226,10 @@ export async function buildMessageContent(
 export async function postSkippedFilesFeedback(
   platform: PlatformClient,
   threadId: string,
-  skipped: SkippedFile[]
+  skipped: SkippedFile[],
 ): Promise<void> {
   if (skipped.length === 0) return;
   await platform.createPost(formatSkippedFilesFeedback(skipped), threadId);
-}
-
-/**
- * Process all files and return content blocks and skipped files.
- * Exported separately for use by MessageManager for user feedback.
- */
-export async function processFiles(
-  platform: PlatformClient,
-  files?: PlatformFile[],
-  debug: boolean = false
-): Promise<FileProcessingResult> {
-  const blocks: ContentBlock[] = [];
-  const skipped: SkippedFile[] = [];
-
-  if (!files || files.length === 0) {
-    return { blocks, skipped };
-  }
-
-  for (const file of files) {
-    const category = categorizeFile(file);
-
-    // Zip files return multiple blocks, handle separately
-    if (category === 'zip') {
-      const zipResult = await processZipFile(file, platform, debug);
-      blocks.push(...zipResult.blocks);
-      for (const s of zipResult.skipped) {
-        skipped.push(s);
-        log.warn(`Skipped file ${s.name}: ${s.reason}`);
-      }
-      continue;
-    }
-
-    let result: { block?: ContentBlock; skipped?: SkippedFile };
-
-    switch (category) {
-      case 'image':
-        result = await processImageFile(file, platform, debug);
-        break;
-      case 'pdf':
-        result = await processPdfFile(file, platform, debug);
-        break;
-      case 'text':
-        result = await processTextFile(file, platform, debug);
-        break;
-      case 'gzip':
-        result = await processGzipFile(file, platform, debug);
-        break;
-      case 'unsupported':
-      default:
-        result = {
-          skipped: {
-            name: file.name,
-            reason: `Unsupported file type: ${file.mimeType}`,
-            suggestion: getUnsupportedFileSuggestion(file),
-          },
-        };
-        break;
-    }
-
-    if (result.block) {
-      blocks.push(result.block);
-    }
-    if (result.skipped) {
-      skipped.push(result.skipped);
-      log.warn(`Skipped file ${result.skipped.name}: ${result.skipped.reason}`);
-    }
-  }
-
-  return { blocks, skipped };
 }
 
 /**

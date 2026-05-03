@@ -1,52 +1,31 @@
 /**
- * Unit tests for file attachment handling
+ * Unit tests for file attachment handling.
  *
- * Tests file type detection, content processing, size limits,
- * gzip decompression, and skipped file feedback.
+ * Files attached to a chat message are written to a per-session directory
+ * under os.tmpdir(); Claude is given the absolute path so it can Read or
+ * move/copy the file. This file covers the save/cleanup helpers, the
+ * end-to-end buildMessageContent assembly, and the user-facing skipped-file
+ * formatting.
  */
 
-import { describe, it, expect, mock } from 'bun:test';
-import { gzipSync } from 'zlib';
-import yazl from 'yazl';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
-  // Constants
-  MAX_PDF_SIZE,
-  MAX_TEXT_FILE_SIZE,
-  MAX_DECOMPRESSED_SIZE,
-  MAX_ZIP_SIZE,
-  MAX_GZIP_SIZE,
-  MAX_ZIP_FILES,
-  SUPPORTED_IMAGE_TYPES,
-  SUPPORTED_TEXT_TYPES,
-  TEXT_FILE_EXTENSIONS,
-
-  // File type detection
-  isImageFile,
-  isPdfFile,
-  isTextFile,
-  isGzipFile,
-  isZipFile,
-  categorizeFile,
-
-  // File processing
-  processImageFile,
-  processPdfFile,
-  processTextFile,
-  processGzipFile,
-  processZipFile,
-  formatTextFileContent,
-  detectDecompressedContentType,
-  getUnsupportedFileSuggestion,
-
-  // Main functions
+  MAX_UPLOAD_SIZE,
   buildMessageContent,
-  processFiles,
+  cleanupSessionUploads,
+  formatSkippedFilesFeedback,
+  getSessionUploadDir,
   postSkippedFilesFeedback,
+  saveFilesToUploadDir,
 } from '../../src/operations/streaming/handler.js';
 import type { PlatformFile, PlatformClient } from '../../src/platform/index.js';
 
 // =============================================================================
-// Test Fixtures
+// Test fixtures
 // =============================================================================
 
 function createMockFile(overrides: Partial<PlatformFile> = {}): PlatformFile {
@@ -60,12 +39,9 @@ function createMockFile(overrides: Partial<PlatformFile> = {}): PlatformFile {
   };
 }
 
-function createMockPlatform(downloadResult?: Buffer): PlatformClient {
+function createMockPlatform(downloadResult: Buffer = Buffer.from('test content')): PlatformClient {
   return {
-    downloadFile: downloadResult !== undefined
-      ? mock(() => Promise.resolve(downloadResult))
-      : mock(() => Promise.resolve(Buffer.from('test content'))),
-    // Required PlatformClient methods (unused in these tests)
+    downloadFile: mock(() => Promise.resolve(downloadResult)),
     connect: mock(() => Promise.resolve()),
     disconnect: mock(() => Promise.resolve()),
     createPost: mock(() => Promise.resolve({ id: 'post-123' })),
@@ -86,850 +62,352 @@ function createMockPlatform(downloadResult?: Buffer): PlatformClient {
   } as unknown as PlatformClient;
 }
 
-/**
- * Helper to create a zip buffer with specified files.
- * @param files - Array of {name, content} objects
- */
-async function createZipBuffer(files: Array<{ name: string; content: string | Buffer }>): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const zipfile = new yazl.ZipFile();
+// Each test gets its own scratch upload dir so they can run in parallel
+// without colliding on filesystem state.
+let uploadDir: string;
 
-    for (const file of files) {
-      const content = typeof file.content === 'string' ? Buffer.from(file.content) : file.content;
-      zipfile.addBuffer(content, file.name);
-    }
+beforeEach(async () => {
+  uploadDir = await mkdtemp(join(tmpdir(), 'claude-threads-test-'));
+});
 
-    zipfile.end();
-
-    const chunks: Buffer[] = [];
-    zipfile.outputStream.on('data', (chunk: Buffer) => chunks.push(chunk));
-    zipfile.outputStream.on('end', () => resolve(Buffer.concat(chunks)));
-    zipfile.outputStream.on('error', reject);
-  });
-}
+afterEach(async () => {
+  await rm(uploadDir, { recursive: true, force: true }).catch(() => {});
+});
 
 // =============================================================================
-// Constants Tests
+// getSessionUploadDir / cleanupSessionUploads
 // =============================================================================
 
-describe('Constants', () => {
-  it('has correct MAX_PDF_SIZE (32MB)', () => {
-    expect(MAX_PDF_SIZE).toBe(32 * 1024 * 1024);
+describe('getSessionUploadDir', () => {
+  it('returns a path under os.tmpdir() keyed by platform and thread', () => {
+    const dir = getSessionUploadDir('mattermost-main', 'thread-abc');
+    expect(dir.startsWith(tmpdir())).toBe(true);
+    expect(dir).toContain('mattermost-main-thread-abc');
   });
 
-  it('has correct MAX_TEXT_FILE_SIZE (1MB)', () => {
-    expect(MAX_TEXT_FILE_SIZE).toBe(1 * 1024 * 1024);
+  it('is deterministic — same inputs produce the same path', () => {
+    expect(getSessionUploadDir('p', 't')).toBe(getSessionUploadDir('p', 't'));
   });
 
-  it('has correct MAX_DECOMPRESSED_SIZE (10MB)', () => {
-    expect(MAX_DECOMPRESSED_SIZE).toBe(10 * 1024 * 1024);
+  it('different threads produce different paths', () => {
+    expect(getSessionUploadDir('p', 't1')).not.toBe(getSessionUploadDir('p', 't2'));
+  });
+});
+
+describe('cleanupSessionUploads', () => {
+  it('removes the per-thread directory and its contents', async () => {
+    const { mkdir } = await import('fs/promises');
+    const platformId = 'p-cleanup';
+    const threadId = `t-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const dir = getSessionUploadDir(platformId, threadId);
+    const subdir = join(dir, 'subdir');
+    await mkdir(subdir, { recursive: true });
+    await writeFile(join(subdir, 'a.txt'), 'hello');
+    expect(existsSync(dir)).toBe(true);
+
+    await cleanupSessionUploads(platformId, threadId);
+
+    expect(existsSync(dir)).toBe(false);
   });
 
-  it('has correct MAX_ZIP_SIZE (50MB)', () => {
-    expect(MAX_ZIP_SIZE).toBe(50 * 1024 * 1024);
+  it('is a no-op (and never throws) when the directory does not exist', async () => {
+    await cleanupSessionUploads('p-noexist', `t-${Date.now()}`);
+    // No assertion needed; the test passing means it didn't throw.
   });
 
-  it('has correct MAX_ZIP_FILES (20)', () => {
-    expect(MAX_ZIP_FILES).toBe(20);
-  });
-
-  it('includes common image types', () => {
-    expect(SUPPORTED_IMAGE_TYPES).toContain('image/jpeg');
-    expect(SUPPORTED_IMAGE_TYPES).toContain('image/png');
-    expect(SUPPORTED_IMAGE_TYPES).toContain('image/gif');
-    expect(SUPPORTED_IMAGE_TYPES).toContain('image/webp');
-  });
-
-  it('includes common text MIME types', () => {
-    expect(SUPPORTED_TEXT_TYPES).toContain('text/plain');
-    expect(SUPPORTED_TEXT_TYPES).toContain('text/markdown');
-    expect(SUPPORTED_TEXT_TYPES).toContain('application/json');
-  });
-
-  it('includes common text file extensions', () => {
-    expect(TEXT_FILE_EXTENSIONS).toContain('.txt');
-    expect(TEXT_FILE_EXTENSIONS).toContain('.md');
-    expect(TEXT_FILE_EXTENSIONS).toContain('.json');
-    expect(TEXT_FILE_EXTENSIONS).toContain('.py');
-    expect(TEXT_FILE_EXTENSIONS).toContain('.ts');
+  it('is idempotent — calling it twice in a row is fine', async () => {
+    const platformId = 'p-idem';
+    const threadId = `t-${Date.now()}-${Math.random()}`;
+    await cleanupSessionUploads(platformId, threadId);
+    await cleanupSessionUploads(platformId, threadId);
   });
 });
 
 // =============================================================================
-// File Type Detection Tests
+// saveFilesToUploadDir
 // =============================================================================
 
-describe('isImageFile', () => {
-  it('returns true for supported image MIME types', () => {
-    expect(isImageFile(createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' }))).toBe(true);
-    expect(isImageFile(createMockFile({ mimeType: 'image/png', name: 'image.png' }))).toBe(true);
-    expect(isImageFile(createMockFile({ mimeType: 'image/gif', name: 'anim.gif' }))).toBe(true);
-    expect(isImageFile(createMockFile({ mimeType: 'image/webp', name: 'photo.webp' }))).toBe(true);
+describe('saveFilesToUploadDir', () => {
+  it('writes the downloaded buffer to disk and returns its absolute path', async () => {
+    const buf = Buffer.from('the file bytes');
+    const platform = createMockPlatform(buf);
+    const file = createMockFile({ name: 'screenshot.png', mimeType: 'image/png' });
+
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, [file]);
+
+    expect(skipped).toEqual([]);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].originalName).toBe('screenshot.png');
+    expect(saved[0].absolutePath.startsWith(uploadDir)).toBe(true);
+    expect(saved[0].absolutePath.endsWith('screenshot.png')).toBe(true);
+    expect(saved[0].mimeType).toBe('image/png');
+    expect(saved[0].size).toBe(buf.length);
+
+    const readBack = await readFile(saved[0].absolutePath);
+    expect(readBack.equals(buf)).toBe(true);
   });
 
-  it('returns false for unsupported image types', () => {
-    expect(isImageFile(createMockFile({ mimeType: 'image/bmp', name: 'image.bmp' }))).toBe(false);
-    expect(isImageFile(createMockFile({ mimeType: 'image/tiff', name: 'image.tiff' }))).toBe(false);
-    expect(isImageFile(createMockFile({ mimeType: 'image/svg+xml', name: 'image.svg' }))).toBe(false);
+  it('writes files with 0600 permissions (owner read/write only)', async () => {
+    // Skip on Windows — POSIX modes don't apply.
+    if (process.platform === 'win32') return;
+    const platform = createMockPlatform(Buffer.from('hi'));
+    const { saved } = await saveFilesToUploadDir(platform, uploadDir, [createMockFile()]);
+    const stats = await stat(saved[0].absolutePath);
+    // Mask off the file-type bits, keep permission bits.
+    expect(stats.mode & 0o777).toBe(0o600);
   });
 
-  it('returns false for non-image types', () => {
-    expect(isImageFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(false);
-    expect(isImageFile(createMockFile({ mimeType: 'application/pdf', name: 'doc.pdf' }))).toBe(false);
-  });
-});
+  it('isolates each call in its own subdirectory so duplicate names do not collide', async () => {
+    const platform = createMockPlatform(Buffer.from('first'));
+    const file = createMockFile({ name: 'photo.png' });
 
-describe('isPdfFile', () => {
-  it('returns true for PDF MIME type', () => {
-    expect(isPdfFile(createMockFile({ mimeType: 'application/pdf', name: 'document.pdf' }))).toBe(true);
-  });
+    const a = await saveFilesToUploadDir(platform, uploadDir, [file]);
+    // Re-mock the buffer for the second call so we can tell them apart.
+    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() => Promise.resolve(Buffer.from('second')));
+    const b = await saveFilesToUploadDir(platform, uploadDir, [file]);
 
-  it('returns true for .pdf extension even with wrong MIME type', () => {
-    expect(isPdfFile(createMockFile({ mimeType: 'application/octet-stream', name: 'document.pdf' }))).toBe(true);
-    expect(isPdfFile(createMockFile({ mimeType: 'application/octet-stream', name: 'DOCUMENT.PDF' }))).toBe(true);
+    expect(a.saved[0].absolutePath).not.toBe(b.saved[0].absolutePath);
+    expect((await readFile(a.saved[0].absolutePath)).toString()).toBe('first');
+    expect((await readFile(b.saved[0].absolutePath)).toString()).toBe('second');
   });
 
-  it('returns false for non-PDF files', () => {
-    expect(isPdfFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(false);
-    expect(isPdfFile(createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' }))).toBe(false);
-  });
-});
+  it('strips path-traversal segments from the supplied filename', async () => {
+    const platform = createMockPlatform(Buffer.from('safe'));
+    const evil = createMockFile({ name: '../../etc/passwd' });
 
-describe('isTextFile', () => {
-  it('returns true for text MIME types', () => {
-    expect(isTextFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'text/markdown', name: 'doc.md' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/json', name: 'data.json' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'text/csv', name: 'data.csv' }))).toBe(true);
-  });
+    const { saved } = await saveFilesToUploadDir(platform, uploadDir, [evil]);
 
-  it('returns true for text file extensions even with generic MIME type', () => {
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'script.py' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'code.ts' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'config.yaml' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'README.md' }))).toBe(true);
+    // The original name is preserved in the metadata, but the file lands
+    // inside the message subdir under uploadDir, with the directory parts stripped.
+    expect(saved[0].originalName).toBe('../../etc/passwd');
+    expect(saved[0].absolutePath.startsWith(uploadDir)).toBe(true);
+    expect(saved[0].absolutePath.endsWith('passwd')).toBe(true);
   });
 
-  it('returns true for source code files', () => {
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'main.go' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'app.rs' }))).toBe(true);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'Main.java' }))).toBe(true);
+  it('strips Windows-style backslash path components too', async () => {
+    const platform = createMockPlatform(Buffer.from('safe'));
+    const evil = createMockFile({ name: '..\\..\\windows\\system32\\config' });
+
+    const { saved } = await saveFilesToUploadDir(platform, uploadDir, [evil]);
+
+    expect(saved[0].absolutePath.startsWith(uploadDir)).toBe(true);
+    expect(saved[0].absolutePath.endsWith('config')).toBe(true);
   });
 
-  it('returns false for non-text files', () => {
-    expect(isTextFile(createMockFile({ mimeType: 'application/pdf', name: 'doc.pdf' }))).toBe(false);
-    expect(isTextFile(createMockFile({ mimeType: 'image/png', name: 'image.png' }))).toBe(false);
-    expect(isTextFile(createMockFile({ mimeType: 'application/octet-stream', name: 'binary.exe' }))).toBe(false);
-  });
-});
+  it('falls back to "attachment" when the filename reduces to nothing safe', async () => {
+    const platform = createMockPlatform(Buffer.from('x'));
+    const empty = createMockFile({ name: '..' });
 
-describe('isGzipFile', () => {
-  it('returns true for gzip MIME types', () => {
-    expect(isGzipFile(createMockFile({ mimeType: 'application/gzip', name: 'file.gz' }))).toBe(true);
-    expect(isGzipFile(createMockFile({ mimeType: 'application/x-gzip', name: 'file.gz' }))).toBe(true);
+    const { saved } = await saveFilesToUploadDir(platform, uploadDir, [empty]);
+
+    expect(saved[0].absolutePath.endsWith('attachment')).toBe(true);
   });
 
-  it('returns true for .gz extension even with wrong MIME type', () => {
-    expect(isGzipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'data.json.gz' }))).toBe(true);
-    expect(isGzipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'FILE.GZ' }))).toBe(true);
-  });
+  it('skips files that exceed MAX_UPLOAD_SIZE without downloading them', async () => {
+    const platform = createMockPlatform(Buffer.from('would never run'));
+    const huge = createMockFile({ name: 'huge.bin', size: MAX_UPLOAD_SIZE + 1 });
 
-  it('returns false for non-gzip files', () => {
-    expect(isGzipFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(false);
-    expect(isGzipFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe(false);
-  });
-});
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, [huge]);
 
-describe('isZipFile', () => {
-  it('returns true for zip MIME types', () => {
-    expect(isZipFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe(true);
-    expect(isZipFile(createMockFile({ mimeType: 'application/x-zip-compressed', name: 'archive.zip' }))).toBe(true);
-  });
-
-  it('returns true for .zip extension even with wrong MIME type', () => {
-    expect(isZipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'data.zip' }))).toBe(true);
-    expect(isZipFile(createMockFile({ mimeType: 'application/octet-stream', name: 'FILE.ZIP' }))).toBe(true);
-  });
-
-  it('returns false for non-zip files', () => {
-    expect(isZipFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe(false);
-    expect(isZipFile(createMockFile({ mimeType: 'application/gzip', name: 'archive.gz' }))).toBe(false);
-  });
-});
-
-describe('categorizeFile', () => {
-  it('categorizes images correctly', () => {
-    expect(categorizeFile(createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' }))).toBe('image');
-    expect(categorizeFile(createMockFile({ mimeType: 'image/png', name: 'image.png' }))).toBe('image');
-  });
-
-  it('categorizes PDFs correctly', () => {
-    expect(categorizeFile(createMockFile({ mimeType: 'application/pdf', name: 'doc.pdf' }))).toBe('pdf');
-  });
-
-  it('categorizes gzip files correctly (takes priority over text)', () => {
-    // Even if the inner file is text, gzip categorization should take priority
-    expect(categorizeFile(createMockFile({ mimeType: 'application/gzip', name: 'data.json.gz' }))).toBe('gzip');
-  });
-
-  it('categorizes text files correctly', () => {
-    expect(categorizeFile(createMockFile({ mimeType: 'text/plain', name: 'file.txt' }))).toBe('text');
-    expect(categorizeFile(createMockFile({ mimeType: 'application/json', name: 'data.json' }))).toBe('text');
-  });
-
-  it('categorizes zip files correctly', () => {
-    expect(categorizeFile(createMockFile({ mimeType: 'application/zip', name: 'archive.zip' }))).toBe('zip');
-    expect(categorizeFile(createMockFile({ mimeType: 'application/x-zip-compressed', name: 'data.zip' }))).toBe('zip');
-  });
-
-  it('categorizes unsupported files correctly', () => {
-    expect(categorizeFile(createMockFile({ mimeType: 'application/msword', name: 'doc.doc' }))).toBe('unsupported');
-    expect(categorizeFile(createMockFile({ mimeType: 'application/x-rar-compressed', name: 'archive.rar' }))).toBe('unsupported');
-  });
-});
-
-// =============================================================================
-// File Processing Tests
-// =============================================================================
-
-describe('processImageFile', () => {
-  it('processes image file successfully', async () => {
-    const imageBuffer = Buffer.from('fake image data');
-    const platform = createMockPlatform(imageBuffer);
-    const file = createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' });
-
-    const result = await processImageFile(file, platform);
-
-    expect(result.block).toBeDefined();
-    expect(result.skipped).toBeUndefined();
-    expect(result.block?.type).toBe('image');
-    if (result.block?.type === 'image') {
-      expect(result.block.source.type).toBe('base64');
-      expect(result.block.source.media_type).toBe('image/jpeg');
-      expect(result.block.source.data).toBe(imageBuffer.toString('base64'));
-    }
-  });
-
-  it('returns skipped when platform does not support downloads', async () => {
-    const platform = { ...createMockPlatform(), downloadFile: undefined } as unknown as PlatformClient;
-    const file = createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' });
-
-    const result = await processImageFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('does not support file downloads');
-  });
-
-  it('returns skipped when download fails', async () => {
-    const platform = createMockPlatform();
-    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() =>
-      Promise.reject(new Error('Network error'))
-    );
-    const file = createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' });
-
-    const result = await processImageFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('Download failed');
-  });
-});
-
-describe('processPdfFile', () => {
-  it('processes PDF file successfully', async () => {
-    const pdfBuffer = Buffer.from('%PDF-1.4 fake pdf content');
-    const platform = createMockPlatform(pdfBuffer);
-    const file = createMockFile({ mimeType: 'application/pdf', name: 'document.pdf' });
-
-    const result = await processPdfFile(file, platform);
-
-    expect(result.block).toBeDefined();
-    expect(result.skipped).toBeUndefined();
-    expect(result.block?.type).toBe('document');
-    if (result.block?.type === 'document') {
-      expect(result.block.source.type).toBe('base64');
-      expect(result.block.source.media_type).toBe('application/pdf');
-      expect(result.block.title).toBe('document.pdf');
-    }
-  });
-
-  it('returns skipped for PDF exceeding size limit', async () => {
-    const largePdfBuffer = Buffer.alloc(MAX_PDF_SIZE + 1, 'x');
-    const platform = createMockPlatform(largePdfBuffer);
-    const file = createMockFile({ mimeType: 'application/pdf', name: 'large.pdf' });
-
-    const result = await processPdfFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('exceeds');
-    expect(result.skipped?.reason).toContain('32MB');
-    expect(result.skipped?.suggestion).toContain('splitting');
-  });
-});
-
-describe('processTextFile', () => {
-  it('processes text file successfully', async () => {
-    const textContent = 'Hello, world!\nThis is a test file.';
-    const textBuffer = Buffer.from(textContent);
-    const platform = createMockPlatform(textBuffer);
-    const file = createMockFile({ mimeType: 'text/plain', name: 'readme.txt' });
-
-    const result = await processTextFile(file, platform);
-
-    expect(result.block).toBeDefined();
-    expect(result.skipped).toBeUndefined();
-    expect(result.block?.type).toBe('text');
-    if (result.block?.type === 'text') {
-      expect(result.block.text).toContain('readme.txt');
-      expect(result.block.text).toContain(textContent);
-    }
-  });
-
-  it('returns skipped for text file exceeding size limit', async () => {
-    const largeTextBuffer = Buffer.alloc(MAX_TEXT_FILE_SIZE + 1, 'x');
-    const platform = createMockPlatform(largeTextBuffer);
-    const file = createMockFile({ mimeType: 'text/plain', name: 'large.txt' });
-
-    const result = await processTextFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('exceeds');
-    expect(result.skipped?.suggestion).toContain('splitting');
-  });
-});
-
-describe('formatTextFileContent', () => {
-  it('wraps content with filename header and code block', () => {
-    const result = formatTextFileContent('config.json', '{"key": "value"}');
-
-    expect(result).toContain('config.json');
-    expect(result).toContain('```');
-    expect(result).toContain('{"key": "value"}');
-  });
-
-  it('includes emoji in header', () => {
-    const result = formatTextFileContent('script.py', 'print("hello")');
-
-    expect(result).toContain('📄');
-  });
-});
-
-// =============================================================================
-// Gzip Processing Tests
-// =============================================================================
-
-describe('processGzipFile', () => {
-  it('decompresses and processes JSON content', async () => {
-    const jsonContent = '{"data": "test value", "count": 42}';
-    const compressedBuffer = gzipSync(Buffer.from(jsonContent));
-    const platform = createMockPlatform(compressedBuffer);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'data.json.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeDefined();
-    expect(result.skipped).toBeUndefined();
-    expect(result.block?.type).toBe('text');
-    if (result.block?.type === 'text') {
-      expect(result.block.text).toContain('data.json');
-      expect(result.block.text).toContain(jsonContent);
-    }
-  });
-
-  it('decompresses and processes PDF content', async () => {
-    const pdfContent = '%PDF-1.4 fake pdf content here';
-    const compressedBuffer = gzipSync(Buffer.from(pdfContent));
-    const platform = createMockPlatform(compressedBuffer);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'document.pdf.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeDefined();
-    expect(result.skipped).toBeUndefined();
-    expect(result.block?.type).toBe('document');
-    if (result.block?.type === 'document') {
-      expect(result.block.title).toBe('document.pdf');
-    }
-  });
-
-  it('returns skipped for invalid gzip data', async () => {
-    const invalidGzip = Buffer.from('this is not gzip data');
-    const platform = createMockPlatform(invalidGzip);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'invalid.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    // Improved error message is user-friendly
-    expect(result.skipped?.reason).toContain('Invalid gzip file');
-    expect(result.skipped?.suggestion).toBeDefined();
-  });
-
-  it('returns skipped for decompressed content exceeding size limit', async () => {
-    // Create a large content that compresses well
-    const largeContent = 'x'.repeat(MAX_DECOMPRESSED_SIZE + 1);
-    const compressedBuffer = gzipSync(Buffer.from(largeContent));
-    const platform = createMockPlatform(compressedBuffer);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'large.txt.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('Decompressed size exceeds');
-  });
-
-  it('returns skipped for unsupported decompressed content type', async () => {
-    // Binary content that's not text or PDF
-    const binaryContent = Buffer.from([0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD]);
-    const compressedBuffer = gzipSync(binaryContent);
-    const platform = createMockPlatform(compressedBuffer);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'binary.dat.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('not supported');
-  });
-
-  it('returns skipped for gzip file exceeding size limit before download', async () => {
-    const platform = createMockPlatform(Buffer.from('not downloaded'));
-    const file = createMockFile({
-      mimeType: 'application/gzip',
-      name: 'huge.txt.gz',
-      size: MAX_GZIP_SIZE + 1,
-    });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('Gzip file exceeds');
-    expect(result.skipped?.reason).toContain('MB limit');
-    expect(result.skipped?.suggestion).toContain('smaller file');
-    // Verify download was never called (size check happens before download)
+    expect(saved).toHaveLength(0);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].name).toBe('huge.bin');
+    expect(skipped[0].reason).toContain('too large');
     expect(platform.downloadFile).not.toHaveBeenCalled();
   });
 
-  it('returns skipped with user-friendly message for corrupted header', async () => {
-    // Invalid gzip header (just random bytes, not starting with gzip magic)
-    const invalidGzip = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
-    const platform = createMockPlatform(invalidGzip);
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'corrupted.gz' });
+  it('surfaces a download failure as a skipped file rather than crashing', async () => {
+    const platform = createMockPlatform();
+    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() =>
+      Promise.reject(new Error('Network timeout')),
+    );
 
-    const result = await processGzipFile(file, platform);
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, [createMockFile({ name: 'flaky.png' })]);
 
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    // Should get a user-friendly error, not raw zlib error
-    expect(result.skipped?.reason).toBeDefined();
-    expect(result.skipped?.suggestion).toBeDefined();
+    expect(saved).toHaveLength(0);
+    expect(skipped).toHaveLength(1);
+    expect(skipped[0].name).toBe('flaky.png');
+    expect(skipped[0].reason).toContain('Network timeout');
   });
 
-  it('returns skipped with helpful suggestion for download failure', async () => {
-    const platform = {
-      ...createMockPlatform(),
-      downloadFile: mock(() => Promise.reject(new Error('Network timeout'))),
-    } as unknown as PlatformClient;
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'network-error.gz' });
+  it('skips every file when the platform does not support downloads', async () => {
+    const platform = { ...createMockPlatform(), downloadFile: undefined } as unknown as PlatformClient;
+    const files = [createMockFile({ name: 'a.png' }), createMockFile({ name: 'b.png' })];
 
-    const result = await processGzipFile(file, platform);
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, files);
 
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('Download failed');
-    expect(result.skipped?.reason).toContain('Network timeout');
-    expect(result.skipped?.suggestion).toContain('try again');
-  });
-
-  it('returns skipped when platform does not support downloads', async () => {
-    const platform = {
-      ...createMockPlatform(),
-      downloadFile: undefined,
-    } as unknown as PlatformClient;
-    const file = createMockFile({ mimeType: 'application/gzip', name: 'test.gz' });
-
-    const result = await processGzipFile(file, platform);
-
-    expect(result.block).toBeUndefined();
-    expect(result.skipped).toBeDefined();
-    expect(result.skipped?.reason).toContain('does not support file downloads');
-  });
-});
-
-// =============================================================================
-// Zip Processing Tests
-// =============================================================================
-
-describe('processZipFile', () => {
-  it('processes zip with single JSON file', async () => {
-    const jsonContent = '{"data": "test value", "count": 42}';
-    const zipBuffer = await createZipBuffer([{ name: 'data.json', content: jsonContent }]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(1);
-    expect(result.skipped.length).toBe(0);
-    expect(result.blocks[0]?.type).toBe('text');
-    if (result.blocks[0]?.type === 'text') {
-      expect(result.blocks[0].text).toContain('data.json');
-      expect(result.blocks[0].text).toContain(jsonContent);
+    expect(saved).toHaveLength(0);
+    expect(skipped).toHaveLength(2);
+    for (const s of skipped) {
+      expect(s.reason).toContain('does not support');
     }
   });
 
-  it('processes zip with multiple text files', async () => {
-    const zipBuffer = await createZipBuffer([
-      { name: 'file1.txt', content: 'Content of file 1' },
-      { name: 'file2.md', content: '# Markdown content' },
-      { name: 'config.json', content: '{"key": "value"}' },
-    ]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(3);
-    expect(result.skipped.length).toBe(0);
-  });
-
-  it('processes zip with PDF file', async () => {
-    const pdfContent = '%PDF-1.4 fake pdf content here';
-    const zipBuffer = await createZipBuffer([{ name: 'document.pdf', content: pdfContent }]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(1);
-    expect(result.skipped.length).toBe(0);
-    expect(result.blocks[0]?.type).toBe('document');
-  });
-
-  it('skips unsupported files inside zip', async () => {
-    const zipBuffer = await createZipBuffer([
-      { name: 'data.json', content: '{"valid": true}' },
-      { name: 'binary.exe', content: Buffer.from([0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE]) },
-    ]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(1);
-    expect(result.skipped.length).toBe(1);
-    expect(result.skipped[0]?.name).toBe('binary.exe');
-    expect(result.skipped[0]?.reason).toContain('Unsupported file type');
-  });
-
-  it('returns error for empty zip', async () => {
-    const zipBuffer = await createZipBuffer([]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'empty.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(0);
-    expect(result.skipped.length).toBe(1);
-    expect(result.skipped[0]?.reason).toContain('empty');
-  });
-
-  it('returns error for invalid zip data', async () => {
-    const invalidZip = Buffer.from('this is not a valid zip file');
-    const platform = createMockPlatform(invalidZip);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'invalid.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(0);
-    expect(result.skipped.length).toBe(1);
-    expect(result.skipped[0]?.reason).toContain('Failed to process zip');
-  });
-
-  it('returns error for zip exceeding size limit', async () => {
-    // Don't actually create a huge file, just mock the file size
-    const platform = createMockPlatform(Buffer.from(''));
-    const file = createMockFile({
-      mimeType: 'application/zip',
-      name: 'huge.zip',
-      size: MAX_ZIP_SIZE + 1,
+  it('saves a mixed batch — succeeds on healthy files, skips broken ones', async () => {
+    let call = 0;
+    const platform = createMockPlatform();
+    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() => {
+      call++;
+      if (call === 2) return Promise.reject(new Error('boom'));
+      return Promise.resolve(Buffer.from(`payload-${call}`));
     });
 
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(0);
-    expect(result.skipped.length).toBe(1);
-    expect(result.skipped[0]?.reason).toContain('exceeds');
-  });
-
-  it('skips directories inside zip', async () => {
-    // yazl doesn't add empty directories by default, but let's verify files in subdirs work
-    const zipBuffer = await createZipBuffer([
-      { name: 'subdir/file.txt', content: 'File in subdirectory' },
-    ]);
-    const platform = createMockPlatform(zipBuffer);
-    const file = createMockFile({ mimeType: 'application/zip', name: 'archive.zip' });
-
-    const result = await processZipFile(file, platform);
-
-    expect(result.blocks.length).toBe(1);
-    expect(result.skipped.length).toBe(0);
-    if (result.blocks[0]?.type === 'text') {
-      expect(result.blocks[0].text).toContain('subdir/file.txt');
-    }
-  });
-});
-
-describe('detectDecompressedContentType', () => {
-  it('detects PDF by magic bytes', () => {
-    const pdfBuffer = Buffer.from('%PDF-1.4 content');
-    expect(detectDecompressedContentType(pdfBuffer, 'unknown')).toBe('pdf');
-  });
-
-  it('detects PDF by filename extension', () => {
-    const buffer = Buffer.from('some content');
-    expect(detectDecompressedContentType(buffer, 'document.pdf')).toBe('pdf');
-  });
-
-  it('detects text by filename extension', () => {
-    const buffer = Buffer.from('some content');
-    expect(detectDecompressedContentType(buffer, 'config.json')).toBe('text');
-    expect(detectDecompressedContentType(buffer, 'script.py')).toBe('text');
-    expect(detectDecompressedContentType(buffer, 'readme.md')).toBe('text');
-  });
-
-  it('detects JSON by content', () => {
-    const jsonBuffer = Buffer.from('{"key": "value"}');
-    expect(detectDecompressedContentType(jsonBuffer, 'unknown')).toBe('text');
-
-    const arrayBuffer = Buffer.from('[1, 2, 3]');
-    expect(detectDecompressedContentType(arrayBuffer, 'unknown')).toBe('text');
-  });
-
-  it('detects text by printable character ratio', () => {
-    const textBuffer = Buffer.from('This is plain text content with only printable characters.\n');
-    expect(detectDecompressedContentType(textBuffer, 'unknown')).toBe('text');
-  });
-
-  it('returns unknown for binary content', () => {
-    const binaryBuffer = Buffer.from([0x00, 0x01, 0x02, 0x03, 0xFF, 0xFE, 0xFD, 0xFC, 0x00, 0x00]);
-    expect(detectDecompressedContentType(binaryBuffer, 'unknown')).toBe('unknown');
-  });
-});
-
-// =============================================================================
-// Unsupported File Suggestions Tests
-// =============================================================================
-
-describe('getUnsupportedFileSuggestion', () => {
-  it('suggests PDF conversion for Word documents', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'doc.doc' }))).toContain('PDF');
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'doc.docx' }))).toContain('PDF');
-    expect(getUnsupportedFileSuggestion(createMockFile({
-      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      name: 'file',
-    }))).toContain('PDF');
-  });
-
-  it('suggests CSV export for Excel spreadsheets', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'data.xls' }))).toContain('CSV');
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'data.xlsx' }))).toContain('CSV');
-  });
-
-  it('suggests PDF conversion for PowerPoint', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'slides.ppt' }))).toContain('PDF');
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'slides.pptx' }))).toContain('PDF');
-  });
-
-  it('suggests extraction for unsupported archives (zip is now supported)', () => {
-    // Zip is now supported, so no suggestion
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.zip' }))).toBeUndefined();
-    // Other archives still suggest extraction
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.tar' }))).toContain('Extract');
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'archive.rar' }))).toContain('Extract');
-  });
-
-  it('says binary files not supported', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'program.exe' }))).toContain('not supported');
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'library.dll' }))).toContain('not supported');
-  });
-
-  it('returns undefined for unknown file types', () => {
-    expect(getUnsupportedFileSuggestion(createMockFile({ name: 'unknown.xyz' }))).toBeUndefined();
-  });
-});
-
-// =============================================================================
-// processFiles Tests
-// =============================================================================
-
-describe('processFiles', () => {
-  it('returns empty result for no files', async () => {
-    const platform = createMockPlatform();
-    const result = await processFiles(platform, undefined);
-
-    expect(result.blocks).toHaveLength(0);
-    expect(result.skipped).toHaveLength(0);
-  });
-
-  it('returns empty result for empty files array', async () => {
-    const platform = createMockPlatform();
-    const result = await processFiles(platform, []);
-
-    expect(result.blocks).toHaveLength(0);
-    expect(result.skipped).toHaveLength(0);
-  });
-
-  it('processes mixed file types', async () => {
-    const platform = createMockPlatform();
     const files = [
-      createMockFile({ id: '1', mimeType: 'image/jpeg', name: 'photo.jpg' }),
-      createMockFile({ id: '2', mimeType: 'application/pdf', name: 'doc.pdf' }),
-      createMockFile({ id: '3', mimeType: 'text/plain', name: 'readme.txt' }),
+      createMockFile({ id: '1', name: 'good1.png' }),
+      createMockFile({ id: '2', name: 'broken.png' }),
+      createMockFile({ id: '3', name: 'good2.png' }),
     ];
 
-    const result = await processFiles(platform, files);
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, files);
 
-    expect(result.blocks).toHaveLength(3);
-    expect(result.skipped).toHaveLength(0);
-    expect(result.blocks.map(b => b.type)).toContain('image');
-    expect(result.blocks.map(b => b.type)).toContain('document');
-    expect(result.blocks.map(b => b.type)).toContain('text');
-  });
-
-  it('tracks skipped unsupported files', async () => {
-    const platform = createMockPlatform();
-    const files = [
-      createMockFile({ id: '1', mimeType: 'text/plain', name: 'valid.txt' }),
-      createMockFile({ id: '2', mimeType: 'application/msword', name: 'unsupported.doc' }),
-    ];
-
-    const result = await processFiles(platform, files);
-
-    expect(result.blocks).toHaveLength(1);
-    expect(result.skipped).toHaveLength(1);
-    expect(result.skipped[0].name).toBe('unsupported.doc');
-    expect(result.skipped[0].suggestion).toContain('PDF');
+    expect(saved.map(f => f.originalName)).toEqual(['good1.png', 'good2.png']);
+    expect(skipped.map(f => f.name)).toEqual(['broken.png']);
   });
 });
 
 // =============================================================================
-// buildMessageContent Tests
+// buildMessageContent
 // =============================================================================
 
 describe('buildMessageContent', () => {
-  it('returns plain text when no files provided', async () => {
+  it('returns plain text unchanged when no files are provided', async () => {
     const platform = createMockPlatform();
-    const { content, skipped } = await buildMessageContent('Hello, world!', platform, undefined);
+    const { content, skipped } = await buildMessageContent('Hello, world!', platform, uploadDir, undefined);
 
     expect(content).toBe('Hello, world!');
     expect(skipped).toEqual([]);
+    // Crucial: don't write or even create the upload dir if there are no files.
+    expect(existsSync(uploadDir)).toBe(true); // (the test fixture made it)
+    expect(await readdir(uploadDir)).toEqual([]);
   });
 
-  it('returns plain text when files array is empty', async () => {
+  it('returns plain text unchanged when files array is empty', async () => {
     const platform = createMockPlatform();
-    const { content, skipped } = await buildMessageContent('Hello, world!', platform, []);
+    const { content, skipped } = await buildMessageContent('Hello', platform, uploadDir, []);
 
-    expect(content).toBe('Hello, world!');
+    expect(content).toBe('Hello');
     expect(skipped).toEqual([]);
   });
 
-  it('returns content blocks when files are provided', async () => {
-    const platform = createMockPlatform();
-    const files = [createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' })];
+  it('prepends a path list when files are saved alongside text', async () => {
+    const platform = createMockPlatform(Buffer.from('PNG bytes'));
+    const file = createMockFile({ name: 'screenshot.png', mimeType: 'image/png' });
 
-    const { content } = await buildMessageContent('Check this image', platform, files);
+    const { content, skipped } = await buildMessageContent('describe this', platform, uploadDir, [file]);
 
-    expect(Array.isArray(content)).toBe(true);
-    if (Array.isArray(content)) {
-      expect(content).toHaveLength(2); // image + text
-      expect(content[0].type).toBe('image');
-      expect(content[1].type).toBe('text');
-      if (content[1].type === 'text') {
-        expect(content[1].text).toBe('Check this image');
-      }
-    }
+    expect(skipped).toEqual([]);
+    expect(typeof content).toBe('string');
+    expect(content).toContain('Attached files from chat');
+    expect(content).toContain('screenshot.png');
+    expect(content).toContain('image/png');
+    expect(content).toMatch(new RegExp(`- ${uploadDir.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\$&')}/[^\\s]+/screenshot\\.png \\(image/png, [\\d.]+ B\\)`));
+    // The user's message is preserved at the end.
+    expect(content.endsWith('describe this')).toBe(true);
   });
 
-  it('includes text block at end of content blocks', async () => {
-    const platform = createMockPlatform();
-    const files = [
-      createMockFile({ id: '1', mimeType: 'image/jpeg', name: 'photo1.jpg' }),
-      createMockFile({ id: '2', mimeType: 'image/png', name: 'photo2.png' }),
-    ];
+  it('returns the header alone when the user supplied no text body', async () => {
+    const platform = createMockPlatform(Buffer.from('PNG bytes'));
+    const file = createMockFile({ name: 'screenshot.png', mimeType: 'image/png' });
 
-    const { content } = await buildMessageContent('Two images!', platform, files);
+    const { content } = await buildMessageContent('', platform, uploadDir, [file]);
 
-    expect(Array.isArray(content)).toBe(true);
-    if (Array.isArray(content)) {
-      expect(content).toHaveLength(3); // 2 images + text
-      expect(content[content.length - 1].type).toBe('text');
-    }
+    expect(content).toContain('Attached files from chat');
+    expect(content).toContain('screenshot.png');
+    // Nothing trailing after the header — just the file list.
+    expect(content.endsWith(')')).toBe(true);
   });
 
-  it('returns content blocks even without text message', async () => {
-    const platform = createMockPlatform();
-    const files = [createMockFile({ mimeType: 'image/jpeg', name: 'photo.jpg' })];
-
-    const { content } = await buildMessageContent('', platform, files);
-
-    expect(Array.isArray(content)).toBe(true);
-    if (Array.isArray(content)) {
-      expect(content).toHaveLength(1); // just the image
-      expect(content[0].type).toBe('image');
-    }
+  it('treats whitespace-only text as empty (no trailing blank lines)', async () => {
+    const platform = createMockPlatform(Buffer.from('x'));
+    const { content } = await buildMessageContent('   \n  ', platform, uploadDir, [createMockFile({ name: 'a.png' })]);
+    expect(content.endsWith(')')).toBe(true);
   });
 
-  it('surfaces skipped files alongside content when all are unsupported', async () => {
+  it('falls back to "application/octet-stream" when MIME type is missing', async () => {
+    const platform = createMockPlatform(Buffer.from('x'));
+    const file = createMockFile({ name: 'mystery.bin', mimeType: '' });
+
+    const { content } = await buildMessageContent('what is this', platform, uploadDir, [file]);
+
+    expect(content).toContain('application/octet-stream');
+  });
+
+  it('falls back to plain text + skipped list when every file fails to save', async () => {
     const platform = createMockPlatform();
-    const files = [createMockFile({ mimeType: 'application/msword', name: 'doc.doc' })];
+    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() => Promise.reject(new Error('nope')));
+    const file = createMockFile({ name: 'flaky.png' });
 
-    const { content, skipped } = await buildMessageContent('Message with unsupported file', platform, files);
+    const { content, skipped } = await buildMessageContent('Original message', platform, uploadDir, [file]);
 
-    // When all files are skipped, content is plain text — but skipped is populated
-    expect(content).toBe('Message with unsupported file');
+    expect(content).toBe('Original message');
     expect(skipped).toHaveLength(1);
-    expect(skipped[0].name).toBe('doc.doc');
-    expect(skipped[0].reason).toContain('Unsupported');
+    expect(skipped[0].name).toBe('flaky.png');
+  });
+
+  it('writes the file to disk (issue #358 — Claude can mv/cp the path it sees)', async () => {
+    // The whole point of this work: the path in `content` must point at a real
+    // file on disk that Claude can read or move.
+    const payload = Buffer.from('this is the user-supplied PDF');
+    const platform = createMockPlatform(payload);
+    const file = createMockFile({ name: 'report.pdf', mimeType: 'application/pdf' });
+
+    const { content } = await buildMessageContent('save this', platform, uploadDir, [file]);
+
+    // Pull the absolute path back out of the message text.
+    const match = content.match(/- (\S+report\.pdf)/);
+    expect(match).not.toBeNull();
+    const absolutePath = match![1];
+    expect(existsSync(absolutePath)).toBe(true);
+    const readBack = await readFile(absolutePath);
+    expect(readBack.equals(payload)).toBe(true);
   });
 });
 
 // =============================================================================
-// postSkippedFilesFeedback Tests
+// Skipped-file feedback formatting
 // =============================================================================
 
+describe('formatSkippedFilesFeedback', () => {
+  it('formats reason and suggestion when both are present', () => {
+    const out = formatSkippedFilesFeedback([
+      { name: 'doc.docx', reason: 'Unsupported file type: application/msword', suggestion: 'Convert to PDF' },
+    ]);
+    expect(out).toContain('⚠️');
+    expect(out).toContain('Some files could not be processed');
+    expect(out).toContain('doc.docx');
+    expect(out).toContain('Unsupported file type: application/msword');
+    expect(out).toContain('Convert to PDF');
+  });
+
+  it('omits the suggestion clause when no suggestion is given', () => {
+    const out = formatSkippedFilesFeedback([{ name: 'huge.bin', reason: 'File too large' }]);
+    expect(out).toContain('huge.bin');
+    expect(out).toContain('File too large');
+    expect(out).not.toContain('_(');
+  });
+});
+
 describe('postSkippedFilesFeedback', () => {
-  it('is a no-op when skipped is empty', async () => {
+  it('is a no-op when the skipped list is empty', async () => {
     const platform = createMockPlatform();
-
     await postSkippedFilesFeedback(platform, 'thread-1', []);
-
     expect(platform.createPost).not.toHaveBeenCalled();
   });
 
-  it('posts a warning with file names and reasons when skipped is non-empty', async () => {
+  it('posts a single warning message into the thread when files are skipped', async () => {
     const platform = createMockPlatform();
-
     await postSkippedFilesFeedback(platform, 'thread-1', [
-      { name: 'bad.doc', reason: 'Unsupported file type: application/msword', suggestion: 'Export as PDF' },
-      { name: 'huge.pdf', reason: 'PDF exceeds 32MB limit (64MB)' },
+      { name: 'bad.bin', reason: 'File too large', suggestion: 'Split it' },
+      { name: 'flaky.png', reason: 'Download failed: timeout' },
     ]);
 
     expect(platform.createPost).toHaveBeenCalledTimes(1);
     const [body, threadId] = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];
     expect(threadId).toBe('thread-1');
-    expect(body).toContain('⚠️');
-    expect(body).toContain('Some files could not be processed');
-    expect(body).toContain('bad.doc');
-    expect(body).toContain('Unsupported file type: application/msword');
-    expect(body).toContain('Export as PDF');
-    expect(body).toContain('huge.pdf');
-    expect(body).toContain('PDF exceeds 32MB limit');
+    expect(body).toContain('bad.bin');
+    expect(body).toContain('File too large');
+    expect(body).toContain('Split it');
+    expect(body).toContain('flaky.png');
+    expect(body).toContain('Download failed: timeout');
   });
 });

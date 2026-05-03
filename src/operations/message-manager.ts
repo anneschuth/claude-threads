@@ -12,7 +12,7 @@
 
 import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/index.js';
 import type { PendingQuestionSet, Session } from '../session/types.js';
-import type { ClaudeEvent, ContentBlock } from '../claude/cli.js';
+import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
 import {
   ContentExecutor,
@@ -1064,7 +1064,7 @@ export class MessageManager {
 
     // Build message content (with files if provided). buildMessageContent processes
     // files once and returns both content and any files it had to skip.
-    let content: string | ContentBlock[] = message;
+    let content: string = message;
     let skippedFiles: SkippedFile[] = [];
     if (this.buildMessageContentCallback) {
       const built = await this.buildMessageContentCallback(message, this.platform, files);

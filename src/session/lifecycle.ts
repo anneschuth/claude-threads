@@ -39,7 +39,11 @@ import {
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
 import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
-import { postSkippedFilesFeedback } from '../operations/streaming/handler.js';
+import {
+  cleanupSessionUploads,
+  getSessionUploadDir,
+  postSkippedFilesFeedback,
+} from '../operations/streaming/handler.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
 
 const log = createLogger('lifecycle');
@@ -176,6 +180,7 @@ async function cleanupSession(
   }
   keepAlive.sessionEnded();
   releaseAccountIfHeld(session, ctx);
+  await cleanupSessionUploads(session.platformId, session.threadId);
 }
 
 /**
@@ -288,9 +293,11 @@ function createMessageManager(
     updateLastMessage: (post) => {
       updateLastMessage(session, post);
     },
-    // Callback to build message content (handles image attachments)
+    // Callback to build message content (saves attachments to per-session
+    // upload dir, gives Claude their absolute paths).
     buildMessageContent: (text, platform, files) => {
-      return ctx.ops.buildMessageContent(text, platform, files);
+      const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
+      return ctx.ops.buildMessageContent(text, platform, uploadDir, files);
     },
     // Callback to start typing indicator
     startTyping: () => {
@@ -378,7 +385,8 @@ function createMessageManager(
     // Note: queuedFiles from MessageManager are simplified refs (id, name)
     // For now, send without files - the full PlatformFile[] would need to be
     // stored separately if file support is needed here
-    const { content } = await ctx.ops.buildMessageContent(messageToSend, session.platform, undefined);
+    const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
+    const { content } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, undefined);
 
     // Send the message to Claude
     if (session.claude.isRunning()) {
@@ -994,8 +1002,9 @@ export async function startSession(
   }
 
   // Build message content
-  const { content, skipped } = await ctx.ops.buildMessageContent(options.prompt, session.platform, options.files);
-  const messageText = typeof content === 'string' ? content : options.prompt;
+  const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
+  const { content, skipped } = await ctx.ops.buildMessageContent(options.prompt, session.platform, uploadDir, options.files);
+  const messageText = content;
 
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
   // Offer context prompt if there are previous messages in the thread.
