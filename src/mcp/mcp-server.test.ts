@@ -592,10 +592,13 @@ describe('handleReadPostWith', () => {
     expect(api.readPostCalls).toEqual([]);
   });
 
-  it('returns wrong-channel when the resolved post is in another channel', async () => {
+  it('returns wrong-channel when the resolved post is in another (private) channel', async () => {
     // Bot is on 'C-default' (set by makeReadPostCfg). The fetched post
-    // claims to be in 'C-elsewhere' — handler must surface that as a
-    // distinct error string, not as a generic "not found."
+    // claims to be in 'C-elsewhere' with no channelType (treated as private).
+    // The handler must surface that as a distinct error string, not as a
+    // generic "not found." Public channels on the same instance are in
+    // scope (covered separately); this test specifically exercises the
+    // private-channel rejection path.
     const api = new FakeApi();
     api.readPostImpl = async () => fakePost({ channelId: 'C-elsewhere' });
     const result = await handleReadPostWith(
@@ -603,7 +606,7 @@ describe('handleReadPostWith', () => {
       makeReadPostCfg(api),
     );
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/different channel/);
+    expect(result.reason).toMatch(/private channel/);
     // The error string must not say "not found" for this case.
     expect(result.reason).not.toMatch(/not found/);
   });

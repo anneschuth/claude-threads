@@ -497,19 +497,7 @@ async function handleReadPostMattermost(
   });
 
   if (!result.ok) {
-    if (result.error.kind === 'wrong-channel') {
-      return {
-        ok: false,
-        reason: 'permalink is for a different channel — the bot can only follow links inside its own channel',
-      };
-    }
-    if (result.error.kind === 'not-found') {
-      return { ok: false, reason: 'post not found, or the bot does not have access to it' };
-    }
-    if (result.error.kind === 'unsupported') {
-      return { ok: false, reason: 'this platform does not support reading posts' };
-    }
-    return { ok: false, reason: 'unknown error resolving permalink' };
+    return { ok: false, reason: mattermostResolveErrorReason(result.error) };
   }
 
   return { ok: true, content: formatResolved(result.resolved) };
@@ -536,22 +524,50 @@ async function handleReadPostSlack(
   });
 
   if (!result.ok) {
-    if (result.error.kind === 'wrong-channel') {
-      return {
-        ok: false,
-        reason: 'permalink is for a different channel — the bot can only follow links inside its own channel',
-      };
-    }
-    if (result.error.kind === 'not-found') {
-      return { ok: false, reason: 'message not found, or the bot does not have access to it' };
-    }
-    if (result.error.kind === 'unsupported') {
-      return { ok: false, reason: 'this platform does not support reading posts' };
-    }
-    return { ok: false, reason: 'unknown error resolving permalink' };
+    return { ok: false, reason: slackResolveErrorReason(result.error) };
   }
 
   return { ok: true, content: formatResolvedSlack(result.resolved) };
+}
+
+/**
+ * Map a Mattermost resolver error to a friendly user-facing reason.
+ * Shared between read_post and the new tools so the wording can't drift.
+ *
+ * Note: `wrong-channel` from the resolver fires only when the post is
+ * private AND not in the bot's channel — public posts on the same
+ * instance are always in scope (see resolvePermalink's channelType check).
+ * That's why the message is specifically about *private* channels.
+ */
+type MattermostResolveError = { kind: 'wrong-channel' | 'not-found' | 'unsupported' };
+
+function mattermostResolveErrorReason(error: MattermostResolveError): string {
+  switch (error.kind) {
+    case 'wrong-channel':
+      return 'permalink is for a private channel the bot is not in';
+    case 'not-found':
+      return 'post not found, or the bot does not have access to it';
+    case 'unsupported':
+      return 'this platform does not support reading posts';
+  }
+}
+
+/**
+ * Map a Slack resolver error to a friendly user-facing reason. Slack's
+ * `wrong-channel` is about cross-channel scope (Slack's API hard-limits
+ * us to channels the bot is a member of), not about visibility.
+ */
+type SlackResolveError = { kind: 'wrong-channel' | 'not-found' | 'unsupported' };
+
+function slackResolveErrorReason(error: SlackResolveError): string {
+  switch (error.kind) {
+    case 'wrong-channel':
+      return 'permalink is for a different channel — the bot can only act on links inside its own channel';
+    case 'not-found':
+      return 'message not found, or the bot does not have access to it';
+    case 'unsupported':
+      return 'this platform does not support reading posts';
+  }
 }
 
 async function handleReadPost(
@@ -830,19 +846,7 @@ async function resolvePostFromUrl(
     }
     const result = await resolvePermalink(cfg.api, parsed.postId, cfg.channelId);
     if (!result.ok) {
-      if (result.error.kind === 'wrong-channel') {
-        return {
-          ok: false,
-          reason: 'permalink is for a private channel the bot is not in',
-        };
-      }
-      if (result.error.kind === 'not-found') {
-        return { ok: false, reason: 'post not found, or the bot does not have access to it' };
-      }
-      if (result.error.kind === 'unsupported') {
-        return { ok: false, reason: 'this platform does not support reading posts' };
-      }
-      return { ok: false, reason: 'unknown error resolving permalink' };
+      return { ok: false, reason: mattermostResolveErrorReason(result.error) };
     }
     return { ok: true, post: result.resolved.post };
   }
@@ -860,19 +864,7 @@ async function resolvePostFromUrl(
     }
     const result = await resolveSlackPermalink(cfg.api, parsed, cfg.channelId);
     if (!result.ok) {
-      if (result.error.kind === 'wrong-channel') {
-        return {
-          ok: false,
-          reason: 'permalink is for a different channel — the bot can only act on links inside its own channel',
-        };
-      }
-      if (result.error.kind === 'not-found') {
-        return { ok: false, reason: 'message not found, or the bot does not have access to it' };
-      }
-      if (result.error.kind === 'unsupported') {
-        return { ok: false, reason: 'this platform does not support reading posts' };
-      }
-      return { ok: false, reason: 'unknown error resolving permalink' };
+      return { ok: false, reason: slackResolveErrorReason(result.error) };
     }
     return { ok: true, post: result.resolved.post };
   }
