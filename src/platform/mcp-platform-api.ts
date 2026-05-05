@@ -160,6 +160,17 @@ export interface McpPlatformApi {
    * Optional — implementations that don't support thread reads omit it.
    */
   readThread?(threadRootId: string, options?: { limit?: number }): Promise<McpPost[]>;
+
+  /**
+   * Add a reaction to a post on behalf of the bot. The platform's emoji
+   * vocabulary applies — if the platform rejects the emoji name, this
+   * method should let the error propagate (the caller surfaces it). The
+   * caller is responsible for any scope checks; this method just attaches
+   * the reaction.
+   *
+   * Optional — implementations that don't support reactions omit it.
+   */
+  addReaction?(postId: string, emojiName: string): Promise<void>;
 }
 
 /**

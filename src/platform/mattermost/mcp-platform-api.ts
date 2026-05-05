@@ -434,6 +434,12 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     return visibility;
   }
 
+  async addReaction(postId: string, emojiName: string): Promise<void> {
+    mcpLogger.debug(`addReaction: :${emojiName}: on post ${formatShortId(postId)}`);
+    const botUserId = await this.getBotUserId();
+    await addReaction(this.apiConfig, postId, botUserId, emojiName);
+  }
+
   async readThread(
     threadRootId: string,
     options?: { limit?: number },

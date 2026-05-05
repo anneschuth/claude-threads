@@ -6,9 +6,15 @@ import {
   handlePermissionWith,
   handleSendFileWith,
   handleReadPostWith,
+  handleReactToPostWith,
+  handleUpdateOwnPostWith,
+  handleListThreadWith,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
   type ReadPostHandlerConfig,
+  type ReactToPostHandlerConfig,
+  type UpdateOwnPostHandlerConfig,
+  type ListThreadHandlerConfig,
 } from './mcp-server.js';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
@@ -121,6 +127,14 @@ class FakeApi implements McpPlatformApi {
     this.readThreadCalls.push({ rootId, limit: options?.limit });
     if (this.readThreadImpl) return this.readThreadImpl(rootId, options);
     return [];
+  };
+
+  // Reactions — overridden per-test via addReactionImpl.
+  public addReactionCalls: Array<{ postId: string; emojiName: string }> = [];
+  public addReactionImpl: ((postId: string, emojiName: string) => Promise<void>) | undefined;
+  addReaction = async (postId: string, emojiName: string) => {
+    this.addReactionCalls.push({ postId, emojiName });
+    if (this.addReactionImpl) return this.addReactionImpl(postId, emojiName);
   };
 }
 
@@ -751,5 +765,355 @@ describe('handlePermissionWith — read_post auto-approval', () => {
     expect(result.behavior).toBe('allow');
     expect(api.createdPosts).toHaveLength(0);
     expect(api.waitForReactionCalls).toHaveLength(0);
+  });
+});
+
+describe('handlePermissionWith — auto-approval for new tools', () => {
+  it.each([
+    ['mcp__claude-threads-mcp__react_to_post', { url: 'x', emoji: 'x' }],
+    ['mcp__claude-threads-mcp__update_own_post', { url: 'x', message: 'x' }],
+    ['mcp__claude-threads-mcp__list_thread', { url: 'x' }],
+  ] as const)('auto-allows %s without prompting', async (toolName, input) => {
+    const api = new FakeApi();
+    const cfg = makeCfg(api);
+    const result = await handlePermissionWith(toolName, input as Record<string, unknown>, cfg);
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(0);
+    expect(api.waitForReactionCalls).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// handleReactToPostWith — react_to_post MCP tool
+// =============================================================================
+
+function makeReactCfg(api: FakeApi, overrides: Partial<ReactToPostHandlerConfig> = {}): ReactToPostHandlerConfig {
+  return {
+    api,
+    platformUrl: PLATFORM_URL,
+    platformType: 'mattermost',
+    channelId: 'C-default',
+    ...overrides,
+  };
+}
+
+describe('handleReactToPostWith', () => {
+  it('reacts to a post in the bot channel', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost(); // post is in C-default
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: 'white_check_mark' },
+      makeReactCfg(api),
+    );
+    expect(result).toEqual({ ok: true });
+    expect(api.addReactionCalls).toEqual([{ postId: POST_ID, emojiName: 'white_check_mark' }]);
+  });
+
+  it('reacts to a post in a public channel on the same instance', async () => {
+    // The scope rule allows reacting to public-channel posts even if they're
+    // not in the bot's channel. This test fails if the scope predicate is
+    // tightened to "bot channel only."
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ channelId: 'C-public', channelType: 'public' });
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: 'eyes' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(api.addReactionCalls).toHaveLength(1);
+  });
+
+  it('refuses to react to a post in a private channel that is not the bot channel', async () => {
+    // RED test: this fails if the wrong-channel guard inside resolvePostFromUrl
+    // is removed. The post is in C-elsewhere with channelType='private', so
+    // the resolver must surface wrong-channel and the handler must short-circuit.
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ channelId: 'C-elsewhere', channelType: 'private' });
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: '+1' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private channel/);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
+
+  it('refuses an emoji name that fails the safety regex', async () => {
+    // RED test: if the emoji shape check is removed, garbage like a URL would
+    // reach the platform API. The emoji set itself is platform-specific so we
+    // don't validate against it, but we do gate on shape.
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: 'https://evil.test/x' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/invalid emoji/);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
+
+  it('returns ok:false when the platform does not support reactions', async () => {
+    const api = new FakeApi();
+    (api as unknown as { addReaction: unknown }).addReaction = undefined;
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: '+1' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/);
+  });
+
+  it('surfaces platform errors as ok:false', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    api.addReactionImpl = async () => { throw new Error('emoji not found'); };
+    const result = await handleReactToPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, emoji: 'nonexistent_emoji' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/emoji not found/);
+  });
+
+  it('rejects URLs from a different host', async () => {
+    const api = new FakeApi();
+    const result = await handleReactToPostWith(
+      { url: `https://other.example.test/team/pl/${POST_ID}`, emoji: '+1' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(api.readPostCalls).toHaveLength(0);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
+});
+
+describe('handleReactToPostWith — Slack', () => {
+  function makeSlackReactCfg(api: FakeApi, overrides: Partial<ReactToPostHandlerConfig> = {}): ReactToPostHandlerConfig {
+    return {
+      api,
+      platformUrl: '',
+      platformType: 'slack',
+      channelId: SLACK_CHANNEL,
+      ...overrides,
+    };
+  }
+
+  it('reacts to a Slack post in the bot channel', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => ({
+      id: SLACK_TS,
+      channelId: SLACK_CHANNEL,
+      userId: 'U-1',
+      username: 'alice',
+      message: 'hello',
+      createAt: 1_234_567_890_123,
+    });
+    const result = await handleReactToPostWith(
+      { url: SLACK_PERMALINK, emoji: 'eyes' },
+      makeSlackReactCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(api.addReactionCalls).toEqual([{ postId: SLACK_TS, emojiName: 'eyes' }]);
+  });
+
+  it('refuses Slack permalinks for a different channel', async () => {
+    const api = new FakeApi();
+    const result = await handleReactToPostWith(
+      { url: SLACK_PERMALINK, emoji: '+1' },
+      makeSlackReactCfg(api, { channelId: 'C-OTHER' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/different channel/);
+    expect(api.readPostCalls).toHaveLength(0);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// handleUpdateOwnPostWith — update_own_post MCP tool
+// =============================================================================
+
+const BOT_USER_ID = 'bot-1';
+
+function makeUpdateCfg(api: FakeApi, overrides: Partial<UpdateOwnPostHandlerConfig> = {}): UpdateOwnPostHandlerConfig {
+  return {
+    api,
+    platformUrl: PLATFORM_URL,
+    platformType: 'mattermost',
+    channelId: 'C-default',
+    ...overrides,
+  };
+}
+
+describe('handleUpdateOwnPostWith', () => {
+  it('updates a post the bot itself authored', async () => {
+    const api = new FakeApi(); // bot id defaults to 'bot-1'
+    api.readPostImpl = async () => fakePost({ userId: BOT_USER_ID });
+    const result = await handleUpdateOwnPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, message: 'updated' },
+      makeUpdateCfg(api),
+    );
+    expect(result).toEqual({ ok: true });
+    expect(api.updatedPosts).toEqual([{ postId: POST_ID, message: 'updated' }]);
+  });
+
+  it('refuses to update a post authored by someone else', async () => {
+    // RED test: this fails if the author check is removed. The handler MUST
+    // verify post.userId === botUserId before calling updatePost — otherwise
+    // Claude could rewrite anyone's message via a permalink.
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ userId: 'u-victim' });
+    const result = await handleUpdateOwnPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, message: 'malicious rewrite' },
+      makeUpdateCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/only edit posts authored by the bot/);
+    expect(api.updatedPosts).toHaveLength(0);
+  });
+
+  it('refuses an empty message', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ userId: BOT_USER_ID });
+    const result = await handleUpdateOwnPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, message: '' },
+      makeUpdateCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/non-empty/);
+    expect(api.updatedPosts).toHaveLength(0);
+  });
+
+  it('rejects URLs in a different (private) channel before checking authorship', async () => {
+    // Scope check must run first: a permalink to a private channel the bot
+    // isn't in should fail with the channel reason, not leak any "you're not
+    // the author" detail about a post the user can't see anyway.
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({
+      channelId: 'C-elsewhere',
+      channelType: 'private',
+      userId: BOT_USER_ID,
+    });
+    const result = await handleUpdateOwnPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, message: 'hi' },
+      makeUpdateCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private channel/);
+    expect(api.updatedPosts).toHaveLength(0);
+  });
+
+  it('surfaces platform errors during updatePost', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ userId: BOT_USER_ID });
+    // Patch updatePost to throw.
+    api.updatePost = async () => { throw new Error('post too old to edit'); };
+    const result = await handleUpdateOwnPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, message: 'updated' },
+      makeUpdateCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/post too old/);
+  });
+});
+
+// =============================================================================
+// handleListThreadWith — list_thread MCP tool
+// =============================================================================
+
+function makeListThreadCfg(api: FakeApi, overrides: Partial<ListThreadHandlerConfig> = {}): ListThreadHandlerConfig {
+  return {
+    api,
+    platformUrl: PLATFORM_URL,
+    platformType: 'mattermost',
+    channelId: 'C-default',
+    sessionThreadId: 'session-thread-1',
+    ...overrides,
+  };
+}
+
+describe('handleListThreadWith', () => {
+  it('reads the current session thread when no URL is given', async () => {
+    const api = new FakeApi();
+    api.readThreadImpl = async () => [
+      fakePost({ id: 'a'.repeat(26), username: 'alice', message: 'first' }),
+      fakePost({ id: 'b'.repeat(26), username: 'bob', message: 'second' }),
+    ];
+    const result = await handleListThreadWith({}, makeListThreadCfg(api));
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('Thread (2 messages)');
+    expect(result.content).toContain('@alice');
+    expect(result.content).toContain('> first');
+    expect(result.content).toContain('@bob');
+    expect(api.readThreadCalls).toEqual([{ rootId: 'session-thread-1', limit: 20 }]);
+    expect(api.readPostCalls).toHaveLength(0); // No URL → no permalink resolve
+  });
+
+  it('reads the thread containing a permalinked post', async () => {
+    const api = new FakeApi();
+    const linked = fakePost({ threadRootId: 'root-1' });
+    api.readPostImpl = async () => linked;
+    api.readThreadImpl = async () => [linked];
+    await handleListThreadWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeListThreadCfg(api),
+    );
+    // Used the post's threadRootId, not the session thread.
+    expect(api.readThreadCalls).toEqual([{ rootId: 'root-1', limit: 20 }]);
+  });
+
+  it('uses the post id as root when the linked post is top-level', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ threadRootId: undefined });
+    api.readThreadImpl = async () => [];
+    await handleListThreadWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeListThreadCfg(api),
+    );
+    expect(api.readThreadCalls[0].rootId).toBe(POST_ID);
+  });
+
+  it('refuses a permalinked URL in a private channel that is not the bot channel', async () => {
+    // RED test: scope check must run before readThread is called.
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ channelId: 'C-elsewhere', channelType: 'private' });
+    const result = await handleListThreadWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeListThreadCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private channel/);
+    expect(api.readThreadCalls).toHaveLength(0);
+  });
+
+  it('caps max_messages at MAX_THREAD_LIMIT', async () => {
+    const api = new FakeApi();
+    api.readThreadImpl = async () => [];
+    await handleListThreadWith({ max_messages: 999 }, makeListThreadCfg(api));
+    expect(api.readThreadCalls[0].limit).toBe(50);
+  });
+
+  it('returns a friendly result for an empty thread', async () => {
+    const api = new FakeApi();
+    api.readThreadImpl = async () => [];
+    const result = await handleListThreadWith({}, makeListThreadCfg(api));
+    expect(result.ok).toBe(true);
+    expect(result.content).toMatch(/empty|could not be read/);
+  });
+
+  it('errors when no URL and no session thread is available', async () => {
+    const api = new FakeApi();
+    const result = await handleListThreadWith({}, makeListThreadCfg(api, { sessionThreadId: '' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/no session thread/);
+  });
+
+  it('returns ok:false when the platform does not support reading threads', async () => {
+    const api = new FakeApi();
+    (api as unknown as { readThread: unknown }).readThread = undefined;
+    const result = await handleListThreadWith({}, makeListThreadCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/);
   });
 });

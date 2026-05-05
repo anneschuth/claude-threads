@@ -420,6 +420,21 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     }
   }
 
+  async addReaction(postId: string, emojiName: string): Promise<void> {
+    // Slack reaction names never include the surrounding colons in the API.
+    const name = emojiName.replace(/:/g, '');
+    mcpLogger.debug(`addReaction: :${name}: on ts ${postId}`);
+    await slackApi(
+      'reactions.add',
+      this.config.botToken,
+      {
+        channel: this.config.channelId,
+        timestamp: postId,
+        name,
+      },
+    );
+  }
+
   async readThread(
     threadRootId: string,
     options?: { limit?: number },
