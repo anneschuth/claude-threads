@@ -21,6 +21,7 @@ import type {
   AutoUpdateEvents,
 } from './types.js';
 import { RESTART_EXIT_CODE, mergeAutoUpdateConfig } from './types.js';
+import { decideRespawn, resolveClaudeThreadsBin, spawnReplacement } from './respawn.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 /** Message builder function that takes a formatter and returns the formatted message */
@@ -269,24 +270,87 @@ export class AutoUpdateManager extends EventEmitter {
       this.updateStatus('pending_restart');
       this.emit('update:restart', updateInfo.latestVersion);
 
-      // Broadcast success and restart notice
-      await this.callbacks.broadcastUpdate((fmt) =>
-        `✅ ${fmt.formatBold('Update installed')} - restarting now. ${fmt.formatItalic('Sessions will resume automatically.')}`
-      ).catch(() => {});
+      // Decide the restart strategy BEFORE telling the user what's about
+      // to happen. The success message should not promise auto-resumption
+      // if we know we can't deliver it (e.g. self-respawn case where the
+      // binary isn't on PATH).
+      const decision = decideRespawn();
+      const binPath = decision.kind === 'self-respawn' ? resolveClaudeThreadsBin() : null;
+      const canSelfRespawn = decision.kind === 'self-respawn' && binPath !== null;
+      const willAutoRestart =
+        decision.kind === 'exit-for-supervisor'
+          ? decision.supervisor !== 'none-headless'
+          : canSelfRespawn;
+
+      // Tailored success message. If we know auto-restart isn't going to
+      // happen, tell the user to run claude-threads themselves rather
+      // than implying sessions will come back on their own.
+      if (willAutoRestart) {
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `✅ ${fmt.formatBold('Update installed')} to v${updateInfo.latestVersion}. Restarting now, sessions will resume automatically.`
+        ).catch(() => {});
+      } else {
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `✅ ${fmt.formatBold('Update installed')} to v${updateInfo.latestVersion}. Could not auto-restart (no supervisor and no claude-threads on PATH); please run ${fmt.formatCode('claude-threads')} to bring the bot back. Sessions are persisted and will resume.`
+        ).catch(() => {});
+      }
 
       // Give a moment for the message to be sent
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Prepare for restart (persist sessions, disconnect platforms)
-      await this.callbacks.prepareForRestart();
+      // Prepare for restart (persist sessions, disconnect platforms).
+      // If this fails, the bot is in a half-shutdown state and we should
+      // tell the user rather than push on to a likely-broken restart.
+      try {
+        await this.callbacks.prepareForRestart();
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        log.error(`prepareForRestart failed: ${reason}`);
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `⚠️ ${fmt.formatBold('Restart aborted')}: shutdown sequence failed (${reason}). Sessions may be in an inconsistent state; please run ${fmt.formatCode('claude-threads')} manually.`
+        ).catch(() => {});
+        process.exit(1);
+      }
 
-      // Exit with special code to signal restart needed
       log.info(`🔄 Restarting for update to v${updateInfo.latestVersion}`);
 
       // Clear screen for clean restart (in case prepareForRestart didn't)
       process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
       process.stdout.write('\x1b[?25h');       // Restore cursor visibility
 
+      // Hand off to the replacement.
+      // - With a known supervisor (bash daemon, systemd, pm2, wrapped-tty):
+      //   exit 42 and let the supervisor's restart handling apply.
+      // - Otherwise with a TTY: self-respawn so the interactive user
+      //   keeps their UI.
+      // - Otherwise: clean exit, the user-facing message above told them
+      //   to restart manually.
+      // See src/auto-update/respawn.ts for the full rationale.
+      if (decision.kind === 'self-respawn') {
+        if (canSelfRespawn) {
+          const ok = spawnReplacement(undefined, binPath);
+          if (ok) {
+            process.exit(0);
+          }
+          // Resolution succeeded at decision time but spawn launch failed
+          // (binary moved, chmod'd, AppArmor/SELinux denial, etc.). The
+          // user got the optimistic "sessions will resume" message; tell
+          // them now that they need to restart by hand.
+          log.error('Self-respawn launch failed after binary resolution succeeded');
+          await this.callbacks.broadcastUpdate((fmt) =>
+            `⚠️ ${fmt.formatBold('Auto-restart failed')} after install: please run ${fmt.formatCode('claude-threads')} to bring the bot back. Sessions are persisted and will resume.`
+          ).catch(() => {});
+        } else {
+          // No binary on PATH; the user already got the matching
+          // manual-restart message in the !willAutoRestart branch above.
+          log.error('claude-threads not found on PATH; manual restart required');
+        }
+        // No supervisor to fall back to: exit 0 cleanly. Exit 42 here
+        // would mean "ask my parent to restart me", but our parent is
+        // the user's shell.
+        process.exit(0);
+      }
+      log.debug(`Restart handled by supervisor: ${decision.supervisor}`);
       process.exit(RESTART_EXIT_CODE);
     } else {
       const errorMsg = result.error ?? 'Unknown error';
