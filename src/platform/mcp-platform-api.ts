@@ -26,6 +26,21 @@ export interface PostedMessage {
 }
 
 /**
+ * A minimal view of a post used by the MCP `read_post` tool. The author's
+ * username is resolved server-side so the tool result is human-readable
+ * without forcing Claude to chain user lookups.
+ */
+export interface McpPost {
+  id: string;
+  userId: string;
+  username: string | null;
+  message: string;
+  createAt: number;
+  /** Empty / undefined for top-level posts. */
+  threadRootId?: string;
+}
+
+/**
  * Platform-side API surface used by the MCP child process.
  */
 export interface McpPlatformApi {
@@ -89,6 +104,23 @@ export interface McpPlatformApi {
     threadId: string,
     options?: { caption?: string; filename?: string },
   ): Promise<{ postId: string }>;
+
+  /**
+   * Read a single post by id. Returns null if the post does not exist or
+   * the bot's token cannot see it (private channel without membership).
+   *
+   * Optional — implementations that don't support post reads omit it.
+   */
+  readPost?(postId: string): Promise<McpPost | null>;
+
+  /**
+   * Read posts in the thread rooted at `threadRootId`. Returns posts in
+   * chronological order (oldest first). Implementations should respect the
+   * `limit` cap; callers must still defend against runaway thread sizes.
+   *
+   * Optional — implementations that don't support thread reads omit it.
+   */
+  readThread?(threadRootId: string, options?: { limit?: number }): Promise<McpPost[]>;
 }
 
 /**

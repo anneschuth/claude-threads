@@ -15,6 +15,7 @@ export type {
   SlackMcpApiConfig,
   ReactionEvent,
   PostedMessage,
+  McpPost,
 } from './mcp-platform-api.js';
 
 // Normalized types

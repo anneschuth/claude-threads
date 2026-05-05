@@ -240,3 +240,138 @@ describe('MattermostMcpPlatformApi.getFormatter', () => {
     expect(api.getFormatter()).toBe(api.getFormatter());
   });
 });
+
+// -----------------------------------------------------------------------------
+// readPost — hits /posts/{id}
+// -----------------------------------------------------------------------------
+
+describe('MattermostMcpPlatformApi.readPost', () => {
+  it('GETs /posts/{id} with Bearer auth and resolves the username', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({ id: 'post-1', channel_id: 'c', message: 'hi', user_id: 'u-1', create_at: 1234, root_id: '' });
+      }
+      if (url.endsWith('/users/u-1')) {
+        return jsonResponse({ id: 'u-1', username: 'alice' });
+      }
+      return errorResponse(404);
+    };
+    const api = makeApi();
+    const post = await api.readPost!('post-1');
+    expect(post).not.toBeNull();
+    expect(post!.id).toBe('post-1');
+    expect(post!.username).toBe('alice');
+    expect(post!.message).toBe('hi');
+    expect(post!.createAt).toBe(1234);
+    expect(post!.threadRootId).toBeUndefined();
+
+    const postCall = fetchCalls.find(c => c.url.endsWith('/posts/post-1'));
+    expect(postCall?.method).toBe('GET');
+    expect(postCall?.headers.Authorization).toBe('Bearer secret-token');
+  });
+
+  it('returns null on 404 instead of throwing', async () => {
+    fetchResponder = () => errorResponse(404, 'not found');
+    const api = makeApi();
+    expect(await api.readPost!('missing')).toBeNull();
+  });
+
+  it('returns null on 403 (no access) instead of throwing', async () => {
+    fetchResponder = () => errorResponse(403, 'forbidden');
+    const api = makeApi();
+    expect(await api.readPost!('forbidden-id')).toBeNull();
+  });
+
+  it('preserves threadRootId when the post is a reply', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/reply-1')) {
+        return jsonResponse({ id: 'reply-1', channel_id: 'c', message: 'r', user_id: 'u-1', create_at: 2, root_id: 'root-1' });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('reply-1');
+    expect(post?.threadRootId).toBe('root-1');
+  });
+
+  it('still returns the post when the user lookup 404s', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({ id: 'post-1', channel_id: 'c', message: 'hi', user_id: 'u-missing', create_at: 1 });
+      }
+      return errorResponse(404);
+    };
+    const post = await makeApi().readPost!('post-1');
+    expect(post).not.toBeNull();
+    expect(post!.username).toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// readThread — hits /posts/{id}/thread, sorts, applies limit
+// -----------------------------------------------------------------------------
+
+describe('MattermostMcpPlatformApi.readThread', () => {
+  it('GETs /posts/{rootId}/thread, sorts chronologically, resolves usernames', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/root-1/thread')) {
+        return jsonResponse({
+          // Intentionally out of order to verify sorting.
+          order: ['p-2', 'p-1'],
+          posts: {
+            'p-1': { id: 'p-1', channel_id: 'c', message: 'first', user_id: 'u-1', create_at: 100, root_id: '' },
+            'p-2': { id: 'p-2', channel_id: 'c', message: 'second', user_id: 'u-2', create_at: 200, root_id: 'root-1' },
+          },
+        });
+      }
+      if (url.endsWith('/users/u-1')) return jsonResponse({ id: 'u-1', username: 'alice' });
+      if (url.endsWith('/users/u-2')) return jsonResponse({ id: 'u-2', username: 'bob' });
+      return errorResponse(404);
+    };
+    const messages = await makeApi().readThread!('root-1');
+    expect(messages.map(m => m.id)).toEqual(['p-1', 'p-2']);
+    expect(messages.map(m => m.username)).toEqual(['alice', 'bob']);
+  });
+
+  it('caches per-user lookup so the same author is fetched once', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/root-1/thread')) {
+        return jsonResponse({
+          order: ['p-1', 'p-2', 'p-3'],
+          posts: {
+            'p-1': { id: 'p-1', channel_id: 'c', message: 'a', user_id: 'u-1', create_at: 1, root_id: '' },
+            'p-2': { id: 'p-2', channel_id: 'c', message: 'b', user_id: 'u-1', create_at: 2, root_id: 'root-1' },
+            'p-3': { id: 'p-3', channel_id: 'c', message: 'c', user_id: 'u-1', create_at: 3, root_id: 'root-1' },
+          },
+        });
+      }
+      if (url.endsWith('/users/u-1')) return jsonResponse({ id: 'u-1', username: 'alice' });
+      return errorResponse(404);
+    };
+    await makeApi().readThread!('root-1');
+    const userCalls = fetchCalls.filter(c => c.url.endsWith('/users/u-1'));
+    expect(userCalls).toHaveLength(1);
+  });
+
+  it('applies limit by keeping the most recent N (after sorting)', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/thread')) {
+        return jsonResponse({
+          order: ['p-1', 'p-2', 'p-3'],
+          posts: {
+            'p-1': { id: 'p-1', channel_id: 'c', message: 'a', user_id: 'u-1', create_at: 1 },
+            'p-2': { id: 'p-2', channel_id: 'c', message: 'b', user_id: 'u-1', create_at: 2 },
+            'p-3': { id: 'p-3', channel_id: 'c', message: 'c', user_id: 'u-1', create_at: 3 },
+          },
+        });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const messages = await makeApi().readThread!('root-1', { limit: 2 });
+    expect(messages.map(m => m.id)).toEqual(['p-2', 'p-3']);
+  });
+
+  it('returns [] on 404 instead of throwing', async () => {
+    fetchResponder = () => errorResponse(404, 'not found');
+    expect(await makeApi().readThread!('missing')).toEqual([]);
+  });
+});

@@ -5,10 +5,12 @@ import { join } from 'path';
 import {
   handlePermissionWith,
   handleSendFileWith,
+  handleReadPostWith,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
+  type ReadPostHandlerConfig,
 } from './permission-server.js';
-import type { McpPlatformApi, ReactionEvent } from '../platform/mcp-platform-api.js';
+import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 // =============================================================================
@@ -103,6 +105,22 @@ class FakeApi implements McpPlatformApi {
     this.uploadFileCalls.push({ filePath, threadId, options });
     if (this.uploadFileImpl) return this.uploadFileImpl(filePath, threadId, options);
     return { postId: 'mock-post-id' };
+  };
+
+  // Post / thread reads — overridden per-test via readPostImpl / readThreadImpl.
+  public readPostCalls: string[] = [];
+  public readThreadCalls: Array<{ rootId: string; limit?: number }> = [];
+  public readPostImpl: ((postId: string) => Promise<McpPost | null>) | undefined;
+  public readThreadImpl: ((rootId: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
+  readPost = async (postId: string) => {
+    this.readPostCalls.push(postId);
+    if (this.readPostImpl) return this.readPostImpl(postId);
+    return null;
+  };
+  readThread = async (rootId: string, options?: { limit?: number }) => {
+    this.readThreadCalls.push({ rootId, limit: options?.limit });
+    if (this.readThreadImpl) return this.readThreadImpl(rootId, options);
+    return [];
   };
 }
 
@@ -446,5 +464,160 @@ describe('handleSendFileWith', () => {
     api.uploadFileImpl = async () => ({ postId: 'P' });
     await handleSendFileWith({ path: link }, makeSendFileCfg(api));
     expect(api.uploadFileCalls[0].filePath).toBe(okFile);
+  });
+});
+
+// =============================================================================
+// handleReadPostWith — read_post MCP tool
+// =============================================================================
+
+const PLATFORM_URL = 'https://chat.example.test';
+const POST_ID = 'a'.repeat(26);
+const REPLY_ID = 'b'.repeat(26);
+
+function makeReadPostCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig> = {}): ReadPostHandlerConfig {
+  return {
+    api,
+    platformUrl: PLATFORM_URL,
+    platformType: 'mattermost',
+    ...overrides,
+  };
+}
+
+function fakePost(overrides: Partial<McpPost> = {}): McpPost {
+  return {
+    id: POST_ID,
+    userId: 'u-1',
+    username: 'alice',
+    message: 'hello world',
+    createAt: 1_000,
+    threadRootId: undefined,
+    ...overrides,
+  };
+}
+
+describe('handleReadPostWith', () => {
+  it('returns formatted markdown for a valid permalink on success', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('@alice');
+    expect(result.content).toContain('> hello world');
+    expect(api.readPostCalls).toEqual([POST_ID]);
+    expect(api.readThreadCalls).toEqual([]); // no include_thread, no thread call
+  });
+
+  it('returns a friendly error for a URL on a different host', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    const result = await handleReadPostWith(
+      { url: `https://other.example.test/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/can only follow links on its own instance/);
+    expect(api.readPostCalls).toEqual([]); // never even attempted to fetch
+  });
+
+  it('returns a friendly error when the URL is not a permalink', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/channels/town-square` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Mattermost permalink/);
+  });
+
+  it('returns not-found when the post does not exist or is inaccessible', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => null;
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/post not found.*does not have access/);
+  });
+
+  it('refuses to operate on platforms other than mattermost', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { platformType: 'slack' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not supported on platform 'slack'/);
+  });
+
+  it('errors when platform URL is unconfigured', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { platformUrl: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform URL not configured/);
+  });
+
+  it('fetches the thread when include_thread is true and renders it', async () => {
+    const api = new FakeApi();
+    const post = fakePost();
+    const reply = fakePost({ id: REPLY_ID, username: 'bob', message: 'second', createAt: 2_000, threadRootId: POST_ID });
+    api.readPostImpl = async () => post;
+    api.readThreadImpl = async () => [post, reply];
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, include_thread: true },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('Thread context (2 messages)');
+    expect(result.content).toContain('@alice ← linked post');
+    expect(result.content).toContain('@bob');
+    expect(api.readThreadCalls).toEqual([{ rootId: POST_ID, limit: 20 }]);
+  });
+
+  it('caps max_messages at MAX_THREAD_LIMIT', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    api.readThreadImpl = async () => [];
+    await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, include_thread: true, max_messages: 999 },
+      makeReadPostCfg(api),
+    );
+    expect(api.readThreadCalls[0].limit).toBe(50);
+  });
+
+  it('uses readPost on the API exactly once per call', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(api.readPostCalls).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// read_post auto-approval
+// =============================================================================
+
+describe('handlePermissionWith — read_post auto-approval', () => {
+  it('auto-allows the read_post tool without posting a permission prompt', async () => {
+    const api = new FakeApi();
+    const cfg = makeCfg(api);
+    const result = await handlePermissionWith(
+      'mcp__claude-threads-permissions__read_post',
+      { url: 'https://example.test/team/pl/abc' },
+      cfg,
+    );
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(0);
+    expect(api.waitForReactionCalls).toHaveLength(0);
   });
 });

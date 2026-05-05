@@ -8,7 +8,13 @@
  */
 
 import { WebSocket } from '../../utils/websocket.js';
-import type { McpPlatformApi, MattermostMcpApiConfig, ReactionEvent, PostedMessage } from '../mcp-platform-api.js';
+import type {
+  McpPlatformApi,
+  MattermostMcpApiConfig,
+  ReactionEvent,
+  PostedMessage,
+  McpPost,
+} from '../mcp-platform-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
@@ -115,6 +121,39 @@ async function updatePostRaw(
     id: postId,
     message,
   });
+}
+
+interface MattermostThreadResponse {
+  order: string[];
+  posts: Record<string, MattermostApiPost>;
+}
+
+async function getPostRaw(
+  config: MattermostApiConfig,
+  postId: string,
+): Promise<MattermostApiPost | null> {
+  try {
+    return await mattermostApi<MattermostApiPost>(config, 'GET', `/posts/${postId}`);
+  } catch (err) {
+    apiLog.debug(`Failed to get post ${postId}: ${err}`);
+    return null;
+  }
+}
+
+async function getThreadRaw(
+  config: MattermostApiConfig,
+  threadRootId: string,
+): Promise<MattermostThreadResponse | null> {
+  try {
+    return await mattermostApi<MattermostThreadResponse>(
+      config,
+      'GET',
+      `/posts/${threadRootId}/thread`,
+    );
+  } catch (err) {
+    apiLog.debug(`Failed to get thread ${threadRootId}: ${err}`);
+    return null;
+  }
 }
 
 async function addReaction(
@@ -348,6 +387,55 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     });
     return { postId: result.postId };
   }
+
+  async readPost(postId: string): Promise<McpPost | null> {
+    mcpLogger.debug(`readPost: ${formatShortId(postId)}`);
+    const post = await getPostRaw(this.apiConfig, postId);
+    if (!post) return null;
+    const username = post.user_id ? await this.getUsername(post.user_id) : null;
+    return toMcpPost(post, username);
+  }
+
+  async readThread(
+    threadRootId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[]> {
+    mcpLogger.debug(`readThread: ${formatShortId(threadRootId)}`);
+    const thread = await getThreadRaw(this.apiConfig, threadRootId);
+    if (!thread) return [];
+
+    // Sort by create_at ascending so the oldest post comes first.
+    const ordered = thread.order
+      .map(id => thread.posts[id])
+      .filter((p): p is MattermostApiPost => Boolean(p))
+      .sort((a, b) => (a.create_at ?? 0) - (b.create_at ?? 0));
+
+    const limited = options?.limit !== undefined ? ordered.slice(-options.limit) : ordered;
+
+    // Resolve usernames once per unique user to avoid N round-trips for a
+    // chatty thread.
+    const usernameByUserId = new Map<string, string | null>();
+    for (const p of limited) {
+      if (p.user_id && !usernameByUserId.has(p.user_id)) {
+        usernameByUserId.set(p.user_id, await this.getUsername(p.user_id));
+      }
+    }
+
+    return limited.map(p =>
+      toMcpPost(p, p.user_id ? usernameByUserId.get(p.user_id) ?? null : null),
+    );
+  }
+}
+
+function toMcpPost(post: MattermostApiPost, username: string | null): McpPost {
+  return {
+    id: post.id,
+    userId: post.user_id ?? '',
+    username,
+    message: post.message,
+    createAt: post.create_at ?? 0,
+    threadRootId: post.root_id || undefined,
+  };
 }
 
 /**

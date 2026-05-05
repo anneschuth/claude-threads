@@ -35,6 +35,13 @@ import type { McpPlatformApi, MattermostMcpApiConfig, SlackMcpApiConfig } from '
 import { createMcpPlatformApi } from '../platform/mcp-platform-api-factory.js';
 import { validateOutboundPath } from './path-validator.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
+import {
+  parseMattermostPermalink,
+  resolvePermalink,
+  formatResolved,
+  DEFAULT_THREAD_LIMIT,
+  MAX_THREAD_LIMIT,
+} from '../platform/mattermost/permalink.js';
 
 // =============================================================================
 // Configuration
@@ -66,6 +73,7 @@ const OUTBOUND_FILES_MAX_BYTES = parseInt(
 );
 
 const SEND_FILE_TOOL_NAME = 'mcp__claude-threads-permissions__send_file';
+const READ_POST_TOOL_NAME = 'mcp__claude-threads-permissions__read_post';
 
 // =============================================================================
 // Permission API Instance
@@ -143,6 +151,14 @@ export async function handlePermissionWith(
   // model sends defeats the entire point of the feature.
   if (toolName === SEND_FILE_TOOL_NAME) {
     mcpLogger.debug(`Auto-allowing ${toolName} (path validator is the real gate)`);
+    return { behavior: 'allow', updatedInput: toolInput };
+  }
+
+  // Auto-approve read_post: it only reads posts the bot's token can already
+  // see, and the URL host check inside the handler is the real gate. Same
+  // reasoning as send_file.
+  if (toolName === READ_POST_TOOL_NAME) {
+    mcpLogger.debug(`Auto-allowing ${toolName} (host check is the real gate)`);
     return { behavior: 'allow', updatedInput: toolInput };
   }
 
@@ -265,6 +281,27 @@ const sendFileInputSchema = {
     .describe('Optional message body / initial comment shown alongside the file.'),
 };
 
+const readPostInputSchema = {
+  url: z
+    .string()
+    .describe(
+      'Permalink URL to a post on the chat platform the bot is connected to. Must be on the same host as the bot.',
+    ),
+  include_thread: z
+    .boolean()
+    .optional()
+    .describe(
+      'When true, also fetch surrounding messages in the same thread (oldest first). Defaults to false.',
+    ),
+  max_messages: z
+    .number()
+    .int()
+    .optional()
+    .describe(
+      `Maximum thread messages to return when include_thread is true. Defaults to ${DEFAULT_THREAD_LIMIT}, capped at ${MAX_THREAD_LIMIT}.`,
+    ),
+};
+
 export interface SendFileResult {
   ok: boolean;
   postId?: string;
@@ -332,6 +369,76 @@ async function handleSendFile(args: { path: string; caption?: string }): Promise
   });
 }
 
+export interface ReadPostResult {
+  ok: boolean;
+  /** Markdown-formatted post (and thread, if requested) on success. */
+  content?: string;
+  reason?: string;
+}
+
+export interface ReadPostHandlerConfig {
+  api: McpPlatformApi;
+  /** The platform's base URL — used to validate the link's host. */
+  platformUrl: string;
+  /** Platform type. Currently only 'mattermost' is supported. */
+  platformType: string;
+}
+
+/**
+ * Handle a `read_post` invocation: parse the permalink, fetch via the
+ * MCP platform API, and return formatted markdown. Failures are returned
+ * as `{ ok: false, reason }` rather than thrown so Claude can act on them.
+ */
+export async function handleReadPostWith(
+  args: { url: string; include_thread?: boolean; max_messages?: number },
+  cfg: ReadPostHandlerConfig,
+): Promise<ReadPostResult> {
+  if (cfg.platformType !== 'mattermost') {
+    return {
+      ok: false,
+      reason: `read_post is not supported on platform '${cfg.platformType}' yet`,
+    };
+  }
+  if (!cfg.platformUrl) {
+    return { ok: false, reason: 'platform URL not configured' };
+  }
+
+  const parsed = parseMattermostPermalink(args.url, cfg.platformUrl);
+  if (!parsed) {
+    return {
+      ok: false,
+      reason: `not a Mattermost permalink for ${cfg.platformUrl} (the bot can only follow links on its own instance)`,
+    };
+  }
+
+  const result = await resolvePermalink(cfg.api, parsed.postId, {
+    includeThread: args.include_thread,
+    maxMessages: args.max_messages,
+  });
+
+  if (!result.ok) {
+    if (result.error.kind === 'not-found') {
+      return { ok: false, reason: 'post not found, or the bot does not have access to it' };
+    }
+    if (result.error.kind === 'unsupported') {
+      return { ok: false, reason: 'this platform does not support reading posts' };
+    }
+    return { ok: false, reason: 'unknown error resolving permalink' };
+  }
+
+  return { ok: true, content: formatResolved(result.resolved) };
+}
+
+async function handleReadPost(
+  args: { url: string; include_thread?: boolean; max_messages?: number },
+): Promise<ReadPostResult> {
+  return handleReadPostWith(args, {
+    api: getApi(),
+    platformUrl: PLATFORM_URL,
+    platformType: PLATFORM_TYPE,
+  });
+}
+
 async function main() {
   const server = new McpServer({
     name: 'claude-threads-permissions',
@@ -363,6 +470,23 @@ async function main() {
     sendFileInputSchema,
     async ({ path, caption }: { path: string; caption?: string }) => {
       const result = await handleSendFile({ path, caption });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool(
+    'read_post',
+    'Fetch the contents of a post on the chat platform the bot is connected to, given its permalink. ' +
+      'Use this when the user shares a link to a chat message and asks you to read it, or when a ' +
+      'message you are working with references another post. The URL must be on the same host as ' +
+      'the bot. Set include_thread=true to also fetch surrounding messages in the same thread. ' +
+      'Returns { ok: true, content } on success or { ok: false, reason } on failure.',
+    readPostInputSchema,
+    async ({ url, include_thread, max_messages }: { url: string; include_thread?: boolean; max_messages?: number }) => {
+      const result = await handleReadPost({ url, include_thread, max_messages });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
