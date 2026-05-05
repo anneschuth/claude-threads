@@ -161,6 +161,12 @@ const SEND_DM_MEMBER_CACHE_TTL_MS = 60_000;
 const SEND_DM_MAX_MESSAGE_CHARS = 4000;
 const sendDmCounts = new Map<string, number>();
 const sendDmAllowedRecipients = new Set<string>();
+// Recipients currently being prompted. Prevents a parallel second call
+// to the same recipient from posting a duplicate prompt while the first
+// is still waiting on a reaction. MCP serializes per-call but Claude can
+// fan out parallel tool_use blocks; without this guard they'd race past
+// the `allowedRecipients.has()` check.
+const sendDmInFlightPrompts = new Set<string>();
 let sendDmMemberCache: { channelId: string; members: Set<string>; expiresAt: number } | null = null;
 let sendDmChannelLabel: string | null = null;
 
@@ -1131,16 +1137,21 @@ async function handleSearchMessages(
 // send_dm — direct-message a member of the bot's channel
 // =============================================================================
 //
-// The flow rests on five gates, in order:
+// The flow rests on six gates, in order:
 //   1. Shape: recipient and message are non-empty, message is under cap.
 //   2. Resolve: look up the recipient's user id via the platform API.
 //   3. Self-DM: refuse to DM the bot itself (catches confused calls).
 //   4. Membership: recipient must be a current member of the bot's
 //      channel (cached for 60s — channel members rarely change mid-session).
-//   5. Rate limit: at most 3 DMs per recipient per session.
+//   5. Rate limit: at most 3 DMs per recipient per session. The counter
+//      is bumped optimistically before the prompt and rolled back on
+//      deny / timeout / send failure, so two parallel calls to the same
+//      recipient can't both pass step 5 and double-spend the budget.
 //   6. Permission: a per-recipient interactive prompt the first time the
 //      session DMs each user. ✅ promotes to "no further prompts for THIS
-//      recipient" but DM count still applies.
+//      recipient" but DM count still applies. An in-flight set prevents
+//      a parallel second call to the same recipient from posting a
+//      duplicate prompt while the first is still pending.
 // All errors are returned as { ok: false, reason } so Claude can react.
 
 export interface SendDmResult {
@@ -1170,6 +1181,10 @@ export interface SendDmHandlerConfig {
    */
   counts: Map<string, number>;
   allowedRecipients: Set<string>;
+  /** Recipients with a permission prompt currently awaiting a reaction.
+   *  Used to short-circuit duplicate prompts when Claude fans out parallel
+   *  send_dm tool_use blocks to the same recipient. */
+  inFlightPrompts: Set<string>;
   memberCache: { value: { channelId: string; members: Set<string>; expiresAt: number } | null };
   /** Single-slot cache for the bot-channel display label. Mutated by
    *  resolveChannelLabel so a session pays the channel-info lookup once. */
@@ -1232,6 +1247,14 @@ export async function handleSendDmWith(
   if (!member.ok) return { ok: false, reason: member.reason };
 
   // 5. Rate limit.
+  //
+  // Increment optimistically *before* the prompt so two parallel calls
+  // to the same recipient can't both observe the same `sentSoFar` and
+  // double-spend the budget. We roll back on any failure (deny, timeout,
+  // send error). The window between increment and rollback is
+  // bounded by the prompt timeout, never visible to Claude (we hold the
+  // promise until rollback or success), and short enough that user
+  // intent stays coherent.
   const sentSoFar = cfg.counts.get(resolved.id) ?? 0;
   if (sentSoFar >= cfg.perRecipientLimit) {
     return {
@@ -1239,17 +1262,45 @@ export async function handleSendDmWith(
       reason: `rate-limited: already sent ${sentSoFar} DM${sentSoFar === 1 ? '' : 's'} to this recipient in this session (limit ${cfg.perRecipientLimit})`,
     };
   }
+  cfg.counts.set(resolved.id, sentSoFar + 1);
+  // Rollback helper: must be called on every failure path below to
+  // prevent failed sends from burning the budget.
+  const rollbackCounter = (): void => {
+    const current = cfg.counts.get(resolved.id) ?? 0;
+    if (current > 0) cfg.counts.set(resolved.id, current - 1);
+  };
 
   // 6. Per-recipient permission prompt.
   if (!cfg.allowedRecipients.has(resolved.id)) {
-    const decision = await promptForDmPermission(resolved.id, resolved.username, cfg);
+    // In-flight guard: if another tool_use block is already prompting
+    // for this recipient, refuse the duplicate. The first prompt's
+    // outcome will apply; this call would otherwise post a second
+    // prompt the user has to dismiss separately.
+    if (cfg.inFlightPrompts.has(resolved.id)) {
+      rollbackCounter();
+      return {
+        ok: false,
+        reason: 'a permission prompt for this recipient is already pending — wait for it to resolve before retrying',
+      };
+    }
+
+    cfg.inFlightPrompts.add(resolved.id);
+    let decision: DmDecision;
+    try {
+      decision = await promptForDmPermission(resolved.id, resolved.username, cfg);
+    } finally {
+      cfg.inFlightPrompts.delete(resolved.id);
+    }
     if (decision === 'deny') {
+      rollbackCounter();
       return { ok: false, reason: 'user denied this DM' };
     }
     if (decision === 'timeout') {
+      rollbackCounter();
       return { ok: false, reason: 'permission prompt timed out' };
     }
     if (decision === 'error') {
+      rollbackCounter();
       return { ok: false, reason: 'permission prompt failed; refusing to send' };
     }
     if (decision === 'allow-all') {
@@ -1268,12 +1319,12 @@ export async function handleSendDmWith(
     const result = await cfg.api.sendDirectMessage(resolved.id, fullMessage);
     postId = result.postId;
   } catch (err) {
+    rollbackCounter();
     const reason = err instanceof Error ? err.message : String(err);
     mcpLogger.warn(`send_dm failed: ${reason}`);
     return { ok: false, reason };
   }
 
-  cfg.counts.set(resolved.id, sentSoFar + 1);
   return { ok: true, postId };
 }
 
@@ -1425,6 +1476,7 @@ async function handleSendDm(
     promptTimeoutMs: PERMISSION_TIMEOUT_MS,
     counts: sendDmCounts,
     allowedRecipients: sendDmAllowedRecipients,
+    inFlightPrompts: sendDmInFlightPrompts,
     memberCache: { get value() { return sendDmMemberCache; }, set value(v) { sendDmMemberCache = v; } },
     channelLabelCache: { get value() { return sendDmChannelLabel; }, set value(v) { sendDmChannelLabel = v; } },
     perRecipientLimit: SEND_DM_PER_RECIPIENT_LIMIT,

@@ -1492,6 +1492,7 @@ const DM_BOT_USER_ID = 'bot-1';
 interface SendDmStateBag {
   counts: Map<string, number>;
   allowedRecipients: Set<string>;
+  inFlightPrompts: Set<string>;
   memberCache: { value: { channelId: string; members: Set<string>; expiresAt: number } | null };
   channelLabelCache: { value: string | null };
 }
@@ -1500,6 +1501,7 @@ function makeSendDmState(): SendDmStateBag {
   return {
     counts: new Map(),
     allowedRecipients: new Set(),
+    inFlightPrompts: new Set(),
     memberCache: { value: null },
     channelLabelCache: { value: null },
   };
@@ -1519,6 +1521,7 @@ function makeSendDmCfg(
     promptTimeoutMs: 60_000,
     counts: state.counts,
     allowedRecipients: state.allowedRecipients,
+    inFlightPrompts: state.inFlightPrompts,
     memberCache: state.memberCache,
     channelLabelCache: state.channelLabelCache,
     perRecipientLimit: 3,
@@ -1836,5 +1839,84 @@ describe('handleSendDmWith', () => {
     expect(result.reason).toMatch(/platform 500/);
     // Counter must NOT have advanced — failed sends shouldn't burn the rate-limit budget.
     expect(state.counts.get(DM_RECIPIENT_ID) ?? 0).toBe(0);
+  });
+
+  it('rolls back the counter when the user denies the prompt', async () => {
+    // RED test: optimistic counter increment must be rolled back on deny.
+    // Without rollback, a denied prompt would silently consume one of the
+    // 3 DM slots — the user reacts 👎 and then can only send 2 more before
+    // hitting the rate limit on this recipient.
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '-1' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const state = makeSendDmState();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(false);
+    expect(state.counts.get(DM_RECIPIENT_ID) ?? 0).toBe(0);
+  });
+
+  it('rolls back the counter when the prompt times out', async () => {
+    // RED test: same property as deny, but for the timeout path.
+    const api = new FakeApi({ reactions: [null] }); // null queue → timeout
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/timed out/);
+    expect(state.counts.get(DM_RECIPIENT_ID) ?? 0).toBe(0);
+  });
+
+  it('refuses a parallel call to the same recipient while a prompt is pending', async () => {
+    // RED test: the in-flight guard. Without it, two parallel send_dm
+    // tool_use blocks for the same recipient would each post a permission
+    // prompt — a confusing UX where the user dismisses one and the other
+    // is still hanging.
+    //
+    // Simulate "currently prompting" by pre-populating the in-flight set,
+    // then attempting a send. The handler must short-circuit before
+    // posting a second prompt.
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.inFlightPrompts.add(DM_RECIPIENT_ID); // a "first call" is mid-prompt
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'second call' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/already pending/);
+    expect(api.createdPosts).toHaveLength(0); // no duplicate prompt posted
+    expect(api.sendDirectMessageCalls).toEqual([]);
+    // Counter must also be rolled back — the optimistic increment for this
+    // call should not stick after the in-flight rejection.
+    expect(state.counts.get(DM_RECIPIENT_ID) ?? 0).toBe(0);
+  });
+
+  it('clears the in-flight flag after the prompt resolves', async () => {
+    // After a prompt completes (either way), the recipient must be removed
+    // from the in-flight set so a subsequent legitimate call can prompt
+    // again. Without the finally-clause, the flag would stick and lock
+    // out future DMs to that recipient for the whole session.
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const state = makeSendDmState();
+    await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, state),
+    );
+    expect(state.inFlightPrompts.has(DM_RECIPIENT_ID)).toBe(false);
   });
 });
