@@ -236,11 +236,21 @@ export interface UsersInfoResponse extends SlackApiResponse {
 export interface ConversationsInfoResponse extends SlackApiResponse {
   channel: {
     id: string;
+    name?: string;
     is_private?: boolean;
     is_im?: boolean;
     is_mpim?: boolean;
     is_member?: boolean;
   };
+}
+
+export interface ConversationsMembersResponse extends SlackApiResponse {
+  members: string[];
+  response_metadata?: { next_cursor?: string };
+}
+
+export interface ConversationsOpenResponse extends SlackApiResponse {
+  channel: { id: string };
 }
 
 export interface UsersListResponse extends SlackApiResponse {

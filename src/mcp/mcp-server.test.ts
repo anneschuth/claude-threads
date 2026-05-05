@@ -11,6 +11,7 @@ import {
   handleListThreadWith,
   handleReadChannelHistoryWith,
   handleSearchMessagesWith,
+  handleSendDmWith,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
   type ReadPostHandlerConfig,
@@ -19,6 +20,7 @@ import {
   type ListThreadHandlerConfig,
   type ReadChannelHistoryHandlerConfig,
   type SearchMessagesHandlerConfig,
+  type SendDmHandlerConfig,
 } from './mcp-server.js';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
@@ -162,6 +164,29 @@ class FakeApi implements McpPlatformApi {
     this.searchMessagesCalls.push({ query, limit: options?.limit });
     if (this.searchMessagesImpl) return this.searchMessagesImpl(query, options);
     return [];
+  };
+
+  // send_dm hooks.
+  public getChannelMembersCalls: string[] = [];
+  public resolveRecipientCalls: string[] = [];
+  public sendDirectMessageCalls: Array<{ recipientUserId: string; message: string }> = [];
+  public getChannelMembersImpl: ((channelId: string) => Promise<string[] | null>) | undefined;
+  public resolveRecipientImpl: ((recipient: string) => Promise<{ id: string; username: string | null } | null>) | undefined;
+  public sendDirectMessageImpl: ((recipientUserId: string, message: string) => Promise<{ postId: string }>) | undefined;
+  getChannelMembers = async (channelId: string) => {
+    this.getChannelMembersCalls.push(channelId);
+    if (this.getChannelMembersImpl) return this.getChannelMembersImpl(channelId);
+    return [];
+  };
+  resolveRecipient = async (recipient: string) => {
+    this.resolveRecipientCalls.push(recipient);
+    if (this.resolveRecipientImpl) return this.resolveRecipientImpl(recipient);
+    return null;
+  };
+  sendDirectMessage = async (recipientUserId: string, message: string) => {
+    this.sendDirectMessageCalls.push({ recipientUserId, message });
+    if (this.sendDirectMessageImpl) return this.sendDirectMessageImpl(recipientUserId, message);
+    return { postId: 'dm-post-1' };
   };
 }
 
@@ -1445,12 +1470,371 @@ describe('handlePermissionWith — auto-approval for read_channel_history and se
   it.each([
     ['mcp__claude-threads-mcp__read_channel_history', { channel_id: 'x' }],
     ['mcp__claude-threads-mcp__search_messages', { query: 'x' }],
-  ] as const)('auto-allows %s without prompting', async (toolName, input) => {
+    ['mcp__claude-threads-mcp__send_dm', { recipient: 'x', message: 'x' }],
+  ] as const)('skips standard prompt for %s (handler runs its own gate)', async (toolName, input) => {
     const api = new FakeApi();
     const cfg = makeCfg(api);
     const result = await handlePermissionWith(toolName, input as Record<string, unknown>, cfg);
     expect(result.behavior).toBe('allow');
     expect(api.createdPosts).toHaveLength(0);
     expect(api.waitForReactionCalls).toHaveLength(0);
+  });
+});
+
+// =============================================================================
+// handleSendDmWith — send_dm MCP tool
+// =============================================================================
+
+const DM_BOT_CHANNEL = 'a'.repeat(26);
+const DM_RECIPIENT_ID = 'u-bob';
+const DM_BOT_USER_ID = 'bot-1';
+
+interface SendDmStateBag {
+  counts: Map<string, number>;
+  allowedRecipients: Set<string>;
+  memberCache: { value: { channelId: string; members: Set<string>; expiresAt: number } | null };
+  channelLabelCache: { value: string | null };
+}
+
+function makeSendDmState(): SendDmStateBag {
+  return {
+    counts: new Map(),
+    allowedRecipients: new Set(),
+    memberCache: { value: null },
+    channelLabelCache: { value: null },
+  };
+}
+
+function makeSendDmCfg(
+  api: FakeApi,
+  state: SendDmStateBag,
+  overrides: Partial<SendDmHandlerConfig> = {},
+): SendDmHandlerConfig {
+  return {
+    api,
+    platformType: 'mattermost',
+    botChannelId: DM_BOT_CHANNEL,
+    sessionOwnerUsername: 'anne',
+    threadId: 'thread-x',
+    promptTimeoutMs: 60_000,
+    counts: state.counts,
+    allowedRecipients: state.allowedRecipients,
+    memberCache: state.memberCache,
+    channelLabelCache: state.channelLabelCache,
+    perRecipientLimit: 3,
+    memberCacheTtlMs: 60_000,
+    maxMessageChars: 4000,
+    ...overrides,
+  };
+}
+
+/**
+ * Common harness: a recipient that exists, is in the channel, and the
+ * permission prompt is pre-approved (allow-once via 👍 from alice).
+ */
+function setupHappyPath(api: FakeApi): void {
+  api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+  api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, DM_BOT_USER_ID, 'u-alice'];
+  // The prompt response: alice (an allowed user) reacts with +1.
+  // Note: FakeApi default allowedUsers is ['alice'], default usernames map u-alice → alice.
+  api.uploadFileImpl = undefined;
+}
+
+describe('handleSendDmWith', () => {
+  it('rejects when the platform does not support DMs', async () => {
+    const api = new FakeApi();
+    (api as unknown as { resolveRecipient: unknown }).resolveRecipient = undefined;
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/);
+  });
+
+  it('rejects when botChannelId is not configured', async () => {
+    const api = new FakeApi();
+    setupHappyPath(api);
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState(), { botChannelId: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/channel not configured/);
+  });
+
+  it('rejects an empty recipient', async () => {
+    const api = new FakeApi();
+    const result = await handleSendDmWith(
+      { recipient: '   ', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/recipient/);
+    expect(api.resolveRecipientCalls).toEqual([]);
+  });
+
+  it('rejects an empty message', async () => {
+    const api = new FakeApi();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: '   ' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/message/);
+  });
+
+  it('rejects a message longer than the cap', async () => {
+    const api = new FakeApi();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'x'.repeat(5000) },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/exceeds .* cap/);
+  });
+
+  it('rejects when the recipient cannot be resolved', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => null;
+    const result = await handleSendDmWith(
+      { recipient: 'ghost', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/could not resolve/);
+    expect(api.sendDirectMessageCalls).toEqual([]);
+  });
+
+  it('refuses to DM the bot itself', async () => {
+    // RED test: this fails if the self-DM check is removed.
+    const api = new FakeApi(); // bot is DM_BOT_USER_ID by default
+    api.resolveRecipientImpl = async () => ({ id: DM_BOT_USER_ID, username: 'bot' });
+    const result = await handleSendDmWith(
+      { recipient: 'bot', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/cannot send a DM to the bot/);
+    expect(api.sendDirectMessageCalls).toEqual([]);
+  });
+
+  it('refuses when the recipient is not a member of the bot channel', async () => {
+    // RED test: load-bearing membership gate. Fails if the membership check
+    // is removed or the bot's-channel scope is broken.
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: 'u-stranger', username: 'stranger' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice']; // stranger NOT in members
+    const result = await handleSendDmWith(
+      { recipient: 'stranger', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a member/);
+    expect(api.sendDirectMessageCalls).toEqual([]);
+  });
+
+  it('reuses the member cache within the TTL', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    // Pre-approve so we focus on the cache behavior.
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    const cfg = makeSendDmCfg(api, state);
+    await handleSendDmWith({ recipient: 'bob', message: 'one' }, cfg);
+    await handleSendDmWith({ recipient: 'bob', message: 'two' }, cfg);
+    // Only one member-list fetch — second call hits the cache.
+    expect(api.getChannelMembersCalls).toHaveLength(1);
+  });
+
+  it('refetches members after the cache expires', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    let t = 1_000;
+    const cfg = makeSendDmCfg(api, state, { now: () => t });
+    await handleSendDmWith({ recipient: 'bob', message: 'one' }, cfg);
+    t += 70_000; // past the 60s TTL
+    await handleSendDmWith({ recipient: 'bob', message: 'two' }, cfg);
+    expect(api.getChannelMembersCalls).toHaveLength(2);
+  });
+
+  it('asks for permission on the first DM and sends after approval', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const state = makeSendDmState();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hello' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.postId).toBe('dm-post-1');
+    // A prompt was posted in the bot channel before sending.
+    expect(api.createdPosts).toHaveLength(1);
+    expect(api.createdPosts[0].message).toMatch(/Permission requested/);
+    expect(api.createdPosts[0].message).toMatch(/@bob/);
+    // The DM was sent.
+    expect(api.sendDirectMessageCalls).toHaveLength(1);
+    expect(api.sendDirectMessageCalls[0].recipientUserId).toBe(DM_RECIPIENT_ID);
+    // Allow-once does NOT promote — second DM would prompt again.
+    expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(false);
+    // Count incremented.
+    expect(state.counts.get(DM_RECIPIENT_ID)).toBe(1);
+  });
+
+  it('promotes the recipient to no-prompt when ✅ allow-all is selected', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const state = makeSendDmState();
+    await handleSendDmWith(
+      { recipient: 'bob', message: 'first' },
+      makeSendDmCfg(api, state),
+    );
+    expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(true);
+  });
+
+  it('refuses when the user denies the prompt', async () => {
+    // RED test: a deny reaction must abort. Fails if the deny path falls
+    // through to send.
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '-1' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, makeSendDmState()),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/denied/);
+    expect(api.sendDirectMessageCalls).toEqual([]);
+  });
+
+  it('skips the prompt for an already-allowed recipient (allow-all promotion)', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'no prompt' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(true);
+    expect(api.createdPosts).toHaveLength(0); // no permission prompt posted
+    expect(api.waitForReactionCalls).toHaveLength(0);
+    expect(api.sendDirectMessageCalls).toHaveLength(1);
+  });
+
+  it('allow-all is per-recipient, NOT global (DMing a different user still prompts)', async () => {
+    // RED test: the load-bearing per-recipient allow-all property. Fails
+    // if allow-all is implemented as a global flag.
+    const api = new FakeApi({
+      // Two prompts: first is for u-bob (allow-all), second is for u-charlie.
+      reactions: [
+        { postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' }, // bob
+        { postId: 'post-1', userId: 'u-alice', emojiName: '+1' }, // charlie
+      ],
+    });
+    let nextRecipient: 'bob' | 'charlie' = 'bob';
+    api.resolveRecipientImpl = async () => {
+      const id = nextRecipient === 'bob' ? DM_RECIPIENT_ID : 'u-charlie';
+      const username = nextRecipient;
+      return { id, username };
+    };
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-charlie', 'u-alice'];
+    const state = makeSendDmState();
+    const cfg = makeSendDmCfg(api, state);
+
+    nextRecipient = 'bob';
+    await handleSendDmWith({ recipient: 'bob', message: 'hi' }, cfg);
+    expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(true);
+
+    nextRecipient = 'charlie';
+    await handleSendDmWith({ recipient: 'charlie', message: 'hi' }, cfg);
+    // Two prompts posted (bob's allow-all did NOT cover charlie).
+    expect(api.createdPosts).toHaveLength(2);
+  });
+
+  it('enforces the per-recipient rate limit', async () => {
+    // RED test: load-bearing rate limit. Fails if the count check is
+    // skipped or the counter doesn't increment.
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    const cfg = makeSendDmCfg(api, state, { perRecipientLimit: 2 });
+    await handleSendDmWith({ recipient: 'bob', message: 'one' }, cfg);
+    await handleSendDmWith({ recipient: 'bob', message: 'two' }, cfg);
+    const result = await handleSendDmWith({ recipient: 'bob', message: 'three' }, cfg);
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/rate-limited/);
+    expect(api.sendDirectMessageCalls).toHaveLength(2); // third never sent
+  });
+
+  it('prepends the attribution prefix to every DM', async () => {
+    // RED test: the load-bearing attribution. Fails if the prefix is omitted
+    // or doesn't include the session owner / channel.
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    await handleSendDmWith(
+      { recipient: 'bob', message: 'the body' },
+      makeSendDmCfg(api, state),
+    );
+    expect(api.sendDirectMessageCalls).toHaveLength(1);
+    const sent = api.sendDirectMessageCalls[0].message;
+    expect(sent).toMatch(/automated message via claude-threads/);
+    expect(sent).toMatch(/@anne/);
+    expect(sent).toContain('the body');
+    // Prefix appears before the body.
+    const prefixIdx = sent.indexOf('claude-threads');
+    const bodyIdx = sent.indexOf('the body');
+    expect(prefixIdx).toBeLessThan(bodyIdx);
+  });
+
+  it('falls back gracefully when no session owner is configured', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, state, { sessionOwnerUsername: '' }),
+    );
+    const sent = api.sendDirectMessageCalls[0].message;
+    // Still has the bot-self-identification, just without the owner mention.
+    expect(sent).toMatch(/automated message via claude-threads/);
+    expect(sent).not.toMatch(/on behalf of/);
+  });
+
+  it('surfaces sendDirectMessage platform errors as ok:false', async () => {
+    const api = new FakeApi();
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID];
+    api.sendDirectMessageImpl = async () => { throw new Error('platform 500'); };
+    const state = makeSendDmState();
+    state.allowedRecipients.add(DM_RECIPIENT_ID);
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'hi' },
+      makeSendDmCfg(api, state),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform 500/);
+    // Counter must NOT have advanced — failed sends shouldn't burn the rate-limit budget.
+    expect(state.counts.get(DM_RECIPIENT_ID) ?? 0).toBe(0);
   });
 });

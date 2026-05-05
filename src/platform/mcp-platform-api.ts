@@ -196,10 +196,51 @@ export interface McpPlatformApi {
    * public channels) before fetching history. Returns null when the
    * channel isn't visible to the bot's token.
    *
+   * `name` is the human-readable channel name when available (used in
+   * the send_dm attribution prefix so recipients see "#general" instead
+   * of a 26-char id). Best-effort: implementations may omit it.
+   *
    * Optional — implementations that don't support channel introspection
    * omit it.
    */
-  getChannelInfo?(channelId: string): Promise<{ id: string; channelType: 'public' | 'private' } | null>;
+  getChannelInfo?(channelId: string): Promise<{
+    id: string;
+    channelType: 'public' | 'private';
+    name?: string;
+  } | null>;
+
+  /**
+   * Return the user IDs of members in a channel. Used by send_dm to
+   * verify the recipient is a member of the bot's channel before
+   * sending. Implementations should cache for a short TTL since
+   * membership rarely changes within a session.
+   *
+   * Optional — implementations that don't expose channel members omit it.
+   */
+  getChannelMembers?(channelId: string): Promise<string[] | null>;
+
+  /**
+   * Resolve a recipient identifier to a user ID. The shape of `recipient`
+   * is platform-specific:
+   *   - Mattermost: a username (`@anne` or `anne`)
+   *   - Slack: a user id (`U…`) — Slack's bot tokens can't reverse-look up
+   *     usernames cheaply, so this method takes the id as-is and
+   *     verifies it exists.
+   *
+   * Returns null when the recipient can't be found.
+   *
+   * Optional — implementations omit when DMs aren't supported.
+   */
+  resolveRecipient?(recipient: string): Promise<{ id: string; username: string | null } | null>;
+
+  /**
+   * Send a direct message to a user. Returns the post id of the sent
+   * message on success. The caller is responsible for membership checks,
+   * attribution prefixes, and rate limits — this method just sends.
+   *
+   * Optional — implementations omit when DMs aren't supported.
+   */
+  sendDirectMessage?(recipientUserId: string, message: string): Promise<{ postId: string }>;
 
   /**
    * Search messages on the platform. Returns posts in unspecified order

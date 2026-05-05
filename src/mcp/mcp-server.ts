@@ -65,6 +65,12 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
 
 const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120000', 10);
 
+// Session owner — surfaced in the send_dm attribution prefix so
+// recipients can trace a bot DM back to "the person who started this
+// session." Empty when the bot wasn't passed a starter (only happens
+// in --bypass mode without a session). Wired in via cli.ts → buildPermissionArgs.
+const SESSION_OWNER_USERNAME = process.env.SESSION_OWNER_USERNAME || '';
+
 // Outbound-file (`send_file`) configuration. Populated by the bot at spawn
 // time via buildPermissionArgs. Empty roots → outbound disabled regardless
 // of OUTBOUND_FILES_ENABLED, since we'd have nothing to validate against.
@@ -85,11 +91,18 @@ const UPDATE_OWN_POST_TOOL_NAME = 'mcp__claude-threads-mcp__update_own_post';
 const LIST_THREAD_TOOL_NAME = 'mcp__claude-threads-mcp__list_thread';
 const READ_CHANNEL_HISTORY_TOOL_NAME = 'mcp__claude-threads-mcp__read_channel_history';
 const SEARCH_MESSAGES_TOOL_NAME = 'mcp__claude-threads-mcp__search_messages';
+const SEND_DM_TOOL_NAME = 'mcp__claude-threads-mcp__send_dm';
 
-// Tools whose handler enforces its own scope/author/path checks and so
-// shouldn't be gated by an interactive permission prompt. Listed centrally
-// so handlePermissionWith can stay one-line.
-const AUTO_ALLOWED_MCP_TOOLS = new Set<string>([
+// Tools that bypass the standard permission_prompt flow because they
+// enforce their own gate inside the handler. The "gate" varies:
+//   - send_file: path validation
+//   - read_post / list_thread / react_to_post / read_channel_history /
+//     search_messages: scope predicate (bot's channel ∪ public channels)
+//   - update_own_post: author check
+//   - send_dm: recipient-scoped permission prompt (handler asks the user
+//     directly and remembers the decision per recipient — the standard
+//     per-call prompt would lose the recipient-keyed memory)
+const SKIP_STANDARD_PERMISSION_PROMPT = new Set<string>([
   SEND_FILE_TOOL_NAME,
   READ_POST_TOOL_NAME,
   REACT_TO_POST_TOOL_NAME,
@@ -97,6 +110,7 @@ const AUTO_ALLOWED_MCP_TOOLS = new Set<string>([
   LIST_THREAD_TOOL_NAME,
   READ_CHANNEL_HISTORY_TOOL_NAME,
   SEARCH_MESSAGES_TOOL_NAME,
+  SEND_DM_TOOL_NAME,
 ]);
 
 // =============================================================================
@@ -135,6 +149,21 @@ function getApi(): McpPlatformApi {
 // Session state
 let allowAllSession = false;
 
+// send_dm state.
+//
+// All three pieces are scoped to the lifetime of this MCP child (= one
+// claude-threads session). They reset implicitly when the session ends
+// because the MCP child exits with it. Persisting across sessions would
+// be the wrong default — a session boundary is a meaningful "fresh start"
+// for the user's intent.
+const SEND_DM_PER_RECIPIENT_LIMIT = 3;
+const SEND_DM_MEMBER_CACHE_TTL_MS = 60_000;
+const SEND_DM_MAX_MESSAGE_CHARS = 4000;
+const sendDmCounts = new Map<string, number>();
+const sendDmAllowedRecipients = new Set<string>();
+let sendDmMemberCache: { channelId: string; members: Set<string>; expiresAt: number } | null = null;
+let sendDmChannelLabel: string | null = null;
+
 // =============================================================================
 // Permission Handler
 // =============================================================================
@@ -170,16 +199,20 @@ export async function handlePermissionWith(
 ): Promise<PermissionResult> {
   mcpLogger.debug(`handlePermission called for ${toolName}`);
 
-  // Auto-approve our own MCP tools: each enforces its own scope/author/path
-  // check inside the handler, so an interactive 👍 prompt would only add
-  // friction (every screenshot, every reaction, every list_thread call).
+  // Skip the standard permission_prompt flow for our own MCP tools: each
+  // enforces its own gate inside the handler. Most are silent (path/scope
+  // checks); send_dm is the exception — it asks the user explicitly, but
+  // the prompt is recipient-scoped so it lives inside the handler rather
+  // than the generic per-call prompt.
   //
-  // The trust model rests on three things, all enforced inside the handlers:
+  // The per-tool gates:
   //   - send_file: path validation against allowedRoots (path-validator.ts)
   //   - read_post / list_thread / react_to_post / read_channel_history /
   //     search_messages: scope predicate (bot's channel ∪ public channels
   //     on the same instance)
   //   - update_own_post: author check (post.userId === botUserId)
+  //   - send_dm: recipient must be a channel member, plus a per-recipient
+  //     interactive permission prompt with allow-once / allow-all / deny
   //
   // Why no isUserAllowed check here: these tools are invoked by Claude,
   // which only runs against authorized session prompts. The session
@@ -187,8 +220,8 @@ export async function handlePermissionWith(
   // this code path, the originating user has already been admitted. If a
   // future flow ever invokes a tool outside a session, this breaks;
   // revisit then.
-  if (AUTO_ALLOWED_MCP_TOOLS.has(toolName)) {
-    mcpLogger.debug(`Auto-allowing ${toolName} (handler enforces its own gate)`);
+  if (SKIP_STANDARD_PERMISSION_PROMPT.has(toolName)) {
+    mcpLogger.debug(`Skipping standard prompt for ${toolName} (handler enforces its own gate)`);
     return { behavior: 'allow', updatedInput: toolInput };
   }
 
@@ -397,6 +430,19 @@ const searchMessagesInputSchema = {
     .int()
     .optional()
     .describe('Maximum results to return. Defaults to 10, capped at 25.'),
+};
+
+const sendDmInputSchema = {
+  recipient: z
+    .string()
+    .describe(
+      "Recipient identifier. Mattermost: a username (with or without leading @). " +
+        "Slack: a user ID (e.g. 'U0123ABC' or '<@U0123ABC>'). The recipient must be a " +
+        "current member of the bot's channel.",
+    ),
+  message: z
+    .string()
+    .describe('Message body to send as a DM. Bot prepends an attribution prefix.'),
 };
 
 export interface SendFileResult {
@@ -1082,6 +1128,312 @@ async function handleSearchMessages(
 }
 
 // =============================================================================
+// send_dm — direct-message a member of the bot's channel
+// =============================================================================
+//
+// The flow rests on five gates, in order:
+//   1. Shape: recipient and message are non-empty, message is under cap.
+//   2. Resolve: look up the recipient's user id via the platform API.
+//   3. Self-DM: refuse to DM the bot itself (catches confused calls).
+//   4. Membership: recipient must be a current member of the bot's
+//      channel (cached for 60s — channel members rarely change mid-session).
+//   5. Rate limit: at most 3 DMs per recipient per session.
+//   6. Permission: a per-recipient interactive prompt the first time the
+//      session DMs each user. ✅ promotes to "no further prompts for THIS
+//      recipient" but DM count still applies.
+// All errors are returned as { ok: false, reason } so Claude can react.
+
+export interface SendDmResult {
+  ok: boolean;
+  postId?: string;
+  reason?: string;
+}
+
+export interface SendDmHandlerConfig {
+  api: McpPlatformApi;
+  platformType: string;
+  botChannelId: string;
+  /** Username of the session starter — used in the attribution prefix. */
+  sessionOwnerUsername: string;
+  /** Thread the prompt should land in. Same as PLATFORM_THREAD_ID for
+   *  in-session calls; the MCP child wires this through to keep the
+   *  permission-prompt UX bound to the session's own thread. */
+  threadId?: string;
+  /** Timeout for the per-recipient permission prompt. */
+  promptTimeoutMs: number;
+  /**
+   * State plumbing: a per-MCP-child Map<recipient, count> for the rate
+   * limit, a Set<recipient> for the allow-all promotion, and a
+   * member-cache slot (passed by reference so calls share it). All three
+   * are injected so unit tests can assert on them without mutating the
+   * module-level state.
+   */
+  counts: Map<string, number>;
+  allowedRecipients: Set<string>;
+  memberCache: { value: { channelId: string; members: Set<string>; expiresAt: number } | null };
+  /** Single-slot cache for the bot-channel display label. Mutated by
+   *  resolveChannelLabel so a session pays the channel-info lookup once. */
+  channelLabelCache: { value: string | null };
+  perRecipientLimit: number;
+  memberCacheTtlMs: number;
+  maxMessageChars: number;
+  now?: () => number;
+}
+
+export async function handleSendDmWith(
+  args: { recipient: string; message: string },
+  cfg: SendDmHandlerConfig,
+): Promise<SendDmResult> {
+  if (!cfg.api.resolveRecipient || !cfg.api.sendDirectMessage || !cfg.api.getChannelMembers) {
+    return { ok: false, reason: 'this platform does not support direct messages' };
+  }
+  if (!cfg.botChannelId) {
+    return { ok: false, reason: 'platform channel not configured' };
+  }
+
+  // 1. Shape.
+  const recipientArg = (args.recipient ?? '').trim();
+  if (recipientArg.length === 0) {
+    return { ok: false, reason: 'recipient must be a non-empty string' };
+  }
+  if (typeof args.message !== 'string' || args.message.trim().length === 0) {
+    return { ok: false, reason: 'message must be a non-empty string' };
+  }
+  if (args.message.length > cfg.maxMessageChars) {
+    return {
+      ok: false,
+      reason: `message exceeds ${cfg.maxMessageChars}-character cap (${args.message.length} chars supplied)`,
+    };
+  }
+
+  // 2. Resolve recipient.
+  const resolved = await cfg.api.resolveRecipient(recipientArg);
+  if (!resolved) {
+    return { ok: false, reason: `could not resolve recipient '${recipientArg}'` };
+  }
+
+  // 3. Self-DM guard. The bot DMing itself doesn't actually do anything
+  // useful and would confuse the per-recipient counters.
+  let botUserId: string;
+  try {
+    botUserId = await cfg.api.getBotUserId();
+  } catch (err) {
+    return {
+      ok: false,
+      reason: `could not verify bot identity: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+  if (resolved.id === botUserId) {
+    return { ok: false, reason: 'cannot send a DM to the bot itself' };
+  }
+
+  // 4. Membership check (cached).
+  const member = await isRecipientChannelMember(resolved.id, cfg);
+  if (!member.ok) return { ok: false, reason: member.reason };
+
+  // 5. Rate limit.
+  const sentSoFar = cfg.counts.get(resolved.id) ?? 0;
+  if (sentSoFar >= cfg.perRecipientLimit) {
+    return {
+      ok: false,
+      reason: `rate-limited: already sent ${sentSoFar} DM${sentSoFar === 1 ? '' : 's'} to this recipient in this session (limit ${cfg.perRecipientLimit})`,
+    };
+  }
+
+  // 6. Per-recipient permission prompt.
+  if (!cfg.allowedRecipients.has(resolved.id)) {
+    const decision = await promptForDmPermission(resolved.id, resolved.username, cfg);
+    if (decision === 'deny') {
+      return { ok: false, reason: 'user denied this DM' };
+    }
+    if (decision === 'timeout') {
+      return { ok: false, reason: 'permission prompt timed out' };
+    }
+    if (decision === 'error') {
+      return { ok: false, reason: 'permission prompt failed; refusing to send' };
+    }
+    if (decision === 'allow-all') {
+      cfg.allowedRecipients.add(resolved.id);
+    }
+    // 'allow-once' falls through without persisting.
+  }
+
+  // Build attribution prefix and send.
+  const channelLabel = await resolveChannelLabel(cfg);
+  const prefix = buildAttributionPrefix(cfg.sessionOwnerUsername, channelLabel);
+  const fullMessage = `${prefix}\n\n${args.message}`;
+
+  let postId: string;
+  try {
+    const result = await cfg.api.sendDirectMessage(resolved.id, fullMessage);
+    postId = result.postId;
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    mcpLogger.warn(`send_dm failed: ${reason}`);
+    return { ok: false, reason };
+  }
+
+  cfg.counts.set(resolved.id, sentSoFar + 1);
+  return { ok: true, postId };
+}
+
+interface MembershipOk { ok: true }
+interface MembershipErr { ok: false; reason: string }
+
+async function isRecipientChannelMember(
+  recipientUserId: string,
+  cfg: SendDmHandlerConfig,
+): Promise<MembershipOk | MembershipErr> {
+  const now = cfg.now ?? Date.now;
+  const cache = cfg.memberCache.value;
+  if (cache && cache.channelId === cfg.botChannelId && cache.expiresAt > now()) {
+    if (cache.members.has(recipientUserId)) return { ok: true };
+    return {
+      ok: false,
+      reason: 'recipient is not a member of the bot channel — only channel members can be DMed',
+    };
+  }
+
+  // Cache miss or expired.
+  if (!cfg.api.getChannelMembers) {
+    return { ok: false, reason: 'platform does not expose channel members' };
+  }
+  const members = await cfg.api.getChannelMembers(cfg.botChannelId);
+  if (members === null) {
+    return { ok: false, reason: 'could not fetch channel members' };
+  }
+  const set = new Set(members);
+  cfg.memberCache.value = {
+    channelId: cfg.botChannelId,
+    members: set,
+    expiresAt: now() + cfg.memberCacheTtlMs,
+  };
+  if (set.has(recipientUserId)) return { ok: true };
+  return {
+    ok: false,
+    reason: 'recipient is not a member of the bot channel — only channel members can be DMed',
+  };
+}
+
+type DmDecision = 'allow-once' | 'allow-all' | 'deny' | 'timeout' | 'error';
+
+async function promptForDmPermission(
+  recipientId: string,
+  recipientUsername: string | null,
+  cfg: SendDmHandlerConfig,
+): Promise<DmDecision> {
+  const now = cfg.now ?? Date.now;
+  const formatter = cfg.api.getFormatter();
+  const recipientLabel = recipientUsername ? `@${recipientUsername}` : recipientId;
+  const message =
+    `⚠️ ${formatter.formatBold('Permission requested')}\n\n` +
+    `claude-threads wants to send a DM to ${formatter.formatBold(recipientLabel)}.\n\n` +
+    `👍 Allow once | ✅ Allow all DMs to this recipient | 👎 Deny`;
+
+  let post: { id: string };
+  let botUserId: string;
+  try {
+    botUserId = await cfg.api.getBotUserId();
+    post = await cfg.api.createInteractivePost(
+      message,
+      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      cfg.threadId,
+    );
+  } catch (err) {
+    mcpLogger.error(`send_dm prompt failed: ${err}`);
+    return 'error';
+  }
+
+  const startTime = now();
+
+  while (true) {
+    const remainingTime = cfg.promptTimeoutMs - (now() - startTime);
+    if (remainingTime <= 0) {
+      await safeUpdatePost(cfg.api, post.id, `⏱️ ${formatter.formatBold('Timed out')} — DM to ${recipientLabel} not sent`);
+      return 'timeout';
+    }
+    const reaction = await cfg.api.waitForReaction(post.id, botUserId, remainingTime);
+    if (!reaction) {
+      await safeUpdatePost(cfg.api, post.id, `⏱️ ${formatter.formatBold('Timed out')} — DM to ${recipientLabel} not sent`);
+      return 'timeout';
+    }
+    const username = await cfg.api.getUsername(reaction.userId);
+    if (username && cfg.api.isUserAllowed(username)) {
+      const emoji = reaction.emojiName;
+      if (isApprovalEmoji(emoji)) {
+        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(username)} — sending DM to ${recipientLabel}`);
+        return 'allow-once';
+      }
+      if (isAllowAllEmoji(emoji)) {
+        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allow all')} by ${formatter.formatUserMention(username)} — DMs to ${recipientLabel} won't prompt again this session`);
+        return 'allow-all';
+      }
+      await safeUpdatePost(cfg.api, post.id, `❌ ${formatter.formatBold('Denied')} by ${formatter.formatUserMention(username)}`);
+      return 'deny';
+    }
+    // Unauthorized user reacted — keep waiting (matches the standard
+    // permission_prompt loop).
+    mcpLogger.debug(`Ignoring unauthorized DM-permission reaction from ${username || reaction.userId}`);
+  }
+}
+
+async function safeUpdatePost(api: McpPlatformApi, postId: string, message: string): Promise<void> {
+  try {
+    await api.updatePost(postId, message);
+  } catch (err) {
+    mcpLogger.warn(`updatePost failed (cosmetic): ${err}`);
+  }
+}
+
+/** Resolve the bot channel's display name. Cached per-cfg via
+ *  `channelLabelCache` (a single-slot cache passed by reference) so a
+ *  long-running session pays the lookup once. Falls back to the channel
+ *  id when the platform doesn't expose a name. */
+async function resolveChannelLabel(cfg: SendDmHandlerConfig): Promise<string> {
+  const slot = cfg.channelLabelCache;
+  if (slot.value !== null) return slot.value;
+  if (!cfg.api.getChannelInfo) {
+    slot.value = cfg.botChannelId;
+    return slot.value;
+  }
+  const info = await cfg.api.getChannelInfo(cfg.botChannelId);
+  slot.value = info?.name ? `#${info.name}` : cfg.botChannelId;
+  return slot.value;
+}
+
+function buildAttributionPrefix(ownerUsername: string, channelLabel: string): string {
+  // Shape designed to be unmistakable to a human reader:
+  // - opens with a marker recipients quickly recognize
+  // - names the session starter so the recipient can complain to them
+  // - names the channel so the recipient knows where the session lives
+  // - names the bot so they can mute / report it if needed
+  if (ownerUsername) {
+    return `_(automated message via claude-threads, on behalf of @${ownerUsername} from ${channelLabel})_`;
+  }
+  return `_(automated message via claude-threads from ${channelLabel})_`;
+}
+
+async function handleSendDm(
+  args: { recipient: string; message: string },
+): Promise<SendDmResult> {
+  return handleSendDmWith(args, {
+    api: getApi(),
+    platformType: PLATFORM_TYPE,
+    botChannelId: PLATFORM_CHANNEL_ID,
+    sessionOwnerUsername: SESSION_OWNER_USERNAME,
+    threadId: PLATFORM_THREAD_ID || undefined,
+    promptTimeoutMs: PERMISSION_TIMEOUT_MS,
+    counts: sendDmCounts,
+    allowedRecipients: sendDmAllowedRecipients,
+    memberCache: { get value() { return sendDmMemberCache; }, set value(v) { sendDmMemberCache = v; } },
+    channelLabelCache: { get value() { return sendDmChannelLabel; }, set value(v) { sendDmChannelLabel = v; } },
+    perRecipientLimit: SEND_DM_PER_RECIPIENT_LIMIT,
+    memberCacheTtlMs: SEND_DM_MEMBER_CACHE_TTL_MS,
+    maxMessageChars: SEND_DM_MAX_MESSAGE_CHARS,
+  });
+}
+
+// =============================================================================
 // Shared: resolve a permalink URL to a post, applying the scope predicate
 // =============================================================================
 
@@ -1298,6 +1650,27 @@ async function main() {
     searchMessagesInputSchema,
     async ({ query, max_results }: { query: string; max_results?: number }) => {
       const result = await handleSearchMessages({ query, max_results });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool(
+    'send_dm',
+    "Send a direct message to a member of the bot's channel. Use this when the user " +
+      'asks to ping someone in private (a status update, a notification, a result they want as a DM). ' +
+      'The recipient must be a current member of the bot channel. The first DM to each recipient ' +
+      'in a session triggers a permission prompt in the bot channel; ✅ allow-all promotes that ' +
+      'specific recipient to no-prompt for the rest of the session. ' +
+      'Hard limit: 3 DMs per recipient per session. The bot prepends an attribution line so ' +
+      'recipients can see the DM came from a session and who started it. ' +
+      'Returns { ok: true, postId } on success or { ok: false, reason } on failure (denied, ' +
+      'rate-limited, recipient not in channel, etc.).',
+    sendDmInputSchema,
+    async ({ recipient, message }: { recipient: string; message: string }) => {
+      const result = await handleSendDm({ recipient, message });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };

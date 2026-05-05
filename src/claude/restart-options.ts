@@ -42,5 +42,6 @@ export function buildRestartCliOptions(
     account: ctx.account,
     uploadDir: getSessionUploadDir(session.platformId, session.threadId),
     outboundFiles: platformMcpConfig.outboundFiles,
+    sessionOwnerUsername: session.startedBy,
   };
 }

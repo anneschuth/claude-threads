@@ -118,6 +118,14 @@ export interface ClaudeCliOptions {
   logSessionId?: string;  // Session ID for log routing (platformId:threadId)
   permissionTimeoutMs?: number;  // Timeout for permission approval (default: 120000)
   /**
+   * Username of the user who started this session. Forwarded to the MCP
+   * child as `SESSION_OWNER_USERNAME` and used by `send_dm` for the
+   * attribution prefix recipients see ("via claude-threads, on behalf
+   * of @anne"). Optional: when omitted the prefix degrades to "via
+   * claude-threads from another channel."
+   */
+  sessionOwnerUsername?: string;
+  /**
    * Optional Claude account to spawn under. When set, `HOME` (for OAuth) or
    * `ANTHROPIC_API_KEY` (for API-billed) in the child env is overridden so
    * Claude uses that account's credentials. When omitted, the child inherits
@@ -252,6 +260,9 @@ export function buildPermissionArgs(opts: {
   uploadDir?: string;
   /** Outbound file (`send_file`) settings. Both fields are optional. */
   outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  /** Username of the session starter; surfaced to the MCP child as
+   *  SESSION_OWNER_USERNAME for `send_dm` attribution. */
+  sessionOwnerUsername?: string;
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
@@ -287,6 +298,7 @@ export function buildPermissionArgs(opts: {
     ALLOWED_USERS: opts.platformConfig.allowedUsers.join(','),
     DEBUG: opts.debug ? '1' : '',
     PERMISSION_TIMEOUT_MS: String(opts.permissionTimeoutMs),
+    SESSION_OWNER_USERNAME: opts.sessionOwnerUsername || '',
   };
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
@@ -507,6 +519,7 @@ export class ClaudeCli extends EventEmitter {
       workingDir: this.options.workingDir,
       uploadDir: this.options.uploadDir,
       outboundFiles: this.options.outboundFiles,
+      sessionOwnerUsername: this.options.sessionOwnerUsername,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;

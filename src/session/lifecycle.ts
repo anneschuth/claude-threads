@@ -918,6 +918,7 @@ export async function startSession(
       : undefined,
     uploadDir: getSessionUploadDir(platformId, actualThreadId),
     outboundFiles: platformMcpConfig.outboundFiles,
+    sessionOwnerUsername: username,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -1185,6 +1186,7 @@ export async function resumeSession(
       : undefined,
     uploadDir: getSessionUploadDir(platformId, state.threadId),
     outboundFiles: platformMcpConfig.outboundFiles,
+    sessionOwnerUsername: state.startedBy,
   };
   const claude = new ClaudeCli(cliOptions);
 

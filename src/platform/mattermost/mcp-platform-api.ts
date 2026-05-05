@@ -57,6 +57,10 @@ interface MattermostApiChannel {
   type: 'O' | 'P' | 'D' | 'G';
   /** Team owning this channel. Empty for DMs / group DMs. */
   team_id?: string;
+  /** Human-readable channel name (URL slug). */
+  name?: string;
+  /** Display name shown in the UI. Falls back to `name` when empty. */
+  display_name?: string;
 }
 
 interface MattermostApiUser {
@@ -241,6 +245,49 @@ async function addReaction(
     post_id: postId,
     emoji_name: emojiName,
   });
+}
+
+async function getUserByUsernameRaw(
+  config: MattermostApiConfig,
+  username: string,
+): Promise<MattermostApiUser | null> {
+  try {
+    return await mattermostApi<MattermostApiUser>(config, 'GET', `/users/username/${encodeURIComponent(username)}`);
+  } catch (err) {
+    apiLog.debug(`Failed to lookup user @${username}: ${err}`);
+    return null;
+  }
+}
+
+interface MattermostApiChannelMember {
+  user_id: string;
+}
+
+interface MattermostApiDirectChannel {
+  id: string;
+}
+
+/**
+ * Open (or fetch existing) direct-message channel between two users.
+ * Mattermost auto-deduplicates: calling repeatedly with the same pair
+ * returns the same channel id.
+ */
+async function createDirectChannelRaw(
+  config: MattermostApiConfig,
+  userIdA: string,
+  userIdB: string,
+): Promise<MattermostApiDirectChannel | null> {
+  try {
+    return await mattermostApi<MattermostApiDirectChannel>(
+      config,
+      'POST',
+      '/channels/direct',
+      [userIdA, userIdB],
+    );
+  } catch (err) {
+    apiLog.debug(`Failed to open direct channel ${userIdA}↔${userIdB}: ${err}`);
+    return null;
+  }
 }
 
 function isUserInAllowList(username: string, allowList: string[]): boolean {
@@ -532,7 +579,11 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     return this.hydratePosts(ordered);
   }
 
-  async getChannelInfo(channelId: string): Promise<{ id: string; channelType: 'public' | 'private' } | null> {
+  async getChannelInfo(channelId: string): Promise<{
+    id: string;
+    channelType: 'public' | 'private';
+    name?: string;
+  } | null> {
     mcpLogger.debug(`getChannelInfo: ${formatShortId(channelId)}`);
     const channel = await getChannelRaw(this.apiConfig, channelId);
     if (!channel) return null;
@@ -540,7 +591,48 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     // Populate the type cache so downstream readPost / readThread don't
     // make another round trip.
     this.channelTypeCache.set(channelId, channelType);
-    return { id: channel.id, channelType };
+    // Prefer display_name (what the UI shows) over the URL slug.
+    const name = channel.display_name || channel.name;
+    return { id: channel.id, channelType, name };
+  }
+
+  async getChannelMembers(channelId: string): Promise<string[] | null> {
+    // Mattermost paginates at 200 members per page by default. For typical
+    // bot channels (tens of members) one page is enough. Larger channels
+    // would need cursor handling — out of scope for the MCP API since the
+    // single-member lookup above is the actual code path used by send_dm.
+    try {
+      const members = await mattermostApi<MattermostApiChannelMember[]>(
+        this.apiConfig,
+        'GET',
+        `/channels/${channelId}/members?per_page=200`,
+      );
+      return members.map(m => m.user_id);
+    } catch (err) {
+      mcpLogger.debug(`getChannelMembers ${channelId} failed: ${err}`);
+      return null;
+    }
+  }
+
+  async resolveRecipient(recipient: string): Promise<{ id: string; username: string | null } | null> {
+    // Mattermost takes a username; strip a leading @ if Claude included one.
+    const normalized = recipient.replace(/^@/, '');
+    const user = await getUserByUsernameRaw(this.apiConfig, normalized);
+    if (!user) return null;
+    return { id: user.id, username: user.username };
+  }
+
+  async sendDirectMessage(
+    recipientUserId: string,
+    message: string,
+  ): Promise<{ postId: string }> {
+    const botUserId = await this.getBotUserId();
+    const dmChannel = await createDirectChannelRaw(this.apiConfig, botUserId, recipientUserId);
+    if (!dmChannel) {
+      throw new Error('failed to open direct channel with recipient');
+    }
+    const post = await createPost(this.apiConfig, dmChannel.id, message);
+    return { postId: post.id };
   }
 
   async searchMessages(

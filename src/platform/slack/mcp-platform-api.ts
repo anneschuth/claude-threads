@@ -26,6 +26,8 @@ import type {
   UsersInfoResponse,
   ConversationsHistoryResponse,
   ConversationsInfoResponse,
+  ConversationsMembersResponse,
+  ConversationsOpenResponse,
   ConversationsRepliesResponse,
   SlackMessage,
   SlackSocketModeEvent,
@@ -532,7 +534,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
 
   async getChannelInfo(
     channelId: string,
-  ): Promise<{ id: string; channelType: 'public' | 'private' } | null> {
+  ): Promise<{ id: string; channelType: 'public' | 'private'; name?: string } | null> {
     mcpLogger.debug(`getChannelInfo: ${channelId}`);
     try {
       const response = await slackApi<ConversationsInfoResponse>(
@@ -547,11 +549,88 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       return {
         id: ch.id,
         channelType: isPrivate ? 'private' : 'public',
+        name: ch.name,
       };
     } catch (err) {
       mcpLogger.debug(`getChannelInfo ${channelId} failed: ${err}`);
       return null;
     }
+  }
+
+  async getChannelMembers(channelId: string): Promise<string[] | null> {
+    // Slack paginates channel members. Iterate cursor until exhausted.
+    // Bounded by `maxPages` so a runaway 100k-member channel can't pin
+    // the MCP child indefinitely; in practice bot channels are small.
+    const maxPages = 20; // 20 * 1000 = 20k members ceiling
+    const all: string[] = [];
+    let cursor: string | undefined = undefined;
+    try {
+      for (let i = 0; i < maxPages; i++) {
+        const params: Record<string, unknown> = {
+          channel: channelId,
+          limit: 1000,
+        };
+        if (cursor) params.cursor = cursor;
+        const response: ConversationsMembersResponse = await slackApi<ConversationsMembersResponse>(
+          'conversations.members',
+          this.config.botToken,
+          params,
+        );
+        all.push(...(response.members ?? []));
+        cursor = response.response_metadata?.next_cursor;
+        if (!cursor) return all;
+      }
+      mcpLogger.warn(`getChannelMembers ${channelId} hit page cap of ${maxPages}`);
+      return all;
+    } catch (err) {
+      mcpLogger.debug(`getChannelMembers ${channelId} failed: ${err}`);
+      return null;
+    }
+  }
+
+  async resolveRecipient(
+    recipient: string,
+  ): Promise<{ id: string; username: string | null } | null> {
+    // Slack: recipient is a user ID. Strip surrounding `<@...>` markers
+    // if Claude included them (they appear in chat as "<@U123>").
+    const id = recipient.replace(/^<@/, '').replace(/>$/, '');
+    if (!/^[UW][A-Z0-9]{8,}$/.test(id)) {
+      return null;
+    }
+    try {
+      const response = await slackApi<UsersInfoResponse>(
+        'users.info',
+        this.config.botToken,
+        { user: id },
+      );
+      return { id: response.user.id, username: response.user.name ?? null };
+    } catch (err) {
+      mcpLogger.debug(`resolveRecipient ${id} failed: ${err}`);
+      return null;
+    }
+  }
+
+  async sendDirectMessage(
+    recipientUserId: string,
+    message: string,
+  ): Promise<{ postId: string }> {
+    // Open (or fetch existing) DM channel with the recipient.
+    const opened = await slackApi<ConversationsOpenResponse>(
+      'conversations.open',
+      this.config.botToken,
+      { users: recipientUserId },
+    );
+    const dmChannelId = opened.channel.id;
+    const post = await slackApi<PostMessageResponse>(
+      'chat.postMessage',
+      this.config.botToken,
+      {
+        channel: dmChannelId,
+        text: message,
+        mrkdwn: true,
+      },
+    );
+    return { postId: post.ts };
   }
 }
 
