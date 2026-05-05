@@ -21,7 +21,7 @@ import type {
   AutoUpdateEvents,
 } from './types.js';
 import { RESTART_EXIT_CODE, mergeAutoUpdateConfig } from './types.js';
-import { decideRespawn, spawnReplacement } from './respawn.js';
+import { decideRespawn, resolveClaudeThreadsBin, spawnReplacement } from './respawn.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 /** Message builder function that takes a formatter and returns the formatted message */
@@ -270,10 +270,30 @@ export class AutoUpdateManager extends EventEmitter {
       this.updateStatus('pending_restart');
       this.emit('update:restart', updateInfo.latestVersion);
 
-      // Broadcast success and restart notice
-      await this.callbacks.broadcastUpdate((fmt) =>
-        `✅ ${fmt.formatBold('Update installed')} - restarting now. ${fmt.formatItalic('Sessions will resume automatically.')}`
-      ).catch(() => {});
+      // Decide the restart strategy BEFORE telling the user what's about
+      // to happen. The success message should not promise auto-resumption
+      // if we know we can't deliver it (e.g. self-respawn case where the
+      // binary isn't on PATH).
+      const decision = decideRespawn();
+      const binPath = decision.kind === 'self-respawn' ? resolveClaudeThreadsBin() : null;
+      const canSelfRespawn = decision.kind === 'self-respawn' && binPath !== null;
+      const willAutoRestart =
+        decision.kind === 'exit-for-supervisor'
+          ? decision.supervisor !== 'none-headless'
+          : canSelfRespawn;
+
+      // Tailored success message. If we know auto-restart isn't going to
+      // happen, tell the user to run claude-threads themselves rather
+      // than implying sessions will come back on their own.
+      if (willAutoRestart) {
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `✅ ${fmt.formatBold('Update installed')} to v${updateInfo.latestVersion}. Restarting now, sessions will resume automatically.`
+        ).catch(() => {});
+      } else {
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `✅ ${fmt.formatBold('Update installed')} to v${updateInfo.latestVersion}. Could not auto-restart (no supervisor and no claude-threads on PATH); please run ${fmt.formatCode('claude-threads')} to bring the bot back. Sessions are persisted and will resume.`
+        ).catch(() => {});
+      }
 
       // Give a moment for the message to be sent
       await new Promise(resolve => setTimeout(resolve, 1000));
@@ -287,20 +307,29 @@ export class AutoUpdateManager extends EventEmitter {
       process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
       process.stdout.write('\x1b[?25h');       // Restore cursor visibility
 
-      // Hand off to the replacement. With a known supervisor (bash daemon,
-      // systemd, pm2) we exit 42 and let it restart us. Without one but
-      // with a TTY, self-respawn so the interactive user keeps their UI.
+      // Hand off to the replacement.
+      // - With a known supervisor (bash daemon, systemd, pm2): exit 42 and
+      //   let the supervisor's restart handling apply (counters, limits).
+      // - Otherwise with a TTY: self-respawn so the interactive user
+      //   keeps their UI.
       // See src/auto-update/respawn.ts for the full rationale.
-      const decision = decideRespawn();
       if (decision.kind === 'self-respawn') {
-        const ok = spawnReplacement();
-        if (ok) {
-          process.exit(0);
+        if (canSelfRespawn) {
+          const ok = spawnReplacement(undefined, binPath);
+          if (ok) {
+            process.exit(0);
+          }
+          log.error('Self-respawn launch failed after binary resolution succeeded');
+        } else {
+          log.error('claude-threads not found on PATH; manual restart required');
         }
-        log.warn('Self-respawn failed; falling back to exit code 42');
-      } else {
-        log.debug(`Restart will be handled by supervisor: ${decision.supervisor}`);
+        // No supervisor to fall back to: exit 0 cleanly. Exit 42 here
+        // would mean "ask my parent to restart me", but our parent is
+        // the user's shell and the user already got the manual-restart
+        // message above.
+        process.exit(0);
       }
+      log.debug(`Restart handled by supervisor: ${decision.supervisor}`);
       process.exit(RESTART_EXIT_CODE);
     } else {
       const errorMsg = result.error ?? 'Unknown error';

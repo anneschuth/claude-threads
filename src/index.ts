@@ -647,9 +647,18 @@ async function startWithoutDaemon() {
       await session.killAllSessions();
       autoUpdateManager?.stop();
 
-      for (const client of platforms.values()) {
-        client.disconnect();
-      }
+      // Await disconnects so the new bot process can re-establish
+      // websockets without racing the old process. Self-respawn (added
+      // for !update on TTY-without-supervisor) tightens this timing
+      // because the new child starts within tens of milliseconds of
+      // the old process exiting.
+      await Promise.all(
+        Array.from(platforms.values()).map((client) =>
+          client.disconnect().catch((err) => {
+            ui.addLog({ level: 'warn', component: 'shutdown', message: `disconnect failed: ${err}` });
+          })
+        )
+      );
 
       // Clear screen and restore cursor before daemon restarts us (only in interactive mode)
       if (!isHeadless) {
