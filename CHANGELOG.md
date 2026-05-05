@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.13.1] - 2026-05-05
+
+### Fixed
+- **`read_post` works on Mattermost subpath installs.** `parseMattermostPermalink` matched only on origin and ignored the configured baseUrl path, so on a Mattermost install at `/chat` (e.g. `digilab.overheid.nl/chat`) every permalink had a leading `/chat` segment that pushed the path to four segments and got rejected with "not a Mattermost permalink for ..." even though the link was on the bot's own instance. The parser now strips the configured subpath as a path-segment prefix before validating the `{team}/pl/{id}` or `_redirect/pl/{id}` shape; segment-level comparison so `/chat` doesn't accidentally match `/chatter`. Regression from #366. (#368)
+
 ## [1.13.0] - 2026-05-05
 
 ### Added
