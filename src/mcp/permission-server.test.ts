@@ -1,5 +1,13 @@
-import { describe, it, expect } from 'bun:test';
-import { handlePermissionWith, type PermissionHandlerConfig } from './permission-server.js';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { mkdtemp, mkdir, writeFile, rm, realpath } from 'fs/promises';
+import { tmpdir } from 'os';
+import { join } from 'path';
+import {
+  handlePermissionWith,
+  handleSendFileWith,
+  type PermissionHandlerConfig,
+  type SendFileHandlerConfig,
+} from './permission-server.js';
 import type { PermissionApi, ReactionEvent } from '../platform/permission-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
@@ -87,6 +95,15 @@ class FakeApi implements PermissionApi {
     if (this.reactions.length === 0) return null;
     return this.reactions.shift()!;
   }
+
+  // Outbound file upload — overridden per-test via uploadFileImpl.
+  public uploadFileCalls: Array<{ filePath: string; threadId: string; options?: { caption?: string; filename?: string } }> = [];
+  public uploadFileImpl: ((filePath: string, threadId: string, options?: { caption?: string; filename?: string }) => Promise<{ postId: string }>) | undefined;
+  uploadFile = async (filePath: string, threadId: string, options?: { caption?: string; filename?: string }) => {
+    this.uploadFileCalls.push({ filePath, threadId, options });
+    if (this.uploadFileImpl) return this.uploadFileImpl(filePath, threadId, options);
+    return { postId: 'mock-post-id' };
+  };
 }
 
 interface HarnessOptions extends FakeApiOptions {
@@ -311,5 +328,123 @@ describe('handlePermissionWith', () => {
     // First call sees full 100s, second call sees 70s remaining.
     expect(api.waitForReactionCalls[0].timeoutMs).toBe(100_000);
     expect(api.waitForReactionCalls[1].timeoutMs).toBe(70_000);
+  });
+
+  it('auto-allows the send_file MCP tool without prompting the user', async () => {
+    const api = new FakeApi();
+    const cfg = makeCfg(api, { initialAllowAll: false });
+    const result = await handlePermissionWith(
+      'mcp__claude-threads-permissions__send_file',
+      { path: '/some/file.png' },
+      cfg,
+    );
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(0); // No approval message posted to thread.
+    expect(api.waitForReactionCalls).toHaveLength(0); // No reaction wait.
+  });
+});
+
+describe('handleSendFileWith', () => {
+  let root: string;
+  let allowedRoot: string;
+  let okFile: string;
+
+  beforeEach(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), 'send-file-test-')));
+    allowedRoot = join(root, 'session');
+    await mkdir(allowedRoot, { recursive: true });
+    okFile = join(allowedRoot, 'screenshot.png');
+    await writeFile(okFile, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+  });
+
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  function makeSendFileCfg(api: FakeApi, overrides: Partial<SendFileHandlerConfig> = {}): SendFileHandlerConfig {
+    return {
+      api,
+      threadId: 'THREAD',
+      enabled: true,
+      allowedRoots: [allowedRoot],
+      maxBytes: 10 * 1024 * 1024,
+      ...overrides,
+    };
+  }
+
+  it('uploads a valid file and returns the post id', async () => {
+    const api = new FakeApi();
+    api.uploadFileImpl = async () => ({ postId: 'POST-123' });
+    const result = await handleSendFileWith({ path: okFile, caption: 'look' }, makeSendFileCfg(api));
+    expect(result).toEqual({ ok: true, postId: 'POST-123' });
+    expect(api.uploadFileCalls).toHaveLength(1);
+    expect(api.uploadFileCalls[0].threadId).toBe('THREAD');
+    expect(api.uploadFileCalls[0].options?.caption).toBe('look');
+    expect(api.uploadFileCalls[0].options?.filename).toBe('screenshot.png');
+  });
+
+  it('returns ok:false when feature disabled, without calling uploadFile', async () => {
+    const api = new FakeApi();
+    const result = await handleSendFileWith({ path: okFile }, makeSendFileCfg(api, { enabled: false }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/disabled/i);
+    expect(api.uploadFileCalls).toHaveLength(0);
+  });
+
+  it('returns ok:false when threadId is missing', async () => {
+    const api = new FakeApi();
+    const result = await handleSendFileWith({ path: okFile }, makeSendFileCfg(api, { threadId: '' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/thread/i);
+  });
+
+  it('returns ok:false when no allowed roots configured', async () => {
+    const api = new FakeApi();
+    const result = await handleSendFileWith({ path: okFile }, makeSendFileCfg(api, { allowedRoots: [] }));
+    expect(result.ok).toBe(false);
+    expect(api.uploadFileCalls).toHaveLength(0);
+  });
+
+  it('rejects a path outside the allowed root', async () => {
+    const api = new FakeApi();
+    const outside = join(root, 'outside.txt');
+    await writeFile(outside, 'sneak');
+    const result = await handleSendFileWith({ path: outside }, makeSendFileCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/outside/i);
+    expect(api.uploadFileCalls).toHaveLength(0);
+  });
+
+  it('returns ok:false when the platform does not implement uploadFile', async () => {
+    const api = new FakeApi();
+    // Simulate a platform that doesn't support uploads by removing the method.
+    (api as unknown as { uploadFile: unknown }).uploadFile = undefined;
+    const result = await handleSendFileWith({ path: okFile }, makeSendFileCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/i);
+  });
+
+  it('surfaces upload errors as ok:false with the error message', async () => {
+    const api = new FakeApi();
+    api.uploadFileImpl = async () => {
+      throw new Error('Mattermost 413 file too large');
+    };
+    const result = await handleSendFileWith({ path: okFile }, makeSendFileCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/413.*file too large/);
+  });
+
+  it('passes the realpath-resolved path to uploadFile (symlink case)', async () => {
+    // Symlink inside the allowed root pointing at okFile — resolved path
+    // should be okFile, not the symlink path. Otherwise an attacker could
+    // craft a symlink chain that the validator approves but the upload
+    // re-reads through.
+    const { symlink } = await import('fs/promises');
+    const link = join(allowedRoot, 'link.png');
+    await symlink(okFile, link);
+    const api = new FakeApi();
+    api.uploadFileImpl = async () => ({ postId: 'P' });
+    await handleSendFileWith({ path: link }, makeSendFileCfg(api));
+    expect(api.uploadFileCalls[0].filePath).toBe(okFile);
   });
 });
