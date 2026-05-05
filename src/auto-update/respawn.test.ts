@@ -133,6 +133,19 @@ describe('auto-update/respawn', () => {
       expect(result).toBe(customBunBin);
     });
 
+    it('honors BUN_INSTALL even without HOME (isolated services)', () => {
+      // Some systemd / launchd setups clear HOME but set BUN_INSTALL
+      // explicitly. The resolver should still find the bun-installed
+      // binary in that case.
+      const customBunBin = '/opt/bun/bin/claude-threads';
+      const result = resolveClaudeThreadsBin(
+        { PATH: '/usr/bin', BUN_INSTALL: '/opt/bun' },
+        (p) => p === customBunBin,
+        (p) => p === customBunBin
+      );
+      expect(result).toBe(customBunBin);
+    });
+
     it('returns the first match when multiple PATH entries have the binary', () => {
       const first = '/usr/local/bin/claude-threads';
       const second = '/usr/bin/claude-threads';

@@ -298,8 +298,19 @@ export class AutoUpdateManager extends EventEmitter {
       // Give a moment for the message to be sent
       await new Promise(resolve => setTimeout(resolve, 1000));
 
-      // Prepare for restart (persist sessions, disconnect platforms)
-      await this.callbacks.prepareForRestart();
+      // Prepare for restart (persist sessions, disconnect platforms).
+      // If this fails, the bot is in a half-shutdown state and we should
+      // tell the user rather than push on to a likely-broken restart.
+      try {
+        await this.callbacks.prepareForRestart();
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        log.error(`prepareForRestart failed: ${reason}`);
+        await this.callbacks.broadcastUpdate((fmt) =>
+          `⚠️ ${fmt.formatBold('Restart aborted')}: shutdown sequence failed (${reason}). Sessions may be in an inconsistent state; please run ${fmt.formatCode('claude-threads')} manually.`
+        ).catch(() => {});
+        process.exit(1);
+      }
 
       log.info(`🔄 Restarting for update to v${updateInfo.latestVersion}`);
 
@@ -308,10 +319,12 @@ export class AutoUpdateManager extends EventEmitter {
       process.stdout.write('\x1b[?25h');       // Restore cursor visibility
 
       // Hand off to the replacement.
-      // - With a known supervisor (bash daemon, systemd, pm2): exit 42 and
-      //   let the supervisor's restart handling apply (counters, limits).
+      // - With a known supervisor (bash daemon, systemd, pm2, wrapped-tty):
+      //   exit 42 and let the supervisor's restart handling apply.
       // - Otherwise with a TTY: self-respawn so the interactive user
       //   keeps their UI.
+      // - Otherwise: clean exit, the user-facing message above told them
+      //   to restart manually.
       // See src/auto-update/respawn.ts for the full rationale.
       if (decision.kind === 'self-respawn') {
         if (canSelfRespawn) {
@@ -319,14 +332,22 @@ export class AutoUpdateManager extends EventEmitter {
           if (ok) {
             process.exit(0);
           }
+          // Resolution succeeded at decision time but spawn launch failed
+          // (binary moved, chmod'd, AppArmor/SELinux denial, etc.). The
+          // user got the optimistic "sessions will resume" message; tell
+          // them now that they need to restart by hand.
           log.error('Self-respawn launch failed after binary resolution succeeded');
+          await this.callbacks.broadcastUpdate((fmt) =>
+            `⚠️ ${fmt.formatBold('Auto-restart failed')} after install: please run ${fmt.formatCode('claude-threads')} to bring the bot back. Sessions are persisted and will resume.`
+          ).catch(() => {});
         } else {
+          // No binary on PATH; the user already got the matching
+          // manual-restart message in the !willAutoRestart branch above.
           log.error('claude-threads not found on PATH; manual restart required');
         }
         // No supervisor to fall back to: exit 0 cleanly. Exit 42 here
         // would mean "ask my parent to restart me", but our parent is
-        // the user's shell and the user already got the manual-restart
-        // message above.
+        // the user's shell.
         process.exit(0);
       }
       log.debug(`Restart handled by supervisor: ${decision.supervisor}`);

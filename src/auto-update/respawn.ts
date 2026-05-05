@@ -14,11 +14,21 @@
  * process. The Node docs explicitly cover this combination: when stdio
  * is inherited, the detached child stays attached to the parent's TTY.
  *
- * We only do this when:
- *   - the process has a TTY (otherwise there is no UI to preserve), and
- *   - the process is NOT running under a known supervisor that already
- *     handles exit code 42 (bash daemon, systemd, pm2). Those keep the
- *     existing exit-42 path so service files don't need changes.
+ * `decideRespawn()` returns either:
+ *   - `self-respawn`: the bot has a TTY and no detected supervisor.
+ *     The caller resolves the binary on PATH (`resolveClaudeThreadsBin`)
+ *     and runs `spawnReplacement`.
+ *   - `exit-for-supervisor`: a known supervisor will handle the restart
+ *     (bash daemon, pm2, systemd, or a wrapper signaled by
+ *     `CLAUDE_THREADS_INTERACTIVE`). The caller exits with code 42 to
+ *     trigger the supervisor's restart path.
+ *   - `exit-for-supervisor` with `none-headless`: no supervisor and no
+ *     TTY. The caller broadcasts a "please run claude-threads" message
+ *     and exits 0; the user's invoker decides what to do next.
+ *
+ * If self-respawn is chosen but the binary cannot be resolved on PATH,
+ * the caller falls through to the same "please run claude-threads"
+ * broadcast as the headless case rather than disappearing silently.
  */
 
 import { spawn } from 'child_process';
@@ -126,9 +136,12 @@ export function resolveClaudeThreadsBin(
   // bun installs to ~/.bun/bin which is often missing from non-interactive
   // PATHs (cron, systemd without explicit PATH=, launchd). Add it as a
   // fallback so a bun-installed binary is still found there.
+  // Honour `BUN_INSTALL` even without HOME, since some isolated services
+  // set the former and not the latter.
   const home = _env.HOME || _env.USERPROFILE;
-  if (home) {
-    const bunBin = join(_env.BUN_INSTALL || join(home, '.bun'), 'bin');
+  const bunRoot = _env.BUN_INSTALL || (home ? join(home, '.bun') : null);
+  if (bunRoot) {
+    const bunBin = join(bunRoot, 'bin');
     if (!dirs.includes(bunBin)) {
       dirs.push(bunBin);
     }
@@ -148,8 +161,10 @@ export function resolveClaudeThreadsBin(
 
 function isFileExecutable(path: string): boolean {
   try {
+    // statSync follows symlinks, so a symlinked binary (typical for
+    // `bun install -g` and `npm install -g`) returns the target's mode.
     const stat = statSync(path);
-    if (!stat.isFile() && !stat.isSymbolicLink()) return false;
+    if (!stat.isFile()) return false;
     // On Windows the executable bit is meaningless; rely on the .cmd/.exe
     // suffix matching done by the caller.
     if (process.platform === 'win32') return true;
