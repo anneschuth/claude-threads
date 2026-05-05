@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **`!update` no longer leaves an interactive bot dead.** The auto-restart path silently broke for users running in a terminal: PR #333 (April) skipped the bash daemon when stdout was a TTY (because the daemon's bash background-job pattern strips the TTY and forces headless), but the bot's `!update` flow assumed the daemon was always there to catch exit code 42 and re-exec. Without the daemon, `process.exit(42)` just exited — install succeeded, sessions persisted, then nothing came back. The fix introduces a `decideRespawn()` step before the exit: when a known supervisor is present (`CLAUDE_THREADS_BIN` from the bash daemon, `INVOCATION_ID` from systemd, `pm_id` from pm2) the bot still exits 42 and lets the supervisor handle the restart so its restart-counters and rate-limits keep working. Otherwise, when there is a TTY, the bot self-respawns: `spawn('claude-threads', argv, { detached: true, stdio: 'inherit' })` then `unref()` and `exit(0)`. The Node docs explicitly cover this — when stdio is inherited, the detached child stays attached to the parent's controlling terminal — so the new process inherits the TUI cleanly. PATH lookup resolves to the freshly installed global binary, so dev-mode (`bun start` from a worktree) doesn't re-exec the old code. Headless without a supervisor still exits cleanly (the invoker decides what happens next). Four prior PRs (#287, #300, #317, #333) chased this in the daemon path; this one fixes the bot side instead.
+
 ## [1.14.0] - 2026-05-05
 
 ### Changed

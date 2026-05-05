@@ -21,6 +21,7 @@ import type {
   AutoUpdateEvents,
 } from './types.js';
 import { RESTART_EXIT_CODE, mergeAutoUpdateConfig } from './types.js';
+import { decideRespawn, spawnReplacement } from './respawn.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 /** Message builder function that takes a formatter and returns the formatted message */
@@ -280,13 +281,26 @@ export class AutoUpdateManager extends EventEmitter {
       // Prepare for restart (persist sessions, disconnect platforms)
       await this.callbacks.prepareForRestart();
 
-      // Exit with special code to signal restart needed
       log.info(`🔄 Restarting for update to v${updateInfo.latestVersion}`);
 
       // Clear screen for clean restart (in case prepareForRestart didn't)
       process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
       process.stdout.write('\x1b[?25h');       // Restore cursor visibility
 
+      // Hand off to the replacement. With a known supervisor (bash daemon,
+      // systemd, pm2) we exit 42 and let it restart us. Without one but
+      // with a TTY, self-respawn so the interactive user keeps their UI.
+      // See src/auto-update/respawn.ts for the full rationale.
+      const decision = decideRespawn();
+      if (decision.kind === 'self-respawn') {
+        const ok = spawnReplacement();
+        if (ok) {
+          process.exit(0);
+        }
+        log.warn('Self-respawn failed; falling back to exit code 42');
+      } else {
+        log.debug(`Restart will be handled by supervisor: ${decision.supervisor}`);
+      }
       process.exit(RESTART_EXIT_CODE);
     } else {
       const errorMsg = result.error ?? 'Unknown error';
