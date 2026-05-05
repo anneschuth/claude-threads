@@ -108,13 +108,15 @@ class FakeApi implements McpPlatformApi {
   };
 
   // Post / thread reads — overridden per-test via readPostImpl / readThreadImpl.
-  public readPostCalls: string[] = [];
+  public readPostCalls: Array<{ postId: string; expectedChannelId?: string }> = [];
   public readThreadCalls: Array<{ rootId: string; limit?: number }> = [];
-  public readPostImpl: ((postId: string) => Promise<McpPost | null>) | undefined;
+  public readPostImpl:
+    | ((postId: string, options?: { expectedChannelId?: string }) => Promise<McpPost | null>)
+    | undefined;
   public readThreadImpl: ((rootId: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
-  readPost = async (postId: string) => {
-    this.readPostCalls.push(postId);
-    if (this.readPostImpl) return this.readPostImpl(postId);
+  readPost = async (postId: string, options?: { expectedChannelId?: string }) => {
+    this.readPostCalls.push({ postId, expectedChannelId: options?.expectedChannelId });
+    if (this.readPostImpl) return this.readPostImpl(postId, options);
     return null;
   };
   readThread = async (rootId: string, options?: { limit?: number }) => {
@@ -508,7 +510,7 @@ describe('handleReadPostWith', () => {
     expect(result.ok).toBe(true);
     expect(result.content).toContain('@alice');
     expect(result.content).toContain('> hello world');
-    expect(api.readPostCalls).toEqual([POST_ID]);
+    expect(api.readPostCalls).toEqual([{ postId: POST_ID, expectedChannelId: 'C-default' }]);
     expect(api.readThreadCalls).toEqual([]); // no include_thread, no thread call
   });
 
@@ -642,7 +644,10 @@ describe('handleReadPostWith — Slack', () => {
     expect(result.ok).toBe(true);
     expect(result.content).toContain('Slack message by @alice');
     expect(result.content).toContain('> hello slack');
-    expect(api.readPostCalls).toEqual([SLACK_TS]);
+    // Slack handler doesn't pass expectedChannelId — the resolver gates on
+    // channel before the API call, and conversations.history is already
+    // channel-scoped via the `channel` param. See McpPlatformApi.readPost.
+    expect(api.readPostCalls).toEqual([{ postId: SLACK_TS, expectedChannelId: undefined }]);
   });
 
   it('errors when the URL is for a different channel', async () => {

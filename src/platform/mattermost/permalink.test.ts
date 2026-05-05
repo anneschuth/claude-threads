@@ -98,6 +98,32 @@ describe('parseMattermostPermalink', () => {
     // Extra trailing segment ("/team/pl/{id}/extra") should not match — we
     // require exactly three segments after stripping leading/trailing slashes.
     expect(parseMattermostPermalink(`${BASE}/team/pl/${ID_A}/extra`, BASE)).toBeNull();
+    // Two segments only.
+    expect(parseMattermostPermalink(`${BASE}/pl/${ID_A}`, BASE)).toBeNull();
+    // Four segments with `pl` in the middle — must not match (an earlier
+    // implementation accepted this by checking only segments[1]).
+    expect(parseMattermostPermalink(`${BASE}/foo/bar/pl/${ID_A}`, BASE)).toBeNull();
+  });
+
+  it('returns null when the team segment violates Mattermost team-name rules', () => {
+    // Uppercase letters: Mattermost team URL-names are lowercase only.
+    expect(parseMattermostPermalink(`${BASE}/INVALID/pl/${ID_A}`, BASE)).toBeNull();
+    // Spaces / special chars (URL-encoded would be %20 — also invalid).
+    expect(parseMattermostPermalink(`${BASE}/with%20space/pl/${ID_A}`, BASE)).toBeNull();
+    // Empty team: caught by the "wrong number of segments" path because
+    // pathname.replace strips the empty component, but assert it explicitly.
+    expect(parseMattermostPermalink(`${BASE}//pl/${ID_A}`, BASE)).toBeNull();
+  });
+
+  it('accepts only the literal _redirect prefix for the redirect shape', () => {
+    // _redirect is special-cased; redirect / _Redirect / etc. must not
+    // sneak through as if they were team names.
+    expect(parseMattermostPermalink(`${BASE}/_redirect/pl/${ID_A}`, BASE))
+      .toEqual({ postId: ID_A });
+    // 'redirect' (no underscore) is a valid lowercase team name shape, so
+    // this is allowed — but the test documents it.
+    expect(parseMattermostPermalink(`${BASE}/redirect/pl/${ID_A}`, BASE))
+      .toEqual({ postId: ID_A });
   });
 });
 
@@ -157,7 +183,7 @@ function makeFakeApi(opts: FakeApiOptions = {}): McpPlatformApi & { _threadCalls
 describe('resolvePermalink', () => {
   it('returns the post on success when threading is not requested', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: makePost() } });
-    const result = await resolvePermalink(api, ID_A);
+    const result = await resolvePermalink(api, ID_A, undefined);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.resolved.post.message).toBe('hello');
@@ -167,14 +193,35 @@ describe('resolvePermalink', () => {
 
   it('returns not-found when readPost returns null', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: null } });
-    const result = await resolvePermalink(api, ID_A);
+    const result = await resolvePermalink(api, ID_A, undefined);
     expect(result).toEqual({ ok: false, error: { kind: 'not-found' } });
   });
 
   it('returns unsupported when the platform has no readPost', async () => {
     const api = makeFakeApi({ noReadPost: true });
-    const result = await resolvePermalink(api, ID_A);
+    const result = await resolvePermalink(api, ID_A, undefined);
     expect(result).toEqual({ ok: false, error: { kind: 'unsupported' } });
+  });
+
+  it('passes botChannelId through to readPost as expectedChannelId', async () => {
+    // Use a custom readPost that records what it received and rejects
+    // anything outside the expected channel.
+    const calls: Array<{ id: string; expectedChannelId?: string }> = [];
+    const api: McpPlatformApi = {
+      getFormatter: () => ({} as ReturnType<McpPlatformApi['getFormatter']>),
+      getBotUserId: async () => 'bot',
+      getUsername: async () => null,
+      isUserAllowed: () => true,
+      createInteractivePost: async () => ({ id: 'p' }),
+      updatePost: async () => undefined,
+      waitForReaction: async () => null,
+      readPost: async (id, options) => {
+        calls.push({ id, expectedChannelId: options?.expectedChannelId });
+        return makePost();
+      },
+    };
+    await resolvePermalink(api, ID_A, 'c-bot');
+    expect(calls).toEqual([{ id: ID_A, expectedChannelId: 'c-bot' }]);
   });
 
   it('fetches the thread when includeThread is true and post is top-level', async () => {
@@ -184,7 +231,7 @@ describe('resolvePermalink', () => {
       posts: { [ID_A]: post },
       thread: [post, reply],
     });
-    const result = await resolvePermalink(api, ID_A, { includeThread: true });
+    const result = await resolvePermalink(api, ID_A, undefined, { includeThread: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.resolved.thread.map(m => m.id)).toEqual([ID_A, ID_B]);
@@ -198,34 +245,34 @@ describe('resolvePermalink', () => {
       posts: { [ID_B]: reply },
       thread: [makePost(), reply],
     });
-    await resolvePermalink(api, ID_B, { includeThread: true });
+    await resolvePermalink(api, ID_B, undefined, { includeThread: true });
     expect(api._threadCalls).toEqual([{ rootId: ID_A, limit: DEFAULT_THREAD_LIMIT }]);
   });
 
   it('clamps maxMessages above MAX_THREAD_LIMIT', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: makePost() } });
-    await resolvePermalink(api, ID_A, { includeThread: true, maxMessages: 999 });
+    await resolvePermalink(api, ID_A, undefined, { includeThread: true, maxMessages: 999 });
     expect(api._threadCalls[0].limit).toBe(MAX_THREAD_LIMIT);
   });
 
   it('falls back to default when maxMessages is not a positive integer', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: makePost() } });
-    await resolvePermalink(api, ID_A, { includeThread: true, maxMessages: 0 });
+    await resolvePermalink(api, ID_A, undefined, { includeThread: true, maxMessages: 0 });
     expect(api._threadCalls[0].limit).toBe(DEFAULT_THREAD_LIMIT);
 
-    await resolvePermalink(api, ID_A, { includeThread: true, maxMessages: -5 });
+    await resolvePermalink(api, ID_A, undefined, { includeThread: true, maxMessages: -5 });
     expect(api._threadCalls[1].limit).toBe(DEFAULT_THREAD_LIMIT);
   });
 
   it('floors fractional maxMessages', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: makePost() } });
-    await resolvePermalink(api, ID_A, { includeThread: true, maxMessages: 7.9 });
+    await resolvePermalink(api, ID_A, undefined, { includeThread: true, maxMessages: 7.9 });
     expect(api._threadCalls[0].limit).toBe(7);
   });
 
   it('returns just the post when includeThread is true but readThread is missing', async () => {
     const api = makeFakeApi({ posts: { [ID_A]: makePost() }, noReadThread: true });
-    const result = await resolvePermalink(api, ID_A, { includeThread: true });
+    const result = await resolvePermalink(api, ID_A, undefined, { includeThread: true });
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.resolved.thread).toEqual([]);

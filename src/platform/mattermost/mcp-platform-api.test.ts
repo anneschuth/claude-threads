@@ -12,53 +12,21 @@
  * WebSocket harness); integration tests exercise it.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createMattermostMcpPlatformApi } from './mcp-platform-api.js';
+import {
+  installFetchHarness,
+  jsonResponse,
+  errorResponse,
+  type FetchResponder,
+} from '../test-helpers/fetch-harness.js';
 
-// -----------------------------------------------------------------------------
-// Fetch harness (same pattern as src/platform/mattermost/client.test.ts)
-// -----------------------------------------------------------------------------
+let fetchResponder: FetchResponder = () => jsonResponse({});
+const { calls: fetchCalls } = installFetchHarness(() => fetchResponder);
 
-type FetchResponder = (url: string, init?: RequestInit) => Promise<Response> | Response;
-
-let fetchResponder: FetchResponder = () =>
-  new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } });
-let fetchCalls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }> = [];
-
-const originalFetch = global.fetch;
 beforeEach(() => {
-  fetchCalls = [];
-  global.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
-    const urlStr = typeof url === 'string' ? url : url.toString();
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers as Record<string, string>;
-      for (const k of Object.keys(h)) headers[k] = h[k];
-    }
-    let body: unknown;
-    if (typeof init?.body === 'string') {
-      try { body = JSON.parse(init.body); } catch { body = init.body; }
-    }
-    fetchCalls.push({ url: urlStr, method, headers, body });
-    return fetchResponder(urlStr, init);
-  }) as typeof global.fetch;
+  fetchResponder = () => jsonResponse({});
 });
-
-afterEach(() => {
-  global.fetch = originalFetch;
-});
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
-
-function errorResponse(status: number, text = 'oops'): Response {
-  return new Response(text, { status });
-}
 
 function makeApi() {
   return createMattermostMcpPlatformApi({
@@ -303,6 +271,45 @@ describe('MattermostMcpPlatformApi.readPost', () => {
     const post = await makeApi().readPost!('post-1');
     expect(post).not.toBeNull();
     expect(post!.username).toBeNull();
+  });
+
+  it('returns null when expectedChannelId does not match the post channel', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({
+          id: 'post-1',
+          channel_id: 'other-channel',
+          message: 'leak',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('post-1', { expectedChannelId: 'c-bot' });
+    expect(post).toBeNull();
+    // The user lookup MUST NOT have happened — we should bail before
+    // resolving the username when the channel doesn't match.
+    const userCalls = fetchCalls.filter(c => c.url.includes('/users/'));
+    expect(userCalls).toHaveLength(0);
+  });
+
+  it('returns the post when expectedChannelId matches', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({
+          id: 'post-1',
+          channel_id: 'c-bot',
+          message: 'hi',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('post-1', { expectedChannelId: 'c-bot' });
+    expect(post).not.toBeNull();
+    expect(post!.username).toBe('alice');
   });
 });
 

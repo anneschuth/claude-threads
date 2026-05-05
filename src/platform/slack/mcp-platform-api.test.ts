@@ -7,44 +7,20 @@
  * since it depends on Socket Mode WebSockets.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach } from 'bun:test';
 import { createSlackMcpPlatformApi } from './mcp-platform-api.js';
+import {
+  installFetchHarness,
+  jsonResponse,
+  type FetchResponder,
+} from '../test-helpers/fetch-harness.js';
 
-// -----------------------------------------------------------------------------
-// Fetch harness
-// -----------------------------------------------------------------------------
+let fetchResponder: FetchResponder = () => jsonResponse({ ok: true });
+const { calls: fetchCalls } = installFetchHarness(() => fetchResponder);
 
-type FetchResponder = (url: string, init?: RequestInit) => Promise<Response> | Response;
-
-let fetchResponder: FetchResponder = () =>
-  new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
-let fetchCalls: Array<{ url: string; method: string; body?: unknown }> = [];
-
-const originalFetch = global.fetch;
 beforeEach(() => {
-  fetchCalls = [];
-  global.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
-    const urlStr = typeof url === 'string' ? url : url.toString();
-    const method = (init?.method ?? 'GET').toUpperCase();
-    let body: unknown;
-    if (typeof init?.body === 'string') {
-      try { body = JSON.parse(init.body); } catch { body = init.body; }
-    }
-    fetchCalls.push({ url: urlStr, method, body });
-    return fetchResponder(urlStr, init);
-  }) as typeof global.fetch;
+  fetchResponder = () => jsonResponse({ ok: true });
 });
-
-afterEach(() => {
-  global.fetch = originalFetch;
-});
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
 
 function makeApi() {
   return createSlackMcpPlatformApi({

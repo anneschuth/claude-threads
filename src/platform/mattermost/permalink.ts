@@ -11,33 +11,31 @@
  */
 
 import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
+import {
+  DEFAULT_THREAD_LIMIT,
+  MAX_THREAD_LIMIT,
+  MAX_MESSAGE_BODY_CHARS,
+  clampThreadLimit,
+  truncateBody,
+  quoteBlock,
+} from '../permalink-shared.js';
 
-/**
- * Default upper bound on how many thread messages to return when
- * `include_thread` is true. Picked to keep tool output well under typical
- * tool-result token budgets while still giving useful context.
- */
-export const DEFAULT_THREAD_LIMIT = 20;
-
-/**
- * Hard cap server-side; even if the caller asks for more we won't exceed
- * this. Stops a runaway thread (hundreds of replies) from blowing up
- * tool-result size.
- */
-export const MAX_THREAD_LIMIT = 50;
-
-/**
- * Maximum characters of an individual message body included in the output.
- * Anything longer is truncated with a marker — Claude can request the post
- * directly if it needs the full body.
- */
-export const MAX_MESSAGE_BODY_CHARS = 2000;
+// Re-exported so the MCP server (and tests) can import caps from a single
+// per-platform entry point without learning about permalink-shared.ts.
+export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
 
 /**
  * Mattermost post IDs are 26-character base32-style strings (lowercase
  * a-z plus 0-9). Anchored so we don't match longer ID-like substrings.
  */
 const POST_ID_RE = /^[a-z0-9]{26}$/;
+
+/**
+ * Mattermost team URL-names: lowercase letters, digits, hyphens,
+ * underscores; 1–64 chars (Mattermost's own server-side cap is 64).
+ * Used to validate the {team} segment of a chat permalink.
+ */
+const TEAM_NAME_RE = /^[a-z0-9_-]{1,64}$/;
 
 export interface ParsedPermalink {
   postId: string;
@@ -47,12 +45,16 @@ export interface ParsedPermalink {
  * Parse a Mattermost permalink into a post ID. Returns null if the URL
  * isn't a permalink for `baseUrl`.
  *
- * Accepted shapes (with optional trailing slash and ?query):
- *   {baseUrl}/{team}/pl/{postId}
- *   {baseUrl}/_redirect/pl/{postId}
+ * Accepted shapes (with optional trailing slash, query string, and
+ * fragment — all ignored):
+ *   {baseUrl}/{team}/pl/{postId}     — chat permalink (team-scoped)
+ *   {baseUrl}/_redirect/pl/{postId}  — redirect permalink (no team)
  *
  * `baseUrl` is matched on origin (scheme + host + port) only; trailing
  * paths in the configured URL are ignored.
+ *
+ * The two shapes are recognized explicitly. Anything else (channel
+ * URLs, search results, settings pages, malformed paths) returns null.
  */
 export function parseMattermostPermalink(
   url: string,
@@ -67,25 +69,28 @@ export function parseMattermostPermalink(
     return null;
   }
 
-  // Origin match: same scheme + host + port. The configured baseUrl might
-  // have a trailing slash or path component, but only the origin matters
-  // for permalink routing.
+  // Origin match: same scheme + host + port. The configured baseUrl
+  // might have a trailing slash or path component, but only the origin
+  // matters for permalink routing.
   if (parsed.origin !== base.origin) {
     return null;
   }
 
-  // Strip leading and trailing slashes, split on '/'. Path shapes:
-  //   ['{team}', 'pl', '{id}']                 — chat permalink
-  //   ['_redirect', 'pl', '{id}']              — redirect permalink
   const segments = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
-  if (segments.length !== 3 || segments[1] !== 'pl') {
-    return null;
-  }
+  if (segments.length !== 3) return null;
+
+  // Second segment must literally be 'pl'.
+  if (segments[1] !== 'pl') return null;
+
+  // First segment is either '_redirect' or a team-name. Without this
+  // check, /any/pl/{id} would match — including paths that have nothing
+  // to do with permalinks but happen to be three segments.
+  const first = segments[0];
+  const isValidPrefix = first === '_redirect' || TEAM_NAME_RE.test(first);
+  if (!isValidPrefix) return null;
 
   const postId = segments[2];
-  if (!POST_ID_RE.test(postId)) {
-    return null;
-  }
+  if (!POST_ID_RE.test(postId)) return null;
 
   return { postId };
 }
@@ -119,17 +124,24 @@ export type ResolveResult =
  * Fetch the post (and optionally its thread) via the McpPlatformApi.
  * Returns a structured result so the caller can format errors however it
  * wants.
+ *
+ * `botChannelId` scopes resolution to the bot's own channel: Mattermost
+ * permalinks are global (the URL doesn't pin a channel) and the bot's
+ * token may have access to other channels too, so we refuse to expose
+ * out-of-channel posts via read_post. Pass `undefined` to skip the
+ * scope check (only useful for tests / future cross-channel features).
  */
 export async function resolvePermalink(
   api: McpPlatformApi,
   postId: string,
+  botChannelId: string | undefined,
   opts: ResolveOptions = {},
 ): Promise<ResolveResult> {
   if (!api.readPost) {
     return { ok: false, error: { kind: 'unsupported' } };
   }
 
-  const post = await api.readPost(postId);
+  const post = await api.readPost(postId, { expectedChannelId: botChannelId });
   if (!post) {
     return { ok: false, error: { kind: 'not-found' } };
   }
@@ -147,17 +159,10 @@ export async function resolvePermalink(
     return { ok: true, resolved: { post, thread: [] } };
   }
 
-  const limit = clampLimit(opts.maxMessages);
+  const limit = clampThreadLimit(opts.maxMessages);
   const thread = await api.readThread(rootId, { limit });
 
   return { ok: true, resolved: { post, thread } };
-}
-
-function clampLimit(requested: number | undefined): number {
-  if (requested === undefined || !Number.isFinite(requested) || requested <= 0) {
-    return DEFAULT_THREAD_LIMIT;
-  }
-  return Math.min(Math.floor(requested), MAX_THREAD_LIMIT);
 }
 
 /**
@@ -191,16 +196,4 @@ export function formatResolved(resolved: ResolvedPermalink): string {
   }
 
   return lines.join('\n');
-}
-
-function truncateBody(body: string): string {
-  if (body.length <= MAX_MESSAGE_BODY_CHARS) return body;
-  return `${body.slice(0, MAX_MESSAGE_BODY_CHARS)}\n[…truncated, ${body.length - MAX_MESSAGE_BODY_CHARS} more chars]`;
-}
-
-function quoteBlock(text: string): string {
-  return text
-    .split('\n')
-    .map(line => `> ${line}`)
-    .join('\n');
 }

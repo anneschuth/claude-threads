@@ -31,10 +31,25 @@ export interface PostedMessage {
  * without forcing Claude to chain user lookups.
  */
 export interface McpPost {
+  /**
+   * Platform-native post identifier. For Mattermost this is the 26-char
+   * post id; for Slack it's the message timestamp string (`ts`,
+   * "seconds.microseconds"). Use this when re-fetching, never compute
+   * from `createAt`.
+   */
   id: string;
   userId: string;
   username: string | null;
   message: string;
+  /**
+   * Creation time in milliseconds since the Unix epoch.
+   *
+   * Best-effort across platforms: Mattermost stores ms natively, Slack
+   * stores `seconds.microseconds` and we floor to ms (microsecond
+   * precision is lost). Safe for sorting *within* a single platform's
+   * results, but do not assume round-trippable: re-fetching by
+   * `id` is the only stable reference.
+   */
   createAt: number;
   /** Empty / undefined for top-level posts. */
   threadRootId?: string;
@@ -106,12 +121,20 @@ export interface McpPlatformApi {
   ): Promise<{ postId: string }>;
 
   /**
-   * Read a single post by id. Returns null if the post does not exist or
-   * the bot's token cannot see it (private channel without membership).
+   * Read a single post by id. Returns null if the post does not exist,
+   * the bot's token cannot see it, or — when `expectedChannelId` is
+   * given — the post lives in a different channel.
+   *
+   * The `expectedChannelId` guard is enforced inside the implementation
+   * because the platform's id has the channel context, not McpPost.
+   * Mattermost: the API returns `channel_id` and we compare. Slack: the
+   * API call is already channel-scoped via `conversations.history`
+   * `channel=` parameter, so a wrong-channel ts surfaces as null
+   * naturally and the option is ignored.
    *
    * Optional — implementations that don't support post reads omit it.
    */
-  readPost?(postId: string): Promise<McpPost | null>;
+  readPost?(postId: string, options?: { expectedChannelId?: string }): Promise<McpPost | null>;
 
   /**
    * Read posts in the thread rooted at `threadRootId`. Returns posts in

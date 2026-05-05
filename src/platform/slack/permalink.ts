@@ -16,10 +16,16 @@
  */
 
 import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
+import {
+  DEFAULT_THREAD_LIMIT,
+  MAX_THREAD_LIMIT,
+  MAX_MESSAGE_BODY_CHARS,
+  clampThreadLimit,
+  truncateBody,
+  quoteBlock,
+} from '../permalink-shared.js';
 
-export const DEFAULT_THREAD_LIMIT = 20;
-export const MAX_THREAD_LIMIT = 50;
-export const MAX_MESSAGE_BODY_CHARS = 2000;
+export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
 
 /**
  * Slack channel IDs are 9–11 character strings starting with C/G/D
@@ -28,11 +34,13 @@ export const MAX_MESSAGE_BODY_CHARS = 2000;
 const CHANNEL_ID_RE = /^[CGD][A-Z0-9]{8,12}$/;
 
 /**
- * The `p{tsNoDot}` shape: lowercase 'p' followed by digits. Slack
- * timestamps are seconds.microseconds with 6 digits of microseconds, so
- * the no-dot form has at least 16 digits.
+ * The `p{tsNoDot}` shape Slack uses in permalinks: lowercase 'p'
+ * followed by digits. Slack timestamps are `seconds.microseconds` with
+ * 6 digits of microseconds, and seconds since the Unix epoch hit 10
+ * digits in 2001 — so any real permalink today has at least 16 digits.
+ * We enforce 16+ here so `expandTimestamp` can rely on the slice.
  */
-const PATH_TS_RE = /^p(\d{10,})$/;
+const PATH_TS_RE = /^p(\d{16,})$/;
 
 export interface ParsedSlackPermalink {
   channelId: string;
@@ -73,7 +81,6 @@ export function parseSlackPermalink(url: string): ParsedSlackPermalink | null {
   if (!tsMatch) return null;
 
   const ts = expandTimestamp(tsMatch[1]);
-  if (!ts) return null;
 
   // Thread context comes from ?thread_ts=... query param if present.
   const threadParentTs = parsed.searchParams.get('thread_ts') ?? undefined;
@@ -90,10 +97,10 @@ export function parseSlackPermalink(url: string): ParsedSlackPermalink | null {
  * The decimal goes 6 characters from the right (microseconds), so a path
  * "1234567890123456" becomes "1234567890.123456".
  *
- * Returns null for inputs that aren't long enough.
+ * Caller must have validated `digitsOnly` against PATH_TS_RE first
+ * (>= 16 digits); this function does no validation of its own.
  */
-function expandTimestamp(digitsOnly: string): string | null {
-  if (digitsOnly.length < 7) return null; // need at least 1 second-digit + 6 micros
+function expandTimestamp(digitsOnly: string): string {
   return `${digitsOnly.slice(0, -6)}.${digitsOnly.slice(-6)}`;
 }
 
@@ -153,17 +160,10 @@ export async function resolveSlackPermalink(
     return { ok: true, resolved: { post, thread: [] } };
   }
 
-  const limit = clampLimit(opts.maxMessages);
+  const limit = clampThreadLimit(opts.maxMessages);
   const thread = await api.readThread(rootId, { limit });
 
   return { ok: true, resolved: { post, thread } };
-}
-
-function clampLimit(requested: number | undefined): number {
-  if (requested === undefined || !Number.isFinite(requested) || requested <= 0) {
-    return DEFAULT_THREAD_LIMIT;
-  }
-  return Math.min(Math.floor(requested), MAX_THREAD_LIMIT);
 }
 
 /**
@@ -193,16 +193,4 @@ export function formatResolvedSlack(resolved: ResolvedSlackPermalink): string {
   }
 
   return lines.join('\n');
-}
-
-function truncateBody(body: string): string {
-  if (body.length <= MAX_MESSAGE_BODY_CHARS) return body;
-  return `${body.slice(0, MAX_MESSAGE_BODY_CHARS)}\n[…truncated, ${body.length - MAX_MESSAGE_BODY_CHARS} more chars]`;
-}
-
-function quoteBlock(text: string): string {
-  return text
-    .split('\n')
-    .map(line => `> ${line}`)
-    .join('\n');
 }
