@@ -8,6 +8,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
+import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
 import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
 import type { PermissionMode } from '../config/types.js';
 
@@ -279,18 +280,28 @@ export function buildPermissionArgs(opts: {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
   }
   // Outbound-file env: only emit when at least one root is known. The MCP
-  // child enforces the same invariant on the read side.
+  // child enforces the same invariant on the read side. Names are defined
+  // in src/mcp/outbound-env.ts so a rename can't desync the two sides.
   if (opts.workingDir) {
-    mcpEnv.SESSION_WORKING_DIR = opts.workingDir;
+    mcpEnv[OUTBOUND_ENV.SESSION_WORKING_DIR] = opts.workingDir;
   }
   if (opts.uploadDir) {
-    mcpEnv.SESSION_UPLOAD_DIR = opts.uploadDir;
+    mcpEnv[OUTBOUND_ENV.SESSION_UPLOAD_DIR] = opts.uploadDir;
   }
   if (opts.outboundFiles?.enabled === false) {
-    mcpEnv.OUTBOUND_FILES_ENABLED = '0';
+    mcpEnv[OUTBOUND_ENV.OUTBOUND_FILES_ENABLED] = '0';
   }
-  if (typeof opts.outboundFiles?.maxBytes === 'number') {
-    mcpEnv.OUTBOUND_FILES_MAX_BYTES = String(opts.outboundFiles.maxBytes);
+  // Forward maxBytes only when it's a sensible positive integer. A
+  // misconfigured `outboundFiles.maxBytes: -1` in config.yaml would
+  // otherwise reach the validator and make every file "too large" with no
+  // clue why. Drop invalid values silently here AND have the validator
+  // reject (defense in depth) — see path-validator.ts.
+  if (
+    typeof opts.outboundFiles?.maxBytes === 'number' &&
+    Number.isFinite(opts.outboundFiles.maxBytes) &&
+    opts.outboundFiles.maxBytes > 0
+  ) {
+    mcpEnv[OUTBOUND_ENV.OUTBOUND_FILES_MAX_BYTES] = String(opts.outboundFiles.maxBytes);
   }
 
   const mcpConfig: McpConfigBlob = {

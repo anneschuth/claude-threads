@@ -333,7 +333,7 @@ export class MattermostClient extends BasePlatformClient {
     filePath: string,
     threadId: string,
     options?: { caption?: string; filename?: string },
-  ): Promise<PlatformPost> {
+  ): Promise<{ postId: string; fileId: string }> {
     const filename = sanitizeFilename(options?.filename ?? filePath);
     const result = await uploadFileMattermost({
       url: this.url,
@@ -344,7 +344,7 @@ export class MattermostClient extends BasePlatformClient {
       filename,
       caption: options?.caption,
     });
-    return this.normalizePlatformPost(result.post);
+    return { postId: result.postId, fileId: result.fileId };
   }
 
   // Get a post by ID (used to verify thread still exists on resume)

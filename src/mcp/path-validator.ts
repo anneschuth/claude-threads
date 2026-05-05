@@ -24,6 +24,7 @@ export interface PathValidatorOptions {
    * The session working directory and the per-session upload directory.
    */
   allowedRoots: string[];
+  /** Per-file byte cap. Must be a positive finite integer. */
   maxBytes: number;
 }
 
@@ -36,6 +37,45 @@ function isUnderRoot(needle: string, root: string): boolean {
   if (needle === root) return true;
   const withSep = root.endsWith(sep) ? root : root + sep;
   return needle.startsWith(withSep);
+}
+
+/**
+ * Roots so wide that allowing `send_file` against them would let Claude
+ * read essentially anything the bot can read. We refuse the validator
+ * outright if any allowed root matches one of these — better a hard error
+ * than a silent over-share. Compared after `realpath()` resolution.
+ *
+ * Dangerously wide:
+ *   - `/`               — entire filesystem
+ *   - `/home`, `/Users` — every user's home
+ *   - `/root`           — root's home
+ *   - `/etc`            — system config and credentials
+ *   - `/var`            — logs, mail, run state, /var/lib/*
+ *   - `/tmp`            — every other process's scratch space
+ *   - `/usr`            — system binaries and libraries
+ *
+ * Note: a session whose working dir is e.g. `/home/anne/proj` is fine —
+ * only the root itself triggers. Per-session upload dirs sit under
+ * `/tmp/claude-threads-uploads/<id>/...` which is several segments deeper
+ * than `/tmp` and so passes.
+ */
+const DANGEROUSLY_WIDE_ROOTS = new Set([
+  '/',
+  '/home',
+  '/Users',
+  '/root',
+  '/etc',
+  '/var',
+  '/tmp',
+  '/usr',
+  '/opt',
+]);
+
+function isDangerouslyWide(root: string): boolean {
+  if (DANGEROUSLY_WIDE_ROOTS.has(root)) return true;
+  // On macOS /tmp resolves to /private/tmp; cover the resolved form too.
+  if (root === '/private/tmp' || root === '/private/var' || root === '/private/etc') return true;
+  return false;
 }
 
 /**
@@ -60,6 +100,28 @@ export async function validateOutboundPath(
   }
   if (!isAbsolute(inputPath)) {
     return { ok: false, reason: 'path must be absolute' };
+  }
+
+  // Validate maxBytes — a negative or zero value would make every file
+  // "too large" with no clue why. Better to fail loud at the validator.
+  if (!Number.isFinite(opts.maxBytes) || opts.maxBytes <= 0) {
+    return {
+      ok: false,
+      reason: `invalid maxBytes ${opts.maxBytes} — check outboundFiles.maxBytes configuration`,
+    };
+  }
+
+  // Refuse dangerously wide allowedRoots before doing any FS work. A
+  // misconfigured SESSION_WORKING_DIR=/ or =/home would otherwise let
+  // send_file leak any file the bot process can read. Hard-fail loudly
+  // rather than silently widen the trust boundary.
+  for (const root of opts.allowedRoots) {
+    if (isDangerouslyWide(root)) {
+      return {
+        ok: false,
+        reason: `refusing to validate against dangerously wide allowed root '${root}' — check SESSION_WORKING_DIR configuration`,
+      };
+    }
   }
 
   let resolvedPath: string;

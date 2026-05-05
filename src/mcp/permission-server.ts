@@ -34,6 +34,7 @@ import { mcpLogger } from '../utils/logger.js';
 import type { PermissionApi, MattermostPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
 import { createPermissionApi } from '../platform/permission-api-factory.js';
 import { validateOutboundPath } from './path-validator.js';
+import { OUTBOUND_ENV } from './outbound-env.js';
 
 // =============================================================================
 // Configuration
@@ -54,11 +55,13 @@ const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120
 // Outbound-file (`send_file`) configuration. Populated by the bot at spawn
 // time via buildPermissionArgs. Empty roots → outbound disabled regardless
 // of OUTBOUND_FILES_ENABLED, since we'd have nothing to validate against.
-const SESSION_WORKING_DIR = process.env.SESSION_WORKING_DIR || '';
-const SESSION_UPLOAD_DIR = process.env.SESSION_UPLOAD_DIR || '';
-const OUTBOUND_FILES_ENABLED = (process.env.OUTBOUND_FILES_ENABLED ?? '1') !== '0';
+// Env-var names come from a shared module so a rename can't desync the two
+// sides — see src/mcp/outbound-env.ts.
+const SESSION_WORKING_DIR = process.env[OUTBOUND_ENV.SESSION_WORKING_DIR] || '';
+const SESSION_UPLOAD_DIR = process.env[OUTBOUND_ENV.SESSION_UPLOAD_DIR] || '';
+const OUTBOUND_FILES_ENABLED = (process.env[OUTBOUND_ENV.OUTBOUND_FILES_ENABLED] ?? '1') !== '0';
 const OUTBOUND_FILES_MAX_BYTES = parseInt(
-  process.env.OUTBOUND_FILES_MAX_BYTES || String(100 * 1024 * 1024),
+  process.env[OUTBOUND_ENV.OUTBOUND_FILES_MAX_BYTES] || String(100 * 1024 * 1024),
   10,
 );
 

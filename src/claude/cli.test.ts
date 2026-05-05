@@ -530,4 +530,15 @@ describe('buildPermissionArgs', () => {
     });
     expect(getMcpEnv(args).OUTBOUND_FILES_MAX_BYTES).toBe('5000000');
   });
+
+  it("drops invalid maxBytes values (negative, zero, NaN, Infinity)", () => {
+    for (const bad of [-1, 0, NaN, Infinity, -Infinity]) {
+      const { args } = buildPermissionArgs({
+        ...baseOpts,
+        permissionMode: 'default',
+        outboundFiles: { maxBytes: bad },
+      });
+      expect(getMcpEnv(args).OUTBOUND_FILES_MAX_BYTES).toBeUndefined();
+    }
+  });
 });

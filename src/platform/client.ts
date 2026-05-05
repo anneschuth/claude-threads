@@ -289,6 +289,14 @@ export interface PlatformClient extends EventEmitter {
    * and callers must check before invoking. Path validation is the caller's
    * responsibility (see src/mcp/path-validator.ts).
    *
+   * Returns just the ids, not a full `PlatformPost`. The narrow shape is
+   * deliberate: Slack's `files.completeUploadExternal` doesn't always return
+   * a message `ts`, so a synthesized `PlatformPost.id` would sometimes be a
+   * file id pretending to be a post id — a footgun for any caller that
+   * later passes it to `updatePost` or `addReaction`. Callers that genuinely
+   * need a `PlatformPost` should synthesize it deliberately and accept the
+   * Slack ambiguity at the synthesis site.
+   *
    * @param filePath - Absolute path of the file to upload
    * @param threadId - Thread parent id (root_id on Mattermost, thread_ts on Slack)
    * @param options.caption - Optional message body / initial comment
@@ -298,7 +306,7 @@ export interface PlatformClient extends EventEmitter {
     filePath: string,
     threadId: string,
     options?: { caption?: string; filename?: string },
-  ): Promise<PlatformPost>;
+  ): Promise<{ postId: string; fileId?: string }>;
 
   // ============================================================================
   // Event Emitter Methods (inherited from EventEmitter)

@@ -127,5 +127,15 @@ export async function uploadFileSlack(args: SlackUploadArgs): Promise<SlackUploa
     throw new Error(`Slack completeUploadExternal error: ${step3Data.error || 'unknown'}`);
   }
 
+  if (!step3Data.ts) {
+    // Slack's response shape varies — `ts` is documented but not always set.
+    // Falling back to fileId means PlatformPost.id is a file id, not a
+    // message ts. That's safe today (no caller re-edits or reacts to file
+    // posts) but a future caller could be confused. Loud about it.
+    log.warn(
+      `Slack completeUploadExternal returned no ts; using fileId ${fileId} as postId. ` +
+        `Do not use this id for updatePost/addReaction.`,
+    );
+  }
   return { fileId, postId: step3Data.ts ?? fileId };
 }

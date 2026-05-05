@@ -114,7 +114,7 @@ describe('uploadFileSlack', () => {
     expect(parsed.files).toEqual([{ id: 'F1', title: 'voice memo' }]);
   });
 
-  it('falls back to fileId when complete returns no ts', async () => {
+  it('falls back to fileId when complete returns no ts (and warns)', async () => {
     mockFetch([
       () =>
         new Response(JSON.stringify({ ok: true, upload_url: 'https://files.slack.com/u', file_id: 'F9' }), {
@@ -124,15 +124,62 @@ describe('uploadFileSlack', () => {
       () => new Response(JSON.stringify({ ok: true, files: [{ id: 'F9' }] }), { status: 200 }),
     ]);
 
-    const result = await uploadFileSlack({
-      botToken: 'xoxb',
-      channelId: 'C',
-      threadTs: 'T',
-      filePath,
-      filename: 'x.bin',
-      apiUrl: 'https://mock/api',
-    });
-    expect(result.postId).toBe('F9');
+    // Capture the warn so we know operators will see this in logs.
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    };
+
+    try {
+      const result = await uploadFileSlack({
+        botToken: 'xoxb',
+        channelId: 'C',
+        threadTs: 'T',
+        filePath,
+        filename: 'x.bin',
+        apiUrl: 'https://mock/api',
+      });
+      expect(result.postId).toBe('F9');
+      // The createLogger('slack-upload').warn() goes through console.warn under
+      // bun:test. The exact prefix depends on the logger but the fileId must
+      // appear in the warning text so the operator can correlate.
+      const matched = warnings.some(w => w.includes('F9') && /no ts|fileId/i.test(w));
+      expect(matched).toBe(true);
+    } finally {
+      console.warn = originalWarn;
+    }
+  });
+
+  it('does NOT warn when ts is present', async () => {
+    mockFetch([
+      () =>
+        new Response(JSON.stringify({ ok: true, upload_url: 'https://x', file_id: 'F1' }), { status: 200 }),
+      () => new Response('OK', { status: 200 }),
+      () =>
+        new Response(JSON.stringify({ ok: true, files: [{ id: 'F1' }], ts: '1700000000.0001' }), {
+          status: 200,
+        }),
+    ]);
+    const warnings: string[] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(' '));
+    };
+    try {
+      await uploadFileSlack({
+        botToken: 'x',
+        channelId: 'C',
+        threadTs: 'T',
+        filePath,
+        filename: 'a.png',
+        apiUrl: 'https://mock/api',
+      });
+      const matched = warnings.some(w => /no ts|fileId/i.test(w));
+      expect(matched).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
   });
 
   it('omits initial_comment when no caption given', async () => {

@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
 import { mkdtemp, mkdir, writeFile, symlink, rm, realpath, stat } from 'fs/promises';
-import { execFileSync } from 'child_process';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { validateOutboundPath } from './path-validator.js';
+import { setMode } from '../test-utils/chmod-portable.js';
 
 const MAX = 1024 * 1024;
 
@@ -40,10 +40,9 @@ describe('validateOutboundPath', () => {
 
     suidFile = join(allowedRoot, 'suid.bin');
     await writeFile(suidFile, 'x');
-    // Bun's fs.promises.chmod strips the SUID bit (verified 2026-05-05); shell out so
-    // the bit actually lands. The validator itself uses fs.stat which surfaces SUID
-    // correctly when a real filesystem reports it.
-    execFileSync('chmod', ['4755', suidFile]);
+    // Use the portable setMode helper — Bun's fs.chmod strips SUID, so this
+    // verifies-then-shells-out as needed. See src/test-utils/chmod-portable.ts.
+    await setMode(suidFile, 0o4755);
     const s = await stat(suidFile);
     if (!(s.mode & 0o4000)) {
       throw new Error(`SUID setup failed: mode is ${s.mode.toString(8)}`);
@@ -155,6 +154,72 @@ describe('validateOutboundPath', () => {
       allowedRoots: [allowedRoot],
       maxBytes: MAX,
     });
+    expect(result.ok).toBe(false);
+  });
+
+  // -- Dangerously wide roots ------------------------------------------------
+
+  it.each([['/'], ['/home'], ['/Users'], ['/root'], ['/etc'], ['/var'], ['/tmp'], ['/usr'], ['/opt']])(
+    'refuses dangerously wide allowed root %s',
+    async (root) => {
+      const result = await validateOutboundPath('/etc/passwd', {
+        allowedRoots: [root],
+        maxBytes: MAX,
+      });
+      expect(result.ok).toBe(false);
+      if (!result.ok) expect(result.reason).toMatch(/dangerously wide|SESSION_WORKING_DIR/i);
+    },
+  );
+
+  it.each([['/private/tmp'], ['/private/var'], ['/private/etc']])(
+    'refuses macOS-resolved wide roots %s',
+    async (root) => {
+      const result = await validateOutboundPath(okFile, {
+        allowedRoots: [root],
+        maxBytes: MAX,
+      });
+      expect(result.ok).toBe(false);
+    },
+  );
+
+  it('refuses if ANY of multiple roots is dangerously wide', async () => {
+    const result = await validateOutboundPath(okFile, {
+      allowedRoots: [allowedRoot, '/'],
+      maxBytes: MAX,
+    });
+    expect(result.ok).toBe(false);
+  });
+
+  it('accepts a normal nested working directory (e.g. /home/anne/proj)', async () => {
+    // The allowedRoot in beforeAll is mkdtemp'd under tmpdir() — already
+    // several segments deep, not a wide root. This test mostly documents
+    // that the wide-root check doesn't accidentally trip on legitimate
+    // session dirs.
+    const result = await validateOutboundPath(okFile, { allowedRoots: [allowedRoot], maxBytes: MAX });
+    expect(result.ok).toBe(true);
+  });
+
+  // -- Invalid maxBytes ------------------------------------------------------
+
+  it('rejects negative maxBytes with a config-blame message', async () => {
+    const result = await validateOutboundPath(okFile, { allowedRoots: [allowedRoot], maxBytes: -1 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/invalid maxBytes|outboundFiles\.maxBytes/i);
+  });
+
+  it('rejects zero maxBytes', async () => {
+    const result = await validateOutboundPath(okFile, { allowedRoots: [allowedRoot], maxBytes: 0 });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.reason).toMatch(/invalid maxBytes/i);
+  });
+
+  it('rejects NaN maxBytes', async () => {
+    const result = await validateOutboundPath(okFile, { allowedRoots: [allowedRoot], maxBytes: NaN });
+    expect(result.ok).toBe(false);
+  });
+
+  it('rejects Infinity maxBytes (treated as misconfiguration)', async () => {
+    const result = await validateOutboundPath(okFile, { allowedRoots: [allowedRoot], maxBytes: Infinity });
     expect(result.ok).toBe(false);
   });
 });

@@ -87,6 +87,34 @@ function sessionAccountOption(
 }
 
 /**
+ * Build the cross-cutting `ClaudeCliOptions` fields that every restart site
+ * needs identical wiring for: chrome, permission timeout, account binding,
+ * and the `send_file` outbound-files plumbing.
+ *
+ * Reason this exists: there are two restart sites today (`!cd`,
+ * `!permissions interactive`) and every future one needs to thread
+ * `uploadDir` + `outboundFiles` through. Forgetting either silently disables
+ * `send_file` after the restart. Cheap insurance against a class of drift
+ * bugs.
+ */
+function commonRestartCliOptions(
+  session: Session,
+  ctx: SessionContext,
+): Partial<ClaudeCliOptions> {
+  const platformMcpConfig = session.platform.getMcpConfig();
+  return {
+    threadId: session.threadId,
+    chrome: ctx.config.chromeEnabled,
+    platformConfig: platformMcpConfig,
+    logSessionId: session.sessionId,
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
+    account: sessionAccountOption(session, ctx),
+    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
+    outboundFiles: platformMcpConfig.outboundFiles,
+  };
+}
+
+/**
  * Restart Claude CLI with new options.
  * Handles the common pattern of kill -> flush -> create new CLI -> rebind -> start.
  * Returns true on success, false if start failed.
@@ -383,10 +411,9 @@ export async function changeDirectory(
   const sessionContext = buildSessionContext(session.platform, absoluteDir, session.threadId);
   const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
-  const platformMcpConfig = session.platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
+    ...commonRestartCliOptions(session, ctx),
     workingDir: absoluteDir,
-    threadId: session.threadId,
     // Keep the session in its current effective mode across the respawn.
     permissionMode: effectivePermissionMode({
       override: session.permissionModeOverride,
@@ -395,14 +422,7 @@ export async function changeDirectory(
     }),
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: platformMcpConfig,
     appendSystemPrompt,  // Include platform context and commands
-    logSessionId: session.sessionId,  // Route logs to session panel
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-    account: sessionAccountOption(session, ctx),
-    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
-    outboundFiles: platformMcpConfig.outboundFiles,
   };
 
   // Restart Claude with new options
@@ -558,20 +578,12 @@ export async function setSessionPermissionMode(
   // preserved (it lives in the platform, not Claude).
   const canResume = session.lifecycle.hasClaudeResponded;
 
-  const platformMcpConfig = session.platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
+    ...commonRestartCliOptions(session, ctx),
     workingDir: session.workingDir,
-    threadId: session.threadId,
     permissionMode: mode,
     sessionId: session.claudeSessionId,
     resume: canResume,
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: platformMcpConfig,
-    logSessionId: session.sessionId,
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-    account: sessionAccountOption(session, ctx),
-    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
-    outboundFiles: platformMcpConfig.outboundFiles,
   };
 
   const success = await restartClaudeSession(
