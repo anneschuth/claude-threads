@@ -55,6 +55,8 @@ interface MattermostApiChannel {
    * 'D' = direct message, 'G' = group message.
    */
   type: 'O' | 'P' | 'D' | 'G';
+  /** Team owning this channel. Empty for DMs / group DMs. */
+  team_id?: string;
 }
 
 interface MattermostApiUser {
@@ -173,6 +175,57 @@ async function getThreadRaw(
     );
   } catch (err) {
     apiLog.debug(`Failed to get thread ${threadRootId}: ${err}`);
+    return null;
+  }
+}
+
+interface MattermostPostListResponse {
+  order: string[];
+  posts: Record<string, MattermostApiPost>;
+}
+
+async function getChannelPostsRaw(
+  config: MattermostApiConfig,
+  channelId: string,
+  perPage: number,
+): Promise<MattermostPostListResponse | null> {
+  try {
+    return await mattermostApi<MattermostPostListResponse>(
+      config,
+      'GET',
+      // per_page caps the page size; page=0 is the most recent page.
+      `/channels/${channelId}/posts?per_page=${perPage}`,
+    );
+  } catch (err) {
+    apiLog.debug(`Failed to get channel posts ${channelId}: ${err}`);
+    return null;
+  }
+}
+
+interface MattermostSearchResponse {
+  order: string[];
+  posts: Record<string, MattermostApiPost>;
+}
+
+async function searchPostsForTeam(
+  config: MattermostApiConfig,
+  teamId: string,
+  terms: string,
+  perPage: number,
+): Promise<MattermostSearchResponse | null> {
+  try {
+    return await mattermostApi<MattermostSearchResponse>(
+      config,
+      'POST',
+      `/teams/${teamId}/posts/search`,
+      {
+        terms,
+        is_or_search: false,
+        per_page: perPage,
+      },
+    );
+  } catch (err) {
+    apiLog.debug(`Search failed on team ${teamId}: ${err}`);
     return null;
   }
 }
@@ -456,25 +509,107 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
 
     const limited = options?.limit !== undefined ? ordered.slice(-options.limit) : ordered;
 
-    // Resolve usernames once per unique user to avoid N round-trips for a
-    // chatty thread.
+    return this.hydratePosts(limited);
+  }
+
+  async readChannelHistory(
+    channelId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[] | null> {
+    const limit = options?.limit ?? 20;
+    mcpLogger.debug(`readChannelHistory: ${formatShortId(channelId)} (limit=${limit})`);
+    const response = await getChannelPostsRaw(this.apiConfig, channelId, limit);
+    if (!response) return null;
+
+    // Mattermost's channel/posts endpoint returns posts in reverse-chronological
+    // order via `order`. Sort defensively by create_at to normalize to
+    // oldest-first (matching readThread).
+    const ordered = response.order
+      .map(id => response.posts[id])
+      .filter((p): p is MattermostApiPost => Boolean(p))
+      .sort((a, b) => (a.create_at ?? 0) - (b.create_at ?? 0));
+
+    return this.hydratePosts(ordered);
+  }
+
+  async getChannelInfo(channelId: string): Promise<{ id: string; channelType: 'public' | 'private' } | null> {
+    mcpLogger.debug(`getChannelInfo: ${formatShortId(channelId)}`);
+    const channel = await getChannelRaw(this.apiConfig, channelId);
+    if (!channel) return null;
+    const channelType: 'public' | 'private' = channel.type === 'O' ? 'public' : 'private';
+    // Populate the type cache so downstream readPost / readThread don't
+    // make another round trip.
+    this.channelTypeCache.set(channelId, channelType);
+    return { id: channel.id, channelType };
+  }
+
+  async searchMessages(
+    query: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[]> {
+    const limit = options?.limit ?? 10;
+    mcpLogger.debug(`searchMessages: '${query}' (limit=${limit})`);
+
+    const teamId = await this.resolveTeamIdForBotChannel();
+    if (!teamId) {
+      mcpLogger.warn('searchMessages: could not resolve a team for the bot channel');
+      return [];
+    }
+
+    const response = await searchPostsForTeam(this.apiConfig, teamId, query, limit);
+    if (!response) return [];
+
+    // Mattermost search returns matches in unspecified order; preserve the
+    // server's `order` since search relevance is encoded there.
+    const ordered = response.order
+      .map(id => response.posts[id])
+      .filter((p): p is MattermostApiPost => Boolean(p));
+
+    return this.hydratePosts(ordered);
+  }
+
+  /** Lazy-resolved team ID for the bot's configured channel. Cached forever
+   *  because it can't change for the lifetime of an MCP child. */
+  private teamIdForBotChannelCache: string | null | undefined;
+  private async resolveTeamIdForBotChannel(): Promise<string | null> {
+    if (this.teamIdForBotChannelCache !== undefined) {
+      return this.teamIdForBotChannelCache;
+    }
+    const channel = await getChannelRaw(this.apiConfig, this.config.channelId);
+    const teamId = channel?.team_id || null;
+    this.teamIdForBotChannelCache = teamId;
+    if (teamId) {
+      mcpLogger.debug(`Resolved team id ${formatShortId(teamId)} for bot channel`);
+    }
+    return teamId;
+  }
+
+  /**
+   * Turn a list of raw Mattermost posts into McpPosts, resolving usernames
+   * once per unique user and channel types once per unique channel. Used by
+   * readThread, readChannelHistory, and searchMessages — the cost amortizes
+   * over chatty threads / cross-channel search results.
+   */
+  private async hydratePosts(posts: MattermostApiPost[]): Promise<McpPost[]> {
     const usernameByUserId = new Map<string, string | null>();
-    for (const p of limited) {
+    for (const p of posts) {
       if (p.user_id && !usernameByUserId.has(p.user_id)) {
         usernameByUserId.set(p.user_id, await this.getUsername(p.user_id));
       }
     }
 
-    // All replies share the thread root's channel; one lookup is enough.
-    const channelType = limited[0]
-      ? await this.getChannelType(limited[0].channel_id)
-      : undefined;
+    const channelTypeByChannelId = new Map<string, 'public' | 'private' | undefined>();
+    for (const p of posts) {
+      if (!channelTypeByChannelId.has(p.channel_id)) {
+        channelTypeByChannelId.set(p.channel_id, await this.getChannelType(p.channel_id));
+      }
+    }
 
-    return limited.map(p =>
+    return posts.map(p =>
       toMcpPost(
         p,
         p.user_id ? usernameByUserId.get(p.user_id) ?? null : null,
-        channelType,
+        channelTypeByChannelId.get(p.channel_id),
       ),
     );
   }

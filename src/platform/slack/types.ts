@@ -228,6 +228,21 @@ export interface UsersInfoResponse extends SlackApiResponse {
   user: SlackUser;
 }
 
+/**
+ * Subset of conversations.info response fields the MCP API needs.
+ * is_private distinguishes private channels (groups), is_im is the DM
+ * marker, is_member tells us whether the bot can read history.
+ */
+export interface ConversationsInfoResponse extends SlackApiResponse {
+  channel: {
+    id: string;
+    is_private?: boolean;
+    is_im?: boolean;
+    is_mpim?: boolean;
+    is_member?: boolean;
+  };
+}
+
 export interface UsersListResponse extends SlackApiResponse {
   members: SlackUser[];
   response_metadata?: {

@@ -25,6 +25,7 @@ import type {
   UpdateMessageResponse,
   UsersInfoResponse,
   ConversationsHistoryResponse,
+  ConversationsInfoResponse,
   ConversationsRepliesResponse,
   SlackMessage,
   SlackSocketModeEvent,
@@ -481,6 +482,75 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     } catch (err) {
       mcpLogger.debug(`readThread ${threadRootId} failed: ${err}`);
       return [];
+    }
+  }
+
+  async readChannelHistory(
+    channelId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[] | null> {
+    const limit = options?.limit ?? 20;
+    mcpLogger.debug(`readChannelHistory: ${channelId} (limit=${limit})`);
+    try {
+      const response = await slackApi<ConversationsHistoryResponse>(
+        'conversations.history',
+        this.config.botToken,
+        {
+          channel: channelId,
+          limit,
+        },
+      );
+
+      // Slack returns newest-first; normalize to oldest-first to match the
+      // Mattermost output and readThread.
+      const messages = [...(response.messages ?? [])].sort(
+        (a, b) => parseFloat(a.ts) - parseFloat(b.ts),
+      );
+
+      const usernameByUserId = new Map<string, string | null>();
+      for (const m of messages) {
+        if (m.user && !usernameByUserId.has(m.user)) {
+          usernameByUserId.set(m.user, await this.getUsername(m.user));
+        }
+      }
+
+      return messages.map(m =>
+        slackMessageToMcpPost(
+          m,
+          channelId,
+          m.user ? usernameByUserId.get(m.user) ?? null : null,
+        ),
+      );
+    } catch (err) {
+      // Slack returns `not_in_channel` / `channel_not_found` as a thrown
+      // error from slackApi. Map both to null so the caller can distinguish
+      // "in scope but inaccessible" from "out of scope" itself.
+      mcpLogger.debug(`readChannelHistory ${channelId} failed: ${err}`);
+      return null;
+    }
+  }
+
+  async getChannelInfo(
+    channelId: string,
+  ): Promise<{ id: string; channelType: 'public' | 'private' } | null> {
+    mcpLogger.debug(`getChannelInfo: ${channelId}`);
+    try {
+      const response = await slackApi<ConversationsInfoResponse>(
+        'conversations.info',
+        this.config.botToken,
+        { channel: channelId },
+      );
+      const ch = response.channel;
+      // DMs / group DMs are not "channels" for the purposes of the scope
+      // predicate. Treat them as private (the conservative default).
+      const isPrivate = ch.is_private || ch.is_im || ch.is_mpim || false;
+      return {
+        id: ch.id,
+        channelType: isPrivate ? 'private' : 'public',
+      };
+    } catch (err) {
+      mcpLogger.debug(`getChannelInfo ${channelId} failed: ${err}`);
+      return null;
     }
   }
 }

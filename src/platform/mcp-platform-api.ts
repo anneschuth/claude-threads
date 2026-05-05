@@ -171,6 +171,50 @@ export interface McpPlatformApi {
    * Optional — implementations that don't support reactions omit it.
    */
   addReaction?(postId: string, emojiName: string): Promise<void>;
+
+  /**
+   * Read recent top-level messages from a channel, newest-first ordering
+   * normalized to oldest-first on output (matching readThread). The
+   * caller is responsible for scope checks: this method just hits the
+   * platform API for the given channel.
+   *
+   * On Slack the bot must be a member of the channel; otherwise the
+   * implementation returns null so the caller can map that to a clean
+   * error. Mattermost returns null when the bot's token can't see the
+   * channel for any reason.
+   *
+   * Optional — implementations that don't support channel reads omit it.
+   */
+  readChannelHistory?(
+    channelId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[] | null>;
+
+  /**
+   * Look up a channel by its identifier and return basic metadata. Used
+   * by tools that need to apply the in-scope predicate (bot's channel ∪
+   * public channels) before fetching history. Returns null when the
+   * channel isn't visible to the bot's token.
+   *
+   * Optional — implementations that don't support channel introspection
+   * omit it.
+   */
+  getChannelInfo?(channelId: string): Promise<{ id: string; channelType: 'public' | 'private' } | null>;
+
+  /**
+   * Search messages on the platform. Returns posts in unspecified order
+   * (the caller should sort if it cares). The caller is responsible for
+   * filtering results to the in-scope predicate — this method just runs
+   * the platform's search and surfaces what it gets.
+   *
+   * Optional — Slack does not currently support this from a bot token
+   * (search.messages requires a user token), so the Slack implementation
+   * omits the method.
+   */
+  searchMessages?(
+    query: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[]>;
 }
 
 /**

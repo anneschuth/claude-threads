@@ -9,12 +9,16 @@ import {
   handleReactToPostWith,
   handleUpdateOwnPostWith,
   handleListThreadWith,
+  handleReadChannelHistoryWith,
+  handleSearchMessagesWith,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
   type ReadPostHandlerConfig,
   type ReactToPostHandlerConfig,
   type UpdateOwnPostHandlerConfig,
   type ListThreadHandlerConfig,
+  type ReadChannelHistoryHandlerConfig,
+  type SearchMessagesHandlerConfig,
 } from './mcp-server.js';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
@@ -135,6 +139,29 @@ class FakeApi implements McpPlatformApi {
   addReaction = async (postId: string, emojiName: string) => {
     this.addReactionCalls.push({ postId, emojiName });
     if (this.addReactionImpl) return this.addReactionImpl(postId, emojiName);
+  };
+
+  // Channel history / info / search — overridden per-test.
+  public readChannelHistoryCalls: Array<{ channelId: string; limit?: number }> = [];
+  public getChannelInfoCalls: string[] = [];
+  public searchMessagesCalls: Array<{ query: string; limit?: number }> = [];
+  public readChannelHistoryImpl: ((channelId: string, options?: { limit?: number }) => Promise<McpPost[] | null>) | undefined;
+  public getChannelInfoImpl: ((channelId: string) => Promise<{ id: string; channelType: 'public' | 'private' } | null>) | undefined;
+  public searchMessagesImpl: ((query: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
+  readChannelHistory = async (channelId: string, options?: { limit?: number }) => {
+    this.readChannelHistoryCalls.push({ channelId, limit: options?.limit });
+    if (this.readChannelHistoryImpl) return this.readChannelHistoryImpl(channelId, options);
+    return [];
+  };
+  getChannelInfo = async (channelId: string) => {
+    this.getChannelInfoCalls.push(channelId);
+    if (this.getChannelInfoImpl) return this.getChannelInfoImpl(channelId);
+    return null;
+  };
+  searchMessages = async (query: string, options?: { limit?: number }) => {
+    this.searchMessagesCalls.push({ query, limit: options?.limit });
+    if (this.searchMessagesImpl) return this.searchMessagesImpl(query, options);
+    return [];
   };
 }
 
@@ -1118,5 +1145,296 @@ describe('handleListThreadWith', () => {
     const result = await handleListThreadWith({}, makeListThreadCfg(api));
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/does not support/);
+  });
+});
+
+// =============================================================================
+// handleReadChannelHistoryWith — read_channel_history MCP tool
+// =============================================================================
+
+const MM_BOT_CHANNEL = 'a'.repeat(26);
+const MM_OTHER_CHANNEL = 'b'.repeat(26);
+const MM_INVALID_CHANNEL = 'not-a-real-channel-id';
+
+function makeReadChannelHistoryCfg(
+  api: FakeApi,
+  overrides: Partial<ReadChannelHistoryHandlerConfig> = {},
+): ReadChannelHistoryHandlerConfig {
+  return {
+    api,
+    platformType: 'mattermost',
+    botChannelId: MM_BOT_CHANNEL,
+    ...overrides,
+  };
+}
+
+describe('handleReadChannelHistoryWith — Mattermost', () => {
+  it('reads recent messages from the bot channel without a getChannelInfo lookup', async () => {
+    // Bot channel is always in scope, so we should never need to call
+    // getChannelInfo on it. Verifies the short-circuit in isChannelInScope.
+    const api = new FakeApi();
+    api.readChannelHistoryImpl = async () => [
+      fakePost({ id: 'a'.repeat(26), username: 'alice', message: 'first', channelId: MM_BOT_CHANNEL }),
+      fakePost({ id: 'b'.repeat(26), username: 'bob', message: 'second', channelId: MM_BOT_CHANNEL }),
+    ];
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_BOT_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('@alice');
+    expect(result.content).toContain('> first');
+    expect(api.readChannelHistoryCalls).toEqual([{ channelId: MM_BOT_CHANNEL, limit: 20 }]);
+    expect(api.getChannelInfoCalls).toEqual([]);
+  });
+
+  it('reads from a public channel after a successful scope check', async () => {
+    const api = new FakeApi();
+    api.getChannelInfoImpl = async () => ({ id: MM_OTHER_CHANNEL, channelType: 'public' });
+    api.readChannelHistoryImpl = async () => [
+      fakePost({ id: 'c'.repeat(26), username: 'carol', message: 'in another channel', channelId: MM_OTHER_CHANNEL }),
+    ];
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_OTHER_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(api.getChannelInfoCalls).toEqual([MM_OTHER_CHANNEL]);
+    expect(api.readChannelHistoryCalls).toHaveLength(1);
+  });
+
+  it('refuses to read from a private channel that is not the bot channel', async () => {
+    // RED test: this fails if the in-scope predicate is loosened or the
+    // getChannelInfo result is ignored.
+    const api = new FakeApi();
+    api.getChannelInfoImpl = async () => ({ id: MM_OTHER_CHANNEL, channelType: 'private' });
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_OTHER_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/private/);
+    expect(api.readChannelHistoryCalls).toEqual([]);
+  });
+
+  it('refuses an invalid channel id without calling the API', async () => {
+    // RED test: shape check must run before any API call.
+    const api = new FakeApi();
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_INVALID_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/invalid channel id/);
+    expect(api.getChannelInfoCalls).toEqual([]);
+    expect(api.readChannelHistoryCalls).toEqual([]);
+  });
+
+  it('returns a clean error when the channel is not visible to the bot', async () => {
+    const api = new FakeApi();
+    api.getChannelInfoImpl = async () => null;
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_OTHER_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not found/);
+  });
+
+  it('returns a clean error when readChannelHistory returns null', async () => {
+    const api = new FakeApi();
+    api.readChannelHistoryImpl = async () => null;
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_BOT_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not accessible/);
+  });
+
+  it('caps max_messages at 100', async () => {
+    const api = new FakeApi();
+    api.readChannelHistoryImpl = async () => [];
+    await handleReadChannelHistoryWith(
+      { channel_id: MM_BOT_CHANNEL, max_messages: 999 },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(api.readChannelHistoryCalls[0].limit).toBe(100);
+  });
+
+  it('returns ok:false when the platform does not support channel history', async () => {
+    const api = new FakeApi();
+    (api as unknown as { readChannelHistory: unknown }).readChannelHistory = undefined;
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: MM_BOT_CHANNEL },
+      makeReadChannelHistoryCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/);
+  });
+});
+
+describe('handleReadChannelHistoryWith — Slack', () => {
+  it('rejects non-membership with a Slack-flavored error', async () => {
+    // Slack-only path: when readChannelHistory returns null we infer the
+    // bot isn't a member, and the error tells the user how to fix it.
+    const api = new FakeApi();
+    api.readChannelHistoryImpl = async () => null;
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: SLACK_CHANNEL },
+      makeReadChannelHistoryCfg(api, { platformType: 'slack', botChannelId: SLACK_CHANNEL }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a member/);
+  });
+
+  it('refuses an invalid Slack channel id', async () => {
+    const api = new FakeApi();
+    const result = await handleReadChannelHistoryWith(
+      { channel_id: 'lowercase-not-slack' },
+      makeReadChannelHistoryCfg(api, { platformType: 'slack', botChannelId: SLACK_CHANNEL }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/invalid channel id/);
+  });
+});
+
+// =============================================================================
+// handleSearchMessagesWith — search_messages MCP tool
+// =============================================================================
+
+function makeSearchCfg(
+  api: FakeApi,
+  overrides: Partial<SearchMessagesHandlerConfig> = {},
+): SearchMessagesHandlerConfig {
+  return {
+    api,
+    platformType: 'mattermost',
+    botChannelId: MM_BOT_CHANNEL,
+    ...overrides,
+  };
+}
+
+describe('handleSearchMessagesWith', () => {
+  it('returns matches limited to in-scope channels', async () => {
+    // Two of three matches are in scope (one in the bot channel, one in a
+    // public channel); the private one must be filtered out.
+    // RED test: this fails if the in-scope filter is removed or weakened.
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => [
+      fakePost({ id: 'a'.repeat(26), username: 'alice', message: 'hit in bot channel', channelId: MM_BOT_CHANNEL, channelType: 'private' }),
+      fakePost({ id: 'b'.repeat(26), username: 'bob', message: 'hit in public', channelId: MM_OTHER_CHANNEL, channelType: 'public' }),
+      fakePost({ id: 'c'.repeat(26), username: 'mallory', message: 'private hit you must not see', channelId: 'd'.repeat(26), channelType: 'private' }),
+    ];
+    const result = await handleSearchMessagesWith(
+      { query: 'hit' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('@alice');
+    expect(result.content).toContain('@bob');
+    expect(result.content).not.toContain('@mallory');
+    expect(result.content).not.toContain('private hit you must not see');
+  });
+
+  it('treats undefined channelType as private (fail-safe)', async () => {
+    // Posts where channelType is undefined must not slip through. The
+    // resolver applies the same fail-safe rule; search must mirror it.
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => [
+      fakePost({ id: 'a'.repeat(26), username: 'alice', message: 'no type info', channelId: MM_OTHER_CHANNEL, channelType: undefined }),
+    ];
+    const result = await handleSearchMessagesWith(
+      { query: 'no type' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toMatch(/No in-scope matches/);
+  });
+
+  it('refuses on Slack with an explicit user-token note', async () => {
+    const api = new FakeApi();
+    const result = await handleSearchMessagesWith(
+      { query: 'anything' },
+      makeSearchCfg(api, { platformType: 'slack' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/Slack/);
+    expect(result.reason).toMatch(/user token/);
+    expect(api.searchMessagesCalls).toEqual([]);
+  });
+
+  it('refuses an empty query', async () => {
+    const api = new FakeApi();
+    const result = await handleSearchMessagesWith(
+      { query: '   ' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/non-empty/);
+    expect(api.searchMessagesCalls).toEqual([]);
+  });
+
+  it('caps max_results at 25', async () => {
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => [];
+    await handleSearchMessagesWith(
+      { query: 'q', max_results: 999 },
+      makeSearchCfg(api),
+    );
+    // The handler over-fetches by 2x to defend against the in-scope filter;
+    // both the requested limit and the over-fetch are capped.
+    expect(api.searchMessagesCalls[0].limit).toBe(50);
+  });
+
+  it('returns a friendly empty result when nothing matches', async () => {
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => [];
+    const result = await handleSearchMessagesWith(
+      { query: 'nothing' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toMatch(/No in-scope matches/);
+  });
+
+  it('surfaces platform errors as ok:false', async () => {
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => { throw new Error('upstream search timeout'); };
+    const result = await handleSearchMessagesWith(
+      { query: 'anything' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/upstream search timeout/);
+  });
+
+  it('returns ok:false when the platform does not implement searchMessages', async () => {
+    const api = new FakeApi();
+    (api as unknown as { searchMessages: unknown }).searchMessages = undefined;
+    const result = await handleSearchMessagesWith(
+      { query: 'anything' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/does not support/);
+  });
+});
+
+// =============================================================================
+// Auto-approval for the new tools
+// =============================================================================
+
+describe('handlePermissionWith — auto-approval for read_channel_history and search_messages', () => {
+  it.each([
+    ['mcp__claude-threads-mcp__read_channel_history', { channel_id: 'x' }],
+    ['mcp__claude-threads-mcp__search_messages', { query: 'x' }],
+  ] as const)('auto-allows %s without prompting', async (toolName, input) => {
+    const api = new FakeApi();
+    const cfg = makeCfg(api);
+    const result = await handlePermissionWith(toolName, input as Record<string, unknown>, cfg);
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(0);
+    expect(api.waitForReactionCalls).toHaveLength(0);
   });
 });
