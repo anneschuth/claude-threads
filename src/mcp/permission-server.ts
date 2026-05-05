@@ -5,7 +5,7 @@
  * This server handles Claude Code's permission prompts by forwarding them to
  * the chat platform for user approval via emoji reactions.
  *
- * Platform-agnostic design: Uses PermissionApi interface with platform-specific
+ * Platform-agnostic design: Uses McpPlatformApi interface with platform-specific
  * implementations selected based on PLATFORM_TYPE environment variable.
  *
  * It is spawned by Claude Code when using --permission-prompt-tool and
@@ -31,8 +31,8 @@ import { z } from 'zod';
 import { isApprovalEmoji, isAllowAllEmoji, APPROVAL_EMOJIS, ALLOW_ALL_EMOJIS, DENIAL_EMOJIS } from '../utils/emoji.js';
 import { formatToolForPermission } from '../operations/index.js';
 import { mcpLogger } from '../utils/logger.js';
-import type { PermissionApi, MattermostPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
-import { createPermissionApi } from '../platform/permission-api-factory.js';
+import type { McpPlatformApi, MattermostMcpApiConfig, SlackMcpApiConfig } from '../platform/mcp-platform-api.js';
+import { createMcpPlatformApi } from '../platform/mcp-platform-api-factory.js';
 import { validateOutboundPath } from './path-validator.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
 
@@ -70,7 +70,7 @@ const SEND_FILE_TOOL_NAME = 'mcp__claude-threads-permissions__send_file';
 // =============================================================================
 // Permission API Instance
 // =============================================================================
-const apiConfig: MattermostPermissionApiConfig | SlackPermissionApiConfig =
+const apiConfig: MattermostMcpApiConfig | SlackMcpApiConfig =
   PLATFORM_TYPE === 'slack'
     ? {
         platformType: 'slack',
@@ -91,13 +91,13 @@ const apiConfig: MattermostPermissionApiConfig | SlackPermissionApiConfig =
         debug: process.env.DEBUG === '1',
       };
 
-let permissionApi: PermissionApi | null = null;
+let mcpApi: McpPlatformApi | null = null;
 
-function getApi(): PermissionApi {
-  if (!permissionApi) {
-    permissionApi = createPermissionApi(PLATFORM_TYPE, apiConfig);
+function getApi(): McpPlatformApi {
+  if (!mcpApi) {
+    mcpApi = createMcpPlatformApi(PLATFORM_TYPE, apiConfig);
   }
-  return permissionApi;
+  return mcpApi;
 }
 
 // Session state
@@ -118,7 +118,7 @@ export interface PermissionResult {
  * handler can be tested without module-level env state.
  */
 export interface PermissionHandlerConfig {
-  api: PermissionApi;
+  api: McpPlatformApi;
   threadId?: string;
   timeoutMs: number;
   platformConfigured: boolean;
@@ -272,7 +272,7 @@ export interface SendFileResult {
 }
 
 export interface SendFileHandlerConfig {
-  api: PermissionApi;
+  api: McpPlatformApi;
   threadId: string;
   enabled: boolean;
   allowedRoots: string[];

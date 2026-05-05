@@ -1,9 +1,10 @@
 /**
- * Permission API interface for MCP permission server
+ * MCP Platform API interface
  *
- * This interface defines the operations needed by the permission server
- * to post permission requests and receive user responses via reactions.
- * Each platform implements this interface with its specific API.
+ * The platform-side surface exposed to the MCP child process. Covers what
+ * the MCP server needs to do on behalf of Claude: post permission prompts
+ * and wait for reactions, send files, read posts and thread history. Each
+ * platform implements this interface with its specific API.
  */
 
 import type { PlatformFormatter } from './formatter.js';
@@ -25,9 +26,9 @@ export interface PostedMessage {
 }
 
 /**
- * Platform-specific permission API
+ * Platform-side API surface used by the MCP child process.
  */
-export interface PermissionApi {
+export interface McpPlatformApi {
   /**
    * Get the markdown formatter for this platform
    */
@@ -91,9 +92,9 @@ export interface PermissionApi {
 }
 
 /**
- * Configuration for Mattermost permission API
+ * Configuration for the Mattermost MCP platform API
  */
-export interface MattermostPermissionApiConfig {
+export interface MattermostMcpApiConfig {
   platformType: 'mattermost';
   url: string;
   token: string;
@@ -104,9 +105,9 @@ export interface MattermostPermissionApiConfig {
 }
 
 /**
- * Configuration for Slack permission API
+ * Configuration for the Slack MCP platform API
  */
-export interface SlackPermissionApiConfig {
+export interface SlackMcpApiConfig {
   platformType: 'slack';
   botToken: string;    // xoxb-... for Web API
   appToken: string;    // xapp-... for Socket Mode

@@ -276,7 +276,7 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/slack/client.ts` | Slack implementation of PlatformClient (Socket Mode + Web API) |
 | `src/platform/slack/types.ts` | Slack-specific types |
 | `src/platform/slack/formatter.ts` | Slack mrkdwn formatter |
-| `src/platform/slack/permission-api.ts` | Slack permission API for MCP server |
+| `src/platform/slack/mcp-platform-api.ts` | Slack MCP platform API (used by MCP child) |
 | `src/platform/slack/index.ts` | Slack module exports |
 
 ### Utilities
@@ -292,8 +292,8 @@ Each executor owns a specific piece of interactive state:
 | `src/utils/uptime.ts` | Session uptime tracking |
 | `src/utils/pr-detector.ts` | Detect PR URLs in Claude output |
 | `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
-| `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
-| `src/platform/permission-api.ts` | PermissionApi interface |
+| `src/platform/mcp-platform-api-factory.ts` | Factory for platform-specific MCP platform APIs |
+| `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
 | `src/logo.ts` | ASCII art logo |

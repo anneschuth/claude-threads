@@ -1,11 +1,11 @@
 /**
- * Unit tests for the Mattermost PermissionApi implementation.
+ * Unit tests for the Mattermost McpPlatformApi implementation.
  *
  * This file primarily protects the inlined Mattermost REST helpers
  * (`mattermostApi`, `getMe`, `getUser`, `createPost`, `updatePostRaw`,
  * `addReaction`, `createInteractivePostInternal`) which used to live in
  * `src/mattermost/api.ts` with their own 459-line test suite. When that file
- * was folded into `permission-api.ts`, the tests were dropped; this file
+ * was folded into `mcp-platform-api.ts`, the tests were dropped; this file
  * reestablishes coverage for the MCP-subprocess code path.
  *
  * The `waitForReaction` WebSocket path is not covered here (would require a
@@ -13,7 +13,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createMattermostPermissionApi } from './permission-api.js';
+import { createMattermostMcpPlatformApi } from './mcp-platform-api.js';
 
 // -----------------------------------------------------------------------------
 // Fetch harness (same pattern as src/platform/mattermost/client.test.ts)
@@ -61,7 +61,7 @@ function errorResponse(status: number, text = 'oops'): Response {
 }
 
 function makeApi() {
-  return createMattermostPermissionApi({
+  return createMattermostMcpPlatformApi({
     platformType: 'mattermost',
     url: 'https://chat.example.test',
     token: 'secret-token',
@@ -76,7 +76,7 @@ function makeApi() {
 // isUserAllowed — pure logic, no HTTP
 // -----------------------------------------------------------------------------
 
-describe('MattermostPermissionApi.isUserAllowed', () => {
+describe('MattermostMcpPlatformApi.isUserAllowed', () => {
   it('returns true for users in the allowlist', () => {
     expect(makeApi().isUserAllowed('alice')).toBe(true);
     expect(makeApi().isUserAllowed('bob')).toBe(true);
@@ -88,7 +88,7 @@ describe('MattermostPermissionApi.isUserAllowed', () => {
   });
 
   it('returns true for any user when the allowlist is empty (legacy behavior)', () => {
-    const api = createMattermostPermissionApi({
+    const api = createMattermostMcpPlatformApi({
       platformType: 'mattermost',
       url: 'https://x.test',
       token: 't',
@@ -103,7 +103,7 @@ describe('MattermostPermissionApi.isUserAllowed', () => {
 // getBotUserId / getUsername — exercise the /users/me and /users/{id} paths
 // -----------------------------------------------------------------------------
 
-describe('MattermostPermissionApi.getBotUserId', () => {
+describe('MattermostMcpPlatformApi.getBotUserId', () => {
   it('fetches /users/me with Bearer auth and returns the id', async () => {
     fetchResponder = () => jsonResponse({ id: 'bot-user-id', username: 'claude' });
     const api = makeApi();
@@ -124,7 +124,7 @@ describe('MattermostPermissionApi.getBotUserId', () => {
   });
 });
 
-describe('MattermostPermissionApi.getUsername', () => {
+describe('MattermostMcpPlatformApi.getUsername', () => {
   it('returns the username for a valid user id', async () => {
     fetchResponder = () => jsonResponse({ id: 'u-1', username: 'alice' });
     const username = await makeApi().getUsername('u-1');
@@ -147,7 +147,7 @@ describe('MattermostPermissionApi.getUsername', () => {
 // createInteractivePost — posts + reactions, continues on partial failure
 // -----------------------------------------------------------------------------
 
-describe('MattermostPermissionApi.createInteractivePost', () => {
+describe('MattermostMcpPlatformApi.createInteractivePost', () => {
   it('posts to /posts with channel and thread, then adds each reaction', async () => {
     let step = 0;
     fetchResponder = (url) => {
@@ -211,7 +211,7 @@ describe('MattermostPermissionApi.createInteractivePost', () => {
 // updatePost — hits /posts/{id} with PUT
 // -----------------------------------------------------------------------------
 
-describe('MattermostPermissionApi.updatePost', () => {
+describe('MattermostMcpPlatformApi.updatePost', () => {
   it('PUTs to /posts/{id} with id + message body', async () => {
     fetchResponder = () => jsonResponse({ id: 'post-1', channel_id: 'c', message: 'updated', root_id: '' });
     await makeApi().updatePost('post-1', '✅ Allowed by alice');
@@ -234,7 +234,7 @@ describe('MattermostPermissionApi.updatePost', () => {
 // Formatter exposure
 // -----------------------------------------------------------------------------
 
-describe('MattermostPermissionApi.getFormatter', () => {
+describe('MattermostMcpPlatformApi.getFormatter', () => {
   it('returns a stable Mattermost formatter instance', () => {
     const api = makeApi();
     expect(api.getFormatter()).toBe(api.getFormatter());

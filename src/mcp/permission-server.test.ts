@@ -8,7 +8,7 @@ import {
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
 } from './permission-server.js';
-import type { PermissionApi, ReactionEvent } from '../platform/permission-api.js';
+import type { McpPlatformApi, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 // =============================================================================
@@ -46,7 +46,7 @@ interface FakeApiOptions {
   getBotUserIdShouldThrow?: boolean;
 }
 
-class FakeApi implements PermissionApi {
+class FakeApi implements McpPlatformApi {
   public createdPosts: Array<{ message: string; reactions: string[]; threadId?: string }> = [];
   public updatedPosts: Array<{ postId: string; message: string }> = [];
   public waitForReactionCalls: Array<{ postId: string; botUserId: string; timeoutMs: number }> = [];

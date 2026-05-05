@@ -28,7 +28,7 @@ src/platform/{platform-name}/
 ├── client.ts         # Main PlatformClient implementation
 ├── types.ts          # Platform-specific types
 ├── formatter.ts      # Markdown formatting for this platform
-├── permission-api.ts # Permission API for MCP server
+├── mcp-platform-api.ts # Platform API surface used by the MCP child process
 └── index.ts          # Public exports
 ```
 
@@ -294,16 +294,16 @@ export class SlackFormatter implements PlatformFormatter {
 }
 ```
 
-### Step 4: Implement Permission API (`permission-api.ts`)
+### Step 4: Implement MCP Platform API (`mcp-platform-api.ts`)
 
-For the MCP permission server to communicate with this platform:
+For the MCP child process to communicate with this platform:
 
 ```typescript
-// src/platform/slack/permission-api.ts
-import type { PermissionApi } from '../permission-api.js';
+// src/platform/slack/mcp-platform-api.ts
+import type { McpPlatformApi } from '../mcp-platform-api.js';
 import type { PlatformReaction, PlatformUser } from '../types.js';
 
-export class SlackPermissionApi implements PermissionApi {
+export class SlackMcpPlatformApi implements McpPlatformApi {
   private token: string;
   private baseUrl = 'https://slack.com/api';
 

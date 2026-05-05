@@ -1,14 +1,14 @@
 /**
- * Mattermost implementation of Permission API
+ * Mattermost implementation of McpPlatformApi
  *
- * Handles permission requests via Mattermost API and WebSocket. Bundles the
- * minimal Mattermost REST surface the MCP permission server needs; the full
+ * Handles MCP-side platform operations via Mattermost API and WebSocket.
+ * Bundles the minimal Mattermost REST surface the MCP child needs; the full
  * WebSocket-backed client lives in src/platform/mattermost/client.ts and is
  * only used by the main bot.
  */
 
 import { WebSocket } from '../../utils/websocket.js';
-import type { PermissionApi, MattermostPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
+import type { McpPlatformApi, MattermostMcpApiConfig, ReactionEvent, PostedMessage } from '../mcp-platform-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
@@ -159,15 +159,15 @@ async function createInteractivePostInternal(
 }
 
 /**
- * Mattermost Permission API implementation
+ * Mattermost MCP platform API implementation
  */
-class MattermostPermissionApi implements PermissionApi {
+class MattermostMcpPlatformApi implements McpPlatformApi {
   private readonly apiConfig: MattermostApiConfig;
-  private readonly config: MattermostPermissionApiConfig;
+  private readonly config: MattermostMcpApiConfig;
   private readonly formatter = new MattermostFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: MattermostPermissionApiConfig) {
+  constructor(config: MattermostMcpApiConfig) {
     this.config = config;
     this.apiConfig = {
       url: config.url,
@@ -351,8 +351,8 @@ class MattermostPermissionApi implements PermissionApi {
 }
 
 /**
- * Create a Mattermost permission API instance
+ * Create a Mattermost MCP platform API instance
  */
-export function createMattermostPermissionApi(config: MattermostPermissionApiConfig): PermissionApi {
-  return new MattermostPermissionApi(config);
+export function createMattermostMcpPlatformApi(config: MattermostMcpApiConfig): McpPlatformApi {
+  return new MattermostMcpPlatformApi(config);
 }

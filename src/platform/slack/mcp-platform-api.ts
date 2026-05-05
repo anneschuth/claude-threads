@@ -1,7 +1,7 @@
 /**
- * Slack implementation of Permission API
+ * Slack implementation of McpPlatformApi
  *
- * Handles permission requests via Slack Web API and Socket Mode.
+ * Handles MCP-side platform operations via Slack Web API and Socket Mode.
  *
  * Key differences from Mattermost:
  * - Uses two tokens: botToken (xoxb-) for API calls, appToken (xapp-) for Socket Mode
@@ -12,10 +12,10 @@
 
 import { WebSocket } from '../../utils/websocket.js';
 import type {
-  PermissionApi,
+  McpPlatformApi,
   ReactionEvent,
   PostedMessage,
-} from '../permission-api.js';
+} from '../mcp-platform-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import type {
   AuthTestResponse,
@@ -32,13 +32,13 @@ import { uploadFileSlack } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
 // =============================================================================
-// Slack Permission API Configuration
+// Slack MCP API Configuration
 // =============================================================================
 
 /**
- * Configuration for Slack permission API
+ * Configuration for the Slack MCP platform API
  */
-export interface SlackPermissionApiConfig {
+export interface SlackMcpApiConfig {
   botToken: string;      // xoxb-... token for Web API
   appToken: string;      // xapp-... token for Socket Mode
   channelId: string;
@@ -86,18 +86,18 @@ async function slackApi<T>(
 }
 
 // =============================================================================
-// Slack Permission API Implementation
+// Slack MCP Platform API Implementation
 // =============================================================================
 
 /**
- * Slack Permission API implementation
+ * Slack MCP platform API implementation
  */
-class SlackPermissionApi implements PermissionApi {
-  private readonly config: SlackPermissionApiConfig;
+class SlackMcpPlatformApi implements McpPlatformApi {
+  private readonly config: SlackMcpApiConfig;
   private readonly formatter = new SlackFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: SlackPermissionApiConfig) {
+  constructor(config: SlackMcpApiConfig) {
     this.config = config;
   }
 
@@ -398,8 +398,8 @@ class SlackPermissionApi implements PermissionApi {
 // =============================================================================
 
 /**
- * Create a Slack permission API instance
+ * Create a Slack MCP platform API instance
  */
-export function createSlackPermissionApi(config: SlackPermissionApiConfig): PermissionApi {
-  return new SlackPermissionApi(config);
+export function createSlackMcpPlatformApi(config: SlackMcpApiConfig): McpPlatformApi {
+  return new SlackMcpPlatformApi(config);
 }
