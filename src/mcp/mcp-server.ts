@@ -350,7 +350,9 @@ const sendFileInputSchema = {
     .describe('Optional message body / initial comment shown alongside the file.'),
 };
 
-const readPostInputSchema = {
+// Exported so a contract test can verify the numeric coerce behavior
+// without spinning up the full MCP transport. See mcp-server.test.ts.
+export const readPostInputSchema = {
   url: z
     .string()
     .describe(
@@ -363,7 +365,12 @@ const readPostInputSchema = {
       'When true, also fetch surrounding messages in the same thread (oldest first). Defaults to false.',
     ),
   max_messages: z
-    .number()
+    // z.coerce.number() so a runtime that sends `"5"` (string) rather than
+    // `5` (number) — observed in production with the Claude MCP runtime —
+    // doesn't get rejected at the boundary. Downstream clamp helpers
+    // already defend against non-finite / non-positive values, so the
+    // coercion can't widen the contract beyond the documented caps.
+    .coerce.number()
     .int()
     .optional()
     .describe(
@@ -395,7 +402,7 @@ const updateOwnPostInputSchema = {
     .describe('New message body. Replaces the existing post text in full.'),
 };
 
-const listThreadInputSchema = {
+export const listThreadInputSchema = {
   url: z
     .string()
     .optional()
@@ -403,7 +410,7 @@ const listThreadInputSchema = {
       'Permalink to any post in the target thread. If omitted, the current session thread is read.',
     ),
   max_messages: z
-    .number()
+    .coerce.number() // see read_post schema above for why coerce
     .int()
     .optional()
     .describe(
@@ -411,7 +418,7 @@ const listThreadInputSchema = {
     ),
 };
 
-const readChannelHistoryInputSchema = {
+export const readChannelHistoryInputSchema = {
   channel_id: z
     .string()
     .describe(
@@ -419,7 +426,7 @@ const readChannelHistoryInputSchema = {
         "Must be the bot's own channel or a public channel on the same instance.",
     ),
   max_messages: z
-    .number()
+    .coerce.number() // see read_post schema above for why coerce
     .int()
     .optional()
     .describe(
@@ -427,12 +434,12 @@ const readChannelHistoryInputSchema = {
     ),
 };
 
-const searchMessagesInputSchema = {
+export const searchMessagesInputSchema = {
   query: z
     .string()
     .describe('Search query (platform-specific syntax). Mattermost supports phrase quoting and from:user filters.'),
   max_results: z
-    .number()
+    .coerce.number() // see read_post schema above for why coerce
     .int()
     .optional()
     .describe('Maximum results to return. Defaults to 10, capped at 25.'),

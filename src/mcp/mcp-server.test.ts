@@ -12,6 +12,10 @@ import {
   handleReadChannelHistoryWith,
   handleSearchMessagesWith,
   handleSendDmWith,
+  readPostInputSchema,
+  listThreadInputSchema,
+  readChannelHistoryInputSchema,
+  searchMessagesInputSchema,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
   type ReadPostHandlerConfig,
@@ -22,6 +26,7 @@ import {
   type SearchMessagesHandlerConfig,
   type SendDmHandlerConfig,
 } from './mcp-server.js';
+import { z } from 'zod';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
@@ -1918,5 +1923,60 @@ describe('handleSendDmWith', () => {
       makeSendDmCfg(api, state),
     );
     expect(state.inFlightPrompts.has(DM_RECIPIENT_ID)).toBe(false);
+  });
+});
+
+// =============================================================================
+// Numeric input coercion — schemas must accept string-numerics
+// =============================================================================
+//
+// Some MCP runtimes (observed with the Claude CLI itself) serialize numeric
+// tool arguments as strings before they reach the server. The original
+// `z.number()` schemas rejected those at the boundary, surfacing as an
+// "expected number, received string" error from the MCP framework. The
+// `z.coerce.number()` switch lets either form through; downstream
+// clamp helpers already defend against non-finite / non-positive values
+// so the contract isn't widened beyond the documented caps.
+
+describe('numeric input schemas accept both number and string', () => {
+  // Wrap the schema shape in a z.object so we can call .parse on it.
+  const readPost = z.object(readPostInputSchema);
+  const listThread = z.object(listThreadInputSchema);
+  const readChannelHistory = z.object(readChannelHistoryInputSchema);
+  const searchMessages = z.object(searchMessagesInputSchema);
+
+  it.each([
+    ['read_post.max_messages', () => readPost.parse({ url: 'x', max_messages: '5' as unknown as number }).max_messages],
+    ['list_thread.max_messages', () => listThread.parse({ max_messages: '5' as unknown as number }).max_messages],
+    ['read_channel_history.max_messages', () => readChannelHistory.parse({ channel_id: 'a', max_messages: '5' as unknown as number }).max_messages],
+    ['search_messages.max_results', () => searchMessages.parse({ query: 'q', max_results: '5' as unknown as number }).max_results],
+  ] as const)('coerces string-numeric for %s', (_name, parse) => {
+    // RED test: this fails with `z.number()` (no coerce) — the parse throws
+    // ZodError("Invalid input: expected number, received string"). With
+    // `z.coerce.number()` the string is converted to 5 before validation.
+    const result = parse();
+    expect(result).toBe(5);
+    expect(typeof result).toBe('number');
+  });
+
+  it.each([
+    ['read_post.max_messages', () => readPost.parse({ url: 'x', max_messages: 5 }).max_messages],
+    ['list_thread.max_messages', () => listThread.parse({ max_messages: 5 }).max_messages],
+    ['read_channel_history.max_messages', () => readChannelHistory.parse({ channel_id: 'a', max_messages: 5 }).max_messages],
+    ['search_messages.max_results', () => searchMessages.parse({ query: 'q', max_results: 5 }).max_results],
+  ] as const)('still accepts native numbers for %s', (_name, parse) => {
+    expect(parse()).toBe(5);
+  });
+
+  it.each([
+    ['read_post.max_messages', () => readPost.parse({ url: 'x', max_messages: '1.5' as unknown as number })],
+    ['list_thread.max_messages', () => listThread.parse({ max_messages: '1.5' as unknown as number })],
+    ['read_channel_history.max_messages', () => readChannelHistory.parse({ channel_id: 'a', max_messages: '1.5' as unknown as number })],
+    ['search_messages.max_results', () => searchMessages.parse({ query: 'q', max_results: '1.5' as unknown as number })],
+  ] as const)('still rejects non-integer string for %s', (_name, parse) => {
+    // .int() runs after coercion, so '1.5' coerces to 1.5 then fails
+    // the integer check. Belt-and-suspenders: catches a future regression
+    // where someone weakens the schema to plain coerce.number().
+    expect(() => parse()).toThrow();
   });
 });
