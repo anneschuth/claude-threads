@@ -207,6 +207,11 @@ export interface McpPlatformApi {
    * filtering results to the in-scope predicate — this method just runs
    * the platform's search and surfaces what it gets.
    *
+   * Returns `null` when search can't be run at all (e.g., the bot
+   * channel has no team to scope the search to, the search backend is
+   * disabled, the platform threw). Empty array means "search ran, no
+   * matches" — the handler MUST distinguish these.
+   *
    * Optional — Slack does not currently support this from a bot token
    * (search.messages requires a user token), so the Slack implementation
    * omits the method.
@@ -214,7 +219,7 @@ export interface McpPlatformApi {
   searchMessages?(
     query: string,
     options?: { limit?: number },
-  ): Promise<McpPost[]>;
+  ): Promise<McpPost[] | null>;
 }
 
 /**

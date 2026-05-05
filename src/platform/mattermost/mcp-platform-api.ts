@@ -546,18 +546,22 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
   async searchMessages(
     query: string,
     options?: { limit?: number },
-  ): Promise<McpPost[]> {
+  ): Promise<McpPost[] | null> {
     const limit = options?.limit ?? 10;
     mcpLogger.debug(`searchMessages: '${query}' (limit=${limit})`);
 
     const teamId = await this.resolveTeamIdForBotChannel();
     if (!teamId) {
+      // No team for the bot's channel = nothing to scope search against.
+      // Return null to distinguish from "search ran with no hits."
       mcpLogger.warn('searchMessages: could not resolve a team for the bot channel');
-      return [];
+      return null;
     }
 
     const response = await searchPostsForTeam(this.apiConfig, teamId, query, limit);
-    if (!response) return [];
+    // searchPostsForTeam returns null on platform error; propagate as null so
+    // the handler can surface the failure rather than reporting "no matches."
+    if (!response) return null;
 
     // Mattermost search returns matches in unspecified order; preserve the
     // server's `order` since search relevance is encoded there.

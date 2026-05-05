@@ -147,7 +147,7 @@ class FakeApi implements McpPlatformApi {
   public searchMessagesCalls: Array<{ query: string; limit?: number }> = [];
   public readChannelHistoryImpl: ((channelId: string, options?: { limit?: number }) => Promise<McpPost[] | null>) | undefined;
   public getChannelInfoImpl: ((channelId: string) => Promise<{ id: string; channelType: 'public' | 'private' } | null>) | undefined;
-  public searchMessagesImpl: ((query: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
+  public searchMessagesImpl: ((query: string, options?: { limit?: number }) => Promise<McpPost[] | null>) | undefined;
   readChannelHistory = async (channelId: string, options?: { limit?: number }) => {
     this.readChannelHistoryCalls.push({ channelId, limit: options?.limit });
     if (this.readChannelHistoryImpl) return this.readChannelHistoryImpl(channelId, options);
@@ -1418,6 +1418,22 @@ describe('handleSearchMessagesWith', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/does not support/);
+  });
+
+  it('returns a "could not run" error when searchMessages returns null', async () => {
+    // RED test: distinguish "search ran with zero hits" from "search couldn't
+    // run at all." Returning null from searchMessages signals the latter
+    // (e.g., bot configured against a DM with no team scope, search backend
+    // disabled). The handler must NOT report this as "no in-scope matches."
+    const api = new FakeApi();
+    api.searchMessagesImpl = async () => null;
+    const result = await handleSearchMessagesWith(
+      { query: 'anything' },
+      makeSearchCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/could not be run/);
+    expect(result.reason).not.toMatch(/no in-scope matches/i);
   });
 });
 

@@ -1013,7 +1013,7 @@ export async function handleSearchMessagesWith(
   }
 
   const limit = clampSearchLimit(args.max_results);
-  let results: McpPost[];
+  let results: McpPost[] | null;
   try {
     // Over-fetch slightly so the in-scope filter doesn't starve the result
     // set when search returns matches in private channels we have to drop.
@@ -1024,6 +1024,16 @@ export async function handleSearchMessagesWith(
     const reason = err instanceof Error ? err.message : String(err);
     mcpLogger.warn(`search_messages failed: ${reason}`);
     return { ok: false, reason };
+  }
+
+  // null means "search couldn't run at all" — surface as an error rather
+  // than "no matches," which would be misleading. Empty array still means
+  // "ran, no hits."
+  if (results === null) {
+    return {
+      ok: false,
+      reason: 'search could not be run for this bot channel (no team scope, or the search backend is unavailable)',
+    };
   }
 
   // Post-filter to in-scope channels: bot's own channel OR public.
