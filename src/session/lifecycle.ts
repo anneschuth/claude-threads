@@ -900,6 +900,8 @@ export async function startSession(
     account: claudeAccount
       ? { id: claudeAccount.id, home: claudeAccount.home, apiKey: claudeAccount.apiKey }
       : undefined,
+    uploadDir: getSessionUploadDir(platformId, actualThreadId),
+    outboundFiles: platformMcpConfig.outboundFiles,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -1156,6 +1158,8 @@ export async function resumeSession(
     account: claudeAccount
       ? { id: claudeAccount.id, home: claudeAccount.home, apiKey: claudeAccount.apiKey }
       : undefined,
+    uploadDir: getSessionUploadDir(platformId, state.threadId),
+    outboundFiles: platformMcpConfig.outboundFiles,
   };
   const claude = new ClaudeCli(cliOptions);
 

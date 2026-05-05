@@ -88,6 +88,11 @@ export interface PlatformMcpConfig {
   allowedUsers: string[];
   /** App-level token for Slack Socket Mode (only needed for Slack) */
   appToken?: string;
+  /**
+   * Outbound `send_file` settings, surfaced from the platform-instance
+   * config. When omitted the bot defaults to enabled with 100MB cap.
+   */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
 }
 
 export interface ClaudeCliOptions {
@@ -118,6 +123,14 @@ export interface ClaudeCliOptions {
    * `process.env` — single-account mode, identical to prior behavior.
    */
   account?: ClaudeCliAccount;
+  /**
+   * Per-session upload directory for `send_file` MCP tool to validate
+   * outbound paths against. Same value as getSessionUploadDir(platformId,
+   * threadId).
+   */
+  uploadDir?: string;
+  /** Outbound file (`send_file`) settings — undefined uses defaults. */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -232,6 +245,12 @@ export function buildPermissionArgs(opts: {
   sessionId: string | undefined;
   permissionTimeoutMs: number;
   debug: boolean;
+  /** Session working directory; passed to MCP child as SESSION_WORKING_DIR. */
+  workingDir?: string;
+  /** Per-session upload directory; passed to MCP child as SESSION_UPLOAD_DIR. */
+  uploadDir?: string;
+  /** Outbound file (`send_file`) settings. Both fields are optional. */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
@@ -258,6 +277,20 @@ export function buildPermissionArgs(opts: {
   };
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
+  }
+  // Outbound-file env: only emit when at least one root is known. The MCP
+  // child enforces the same invariant on the read side.
+  if (opts.workingDir) {
+    mcpEnv.SESSION_WORKING_DIR = opts.workingDir;
+  }
+  if (opts.uploadDir) {
+    mcpEnv.SESSION_UPLOAD_DIR = opts.uploadDir;
+  }
+  if (opts.outboundFiles?.enabled === false) {
+    mcpEnv.OUTBOUND_FILES_ENABLED = '0';
+  }
+  if (typeof opts.outboundFiles?.maxBytes === 'number') {
+    mcpEnv.OUTBOUND_FILES_MAX_BYTES = String(opts.outboundFiles.maxBytes);
   }
 
   const mcpConfig: McpConfigBlob = {
@@ -438,6 +471,9 @@ export class ClaudeCli extends EventEmitter {
       sessionId: this.options.sessionId,
       permissionTimeoutMs: this.options.permissionTimeoutMs ?? 120000,
       debug: this.debug,
+      workingDir: this.options.workingDir,
+      uploadDir: this.options.uploadDir,
+      outboundFiles: this.options.outboundFiles,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;

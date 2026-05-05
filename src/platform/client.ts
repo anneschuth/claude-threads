@@ -113,7 +113,15 @@ export interface PlatformClient extends EventEmitter {
   /**
    * Get platform config for MCP permission server
    */
-  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] };
+  getMcpConfig(): {
+    type: string;
+    url: string;
+    token: string;
+    channelId: string;
+    allowedUsers: string[];
+    appToken?: string;
+    outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  };
 
   /**
    * Get the platform-specific markdown formatter

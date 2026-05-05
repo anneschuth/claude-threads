@@ -77,6 +77,8 @@ export class SlackClient extends BasePlatformClient {
   private rateLimitDelay = 0;
   private rateLimitRetryAfter = 0;
 
+  private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+
   private readonly formatter = new SlackFormatter();
 
   constructor(platformConfig: SlackPlatformConfig) {
@@ -90,6 +92,7 @@ export class SlackClient extends BasePlatformClient {
     this.allowedUsers = platformConfig.allowedUsers;
     this.skipPermissions = platformConfig.skipPermissions ?? false;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
+    this.outboundFiles = platformConfig.outboundFiles;
   }
 
   // ============================================================================
@@ -759,14 +762,7 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Get MCP config for permission server.
    */
-  getMcpConfig(): {
-    type: string;
-    url: string;
-    token: string;
-    channelId: string;
-    allowedUsers: string[];
-    appToken?: string;
-  } {
+  getMcpConfig() {
     return {
       type: 'slack',
       url: 'https://slack.com', // Not really used for Slack
@@ -774,6 +770,7 @@ export class SlackClient extends BasePlatformClient {
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
       appToken: this.appToken, // Required for Socket Mode in permission server
+      outboundFiles: this.outboundFiles,
     };
   }
 

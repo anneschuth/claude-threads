@@ -39,6 +39,7 @@ export class MattermostClient extends BasePlatformClient {
   private url: string;
   private token: string;
   private channelId: string;
+  private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
@@ -55,6 +56,7 @@ export class MattermostClient extends BasePlatformClient {
     this.channelId = platformConfig.channelId;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
+    this.outboundFiles = platformConfig.outboundFiles;
   }
 
   // ============================================================================
@@ -711,13 +713,14 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   // Get MCP config for permission server
-  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] } {
+  getMcpConfig() {
     return {
       type: 'mattermost',
       url: this.url,
       token: this.token,
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
+      outboundFiles: this.outboundFiles,
     };
   }
 

@@ -475,4 +475,59 @@ describe('buildPermissionArgs', () => {
       rmSync(scratch, { recursive: true, force: true });
     }
   });
+
+  // Helper: in inline mode, --mcp-config is followed by the JSON blob, so we
+  // can parse it and inspect the env vars the permission server will see.
+  function getMcpEnv(args: string[]): Record<string, string> {
+    const idx = args.indexOf('--mcp-config');
+    expect(idx).toBeGreaterThanOrEqual(0);
+    const blob = JSON.parse(args[idx + 1]);
+    return blob.mcpServers['claude-threads-permissions'].env;
+  }
+
+  it("forwards SESSION_WORKING_DIR and SESSION_UPLOAD_DIR to the MCP child", () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      workingDir: '/srv/work',
+      uploadDir: '/tmp/uploads/X',
+    });
+    const env = getMcpEnv(args);
+    expect(env.SESSION_WORKING_DIR).toBe('/srv/work');
+    expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
+  });
+
+  it("omits the upload-related env vars entirely when no roots provided", () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    const env = getMcpEnv(args);
+    expect(env.SESSION_WORKING_DIR).toBeUndefined();
+    expect(env.SESSION_UPLOAD_DIR).toBeUndefined();
+    expect(env.OUTBOUND_FILES_ENABLED).toBeUndefined();
+    expect(env.OUTBOUND_FILES_MAX_BYTES).toBeUndefined();
+  });
+
+  it("emits OUTBOUND_FILES_ENABLED=0 only when explicitly disabled", () => {
+    const enabledArgs = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      outboundFiles: { enabled: true },
+    }).args;
+    expect(getMcpEnv(enabledArgs).OUTBOUND_FILES_ENABLED).toBeUndefined();
+
+    const disabledArgs = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      outboundFiles: { enabled: false },
+    }).args;
+    expect(getMcpEnv(disabledArgs).OUTBOUND_FILES_ENABLED).toBe('0');
+  });
+
+  it("forwards a custom maxBytes cap", () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      outboundFiles: { maxBytes: 5_000_000 },
+    });
+    expect(getMcpEnv(args).OUTBOUND_FILES_MAX_BYTES).toBe('5000000');
+  });
 });

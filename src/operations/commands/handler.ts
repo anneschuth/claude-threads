@@ -16,6 +16,7 @@ import {
 import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
 import { ClaudeCli } from '../../claude/cli.js';
+import { getSessionUploadDir } from '../streaming/handler.js';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
@@ -382,6 +383,7 @@ export async function changeDirectory(
   const sessionContext = buildSessionContext(session.platform, absoluteDir, session.threadId);
   const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
+  const platformMcpConfig = session.platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
     workingDir: absoluteDir,
     threadId: session.threadId,
@@ -394,11 +396,13 @@ export async function changeDirectory(
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
     chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
+    platformConfig: platformMcpConfig,
     appendSystemPrompt,  // Include platform context and commands
     logSessionId: session.sessionId,  // Route logs to session panel
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
     account: sessionAccountOption(session, ctx),
+    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
+    outboundFiles: platformMcpConfig.outboundFiles,
   };
 
   // Restart Claude with new options
@@ -554,6 +558,7 @@ export async function setSessionPermissionMode(
   // preserved (it lives in the platform, not Claude).
   const canResume = session.lifecycle.hasClaudeResponded;
 
+  const platformMcpConfig = session.platform.getMcpConfig();
   const cliOptions: ClaudeCliOptions = {
     workingDir: session.workingDir,
     threadId: session.threadId,
@@ -561,10 +566,12 @@ export async function setSessionPermissionMode(
     sessionId: session.claudeSessionId,
     resume: canResume,
     chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
+    platformConfig: platformMcpConfig,
     logSessionId: session.sessionId,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
     account: sessionAccountOption(session, ctx),
+    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
+    outboundFiles: platformMcpConfig.outboundFiles,
   };
 
   const success = await restartClaudeSession(
