@@ -3,6 +3,8 @@ import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
+import { uploadFileSlack } from './upload.js';
 
 const log = createLogger('slack');
 
@@ -75,6 +77,8 @@ export class SlackClient extends BasePlatformClient {
   private rateLimitDelay = 0;
   private rateLimitRetryAfter = 0;
 
+  private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+
   private readonly formatter = new SlackFormatter();
 
   constructor(platformConfig: SlackPlatformConfig) {
@@ -88,6 +92,7 @@ export class SlackClient extends BasePlatformClient {
     this.allowedUsers = platformConfig.allowedUsers;
     this.skipPermissions = platformConfig.skipPermissions ?? false;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
+    this.outboundFiles = platformConfig.outboundFiles;
   }
 
   // ============================================================================
@@ -757,14 +762,7 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Get MCP config for permission server.
    */
-  getMcpConfig(): {
-    type: string;
-    url: string;
-    token: string;
-    channelId: string;
-    allowedUsers: string[];
-    appToken?: string;
-  } {
+  getMcpConfig() {
     return {
       type: 'slack',
       url: 'https://slack.com', // Not really used for Slack
@@ -772,6 +770,7 @@ export class SlackClient extends BasePlatformClient {
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
       appToken: this.appToken, // Required for Socket Mode in permission server
+      outboundFiles: this.outboundFiles,
     };
   }
 
@@ -1156,5 +1155,32 @@ export class SlackClient extends BasePlatformClient {
   async getFileInfo(fileId: string): Promise<PlatformFile> {
     const response = await this.api<FilesInfoResponse>('GET', `files.info?file=${fileId}`);
     return this.normalizePlatformFile(response.file);
+  }
+
+  /**
+   * Upload a file from disk and post it into a thread via the v2 flow.
+   *
+   * Slack's `files.completeUploadExternal` does not always return the
+   * resulting message ts; the helper logs a warning and falls back to the
+   * file id in that case. The narrow `{ postId, fileId }` return shape
+   * deliberately avoids a synthesized PlatformPost that could be passed to
+   * updatePost/addReaction with surprising results.
+   */
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string; fileId: string }> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    const result = await uploadFileSlack({
+      botToken: this.botToken,
+      channelId: this.channelId,
+      threadTs: threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+      apiUrl: this.apiUrl,
+    });
+    return { postId: result.postId, fileId: result.fileId };
   }
 }

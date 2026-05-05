@@ -4,6 +4,8 @@ import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
+import { uploadFileMattermost } from './upload.js';
 
 const log = createLogger('mattermost');
 import type {
@@ -37,6 +39,7 @@ export class MattermostClient extends BasePlatformClient {
   private url: string;
   private token: string;
   private channelId: string;
+  private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
@@ -53,6 +56,7 @@ export class MattermostClient extends BasePlatformClient {
     this.channelId = platformConfig.channelId;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
+    this.outboundFiles = platformConfig.outboundFiles;
   }
 
   // ============================================================================
@@ -322,6 +326,25 @@ export class MattermostClient extends BasePlatformClient {
   async getFileInfo(fileId: string): Promise<PlatformFile> {
     const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
     return this.normalizePlatformFile(file);
+  }
+
+  // Upload a file from disk and post it into a thread.
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string; fileId: string }> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    const result = await uploadFileMattermost({
+      url: this.url,
+      token: this.token,
+      channelId: this.channelId,
+      threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+    });
+    return { postId: result.postId, fileId: result.fileId };
   }
 
   // Get a post by ID (used to verify thread still exists on resume)
@@ -690,13 +713,14 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   // Get MCP config for permission server
-  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] } {
+  getMcpConfig() {
     return {
       type: 'mattermost',
       url: this.url,
       token: this.token,
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
+      outboundFiles: this.outboundFiles,
     };
   }
 

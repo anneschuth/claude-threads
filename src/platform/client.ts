@@ -113,7 +113,15 @@ export interface PlatformClient extends EventEmitter {
   /**
    * Get platform config for MCP permission server
    */
-  getMcpConfig(): { type: string; url: string; token: string; channelId: string; allowedUsers: string[] };
+  getMcpConfig(): {
+    type: string;
+    url: string;
+    token: string;
+    channelId: string;
+    allowedUsers: string[];
+    appToken?: string;
+    outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  };
 
   /**
    * Get the platform-specific markdown formatter
@@ -273,6 +281,32 @@ export interface PlatformClient extends EventEmitter {
    * @returns File metadata
    */
   getFileInfo?(fileId: string): Promise<PlatformFile>;
+
+  /**
+   * Upload a file from disk and post it into a thread.
+   *
+   * Optional — implementations that don't support outbound uploads omit it,
+   * and callers must check before invoking. Path validation is the caller's
+   * responsibility (see src/mcp/path-validator.ts).
+   *
+   * Returns just the ids, not a full `PlatformPost`. The narrow shape is
+   * deliberate: Slack's `files.completeUploadExternal` doesn't always return
+   * a message `ts`, so a synthesized `PlatformPost.id` would sometimes be a
+   * file id pretending to be a post id — a footgun for any caller that
+   * later passes it to `updatePost` or `addReaction`. Callers that genuinely
+   * need a `PlatformPost` should synthesize it deliberately and accept the
+   * Slack ambiguity at the synthesis site.
+   *
+   * @param filePath - Absolute path of the file to upload
+   * @param threadId - Thread parent id (root_id on Mattermost, thread_ts on Slack)
+   * @param options.caption - Optional message body / initial comment
+   * @param options.filename - Display filename (defaults to basename of filePath)
+   */
+  uploadFile?(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string; fileId?: string }>;
 
   // ============================================================================
   // Event Emitter Methods (inherited from EventEmitter)

@@ -8,6 +8,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
+import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
 import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
 import type { PermissionMode } from '../config/types.js';
 
@@ -88,6 +89,11 @@ export interface PlatformMcpConfig {
   allowedUsers: string[];
   /** App-level token for Slack Socket Mode (only needed for Slack) */
   appToken?: string;
+  /**
+   * Outbound `send_file` settings, surfaced from the platform-instance
+   * config. When omitted the bot defaults to enabled with 100MB cap.
+   */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
 }
 
 export interface ClaudeCliOptions {
@@ -118,6 +124,14 @@ export interface ClaudeCliOptions {
    * `process.env` — single-account mode, identical to prior behavior.
    */
   account?: ClaudeCliAccount;
+  /**
+   * Per-session upload directory for `send_file` MCP tool to validate
+   * outbound paths against. Same value as getSessionUploadDir(platformId,
+   * threadId).
+   */
+  uploadDir?: string;
+  /** Outbound file (`send_file`) settings — undefined uses defaults. */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -232,10 +246,28 @@ export function buildPermissionArgs(opts: {
   sessionId: string | undefined;
   permissionTimeoutMs: number;
   debug: boolean;
+  /** Session working directory; passed to MCP child as SESSION_WORKING_DIR. */
+  workingDir?: string;
+  /** Per-session upload directory; passed to MCP child as SESSION_UPLOAD_DIR. */
+  uploadDir?: string;
+  /** Outbound file (`send_file`) settings. Both fields are optional. */
+  outboundFiles?: { enabled?: boolean; maxBytes?: number };
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
-  if (opts.permissionMode === 'bypass') {
+
+  // bypass-mode: tools run without user approval. We still spawn the MCP
+  // server (no --permission-prompt-tool, so the permission_prompt tool
+  // dangles harmlessly) so that send_file remains available — this is the
+  // mode operators most often use for build-anything-on-demand setups,
+  // exactly the workflow where send_file is most useful. Pre-#360 the
+  // server wasn't spawned at all; the change is intentional and additive.
+  //
+  // platformConfig is required even in bypass-mode now, because send_file
+  // talks to the platform REST API. If a deployment really has no platform
+  // (extremely unusual; only the dry-run / shell-driven test fixtures),
+  // pass platformConfig: undefined and accept that send_file won't work.
+  if (opts.permissionMode === 'bypass' && !opts.platformConfig) {
     args.push('--dangerously-skip-permissions');
     return { args, tempFile: null };
   }
@@ -259,6 +291,30 @@ export function buildPermissionArgs(opts: {
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
   }
+  // Outbound-file env: only emit when at least one root is known. The MCP
+  // child enforces the same invariant on the read side. Names are defined
+  // in src/mcp/outbound-env.ts so a rename can't desync the two sides.
+  if (opts.workingDir) {
+    mcpEnv[OUTBOUND_ENV.SESSION_WORKING_DIR] = opts.workingDir;
+  }
+  if (opts.uploadDir) {
+    mcpEnv[OUTBOUND_ENV.SESSION_UPLOAD_DIR] = opts.uploadDir;
+  }
+  if (opts.outboundFiles?.enabled === false) {
+    mcpEnv[OUTBOUND_ENV.OUTBOUND_FILES_ENABLED] = '0';
+  }
+  // Forward maxBytes only when it's a sensible positive integer. A
+  // misconfigured `outboundFiles.maxBytes: -1` in config.yaml would
+  // otherwise reach the validator and make every file "too large" with no
+  // clue why. Drop invalid values silently here AND have the validator
+  // reject (defense in depth) — see path-validator.ts.
+  if (
+    typeof opts.outboundFiles?.maxBytes === 'number' &&
+    Number.isFinite(opts.outboundFiles.maxBytes) &&
+    opts.outboundFiles.maxBytes > 0
+  ) {
+    mcpEnv[OUTBOUND_ENV.OUTBOUND_FILES_MAX_BYTES] = String(opts.outboundFiles.maxBytes);
+  }
 
   const mcpConfig: McpConfigBlob = {
     mcpServers: {
@@ -279,10 +335,20 @@ export function buildPermissionArgs(opts: {
   } else {
     args.push('--mcp-config', materialized.value);
   }
-  args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
 
-  if (opts.permissionMode === 'auto') {
-    args.push('--permission-mode', 'auto');
+  // Mode-specific flags:
+  //   default → --permission-prompt-tool only (every tool-use prompts)
+  //   auto    → --permission-prompt-tool + --permission-mode auto
+  //   bypass  → --dangerously-skip-permissions only (no prompt tool;
+  //             send_file is auto-approved by definition since nothing
+  //             prompts at all)
+  if (opts.permissionMode === 'bypass') {
+    args.push('--dangerously-skip-permissions');
+  } else {
+    args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
+    if (opts.permissionMode === 'auto') {
+      args.push('--permission-mode', 'auto');
+    }
   }
 
   return { args, tempFile };
@@ -438,6 +504,9 @@ export class ClaudeCli extends EventEmitter {
       sessionId: this.options.sessionId,
       permissionTimeoutMs: this.options.permissionTimeoutMs ?? 120000,
       debug: this.debug,
+      workingDir: this.options.workingDir,
+      uploadDir: this.options.uploadDir,
+      outboundFiles: this.options.outboundFiles,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;

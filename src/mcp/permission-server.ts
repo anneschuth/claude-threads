@@ -33,6 +33,8 @@ import { formatToolForPermission } from '../operations/index.js';
 import { mcpLogger } from '../utils/logger.js';
 import type { PermissionApi, MattermostPermissionApiConfig, SlackPermissionApiConfig } from '../platform/permission-api.js';
 import { createPermissionApi } from '../platform/permission-api-factory.js';
+import { validateOutboundPath } from './path-validator.js';
+import { OUTBOUND_ENV } from './outbound-env.js';
 
 // =============================================================================
 // Configuration
@@ -49,6 +51,21 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .filter(u => u.length > 0);
 
 const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120000', 10);
+
+// Outbound-file (`send_file`) configuration. Populated by the bot at spawn
+// time via buildPermissionArgs. Empty roots → outbound disabled regardless
+// of OUTBOUND_FILES_ENABLED, since we'd have nothing to validate against.
+// Env-var names come from a shared module so a rename can't desync the two
+// sides — see src/mcp/outbound-env.ts.
+const SESSION_WORKING_DIR = process.env[OUTBOUND_ENV.SESSION_WORKING_DIR] || '';
+const SESSION_UPLOAD_DIR = process.env[OUTBOUND_ENV.SESSION_UPLOAD_DIR] || '';
+const OUTBOUND_FILES_ENABLED = (process.env[OUTBOUND_ENV.OUTBOUND_FILES_ENABLED] ?? '1') !== '0';
+const OUTBOUND_FILES_MAX_BYTES = parseInt(
+  process.env[OUTBOUND_ENV.OUTBOUND_FILES_MAX_BYTES] || String(100 * 1024 * 1024),
+  10,
+);
+
+const SEND_FILE_TOOL_NAME = 'mcp__claude-threads-permissions__send_file';
 
 // =============================================================================
 // Permission API Instance
@@ -120,6 +137,14 @@ export async function handlePermissionWith(
   cfg: PermissionHandlerConfig
 ): Promise<PermissionResult> {
   mcpLogger.debug(`handlePermission called for ${toolName}`);
+
+  // Auto-approve send_file: it has its own path-validation gate inside the
+  // tool handler, and asking the user to react 👍 to every screenshot the
+  // model sends defeats the entire point of the feature.
+  if (toolName === SEND_FILE_TOOL_NAME) {
+    mcpLogger.debug(`Auto-allowing ${toolName} (path validator is the real gate)`);
+    return { behavior: 'allow', updatedInput: toolInput };
+  }
 
   // Auto-approve if "allow all" was selected earlier
   if (cfg.getAllowAll()) {
@@ -228,6 +253,85 @@ const permissionInputSchema = {
   input: z.record(z.string(), z.unknown()).describe('Tool input parameters'),
 };
 
+const sendFileInputSchema = {
+  path: z
+    .string()
+    .describe(
+      'Absolute path of a file inside the session working directory. The bot will upload it to chat.',
+    ),
+  caption: z
+    .string()
+    .optional()
+    .describe('Optional message body / initial comment shown alongside the file.'),
+};
+
+export interface SendFileResult {
+  ok: boolean;
+  postId?: string;
+  reason?: string;
+}
+
+export interface SendFileHandlerConfig {
+  api: PermissionApi;
+  threadId: string;
+  enabled: boolean;
+  allowedRoots: string[];
+  maxBytes: number;
+}
+
+/**
+ * Handle a `send_file` invocation: validate the path, then call into the
+ * permission-API's uploadFile. Returns a JSON-friendly result the MCP child
+ * can serialize back to Claude.
+ */
+export async function handleSendFileWith(
+  args: { path: string; caption?: string },
+  cfg: SendFileHandlerConfig,
+): Promise<SendFileResult> {
+  if (!cfg.enabled) {
+    return { ok: false, reason: 'outbound file sending is disabled by the operator' };
+  }
+  if (!cfg.api.uploadFile) {
+    return { ok: false, reason: 'this platform does not support outbound file uploads' };
+  }
+  if (!cfg.threadId) {
+    return { ok: false, reason: 'no thread context — file uploads only work inside a session thread' };
+  }
+  if (cfg.allowedRoots.length === 0) {
+    return { ok: false, reason: 'no allowed roots configured for outbound file uploads' };
+  }
+
+  const validated = await validateOutboundPath(args.path, {
+    allowedRoots: cfg.allowedRoots,
+    maxBytes: cfg.maxBytes,
+  });
+  if (!validated.ok) {
+    return { ok: false, reason: validated.reason };
+  }
+
+  try {
+    const result = await cfg.api.uploadFile(validated.resolvedPath, cfg.threadId, {
+      caption: args.caption,
+      filename: validated.basename,
+    });
+    return { ok: true, postId: result.postId };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    mcpLogger.warn(`send_file upload failed: ${reason}`);
+    return { ok: false, reason };
+  }
+}
+
+async function handleSendFile(args: { path: string; caption?: string }): Promise<SendFileResult> {
+  return handleSendFileWith(args, {
+    api: getApi(),
+    threadId: PLATFORM_THREAD_ID,
+    enabled: OUTBOUND_FILES_ENABLED,
+    allowedRoots: [SESSION_WORKING_DIR, SESSION_UPLOAD_DIR].filter(p => p.length > 0),
+    maxBytes: OUTBOUND_FILES_MAX_BYTES,
+  });
+}
+
 async function main() {
   const server = new McpServer({
     name: 'claude-threads-permissions',
@@ -246,6 +350,23 @@ async function main() {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };
     }
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool(
+    'send_file',
+    'Send a file from the session working directory directly into the chat thread. ' +
+      'Use this when the user asked to receive a file inline, or when you produce an artifact ' +
+      'they should see (screenshot, generated audio, plot, document). The path must be absolute ' +
+      'and inside the session working directory. Returns { ok: true, postId } on success or ' +
+      '{ ok: false, reason } on failure.',
+    sendFileInputSchema,
+    async ({ path, caption }: { path: string; caption?: string }) => {
+      const result = await handleSendFile({ path, caption });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    },
   );
 
   const transport = new StdioServerTransport();

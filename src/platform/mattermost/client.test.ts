@@ -119,7 +119,19 @@ describe('MattermostClient pure helpers', () => {
       token: 't',
       channelId: 'cc',
       allowedUsers: ['u'],
+      outboundFiles: undefined,
     });
+  });
+
+  it('getMcpConfig surfaces outboundFiles when configured', () => {
+    const c = makeClient({
+      url: 'https://x',
+      token: 't',
+      channelId: 'cc',
+      allowedUsers: ['u'],
+      outboundFiles: { enabled: false, maxBytes: 5_000_000 },
+    });
+    expect(c.getMcpConfig().outboundFiles).toEqual({ enabled: false, maxBytes: 5_000_000 });
   });
 
   it('getFormatter returns a stable formatter instance', () => {

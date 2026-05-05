@@ -16,6 +16,7 @@ import {
 import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
 import { ClaudeCli } from '../../claude/cli.js';
+import { buildRestartCliOptions } from '../../claude/restart-options.js';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
@@ -83,6 +84,17 @@ function sessionAccountOption(
   const account = ctx.ops.getClaudeAccount(session.claudeAccountId);
   if (!account) return undefined;
   return { id: account.id, home: account.home, apiKey: account.apiKey };
+}
+
+function commonRestartCliOptions(
+  session: Session,
+  ctx: SessionContext,
+): Partial<ClaudeCliOptions> {
+  return buildRestartCliOptions(session, {
+    chromeEnabled: ctx.config.chromeEnabled,
+    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
+    account: sessionAccountOption(session, ctx),
+  });
 }
 
 /**
@@ -383,8 +395,8 @@ export async function changeDirectory(
   const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
 
   const cliOptions: ClaudeCliOptions = {
+    ...commonRestartCliOptions(session, ctx),
     workingDir: absoluteDir,
-    threadId: session.threadId,
     // Keep the session in its current effective mode across the respawn.
     permissionMode: effectivePermissionMode({
       override: session.permissionModeOverride,
@@ -393,12 +405,7 @@ export async function changeDirectory(
     }),
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
     appendSystemPrompt,  // Include platform context and commands
-    logSessionId: session.sessionId,  // Route logs to session panel
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-    account: sessionAccountOption(session, ctx),
   };
 
   // Restart Claude with new options
@@ -555,16 +562,11 @@ export async function setSessionPermissionMode(
   const canResume = session.lifecycle.hasClaudeResponded;
 
   const cliOptions: ClaudeCliOptions = {
+    ...commonRestartCliOptions(session, ctx),
     workingDir: session.workingDir,
-    threadId: session.threadId,
     permissionMode: mode,
     sessionId: session.claudeSessionId,
     resume: canResume,
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
-    logSessionId: session.sessionId,
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-    account: sessionAccountOption(session, ctx),
   };
 
   const success = await restartClaudeSession(

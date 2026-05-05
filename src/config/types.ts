@@ -278,6 +278,17 @@ export function effectivePermissionMode(input: {
 // Platform configs
 // =============================================================================
 
+/**
+ * Outbound file (`send_file`) settings. When omitted, defaults to
+ * `{ enabled: true, maxBytes: 100 MB }`.
+ */
+export interface OutboundFilesConfig {
+  /** When false, the `send_file` MCP tool returns an error to Claude. */
+  enabled?: boolean;
+  /** Per-file size cap. Defaults to 100 MB. */
+  maxBytes?: number;
+}
+
 export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   type: 'mattermost';
   url: string;
@@ -292,6 +303,8 @@ export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   skipPermissions?: boolean;
   /** Preferred way to configure permissions. See `PermissionMode`. */
   permissionMode?: PermissionMode;
+  /** Outbound `send_file` settings. */
+  outboundFiles?: OutboundFilesConfig;
 }
 
 export interface SlackPlatformConfig extends PlatformInstanceConfig {
@@ -310,4 +323,6 @@ export interface SlackPlatformConfig extends PlatformInstanceConfig {
   permissionMode?: PermissionMode;
   /** Optional API URL override for testing (defaults to https://slack.com/api) */
   apiUrl?: string;
+  /** Outbound `send_file` settings. */
+  outboundFiles?: OutboundFilesConfig;
 }
