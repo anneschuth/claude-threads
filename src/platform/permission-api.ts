@@ -71,6 +71,23 @@ export interface PermissionApi {
     botUserId: string,
     timeoutMs: number
   ): Promise<ReactionEvent | null>;
+
+  /**
+   * Upload a file from disk and post it into a thread.
+   *
+   * Optional — implementations that don't support uploads omit it. Path
+   * validation must be done by the caller (see src/mcp/path-validator.ts).
+   *
+   * @param filePath - Absolute path of the file to upload
+   * @param threadId - Thread parent id (root_id on MM, thread_ts on Slack)
+   * @param options.caption - Optional message body / initial comment
+   * @param options.filename - Display filename
+   */
+  uploadFile?(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string }>;
 }
 
 /**

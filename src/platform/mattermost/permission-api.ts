@@ -14,6 +14,8 @@ import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { formatWebSocketError } from '../utils.js';
+import { uploadFileMattermost } from './upload.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
 
 // =============================================================================
 // Mattermost REST API helpers (internal)
@@ -326,6 +328,25 @@ class MattermostPermissionApi implements PermissionApi {
         }
       };
     });
+  }
+
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string }> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    mcpLogger.debug(`uploadFile: ${filename} → thread ${formatShortId(threadId)}`);
+    const result = await uploadFileMattermost({
+      url: this.config.url,
+      token: this.config.token,
+      channelId: this.config.channelId,
+      threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+    });
+    return { postId: result.postId };
   }
 }
 

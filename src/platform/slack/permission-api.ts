@@ -28,6 +28,8 @@ import type {
 import { mcpLogger } from '../../utils/logger.js';
 import { SlackFormatter } from './formatter.js';
 import { formatWebSocketError } from '../utils.js';
+import { uploadFileSlack } from './upload.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
 
 // =============================================================================
 // Slack Permission API Configuration
@@ -370,6 +372,24 @@ class SlackPermissionApi implements PermissionApi {
 
     mcpLogger.debug('Got Socket Mode URL');
     return response.url;
+  }
+
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string }> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    mcpLogger.debug(`uploadFile: ${filename} → thread_ts ${threadId}`);
+    const result = await uploadFileSlack({
+      botToken: this.config.botToken,
+      channelId: this.config.channelId,
+      threadTs: threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+    });
+    return { postId: result.postId };
   }
 }
 

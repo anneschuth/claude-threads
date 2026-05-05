@@ -3,6 +3,8 @@ import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
+import { uploadFileSlack } from './upload.js';
 
 const log = createLogger('slack');
 
@@ -1156,5 +1158,39 @@ export class SlackClient extends BasePlatformClient {
   async getFileInfo(fileId: string): Promise<PlatformFile> {
     const response = await this.api<FilesInfoResponse>('GET', `files.info?file=${fileId}`);
     return this.normalizePlatformFile(response.file);
+  }
+
+  /**
+   * Upload a file from disk and post it into a thread via the v2 flow.
+   *
+   * Slack's `files.completeUploadExternal` does not always return the
+   * resulting message ts; in that case the helper falls back to the file id.
+   * Synthesize a minimal PlatformPost — file posts aren't currently re-edited
+   * or reacted to, so the id-as-fileId fallback is acceptable for v1.
+   */
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<PlatformPost> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    const result = await uploadFileSlack({
+      botToken: this.botToken,
+      channelId: this.channelId,
+      threadTs: threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+      apiUrl: this.apiUrl,
+    });
+    return {
+      id: result.postId,
+      platformId: this.platformId,
+      channelId: this.channelId,
+      userId: this.botUserId ?? '',
+      message: options?.caption ?? '',
+      rootId: threadId,
+      createAt: Date.now(),
+    };
   }
 }

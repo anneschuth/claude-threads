@@ -274,6 +274,24 @@ export interface PlatformClient extends EventEmitter {
    */
   getFileInfo?(fileId: string): Promise<PlatformFile>;
 
+  /**
+   * Upload a file from disk and post it into a thread.
+   *
+   * Optional — implementations that don't support outbound uploads omit it,
+   * and callers must check before invoking. Path validation is the caller's
+   * responsibility (see src/mcp/path-validator.ts).
+   *
+   * @param filePath - Absolute path of the file to upload
+   * @param threadId - Thread parent id (root_id on Mattermost, thread_ts on Slack)
+   * @param options.caption - Optional message body / initial comment
+   * @param options.filename - Display filename (defaults to basename of filePath)
+   */
+  uploadFile?(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<PlatformPost>;
+
   // ============================================================================
   // Event Emitter Methods (inherited from EventEmitter)
   // ============================================================================

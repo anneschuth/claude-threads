@@ -4,6 +4,8 @@ import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp, formatWebSocketError } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
+import { sanitizeFilename } from '../../utils/safe-filename.js';
+import { uploadFileMattermost } from './upload.js';
 
 const log = createLogger('mattermost');
 import type {
@@ -322,6 +324,25 @@ export class MattermostClient extends BasePlatformClient {
   async getFileInfo(fileId: string): Promise<PlatformFile> {
     const file = await this.api<MattermostFile>('GET', `/files/${fileId}/info`);
     return this.normalizePlatformFile(file);
+  }
+
+  // Upload a file from disk and post it into a thread.
+  async uploadFile(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<PlatformPost> {
+    const filename = sanitizeFilename(options?.filename ?? filePath);
+    const result = await uploadFileMattermost({
+      url: this.url,
+      token: this.token,
+      channelId: this.channelId,
+      threadId,
+      filePath,
+      filename,
+      caption: options?.caption,
+    });
+    return this.normalizePlatformPost(result.post);
   }
 
   // Get a post by ID (used to verify thread still exists on resume)
