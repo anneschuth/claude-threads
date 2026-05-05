@@ -10,10 +10,11 @@
 
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
-import { basename, join } from 'path';
+import { join } from 'path';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
 import { createLogger } from '../../utils/logger.js';
+import { sanitizeFilename, formatBytes } from '../../utils/safe-filename.js';
 
 const log = createLogger('streaming');
 
@@ -98,37 +99,10 @@ export async function cleanupSessionUploads(platformId: string, threadId: string
 // File saving
 // ---------------------------------------------------------------------------
 
-/**
- * Strip path components and unsafe characters from a user-supplied filename.
- * Prevents `../escape`, absolute-path attacks, and prompt-injection via
- * embedded newlines or control chars in the name we render back to Claude.
- * Falls back to `attachment` if the name reduces to nothing safe.
- */
-function sanitizeFilename(name: string): string {
-  // Strip directory separators on both POSIX and Windows shapes.
-  const flat = basename(name.replace(/\\/g, '/'));
-  // Strip control chars (newlines, tabs, NULs, escape sequences) — these
-  // would otherwise be rendered into the prompt as if they were system text.
-  // eslint-disable-next-line no-control-regex
-  const cleaned = flat.replace(/[\x00-\x1F\x7F]/g, '_').trim();
-  if (!cleaned || cleaned === '.' || cleaned === '..') {
-    return 'attachment';
-  }
-  return cleaned;
-}
-
 /** Strip control chars from a value we'll interpolate into Claude's prompt. */
 function sanitizeForPrompt(value: string): string {
   // eslint-disable-next-line no-control-regex
   return value.replace(/[\x00-\x1F\x7F]/g, '');
-}
-
-/** Format a byte count as a short human-readable string. */
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 /**

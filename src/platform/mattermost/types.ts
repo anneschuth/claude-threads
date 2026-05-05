@@ -72,6 +72,7 @@ export interface CreatePostRequest {
   channel_id: string;
   message: string;
   root_id?: string; // For threading
+  file_ids?: string[]; // Attached files (uploaded via /files first)
   props?: Record<string, unknown>;
 }
 
