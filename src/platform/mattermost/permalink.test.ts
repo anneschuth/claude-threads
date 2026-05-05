@@ -57,9 +57,66 @@ describe('parseMattermostPermalink', () => {
       .toEqual({ postId: ID_A });
   });
 
-  it('matches when baseUrl includes a path component (origin-only match)', () => {
-    expect(parseMattermostPermalink(`${BASE}/digilab/pl/${ID_A}`, `${BASE}/some/extra/path`))
+  it('requires the URL path to be under the baseUrl path', () => {
+    // When baseUrl has a path component, the permalink path must include
+    // it as a prefix. Without this, /chat installs would match permalinks
+    // that aren't actually on the bot's instance.
+    expect(parseMattermostPermalink(`${BASE}/some/extra/path/digilab/pl/${ID_A}`, `${BASE}/some/extra/path`))
       .toEqual({ postId: ID_A });
+    expect(parseMattermostPermalink(`${BASE}/digilab/pl/${ID_A}`, `${BASE}/some/extra/path`))
+      .toBeNull();
+  });
+
+  // Mattermost subpath-installs ("https://host/chat") are common: the
+  // permalink path then has a leading "/chat" prefix that must be stripped
+  // before the {team}/pl/{id} segments. Without this, the bot rejects every
+  // permalink on its own instance.
+  describe('subpath installs', () => {
+    const SUBPATH_BASE = 'https://digilab.overheid.nl/chat';
+
+    it('parses /chat/{team}/pl/{id} when the base has a /chat subpath', () => {
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/chat/digilab/pl/${ID_A}`,
+        SUBPATH_BASE,
+      )).toEqual({ postId: ID_A });
+    });
+
+    it('parses /chat/_redirect/pl/{id} when the base has a /chat subpath', () => {
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/chat/_redirect/pl/${ID_A}`,
+        SUBPATH_BASE,
+      )).toEqual({ postId: ID_A });
+    });
+
+    it('matches when the base has a trailing slash on the subpath', () => {
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/chat/digilab/pl/${ID_A}`,
+        `${SUBPATH_BASE}/`,
+      )).toEqual({ postId: ID_A });
+    });
+
+    it('rejects a permalink that omits the configured subpath', () => {
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/digilab/pl/${ID_A}`,
+        SUBPATH_BASE,
+      )).toBeNull();
+    });
+
+    it('rejects a permalink under a different subpath', () => {
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/other/digilab/pl/${ID_A}`,
+        SUBPATH_BASE,
+      )).toBeNull();
+    });
+
+    it('rejects a path that only happens to start with the subpath string', () => {
+      // /chatter/{team}/pl/{id} must not match when the base subpath is /chat:
+      // we compare path segments, not raw string prefixes.
+      expect(parseMattermostPermalink(
+        `https://digilab.overheid.nl/chatter/digilab/pl/${ID_A}`,
+        SUBPATH_BASE,
+      )).toBeNull();
+    });
   });
 
   it('returns null for URLs on a different host', () => {

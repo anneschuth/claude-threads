@@ -53,8 +53,10 @@ export interface ParsedPermalink {
  *   {baseUrl}/{team}/pl/{postId}     — chat permalink (team-scoped)
  *   {baseUrl}/_redirect/pl/{postId}  — redirect permalink (no team)
  *
- * `baseUrl` is matched on origin (scheme + host + port) only; trailing
- * paths in the configured URL are ignored.
+ * `baseUrl` is matched on origin (scheme + host + port) plus path
+ * prefix, so subpath installs like `https://host/chat` work — the
+ * configured subpath is stripped before the {team}/pl/{id} segments
+ * are validated.
  *
  * The two shapes are recognized explicitly. Anything else (channel
  * URLs, search results, settings pages, malformed paths) returns null.
@@ -72,14 +74,23 @@ export function parseMattermostPermalink(
     return null;
   }
 
-  // Origin match: same scheme + host + port. The configured baseUrl
-  // might have a trailing slash or path component, but only the origin
-  // matters for permalink routing.
+  // Origin match: same scheme + host + port.
   if (parsed.origin !== base.origin) {
     return null;
   }
 
-  const segments = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
+  // Strip configured subpath. Mattermost installs at `/chat` show up in
+  // every permalink as a leading `/chat` segment that the parser must
+  // remove before the team/pl/id segments are validated. Compare segment
+  // arrays so `/chat` doesn't accidentally match `/chatter`.
+  const baseSegments = base.pathname.replace(/^\/+|\/+$/g, '').split('/').filter(Boolean);
+  const allSegments = parsed.pathname.replace(/^\/+|\/+$/g, '').split('/');
+
+  for (let i = 0; i < baseSegments.length; i++) {
+    if (allSegments[i] !== baseSegments[i]) return null;
+  }
+  const segments = allSegments.slice(baseSegments.length);
+
   if (segments.length !== 3) return null;
 
   // Second segment must literally be 'pl'.
