@@ -10,12 +10,13 @@
 export type { PlatformClient, PlatformClientEvents } from './client.js';
 export type { PlatformFormatter } from './formatter.js';
 export type {
-  PermissionApi,
-  MattermostPermissionApiConfig,
-  SlackPermissionApiConfig,
+  McpPlatformApi,
+  MattermostMcpApiConfig,
+  SlackMcpApiConfig,
   ReactionEvent,
   PostedMessage,
-} from './permission-api.js';
+  McpPost,
+} from './mcp-platform-api.js';
 
 // Normalized types
 export type {
@@ -31,5 +32,5 @@ export { BasePlatformClient } from './base-client.js';
 export { MattermostClient } from './mattermost/client.js';
 export { SlackClient } from './slack/client.js';
 
-// Permission API factory
-export { createPermissionApi } from './permission-api-factory.js';
+// MCP platform API factory
+export { createMcpPlatformApi } from './mcp-platform-api-factory.js';

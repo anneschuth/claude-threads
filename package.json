@@ -6,12 +6,12 @@
   "type": "module",
   "bin": {
     "claude-threads": "./dist/index.js",
-    "claude-threads-mcp": "./dist/mcp/permission-server.js",
+    "claude-threads-mcp": "./dist/mcp/mcp-server.js",
     "claude-threads-daemon": "./bin/claude-threads-daemon"
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/permission-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
+    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/mcp-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
     "start": "bun dist/index.js",
     "test": "bun test src/",
     "test:watch": "bun test src/ --watch",

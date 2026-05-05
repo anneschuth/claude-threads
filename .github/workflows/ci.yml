@@ -144,7 +144,7 @@ jobs:
       - name: Verify dist files exist
         run: |
           test -f dist/index.js
-          test -f dist/mcp/permission-server.js
+          test -f dist/mcp/mcp-server.js
 
       - name: Smoke test - verify binary starts
         run: bun dist/index.js --help
@@ -181,4 +181,4 @@ jobs:
           node --version
           node dist/index.js --help
           node dist/index.js --version
-          node dist/mcp/permission-server.js --help || true
+          node dist/mcp/mcp-server.js --help || true

@@ -7,7 +7,7 @@
  * `outbound-env.test.ts` would fail.
  *
  * Why this matters: the bot writes these vars in `buildPermissionArgs`
- * (src/claude/cli.ts) and the child reads them in `permission-server.ts`.
+ * (src/claude/cli.ts) and the child reads them in `mcp-server.ts`.
  * Without a shared constant, a refactor that renamed (say)
  * `SESSION_UPLOAD_DIR` → `SESSION_UPLOADS_DIR` on one side only would not
  * fail any unit test — every helper would still pass — but `send_file`

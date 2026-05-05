@@ -5,10 +5,12 @@ import { join } from 'path';
 import {
   handlePermissionWith,
   handleSendFileWith,
+  handleReadPostWith,
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
-} from './permission-server.js';
-import type { PermissionApi, ReactionEvent } from '../platform/permission-api.js';
+  type ReadPostHandlerConfig,
+} from './mcp-server.js';
+import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
 // =============================================================================
@@ -46,7 +48,7 @@ interface FakeApiOptions {
   getBotUserIdShouldThrow?: boolean;
 }
 
-class FakeApi implements PermissionApi {
+class FakeApi implements McpPlatformApi {
   public createdPosts: Array<{ message: string; reactions: string[]; threadId?: string }> = [];
   public updatedPosts: Array<{ postId: string; message: string }> = [];
   public waitForReactionCalls: Array<{ postId: string; botUserId: string; timeoutMs: number }> = [];
@@ -103,6 +105,22 @@ class FakeApi implements PermissionApi {
     this.uploadFileCalls.push({ filePath, threadId, options });
     if (this.uploadFileImpl) return this.uploadFileImpl(filePath, threadId, options);
     return { postId: 'mock-post-id' };
+  };
+
+  // Post / thread reads — overridden per-test via readPostImpl / readThreadImpl.
+  public readPostCalls: string[] = [];
+  public readThreadCalls: Array<{ rootId: string; limit?: number }> = [];
+  public readPostImpl: ((postId: string) => Promise<McpPost | null>) | undefined;
+  public readThreadImpl: ((rootId: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
+  readPost = async (postId: string) => {
+    this.readPostCalls.push(postId);
+    if (this.readPostImpl) return this.readPostImpl(postId);
+    return null;
+  };
+  readThread = async (rootId: string, options?: { limit?: number }) => {
+    this.readThreadCalls.push({ rootId, limit: options?.limit });
+    if (this.readThreadImpl) return this.readThreadImpl(rootId, options);
+    return [];
   };
 }
 
@@ -334,7 +352,7 @@ describe('handlePermissionWith', () => {
     const api = new FakeApi();
     const cfg = makeCfg(api, { initialAllowAll: false });
     const result = await handlePermissionWith(
-      'mcp__claude-threads-permissions__send_file',
+      'mcp__claude-threads-mcp__send_file',
       { path: '/some/file.png' },
       cfg,
     );
@@ -446,5 +464,292 @@ describe('handleSendFileWith', () => {
     api.uploadFileImpl = async () => ({ postId: 'P' });
     await handleSendFileWith({ path: link }, makeSendFileCfg(api));
     expect(api.uploadFileCalls[0].filePath).toBe(okFile);
+  });
+});
+
+// =============================================================================
+// handleReadPostWith — read_post MCP tool
+// =============================================================================
+
+const PLATFORM_URL = 'https://chat.example.test';
+const POST_ID = 'a'.repeat(26);
+const REPLY_ID = 'b'.repeat(26);
+
+function makeReadPostCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig> = {}): ReadPostHandlerConfig {
+  return {
+    api,
+    platformUrl: PLATFORM_URL,
+    platformType: 'mattermost',
+    channelId: 'C-default',
+    ...overrides,
+  };
+}
+
+function fakePost(overrides: Partial<McpPost> = {}): McpPost {
+  return {
+    id: POST_ID,
+    channelId: 'C-default',
+    userId: 'u-1',
+    username: 'alice',
+    message: 'hello world',
+    createAt: 1_000,
+    threadRootId: undefined,
+    ...overrides,
+  };
+}
+
+describe('handleReadPostWith', () => {
+  it('returns formatted markdown for a valid permalink on success', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('@alice');
+    expect(result.content).toContain('> hello world');
+    expect(api.readPostCalls).toEqual([POST_ID]);
+    expect(api.readThreadCalls).toEqual([]); // no include_thread, no thread call
+  });
+
+  it('returns a friendly error for a URL on a different host', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    const result = await handleReadPostWith(
+      { url: `https://other.example.test/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/can only follow links on its own instance/);
+    expect(api.readPostCalls).toEqual([]); // never even attempted to fetch
+  });
+
+  it('returns a friendly error when the URL is not a permalink', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/channels/town-square` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Mattermost permalink/);
+  });
+
+  it('returns not-found when the post does not exist or is inaccessible', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => null;
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/post not found.*does not have access/);
+  });
+
+  it('refuses to operate on unsupported platforms', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { platformType: 'discord' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not supported on platform 'discord'/);
+  });
+
+  it('errors when platform URL is unconfigured', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { platformUrl: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform URL not configured/);
+  });
+
+  it('errors when channelId is unconfigured (Mattermost)', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { channelId: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform channel not configured/);
+    // Must short-circuit: never call the API when the channel isn't set.
+    expect(api.readPostCalls).toEqual([]);
+  });
+
+  it('returns wrong-channel when the resolved post is in another channel', async () => {
+    // Bot is on 'C-default' (set by makeReadPostCfg). The fetched post
+    // claims to be in 'C-elsewhere' — handler must surface that as a
+    // distinct error string, not as a generic "not found."
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ channelId: 'C-elsewhere' });
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/different channel/);
+    // The error string must not say "not found" for this case.
+    expect(result.reason).not.toMatch(/not found/);
+  });
+
+  it('fetches the thread when include_thread is true and renders it', async () => {
+    const api = new FakeApi();
+    const post = fakePost();
+    const reply = fakePost({ id: REPLY_ID, username: 'bob', message: 'second', createAt: 2_000, threadRootId: POST_ID });
+    api.readPostImpl = async () => post;
+    api.readThreadImpl = async () => [post, reply];
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, include_thread: true },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('Thread context (2 messages)');
+    expect(result.content).toContain('@alice ← linked post');
+    expect(result.content).toContain('@bob');
+    expect(api.readThreadCalls).toEqual([{ rootId: POST_ID, limit: 20 }]);
+  });
+
+  it('caps max_messages at MAX_THREAD_LIMIT', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    api.readThreadImpl = async () => [];
+    await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}`, include_thread: true, max_messages: 999 },
+      makeReadPostCfg(api),
+    );
+    expect(api.readThreadCalls[0].limit).toBe(50);
+  });
+
+  it('uses readPost on the API exactly once per call', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost();
+    await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(api.readPostCalls).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// handleReadPostWith — Slack
+// =============================================================================
+
+const SLACK_CHANNEL = 'C0123456789';
+const SLACK_TS = '1234567890.123456';
+const SLACK_PERMALINK = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123456`;
+
+describe('handleReadPostWith — Slack', () => {
+  function makeSlackCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig> = {}): ReadPostHandlerConfig {
+    return {
+      api,
+      platformUrl: '',
+      platformType: 'slack',
+      channelId: SLACK_CHANNEL,
+      ...overrides,
+    };
+  }
+
+  function fakeSlackPost(overrides: Partial<McpPost> = {}): McpPost {
+    return {
+      id: SLACK_TS,
+      channelId: SLACK_CHANNEL,
+      userId: 'U-1',
+      username: 'alice',
+      message: 'hello slack',
+      createAt: 1_234_567_890_123,
+      threadRootId: undefined,
+      ...overrides,
+    };
+  }
+
+  it('returns formatted markdown for a valid Slack permalink', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakeSlackPost();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('Slack message by @alice');
+    expect(result.content).toContain('> hello slack');
+    // Slack handler doesn't pass expectedChannelId — the resolver gates on
+    // channel before the API call, and conversations.history is already
+    // channel-scoped via the `channel` param. See McpPlatformApi.readPost.
+    expect(api.readPostCalls).toEqual([SLACK_TS]);
+  });
+
+  it('errors when the URL is for a different channel', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakeSlackPost();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: 'C-OTHER' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/different channel/);
+    expect(api.readPostCalls).toEqual([]);
+  });
+
+  it('errors when the URL is not a Slack permalink', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: 'https://acme.slack.com/messages/abc/123' },
+      makeSlackCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Slack permalink/);
+  });
+
+  it('errors when the URL is for a non-Slack host', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `https://other.example.test/archives/${SLACK_CHANNEL}/p1234567890123456` },
+      makeSlackCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Slack permalink/);
+  });
+
+  it('returns not-found when the post is missing', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => null;
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/message not found/);
+  });
+
+  it('errors when channelId is unconfigured', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: '' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform channel not configured/);
+  });
+
+  it('passes the URL thread_ts as the thread root when include_thread is true', async () => {
+    const api = new FakeApi();
+    // URL: a reply (p1234567890123457) with thread_ts pointing at the parent.
+    const replyTs = '1234567890.123457';
+    const post = fakeSlackPost({ id: replyTs, threadRootId: SLACK_TS });
+    api.readPostImpl = async () => post;
+    api.readThreadImpl = async () => [post];
+    const url = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123457?thread_ts=${SLACK_TS}&cid=${SLACK_CHANNEL}`;
+    await handleReadPostWith({ url, include_thread: true }, makeSlackCfg(api));
+    expect(api.readThreadCalls[0].rootId).toBe(SLACK_TS);
+  });
+});
+
+// =============================================================================
+// read_post auto-approval
+// =============================================================================
+
+describe('handlePermissionWith — read_post auto-approval', () => {
+  it('auto-allows the read_post tool without posting a permission prompt', async () => {
+    const api = new FakeApi();
+    const cfg = makeCfg(api);
+    const result = await handlePermissionWith(
+      'mcp__claude-threads-mcp__read_post',
+      { url: 'https://example.test/team/pl/abc' },
+      cfg,
+    );
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(0);
+    expect(api.waitForReactionCalls).toHaveLength(0);
   });
 });

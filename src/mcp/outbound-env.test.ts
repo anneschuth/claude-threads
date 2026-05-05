@@ -7,7 +7,7 @@ const ROOT = join(import.meta.dir, '..', '..');
 
 /**
  * Contract test: pin the env-variable names that flow from the bot
- * (buildPermissionArgs) into the MCP child (permission-server.ts).
+ * (buildPermissionArgs) into the MCP child (mcp-server.ts).
  *
  * Without this, a rename like SESSION_UPLOAD_DIR → SESSION_UPLOADS_DIR on
  * one side only would compile, type-check, pass every existing unit test,
@@ -29,14 +29,14 @@ const ROOT = join(import.meta.dir, '..', '..');
 
 describe('OUTBOUND_ENV contract', () => {
   const cliSrc = readFileSync(join(ROOT, 'src/claude/cli.ts'), 'utf-8');
-  const serverSrc = readFileSync(join(ROOT, 'src/mcp/permission-server.ts'), 'utf-8');
+  const serverSrc = readFileSync(join(ROOT, 'src/mcp/mcp-server.ts'), 'utf-8');
 
   for (const name of Object.keys(OUTBOUND_ENV) as Array<keyof typeof OUTBOUND_ENV>) {
     it(`bot side (cli.ts) reads ${name} via OUTBOUND_ENV.${name}`, () => {
       expect(cliSrc).toContain(`OUTBOUND_ENV.${name}`);
     });
 
-    it(`MCP child (permission-server.ts) reads ${name} via OUTBOUND_ENV.${name}`, () => {
+    it(`MCP child (mcp-server.ts) reads ${name} via OUTBOUND_ENV.${name}`, () => {
       expect(serverSrc).toContain(`OUTBOUND_ENV.${name}`);
     });
 

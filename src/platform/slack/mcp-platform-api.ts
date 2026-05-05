@@ -1,7 +1,7 @@
 /**
- * Slack implementation of Permission API
+ * Slack implementation of McpPlatformApi
  *
- * Handles permission requests via Slack Web API and Socket Mode.
+ * Handles MCP-side platform operations via Slack Web API and Socket Mode.
  *
  * Key differences from Mattermost:
  * - Uses two tokens: botToken (xoxb-) for API calls, appToken (xapp-) for Socket Mode
@@ -12,10 +12,11 @@
 
 import { WebSocket } from '../../utils/websocket.js';
 import type {
-  PermissionApi,
+  McpPlatformApi,
   ReactionEvent,
   PostedMessage,
-} from '../permission-api.js';
+  McpPost,
+} from '../mcp-platform-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import type {
   AuthTestResponse,
@@ -23,6 +24,9 @@ import type {
   PostMessageResponse,
   UpdateMessageResponse,
   UsersInfoResponse,
+  ConversationsHistoryResponse,
+  ConversationsRepliesResponse,
+  SlackMessage,
   SlackSocketModeEvent,
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
@@ -32,13 +36,13 @@ import { uploadFileSlack } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
 // =============================================================================
-// Slack Permission API Configuration
+// Slack MCP API Configuration
 // =============================================================================
 
 /**
- * Configuration for Slack permission API
+ * Configuration for the Slack MCP platform API
  */
-export interface SlackPermissionApiConfig {
+export interface SlackMcpApiConfig {
   botToken: string;      // xoxb-... token for Web API
   appToken: string;      // xapp-... token for Socket Mode
   channelId: string;
@@ -86,18 +90,18 @@ async function slackApi<T>(
 }
 
 // =============================================================================
-// Slack Permission API Implementation
+// Slack MCP Platform API Implementation
 // =============================================================================
 
 /**
- * Slack Permission API implementation
+ * Slack MCP platform API implementation
  */
-class SlackPermissionApi implements PermissionApi {
-  private readonly config: SlackPermissionApiConfig;
+class SlackMcpPlatformApi implements McpPlatformApi {
+  private readonly config: SlackMcpApiConfig;
   private readonly formatter = new SlackFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: SlackPermissionApiConfig) {
+  constructor(config: SlackMcpApiConfig) {
     this.config = config;
   }
 
@@ -391,6 +395,91 @@ class SlackPermissionApi implements PermissionApi {
     });
     return { postId: result.postId };
   }
+
+  async readPost(postId: string): Promise<McpPost | null> {
+    mcpLogger.debug(`readPost: ts ${postId}`);
+    try {
+      const response = await slackApi<ConversationsHistoryResponse>(
+        'conversations.history',
+        this.config.botToken,
+        {
+          channel: this.config.channelId,
+          latest: postId,
+          oldest: postId,
+          inclusive: true,
+          limit: 1,
+        },
+      );
+      const message = response.messages?.[0];
+      if (!message || message.ts !== postId) return null;
+      const username = message.user ? await this.getUsername(message.user) : null;
+      return slackMessageToMcpPost(message, this.config.channelId, username);
+    } catch (err) {
+      mcpLogger.debug(`readPost ${postId} failed: ${err}`);
+      return null;
+    }
+  }
+
+  async readThread(
+    threadRootId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[]> {
+    mcpLogger.debug(`readThread: ts ${threadRootId}`);
+    try {
+      const response = await slackApi<ConversationsRepliesResponse>(
+        'conversations.replies',
+        this.config.botToken,
+        {
+          channel: this.config.channelId,
+          ts: threadRootId,
+          limit: options?.limit ?? 100,
+        },
+      );
+
+      const messages = response.messages ?? [];
+      // conversations.replies returns messages in chronological order, but
+      // sort defensively in case Slack changes the contract.
+      const ordered = [...messages].sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+
+      // Resolve usernames once per unique user.
+      const usernameByUserId = new Map<string, string | null>();
+      for (const m of ordered) {
+        if (m.user && !usernameByUserId.has(m.user)) {
+          usernameByUserId.set(m.user, await this.getUsername(m.user));
+        }
+      }
+
+      return ordered.map(m =>
+        slackMessageToMcpPost(
+          m,
+          this.config.channelId,
+          m.user ? usernameByUserId.get(m.user) ?? null : null,
+        ),
+      );
+    } catch (err) {
+      mcpLogger.debug(`readThread ${threadRootId} failed: ${err}`);
+      return [];
+    }
+  }
+}
+
+function slackMessageToMcpPost(
+  message: SlackMessage,
+  channelId: string,
+  username: string | null,
+): McpPost {
+  // Slack uses ts as the post id, and seconds-since-epoch for create time.
+  // We expose milliseconds for parity with Mattermost's create_at.
+  const createAt = Math.floor(parseFloat(message.ts) * 1000);
+  return {
+    id: message.ts,
+    channelId,
+    userId: message.user ?? '',
+    username,
+    message: message.text ?? '',
+    createAt: Number.isFinite(createAt) ? createAt : 0,
+    threadRootId: message.thread_ts && message.thread_ts !== message.ts ? message.thread_ts : undefined,
+  };
 }
 
 // =============================================================================
@@ -398,8 +487,8 @@ class SlackPermissionApi implements PermissionApi {
 // =============================================================================
 
 /**
- * Create a Slack permission API instance
+ * Create a Slack MCP platform API instance
  */
-export function createSlackPermissionApi(config: SlackPermissionApiConfig): PermissionApi {
-  return new SlackPermissionApi(config);
+export function createSlackMcpPlatformApi(config: SlackMcpApiConfig): McpPlatformApi {
+  return new SlackMcpPlatformApi(config);
 }

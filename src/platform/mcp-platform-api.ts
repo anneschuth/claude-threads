@@ -1,0 +1,174 @@
+/**
+ * MCP Platform API interface
+ *
+ * The platform-side surface exposed to the MCP child process. Covers what
+ * the MCP server needs to do on behalf of Claude: post permission prompts
+ * and wait for reactions, send files, read posts and thread history. Each
+ * platform implements this interface with its specific API.
+ */
+
+import type { PlatformFormatter } from './formatter.js';
+
+/**
+ * Reaction event from WebSocket
+ */
+export interface ReactionEvent {
+  postId: string;
+  userId: string;
+  emojiName: string;
+}
+
+/**
+ * Posted message with ID
+ */
+export interface PostedMessage {
+  id: string;
+}
+
+/**
+ * A minimal view of a post used by the MCP `read_post` tool. The author's
+ * username is resolved server-side so the tool result is human-readable
+ * without forcing Claude to chain user lookups.
+ */
+export interface McpPost {
+  /**
+   * Platform-native post identifier. For Mattermost this is the 26-char
+   * post id; for Slack it's the message timestamp string (`ts`,
+   * "seconds.microseconds"). Use this when re-fetching, never compute
+   * from `createAt`.
+   */
+  id: string;
+  /**
+   * Channel the post lives in. Used by the resolver to scope read_post
+   * to the bot's own channel and surface "wrong channel" as a distinct
+   * error. Mattermost: the 26-char channel id. Slack: the channel id
+   * (`C…`/`G…`/`D…`).
+   */
+  channelId: string;
+  userId: string;
+  username: string | null;
+  message: string;
+  /**
+   * Creation time in milliseconds since the Unix epoch.
+   *
+   * Best-effort across platforms: Mattermost stores ms natively, Slack
+   * stores `seconds.microseconds` and we floor to ms (microsecond
+   * precision is lost). Safe for sorting *within* a single platform's
+   * results, but do not assume round-trippable: re-fetching by
+   * `id` is the only stable reference.
+   */
+  createAt: number;
+  /** Empty / undefined for top-level posts. */
+  threadRootId?: string;
+}
+
+/**
+ * Platform-side API surface used by the MCP child process.
+ */
+export interface McpPlatformApi {
+  /**
+   * Get the markdown formatter for this platform
+   */
+  getFormatter(): PlatformFormatter;
+
+  /**
+   * Get the bot's user ID
+   */
+  getBotUserId(): Promise<string>;
+
+  /**
+   * Get a username from a user ID
+   */
+  getUsername(userId: string): Promise<string | null>;
+
+  /**
+   * Check if a username is in the allowed users list
+   */
+  isUserAllowed(username: string): boolean;
+
+  /**
+   * Create a post with reaction options
+   */
+  createInteractivePost(
+    message: string,
+    reactions: string[],
+    threadId?: string
+  ): Promise<PostedMessage>;
+
+  /**
+   * Update an existing post
+   */
+  updatePost(postId: string, message: string): Promise<void>;
+
+  /**
+   * Wait for a reaction on a post
+   * Returns the reaction event or null on timeout
+   */
+  waitForReaction(
+    postId: string,
+    botUserId: string,
+    timeoutMs: number
+  ): Promise<ReactionEvent | null>;
+
+  /**
+   * Upload a file from disk and post it into a thread.
+   *
+   * Optional — implementations that don't support uploads omit it. Path
+   * validation must be done by the caller (see src/mcp/path-validator.ts).
+   *
+   * @param filePath - Absolute path of the file to upload
+   * @param threadId - Thread parent id (root_id on MM, thread_ts on Slack)
+   * @param options.caption - Optional message body / initial comment
+   * @param options.filename - Display filename
+   */
+  uploadFile?(
+    filePath: string,
+    threadId: string,
+    options?: { caption?: string; filename?: string },
+  ): Promise<{ postId: string }>;
+
+  /**
+   * Read a single post by id. Returns null if the post does not exist
+   * or the bot's token cannot see it. Channel scoping is the resolver's
+   * job: the returned McpPost includes `channelId` so the caller can
+   * distinguish "wrong channel" from "not found" itself.
+   *
+   * Optional — implementations that don't support post reads omit it.
+   */
+  readPost?(postId: string): Promise<McpPost | null>;
+
+  /**
+   * Read posts in the thread rooted at `threadRootId`. Returns posts in
+   * chronological order (oldest first). Implementations should respect the
+   * `limit` cap; callers must still defend against runaway thread sizes.
+   *
+   * Optional — implementations that don't support thread reads omit it.
+   */
+  readThread?(threadRootId: string, options?: { limit?: number }): Promise<McpPost[]>;
+}
+
+/**
+ * Configuration for the Mattermost MCP platform API
+ */
+export interface MattermostMcpApiConfig {
+  platformType: 'mattermost';
+  url: string;
+  token: string;
+  channelId: string;
+  threadId?: string;
+  allowedUsers: string[];
+  debug?: boolean;
+}
+
+/**
+ * Configuration for the Slack MCP platform API
+ */
+export interface SlackMcpApiConfig {
+  platformType: 'slack';
+  botToken: string;    // xoxb-... for Web API
+  appToken: string;    // xapp-... for Socket Mode
+  channelId: string;
+  threadTs?: string;   // Thread timestamp
+  allowedUsers: string[];
+  debug?: boolean;
+}

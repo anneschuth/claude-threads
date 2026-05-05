@@ -22,6 +22,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - Code diffs and file previews
 - Multi-user access control
 - Automatic idle session cleanup
+- **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost or Slack permalink to its content (and optional thread context) inside the bot's own channel
 
 ## Architecture Overview
 
@@ -73,11 +74,13 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - `MessageApprovalExecutor` - unauthorized message approval
 - `BugReportExecutor` - bug report flow
 
-**MCP Permission Server:**
+**MCP Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
 - Each has its own WebSocket/connection to the platform
-- Posts permission requests to the session's thread
-- Returns allow/deny based on user reaction
+- Exposes three tools to Claude:
+  - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
+  - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
+  - `read_post` — fetches a Mattermost/Slack post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)
 
 ## Multi-Platform Support
 
@@ -273,11 +276,15 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/mattermost/client.ts` | Mattermost implementation of PlatformClient |
 | `src/platform/mattermost/types.ts` | Mattermost-specific types |
 | `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
+| `src/platform/mattermost/permalink.ts` | Mattermost permalink parser + resolver + formatter for `read_post` |
 | `src/platform/slack/client.ts` | Slack implementation of PlatformClient (Socket Mode + Web API) |
 | `src/platform/slack/types.ts` | Slack-specific types |
 | `src/platform/slack/formatter.ts` | Slack mrkdwn formatter |
-| `src/platform/slack/permission-api.ts` | Slack permission API for MCP server |
+| `src/platform/slack/mcp-platform-api.ts` | Slack MCP platform API (used by MCP child) |
+| `src/platform/slack/permalink.ts` | Slack permalink parser + resolver + formatter for `read_post` |
 | `src/platform/slack/index.ts` | Slack module exports |
+| `src/platform/permalink-shared.ts` | Cross-platform permalink utilities (caps, truncation, quote-block) shared by both permalink modules |
+| `src/platform/test-helpers/fetch-harness.ts` | Shared `fetch` recorder + responder for platform-API unit tests |
 
 ### Utilities
 | File | Purpose |
@@ -291,9 +298,9 @@ Each executor owns a specific piece of interactive state:
 | `src/utils/battery.ts` | Battery status monitoring |
 | `src/utils/uptime.ts` | Session uptime tracking |
 | `src/utils/pr-detector.ts` | Detect PR URLs in Claude output |
-| `src/mcp/permission-server.ts` | MCP server for permission prompts (platform-agnostic) |
-| `src/platform/permission-api-factory.ts` | Factory for platform-specific permission APIs |
-| `src/platform/permission-api.ts` | PermissionApi interface |
+| `src/mcp/mcp-server.ts` | MCP server: permission prompts, send_file, read_post (platform-agnostic) |
+| `src/platform/mcp-platform-api-factory.ts` | Factory for platform-specific MCP platform APIs |
+| `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
 | `src/logo.ts` | ASCII art logo |
@@ -303,8 +310,8 @@ Each executor owns a specific piece of interactive state:
 1. **Claude CLI is started with:**
    ```
    claude --input-format stream-json --output-format stream-json --verbose \
-     --mcp-config '{"mcpServers":{"claude-threads-permissions":{...}}}' \
-     --permission-prompt-tool mcp__claude-threads-permissions__permission_prompt
+     --mcp-config '{"mcpServers":{"claude-threads-mcp":{...}}}' \
+     --permission-prompt-tool mcp__claude-threads-mcp__permission_prompt
    ```
 
 2. **When Claude needs permission** (e.g., to write a file), it calls the MCP tool

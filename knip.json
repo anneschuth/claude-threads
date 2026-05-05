@@ -2,7 +2,7 @@
   "$schema": "https://unpkg.com/knip@latest/schema.json",
   "entry": [
     "src/index.ts",
-    "src/mcp/permission-server.ts",
+    "src/mcp/mcp-server.ts",
     "src/statusline/writer.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts"

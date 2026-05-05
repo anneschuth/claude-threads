@@ -1,14 +1,20 @@
 /**
- * Mattermost implementation of Permission API
+ * Mattermost implementation of McpPlatformApi
  *
- * Handles permission requests via Mattermost API and WebSocket. Bundles the
- * minimal Mattermost REST surface the MCP permission server needs; the full
+ * Handles MCP-side platform operations via Mattermost API and WebSocket.
+ * Bundles the minimal Mattermost REST surface the MCP child needs; the full
  * WebSocket-backed client lives in src/platform/mattermost/client.ts and is
  * only used by the main bot.
  */
 
 import { WebSocket } from '../../utils/websocket.js';
-import type { PermissionApi, MattermostPermissionApiConfig, ReactionEvent, PostedMessage } from '../permission-api.js';
+import type {
+  McpPlatformApi,
+  MattermostMcpApiConfig,
+  ReactionEvent,
+  PostedMessage,
+  McpPost,
+} from '../mcp-platform-api.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
@@ -117,6 +123,39 @@ async function updatePostRaw(
   });
 }
 
+interface MattermostThreadResponse {
+  order: string[];
+  posts: Record<string, MattermostApiPost>;
+}
+
+async function getPostRaw(
+  config: MattermostApiConfig,
+  postId: string,
+): Promise<MattermostApiPost | null> {
+  try {
+    return await mattermostApi<MattermostApiPost>(config, 'GET', `/posts/${postId}`);
+  } catch (err) {
+    apiLog.debug(`Failed to get post ${postId}: ${err}`);
+    return null;
+  }
+}
+
+async function getThreadRaw(
+  config: MattermostApiConfig,
+  threadRootId: string,
+): Promise<MattermostThreadResponse | null> {
+  try {
+    return await mattermostApi<MattermostThreadResponse>(
+      config,
+      'GET',
+      `/posts/${threadRootId}/thread`,
+    );
+  } catch (err) {
+    apiLog.debug(`Failed to get thread ${threadRootId}: ${err}`);
+    return null;
+  }
+}
+
 async function addReaction(
   config: MattermostApiConfig,
   postId: string,
@@ -159,15 +198,15 @@ async function createInteractivePostInternal(
 }
 
 /**
- * Mattermost Permission API implementation
+ * Mattermost MCP platform API implementation
  */
-class MattermostPermissionApi implements PermissionApi {
+class MattermostMcpPlatformApi implements McpPlatformApi {
   private readonly apiConfig: MattermostApiConfig;
-  private readonly config: MattermostPermissionApiConfig;
+  private readonly config: MattermostMcpApiConfig;
   private readonly formatter = new MattermostFormatter();
   private botUserIdCache: string | null = null;
 
-  constructor(config: MattermostPermissionApiConfig) {
+  constructor(config: MattermostMcpApiConfig) {
     this.config = config;
     this.apiConfig = {
       url: config.url,
@@ -348,11 +387,61 @@ class MattermostPermissionApi implements PermissionApi {
     });
     return { postId: result.postId };
   }
+
+  async readPost(postId: string): Promise<McpPost | null> {
+    mcpLogger.debug(`readPost: ${formatShortId(postId)}`);
+    const post = await getPostRaw(this.apiConfig, postId);
+    if (!post) return null;
+    const username = post.user_id ? await this.getUsername(post.user_id) : null;
+    return toMcpPost(post, username);
+  }
+
+  async readThread(
+    threadRootId: string,
+    options?: { limit?: number },
+  ): Promise<McpPost[]> {
+    mcpLogger.debug(`readThread: ${formatShortId(threadRootId)}`);
+    const thread = await getThreadRaw(this.apiConfig, threadRootId);
+    if (!thread) return [];
+
+    // Sort by create_at ascending so the oldest post comes first.
+    const ordered = thread.order
+      .map(id => thread.posts[id])
+      .filter((p): p is MattermostApiPost => Boolean(p))
+      .sort((a, b) => (a.create_at ?? 0) - (b.create_at ?? 0));
+
+    const limited = options?.limit !== undefined ? ordered.slice(-options.limit) : ordered;
+
+    // Resolve usernames once per unique user to avoid N round-trips for a
+    // chatty thread.
+    const usernameByUserId = new Map<string, string | null>();
+    for (const p of limited) {
+      if (p.user_id && !usernameByUserId.has(p.user_id)) {
+        usernameByUserId.set(p.user_id, await this.getUsername(p.user_id));
+      }
+    }
+
+    return limited.map(p =>
+      toMcpPost(p, p.user_id ? usernameByUserId.get(p.user_id) ?? null : null),
+    );
+  }
+}
+
+function toMcpPost(post: MattermostApiPost, username: string | null): McpPost {
+  return {
+    id: post.id,
+    channelId: post.channel_id,
+    userId: post.user_id ?? '',
+    username,
+    message: post.message,
+    createAt: post.create_at ?? 0,
+    threadRootId: post.root_id || undefined,
+  };
 }
 
 /**
- * Create a Mattermost permission API instance
+ * Create a Mattermost MCP platform API instance
  */
-export function createMattermostPermissionApi(config: MattermostPermissionApiConfig): PermissionApi {
-  return new MattermostPermissionApi(config);
+export function createMattermostMcpPlatformApi(config: MattermostMcpApiConfig): McpPlatformApi {
+  return new MattermostMcpPlatformApi(config);
 }
