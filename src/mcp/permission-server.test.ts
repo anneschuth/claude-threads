@@ -480,6 +480,7 @@ function makeReadPostCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig>
     api,
     platformUrl: PLATFORM_URL,
     platformType: 'mattermost',
+    channelId: 'C-default',
     ...overrides,
   };
 }
@@ -544,14 +545,14 @@ describe('handleReadPostWith', () => {
     expect(result.reason).toMatch(/post not found.*does not have access/);
   });
 
-  it('refuses to operate on platforms other than mattermost', async () => {
+  it('refuses to operate on unsupported platforms', async () => {
     const api = new FakeApi();
     const result = await handleReadPostWith(
       { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
-      makeReadPostCfg(api, { platformType: 'slack' }),
+      makeReadPostCfg(api, { platformType: 'discord' }),
     );
     expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/not supported on platform 'slack'/);
+    expect(result.reason).toMatch(/not supported on platform 'discord'/);
   });
 
   it('errors when platform URL is unconfigured', async () => {
@@ -600,6 +601,104 @@ describe('handleReadPostWith', () => {
       makeReadPostCfg(api),
     );
     expect(api.readPostCalls).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// handleReadPostWith — Slack
+// =============================================================================
+
+const SLACK_CHANNEL = 'C0123456789';
+const SLACK_TS = '1234567890.123456';
+const SLACK_PERMALINK = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123456`;
+
+describe('handleReadPostWith — Slack', () => {
+  function makeSlackCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig> = {}): ReadPostHandlerConfig {
+    return {
+      api,
+      platformUrl: '',
+      platformType: 'slack',
+      channelId: SLACK_CHANNEL,
+      ...overrides,
+    };
+  }
+
+  function fakeSlackPost(overrides: Partial<McpPost> = {}): McpPost {
+    return {
+      id: SLACK_TS,
+      userId: 'U-1',
+      username: 'alice',
+      message: 'hello slack',
+      createAt: 1_234_567_890_123,
+      threadRootId: undefined,
+      ...overrides,
+    };
+  }
+
+  it('returns formatted markdown for a valid Slack permalink', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakeSlackPost();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
+    expect(result.ok).toBe(true);
+    expect(result.content).toContain('Slack message by @alice');
+    expect(result.content).toContain('> hello slack');
+    expect(api.readPostCalls).toEqual([SLACK_TS]);
+  });
+
+  it('errors when the URL is for a different channel', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakeSlackPost();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: 'C-OTHER' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/different channel/);
+    expect(api.readPostCalls).toEqual([]);
+  });
+
+  it('errors when the URL is not a Slack permalink', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: 'https://acme.slack.com/messages/abc/123' },
+      makeSlackCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Slack permalink/);
+  });
+
+  it('errors when the URL is for a non-Slack host', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `https://other.example.test/archives/${SLACK_CHANNEL}/p1234567890123456` },
+      makeSlackCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/not a Slack permalink/);
+  });
+
+  it('returns not-found when the post is missing', async () => {
+    const api = new FakeApi();
+    api.readPostImpl = async () => null;
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/message not found/);
+  });
+
+  it('errors when channelId is unconfigured', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: '' }));
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform channel not configured/);
+  });
+
+  it('passes the URL thread_ts as the thread root when include_thread is true', async () => {
+    const api = new FakeApi();
+    // URL: a reply (p1234567890123457) with thread_ts pointing at the parent.
+    const replyTs = '1234567890.123457';
+    const post = fakeSlackPost({ id: replyTs, threadRootId: SLACK_TS });
+    api.readPostImpl = async () => post;
+    api.readThreadImpl = async () => [post];
+    const url = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123457?thread_ts=${SLACK_TS}&cid=${SLACK_CHANNEL}`;
+    await handleReadPostWith({ url, include_thread: true }, makeSlackCfg(api));
+    expect(api.readThreadCalls[0].rootId).toBe(SLACK_TS);
   });
 });
 

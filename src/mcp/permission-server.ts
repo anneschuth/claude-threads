@@ -42,6 +42,11 @@ import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
 } from '../platform/mattermost/permalink.js';
+import {
+  parseSlackPermalink,
+  resolveSlackPermalink,
+  formatResolvedSlack,
+} from '../platform/slack/permalink.js';
 
 // =============================================================================
 // Configuration
@@ -378,10 +383,13 @@ export interface ReadPostResult {
 
 export interface ReadPostHandlerConfig {
   api: McpPlatformApi;
-  /** The platform's base URL — used to validate the link's host. */
+  /** Mattermost: instance base URL. Slack: not used (workspaces are
+   *  identified at API level, not by URL). */
   platformUrl: string;
-  /** Platform type. Currently only 'mattermost' is supported. */
+  /** Platform type. 'mattermost' or 'slack'. */
   platformType: string;
+  /** The channel id the bot operates in. Used to scope Slack permalinks. */
+  channelId: string;
 }
 
 /**
@@ -393,16 +401,25 @@ export async function handleReadPostWith(
   args: { url: string; include_thread?: boolean; max_messages?: number },
   cfg: ReadPostHandlerConfig,
 ): Promise<ReadPostResult> {
-  if (cfg.platformType !== 'mattermost') {
-    return {
-      ok: false,
-      reason: `read_post is not supported on platform '${cfg.platformType}' yet`,
-    };
+  if (cfg.platformType === 'mattermost') {
+    return handleReadPostMattermost(args, cfg);
   }
+  if (cfg.platformType === 'slack') {
+    return handleReadPostSlack(args, cfg);
+  }
+  return {
+    ok: false,
+    reason: `read_post is not supported on platform '${cfg.platformType}'`,
+  };
+}
+
+async function handleReadPostMattermost(
+  args: { url: string; include_thread?: boolean; max_messages?: number },
+  cfg: ReadPostHandlerConfig,
+): Promise<ReadPostResult> {
   if (!cfg.platformUrl) {
     return { ok: false, reason: 'platform URL not configured' };
   }
-
   const parsed = parseMattermostPermalink(args.url, cfg.platformUrl);
   if (!parsed) {
     return {
@@ -429,6 +446,45 @@ export async function handleReadPostWith(
   return { ok: true, content: formatResolved(result.resolved) };
 }
 
+async function handleReadPostSlack(
+  args: { url: string; include_thread?: boolean; max_messages?: number },
+  cfg: ReadPostHandlerConfig,
+): Promise<ReadPostResult> {
+  if (!cfg.channelId) {
+    return { ok: false, reason: 'platform channel not configured' };
+  }
+  const parsed = parseSlackPermalink(args.url);
+  if (!parsed) {
+    return {
+      ok: false,
+      reason: 'not a Slack permalink (expected https://{workspace}.slack.com/archives/{channelId}/p{ts})',
+    };
+  }
+
+  const result = await resolveSlackPermalink(cfg.api, parsed, cfg.channelId, {
+    includeThread: args.include_thread,
+    maxMessages: args.max_messages,
+  });
+
+  if (!result.ok) {
+    if (result.error.kind === 'wrong-channel') {
+      return {
+        ok: false,
+        reason: 'permalink is for a different channel — the bot can only follow links inside its own channel',
+      };
+    }
+    if (result.error.kind === 'not-found') {
+      return { ok: false, reason: 'message not found, or the bot does not have access to it' };
+    }
+    if (result.error.kind === 'unsupported') {
+      return { ok: false, reason: 'this platform does not support reading posts' };
+    }
+    return { ok: false, reason: 'unknown error resolving permalink' };
+  }
+
+  return { ok: true, content: formatResolvedSlack(result.resolved) };
+}
+
 async function handleReadPost(
   args: { url: string; include_thread?: boolean; max_messages?: number },
 ): Promise<ReadPostResult> {
@@ -436,6 +492,7 @@ async function handleReadPost(
     api: getApi(),
     platformUrl: PLATFORM_URL,
     platformType: PLATFORM_TYPE,
+    channelId: PLATFORM_CHANNEL_ID,
   });
 }
 
