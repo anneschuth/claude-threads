@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-05-05
+
+### Added
+- **Claude can DM channel members directly via the new `send_dm` MCP tool.** When the user asks for a private ping ("DM me when this finishes," "send the report to alice as a DM"), Claude can now call `send_dm(recipient, message)` instead of asking the user to forward the result themselves. The recipient is a Mattermost username (`@anne` or `anne`) or a Slack user id (`U…`/`<@U…>`) — the asymmetry exists because Slack bot tokens can't reverse-look usernames cheaply, and paginating `users.list` per call is wasteful. Six gates run in order: shape (recipient and message non-empty, message under 4000-char cap), recipient resolution (platform API turns the input into a user id + canonical username), self-DM guard, channel membership (recipient must be a current member of the bot channel, fetched once and cached for 60s), rate limit (3 DMs per recipient per session, optimistic counter increment with rollback on deny / timeout / send-error), and a per-recipient interactive permission prompt the first time the session DMs each user. ✅ promotes that recipient — and only that recipient — to no-prompt for the rest of the session; the rate limit still applies. An in-flight set blocks parallel `send_dm` calls to the same recipient from posting duplicate prompts when Claude fans out tool_use blocks in a single turn. Every DM is prefixed with an attribution line — `_(automated message via claude-threads, on behalf of @anne from #channel)_` — so recipients can trace it back to the session that sent it; the channel name is fetched lazily via the platform's channel-info endpoint, the session-owner username is plumbed in from `session.startedBy` through a new `SESSION_OWNER_USERNAME` env var that threads `lifecycle.ts` → `restart-options.ts` → `ClaudeCliOptions` → `buildPermissionArgs` → MCP child (covers all five `new ClaudeCli` sites). New optional `McpPlatformApi` methods `getChannelMembers`, `resolveRecipient`, `sendDirectMessage`; `getChannelInfo` gained a `name?` field. RED-GREEN tests on every load-bearing guard — self-DM check, membership, rate limit, attribution prefix, allow-all-is-per-recipient, counter rollback on deny / timeout, in-flight-prompt deduplication. (#374)
+
 ## [1.14.1] - 2026-05-05
 
 ### Fixed
