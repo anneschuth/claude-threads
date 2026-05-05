@@ -255,7 +255,19 @@ export function buildPermissionArgs(opts: {
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
-  if (opts.permissionMode === 'bypass') {
+
+  // bypass-mode: tools run without user approval. We still spawn the MCP
+  // server (no --permission-prompt-tool, so the permission_prompt tool
+  // dangles harmlessly) so that send_file remains available — this is the
+  // mode operators most often use for build-anything-on-demand setups,
+  // exactly the workflow where send_file is most useful. Pre-#360 the
+  // server wasn't spawned at all; the change is intentional and additive.
+  //
+  // platformConfig is required even in bypass-mode now, because send_file
+  // talks to the platform REST API. If a deployment really has no platform
+  // (extremely unusual; only the dry-run / shell-driven test fixtures),
+  // pass platformConfig: undefined and accept that send_file won't work.
+  if (opts.permissionMode === 'bypass' && !opts.platformConfig) {
     args.push('--dangerously-skip-permissions');
     return { args, tempFile: null };
   }
@@ -323,10 +335,20 @@ export function buildPermissionArgs(opts: {
   } else {
     args.push('--mcp-config', materialized.value);
   }
-  args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
 
-  if (opts.permissionMode === 'auto') {
-    args.push('--permission-mode', 'auto');
+  // Mode-specific flags:
+  //   default → --permission-prompt-tool only (every tool-use prompts)
+  //   auto    → --permission-prompt-tool + --permission-mode auto
+  //   bypass  → --dangerously-skip-permissions only (no prompt tool;
+  //             send_file is auto-approved by definition since nothing
+  //             prompts at all)
+  if (opts.permissionMode === 'bypass') {
+    args.push('--dangerously-skip-permissions');
+  } else {
+    args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
+    if (opts.permissionMode === 'auto') {
+      args.push('--permission-mode', 'auto');
+    }
   }
 
   return { args, tempFile };

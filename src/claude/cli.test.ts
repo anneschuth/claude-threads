@@ -405,12 +405,32 @@ describe('buildPermissionArgs', () => {
     inline: true, // keep tests off disk
   };
 
-  it("bypass: emits --dangerously-skip-permissions and nothing else", () => {
-    const { args, tempFile } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
+  it("bypass: still spawns the MCP server so send_file is available, but no --permission-prompt-tool", () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
+    expect(args).toContain('--dangerously-skip-permissions');
+    expect(args).toContain('--mcp-config');
+    // Bypass means no prompts ever — the prompt tool flag would be a no-op
+    // anyway, but explicitly omit it so the contract stays clean.
+    expect(args).not.toContain('--permission-prompt-tool');
+    expect(args).not.toContain('--permission-mode');
+    // Critical: the token is NOT in the argv. It's in the MCP config blob,
+    // which lives in a tempfile (or inline JSON for tests).
+    const argvWithoutMcpConfig = args.filter((_, i) => args[i - 1] !== '--mcp-config');
+    expect(argvWithoutMcpConfig.join(' ')).not.toContain('SECRET-TOKEN');
+  });
+
+  it("bypass without platformConfig still works (legacy / dry-run path)", () => {
+    // The original behavior: someone running with bypass + no platform
+    // (e.g. headless test fixtures) gets the dangerous-skip flag and no
+    // MCP server. send_file is unavailable in this case but that's
+    // documented — the choice is theirs.
+    const { args, tempFile } = buildPermissionArgs({
+      ...baseOpts,
+      platformConfig: undefined,
+      permissionMode: 'bypass',
+    });
     expect(args).toEqual(['--dangerously-skip-permissions']);
     expect(tempFile).toBeNull();
-    // Critical: the token is NOT in the argv.
-    expect(args.join(' ')).not.toContain('SECRET-TOKEN');
   });
 
   it("default: emits --mcp-config + --permission-prompt-tool, no --permission-mode", () => {
@@ -447,7 +467,7 @@ describe('buildPermissionArgs', () => {
     })).toThrow(/platformConfig is required/);
   });
 
-  it("bypass: does NOT require platformConfig (no MCP server is spawned)", () => {
+  it("bypass without platformConfig does not throw (legacy path supported)", () => {
     expect(() => buildPermissionArgs({
       ...baseOpts,
       platformConfig: undefined,
@@ -540,5 +560,20 @@ describe('buildPermissionArgs', () => {
       });
       expect(getMcpEnv(args).OUTBOUND_FILES_MAX_BYTES).toBeUndefined();
     }
+  });
+
+  it("bypass + platformConfig forwards outbound-env so send_file works", () => {
+    // Regression guard: pre-fix, bypass took an early return and never
+    // emitted the SESSION_WORKING_DIR / SESSION_UPLOAD_DIR vars, which made
+    // send_file silently unavailable in the mode operators most often use.
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'bypass',
+      workingDir: '/srv/work',
+      uploadDir: '/tmp/uploads/X',
+    });
+    const env = getMcpEnv(args);
+    expect(env.SESSION_WORKING_DIR).toBe('/srv/work');
+    expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
   });
 });
