@@ -20,20 +20,21 @@
 
 **Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost or Slack. Colleagues can watch, collaborate, and run their own sessions—all from chat.
 
-> *Think of it as screen-sharing for AI pair programming, but everyone can type.*
+> _Think of it as screen-sharing for AI pair programming, but everyone can type._
 
 ## Features
 
 - **Real-time streaming** - Claude's responses stream live to chat
-- **Multi-platform** - Connect to multiple Mattermost and Slack workspaces
-- **Concurrent sessions** - Each thread gets its own Claude session
-- **Session persistence** - Sessions survive bot restarts
-- **Collaboration** - Invite others to participate in your session
+- **Multi-platform** - Connect to multiple Mattermost and Slack workspaces simultaneously
+- **Concurrent sessions** - Each thread gets its own Claude session, persisted across bot restarts
+- **Collaboration** - `!invite` teammates to participate; they get added as `Co-Authored-By:` trailers on Claude's commits
 - **Permission modes** - Three-way control over Claude's tool-use: `default` (every action prompts for 👍/✅/👎 approval via emoji), `auto` (Claude's classifier auto-approves low-risk; high-risk still prompts — recommended), or `bypass` (no prompts, all tools allowed). Set via config, `--permission-mode` CLI flag, or in-session with `!permissions default|auto|bypass`.
-- **Git worktrees** - Isolate changes in separate branches
-- **File attachments** - Attach images, PDFs, and files for Claude to analyze
-- **Chrome automation** - Control Chrome browser for web tasks
+- **Claude posts back to chat** - Claude can call `send_file` to drop screenshots, generated PDFs, plots, or audio directly into the thread, and `read_post` to follow a Mattermost or Slack permalink the user shares
+- **Git worktrees** - Isolate Claude's changes in a branch with `!worktree feature/foo`; supports `list`, `switch`, `remove`, `cleanup`, `off`
+- **File attachments** - Drop images, PDFs, archives, or any file into the chat; Claude reads them from disk via its own `Read`/Bash tools (100 MB cap)
+- **Chrome automation** - Optional integration with Claude in Chrome for web tasks
 - **Multi-account Claude (opt-in)** - Round-robin sessions across multiple Claude subscriptions or API keys with automatic rate-limit cooldown — see [Configuration](docs/CONFIGURATION.md#claude-accounts-optional-multi-account-mode)
+- **Auto-update** - Bot checks npm for new versions and offers to restart; `!update now` / `!update defer` controls the timing
 
 ## Quick Start
 
@@ -50,6 +51,7 @@ claude-threads
 ```
 
 The **interactive setup wizard** will guide you through everything:
+
 - Configure Claude Code CLI (if needed)
 - Set up your Mattermost or Slack bot
 - Test credentials and permissions
@@ -74,46 +76,49 @@ Mention the bot in your chat:
 
 Type `!help` in any session thread:
 
-| Command | Description |
-|:--------|:------------|
-| `!help` | Show available commands |
-| `!context` | Show context usage |
-| `!cost` | Show token usage and cost |
-| `!compact` | Compress context to free up space |
-| `!cd <path>` | Change working directory |
-| `!worktree <branch>` | Create and switch to a git worktree |
-| `!invite @user` | Invite a user to this session |
-| `!kick @user` | Remove an invited user |
-| `!bug <desc>` | Report a bug with context |
-| `!escape` | Interrupt current task |
-| `!stop` | Stop this session |
+| Command                                     | Description                                                                              |
+| :------------------------------------------ | :--------------------------------------------------------------------------------------- |
+| `!help`                                     | Show available commands                                                                  |
+| `!release-notes`                            | Show what changed in the running version                                                 |
+| `!context`                                  | Show context usage                                                                       |
+| `!cost`                                     | Show token usage and cost                                                                |
+| `!compact`                                  | Compress context to free up space                                                        |
+| `!cd <path>`                                | Change working directory (restarts Claude)                                               |
+| `!permissions <mode>`                       | Set permission mode: `default` / `auto` / `bypass`                                       |
+| `!worktree <branch>`                        | Create and switch to a git worktree (also: `list`, `switch`, `remove`, `cleanup`, `off`) |
+| `!plugin <list\|install\|uninstall> [name]` | Manage Claude Code plugins (restarts Claude)                                             |
+| `!invite @user`                             | Invite a user to this session (added as `Co-Authored-By:` on commits)                    |
+| `!kick @user`                               | Remove an invited user                                                                   |
+| `!github-email <email>`                     | Register your GitHub noreply email so `!invite` can attribute commits to you             |
+| `!update`                                   | Show auto-update status (`!update now` / `!update defer`)                                |
+| `!bug <desc>`                               | Report a bug with context (creates a GitHub issue)                                       |
+| `!approve`                                  | Approve pending plan (alternative to 👍 reaction)                                        |
+| `!escape`                                   | Interrupt current task (session stays active)                                            |
+| `!stop`                                     | Stop this session                                                                        |
+| `!kill`                                     | Emergency shutdown (kills ALL sessions and exits the bot)                                |
 
 ## Interactive Controls
 
 **Permission approval** - When Claude wants to execute a tool:
+
 - 👍 Allow this action
 - ✅ Allow all future actions
 - 👎 Deny
 
 **Plan approval** - When Claude creates a plan:
+
 - 👍 Approve and start
 - 👎 Request changes
 
 **Questions** - React with 1️⃣ 2️⃣ 3️⃣ 4️⃣ to answer multiple choice
 
-**Cancel session** - Type `!stop` or react with ❌
+**Session control** - ⏸️ to interrupt, ❌ or 🛑 to stop, ↩️ to resume a timed-out session
 
 ## File Attachments
 
-Attach files to your messages for Claude to analyze:
+Drop any file into the chat (image, PDF, archive, source, log, you name it). The bot saves it to a per-thread directory and prepends the path to your message; Claude reads it with its own `Read` tool (full multimodal for images and PDFs) or processes it via Bash. Single 100 MB cap per file. Need to extract a zip? Claude runs `unzip` itself.
 
-| Type | Formats | Max Size |
-|:-----|:--------|:---------|
-| Images | JPEG, PNG, GIF, WebP | - |
-| Documents | PDF | 32 MB |
-| Text | .txt, .md, .json, .csv, .xml, .yaml, source code | 1 MB |
-| Archives | .zip (auto-extracted, max 20 files) | 50 MB |
-| Compressed | .gz (auto-decompressed) | - |
+Going the other way, Claude can post files back into the thread (screenshots, generated PDFs, plots, MP3s) by calling the `send_file` MCP tool. Path is validated against the session working directory; auto-approved so the user doesn't have to 👍 every screenshot.
 
 ## Collaboration
 
@@ -122,7 +127,13 @@ Attach files to your messages for Claude to analyze:
 !kick @colleague      # Remove access
 ```
 
-Unauthorized users can request message approval from the session owner.
+Unauthorized users can request message approval from the session owner with a 👍 reaction.
+
+Invited collaborators are added as `Co-Authored-By:` trailers on any commits Claude makes during the session. Each collaborator runs `!github-email <their-noreply-address>` once (find yours at <https://github.com/settings/emails>) and the bot remembers it across sessions.
+
+## Sharing Links With Claude
+
+Paste a Mattermost or Slack permalink in the thread and Claude can resolve it to the post body (and optional thread context) via the `read_post` MCP tool, instead of asking you to copy-paste. Auto-approved; scoped to channels the bot can already see.
 
 ## Git Worktrees
 

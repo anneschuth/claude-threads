@@ -82,13 +82,39 @@
           <ul>
             <li>Output streams live to chat as Claude works</li>
             <li>Sticky to-do lists at the bottom of each thread</li>
-            <li>Works with Slack and Mattermost</li>
-            <li>Multiple concurrent sessions (one per thread)</li>
-            <li>Sessions survive bot restarts</li>
-            <li>Invite teammates to collaborate on a session</li>
+            <li>
+              Works with Slack and Mattermost, multiple workspaces at once
+            </li>
+            <li>
+              Multiple concurrent sessions (one per thread), persisted across
+              bot restarts
+            </li>
+            <li>
+              Three permission modes: prompt every action, let Claude classify,
+              or skip prompts entirely
+            </li>
+            <li>
+              Invite teammates to collaborate on a session; they get added as
+              <code>Co-Authored-By:</code> on Claude's commits
+            </li>
             <li>Approve file writes and commands via emoji reactions</li>
-            <li>Attach images, PDFs, and files for Claude to analyze</li>
+            <li>
+              Attach any file (100 MB cap); Claude reads it from disk with full
+              multimodal for images and PDFs
+            </li>
+            <li>
+              Claude posts files back into chat (screenshots, generated PDFs,
+              plots, audio)
+            </li>
+            <li>
+              Share a Slack or Mattermost permalink and Claude follows the
+              thread
+            </li>
             <li>Git worktrees to isolate changes in branches</li>
+            <li>
+              Round-robin across multiple Claude subscriptions or API keys with
+              automatic rate-limit cooldown
+            </li>
           </ul>
         </div>
       </section>
@@ -146,20 +172,53 @@
               <td>Change working directory</td>
             </tr>
             <tr>
+              <td><code>!permissions &lt;mode&gt;</code></td>
+              <td>
+                Switch between <code>default</code>, <code>auto</code>,
+                <code>bypass</code>
+              </td>
+            </tr>
+            <tr>
               <td><code>!worktree &lt;branch&gt;</code></td>
-              <td>Create git worktree</td>
+              <td>
+                Create git worktree (also: <code>list</code>,
+                <code>switch</code>, <code>remove</code>, <code>cleanup</code>)
+              </td>
+            </tr>
+            <tr>
+              <td><code>!plugin &lt;cmd&gt;</code></td>
+              <td>Manage Claude Code plugins</td>
             </tr>
             <tr>
               <td><code>!invite @user</code></td>
-              <td>Invite user to session</td>
+              <td>
+                Invite user (added as <code>Co-Authored-By:</code> on commits)
+              </td>
             </tr>
             <tr>
               <td><code>!kick @user</code></td>
               <td>Remove invited user</td>
             </tr>
             <tr>
+              <td><code>!github-email &lt;email&gt;</code></td>
+              <td>
+                Register your GitHub noreply address for commit attribution
+              </td>
+            </tr>
+            <tr>
+              <td><code>!update</code></td>
+              <td>
+                Auto-update status (<code>!update now</code> /
+                <code>!update defer</code>)
+              </td>
+            </tr>
+            <tr>
+              <td><code>!release-notes</code></td>
+              <td>What changed in the running version</td>
+            </tr>
+            <tr>
               <td><code>!bug &lt;desc&gt;</code></td>
-              <td>Report a bug with context</td>
+              <td>Report a bug (creates a GitHub issue)</td>
             </tr>
             <tr>
               <td><code>!escape</code></td>
@@ -207,13 +266,47 @@
             </div>
             <div class="control-group">
               <h3>Session</h3>
-              <p>Interrupt or cancel:</p>
+              <p>Interrupt, stop, or resume:</p>
               <div class="emoji-row">
                 <span><span class="emoji">⏸️</span> interrupt</span>
-                <span><span class="emoji">❌</span> cancel</span>
+                <span><span class="emoji">❌</span> stop</span>
+                <span><span class="emoji">↩️</span> resume</span>
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- Permission modes -->
+      <section class="commands">
+        <div class="container">
+          <h2>Permission modes</h2>
+          <p>
+            Three ways to control what Claude can run. Pick per session with
+            <code>!permissions default|auto|bypass</code>, set as a default in
+            config, or pass <code>--permission-mode</code> on the command line.
+          </p>
+          <table>
+            <tr>
+              <th>Mode</th>
+              <th>Behavior</th>
+            </tr>
+            <tr>
+              <td><code>default</code> 🔐</td>
+              <td>Every tool use prompts the thread for 👍 / ✅ / 👎</td>
+            </tr>
+            <tr>
+              <td><code>auto</code> ⚡</td>
+              <td>
+                Claude's classifier auto-approves low-risk actions; high-risk
+                still prompts. Recommended.
+              </td>
+            </tr>
+            <tr>
+              <td><code>bypass</code> ⚠️</td>
+              <td>No prompts, all tools allowed. Trusted environments only.</td>
+            </tr>
+          </table>
         </div>
       </section>
 
