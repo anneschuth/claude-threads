@@ -231,6 +231,47 @@ describe('inviteUser', () => {
       session.threadId
     );
   });
+
+  it('posts a "Collaborators updated" notice with the new co-author when the invitee has an email', async () => {
+    // Regression-defender: this notice is the contract that lets Claude pick
+    // up the current co-author list mid-session. Without it, an !invite is
+    // invisible to Claude until the next system-prompt rebuild (resume/!cd).
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({
+        id: 'user-2', username: 'newuser', displayName: 'New User', email: 'new@example.com',
+      })),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.inviteUser(session, 'newuser', 'testuser', ctx);
+
+    const calls = (mockPlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const notice = calls.find((m: string) => m.includes('Collaborators updated'));
+    expect(notice).toBeTruthy();
+    expect(notice).toContain('New User <new@example.com>');
+  });
+
+  it('still posts a notice (with empty list) so an older notice does not keep applying — but only if collaborators with email exist', async () => {
+    // When the invitee has no email we can't add them as co-author, so the
+    // co-author list is still empty after the invite. The notice must reflect
+    // that — otherwise an older notice could keep claiming this invitee is a
+    // co-author. Owner is excluded so no email anywhere → "no co-authors".
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'newuser' })),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.inviteUser(session, 'newuser', 'testuser', ctx);
+
+    const calls = (mockPlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const notice = calls.find((m: string) => m.includes('Collaborators updated'));
+    expect(notice).toBeTruthy();
+    expect(notice).toContain('no co-authors');
+  });
 });
 
 describe('kickUser', () => {
@@ -317,6 +358,27 @@ describe('kickUser', () => {
       expect.stringContaining('was not in this session'),
       session.threadId
     );
+  });
+
+  it('posts a "Collaborators updated" notice after a successful kick so Claude drops the kicked co-author', async () => {
+    // Regression-defender: without this, the previous "Collaborators updated"
+    // notice (with the now-kicked user) would keep applying to future commits.
+    const inviteePlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({
+        id: 'user-2', username: 'inviteduser', displayName: 'Invited', email: 'inv@example.com',
+      })),
+    });
+    const session = createMockSession({ platform: inviteePlatform });
+    session.sessionAllowedUsers.add('inviteduser');
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.kickUser(session, 'inviteduser', 'testuser', ctx);
+
+    const calls = (inviteePlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const notice = calls.find((m: string) => m.includes('Collaborators updated'));
+    expect(notice).toBeTruthy();
+    expect(notice).toContain('no co-authors');
   });
 });
 

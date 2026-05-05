@@ -12,6 +12,10 @@ import {
   getClaudeAvoidCommands,
   type CommandDefinition,
 } from './registry.js';
+import type { PlatformClient } from '../platform/client.js';
+import { createLogger } from '../utils/logger.js';
+
+const log = createLogger('system-prompt');
 
 /**
  * Format a command for the user commands section of the system prompt.
@@ -74,6 +78,134 @@ export function buildSessionContext(
   const platformName = platform.platformType.charAt(0).toUpperCase() + platform.platformType.slice(1);
   const threadUrl = platform.getThreadLink(threadId);
   return `**Platform:** ${platformName} (${platform.displayName}) | **Working Directory:** ${workingDir} | **Thread:** ${threadUrl}`;
+}
+
+/**
+ * Resolved collaborator with the data we need for a Co-Authored-By trailer.
+ * `name` falls back to username when displayName is missing; `email` is required
+ * (collaborators without an email cannot be tagged as co-author).
+ */
+export interface ResolvedCollaborator {
+  username: string;
+  name: string;
+  email: string;
+}
+
+/**
+ * Resolve the co-authorable collaborators for a session.
+ *
+ * Looks up each non-owner username in `sessionAllowedUsers` via the platform
+ * and keeps the ones with an email. Owner is excluded — the owner is the
+ * implicit author, not a co-author. Users without email are skipped silently
+ * (debug-logged) because we can't form a valid Co-Authored-By trailer for them.
+ */
+export async function resolveCollaborators(
+  platform: Pick<PlatformClient, 'getUserByUsername'>,
+  ownerUsername: string,
+  allowedUsers: Iterable<string>,
+): Promise<ResolvedCollaborator[]> {
+  const resolved: ResolvedCollaborator[] = [];
+  for (const username of allowedUsers) {
+    if (username === ownerUsername) continue;
+    try {
+      const user = await platform.getUserByUsername(username);
+      if (!user) {
+        log.debug(`Collaborator @${username} not found on platform — skipping`);
+        continue;
+      }
+      if (!user.email) {
+        log.debug(`Collaborator @${username} has no email — skipping co-author tag`);
+        continue;
+      }
+      resolved.push({
+        username,
+        name: user.displayName || user.username,
+        email: user.email,
+      });
+    } catch (err) {
+      log.debug(`Lookup failed for collaborator @${username}: ${(err as Error).message}`);
+    }
+  }
+  return resolved;
+}
+
+/**
+ * Build the "Git commit attribution" section of the system prompt.
+ *
+ * Two shapes:
+ * - No collaborators: a one-liner that only kicks in if a "Collaborators
+ *   updated" notice appears later in the thread. Solo sessions stay quiet.
+ * - With collaborators: the full rule plus the current list and a pointer
+ *   to the thread for later updates.
+ */
+export function buildCollaboratorContext(collaborators: ResolvedCollaborator[]): string {
+  if (collaborators.length === 0) {
+    return `If a "Collaborators updated" notice appears in this thread, add each listed person as a \`Co-Authored-By: Name <email>\` trailer on subsequent git commits. Do not add the session owner (they are the implicit author), the bot, or any AI assistant.`;
+  }
+
+  const lines = collaborators.map(c => `- ${c.name} <${c.email}>`).join('\n');
+  return `## Git commit attribution
+
+When you create a git commit in this session, add every current collaborator
+listed below as a \`Co-Authored-By:\` trailer at the end of the commit
+message, each on its own line, after a blank line separating them from the
+body. Use the format \`Co-Authored-By: Name <email>\`. Do not add the session
+owner (they are the implicit author), the bot, or any AI assistant.
+
+Current collaborators:
+${lines}
+
+If a "Collaborators updated" notice appears later in this thread, use the
+list from the most recent such notice instead — it supersedes this one.`;
+}
+
+/**
+ * Format the collaborator list for an in-thread "collaborators updated" notice.
+ * Returns an empty string when there is nothing co-authorable; the caller
+ * is expected to produce a "no co-authors" sentence in that case.
+ */
+export function formatCollaboratorListForChat(collaborators: ResolvedCollaborator[]): string {
+  return collaborators.map(c => `${c.name} <${c.email}>`).join(', ');
+}
+
+/**
+ * Compose the full `appendSystemPrompt` for a Claude session.
+ *
+ * Layers (in order, blank-line-separated):
+ *   1. session context line — included unless `omitSessionContext` is set,
+ *      which is the worktree-respawn case where Claude already has a title
+ *      and the bestaande spawn-pad omits it to keep prompt-rebuilds cheap.
+ *   2. static chat-platform prompt (commands, send_file, etc.)
+ *   3. collaborator co-author section — always included so the rule can't
+ *      silently disappear across `!cd` / worktree / resume.
+ *
+ * Centralizing every spawn-site through this helper guarantees they all
+ * teach Claude the same conventions; adding a layer in one place but not
+ * another previously caused `!cd` to silently strip attribution.
+ */
+export async function buildAppendSystemPrompt(
+  platform: Pick<PlatformClient, 'getUserByUsername'> & {
+    platformType: string;
+    displayName: string;
+    getThreadLink(threadId: string): string;
+  },
+  workingDir: string,
+  threadId: string,
+  ownerUsername: string,
+  allowedUsers: Iterable<string>,
+  staticChatPlatformPrompt: string,
+  options?: { omitSessionContext?: boolean },
+): Promise<string> {
+  const collaborators = await resolveCollaborators(platform, ownerUsername, allowedUsers);
+  const collaboratorSection = buildCollaboratorContext(collaborators);
+
+  const parts: string[] = [];
+  if (!options?.omitSessionContext) {
+    parts.push(buildSessionContext(platform, workingDir, threadId));
+  }
+  parts.push(staticChatPlatformPrompt);
+  parts.push(collaboratorSection);
+  return parts.join('\n\n');
 }
 
 /**

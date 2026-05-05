@@ -60,7 +60,11 @@ import { shortenPath } from '../index.js';
 import { getLogFilePath } from '../../persistence/thread-logger.js';
 import { quickQuery } from '../../claude/quick-query.js';
 import { CHAT_PLATFORM_PROMPT } from '../../session/lifecycle.js';
-import { buildSessionContext } from '../../commands/system-prompt-generator.js';
+import {
+  buildAppendSystemPrompt,
+  formatCollaboratorListForChat,
+  resolveCollaborators,
+} from '../../commands/system-prompt-generator.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -390,9 +394,17 @@ export async function changeDirectory(
   const newSessionId = randomUUID();
   session.claudeSessionId = newSessionId;
 
-  // Build system prompt with platform context for the new directory
-  const sessionContext = buildSessionContext(session.platform, absoluteDir, session.threadId);
-  const appendSystemPrompt = `${sessionContext}\n\n${CHAT_PLATFORM_PROMPT}`;
+  // Build system prompt with platform context for the new directory.
+  // Carry collaborator co-author tags across the respawn so attribution
+  // doesn't silently drop on `!cd`.
+  const appendSystemPrompt = await buildAppendSystemPrompt(
+    session.platform,
+    absoluteDir,
+    session.threadId,
+    session.startedBy,
+    session.sessionAllowedUsers,
+    CHAT_PLATFORM_PROMPT,
+  );
 
   const cliOptions: ClaudeCliOptions = {
     ...commonRestartCliOptions(session, ctx),
@@ -441,6 +453,27 @@ export async function changeDirectory(
 // ---------------------------------------------------------------------------
 
 /**
+ * Post a "Collaborators updated" notice in the thread so Claude can read the
+ * current co-author list on the next turn.
+ *
+ * The literal phrase "Collaborators updated" is the convention promised by
+ * `buildCollaboratorContext()` — it's how Claude finds the most-recent list.
+ * Posts even when the list is now empty (e.g. after the last !kick) so an
+ * older notice in the thread doesn't keep applying.
+ */
+async function postCollaboratorUpdatedNotice(session: Session): Promise<void> {
+  const collaborators = await resolveCollaborators(
+    session.platform,
+    session.startedBy,
+    session.sessionAllowedUsers,
+  );
+  const body = collaborators.length === 0
+    ? `📝 Collaborators updated — no co-authors for new commits.`
+    : `📝 Collaborators updated — co-authors for new commits: ${formatCollaboratorListForChat(collaborators)}`;
+  await post(session, 'info', body);
+}
+
+/**
  * Invite a user to participate in a session.
  */
 export async function inviteUser(
@@ -468,6 +501,7 @@ export async function inviteUser(
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
   session.threadLogger?.logCommand('invite', invitedUser, invitedBy);
   await updateSessionHeader(session, ctx);
+  await postCollaboratorUpdatedNotice(session);
   ctx.ops.persistSession(session);
 }
 
@@ -513,6 +547,7 @@ export async function kickUser(
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
+    await postCollaboratorUpdatedNotice(session);
     ctx.ops.persistSession(session);
   } else {
     await post(session, 'warning', `${formatter.formatUserMention(kickedUser)} was not in this session`);

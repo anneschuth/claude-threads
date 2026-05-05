@@ -53,4 +53,9 @@ export { generateHelpMessage } from './help-generator.js';
 export {
   generateChatPlatformPrompt,
   buildSessionContext,
+  buildCollaboratorContext,
+  resolveCollaborators,
+  formatCollaboratorListForChat,
+  buildAppendSystemPrompt,
+  type ResolvedCollaborator,
 } from './system-prompt-generator.js';

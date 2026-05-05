@@ -26,7 +26,7 @@ import {
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
 import { buildRestartCliOptions } from '../../claude/restart-options.js';
-import { buildSessionContext } from '../../commands/system-prompt-generator.js';
+import { buildAppendSystemPrompt } from '../../commands/system-prompt-generator.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
 import { randomUUID } from 'crypto';
 import { logAndNotify } from '../../utils/error-handler/index.js';
@@ -487,11 +487,12 @@ export async function createAndSwitchToWorktree(
         const newSessionId = randomUUID();
         session.claudeSessionId = newSessionId;
 
-        // Create new CLI with new working directory
+        // Create new CLI with new working directory.
+        // Always include the chat-platform prompt + collaborator section so
+        // attribution rules and other conventions don't drop on respawn.
+        // The session-context line is only re-included when Claude still needs
+        // to generate a title (preserves the existing optimization).
         const needsTitlePrompt = !session.sessionTitle;
-        const sessionContext = needsTitlePrompt
-          ? buildSessionContext(session.platform, existing.path, session.threadId)
-          : null;
         const cliOptions: ClaudeCliOptions = {
           ...buildRestartCliOptions(session, {
             chromeEnabled: options.chromeEnabled,
@@ -505,7 +506,15 @@ export async function createAndSwitchToWorktree(
           }),
           sessionId: newSessionId,
           resume: false,
-          appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
+          appendSystemPrompt: await buildAppendSystemPrompt(
+            session.platform,
+            existing.path,
+            session.threadId,
+            session.startedBy,
+            session.sessionAllowedUsers,
+            options.appendSystemPrompt ?? '',
+            { omitSessionContext: !needsTitlePrompt },
+          ),
         };
         session.claude = new ClaudeCli(cliOptions);
 
@@ -636,13 +645,11 @@ export async function createAndSwitchToWorktree(
       const newSessionId = randomUUID();
       session.claudeSessionId = newSessionId;
 
-      // Create new CLI with new working directory
-      // Include system prompt if session doesn't have a title yet
-      // This ensures Claude will generate a title on its next response
+      // Create new CLI with new working directory.
+      // Always include the chat-platform prompt + collaborator section so
+      // attribution rules and other conventions don't drop on respawn.
+      // Session-context preamble re-included only when Claude still owes a title.
       const needsTitlePrompt = !session.sessionTitle;
-      const sessionContext = needsTitlePrompt
-        ? buildSessionContext(session.platform, worktreePath, session.threadId)
-        : null;
 
       const cliOptions: ClaudeCliOptions = {
         ...buildRestartCliOptions(session, {
@@ -657,7 +664,15 @@ export async function createAndSwitchToWorktree(
         }),
         sessionId: newSessionId,
         resume: false,  // Fresh start - can't resume across directories
-        appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
+        appendSystemPrompt: await buildAppendSystemPrompt(
+          session.platform,
+          worktreePath,
+          session.threadId,
+          session.startedBy,
+          session.sessionAllowedUsers,
+          options.appendSystemPrompt ?? '',
+          { omitSessionContext: !needsTitlePrompt },
+        ),
       };
       session.claude = new ClaudeCli(cliOptions);
 
