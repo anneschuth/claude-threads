@@ -15,6 +15,7 @@ import type { Session } from '../../session/types.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { SessionStore } from '../../persistence/session-store.js';
+import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
 import type { ClaudeAccount, PermissionMode } from '../../config/index.js';
@@ -64,6 +65,8 @@ export interface SessionState {
   readonly platforms: ReadonlyMap<string, PlatformClient>;
   /** Session persistence store */
   readonly sessionStore: SessionStore;
+  /** GitHub noreply email registrations (for commit co-author attribution) */
+  readonly githubEmailsStore: GitHubEmailsStore;
   /** Whether the manager is shutting down */
   readonly isShuttingDown: boolean;
 }

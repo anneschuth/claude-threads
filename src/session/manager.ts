@@ -16,6 +16,7 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
+import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -86,6 +87,8 @@ export class SessionManager extends EventEmitter {
 
   // Persistence (accessed via registry.getSessionStore())
   private sessionStore!: SessionStore;
+  // Per-user GitHub noreply emails (registered via !github-email)
+  private githubEmailsStore!: GitHubEmailsStore;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -134,6 +137,7 @@ export class SessionManager extends EventEmitter {
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
     this.sessionStore = new SessionStore(sessionsPath);
+    this.githubEmailsStore = new GitHubEmailsStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
 
@@ -265,6 +269,7 @@ export class SessionManager extends EventEmitter {
       postIndex: this.registry.getPostIndex(),
       platforms: this.platforms,
       sessionStore: this.sessionStore,
+      githubEmailsStore: this.githubEmailsStore,
       isShuttingDown: this.isShuttingDown,
     };
 
@@ -1034,6 +1039,16 @@ export class SessionManager extends EventEmitter {
     await commands.kickUser(session, kickedUser, kickedBy, this.getContext());
   }
 
+  async setGitHubEmail(
+    threadId: string,
+    username: string,
+    arg: string | undefined,
+  ): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.setGitHubEmail(session, username, arg, this.getContext());
+  }
+
   /**
    * Change the permission mode of an active session. Respawns Claude with the
    * new mode. Session owner or a globally-allowed user only.
@@ -1225,6 +1240,7 @@ export class SessionManager extends EventEmitter {
       getThreadMessagesForContext: (s, limit, excludePostId) => contextPrompt.getThreadMessagesForContext(s, limit, excludePostId),
       formatContextForClaude: (messages, summary) => contextPrompt.formatContextForClaude(messages, summary),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
+      githubEmailsStore: this.githubEmailsStore,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
       registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),

@@ -13,6 +13,7 @@ import {
   type CommandDefinition,
 } from './registry.js';
 import type { PlatformClient } from '../platform/client.js';
+import type { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('system-prompt');
@@ -94,37 +95,41 @@ export interface ResolvedCollaborator {
 /**
  * Resolve the co-authorable collaborators for a session.
  *
- * Looks up each non-owner username in `sessionAllowedUsers` via the platform
- * and keeps the ones with an email. Owner is excluded — the owner is the
- * implicit author, not a co-author. Users without email are skipped silently
- * (debug-logged) because we can't form a valid Co-Authored-By trailer for them.
+ * For each non-owner username in `sessionAllowedUsers`, look up:
+ *   - the GitHub noreply email from the local store (self-registered via
+ *     `!github-email`). This is the address used in the `Co-Authored-By:`
+ *     trailer. We do **not** read platform emails: those are private (real
+ *     mail addresses) and would leak to the chat thread / Claude history.
+ *   - a human display name from the platform (best-effort) for the trailer's
+ *     `Name <email>` segment. Falls back to the username when unavailable.
+ *
+ * Owner is excluded — the owner is the implicit author. Collaborators without
+ * a registered noreply email are skipped silently (debug-logged); the caller
+ * is responsible for nudging them to register.
  */
 export async function resolveCollaborators(
   platform: Pick<PlatformClient, 'getUserByUsername'>,
+  platformId: string,
   ownerUsername: string,
   allowedUsers: Iterable<string>,
+  githubEmailsStore: Pick<GitHubEmailsStore, 'get'>,
 ): Promise<ResolvedCollaborator[]> {
   const resolved: ResolvedCollaborator[] = [];
   for (const username of allowedUsers) {
     if (username === ownerUsername) continue;
+    const email = githubEmailsStore.get(platformId, username);
+    if (!email) {
+      log.debug(`Collaborator @${username} has no registered GitHub noreply email — skipping`);
+      continue;
+    }
+    let name = username;
     try {
       const user = await platform.getUserByUsername(username);
-      if (!user) {
-        log.debug(`Collaborator @${username} not found on platform — skipping`);
-        continue;
-      }
-      if (!user.email) {
-        log.debug(`Collaborator @${username} has no email — skipping co-author tag`);
-        continue;
-      }
-      resolved.push({
-        username,
-        name: user.displayName || user.username,
-        email: user.email,
-      });
+      if (user) name = user.displayName || user.username;
     } catch (err) {
-      log.debug(`Lookup failed for collaborator @${username}: ${(err as Error).message}`);
+      log.debug(`Display name lookup failed for @${username}: ${(err as Error).message}`);
     }
+    resolved.push({ username, name, email });
   }
   return resolved;
 }
@@ -189,14 +194,22 @@ export async function buildAppendSystemPrompt(
     displayName: string;
     getThreadLink(threadId: string): string;
   },
+  platformId: string,
   workingDir: string,
   threadId: string,
   ownerUsername: string,
   allowedUsers: Iterable<string>,
   staticChatPlatformPrompt: string,
+  githubEmailsStore: Pick<GitHubEmailsStore, 'get'>,
   options?: { omitSessionContext?: boolean },
 ): Promise<string> {
-  const collaborators = await resolveCollaborators(platform, ownerUsername, allowedUsers);
+  const collaborators = await resolveCollaborators(
+    platform,
+    platformId,
+    ownerUsername,
+    allowedUsers,
+    githubEmailsStore,
+  );
   const collaboratorSection = buildCollaboratorContext(collaborators);
 
   const parts: string[] = [];

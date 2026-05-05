@@ -65,6 +65,7 @@ import {
   formatCollaboratorListForChat,
   resolveCollaborators,
 } from '../../commands/system-prompt-generator.js';
+import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -399,11 +400,13 @@ export async function changeDirectory(
   // doesn't silently drop on `!cd`.
   const appendSystemPrompt = await buildAppendSystemPrompt(
     session.platform,
+    session.platformId,
     absoluteDir,
     session.threadId,
     session.startedBy,
     session.sessionAllowedUsers,
     CHAT_PLATFORM_PROMPT,
+    ctx.state.githubEmailsStore,
   );
 
   const cliOptions: ClaudeCliOptions = {
@@ -461,11 +464,63 @@ export async function changeDirectory(
  * Posts even when the list is now empty (e.g. after the last !kick) so an
  * older notice in the thread doesn't keep applying.
  */
-async function postCollaboratorUpdatedNotice(session: Session): Promise<void> {
+/**
+ * Onboarding nudge: when a freshly-invited collaborator has no GitHub noreply
+ * email registered yet, point them at the `!github-email` command and the
+ * GitHub settings URL. Quiet no-op if they already registered (e.g. they were
+ * invited to a previous session and set it then).
+ */
+async function postOnboardingReminderIfNeeded(
+  session: Session,
+  invitedUser: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (ctx.state.githubEmailsStore.get(session.platformId, invitedUser)) return;
+  const formatter = session.platform.getFormatter();
+  await post(
+    session,
+    'info',
+    `🔑 ${formatter.formatUserMention(invitedUser)}, to be added as a co-author on git commits in this session, share your GitHub noreply email: send ${formatter.formatCode('!github-email <addr>')} in this thread. Find yours at https://github.com/settings/emails (under "Keep my email addresses private" — toggle does not need to be on; the address is shown right below it). Until then, commits won't credit you.`,
+  );
+}
+
+/**
+ * On session resume, list the still-unregistered collaborators in one
+ * combined nudge so each user can self-register without re-inviting them.
+ * No-ops when every collaborator (or the lone owner) is already accounted for.
+ */
+export async function postResumeCoAuthorOnboarding(
+  session: Session,
+  ctx: SessionContext,
+): Promise<void> {
+  const unregistered: string[] = [];
+  for (const username of session.sessionAllowedUsers) {
+    if (username === session.startedBy) continue;
+    if (!ctx.state.githubEmailsStore.get(session.platformId, username)) {
+      unregistered.push(username);
+    }
+  }
+  if (unregistered.length === 0) return;
+
+  const formatter = session.platform.getFormatter();
+  const mentions = unregistered.map(u => formatter.formatUserMention(u)).join(', ');
+  await post(
+    session,
+    'info',
+    `🔑 ${mentions} — to be added as co-authors on git commits, share your GitHub noreply email with ${formatter.formatCode('!github-email <addr>')}. Find yours at https://github.com/settings/emails.`,
+  );
+}
+
+async function postCollaboratorUpdatedNotice(
+  session: Session,
+  ctx: SessionContext,
+): Promise<void> {
   const collaborators = await resolveCollaborators(
     session.platform,
+    session.platformId,
     session.startedBy,
     session.sessionAllowedUsers,
+    ctx.state.githubEmailsStore,
   );
   const body = collaborators.length === 0
     ? `📝 Collaborators updated — no co-authors for new commits.`
@@ -501,8 +556,13 @@ export async function inviteUser(
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
   session.threadLogger?.logCommand('invite', invitedUser, invitedBy);
   await updateSessionHeader(session, ctx);
-  await postCollaboratorUpdatedNotice(session);
+  // Persist FIRST so a failure in the chat-side notices below doesn't leave
+  // the session in memory-only state (the invitee would vanish on bot restart).
   ctx.ops.persistSession(session);
+  // Onboard for co-author attribution: nudge the invitee to register their
+  // GitHub noreply email if they haven't already, so Claude can tag them.
+  await postOnboardingReminderIfNeeded(session, invitedUser, ctx);
+  await postCollaboratorUpdatedNotice(session, ctx);
 }
 
 /**
@@ -547,11 +607,102 @@ export async function kickUser(
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
-    await postCollaboratorUpdatedNotice(session);
+    await postCollaboratorUpdatedNotice(session, ctx);
     ctx.ops.persistSession(session);
   } else {
     await post(session, 'warning', `${formatter.formatUserMention(kickedUser)} was not in this session`);
     sessionLog(session).warn(`🚫 @${kickedUser} was not in session`);
+  }
+}
+
+/**
+ * Handle `!github-email` — register/show/reset the caller's GitHub noreply email.
+ *
+ * Always self-scoped: a user can only register their own address. Owners
+ * cannot register on behalf of someone else, by design — the noreply mapping
+ * tells GitHub which account a commit is co-authored by, and only the user
+ * themselves can authoritatively name that.
+ *
+ * Subcommands:
+ * - `!github-email <addr>` — register or replace
+ * - `!github-email`        — show currently registered address (or "none")
+ * - `!github-email reset`  — clear registration
+ */
+export async function setGitHubEmail(
+  session: Session,
+  username: string,
+  arg: string | undefined,
+  ctx: SessionContext,
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+  const trimmed = arg?.trim();
+  const platformId = session.platformId;
+
+  // Show current registration.
+  if (!trimmed) {
+    const current = ctx.state.githubEmailsStore.get(platformId, username);
+    if (current) {
+      await post(
+        session,
+        'info',
+        `🔑 ${formatter.formatUserMention(username)}, your registered GitHub noreply email is ${formatter.formatCode(current)}. Use ${formatter.formatCode('!github-email reset')} to remove it.`,
+      );
+    } else {
+      await post(
+        session,
+        'info',
+        `🔑 ${formatter.formatUserMention(username)}, you have not registered a GitHub noreply email. Find yours at https://github.com/settings/emails (under "Keep my email addresses private" — toggle does not need to be on; the address is shown right below it). Then send ${formatter.formatCode('!github-email <addr>')} in this thread.`,
+      );
+    }
+    return;
+  }
+
+  // Reset.
+  if (trimmed.toLowerCase() === 'reset' || trimmed.toLowerCase() === 'clear') {
+    const removed = ctx.state.githubEmailsStore.delete(platformId, username);
+    if (removed) {
+      await post(
+        session,
+        'success',
+        `🔑 ${formatter.formatUserMention(username)}, your GitHub noreply email registration was removed. You will no longer be added as a co-author on commits.`,
+      );
+      sessionLog(session).info(`🔑 @${username} reset GitHub noreply email`);
+      // Refresh Claude's view in the thread so the now-removed user is dropped.
+      await postCollaboratorUpdatedNotice(session, ctx);
+    } else {
+      await post(
+        session,
+        'info',
+        `🔑 ${formatter.formatUserMention(username)}, you had no GitHub noreply email registered.`,
+      );
+    }
+    return;
+  }
+
+  // Register or replace.
+  if (!isValidGitHubNoreplyEmail(trimmed)) {
+    await post(
+      session,
+      'warning',
+      `🔑 That doesn't look like a GitHub noreply email. Expected the form ${formatter.formatCode('<id>+<username>@users.noreply.github.com')} (e.g. ${formatter.formatCode('12345+alice@users.noreply.github.com')}). Find yours at https://github.com/settings/emails.`,
+    );
+    sessionLog(session).warn(`🔑 @${username} provided invalid GitHub noreply email`);
+    return;
+  }
+
+  ctx.state.githubEmailsStore.set(platformId, username, trimmed);
+  await post(
+    session,
+    'success',
+    `🔑 ${formatter.formatUserMention(username)}, registered ${formatter.formatCode(trimmed)} as your GitHub noreply email. You will be added as a co-author on commits made in sessions you participate in.`,
+  );
+  sessionLog(session).info(`🔑 @${username} registered GitHub noreply email`);
+  session.threadLogger?.logCommand('github-email', 'set', username);
+
+  // If this user is in the current session as a collaborator, immediately
+  // refresh the thread notice so Claude picks up the trailer next turn.
+  if (session.sessionAllowedUsers.has(username) && username !== session.startedBy) {
+    await postCollaboratorUpdatedNotice(session, ctx);
   }
 }
 

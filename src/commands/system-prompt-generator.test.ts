@@ -155,50 +155,73 @@ function fakePlatform(users: Record<string, PlatformUser | null>) {
   };
 }
 
+function fakeStore(emails: Record<string, Record<string, string>>) {
+  return {
+    get(platformId: string, username: string): string | undefined {
+      return emails[platformId]?.[username];
+    },
+  };
+}
+
 describe('resolveCollaborators', () => {
   it('returns empty when only the owner is in the set', async () => {
     const platform = fakePlatform({});
-    const result = await resolveCollaborators(platform, 'alice', ['alice']);
+    const store = fakeStore({});
+    const result = await resolveCollaborators(platform, 'mm', 'alice', ['alice'], store);
     expect(result).toEqual([]);
   });
 
   it('skips the owner', async () => {
     const platform = fakePlatform({
-      bob: { id: 'b', username: 'bob', displayName: 'Bob B', email: 'bob@example.com' },
+      bob: { id: 'b', username: 'bob', displayName: 'Bob B' },
     });
-    const result = await resolveCollaborators(platform, 'alice', ['alice', 'bob']);
-    expect(result).toEqual([{ username: 'bob', name: 'Bob B', email: 'bob@example.com' }]);
+    const store = fakeStore({ mm: { bob: '111+bob@users.noreply.github.com' } });
+    const result = await resolveCollaborators(platform, 'mm', 'alice', ['alice', 'bob'], store);
+    expect(result).toEqual([{ username: 'bob', name: 'Bob B', email: '111+bob@users.noreply.github.com' }]);
   });
 
-  it('skips collaborators with no email (cannot form co-author trailer)', async () => {
+  it('skips collaborators without a registered noreply email (privacy)', async () => {
+    // We never read the platform email — it would leak to the chat thread
+    // and the local Claude history. Bob has no registration → no co-author.
     const platform = fakePlatform({
-      bob: { id: 'b', username: 'bob', displayName: 'Bob B' }, // no email
-      carol: { id: 'c', username: 'carol', email: 'carol@example.com' }, // no displayName
+      bob: { id: 'b', username: 'bob', displayName: 'Bob B', email: 'bob@example.com' },
+      carol: { id: 'c', username: 'carol' },
     });
-    const result = await resolveCollaborators(platform, 'alice', ['alice', 'bob', 'carol']);
+    const store = fakeStore({ mm: { carol: '222+carol@users.noreply.github.com' } });
+    const result = await resolveCollaborators(platform, 'mm', 'alice', ['alice', 'bob', 'carol'], store);
     expect(result).toEqual([
-      { username: 'carol', name: 'carol', email: 'carol@example.com' },
+      { username: 'carol', name: 'carol', email: '222+carol@users.noreply.github.com' },
     ]);
   });
 
-  it('skips users that the platform does not know about', async () => {
-    const platform = fakePlatform({}); // returns null for everyone
-    const result = await resolveCollaborators(platform, 'alice', ['alice', 'ghost']);
-    expect(result).toEqual([]);
-  });
-
-  it('survives a thrown lookup error and continues with the rest', async () => {
+  it('keeps the user even when the platform display-name lookup fails', async () => {
+    // Display name lookup failures are best-effort: we still tag the
+    // co-author, falling back to username for the human-readable part.
     const platform = {
       platformType: 'mattermost',
       displayName: 'Test',
       getThreadLink: (id: string) => `https://example.com/${id}`,
-      async getUserByUsername(username: string): Promise<PlatformUser | null> {
-        if (username === 'broken') throw new Error('flaky API');
-        return { id: 'c', username, displayName: username, email: `${username}@x.com` };
+      async getUserByUsername(_: string): Promise<PlatformUser | null> {
+        throw new Error('flaky API');
       },
     };
-    const result = await resolveCollaborators(platform, 'alice', ['alice', 'broken', 'carol']);
-    expect(result).toEqual([{ username: 'carol', name: 'carol', email: 'carol@x.com' }]);
+    const store = fakeStore({ mm: { carol: '222+carol@users.noreply.github.com' } });
+    const result = await resolveCollaborators(platform, 'mm', 'alice', ['alice', 'carol'], store);
+    expect(result).toEqual([{ username: 'carol', name: 'carol', email: '222+carol@users.noreply.github.com' }]);
+  });
+
+  it('isolates registrations per platform (same username on two platforms)', async () => {
+    const platform = fakePlatform({
+      bob: { id: 'b', username: 'bob', displayName: 'Bob B' },
+    });
+    const store = fakeStore({
+      mm: { bob: '111+bob@users.noreply.github.com' },
+      slack: { bob: '999+bob@users.noreply.github.com' },
+    });
+    const onMm = await resolveCollaborators(platform, 'mm', 'alice', ['alice', 'bob'], store);
+    const onSlack = await resolveCollaborators(platform, 'slack', 'alice', ['alice', 'bob'], store);
+    expect(onMm[0].email).toBe('111+bob@users.noreply.github.com');
+    expect(onSlack[0].email).toBe('999+bob@users.noreply.github.com');
   });
 });
 
@@ -265,51 +288,51 @@ describe('formatCollaboratorListForChat', () => {
 
 describe('buildAppendSystemPrompt', () => {
   it('still teaches the "Collaborators updated" convention in solo sessions', async () => {
-    // Even when there are no collaborators, Claude must know the convention —
-    // otherwise a later !invite during this same session won't be honored.
     const platform = fakePlatform({});
     const prompt = await buildAppendSystemPrompt(
       platform,
+      'mm',
       '/repo',
       't1',
       'alice',
       ['alice'],
       'STATIC_PROMPT_BODY',
+      fakeStore({}),
     );
     expect(prompt).toContain('STATIC_PROMPT_BODY');
     expect(prompt).toContain('"Collaborators updated"');
     expect(prompt).toContain('Co-Authored-By:');
-    // Don't dump the heavy section header in solo sessions.
     expect(prompt).not.toContain('## Git commit attribution');
   });
 
-  it('includes resolved collaborators when there are any', async () => {
+  it('includes resolved collaborators when registered in the store', async () => {
     const platform = fakePlatform({
-      bob: { id: 'b', username: 'bob', displayName: 'Bob B', email: 'bob@x.com' },
+      bob: { id: 'b', username: 'bob', displayName: 'Bob B' },
     });
     const prompt = await buildAppendSystemPrompt(
       platform,
+      'mm',
       '/repo',
       't1',
       'alice',
       ['alice', 'bob'],
       'STATIC',
+      fakeStore({ mm: { bob: '111+bob@users.noreply.github.com' } }),
     );
-    expect(prompt).toContain('- Bob B <bob@x.com>');
+    expect(prompt).toContain('- Bob B <111+bob@users.noreply.github.com>');
   });
 
   it('omits the session-context line when omitSessionContext is set (worktree respawn case)', async () => {
-    // Worktree respawn after Claude already has a title: the session-context
-    // preamble is dropped to keep the prompt small, but the chat-platform
-    // prompt and collaborator section MUST still be there.
     const platform = fakePlatform({});
     const prompt = await buildAppendSystemPrompt(
       platform,
+      'mm',
       '/repo',
       't1',
       'alice',
       ['alice'],
       'STATIC',
+      fakeStore({}),
       { omitSessionContext: true },
     );
     expect(prompt).not.toContain('**Platform:**');
@@ -319,21 +342,42 @@ describe('buildAppendSystemPrompt', () => {
   });
 
   it('survives a legacy persisted session that lacks sessionAllowedUsers entries', async () => {
-    // Backward-compat: lifecycle.resumeSession defaults to `[startedBy]` when
-    // the persisted set is missing. Verify that the helper degrades gracefully
-    // when called with just the owner (which is what that fallback yields).
     const platform = fakePlatform({});
     const prompt = await buildAppendSystemPrompt(
       platform,
+      'mm',
       '/repo',
       't1',
       'alice',
-      ['alice'], // legacy fallback shape: only the owner
+      ['alice'],
       'STATIC',
+      fakeStore({}),
     );
     expect(prompt).toContain('STATIC');
-    // No exception, falls to the standby one-liner.
     expect(prompt).toContain('"Collaborators updated"');
+  });
+
+  it('does not leak platform email even when the platform exposes one (privacy)', async () => {
+    // Regression-defender: an earlier version read `user.email` from the
+    // platform API and put it into Co-Authored-By trailers. That leaked
+    // private addresses into the chat thread and into the local Claude
+    // conversation history. The store-only path must NEVER tag a user
+    // whose entry is absent, regardless of the platform reply.
+    const platform = fakePlatform({
+      bob: { id: 'b', username: 'bob', displayName: 'Bob B', email: 'bob@private.example.com' },
+    });
+    const prompt = await buildAppendSystemPrompt(
+      platform,
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice', 'bob'],
+      'STATIC',
+      fakeStore({}), // bob has not registered
+    );
+    expect(prompt).not.toContain('bob@private.example.com');
+    expect(prompt).not.toContain('- Bob B');
   });
 });
 

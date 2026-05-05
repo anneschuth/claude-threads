@@ -128,6 +128,7 @@ function createSessionContext(): SessionContext {
       postIndex: new Map(),
       platforms: new Map(),
       sessionStore: { save: () => {}, remove: () => {}, load: () => new Map(), findByPostId: () => undefined, cleanStale: () => [] } as any,
+      githubEmailsStore: { get: () => undefined, set: () => {}, delete: () => false } as any,
       isShuttingDown: false,
     },
     ops: {

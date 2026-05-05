@@ -18,6 +18,7 @@ export {
   // User collaboration
   inviteUser,
   kickUser,
+  setGitHubEmail,
 
   // Permission management
   setSessionPermissionMode,

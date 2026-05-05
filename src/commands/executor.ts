@@ -163,6 +163,20 @@ const handleKick: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Handle !github-email command — self-only, no isAllowed gate. Anyone in the
+ * thread (including unauthorized senders) can register their address; this is
+ * what makes the !invite onboarding flow practical. The handler itself only
+ * mutates the caller's own entry so there's no privilege-escalation surface.
+ */
+const handleGitHubEmail: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false };
+  }
+  await ctx.sessionManager.setGitHubEmail(ctx.threadId, ctx.username, args);
+  return { handled: true };
+};
+
+/**
  * Handle !cd command.
  */
 const handleCd: CommandHandler = async (ctx, args) => {
@@ -438,6 +452,7 @@ handlers.set('escape', handleEscape);
 handlers.set('approve', handleApprove);
 handlers.set('invite', handleInvite);
 handlers.set('kick', handleKick);
+handlers.set('github-email', handleGitHubEmail);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
 handlers.set('worktree', handleWorktree);

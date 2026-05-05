@@ -136,6 +136,11 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         load: mock(() => new Map()),
         findByPostId: mock(() => undefined),
       } as any,
+      githubEmailsStore: {
+        get: mock(() => undefined),
+        set: mock(() => {}),
+        delete: mock(() => false),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -232,32 +237,33 @@ describe('inviteUser', () => {
     );
   });
 
-  it('posts a "Collaborators updated" notice with the new co-author when the invitee has an email', async () => {
+  it('posts a "Collaborators updated" notice listing the invitee when they have a registered noreply email', async () => {
     // Regression-defender: this notice is the contract that lets Claude pick
-    // up the current co-author list mid-session. Without it, an !invite is
-    // invisible to Claude until the next system-prompt rebuild (resume/!cd).
+    // up the current co-author list mid-session. The email comes from the
+    // local store (self-registered via !github-email), NOT from the platform.
     const mockPlatform = createMockPlatform({
       getUserByUsername: mock(() => Promise.resolve({
-        id: 'user-2', username: 'newuser', displayName: 'New User', email: 'new@example.com',
+        id: 'user-2', username: 'newuser', displayName: 'New User',
       })),
     });
     const session = createMockSession({ platform: mockPlatform });
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
+    (ctx.state.githubEmailsStore.get as any).mockImplementation(
+      (_: string, u: string) => u === 'newuser' ? '111+newuser@users.noreply.github.com' : undefined,
+    );
 
     await commands.inviteUser(session, 'newuser', 'testuser', ctx);
 
     const calls = (mockPlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
     const notice = calls.find((m: string) => m.includes('Collaborators updated'));
     expect(notice).toBeTruthy();
-    expect(notice).toContain('New User <new@example.com>');
+    expect(notice).toContain('New User <111+newuser@users.noreply.github.com>');
   });
 
-  it('still posts a notice (with empty list) so an older notice does not keep applying — but only if collaborators with email exist', async () => {
-    // When the invitee has no email we can't add them as co-author, so the
-    // co-author list is still empty after the invite. The notice must reflect
-    // that — otherwise an older notice could keep claiming this invitee is a
-    // co-author. Owner is excluded so no email anywhere → "no co-authors".
+  it('posts a "no co-authors" notice when the invitee has not registered a noreply email yet', async () => {
+    // No registration → not co-authorable. The notice must be posted anyway
+    // so an older notice (from a previous invite) does not keep applying.
     const mockPlatform = createMockPlatform({
       getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'newuser' })),
     });
@@ -271,6 +277,81 @@ describe('inviteUser', () => {
     const notice = calls.find((m: string) => m.includes('Collaborators updated'));
     expect(notice).toBeTruthy();
     expect(notice).toContain('no co-authors');
+  });
+
+  it('posts the !github-email onboarding nudge when the invitee has not registered yet', async () => {
+    // Regression-defender: without this nudge, the new collaborator has no
+    // visible signal that they need to register, and silently never gets
+    // co-author credit. The link to settings + the !github-email command
+    // give them a clear, in-thread path forward.
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'newuser' })),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.inviteUser(session, 'newuser', 'testuser', ctx);
+
+    const calls = (mockPlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const nudge = calls.find((m: string) => m.includes('!github-email'));
+    expect(nudge).toBeTruthy();
+    expect(nudge).toContain('https://github.com/settings/emails');
+    expect(nudge).toContain('@newuser');
+  });
+
+  it('does not nudge an invitee who has already registered a noreply email', async () => {
+    // Quietness matters: a thread with a long-running collaboration shouldn't
+    // re-paste the registration instructions for someone who has self-registered.
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'newuser' })),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.state.githubEmailsStore.get as any).mockImplementation(
+      (_: string, u: string) => u === 'newuser' ? '111+newuser@users.noreply.github.com' : undefined,
+    );
+
+    await commands.inviteUser(session, 'newuser', 'testuser', ctx);
+
+    const calls = (mockPlatform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const nudge = calls.find((m: string) => m.includes('!github-email'));
+    expect(nudge).toBeFalsy();
+  });
+
+  it('persists the session BEFORE the in-thread chat notices run', async () => {
+    // Regression-defender: in an earlier draft, the chat-side notice ran
+    // before persistSession. If that post threw (network error), the invitee
+    // was added to the in-memory set but never written to disk — so a bot
+    // restart would silently drop them. Verifies call ordering, not failure
+    // semantics, by tracking the call sequence.
+    const callOrder: string[] = [];
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'newuser' })),
+      createPost: mock((message: string) => {
+        callOrder.push(`createPost:${message.substring(0, 30)}`);
+        return Promise.resolve({
+          id: 'post-x',
+          platformId: 'test-platform',
+          channelId: 'test-channel',
+          userId: 'bot',
+          message,
+        });
+      }),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.persistSession as any).mockImplementation(() => callOrder.push('persistSession'));
+
+    await commands.inviteUser(session, 'newuser', 'testuser', ctx);
+
+    const persistIdx = callOrder.indexOf('persistSession');
+    const noticeIdx = callOrder.findIndex(s => s.startsWith('createPost:🔑') || s.startsWith('createPost:📝'));
+    expect(persistIdx).toBeGreaterThan(-1);
+    expect(noticeIdx).toBeGreaterThan(-1);
+    expect(persistIdx).toBeLessThan(noticeIdx);
   });
 });
 
@@ -379,6 +460,111 @@ describe('kickUser', () => {
     const notice = calls.find((m: string) => m.includes('Collaborators updated'));
     expect(notice).toBeTruthy();
     expect(notice).toContain('no co-authors');
+  });
+});
+
+describe('setGitHubEmail', () => {
+  function makeCtx() {
+    const session = createMockSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    return { session, ctx, platform: session.platform };
+  }
+
+  it('shows current registration when called without args', async () => {
+    const { session, ctx, platform } = makeCtx();
+    (ctx.state.githubEmailsStore.get as any).mockReturnValue('111+testuser@users.noreply.github.com');
+
+    await commands.setGitHubEmail(session, 'testuser', undefined, ctx);
+
+    const calls = (platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.find((m: string) => m.includes('111+testuser@users.noreply.github.com'))).toBeTruthy();
+  });
+
+  it('shows the registration instructions when not registered yet', async () => {
+    const { session, ctx, platform } = makeCtx();
+    (ctx.state.githubEmailsStore.get as any).mockReturnValue(undefined);
+
+    await commands.setGitHubEmail(session, 'testuser', undefined, ctx);
+
+    const calls = (platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.find((m: string) =>
+      m.includes('!github-email') && m.includes('https://github.com/settings/emails'),
+    )).toBeTruthy();
+  });
+
+  it('rejects an obviously-not-a-noreply address with a clear message', async () => {
+    const { session, ctx, platform } = makeCtx();
+
+    await commands.setGitHubEmail(session, 'testuser', 'testuser@example.com', ctx);
+
+    expect(ctx.state.githubEmailsStore.set).not.toHaveBeenCalled();
+    const calls = (platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.find((m: string) =>
+      m.includes("doesn't look like") || m.includes('does not look like'),
+    )).toBeTruthy();
+  });
+
+  it('persists a valid noreply email and confirms', async () => {
+    const { session, ctx, platform } = makeCtx();
+
+    await commands.setGitHubEmail(
+      session,
+      'testuser',
+      '12345+testuser@users.noreply.github.com',
+      ctx,
+    );
+
+    expect(ctx.state.githubEmailsStore.set).toHaveBeenCalledWith(
+      'test-platform',
+      'testuser',
+      '12345+testuser@users.noreply.github.com',
+    );
+    const calls = (platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.find((m: string) =>
+      m.includes('registered') && m.includes('12345+testuser@users.noreply.github.com'),
+    )).toBeTruthy();
+  });
+
+  it('removes the registration on `reset`', async () => {
+    const { session, ctx, platform } = makeCtx();
+    (ctx.state.githubEmailsStore.delete as any).mockReturnValue(true);
+
+    await commands.setGitHubEmail(session, 'testuser', 'reset', ctx);
+
+    expect(ctx.state.githubEmailsStore.delete).toHaveBeenCalledWith('test-platform', 'testuser');
+    const calls = (platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.find((m: string) => m.includes('removed'))).toBeTruthy();
+  });
+
+  it('also accepts `clear` as alias for reset', async () => {
+    const { session, ctx } = makeCtx();
+    (ctx.state.githubEmailsStore.delete as any).mockReturnValue(true);
+
+    await commands.setGitHubEmail(session, 'testuser', 'clear', ctx);
+
+    expect(ctx.state.githubEmailsStore.delete).toHaveBeenCalledWith('test-platform', 'testuser');
+  });
+
+  it('isolates registrations per platform (uses session.platformId, not a global key)', async () => {
+    // Regression-defender: same username on different platforms must store
+    // independently. Verifies the call passes the session's platformId, not
+    // (e.g.) a hard-coded 'default' or the username alone.
+    const { session, ctx } = makeCtx();
+    session.platformId = 'slack-workspace';
+
+    await commands.setGitHubEmail(
+      session,
+      'testuser',
+      '12345+testuser@users.noreply.github.com',
+      ctx,
+    );
+
+    expect(ctx.state.githubEmailsStore.set).toHaveBeenCalledWith(
+      'slack-workspace',
+      'testuser',
+      '12345+testuser@users.noreply.github.com',
+    );
   });
 });
 

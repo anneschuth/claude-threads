@@ -412,6 +412,7 @@ export async function createAndSwitchToWorktree(
     getThreadMessagesForContext: (session: Session, limit: number, excludePostId?: string) => Promise<ThreadMessage[]>;
     formatContextForClaude: (messages: ThreadMessage[], previousWorkSummary?: string) => string;
     appendSystemPrompt?: string;
+    githubEmailsStore: { get(platformId: string, username: string): string | undefined };
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
     registerWorktreeUser?: (worktreePath: string, sessionId: string) => void;
@@ -508,11 +509,13 @@ export async function createAndSwitchToWorktree(
           resume: false,
           appendSystemPrompt: await buildAppendSystemPrompt(
             session.platform,
+            session.platformId,
             existing.path,
             session.threadId,
             session.startedBy,
             session.sessionAllowedUsers,
             options.appendSystemPrompt ?? '',
+            options.githubEmailsStore,
             { omitSessionContext: !needsTitlePrompt },
           ),
         };
@@ -666,11 +669,13 @@ export async function createAndSwitchToWorktree(
         resume: false,  // Fresh start - can't resume across directories
         appendSystemPrompt: await buildAppendSystemPrompt(
           session.platform,
+          session.platformId,
           worktreePath,
           session.threadId,
           session.startedBy,
           session.sessionAllowedUsers,
           options.appendSystemPrompt ?? '',
+          options.githubEmailsStore,
           { omitSessionContext: !needsTitlePrompt },
         ),
       };

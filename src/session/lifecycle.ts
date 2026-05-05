@@ -33,6 +33,7 @@ import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js
 import { createLogger } from '../utils/logger.js';
 import { createSessionLog } from '../utils/session-log.js';
 import { post, postError, updateLastMessage } from '../operations/post-helpers/index.js';
+import { postResumeCoAuthorOnboarding } from '../operations/commands/handler.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import { suggestSessionMetadata } from '../operations/suggestions/title.js';
 import { suggestSessionTags } from '../operations/suggestions/tag.js';
@@ -877,11 +878,13 @@ export async function startSession(
   // reads it from there on the next turn — the static prompt is not rewritten.
   const systemPrompt = await buildAppendSystemPrompt(
     platform,
+    platformId,
     workingDir,
     actualThreadId,
     username,
     [username],
     CHAT_PLATFORM_PROMPT,
+    ctx.state.githubEmailsStore,
   );
 
   // Create Claude CLI with options
@@ -1143,11 +1146,13 @@ export async function resumeSession(
   // and collaborator co-author tags carried over from before the restart).
   const appendSystemPrompt = await buildAppendSystemPrompt(
     platform,
+    state.platformId,
     state.workingDir,
     state.threadId,
     state.startedBy,
     state.sessionAllowedUsers || [state.startedBy],
     CHAT_PLATFORM_PROMPT,
+    ctx.state.githubEmailsStore,
   );
 
   // Resume MUST re-use the same Claude account the session started on —
@@ -1341,6 +1346,12 @@ export async function resumeSession(
 
     // Update sticky channel message with resumed session
     await ctx.ops.updateStickyMessage();
+
+    // Co-author onboarding: if collaborators in this session haven't yet
+    // registered a GitHub noreply email, remind them once on resume so
+    // they get the chance to fix it before the next commit. Quiet for solo
+    // sessions and for sessions where everyone has already registered.
+    await postResumeCoAuthorOnboarding(session, ctx);
 
     // Update persistence with new activity time
     ctx.ops.persistSession(session);

@@ -10,6 +10,7 @@ function createMockContext(): SessionContext {
       platforms: new Map(),
       postIndex: new Map(),
       sessionStore: {} as never,
+      githubEmailsStore: {} as never,
       isShuttingDown: false,
     },
     config: {

@@ -179,6 +179,11 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         load: mock(() => new Map()),
         findByPostId: mock(() => undefined),
       } as any,
+      githubEmailsStore: {
+        get: mock(() => undefined),
+        set: mock(() => {}),
+        delete: mock(() => false),
+      } as any,
       isShuttingDown: false,
     },
     ops: {

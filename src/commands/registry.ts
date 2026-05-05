@@ -192,6 +192,14 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
   },
+  {
+    command: 'github-email',
+    description: 'Register your GitHub noreply email so you can be added as a Co-Authored-By on commits (find yours at https://github.com/settings/emails)',
+    args: '<email> | reset',
+    category: 'collaboration',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+  },
 
   // ---------------------------------------------------------------------------
   // Settings
