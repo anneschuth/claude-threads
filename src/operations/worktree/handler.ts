@@ -25,6 +25,7 @@ import {
 } from '../../git/worktree.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
+import { buildRestartCliOptions } from '../../claude/restart-options.js';
 import { buildSessionContext } from '../../commands/system-prompt-generator.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
 import { randomUUID } from 'crypto';
@@ -492,8 +493,11 @@ export async function createAndSwitchToWorktree(
           ? buildSessionContext(session.platform, existing.path, session.threadId)
           : null;
         const cliOptions: ClaudeCliOptions = {
+          ...buildRestartCliOptions(session, {
+            chromeEnabled: options.chromeEnabled,
+            permissionTimeoutMs: options.permissionTimeoutMs,
+          }),
           workingDir: existing.path,
-          threadId: session.threadId,
           permissionMode: effectivePermissionMode({
             override: session.permissionModeOverride,
             sessionHasInteractiveOverride: session.forceInteractivePermissions,
@@ -501,11 +505,7 @@ export async function createAndSwitchToWorktree(
           }),
           sessionId: newSessionId,
           resume: false,
-          chrome: options.chromeEnabled,
-          platformConfig: session.platform.getMcpConfig(),
           appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
-          logSessionId: session.sessionId,
-          permissionTimeoutMs: options.permissionTimeoutMs,
         };
         session.claude = new ClaudeCli(cliOptions);
 
@@ -645,8 +645,11 @@ export async function createAndSwitchToWorktree(
         : null;
 
       const cliOptions: ClaudeCliOptions = {
+        ...buildRestartCliOptions(session, {
+          chromeEnabled: options.chromeEnabled,
+          permissionTimeoutMs: options.permissionTimeoutMs,
+        }),
         workingDir: worktreePath,
-        threadId: session.threadId,
         permissionMode: effectivePermissionMode({
           override: session.permissionModeOverride,
           sessionHasInteractiveOverride: session.forceInteractivePermissions,
@@ -654,11 +657,7 @@ export async function createAndSwitchToWorktree(
         }),
         sessionId: newSessionId,
         resume: false,  // Fresh start - can't resume across directories
-        chrome: options.chromeEnabled,
-        platformConfig: session.platform.getMcpConfig(),
         appendSystemPrompt: sessionContext ? `${sessionContext}\n\n${options.appendSystemPrompt}` : undefined,
-        logSessionId: session.sessionId,  // Route logs to session panel
-        permissionTimeoutMs: options.permissionTimeoutMs,
       };
       session.claude = new ClaudeCli(cliOptions);
 

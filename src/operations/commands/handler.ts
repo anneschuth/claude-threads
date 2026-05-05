@@ -16,7 +16,7 @@ import {
 import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
 import { ClaudeCli } from '../../claude/cli.js';
-import { getSessionUploadDir } from '../streaming/handler.js';
+import { buildRestartCliOptions } from '../../claude/restart-options.js';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
@@ -86,32 +86,15 @@ function sessionAccountOption(
   return { id: account.id, home: account.home, apiKey: account.apiKey };
 }
 
-/**
- * Build the cross-cutting `ClaudeCliOptions` fields that every restart site
- * needs identical wiring for: chrome, permission timeout, account binding,
- * and the `send_file` outbound-files plumbing.
- *
- * Reason this exists: there are two restart sites today (`!cd`,
- * `!permissions interactive`) and every future one needs to thread
- * `uploadDir` + `outboundFiles` through. Forgetting either silently disables
- * `send_file` after the restart. Cheap insurance against a class of drift
- * bugs.
- */
 function commonRestartCliOptions(
   session: Session,
   ctx: SessionContext,
 ): Partial<ClaudeCliOptions> {
-  const platformMcpConfig = session.platform.getMcpConfig();
-  return {
-    threadId: session.threadId,
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: platformMcpConfig,
-    logSessionId: session.sessionId,
+  return buildRestartCliOptions(session, {
+    chromeEnabled: ctx.config.chromeEnabled,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
     account: sessionAccountOption(session, ctx),
-    uploadDir: getSessionUploadDir(session.platformId, session.threadId),
-    outboundFiles: platformMcpConfig.outboundFiles,
-  };
+  });
 }
 
 /**
