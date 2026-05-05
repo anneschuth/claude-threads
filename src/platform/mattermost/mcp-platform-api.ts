@@ -48,6 +48,15 @@ interface MattermostApiPost {
   create_at?: number;
 }
 
+interface MattermostApiChannel {
+  id: string;
+  /**
+   * Channel type per Mattermost: 'O' = open/public, 'P' = private,
+   * 'D' = direct message, 'G' = group message.
+   */
+  type: 'O' | 'P' | 'D' | 'G';
+}
+
 interface MattermostApiUser {
   id: string;
   username: string;
@@ -140,6 +149,18 @@ async function getPostRaw(
   }
 }
 
+async function getChannelRaw(
+  config: MattermostApiConfig,
+  channelId: string,
+): Promise<MattermostApiChannel | null> {
+  try {
+    return await mattermostApi<MattermostApiChannel>(config, 'GET', `/channels/${channelId}`);
+  } catch (err) {
+    apiLog.debug(`Failed to get channel ${channelId}: ${err}`);
+    return null;
+  }
+}
+
 async function getThreadRaw(
   config: MattermostApiConfig,
   threadRootId: string,
@@ -205,6 +226,12 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
   private readonly config: MattermostMcpApiConfig;
   private readonly formatter = new MattermostFormatter();
   private botUserIdCache: string | null = null;
+  // Channel-type lookups are cached for the lifetime of the MCP child:
+  // visibility flips are rare and a stale "public" decision only widens
+  // the read_post guard for a public→private transition (operationally
+  // safe because the bot still needs token-side access to fetch the post
+  // contents in the first place).
+  private channelTypeCache = new Map<string, 'public' | 'private'>();
 
   constructor(config: MattermostMcpApiConfig) {
     this.config = config;
@@ -393,7 +420,18 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     const post = await getPostRaw(this.apiConfig, postId);
     if (!post) return null;
     const username = post.user_id ? await this.getUsername(post.user_id) : null;
-    return toMcpPost(post, username);
+    const channelType = await this.getChannelType(post.channel_id);
+    return toMcpPost(post, username, channelType);
+  }
+
+  private async getChannelType(channelId: string): Promise<'public' | 'private' | undefined> {
+    const cached = this.channelTypeCache.get(channelId);
+    if (cached) return cached;
+    const channel = await getChannelRaw(this.apiConfig, channelId);
+    if (!channel) return undefined;
+    const visibility: 'public' | 'private' = channel.type === 'O' ? 'public' : 'private';
+    this.channelTypeCache.set(channelId, visibility);
+    return visibility;
   }
 
   async readThread(
@@ -421,13 +459,26 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
       }
     }
 
+    // All replies share the thread root's channel; one lookup is enough.
+    const channelType = limited[0]
+      ? await this.getChannelType(limited[0].channel_id)
+      : undefined;
+
     return limited.map(p =>
-      toMcpPost(p, p.user_id ? usernameByUserId.get(p.user_id) ?? null : null),
+      toMcpPost(
+        p,
+        p.user_id ? usernameByUserId.get(p.user_id) ?? null : null,
+        channelType,
+      ),
     );
   }
 }
 
-function toMcpPost(post: MattermostApiPost, username: string | null): McpPost {
+function toMcpPost(
+  post: MattermostApiPost,
+  username: string | null,
+  channelType?: 'public' | 'private',
+): McpPost {
   return {
     id: post.id,
     channelId: post.channel_id,
@@ -436,6 +487,7 @@ function toMcpPost(post: MattermostApiPost, username: string | null): McpPost {
     message: post.message,
     createAt: post.create_at ?? 0,
     threadRootId: post.root_id || undefined,
+    channelType,
   };
 }
 

@@ -289,6 +289,37 @@ describe('resolvePermalink', () => {
     expect(result).toEqual({ ok: false, error: { kind: 'wrong-channel' } });
   });
 
+  it('allows cross-channel reads when the target channel is public', async () => {
+    // Public channels on the same instance are readable by anyone in the
+    // thread already, so the guard adds no privacy value. The resolver
+    // must let these through.
+    const api = makeFakeApi({
+      posts: { [ID_A]: makePost({ channelId: 'c-other', channelType: 'public' }) },
+    });
+    const result = await resolvePermalink(api, ID_A, BOT_CHANNEL);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.resolved.post.channelId).toBe('c-other');
+  });
+
+  it('still rejects cross-channel reads when the channel is private', async () => {
+    const api = makeFakeApi({
+      posts: { [ID_A]: makePost({ channelId: 'c-other', channelType: 'private' }) },
+    });
+    const result = await resolvePermalink(api, ID_A, BOT_CHANNEL);
+    expect(result).toEqual({ ok: false, error: { kind: 'wrong-channel' } });
+  });
+
+  it('treats missing channelType as private (fail-safe)', async () => {
+    // Older platform implementations or persisted state may not set
+    // channelType. The resolver must not silently widen the guard.
+    const api = makeFakeApi({
+      posts: { [ID_A]: makePost({ channelId: 'c-other', channelType: undefined }) },
+    });
+    const result = await resolvePermalink(api, ID_A, BOT_CHANNEL);
+    expect(result).toEqual({ ok: false, error: { kind: 'wrong-channel' } });
+  });
+
   it('does not check channel scope when botChannelId is undefined', async () => {
     const api = makeFakeApi({
       posts: { [ID_A]: makePost({ channelId: 'c-other' }) },

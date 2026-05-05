@@ -60,6 +60,21 @@ export interface McpPost {
   createAt: number;
   /** Empty / undefined for top-level posts. */
   threadRootId?: string;
+  /**
+   * Visibility of the channel the post lives in. The Mattermost resolver
+   * uses this to allow cross-channel reads when the target channel is a
+   * public channel on the same instance — anyone in the thread could
+   * already navigate there themselves, so the channel-scope guard adds no
+   * privacy value. Slack does not currently set this field: its
+   * MCP-side `readPost` is hard-scoped to the bot's configured channel
+   * via `conversations.history`, so cross-channel reads aren't possible
+   * on Slack regardless of channel visibility.
+   *
+   * Optional: implementations that don't classify channels (or older
+   * sessions persisted before this field existed) leave it undefined,
+   * which the resolver treats as "private" — fail-safe.
+   */
+  channelType?: 'public' | 'private';
 }
 
 /**

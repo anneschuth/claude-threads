@@ -292,6 +292,116 @@ describe('MattermostMcpPlatformApi.readPost', () => {
     const post = await makeApi().readPost!('post-1');
     expect(post?.channelId).toBe('some-channel');
   });
+
+  it('marks public channels (Mattermost type "O") as public', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({
+          id: 'post-1',
+          channel_id: 'c-public',
+          message: 'hi',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      if (url.endsWith('/channels/c-public')) {
+        return jsonResponse({ id: 'c-public', type: 'O' });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('post-1');
+    expect(post?.channelType).toBe('public');
+  });
+
+  it('marks private channels (type "P") as private', async () => {
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({
+          id: 'post-1',
+          channel_id: 'c-private',
+          message: 'hi',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      if (url.endsWith('/channels/c-private')) {
+        return jsonResponse({ id: 'c-private', type: 'P' });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('post-1');
+    expect(post?.channelType).toBe('private');
+  });
+
+  it('marks DMs (type "D") and group DMs (type "G") as private', async () => {
+    for (const t of ['D', 'G'] as const) {
+      fetchResponder = (url) => {
+        if (url.endsWith('/posts/post-1')) {
+          return jsonResponse({
+            id: 'post-1',
+            channel_id: `c-${t}`,
+            message: 'hi',
+            user_id: 'u-1',
+            create_at: 1,
+          });
+        }
+        if (url.endsWith(`/channels/c-${t}`)) {
+          return jsonResponse({ id: `c-${t}`, type: t });
+        }
+        return jsonResponse({ id: 'u-1', username: 'alice' });
+      };
+      const post = await makeApi().readPost!('post-1');
+      expect(post?.channelType).toBe('private');
+    }
+  });
+
+  it('leaves channelType undefined when the channel lookup fails', async () => {
+    // Fail-safe: if we can't classify the channel, the resolver treats
+    // it as private. Test exercises that no exception bubbles up.
+    fetchResponder = (url) => {
+      if (url.endsWith('/posts/post-1')) {
+        return jsonResponse({
+          id: 'post-1',
+          channel_id: 'c-unknown',
+          message: 'hi',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      if (url.endsWith('/channels/c-unknown')) {
+        return errorResponse(403, 'forbidden');
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const post = await makeApi().readPost!('post-1');
+    expect(post).not.toBeNull();
+    expect(post!.channelType).toBeUndefined();
+  });
+
+  it('caches channel-type lookups across reads', async () => {
+    let channelCalls = 0;
+    fetchResponder = (url) => {
+      if (url.includes('/posts/post-1') || url.includes('/posts/post-2')) {
+        const id = url.endsWith('/posts/post-1') ? 'post-1' : 'post-2';
+        return jsonResponse({
+          id,
+          channel_id: 'c-shared',
+          message: 'hi',
+          user_id: 'u-1',
+          create_at: 1,
+        });
+      }
+      if (url.endsWith('/channels/c-shared')) {
+        channelCalls += 1;
+        return jsonResponse({ id: 'c-shared', type: 'O' });
+      }
+      return jsonResponse({ id: 'u-1', username: 'alice' });
+    };
+    const api = makeApi();
+    await api.readPost!('post-1');
+    await api.readPost!('post-2');
+    expect(channelCalls).toBe(1);
+  });
 });
 
 // -----------------------------------------------------------------------------

@@ -163,7 +163,16 @@ export async function resolvePermalink(
     return { ok: false, error: { kind: 'not-found' } };
   }
 
-  if (botChannelId !== undefined && post.channelId !== botChannelId) {
+  // Public channels on the same instance are readable by anyone with
+  // an account, so the channel-scope guard adds no privacy value when
+  // the target is public — anyone in the bot's thread could already
+  // navigate to the post themselves. Skip the check in that case.
+  // Missing channelType is treated as private (fail-safe).
+  if (
+    botChannelId !== undefined &&
+    post.channelId !== botChannelId &&
+    post.channelType !== 'public'
+  ) {
     return { ok: false, error: { kind: 'wrong-channel' } };
   }
 
