@@ -607,8 +607,11 @@ export async function kickUser(
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
     session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
-    await postCollaboratorUpdatedNotice(session, ctx);
+    // Persist FIRST, mirror of inviteUser: a network failure on the
+    // collaborator-update notice must not roll back the kick to disk.
+    // Without this, a bot restart would resurrect the kicked user.
     ctx.ops.persistSession(session);
+    await postCollaboratorUpdatedNotice(session, ctx);
   } else {
     await post(session, 'warning', `${formatter.formatUserMention(kickedUser)} was not in this session`);
     sessionLog(session).warn(`🚫 @${kickedUser} was not in session`);

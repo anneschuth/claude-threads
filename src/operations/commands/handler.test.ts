@@ -441,6 +441,39 @@ describe('kickUser', () => {
     );
   });
 
+  it('persists the session BEFORE the in-thread chat notices run', async () => {
+    // Mirror of the invite test: a network failure on the chat-side notice
+    // must not roll back the kick. Without this, the kicked user comes back
+    // alive on bot restart because disk still has them in sessionAllowedUsers.
+    const callOrder: string[] = [];
+    const mockPlatform = createMockPlatform({
+      getUserByUsername: mock(() => Promise.resolve({ id: 'user-2', username: 'inviteduser' })),
+      createPost: mock((message: string) => {
+        callOrder.push(`createPost:${message.substring(0, 30)}`);
+        return Promise.resolve({
+          id: 'post-x',
+          platformId: 'test-platform',
+          channelId: 'test-channel',
+          userId: 'bot',
+          message,
+        });
+      }),
+    });
+    const session = createMockSession({ platform: mockPlatform });
+    session.sessionAllowedUsers.add('inviteduser');
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.persistSession as any).mockImplementation(() => callOrder.push('persistSession'));
+
+    await commands.kickUser(session, 'inviteduser', 'testuser', ctx);
+
+    const persistIdx = callOrder.indexOf('persistSession');
+    const noticeIdx = callOrder.findIndex(s => s.startsWith('createPost:📝'));
+    expect(persistIdx).toBeGreaterThan(-1);
+    expect(noticeIdx).toBeGreaterThan(-1);
+    expect(persistIdx).toBeLessThan(noticeIdx);
+  });
+
   it('posts a "Collaborators updated" notice after a successful kick so Claude drops the kicked co-author', async () => {
     // Regression-defender: without this, the previous "Collaborators updated"
     // notice (with the now-kicked user) would keep applying to future commits.
