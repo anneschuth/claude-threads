@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.1] - 2026-05-05
+
+### Fixed
+- **Numeric tool args no longer fail at the MCP boundary when the runtime sends them as strings.** Surfaced live during dogfooding of v1.15.0: calling `search_messages` with `max_results: 5` returned `Invalid input: expected number, received string` from the MCP framework, because the Claude MCP runtime sometimes serializes integer tool arguments as JSON strings before they reach the server, and the receiving `z.number().int()` schema rejected them at parse time. Switched the four affected fields to `z.coerce.number().int()` — `read_post.max_messages`, `list_thread.max_messages`, `read_channel_history.max_messages`, `search_messages.max_results` — so either form parses. Downstream `clamp*` helpers already defend against non-finite / non-positive values, so coercion can't widen the contract beyond the documented caps; non-integer strings like `"1.5"` still fail because `.int()` runs after coercion. Schemas exported so a contract test can verify the coercion without spinning up the full MCP transport. (#375)
+
 ## [1.15.0] - 2026-05-05
 
 ### Added
