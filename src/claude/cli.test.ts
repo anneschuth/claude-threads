@@ -328,10 +328,10 @@ describe('materializeMcpConfig', () => {
   function makeConfig(): McpConfigBlob {
     return {
       mcpServers: {
-        'claude-threads-permissions': {
+        'claude-threads-mcp': {
           type: 'stdio',
           command: 'node',
-          args: ['/path/to/permission-server.js'],
+          args: ['/path/to/mcp-server.js'],
           env: { PLATFORM_TOKEN: 'SECRET-TOKEN', PLATFORM_TYPE: 'mattermost' },
         },
       },
@@ -353,7 +353,7 @@ describe('materializeMcpConfig', () => {
     const result = materializeMcpConfig(makeConfig(), 'session-xyz', { tmpDirOverride: scratchDir });
     if (result.mode !== 'file') throw new Error('expected file mode');
     const parsed = JSON.parse(readFileSync(result.path, 'utf8')) as McpConfigBlob;
-    const server = parsed.mcpServers['claude-threads-permissions'];
+    const server = parsed.mcpServers['claude-threads-mcp'];
     expect(server.env.PLATFORM_TOKEN).toBe('SECRET-TOKEN');
     rmSync(result.path);
   });
@@ -390,7 +390,7 @@ function readdirOrEmpty(dir: string): string[] {
 // ============================================================================
 describe('buildPermissionArgs', () => {
   const baseOpts = {
-    mcpServerPath: '/path/to/permission-server.js',
+    mcpServerPath: '/path/to/mcp-server.js',
     platformConfig: {
       type: 'mattermost' as const,
       url: 'https://example.test',
@@ -437,7 +437,7 @@ describe('buildPermissionArgs', () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
     expect(args).toContain('--mcp-config');
     expect(args).toContain('--permission-prompt-tool');
-    expect(args).toContain('mcp__claude-threads-permissions__permission_prompt');
+    expect(args).toContain('mcp__claude-threads-mcp__permission_prompt');
     expect(args).not.toContain('--permission-mode');
     expect(args).not.toContain('--dangerously-skip-permissions');
   });
@@ -502,7 +502,7 @@ describe('buildPermissionArgs', () => {
     const idx = args.indexOf('--mcp-config');
     expect(idx).toBeGreaterThanOrEqual(0);
     const blob = JSON.parse(args[idx + 1]);
-    return blob.mcpServers['claude-threads-permissions'].env;
+    return blob.mcpServers['claude-threads-mcp'].env;
   }
 
   it("forwards SESSION_WORKING_DIR and SESSION_UPLOAD_DIR to the MCP child", () => {

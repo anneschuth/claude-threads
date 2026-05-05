@@ -38,6 +38,13 @@ export interface McpPost {
    * from `createAt`.
    */
   id: string;
+  /**
+   * Channel the post lives in. Used by the resolver to scope read_post
+   * to the bot's own channel and surface "wrong channel" as a distinct
+   * error. Mattermost: the 26-char channel id. Slack: the channel id
+   * (`C…`/`G…`/`D…`).
+   */
+  channelId: string;
   userId: string;
   username: string | null;
   message: string;
@@ -121,20 +128,14 @@ export interface McpPlatformApi {
   ): Promise<{ postId: string }>;
 
   /**
-   * Read a single post by id. Returns null if the post does not exist,
-   * the bot's token cannot see it, or — when `expectedChannelId` is
-   * given — the post lives in a different channel.
-   *
-   * The `expectedChannelId` guard is enforced inside the implementation
-   * because the platform's id has the channel context, not McpPost.
-   * Mattermost: the API returns `channel_id` and we compare. Slack: the
-   * API call is already channel-scoped via `conversations.history`
-   * `channel=` parameter, so a wrong-channel ts surfaces as null
-   * naturally and the option is ignored.
+   * Read a single post by id. Returns null if the post does not exist
+   * or the bot's token cannot see it. Channel scoping is the resolver's
+   * job: the returned McpPost includes `channelId` so the caller can
+   * distinguish "wrong channel" from "not found" itself.
    *
    * Optional — implementations that don't support post reads omit it.
    */
-  readPost?(postId: string, options?: { expectedChannelId?: string }): Promise<McpPost | null>;
+  readPost?(postId: string): Promise<McpPost | null>;
 
   /**
    * Read posts in the thread rooted at `threadRootId`. Returns posts in

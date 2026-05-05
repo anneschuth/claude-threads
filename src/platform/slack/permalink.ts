@@ -80,7 +80,11 @@ export function parseSlackPermalink(url: string): ParsedSlackPermalink | null {
   const tsMatch = segments[2].match(PATH_TS_RE);
   if (!tsMatch) return null;
 
-  const ts = expandTimestamp(tsMatch[1]);
+  // Slack permalinks store ts as digits with the decimal point dropped.
+  // The decimal goes 6 chars from the right (microseconds): the regex
+  // above guarantees at least 16 digits, so the slice is safe.
+  const tsNoDot = tsMatch[1];
+  const ts = `${tsNoDot.slice(0, -6)}.${tsNoDot.slice(-6)}`;
 
   // Thread context comes from ?thread_ts=... query param if present.
   const threadParentTs = parsed.searchParams.get('thread_ts') ?? undefined;
@@ -90,18 +94,6 @@ export function parseSlackPermalink(url: string): ParsedSlackPermalink | null {
   }
 
   return { channelId, ts, threadParentTs };
-}
-
-/**
- * Slack permalinks store ts as digits with the decimal point dropped.
- * The decimal goes 6 characters from the right (microseconds), so a path
- * "1234567890123456" becomes "1234567890.123456".
- *
- * Caller must have validated `digitsOnly` against PATH_TS_RE first
- * (>= 16 digits); this function does no validation of its own.
- */
-function expandTimestamp(digitsOnly: string): string {
-  return `${digitsOnly.slice(0, -6)}.${digitsOnly.slice(-6)}`;
 }
 
 export interface ResolveOptions {

@@ -113,6 +113,22 @@ describe('parseMattermostPermalink', () => {
     // Empty team: caught by the "wrong number of segments" path because
     // pathname.replace strips the empty component, but assert it explicitly.
     expect(parseMattermostPermalink(`${BASE}//pl/${ID_A}`, BASE)).toBeNull();
+    // Leading hyphen/underscore: Mattermost requires the first char to
+    // be alphanumeric. An earlier loose regex accepted these.
+    expect(parseMattermostPermalink(`${BASE}/-team/pl/${ID_A}`, BASE)).toBeNull();
+    expect(parseMattermostPermalink(`${BASE}/_team/pl/${ID_A}`, BASE)).toBeNull();
+    // Trailing hyphen/underscore: same rule for the last char.
+    expect(parseMattermostPermalink(`${BASE}/team-/pl/${ID_A}`, BASE)).toBeNull();
+    expect(parseMattermostPermalink(`${BASE}/team_/pl/${ID_A}`, BASE)).toBeNull();
+  });
+
+  it('accepts single-character team names (boundary case)', () => {
+    // The regex's optional middle-group must allow a one-char team like
+    // `a` or `1`.
+    expect(parseMattermostPermalink(`${BASE}/a/pl/${ID_A}`, BASE))
+      .toEqual({ postId: ID_A });
+    expect(parseMattermostPermalink(`${BASE}/9/pl/${ID_A}`, BASE))
+      .toEqual({ postId: ID_A });
   });
 
   it('accepts only the literal _redirect prefix for the redirect shape', () => {
@@ -131,9 +147,12 @@ describe('parseMattermostPermalink', () => {
 // resolvePermalink
 // =============================================================================
 
+const BOT_CHANNEL = 'c-bot';
+
 function makePost(overrides: Partial<McpPost> = {}): McpPost {
   return {
     id: ID_A,
+    channelId: BOT_CHANNEL,
     userId: 'u-1',
     username: 'alice',
     message: 'hello',
@@ -203,25 +222,30 @@ describe('resolvePermalink', () => {
     expect(result).toEqual({ ok: false, error: { kind: 'unsupported' } });
   });
 
-  it('passes botChannelId through to readPost as expectedChannelId', async () => {
-    // Use a custom readPost that records what it received and rejects
-    // anything outside the expected channel.
-    const calls: Array<{ id: string; expectedChannelId?: string }> = [];
-    const api: McpPlatformApi = {
-      getFormatter: () => ({} as ReturnType<McpPlatformApi['getFormatter']>),
-      getBotUserId: async () => 'bot',
-      getUsername: async () => null,
-      isUserAllowed: () => true,
-      createInteractivePost: async () => ({ id: 'p' }),
-      updatePost: async () => undefined,
-      waitForReaction: async () => null,
-      readPost: async (id, options) => {
-        calls.push({ id, expectedChannelId: options?.expectedChannelId });
-        return makePost();
-      },
-    };
-    await resolvePermalink(api, ID_A, 'c-bot');
-    expect(calls).toEqual([{ id: ID_A, expectedChannelId: 'c-bot' }]);
+  it('returns wrong-channel when the post lives in another channel', async () => {
+    // The fetched post is in 'c-other', but the bot is scoped to BOT_CHANNEL.
+    // Resolver must surface that as wrong-channel, not not-found.
+    const api = makeFakeApi({
+      posts: { [ID_A]: makePost({ channelId: 'c-other' }) },
+    });
+    const result = await resolvePermalink(api, ID_A, BOT_CHANNEL);
+    expect(result).toEqual({ ok: false, error: { kind: 'wrong-channel' } });
+  });
+
+  it('does not check channel scope when botChannelId is undefined', async () => {
+    const api = makeFakeApi({
+      posts: { [ID_A]: makePost({ channelId: 'c-other' }) },
+    });
+    const result = await resolvePermalink(api, ID_A, undefined);
+    expect(result.ok).toBe(true);
+  });
+
+  it('returns the post when the channel matches', async () => {
+    const api = makeFakeApi({ posts: { [ID_A]: makePost() } });
+    const result = await resolvePermalink(api, ID_A, BOT_CHANNEL);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.resolved.post.channelId).toBe(BOT_CHANNEL);
   });
 
   it('fetches the thread when includeThread is true and post is top-level', async () => {

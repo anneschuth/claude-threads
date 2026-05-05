@@ -31,11 +31,14 @@ export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
 const POST_ID_RE = /^[a-z0-9]{26}$/;
 
 /**
- * Mattermost team URL-names: lowercase letters, digits, hyphens,
- * underscores; 1–64 chars (Mattermost's own server-side cap is 64).
- * Used to validate the {team} segment of a chat permalink.
+ * Mattermost team URL-names: must start AND end with a letter or digit,
+ * with optional letters/digits/hyphens/underscores in between. 1–64 chars
+ * total. Mirrors Mattermost's own server-side rule
+ * (^[a-z0-9]([a-z0-9\-_]*[a-z0-9])?$). The end-anchor matters: we don't
+ * want to accept `-foo` or `_bar` as a "team name" just because we're
+ * loose about the start.
  */
-const TEAM_NAME_RE = /^[a-z0-9_-]{1,64}$/;
+const TEAM_NAME_RE = /^[a-z0-9]([a-z0-9_-]{0,62}[a-z0-9])?$/;
 
 export interface ParsedPermalink {
   postId: string;
@@ -113,8 +116,9 @@ export interface ResolvedPermalink {
 }
 
 export type ResolveError =
+  | { kind: 'wrong-channel' }      // post lives in a channel other than the bot's
   | { kind: 'not-found' }
-  | { kind: 'unsupported' }; // platform doesn't support post reads
+  | { kind: 'unsupported' };       // platform doesn't support post reads
 
 export type ResolveResult =
   | { ok: true; resolved: ResolvedPermalink }
@@ -125,11 +129,13 @@ export type ResolveResult =
  * Returns a structured result so the caller can format errors however it
  * wants.
  *
- * `botChannelId` scopes resolution to the bot's own channel: Mattermost
+ * `botChannelId` scopes resolution to the bot's own channel. Mattermost
  * permalinks are global (the URL doesn't pin a channel) and the bot's
- * token may have access to other channels too, so we refuse to expose
- * out-of-channel posts via read_post. Pass `undefined` to skip the
- * scope check (only useful for tests / future cross-channel features).
+ * token may have access to other channels too, so we fetch first and
+ * reject after the fact when the returned post is in another channel —
+ * that way the caller can distinguish "wrong channel" from a real
+ * "not found." Pass `undefined` to skip the scope check (only useful
+ * for tests / future cross-channel features).
  */
 export async function resolvePermalink(
   api: McpPlatformApi,
@@ -141,9 +147,13 @@ export async function resolvePermalink(
     return { ok: false, error: { kind: 'unsupported' } };
   }
 
-  const post = await api.readPost(postId, { expectedChannelId: botChannelId });
+  const post = await api.readPost(postId);
   if (!post) {
     return { ok: false, error: { kind: 'not-found' } };
+  }
+
+  if (botChannelId !== undefined && post.channelId !== botChannelId) {
+    return { ok: false, error: { kind: 'wrong-channel' } };
   }
 
   if (!opts.includeThread) {

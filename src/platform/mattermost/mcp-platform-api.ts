@@ -388,21 +388,10 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     return { postId: result.postId };
   }
 
-  async readPost(
-    postId: string,
-    options?: { expectedChannelId?: string },
-  ): Promise<McpPost | null> {
+  async readPost(postId: string): Promise<McpPost | null> {
     mcpLogger.debug(`readPost: ${formatShortId(postId)}`);
     const post = await getPostRaw(this.apiConfig, postId);
     if (!post) return null;
-    // Channel guard: Mattermost's GET /posts/{id} doesn't constrain
-    // by channel, so a permalink the bot can technically see in some
-    // other channel would otherwise resolve. We refuse those — the
-    // bot's read_post is scoped to its own channel by design.
-    if (options?.expectedChannelId && post.channel_id !== options.expectedChannelId) {
-      mcpLogger.debug(`readPost: channel mismatch (${post.channel_id} != ${options.expectedChannelId})`);
-      return null;
-    }
     const username = post.user_id ? await this.getUsername(post.user_id) : null;
     return toMcpPost(post, username);
   }
@@ -441,6 +430,7 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
 function toMcpPost(post: MattermostApiPost, username: string | null): McpPost {
   return {
     id: post.id,
+    channelId: post.channel_id,
     userId: post.user_id ?? '',
     username,
     message: post.message,

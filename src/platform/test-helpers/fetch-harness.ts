@@ -23,9 +23,17 @@ export interface RecordedFetchCall {
 }
 
 export interface FetchHarness {
-  /** Calls recorded since the last beforeEach. The array is mutated in
-   *  place across tests, so a top-level `const calls = harness.calls`
-   *  alias keeps a stable reference. */
+  /**
+   * Calls recorded since the last beforeEach.
+   *
+   * **Contract:** the array is mutated in place between tests
+   * (`length = 0` to clear, `push()` to record). The reference is
+   * stable, so destructuring `const { calls } = installFetchHarness(...)`
+   * gives you a binding that stays in sync with future tests. If a
+   * future change ever re-assigns the array (`this.calls = []`),
+   * destructuring callers will silently observe stale data — keep the
+   * mutation-in-place semantics or switch to a getter function.
+   */
   readonly calls: RecordedFetchCall[];
 }
 

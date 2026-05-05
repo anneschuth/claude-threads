@@ -9,7 +9,7 @@ import {
   type PermissionHandlerConfig,
   type SendFileHandlerConfig,
   type ReadPostHandlerConfig,
-} from './permission-server.js';
+} from './mcp-server.js';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
@@ -108,15 +108,13 @@ class FakeApi implements McpPlatformApi {
   };
 
   // Post / thread reads — overridden per-test via readPostImpl / readThreadImpl.
-  public readPostCalls: Array<{ postId: string; expectedChannelId?: string }> = [];
+  public readPostCalls: string[] = [];
   public readThreadCalls: Array<{ rootId: string; limit?: number }> = [];
-  public readPostImpl:
-    | ((postId: string, options?: { expectedChannelId?: string }) => Promise<McpPost | null>)
-    | undefined;
+  public readPostImpl: ((postId: string) => Promise<McpPost | null>) | undefined;
   public readThreadImpl: ((rootId: string, options?: { limit?: number }) => Promise<McpPost[]>) | undefined;
-  readPost = async (postId: string, options?: { expectedChannelId?: string }) => {
-    this.readPostCalls.push({ postId, expectedChannelId: options?.expectedChannelId });
-    if (this.readPostImpl) return this.readPostImpl(postId, options);
+  readPost = async (postId: string) => {
+    this.readPostCalls.push(postId);
+    if (this.readPostImpl) return this.readPostImpl(postId);
     return null;
   };
   readThread = async (rootId: string, options?: { limit?: number }) => {
@@ -354,7 +352,7 @@ describe('handlePermissionWith', () => {
     const api = new FakeApi();
     const cfg = makeCfg(api, { initialAllowAll: false });
     const result = await handlePermissionWith(
-      'mcp__claude-threads-permissions__send_file',
+      'mcp__claude-threads-mcp__send_file',
       { path: '/some/file.png' },
       cfg,
     );
@@ -490,6 +488,7 @@ function makeReadPostCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig>
 function fakePost(overrides: Partial<McpPost> = {}): McpPost {
   return {
     id: POST_ID,
+    channelId: 'C-default',
     userId: 'u-1',
     username: 'alice',
     message: 'hello world',
@@ -510,7 +509,7 @@ describe('handleReadPostWith', () => {
     expect(result.ok).toBe(true);
     expect(result.content).toContain('@alice');
     expect(result.content).toContain('> hello world');
-    expect(api.readPostCalls).toEqual([{ postId: POST_ID, expectedChannelId: 'C-default' }]);
+    expect(api.readPostCalls).toEqual([POST_ID]);
     expect(api.readThreadCalls).toEqual([]); // no include_thread, no thread call
   });
 
@@ -565,6 +564,34 @@ describe('handleReadPostWith', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/platform URL not configured/);
+  });
+
+  it('errors when channelId is unconfigured (Mattermost)', async () => {
+    const api = new FakeApi();
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api, { channelId: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/platform channel not configured/);
+    // Must short-circuit: never call the API when the channel isn't set.
+    expect(api.readPostCalls).toEqual([]);
+  });
+
+  it('returns wrong-channel when the resolved post is in another channel', async () => {
+    // Bot is on 'C-default' (set by makeReadPostCfg). The fetched post
+    // claims to be in 'C-elsewhere' — handler must surface that as a
+    // distinct error string, not as a generic "not found."
+    const api = new FakeApi();
+    api.readPostImpl = async () => fakePost({ channelId: 'C-elsewhere' });
+    const result = await handleReadPostWith(
+      { url: `${PLATFORM_URL}/digilab/pl/${POST_ID}` },
+      makeReadPostCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/different channel/);
+    // The error string must not say "not found" for this case.
+    expect(result.reason).not.toMatch(/not found/);
   });
 
   it('fetches the thread when include_thread is true and renders it', async () => {
@@ -628,6 +655,7 @@ describe('handleReadPostWith — Slack', () => {
   function fakeSlackPost(overrides: Partial<McpPost> = {}): McpPost {
     return {
       id: SLACK_TS,
+      channelId: SLACK_CHANNEL,
       userId: 'U-1',
       username: 'alice',
       message: 'hello slack',
@@ -647,7 +675,7 @@ describe('handleReadPostWith — Slack', () => {
     // Slack handler doesn't pass expectedChannelId — the resolver gates on
     // channel before the API call, and conversations.history is already
     // channel-scoped via the `channel` param. See McpPlatformApi.readPost.
-    expect(api.readPostCalls).toEqual([{ postId: SLACK_TS, expectedChannelId: undefined }]);
+    expect(api.readPostCalls).toEqual([SLACK_TS]);
   });
 
   it('errors when the URL is for a different channel', async () => {
@@ -716,7 +744,7 @@ describe('handlePermissionWith — read_post auto-approval', () => {
     const api = new FakeApi();
     const cfg = makeCfg(api);
     const result = await handlePermissionWith(
-      'mcp__claude-threads-permissions__read_post',
+      'mcp__claude-threads-mcp__read_post',
       { url: 'https://example.test/team/pl/abc' },
       cfg,
     );

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Claude can follow chat permalinks via the new `read_post` MCP tool.** When the user shares a Mattermost or Slack permalink in the thread, Claude can call `read_post(url, include_thread?, max_messages?)` to resolve it to the post body (and optional thread context) instead of asking the user to copy-paste. Auto-approved like `send_file`: the URL host check (Mattermost) or workspace `*.slack.com` + channel-id match (Slack) inside the handler are the real gate, since the bot's token is already scoped to what it can see. Defaults: 20 thread messages per call (hard cap 50), 2000-char body truncation per message, returned content marked as untrusted user input in the tool description (prompt-injection note). (#366)
+
+### Changed
+- **MCP package renamed `claude-threads-permissions` → `claude-threads-mcp`** to match the broader MCP-server scope (permission prompts, file uploads, post reads — no longer permission-only). Tool names exposed to Claude follow: `mcp__claude-threads-permissions__send_file` → `mcp__claude-threads-mcp__send_file`, etc. **Breaking for in-flight sessions across upgrade**: a Claude run that started under the old name will see the new tool names after restart, so any auto-approve rules tied to the old prefix need updating. The bot itself rewires automatically. (#366)
+- **`src/mcp/permission-server.ts` renamed to `src/mcp/mcp-server.ts`.** Same content, accurate name. The npm `bin` entry `claude-threads-mcp` already pointed at the dist artifact, so no change for downstream installs apart from the bundled-file path inside the dist tarball. (#366)
+
+### Internals
+- **`PermissionApi` interface renamed to `McpPlatformApi`.** The interface now covers permission prompts, file uploads, and post reads, so the old name no longer fits. Includes file renames (`src/platform/permission-api*.ts` → `src/platform/mcp-platform-api*.ts`) and the matching impl files under `src/platform/{mattermost,slack}/`. (#366)
+- **Shared permalink utilities at `src/platform/permalink-shared.ts`.** Caps (`DEFAULT_THREAD_LIMIT`, `MAX_THREAD_LIMIT`, `MAX_MESSAGE_BODY_CHARS`) and helpers (`clampThreadLimit`, `truncateBody`, `quoteBlock`) used by both Mattermost and Slack permalink modules — prevents drift on rendering rules. (#366)
+- **Shared `fetch` test harness at `src/platform/test-helpers/fetch-harness.ts`.** Consolidates the recorder + responder pattern that lived in three platform-API test files. (#366)
+
 ## [1.12.0] - 2026-05-05
 
 ### Added

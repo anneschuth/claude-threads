@@ -77,8 +77,8 @@ const OUTBOUND_FILES_MAX_BYTES = parseInt(
   10,
 );
 
-const SEND_FILE_TOOL_NAME = 'mcp__claude-threads-permissions__send_file';
-const READ_POST_TOOL_NAME = 'mcp__claude-threads-permissions__read_post';
+const SEND_FILE_TOOL_NAME = 'mcp__claude-threads-mcp__send_file';
+const READ_POST_TOOL_NAME = 'mcp__claude-threads-mcp__read_post';
 
 // =============================================================================
 // Permission API Instance
@@ -431,6 +431,9 @@ async function handleReadPostMattermost(
   if (!cfg.platformUrl) {
     return { ok: false, reason: 'platform URL not configured' };
   }
+  if (!cfg.channelId) {
+    return { ok: false, reason: 'platform channel not configured' };
+  }
   const parsed = parseMattermostPermalink(args.url, cfg.platformUrl);
   if (!parsed) {
     return {
@@ -445,6 +448,12 @@ async function handleReadPostMattermost(
   });
 
   if (!result.ok) {
+    if (result.error.kind === 'wrong-channel') {
+      return {
+        ok: false,
+        reason: 'permalink is for a different channel — the bot can only follow links inside its own channel',
+      };
+    }
     if (result.error.kind === 'not-found') {
       return { ok: false, reason: 'post not found, or the bot does not have access to it' };
     }
@@ -509,7 +518,7 @@ async function handleReadPost(
 
 async function main() {
   const server = new McpServer({
-    name: 'claude-threads-permissions',
+    name: 'claude-threads-mcp',
     version: '1.0.0',
   });
 

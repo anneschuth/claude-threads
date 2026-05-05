@@ -273,33 +273,15 @@ describe('MattermostMcpPlatformApi.readPost', () => {
     expect(post!.username).toBeNull();
   });
 
-  it('returns null when expectedChannelId does not match the post channel', async () => {
+  it('exposes the post channel on the returned McpPost so the resolver can scope', async () => {
+    // The API does not gate on channel — that's the resolver's job. We
+    // just need to make sure channelId comes through faithfully so the
+    // resolver can compare.
     fetchResponder = (url) => {
       if (url.endsWith('/posts/post-1')) {
         return jsonResponse({
           id: 'post-1',
-          channel_id: 'other-channel',
-          message: 'leak',
-          user_id: 'u-1',
-          create_at: 1,
-        });
-      }
-      return jsonResponse({ id: 'u-1', username: 'alice' });
-    };
-    const post = await makeApi().readPost!('post-1', { expectedChannelId: 'c-bot' });
-    expect(post).toBeNull();
-    // The user lookup MUST NOT have happened — we should bail before
-    // resolving the username when the channel doesn't match.
-    const userCalls = fetchCalls.filter(c => c.url.includes('/users/'));
-    expect(userCalls).toHaveLength(0);
-  });
-
-  it('returns the post when expectedChannelId matches', async () => {
-    fetchResponder = (url) => {
-      if (url.endsWith('/posts/post-1')) {
-        return jsonResponse({
-          id: 'post-1',
-          channel_id: 'c-bot',
+          channel_id: 'some-channel',
           message: 'hi',
           user_id: 'u-1',
           create_at: 1,
@@ -307,9 +289,8 @@ describe('MattermostMcpPlatformApi.readPost', () => {
       }
       return jsonResponse({ id: 'u-1', username: 'alice' });
     };
-    const post = await makeApi().readPost!('post-1', { expectedChannelId: 'c-bot' });
-    expect(post).not.toBeNull();
-    expect(post!.username).toBe('alice');
+    const post = await makeApi().readPost!('post-1');
+    expect(post?.channelId).toBe('some-channel');
   });
 });
 

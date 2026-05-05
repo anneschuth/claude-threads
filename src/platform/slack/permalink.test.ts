@@ -93,6 +93,7 @@ describe('parseSlackPermalink', () => {
 function makePost(overrides: Partial<McpPost> = {}): McpPost {
   return {
     id: TS,
+    channelId: CHANNEL,
     userId: 'U-1',
     username: 'alice',
     message: 'hello',

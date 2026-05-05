@@ -318,7 +318,7 @@ export function buildPermissionArgs(opts: {
 
   const mcpConfig: McpConfigBlob = {
     mcpServers: {
-      'claude-threads-permissions': {
+      'claude-threads-mcp': {
         type: 'stdio',
         command: 'node',
         args: [opts.mcpServerPath],
@@ -345,7 +345,7 @@ export function buildPermissionArgs(opts: {
   if (opts.permissionMode === 'bypass') {
     args.push('--dangerously-skip-permissions');
   } else {
-    args.push('--permission-prompt-tool', 'mcp__claude-threads-permissions__permission_prompt');
+    args.push('--permission-prompt-tool', 'mcp__claude-threads-mcp__permission_prompt');
     if (opts.permissionMode === 'auto') {
       args.push('--permission-mode', 'auto');
     }
@@ -854,11 +854,11 @@ export class ClaudeCli extends EventEmitter {
     const __dirname = dirname(__filename);
     // When bundled with bun build, __dirname is dist/ (not dist/claude/)
     // Try the bundled path first, then fall back to source layout
-    const bundledPath = resolve(__dirname, 'mcp', 'permission-server.js');
+    const bundledPath = resolve(__dirname, 'mcp', 'mcp-server.js');
     if (existsSync(bundledPath)) {
       return bundledPath;
     }
-    return resolve(__dirname, '..', 'mcp', 'permission-server.js');
+    return resolve(__dirname, '..', 'mcp', 'mcp-server.js');
   }
 
   private getStatusLineWriterPath(): string {

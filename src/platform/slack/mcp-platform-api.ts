@@ -413,7 +413,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       const message = response.messages?.[0];
       if (!message || message.ts !== postId) return null;
       const username = message.user ? await this.getUsername(message.user) : null;
-      return slackMessageToMcpPost(message, username);
+      return slackMessageToMcpPost(message, this.config.channelId, username);
     } catch (err) {
       mcpLogger.debug(`readPost ${postId} failed: ${err}`);
       return null;
@@ -450,7 +450,11 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       }
 
       return ordered.map(m =>
-        slackMessageToMcpPost(m, m.user ? usernameByUserId.get(m.user) ?? null : null),
+        slackMessageToMcpPost(
+          m,
+          this.config.channelId,
+          m.user ? usernameByUserId.get(m.user) ?? null : null,
+        ),
       );
     } catch (err) {
       mcpLogger.debug(`readThread ${threadRootId} failed: ${err}`);
@@ -459,12 +463,17 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   }
 }
 
-function slackMessageToMcpPost(message: SlackMessage, username: string | null): McpPost {
+function slackMessageToMcpPost(
+  message: SlackMessage,
+  channelId: string,
+  username: string | null,
+): McpPost {
   // Slack uses ts as the post id, and seconds-since-epoch for create time.
   // We expose milliseconds for parity with Mattermost's create_at.
   const createAt = Math.floor(parseFloat(message.ts) * 1000);
   return {
     id: message.ts,
+    channelId,
     userId: message.user ?? '',
     username,
     message: message.text ?? '',
