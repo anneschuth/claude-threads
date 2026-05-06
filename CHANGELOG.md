@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.2] - 2026-05-06
+
+### Security
+- **hono 4.12.15 → 4.12.17** picks up two upstream security fixes — GHSA-69xw-7hcm-h432 (unvalidated JSX tag names in `hono/jsx` could allow HTML injection) and GHSA-9vqf-7f2p-gf9v (`bodyLimit()` could be bypassed for chunked / unknown-length requests). claude-threads doesn't render JSX from untrusted input today, but the bodyLimit fix is load-bearing for the inbound webhook surface. (#377)
+
+### Changed
+- **Production deps** bumped: `@hono/node-server` 2.0.0 → 2.0.1 (forwards Hono response headers during WebSocket upgrade), `express-rate-limit` 8.4.1 → 8.5.0 (async store init), `zod` 4.3.6 → 4.4.3 (correctness fixes for `preprocess`, `catch`, and discriminated unions on absent object keys). Lockfile-only. (#377)
+- **Dev deps** bumped: `eslint` 10.2.1 → 10.3.0, `typescript-eslint` 8.59.1 → 8.59.2. Lockfile-only. (#376)
+
 ## [1.15.1] - 2026-05-05
 
 ### Fixed
