@@ -115,7 +115,8 @@
     "express-rate-limit": "$express-rate-limit",
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
-    "path-to-regexp": ">=8.4.0"
+    "path-to-regexp": ">=8.4.0",
+    "fast-uri": ">=3.1.2"
   },
   "resolutions": {
     "hono": "$hono",
@@ -123,6 +124,7 @@
     "express-rate-limit": "$express-rate-limit",
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
-    "path-to-regexp": ">=8.4.0"
+    "path-to-regexp": ">=8.4.0",
+    "fast-uri": ">=3.1.2"
   }
 }
