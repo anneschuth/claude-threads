@@ -13,7 +13,7 @@
         "commander": "^14.0.2",
         "diff": "^8.0.3",
         "express-rate-limit": "^8.3.0",
-        "hono": "^4.12.5",
+        "hono": "^4.12.18",
         "ink": "^6.6.0",
         "ink-scroll-view": "^0.3.5",
         "js-yaml": "^4.1.1",
@@ -48,7 +48,7 @@
     "express-rate-limit": "^8.3.0",
     "fast-uri": ">=3.1.2",
     "flatted": ">=3.4.0",
-    "hono": "^4.12.5",
+    "hono": "^4.12.18",
     "path-to-regexp": ">=8.4.0",
     "picomatch": ">=2.3.2",
   },
@@ -333,7 +333,7 @@
 
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
 
-    "hono": ["hono@4.12.5", "", {}, "sha512-3qq+FUBtlTHhtYxbxheZgY8NIFnkkC/MR8u5TTsr7YZ3wixryQ3cCwn3iZbg8p8B88iDBBAYSfZDS75t8MN7Vg=="],
+    "hono": ["hono@4.12.18", "", {}, "sha512-RWzP96k/yv0PQfyXnWjs6zot20TqfpfsNXhOnev8d1InAxubW93L11/oNUc3tQqn2G0bSdAOBpX+2uDFHV7kdQ=="],
 
     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ=="],
 
