@@ -18,7 +18,7 @@ import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ClaudeAccount, OverheadVisibility, PermissionMode } from '../../config/index.js';
+import type { ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -286,10 +286,7 @@ export interface SessionOperations {
    * Defaults to `'full'` for both when the platform was registered without
    * explicit settings.
    */
-  getPlatformOverhead(platformId: string): {
-    sessionHeader: OverheadVisibility;
-    stickyMessage: OverheadVisibility;
-  };
+  getPlatformOverhead(platformId: string): PlatformOverhead;
 }
 
 // =============================================================================

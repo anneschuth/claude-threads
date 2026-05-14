@@ -1419,10 +1419,18 @@ describe('updateStickyMessage (overhead: hidden)', () => {
       getFormatter,
     } as unknown as PlatformClient;
 
-    // Empty session store so the cleanup branch has nothing to do
+    // Empty session store so the cleanup branch has nothing to do.
+    // `removeStickyPostId` must be stubbed because earlier tests in this file
+    // populate the module-level `stickyPostIds` map; when the hidden-mode
+    // cleanup runs and finds a leftover entry, it calls
+    // `sessionStore.removeStickyPostId(...)`. Without the stub the test fails
+    // with `removeStickyPostId is not a function` instead of exercising the
+    // hidden short-circuit. Hard-failing on an unexpected call here would
+    // surface a real regression.
     initialize({
       getStickyPostIds: mock(() => new Map()),
       saveStickyPostId: mock(() => {}),
+      removeStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
       load: mock(() => new Map()),
     } as any);
@@ -1431,5 +1439,51 @@ describe('updateStickyMessage (overhead: hidden)', () => {
 
     expect(createPost).not.toHaveBeenCalled();
     expect(updatePost).not.toHaveBeenCalled();
+  });
+
+  it('hidden mode cleans up leftover sticky via removeStickyPostId, NOT saveStickyPostId("")', async () => {
+    // Regression for the data-corruption bug: hidden cleanup used to call
+    // `saveStickyPostId(platformId, '')`, which writes an empty string into
+    // sessions.json. On the next bot start that empty string surfaces as a
+    // phantom sticky id and triggers unpin/delete calls against ''.
+    // The fix uses `removeStickyPostId`. Assert both: removeStickyPostId IS
+    // called, saveStickyPostId is NOT.
+    const platformId = 'leftover-platform';
+    const leftoverId = 'old-sticky-from-prior-run';
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform(platformId),
+      unpinPost,
+      deletePost,
+      getBotUser,
+      getPinnedPosts,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    const removeStickyPostId = mock(() => {});
+    const saveStickyPostId = mock(() => {});
+    initialize({
+      // Returns a leftover sticky for this platform — forces the cleanup
+      // branch to fire on the first hidden-mode call.
+      getStickyPostIds: mock(() => new Map([[platformId, leftoverId]])),
+      saveStickyPostId,
+      removeStickyPostId,
+      getHistory: mock(() => []),
+      load: mock(() => new Map()),
+    } as any);
+
+    await updateStickyMessage(platform, new Map(), { ...testConfig, overhead: 'hidden' });
+
+    // The leftover post is unpinned and deleted on the platform side
+    expect(unpinPost).toHaveBeenCalledWith(leftoverId);
+    expect(deletePost).toHaveBeenCalledWith(leftoverId);
+    // And the persistence side uses removeStickyPostId, NOT saveStickyPostId('')
+    expect(removeStickyPostId).toHaveBeenCalledWith(platformId);
+    expect(saveStickyPostId).not.toHaveBeenCalled();
   });
 });

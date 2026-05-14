@@ -20,6 +20,7 @@ export type {
   ScheduledWindow,
   PermissionMode,
   OverheadVisibility,
+  PlatformOverhead,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,

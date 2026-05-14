@@ -791,25 +791,29 @@ export async function startSession(
   // Resolve per-platform header visibility once. `'hidden'` skips the header
   // post entirely; `'minimal'` and `'full'` both create the placeholder so
   // updateSessionHeader can fill it in.
-  const sessionHeaderMode: OverheadVisibility =
+  //
+  // `hidden` requires `replyToPostId` to be set so the session has a thread
+  // anchor (Claude's first response will reply into that thread). The bot's
+  // own message router always supplies `post.rootId || post.id` as the
+  // anchor (`message-handler.ts:59`), so in practice this is always present.
+  // If a future caller violates that invariant we degrade safely to `minimal`
+  // — better than silently posting the big table the user asked to hide.
+  let sessionHeaderMode: OverheadVisibility =
     ctx.ops.getPlatformOverhead(platformId).sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY;
+  if (sessionHeaderMode === 'hidden' && !replyToPostId) {
+    log.error(
+      `sessionHeader: hidden requires a replyToPostId for ${platformId}; ` +
+      `downgrading this session to 'minimal' so the header post is still short.`
+    );
+    sessionHeaderMode = 'minimal';
+  }
 
   // Post initial session message (kept short to minimize popup notification size).
   // The full session info is shown when updateSessionHeader() is called shortly after.
   // For `hidden` we skip this — Claude's first response will be the first reply
-  // in the thread. We still need a `threadId` though: when starting from a
-  // top-level @mention, `replyToPostId` is the original post id and is what
-  // the thread is keyed by.
+  // in the thread, anchored at `replyToPostId`.
   const startFormatter = platform.getFormatter();
-  // For `hidden` mode we need a thread id even without a header post. When the
-  // user @mentions in a channel (no replyToPostId), there is no existing post
-  // to thread under — fall back to creating a placeholder anyway, since
-  // platforms can't anchor a thread to nothing. In practice the bot is almost
-  // always invoked as a reply or in an existing thread.
-  const skipHeaderPost = sessionHeaderMode === 'hidden' && !!replyToPostId;
-  if (sessionHeaderMode === 'hidden' && !replyToPostId) {
-    log.warn('sessionHeader: hidden requires either an existing thread or a replyToPostId; falling back to creating header post');
-  }
+  const skipHeaderPost = sessionHeaderMode === 'hidden';
   let startPost: { id: string } | undefined;
   if (!skipHeaderPost) {
     startPost = await withErrorHandling(

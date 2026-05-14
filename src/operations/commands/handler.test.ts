@@ -820,15 +820,18 @@ describe('updateSessionHeader (sessionHeaderMode)', () => {
     expect(updatePost).toHaveBeenCalledTimes(1);
     const body = updatePost.mock.calls[0][1] as string;
 
-    // Status-bar markers should be present (version + uptime are always there)
-    expect(body).toMatch(/CT v\d+\.\d+\.\d+/); // version chip
-    expect(body).toContain('⏱️'); // uptime
-
-    // Table fields should NOT be present
+    // Negative assertions are the load-bearing ones: minimal mode must NOT
+    // emit any of the table fields. Anything still in the status bar is
+    // shared with `full` and not under test here.
     expect(body).not.toContain('Directory');
     expect(body).not.toContain('Started by');
     expect(body).not.toContain('Session ID');
     expect(body).not.toContain('Log File');
+
+    // Length sanity check: a single status-bar line. Picking a generous
+    // cap (table output is well over 300 chars) so format tweaks to the
+    // status bar don't ping this test.
+    expect(body.length).toBeLessThan(300);
   });
 
   it('hidden mode does not call updatePost at all', async () => {

@@ -49,6 +49,17 @@ export function resolveOverheadVisibility(
 }
 
 /**
+ * Per-platform overhead visibility, captured at platform-registration time.
+ * Both fields are required after normalization (defaults applied during
+ * `addPlatform`). Used as the value-type for SessionManager's per-platform
+ * map and the return type of `SessionOperations.getPlatformOverhead`.
+ */
+export interface PlatformOverhead {
+  sessionHeader: OverheadVisibility;
+  stickyMessage: OverheadVisibility;
+}
+
+/**
  * Thread logging configuration
  */
 export interface ThreadLogsConfig {

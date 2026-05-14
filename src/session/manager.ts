@@ -17,7 +17,7 @@ import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
 import { CleanupScheduler } from '../cleanup/index.js';
@@ -102,7 +102,7 @@ export class SessionManager extends EventEmitter {
   private customFooter?: string;
 
   // Per-platform overhead visibility (sessionHeader / stickyMessage modes)
-  private platformOverhead: Map<string, { sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility }> = new Map();
+  private platformOverhead: Map<string, PlatformOverhead> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -170,7 +170,7 @@ export class SessionManager extends EventEmitter {
   addPlatform(
     platformId: string,
     client: PlatformClient,
-    overhead?: { sessionHeader?: OverheadVisibility; stickyMessage?: OverheadVisibility }
+    overhead?: Partial<PlatformOverhead>
   ): void {
     this.platforms.set(platformId, client);
     this.platformOverhead.set(platformId, {
@@ -204,6 +204,8 @@ export class SessionManager extends EventEmitter {
 
   removePlatform(platformId: string): void {
     this.platforms.delete(platformId);
+    this.platformOverhead.delete(platformId);
+    stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
   /**

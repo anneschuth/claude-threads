@@ -11,7 +11,7 @@ import { getSessionStatus } from '../../session/types.js';
 import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
 import { getPlatformIcon } from '../../platform/utils.js';
 import type { SessionStore, PersistedSession } from '../../persistence/session-store.js';
-import type { WorktreeMode, PermissionMode } from '../../config/index.js';
+import type { WorktreeMode, PermissionMode, OverheadVisibility } from '../../config/index.js';
 import { permissionModeDisplay } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
@@ -172,7 +172,7 @@ export interface StickyMessageConfig {
    * - `'minimal'`: status bar only, no sessions list / description / footer.
    * - `'hidden'`: short-circuit — no post is built or sent.
    */
-  overhead?: 'full' | 'minimal' | 'hidden';
+  overhead?: OverheadVisibility;
 }
 
 // Store sticky post IDs per platform (in-memory cache)
@@ -802,9 +802,22 @@ async function validateLastMessageIds(
   await Promise.all(validationPromises);
 }
 
-// Track which platforms we've already cleaned up after switching to `hidden`
-// so we only do the delete once per process lifetime.
+// Tracks platforms we've already cleaned up after entering `hidden` mode.
+// Module-level (not per-instance) because `stickyPostIds`, `needsBump`, and
+// `pausedPlatforms` above are also module-level — this state shares their
+// process-lifetime scope. A platform is removed from the set when the platform
+// is unregistered (see `clearPlatformState` below) so a register / unregister
+// cycle re-runs cleanup.
 const hiddenCleanupDone: Set<string> = new Set();
+
+/**
+ * Reset the hidden-cleanup tracker for a platform. Call from `removePlatform`
+ * so the next registration of the same platform re-cleans if `hidden` is set
+ * again.
+ */
+export function clearHiddenCleanupTracking(platformId: string): void {
+  hiddenCleanupDone.delete(platformId);
+}
 
 /**
  * Internal implementation of sticky message update.
@@ -825,8 +838,11 @@ async function updateStickyMessageImpl(
         try { await platform.unpinPost(existing); } catch { /* may already be unpinned */ }
         try { await platform.deletePost(existing); } catch { /* may already be deleted */ }
         stickyPostIds.delete(platform.platformId);
+        // Use removeStickyPostId, NOT saveStickyPostId('') — the latter writes
+        // an empty string into sessions.json which would resurface as a phantom
+        // sticky id on the next bot start, causing delete/unpin calls against ''.
         if (sessionStore) {
-          sessionStore.saveStickyPostId(platform.platformId, '');
+          sessionStore.removeStickyPostId(platform.platformId);
         }
       }
       // Also sweep any orphaned bot-pinned messages from older runs.
@@ -963,7 +979,7 @@ export async function updateAllStickyMessages(
   platforms: Map<string, PlatformClient>,
   sessions: Map<string, Session>,
   config: StickyMessageConfig,
-  overheadByPlatform?: Map<string, 'full' | 'minimal' | 'hidden'>
+  overheadByPlatform?: Map<string, OverheadVisibility>
 ): Promise<void> {
   const updates = [...platforms.values()].map(platform => {
     const overhead = overheadByPlatform?.get(platform.platformId) ?? config.overhead;

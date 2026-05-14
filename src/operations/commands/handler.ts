@@ -878,7 +878,11 @@ export async function buildSessionHeaderStatusBar(
  * Update the session header post with current participants and status.
  *
  * Behavior depends on `session.sessionHeaderMode`:
- * - `'hidden'` — no-op (no header post exists).
+ * - `'hidden'` — no-op. New `hidden` sessions never created a placeholder
+ *   post; resumed sessions that flipped from `'full'`/`'minimal'` to
+ *   `'hidden'` may still carry a `sessionStartPostId` from the prior run,
+ *   so the mode check must run BEFORE the post-id check or we'd update a
+ *   leftover post the user thought they hid.
  * - `'minimal'` — post only the one-line status bar (plus update notice).
  * - `'full'` (default) — post status bar + key-value table.
  */
