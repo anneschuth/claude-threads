@@ -18,7 +18,7 @@ import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ClaudeAccount, PermissionMode } from '../../config/index.js';
+import type { ClaudeAccount, OverheadVisibility, PermissionMode } from '../../config/index.js';
 import type { AccountPoolStatus } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -276,6 +276,20 @@ export interface SessionOperations {
 
   /** Snapshot of pool state for sticky-message / header rendering. */
   getClaudeAccountPoolStatus(): AccountPoolStatus[];
+
+  // ---------------------------------------------------------------------------
+  // Per-platform overhead visibility
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Resolved overhead visibility (session header + sticky) for a platform.
+   * Defaults to `'full'` for both when the platform was registered without
+   * explicit settings.
+   */
+  getPlatformOverhead(platformId: string): {
+    sessionHeader: OverheadVisibility;
+    stickyMessage: OverheadVisibility;
+  };
 }
 
 // =============================================================================

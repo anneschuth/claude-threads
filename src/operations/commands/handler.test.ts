@@ -103,6 +103,7 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
     pendingQuestionSet: null,
     messageCount: 0,
     messageManager,
+    sessionHeaderMode: 'full' as const,
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),
     ...restOverrides,
@@ -176,6 +177,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       releaseClaudeAccount: mock(() => {}),
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
+      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
     },
   };
 }
@@ -780,5 +782,82 @@ describe('approvePendingPlan', () => {
     expect(session.messageManager?.getPendingQuestionSet()).toBeNull();
     // Should mark as approved
     expect(session.planApproved).toBe(true);
+  });
+});
+
+// ===========================================================================
+// updateSessionHeader — sessionHeaderMode branching
+// Issue #383: per-platform sessionHeader visibility (full | minimal | hidden)
+// ===========================================================================
+
+describe('updateSessionHeader (sessionHeaderMode)', () => {
+  it('full mode posts a key-value table with Directory / Started by / Session ID', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession({ platform, sessionHeaderMode: 'full' });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.updateSessionHeader(session, ctx);
+
+    const updatePost = platform.updatePost as ReturnType<typeof mock>;
+    expect(updatePost).toHaveBeenCalledTimes(1);
+    const [postId, body] = updatePost.mock.calls[0];
+    expect(postId).toBe('start-post-id');
+    expect(body).toContain('Directory');
+    expect(body).toContain('Started by');
+    expect(body).toContain('Session ID');
+  });
+
+  it('minimal mode posts only the status bar (no table)', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession({ platform, sessionHeaderMode: 'minimal' });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.updateSessionHeader(session, ctx);
+
+    const updatePost = platform.updatePost as ReturnType<typeof mock>;
+    expect(updatePost).toHaveBeenCalledTimes(1);
+    const body = updatePost.mock.calls[0][1] as string;
+
+    // Status-bar markers should be present (version + uptime are always there)
+    expect(body).toMatch(/CT v\d+\.\d+\.\d+/); // version chip
+    expect(body).toContain('⏱️'); // uptime
+
+    // Table fields should NOT be present
+    expect(body).not.toContain('Directory');
+    expect(body).not.toContain('Started by');
+    expect(body).not.toContain('Session ID');
+    expect(body).not.toContain('Log File');
+  });
+
+  it('hidden mode does not call updatePost at all', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession({ platform, sessionHeaderMode: 'hidden' });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.updateSessionHeader(session, ctx);
+
+    const updatePost = platform.updatePost as ReturnType<typeof mock>;
+    expect(updatePost).not.toHaveBeenCalled();
+  });
+
+  it('hidden mode is a no-op even when sessionStartPostId is set', async () => {
+    // sessionStartPostId may be present on resumed sessions even though
+    // hidden mode means we shouldn't update it. Verify the mode wins.
+    const platform = createMockPlatform();
+    const session = createMockSession({
+      platform,
+      sessionHeaderMode: 'hidden',
+      sessionStartPostId: 'leftover-from-resume',
+    });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.updateSessionHeader(session, ctx);
+
+    const updatePost = platform.updatePost as ReturnType<typeof mock>;
+    expect(updatePost).not.toHaveBeenCalled();
   });
 });

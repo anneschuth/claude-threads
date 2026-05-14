@@ -57,6 +57,8 @@ platforms:
 | `botName` | No | Mention name (default: `claude-code`) |
 | `allowedUsers` | No | List of usernames who can use the bot |
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
+| `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
+| `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Slack
 
@@ -71,6 +73,23 @@ platforms:
 | `botName` | No | Mention name (default: `claude`) |
 | `allowedUsers` | No | List of Slack usernames |
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
+| `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
+| `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+
+### Quieting the bot's overhead messages
+
+Both the per-thread session header and the channel sticky message default to `full` for backward compatibility. To strip them down on a noisy channel, set the per-platform fields in `config.yaml`:
+
+```yaml
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    # ... credentials ...
+    sessionHeader: hidden    # no header post — Claude's reply is the first message in the thread
+    stickyMessage: minimal   # one-line status bar at the channel bottom, no sessions list
+```
+
+Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-level `Config.stickyMessage: { description, footer }` block, which still customizes the full sticky for platforms not in `hidden` mode.
 
 ## Claude Accounts (optional, multi-account mode)
 

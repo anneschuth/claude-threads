@@ -17,7 +17,7 @@ import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import type { SessionInfo } from '../ui/types.js';
 import { CleanupScheduler } from '../cleanup/index.js';
@@ -101,6 +101,9 @@ export class SessionManager extends EventEmitter {
   private customDescription?: string;
   private customFooter?: string;
 
+  // Per-platform overhead visibility (sessionHeader / stickyMessage modes)
+  private platformOverhead: Map<string, { sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility }> = new Map();
+
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
 
@@ -164,8 +167,16 @@ export class SessionManager extends EventEmitter {
   // Platform Management
   // ---------------------------------------------------------------------------
 
-  addPlatform(platformId: string, client: PlatformClient): void {
+  addPlatform(
+    platformId: string,
+    client: PlatformClient,
+    overhead?: { sessionHeader?: OverheadVisibility; stickyMessage?: OverheadVisibility }
+  ): void {
     this.platforms.set(platformId, client);
+    this.platformOverhead.set(platformId, {
+      sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
+      stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
+    });
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -177,8 +188,14 @@ export class SessionManager extends EventEmitter {
         this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'removed');
       }
     });
-    // Bump sticky message to bottom when someone posts in the channel
+    // Bump sticky message to bottom when someone posts in the channel.
+    // Hidden-sticky platforms skip the bump so we don't pay the cost for
+    // nothing (the hidden-mode short-circuit in updateStickyMessageImpl would
+    // bail anyway, but markNeedsBump leaves stale state otherwise).
     client.on('channel_post', () => {
+      if (this.platformOverhead.get(platformId)?.stickyMessage === 'hidden') {
+        return;
+      }
       stickyMessage.markNeedsBump(platformId);
       this.updateStickyMessage();
     });
@@ -336,6 +353,11 @@ export class SessionManager extends EventEmitter {
       releaseClaudeAccount: (id) => this.accountPool.release(id),
       markClaudeAccountCooling: (id, untilMs) => this.accountPool.markCooling(id, untilMs),
       getClaudeAccountPoolStatus: () => this.accountPool.status(),
+
+      getPlatformOverhead: (pid) => this.platformOverhead.get(pid) ?? {
+        sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
+        stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
+      },
     };
 
     return createSessionContext(config, state, ops);
@@ -622,6 +644,7 @@ export class SessionManager extends EventEmitter {
       messageCount: session.messageCount,
       resumeFailCount: session.lifecycle.resumeFailCount,
       claudeAccountId: session.claudeAccountId,
+      sessionHeaderMode: session.sessionHeaderMode,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -651,17 +674,26 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private async updateStickyMessage(): Promise<void> {
-    await stickyMessage.updateAllStickyMessages(this.platforms, this.registry.getSessions(), {
-      maxSessions: this.limits.maxSessions,
-      chromeEnabled: this.chromeEnabled,
-      permissionMode: this.permissionMode,
-      worktreeMode: this.worktreeMode,
-      workingDir: this.workingDir,
-      debug: this.debug,
-      description: this.customDescription,
-      footer: this.customFooter,
-      accountPoolStatus: this.accountPool.isEmpty ? undefined : this.accountPool.status(),
-    });
+    const overheadByPlatform = new Map<string, OverheadVisibility>();
+    for (const [platformId, overhead] of this.platformOverhead) {
+      overheadByPlatform.set(platformId, overhead.stickyMessage);
+    }
+    await stickyMessage.updateAllStickyMessages(
+      this.platforms,
+      this.registry.getSessions(),
+      {
+        maxSessions: this.limits.maxSessions,
+        chromeEnabled: this.chromeEnabled,
+        permissionMode: this.permissionMode,
+        worktreeMode: this.worktreeMode,
+        workingDir: this.workingDir,
+        debug: this.debug,
+        description: this.customDescription,
+        footer: this.customFooter,
+        accountPoolStatus: this.accountPool.isEmpty ? undefined : this.accountPool.status(),
+      },
+      overheadByPlatform,
+    );
   }
 
   /**

@@ -821,21 +821,14 @@ export async function requestMessageApproval(
 // ---------------------------------------------------------------------------
 
 /**
- * Update the session header post with current participants and status.
+ * Build the one-line status bar shared between `minimal` and `full` modes.
+ * Exported for testing and reuse from compact renderers.
  */
-export async function updateSessionHeader(
+export async function buildSessionHeaderStatusBar(
   session: Session,
   ctx: SessionContext
-): Promise<void> {
-  if (!session.sessionStartPostId) return;
-
+): Promise<string> {
   const formatter = session.platform.getFormatter();
-
-  // Use session's working directory (with worktree-aware shortening)
-  const worktreeContext = session.worktreeInfo
-    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
-    : undefined;
-  const shortDir = shortenPath(session.workingDir, undefined, worktreeContext);
   const effectiveMode = effectivePermissionMode({
     override: session.permissionModeOverride,
     sessionHasInteractiveOverride: session.forceInteractivePermissions,
@@ -843,54 +836,89 @@ export async function updateSessionHeader(
   });
   const permMode = permissionModeDisplay(effectiveMode).chip;
 
+  const items: string[] = [];
+
+  // Version info at the start (matches sticky message)
+  items.push(formatter.formatCode(formatVersionString()));
+
+  // Model and context usage (if available)
+  if (session.usageStats) {
+    const stats = session.usageStats;
+    items.push(formatter.formatCode(`🤖 ${stats.modelDisplayName}`));
+    const contextPercent = Math.round((stats.contextTokens / stats.contextWindowSize) * 100);
+    items.push(formatter.formatCode(`${formatContextBar(contextPercent)} ${contextPercent}%`));
+    items.push(formatter.formatCode(`💰 $${stats.totalCostUSD.toFixed(2)}`));
+  }
+
+  items.push(formatter.formatCode(permMode));
+
+  // Plan mode status
+  if (session.messageManager?.getPendingApproval()?.type === 'plan') {
+    items.push(formatter.formatCode('📋 Plan pending'));
+  } else if (session.planApproved) {
+    items.push(formatter.formatCode('🔨 Implementing'));
+  }
+
+  if (ctx.config.chromeEnabled) {
+    items.push(formatter.formatCode('🌐 Chrome'));
+  }
+  if (keepAlive.isActive()) {
+    items.push(formatter.formatCode('💓 Keep-alive'));
+  }
+  const battery = await formatBatteryStatus();
+  if (battery) {
+    items.push(formatter.formatCode(battery));
+  }
+  items.push(formatter.formatCode(`⏱️ ${formatUptime(session.startedAt)}`));
+
+  return items.join(' · ');
+}
+
+/**
+ * Update the session header post with current participants and status.
+ *
+ * Behavior depends on `session.sessionHeaderMode`:
+ * - `'hidden'` — no-op (no header post exists).
+ * - `'minimal'` — post only the one-line status bar (plus update notice).
+ * - `'full'` (default) — post status bar + key-value table.
+ */
+export async function updateSessionHeader(
+  session: Session,
+  ctx: SessionContext
+): Promise<void> {
+  if (session.sessionHeaderMode === 'hidden') return;
+  if (!session.sessionStartPostId) return;
+
+  const formatter = session.platform.getFormatter();
+  const statusBar = await buildSessionHeaderStatusBar(session, ctx);
+
+  // Update notices ride along regardless of mode — they signal that the user
+  // should run `bun install -g claude-threads` and shouldn't be hidden by a
+  // cosmetic preference.
+  const updateInfo = getUpdateInfo();
+  const updateNotice = updateInfo
+    ? `> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n\n`
+    : undefined;
+
+  if (session.sessionHeaderMode === 'minimal') {
+    const msg = [updateNotice, statusBar].filter(Boolean).join('\n');
+    await updatePost(session, session.sessionStartPostId, msg);
+    return;
+  }
+
+  // 'full' mode: status bar + key-value table
+
+  // Use session's working directory (with worktree-aware shortening)
+  const worktreeContext = session.worktreeInfo
+    ? { path: session.worktreeInfo.worktreePath, branch: session.worktreeInfo.branch }
+    : undefined;
+  const shortDir = shortenPath(session.workingDir, undefined, worktreeContext);
+
   // Build participants list (excluding owner)
   const otherParticipants = [...session.sessionAllowedUsers]
     .filter((u) => u !== session.startedBy)
     .map((u) => formatter.formatUserMention(u))
     .join(', ');
-
-  // Build status bar items
-  const statusItems: string[] = [];
-
-  // Version info at the start (like sticky message)
-  const versionStr = formatVersionString();
-  statusItems.push(formatter.formatCode(versionStr));
-
-  // Model and context usage (if available)
-  if (session.usageStats) {
-    const stats = session.usageStats;
-    statusItems.push(formatter.formatCode(`🤖 ${stats.modelDisplayName}`));
-    // Calculate context usage percentage (using primary model's context tokens)
-    const contextPercent = Math.round((stats.contextTokens / stats.contextWindowSize) * 100);
-    const contextBar = formatContextBar(contextPercent);
-    statusItems.push(formatter.formatCode(`${contextBar} ${contextPercent}%`));
-    // Show cost
-    statusItems.push(formatter.formatCode(`💰 $${stats.totalCostUSD.toFixed(2)}`));
-  }
-
-  statusItems.push(formatter.formatCode(permMode));
-
-  // Show plan mode status
-  if (session.messageManager?.getPendingApproval()?.type === 'plan') {
-    statusItems.push(formatter.formatCode('📋 Plan pending'));
-  } else if (session.planApproved) {
-    statusItems.push(formatter.formatCode('🔨 Implementing'));
-  }
-
-  if (ctx.config.chromeEnabled) {
-    statusItems.push(formatter.formatCode('🌐 Chrome'));
-  }
-  if (keepAlive.isActive()) {
-    statusItems.push(formatter.formatCode('💓 Keep-alive'));
-  }
-  const battery = await formatBatteryStatus();
-  if (battery) {
-    statusItems.push(formatter.formatCode(battery));
-  }
-  const uptime = formatUptime(session.startedAt);
-  statusItems.push(formatter.formatCode(`⏱️ ${uptime}`));
-
-  const statusBar = statusItems.join(' · ');
 
   // Build key-value items as tuples: [icon, label, value]
   const items: [string, string, string][] = [];
@@ -955,12 +983,6 @@ export async function updateSessionHeader(
   const shortLogPath = logPath.replace(process.env.HOME || '', '~');
   items.push(['📋', 'Log File', formatter.formatCode(shortLogPath)]);
 
-  // Check for available updates
-  const updateInfo = getUpdateInfo();
-  const updateNotice = updateInfo
-    ? `> ⚠️ ${formatter.formatBold('Update available:')} v${updateInfo.current} → v${updateInfo.latest} - Run ${formatter.formatCode('bun install -g claude-threads')}\n\n`
-    : undefined;
-
   const msg = [
     updateNotice,
     statusBar,
@@ -968,8 +990,7 @@ export async function updateSessionHeader(
     formatter.formatKeyValueList(items),
   ].filter(item => item !== null && item !== undefined).join('\n');
 
-  const postId = session.sessionStartPostId;
-  await updatePost(session, postId, msg);
+  await updatePost(session, session.sessionStartPostId, msg);
 }
 
 // ---------------------------------------------------------------------------

@@ -124,6 +124,7 @@ function createMockSession(overrides: Partial<Session> = {}, taskContent: string
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
     sessionStartPostId: null,
+    sessionHeaderMode: 'full',
     tasksPostId: null,
     lastTasksContent: null,
     tasksCompleted: false,
@@ -1354,4 +1355,81 @@ describe('updateStickyMessage validates lastMessageId', () => {
     expect(session.lastMessageTs).toBeUndefined();
   });
 
+});
+
+// ===========================================================================
+// overhead modes — issue #383
+// Per-platform `stickyMessage: 'full' | 'minimal' | 'hidden'` visibility.
+// ===========================================================================
+
+describe('buildStickyMessage (overhead modes)', () => {
+  beforeEach(() => {
+    setShuttingDown(false);
+  });
+
+  it('full mode (default) renders the active-sessions list', async () => {
+    const session = createMockSession({ sessionTitle: 'My session' });
+    const sessions = new Map([[session.sessionId, session]]);
+    const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (t) => `/_redirect/pl/${t}`);
+
+    expect(result).toContain('Active Claude Threads');
+    expect(result).toContain('Mention me to start a session');
+  });
+
+  it('minimal mode renders the status bar without sessions list / footer / hint', async () => {
+    const session = createMockSession({ sessionTitle: 'My session' });
+    const sessions = new Map([[session.sessionId, session]]);
+    const minimalConfig: StickyMessageConfig = { ...testConfig, overhead: 'minimal' };
+    const result = await buildStickyMessage(sessions, 'test-platform', minimalConfig, mockFormatter, (t) => `/_redirect/pl/${t}`);
+
+    // Status bar marker still present (session count chip is in there)
+    expect(result).toContain('1/5 sessions');
+
+    // Heavy bits stripped
+    expect(result).not.toContain('Active Claude Threads');
+    expect(result).not.toContain('Mention me to start a session');
+    expect(result).not.toContain('My session');
+  });
+});
+
+describe('updateStickyMessage (overhead: hidden)', () => {
+  beforeEach(() => {
+    setShuttingDown(false);
+  });
+
+  it('hidden mode does not call createPost', async () => {
+    const createPost = mock(() => Promise.resolve({ id: 'should-not-be-created', message: '', userId: 'bot' }));
+    const updatePost = mock(() => Promise.resolve());
+    const getPost = mock(() => Promise.resolve(null));
+    const getBotUser = mock(() => Promise.resolve({ id: 'bot', username: 'bot' }));
+    const getPinnedPosts = mock(() => Promise.resolve([]));
+    const unpinPost = mock(() => Promise.resolve());
+    const deletePost = mock(() => Promise.resolve());
+    const getFormatter = mock(() => mockFormatter);
+
+    const platform = {
+      ...createMockPlatform('test-platform'),
+      createPost,
+      updatePost,
+      getPost,
+      getBotUser,
+      getPinnedPosts,
+      unpinPost,
+      deletePost,
+      getFormatter,
+    } as unknown as PlatformClient;
+
+    // Empty session store so the cleanup branch has nothing to do
+    initialize({
+      getStickyPostIds: mock(() => new Map()),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+      load: mock(() => new Map()),
+    } as any);
+
+    await updateStickyMessage(platform, new Map(), { ...testConfig, overhead: 'hidden' });
+
+    expect(createPost).not.toHaveBeenCalled();
+    expect(updatePost).not.toHaveBeenCalled();
+  });
 });

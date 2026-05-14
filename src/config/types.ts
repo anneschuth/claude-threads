@@ -14,6 +14,41 @@ export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
 export type WorktreeMode = 'off' | 'prompt' | 'require';
 
 /**
+ * Visibility for the bot's "overhead" posts (per-thread session header and
+ * channel sticky). Per-platform — see `PlatformInstanceConfig.sessionHeader`
+ * and `PlatformInstanceConfig.stickyMessage`.
+ *
+ * - `full` (default): full table / sessions list, today's behavior.
+ * - `minimal`: one-line status bar only.
+ * - `hidden`: don't post at all.
+ */
+export type OverheadVisibility = 'full' | 'minimal' | 'hidden';
+
+export const OVERHEAD_VISIBILITY_VALUES: readonly OverheadVisibility[] = ['full', 'minimal', 'hidden'] as const;
+
+export const DEFAULT_OVERHEAD_VISIBILITY: OverheadVisibility = 'full';
+
+export function isOverheadVisibility(value: unknown): value is OverheadVisibility {
+  return typeof value === 'string' && (OVERHEAD_VISIBILITY_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * Normalize a per-platform overhead-visibility field. Undefined → default.
+ * Throws on any other invalid value so config errors surface at startup
+ * instead of silently falling back.
+ */
+export function resolveOverheadVisibility(
+  value: unknown,
+  fieldPath: string,
+): OverheadVisibility {
+  if (value === undefined || value === null) return DEFAULT_OVERHEAD_VISIBILITY;
+  if (isOverheadVisibility(value)) return value;
+  throw new Error(
+    `Invalid ${fieldPath}: expected one of ${OVERHEAD_VISIBILITY_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Thread logging configuration
  */
 export interface ThreadLogsConfig {
@@ -156,6 +191,21 @@ export interface PlatformInstanceConfig {
   id: string;
   type: 'mattermost' | 'slack';
   displayName: string;
+  /**
+   * Per-thread session header visibility. Default `'full'`.
+   * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the
+   * header post entirely so Claude's own response is the first message in
+   * the thread.
+   */
+  sessionHeader?: OverheadVisibility;
+  /**
+   * Channel-level sticky message visibility for this platform. Default `'full'`.
+   * `'minimal'` keeps only the one-line status bar (no active-sessions list);
+   * `'hidden'` disables the sticky entirely (no post, no bumping). Distinct
+   * from the top-level `Config.stickyMessage` block, which only customizes
+   * the sticky's `description` / `footer` for platforms still rendering it.
+   */
+  stickyMessage?: OverheadVisibility;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }

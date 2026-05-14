@@ -4,7 +4,7 @@
 
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
-import type { PermissionMode } from '../config/index.js';
+import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
 import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, ErrorContext } from '../operations/bug-report/index.js';
@@ -307,6 +307,14 @@ export interface Session {
 
   // Display state
   sessionStartPostId: string | null;  // The header post we update with participants
+
+  /**
+   * Per-thread session header visibility (resolved from the platform's
+   * `sessionHeader` config). `'hidden'` means no header post was created
+   * (`sessionStartPostId` will be `null`). `'minimal'` means only the
+   * one-line status bar is rendered. Defaults to `'full'`.
+   */
+  sessionHeaderMode: OverheadVisibility;
 
   // Timer management (centralized)
   timers: SessionTimers;

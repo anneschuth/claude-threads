@@ -13,7 +13,8 @@ import {
   isSessionRestarting,
   isSessionCancelled,
 } from './types.js';
-import type { PermissionMode } from '../config/index.js';
+import type { OverheadVisibility, PermissionMode } from '../config/index.js';
+import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
@@ -787,21 +788,43 @@ export async function startSession(
   // path releases after the session is committed to the sessions map.
   pendingStartsCount++;
 
-  // Post initial session message (kept short to minimize popup notification size)
-  // The full session info is shown when updateSessionHeader() is called shortly after
+  // Resolve per-platform header visibility once. `'hidden'` skips the header
+  // post entirely; `'minimal'` and `'full'` both create the placeholder so
+  // updateSessionHeader can fill it in.
+  const sessionHeaderMode: OverheadVisibility =
+    ctx.ops.getPlatformOverhead(platformId).sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY;
+
+  // Post initial session message (kept short to minimize popup notification size).
+  // The full session info is shown when updateSessionHeader() is called shortly after.
+  // For `hidden` we skip this — Claude's first response will be the first reply
+  // in the thread. We still need a `threadId` though: when starting from a
+  // top-level @mention, `replyToPostId` is the original post id and is what
+  // the thread is keyed by.
   const startFormatter = platform.getFormatter();
-  const startPost = await withErrorHandling(
-    () => platform.createPost(
-      startFormatter.formatItalic('Claude Threads session starting...'),
-      replyToPostId
-    ),
-    { action: 'Create session post' }
-  );
-  if (!startPost) {
-    releasePendingStart();
-    return;
+  // For `hidden` mode we need a thread id even without a header post. When the
+  // user @mentions in a channel (no replyToPostId), there is no existing post
+  // to thread under — fall back to creating a placeholder anyway, since
+  // platforms can't anchor a thread to nothing. In practice the bot is almost
+  // always invoked as a reply or in an existing thread.
+  const skipHeaderPost = sessionHeaderMode === 'hidden' && !!replyToPostId;
+  if (sessionHeaderMode === 'hidden' && !replyToPostId) {
+    log.warn('sessionHeader: hidden requires either an existing thread or a replyToPostId; falling back to creating header post');
   }
-  const actualThreadId = replyToPostId || startPost.id;
+  let startPost: { id: string } | undefined;
+  if (!skipHeaderPost) {
+    startPost = await withErrorHandling(
+      () => platform.createPost(
+        startFormatter.formatItalic('Claude Threads session starting...'),
+        replyToPostId
+      ),
+      { action: 'Create session post' }
+    );
+    if (!startPost) {
+      releasePendingStart();
+      return;
+    }
+  }
+  const actualThreadId = replyToPostId || (startPost ? startPost.id : '');
   const sessionId = ctx.ops.getSessionId(platformId, actualThreadId);
 
   // Start typing indicator early so user sees activity during session setup
@@ -835,14 +858,24 @@ export async function startSession(
     const resolvedDir = resolve(requestedDir);
 
     if (!existsSync(resolvedDir)) {
-      await platform.updatePost(startPost.id, `❌ Directory does not exist: ${formatter.formatCode(initialOptions.workingDir)}`);
+      const msg = `❌ Directory does not exist: ${formatter.formatCode(initialOptions.workingDir)}`;
+      if (startPost) {
+        await platform.updatePost(startPost.id, msg);
+      } else {
+        await platform.createPost(msg, replyToPostId);
+      }
       releasePendingStart();
       return;
     }
 
     const { statSync } = await import('fs');
     if (!statSync(resolvedDir).isDirectory()) {
-      await platform.updatePost(startPost.id, `❌ Not a directory: ${formatter.formatCode(initialOptions.workingDir)}`);
+      const msg = `❌ Not a directory: ${formatter.formatCode(initialOptions.workingDir)}`;
+      if (startPost) {
+        await platform.updatePost(startPost.id, msg);
+      } else {
+        await platform.createPost(msg, replyToPostId);
+      }
       releasePendingStart();
       return;
     }
@@ -941,7 +974,8 @@ export async function startSession(
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions,
     permissionModeOverride: sessionPermissionModeOverride,
-    sessionStartPostId: startPost.id,
+    sessionStartPostId: startPost ? startPost.id : null,
+    sessionHeaderMode,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are intentionally NOT initialized here - MessageManager is the source of truth.
     timers: createSessionTimers(),
@@ -970,7 +1004,9 @@ export async function startSession(
   // entry is now in the map and counted by .size.
   mutableSessions(ctx).set(sessionId, session);
   releasePendingStart();
-  ctx.ops.registerPost(startPost.id, actualThreadId);
+  if (startPost) {
+    ctx.ops.registerPost(startPost.id, actualThreadId);
+  }
   ctx.ops.emitSessionAdd(session);
   sessionLog(session).info(`▶ Session started by @${username}`);
 
@@ -1209,6 +1245,12 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
+    // Resume picks the persisted mode if present, otherwise falls back to the
+    // platform's current setting. Old `sessions.json` predating this field
+    // resumes with the platform-level mode (which defaults to `'full'`).
+    sessionHeaderMode: state.sessionHeaderMode
+      ?? ctx.ops.getPlatformOverhead(platformId).sessionHeader
+      ?? DEFAULT_OVERHEAD_VISIBILITY,
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are NOT set here - MessageManager is hydrated with them below.
     timers: createSessionTimers(),

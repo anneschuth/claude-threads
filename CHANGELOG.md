@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Per-platform `sessionHeader` and `stickyMessage` visibility settings.** Issue #383: the per-thread session header (the table with Directory / Started by / Session ID / Log File / etc.) and the channel sticky message that bumps after every channel post were always-on with no way to dial them back. Both are now per-platform, accept `full` (default, today's behavior) / `minimal` (one-line status bar only) / `hidden` (no post at all), and live in `platforms[*]` in `config.yaml`. `hidden` for the session header skips the placeholder post entirely so Claude's response is the first reply in the thread; `hidden` for the sticky cleans up any leftover sticky from a previous run and short-circuits the `channel_post` bump so the platform pays no cost. Update notices ride along in `minimal` mode for both surfaces because they're not cosmetic. The session header mode is persisted per session so resume preserves it across bot restart; old `sessions.json` predating the field defaults to `full`. The existing top-level `stickyMessage: { description, footer }` block is unchanged and still customizes the sticky for platforms not in `hidden` mode.
+
 ## [1.15.2] - 2026-05-06
 
 ### Security

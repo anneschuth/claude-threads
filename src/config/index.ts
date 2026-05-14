@@ -19,6 +19,7 @@ export type {
   AutoRestartMode,
   ScheduledWindow,
   PermissionMode,
+  OverheadVisibility,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,
@@ -27,6 +28,10 @@ export {
   permissionModeDisplay,
   permissionModeDescription,
   effectivePermissionMode,
+  OVERHEAD_VISIBILITY_VALUES,
+  DEFAULT_OVERHEAD_VISIBILITY,
+  isOverheadVisibility,
+  resolveOverheadVisibility,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode } from './types.js';

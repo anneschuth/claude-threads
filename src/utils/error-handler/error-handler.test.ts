@@ -52,6 +52,7 @@ function createMockSession(): Session {
 
     // Display state
     sessionStartPostId: null,
+    sessionHeaderMode: 'full',
 
     // Flags
     timeoutWarningPosted: false,

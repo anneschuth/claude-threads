@@ -104,6 +104,7 @@ function createTestSession(platform: PlatformClient): Session {
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
     sessionStartPostId: 'start_post',
+    sessionHeaderMode: 'full',
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),
     timeoutWarningPosted: false,
@@ -164,6 +165,7 @@ function createSessionContext(): SessionContext {
       releaseClaudeAccount: mock(() => {}),
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
+      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
     },
   };
 }

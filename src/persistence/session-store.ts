@@ -84,6 +84,12 @@ export interface PersistedSession {
    * and for bots running in single-account mode.
    */
   claudeAccountId?: string;
+  /**
+   * Per-thread session header visibility resolved at session start.
+   * Optional for backward compatibility — old `sessions.json` files predate
+   * this field and resume with `'full'` (today's behavior).
+   */
+  sessionHeaderMode?: 'full' | 'minimal' | 'hidden';
 }
 
 /**

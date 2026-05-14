@@ -6,6 +6,10 @@ import {
   permissionModeDisplay,
   permissionModeDescription,
   effectivePermissionMode,
+  resolveOverheadVisibility,
+  isOverheadVisibility,
+  DEFAULT_OVERHEAD_VISIBILITY,
+  OVERHEAD_VISIBILITY_VALUES,
 } from './index.js';
 import { rmSync, existsSync, statSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import yaml from 'js-yaml';
@@ -294,5 +298,48 @@ describe('effectivePermissionMode', () => {
     expect(effectivePermissionMode({ override: 'auto', sessionHasInteractiveOverride: false, botWideMode: 'bypass' })).toBe('auto');
     expect(effectivePermissionMode({ override: 'bypass', sessionHasInteractiveOverride: true, botWideMode: 'default' })).toBe('bypass');
     expect(effectivePermissionMode({ override: 'default', sessionHasInteractiveOverride: false, botWideMode: 'auto' })).toBe('default');
+  });
+});
+
+// ===========================================================================
+// resolveOverheadVisibility — issue #383
+// Per-platform sessionHeader / stickyMessage parsing.
+// ===========================================================================
+
+describe('resolveOverheadVisibility', () => {
+  it('exposes the three valid values and a default of full', () => {
+    expect([...OVERHEAD_VISIBILITY_VALUES].sort()).toEqual(['full', 'hidden', 'minimal']);
+    expect(DEFAULT_OVERHEAD_VISIBILITY).toBe('full');
+  });
+
+  it('isOverheadVisibility narrows known values and rejects junk', () => {
+    expect(isOverheadVisibility('full')).toBe(true);
+    expect(isOverheadVisibility('minimal')).toBe(true);
+    expect(isOverheadVisibility('hidden')).toBe(true);
+    expect(isOverheadVisibility('FULL')).toBe(false);  // case-sensitive
+    expect(isOverheadVisibility('off')).toBe(false);
+    expect(isOverheadVisibility(undefined)).toBe(false);
+    expect(isOverheadVisibility(null)).toBe(false);
+    expect(isOverheadVisibility(true)).toBe(false);
+  });
+
+  it('returns the default when value is undefined or null (backward compat)', () => {
+    expect(resolveOverheadVisibility(undefined, 'platforms[a].sessionHeader')).toBe('full');
+    expect(resolveOverheadVisibility(null, 'platforms[a].sessionHeader')).toBe('full');
+  });
+
+  it('returns the value verbatim when valid', () => {
+    expect(resolveOverheadVisibility('full', 'x')).toBe('full');
+    expect(resolveOverheadVisibility('minimal', 'x')).toBe('minimal');
+    expect(resolveOverheadVisibility('hidden', 'x')).toBe('hidden');
+  });
+
+  it('throws with the field path when value is invalid', () => {
+    expect(() => resolveOverheadVisibility('off', 'platforms[mm-main].sessionHeader')).toThrow(
+      /platforms\[mm-main\]\.sessionHeader.*expected one of full, minimal, hidden/i
+    );
+    expect(() => resolveOverheadVisibility(true, 'platforms[mm-main].stickyMessage')).toThrow(
+      /platforms\[mm-main\]\.stickyMessage.*expected one of/
+    );
   });
 });

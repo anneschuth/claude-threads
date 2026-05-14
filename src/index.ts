@@ -5,6 +5,7 @@ import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
   resolvePermissionMode,
+  resolveOverheadVisibility,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
@@ -586,8 +587,17 @@ async function startWithoutDaemon() {
     const client = createPlatformClient(platformConfig);
     platforms.set(platformConfig.id, client);
 
-    // Register with session manager
-    session.addPlatform(platformConfig.id, client);
+    // Register with session manager (passes per-platform overhead visibility)
+    session.addPlatform(platformConfig.id, client, {
+      sessionHeader: resolveOverheadVisibility(
+        platformConfig.sessionHeader,
+        `platforms[${platformConfig.id}].sessionHeader`,
+      ),
+      stickyMessage: resolveOverheadVisibility(
+        platformConfig.stickyMessage,
+        `platforms[${platformConfig.id}].stickyMessage`,
+      ),
+    });
 
     // Wire up platform events
     wirePlatformEvents(platformConfig.id, client, session, ui);
