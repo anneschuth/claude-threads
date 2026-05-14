@@ -158,6 +158,8 @@ Options:
   --chrome                 Enable Chrome integration
   --no-chrome              Disable Chrome integration
   --worktree-mode <mode>   Git worktree mode: off, prompt, require
+  --session-header <mode>  Per-thread header: full | minimal | hidden (overrides per-platform config)
+  --sticky-message <mode>  Channel sticky: full | minimal | hidden (overrides per-platform config)
   --setup                  Re-run setup wizard
   --debug                  Enable debug logging
   --version                Show version

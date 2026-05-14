@@ -6,10 +6,13 @@ import {
   configExists as checkConfigExists,
   resolvePermissionMode,
   resolveOverheadVisibility,
+  isOverheadVisibility,
+  OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
   type PermissionMode,
+  type OverheadVisibility,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -110,6 +113,8 @@ program
   .option('--chrome', 'Enable Claude in Chrome integration')
   .option('--no-chrome', 'Disable Claude in Chrome integration')
   .option('--worktree-mode <mode>', 'Git worktree mode: off, prompt, require (default: prompt)')
+  .option('--session-header <mode>', 'Per-thread session header: full | minimal | hidden. Overrides per-platform config.')
+  .option('--sticky-message <mode>', 'Channel sticky message: full | minimal | hidden. Overrides per-platform config.')
   .option('--keep-alive', 'Enable system sleep prevention (default: enabled)')
   .option('--no-keep-alive', 'Disable system sleep prevention')
   .option('--setup', 'Run interactive setup wizard (reconfigure existing settings)')
@@ -266,6 +271,18 @@ async function startWithoutDaemon() {
     process.exit(1);
   }
 
+  // Validate the new overhead-visibility flags. Same shape as
+  // --permission-mode: commander forwards the raw string, we accept only the
+  // three canonical values.
+  if (opts.sessionHeader !== undefined && !isOverheadVisibility(opts.sessionHeader)) {
+    console.error(red(`  ❌ Invalid --session-header: "${opts.sessionHeader}". Must be one of: ${OVERHEAD_VISIBILITY_VALUES.join(', ')}.`));
+    process.exit(1);
+  }
+  if (opts.stickyMessage !== undefined && !isOverheadVisibility(opts.stickyMessage)) {
+    console.error(red(`  ❌ Invalid --sticky-message: "${opts.stickyMessage}". Must be one of: ${OVERHEAD_VISIBILITY_VALUES.join(', ')}.`));
+    process.exit(1);
+  }
+
   // Build CLI args object
   const cliArgs: CliArgs = {
     url: opts.url,
@@ -278,6 +295,8 @@ async function startWithoutDaemon() {
     chrome: opts.chrome,
     worktreeMode: opts.worktreeMode,
     keepAlive: opts.keepAlive,
+    sessionHeader: opts.sessionHeader as OverheadVisibility | undefined,
+    stickyMessage: opts.stickyMessage as OverheadVisibility | undefined,
   };
 
   // Check if we need onboarding
@@ -303,6 +322,19 @@ async function startWithoutDaemon() {
   }
   if (cliArgs.keepAlive !== undefined) {
     newConfig.keepAlive = cliArgs.keepAlive;
+  }
+  // Apply overhead-visibility overrides to every platform. These flags are
+  // global-scoped (one value, applied everywhere) — the per-platform YAML
+  // is the right place when you want different values per platform.
+  if (cliArgs.sessionHeader !== undefined) {
+    for (const p of newConfig.platforms) {
+      p.sessionHeader = cliArgs.sessionHeader;
+    }
+  }
+  if (cliArgs.stickyMessage !== undefined) {
+    for (const p of newConfig.platforms) {
+      p.stickyMessage = cliArgs.stickyMessage;
+    }
   }
 
   // Determine keep-alive setting (actual setup happens after UI is ready)
