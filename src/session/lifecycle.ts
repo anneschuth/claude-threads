@@ -728,6 +728,61 @@ export function maybeInjectMetadataReminder(
 // ---------------------------------------------------------------------------
 
 /**
+ * Resolve the effective per-thread session-header mode for a *resumed*
+ * session.
+ *
+ * Precedence (highest first):
+ *   1. `persisted` — the mode the session ran under before the bot restart.
+ *      Important: if the user explicitly set `hidden` on the original
+ *      session, we honor it on resume even if the platform config has since
+ *      flipped back to `full`.
+ *   2. `platformConfigured` — current platform-level setting. Used when
+ *      `persisted` is absent (old `sessions.json` predating the field).
+ *   3. DEFAULT (`'full'`).
+ *
+ * No `hidden`-needs-`replyToPostId` check here: resumed sessions already
+ * have a `threadId`, so the constraint that motivates the downgrade in
+ * `resolveSessionHeaderMode` does not apply.
+ */
+export function resumeSessionHeaderMode(
+  persisted: OverheadVisibility | undefined,
+  platformConfigured: OverheadVisibility | undefined,
+): OverheadVisibility {
+  return persisted ?? platformConfigured ?? DEFAULT_OVERHEAD_VISIBILITY;
+}
+
+/**
+ * Resolve the effective per-thread session-header mode at session start.
+ *
+ * Rules:
+ *  - `undefined` (platform never registered overhead) → DEFAULT (`'full'`).
+ *  - `'hidden'` requires `replyToPostId`. If absent we degrade to `'minimal'`
+ *    and log an error: better than silently posting the big header the user
+ *    asked to hide. The bot's own message router (`message-handler.ts:59`,
+ *    `post.rootId || post.id`) always supplies one, so this branch is
+ *    defensive — but if it fires, the user gets a one-liner, not a table.
+ *  - All other values pass through unchanged.
+ *
+ * Pure function — extracted from `startSession` so it can be tested without
+ * the heavy harness around session start (ClaudeCli, MessageManager, etc.).
+ */
+export function resolveSessionHeaderMode(
+  configured: OverheadVisibility | undefined,
+  replyToPostId: string | undefined,
+  platformId: string,
+): OverheadVisibility {
+  const mode = configured ?? DEFAULT_OVERHEAD_VISIBILITY;
+  if (mode === 'hidden' && !replyToPostId) {
+    log.error(
+      `sessionHeader: hidden requires a replyToPostId for ${platformId}; ` +
+      `downgrading this session to 'minimal' so the header post is still short.`
+    );
+    return 'minimal';
+  }
+  return mode;
+}
+
+/**
  * Create a new session for a thread.
  *
  * @param options - Session options including the initial prompt
@@ -788,25 +843,14 @@ export async function startSession(
   // path releases after the session is committed to the sessions map.
   pendingStartsCount++;
 
-  // Resolve per-platform header visibility once. `'hidden'` skips the header
-  // post entirely; `'minimal'` and `'full'` both create the placeholder so
-  // updateSessionHeader can fill it in.
-  //
-  // `hidden` requires `replyToPostId` to be set so the session has a thread
-  // anchor (Claude's first response will reply into that thread). The bot's
-  // own message router always supplies `post.rootId || post.id` as the
-  // anchor (`message-handler.ts:59`), so in practice this is always present.
-  // If a future caller violates that invariant we degrade safely to `minimal`
-  // — better than silently posting the big table the user asked to hide.
-  let sessionHeaderMode: OverheadVisibility =
-    ctx.ops.getPlatformOverhead(platformId).sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY;
-  if (sessionHeaderMode === 'hidden' && !replyToPostId) {
-    log.error(
-      `sessionHeader: hidden requires a replyToPostId for ${platformId}; ` +
-      `downgrading this session to 'minimal' so the header post is still short.`
-    );
-    sessionHeaderMode = 'minimal';
-  }
+  // Resolve per-platform header visibility once. See `resolveSessionHeaderMode`
+  // for the rules — extracted so it's testable without spinning up a full
+  // `startSession` (which would require mocking ClaudeCli, MessageManager, etc.).
+  const sessionHeaderMode = resolveSessionHeaderMode(
+    ctx.ops.getPlatformOverhead(platformId).sessionHeader,
+    replyToPostId,
+    platformId,
+  );
 
   // Post initial session message (kept short to minimize popup notification size).
   // The full session info is shown when updateSessionHeader() is called shortly after.
@@ -1249,12 +1293,10 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
-    // Resume picks the persisted mode if present, otherwise falls back to the
-    // platform's current setting. Old `sessions.json` predating this field
-    // resumes with the platform-level mode (which defaults to `'full'`).
-    sessionHeaderMode: state.sessionHeaderMode
-      ?? ctx.ops.getPlatformOverhead(platformId).sessionHeader
-      ?? DEFAULT_OVERHEAD_VISIBILITY,
+    sessionHeaderMode: resumeSessionHeaderMode(
+      state.sessionHeaderMode,
+      ctx.ops.getPlatformOverhead(platformId).sessionHeader,
+    ),
     // NOTE: Task state (tasksPostId, lastTasksContent, etc.) is now managed by MessageManager.
     // These fields are NOT set here - MessageManager is hydrated with them below.
     timers: createSessionTimers(),

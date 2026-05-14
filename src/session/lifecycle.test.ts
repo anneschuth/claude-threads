@@ -1121,4 +1121,62 @@ describe('handleExit', () => {
   });
 });
 
+// ===========================================================================
+// resolveSessionHeaderMode — issue #383 / PR #384
+// Pure helper extracted from startSession so the hidden/minimal/full
+// branching is testable without mocking ClaudeCli + MessageManager.
+// ===========================================================================
+
+describe('resolveSessionHeaderMode', () => {
+  it('returns full when configured is undefined (platform never registered overhead)', () => {
+    expect(lifecycle.resolveSessionHeaderMode(undefined, 'thread-1', 'mm')).toBe('full');
+  });
+
+  it('passes full and minimal through unchanged regardless of replyToPostId', () => {
+    expect(lifecycle.resolveSessionHeaderMode('full', 'thread-1', 'mm')).toBe('full');
+    expect(lifecycle.resolveSessionHeaderMode('full', undefined, 'mm')).toBe('full');
+    expect(lifecycle.resolveSessionHeaderMode('minimal', 'thread-1', 'mm')).toBe('minimal');
+    expect(lifecycle.resolveSessionHeaderMode('minimal', undefined, 'mm')).toBe('minimal');
+  });
+
+  it('honors hidden when a replyToPostId is supplied', () => {
+    expect(lifecycle.resolveSessionHeaderMode('hidden', 'thread-1', 'mm')).toBe('hidden');
+  });
+
+  it('downgrades hidden to minimal when replyToPostId is missing (defensive fallback)', () => {
+    // The bot's message router always supplies post.rootId || post.id, so
+    // this branch only fires for a programmer-error caller. Verify the
+    // downgrade so the user does NOT silently get the full table they
+    // explicitly hid.
+    expect(lifecycle.resolveSessionHeaderMode('hidden', undefined, 'mm')).toBe('minimal');
+    expect(lifecycle.resolveSessionHeaderMode('hidden', '', 'mm')).toBe('minimal');
+  });
+});
+
+// ===========================================================================
+// resumeSessionHeaderMode — issue #383 / PR #384
+// Fallback cascade for resumed sessions.
+// ===========================================================================
+
+describe('resumeSessionHeaderMode', () => {
+  it('honors the persisted mode when present', () => {
+    // Even if the platform config has flipped back to 'full' since the
+    // session was started, the user's original choice wins on resume.
+    expect(lifecycle.resumeSessionHeaderMode('hidden', 'full')).toBe('hidden');
+    expect(lifecycle.resumeSessionHeaderMode('minimal', 'full')).toBe('minimal');
+    expect(lifecycle.resumeSessionHeaderMode('full', 'hidden')).toBe('full');
+  });
+
+  it('falls back to platform config when persisted is missing (old sessions.json)', () => {
+    // Backward compat: pre-PR-384 sessions.json files have no
+    // sessionHeaderMode — they should pick up whatever the platform is
+    // currently set to.
+    expect(lifecycle.resumeSessionHeaderMode(undefined, 'minimal')).toBe('minimal');
+    expect(lifecycle.resumeSessionHeaderMode(undefined, 'hidden')).toBe('hidden');
+  });
+
+  it('falls back to full when both are missing (legacy + unconfigured platform)', () => {
+    expect(lifecycle.resumeSessionHeaderMode(undefined, undefined)).toBe('full');
+  });
+});
 
