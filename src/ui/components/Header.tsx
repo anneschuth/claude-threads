@@ -22,34 +22,27 @@ export function Header({ version, workingDir, claudeVersion }: HeaderProps) {
     >
       {/* Line 1: Logo + name + version */}
       <Text>
-        <Text color="yellow"> ✴</Text>
-        <Text> </Text>
+        <Text color="yellow">╲ </Text>
         <Text color="blue">▄█▀ ███</Text>
-        <Text> </Text>
-        <Text color="yellow">✴</Text>
-        <Text>   </Text>
+        <Text color="yellow"> ╱</Text>
+        <Text>  </Text>
         <Text bold>claude-threads</Text>
         <Text dimColor> v{version}</Text>
       </Text>
       {/* Line 2: Logo + tagline */}
       <Text>
-        <Text color="yellow">✴</Text>
-        <Text>  </Text>
-        <Text color="blue">█▀   █</Text>
-        <Text>   </Text>
-        <Text color="yellow">✴</Text>
+        <Text color="yellow">╳ </Text>
+        <Text color="blue">█▀   █ </Text>
+        <Text color="yellow">╳</Text>
         <Text>  </Text>
         <Text dimColor>Chat × Claude Code</Text>
       </Text>
       {/* Line 3: Logo + workdir + Claude version */}
       <Text>
-        <Text> </Text>
-        <Text color="yellow">✴</Text>
-        <Text> </Text>
-        <Text color="blue">▀█▄  █</Text>
+        <Text color="yellow">╱ </Text>
+        <Text color="blue">▀█▄  █ </Text>
+        <Text color="yellow">╲</Text>
         <Text>  </Text>
-        <Text color="yellow">✴</Text>
-        <Text>   </Text>
         <Text color="cyan">{workingDir}</Text>
         <Text dimColor> | Claude {claudeVersion}</Text>
       </Text>
