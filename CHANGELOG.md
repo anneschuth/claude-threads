@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Production deps** bumped: `@hono/node-server` 2.0.2 → 2.0.3 (preserves headers mutated after raw Response construction), `express-rate-limit` 8.5.1 → 8.5.2 (simplified IPv6 key generation). Lockfile-only. (#386)
 - **Dev deps** bumped: `@types/bun` 1.3.13 → 1.3.14, `@types/node` 25.7.0 → 25.9.1, `@types/react` 19.2.14 → 19.2.15, `eslint` 10.3.0 → 10.4.0 (adds `includeIgnoreFile()` and a `for-direction` sequence-expression check, both additive), `lint-staged` 17.0.4 → 17.0.5, `typescript-eslint` 8.59.3 → 8.59.4 (fixes a `no-floating-promises` stack overflow on recursive types). Lockfile-only. (#385)
 
+### Fixed
+- **Multiple pasted screenshots no longer silently vanish.** When you paste several clipboard images into one chat message, the platforms hand them all the same filename (`image.png`). The save path wrote each one with the `wx` (`O_EXCL`) flag, so the second and later files hit `EEXIST`, got caught, and were reported as a download failure, so they never reached Claude. Saves now dedupe filenames within a single message, inserting a numeric suffix before the extension (`image.png`, `image_1.png`, `image_2.png`); files without an extension get `report`, `report_1`, and so on. The unique name is resolved before the write, so the `wx` flag still does its job against symlink races. (#387)
+- **Inbound attachments are no longer capped at 100 MB.** A hard 100 MB ceiling on incoming files meant anything larger was skipped with a "too large" warning, which surprised people sharing big assets. The cap is gone; an attachment of any reported size is downloaded and written to disk. One tradeoff worth knowing: `downloadFile` still buffers the whole file in memory via `arrayBuffer()`, so a very large attachment is held in RAM while it's written. Streaming that download is a separate change. (#387)
+
 ## [1.16.0] - 2026-05-14
 
 ### Added

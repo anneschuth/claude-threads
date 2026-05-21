@@ -14,20 +14,13 @@ import { join } from 'path';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
 import { createLogger } from '../../utils/logger.js';
-import { sanitizeFilename, formatBytes } from '../../utils/safe-filename.js';
+import { sanitizeFilename, dedupeFilename, formatBytes } from '../../utils/safe-filename.js';
 
 const log = createLogger('streaming');
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/**
- * Sanity ceiling on a single uploaded file. Files above this are skipped to
- * avoid pathological disk usage; everything below is written to disk and the
- * path is handed to Claude.
- */
-export const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 
 const UPLOAD_ROOT_DIR = 'claude-threads-uploads';
 
@@ -109,6 +102,13 @@ function sanitizeForPrompt(value: string): string {
  * Download each file and write it to a fresh subdirectory under uploadDir.
  * Each call gets its own subdirectory so two messages uploading the same
  * filename don't collide.
+ *
+ * Inbound attachments are intentionally not size-capped (per issue #387):
+ * a user pasting a large screenshot or sharing a big asset should never have
+ * it silently dropped. Tradeoff: platform.downloadFile() buffers the whole
+ * file in memory via arrayBuffer(), so a very large attachment is held in RAM
+ * for the duration of the write. Left as-is here; streaming the download is a
+ * separate change.
  */
 export async function saveFilesToUploadDir(
   platform: PlatformClient,
@@ -145,19 +145,17 @@ export async function saveFilesToUploadDir(
   // collisions between concurrent messages are impossible.
   const messageDir = await mkdtemp(join(uploadDir, `${Date.now().toString(36)}-`));
 
-  for (const file of files) {
-    if (file.size > MAX_UPLOAD_SIZE) {
-      skipped.push({
-        name: file.name,
-        reason: `File too large (${formatBytes(file.size)} > ${formatBytes(MAX_UPLOAD_SIZE)} limit)`,
-        suggestion: 'Split the file or share it via an external link',
-      });
-      continue;
-    }
+  // Filenames used within this single call, so multiple identically-named
+  // attachments (e.g. several clipboard pastes that all arrive as `image.png`)
+  // get distinct on-disk names instead of colliding on the 'wx' write below.
+  const usedNames = new Set<string>();
 
+  for (const file of files) {
     try {
       const buffer = await platform.downloadFile(file.id);
-      const safeName = sanitizeFilename(file.name);
+      // Resolve a unique name BEFORE writing so the 'wx' flag stays meaningful
+      // for symlink-race protection rather than tripping on our own dupes.
+      const safeName = dedupeFilename(sanitizeFilename(file.name), usedNames);
       const absolutePath = join(messageDir, safeName);
       // 'wx' = O_CREAT | O_EXCL: fail rather than follow a pre-existing
       // symlink at the target. Together with the per-message mkdtemp this

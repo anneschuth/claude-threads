@@ -14,7 +14,6 @@ import { existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import {
-  MAX_UPLOAD_SIZE,
   buildMessageContent,
   cleanupSessionUploads,
   formatSkippedFilesFeedback,
@@ -222,17 +221,51 @@ describe('saveFilesToUploadDir', () => {
     expect(saved[0].absolutePath.endsWith('attachment')).toBe(true);
   });
 
-  it('skips files that exceed MAX_UPLOAD_SIZE without downloading them', async () => {
-    const platform = createMockPlatform(Buffer.from('would never run'));
-    const huge = createMockFile({ name: 'huge.bin', size: MAX_UPLOAD_SIZE + 1 });
+  it('accepts inbound files of any size — no upload cap (issue #387)', async () => {
+    // Report a 200 MB file but hand the mock a tiny buffer so the test never
+    // allocates 200 MB. Before the fix this size tripped a 100 MB cap and the
+    // file was dropped; now it goes straight to disk.
+    const platform = createMockPlatform(Buffer.from('tiny payload'));
+    const huge = createMockFile({ name: 'huge.bin', size: 200 * 1024 * 1024 });
 
     const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, [huge]);
 
-    expect(saved).toHaveLength(0);
-    expect(skipped).toHaveLength(1);
-    expect(skipped[0].name).toBe('huge.bin');
-    expect(skipped[0].reason).toContain('too large');
-    expect(platform.downloadFile).not.toHaveBeenCalled();
+    expect(skipped).toHaveLength(0);
+    expect(saved).toHaveLength(1);
+    expect(saved[0].originalName).toBe('huge.bin');
+    expect(platform.downloadFile).toHaveBeenCalled();
+  });
+
+  it('dedupes identically-named files within one call so none are dropped (issue #387)', async () => {
+    // Pasting several clipboard screenshots in one message names them all
+    // "image.png". Each must still land on disk under a distinct name rather
+    // than the second one tripping the 'wx' EEXIST guard and getting skipped.
+    let call = 0;
+    const platform = createMockPlatform();
+    (platform.downloadFile as ReturnType<typeof mock>).mockImplementation(() => {
+      call++;
+      return Promise.resolve(Buffer.from(`paste-${call}`));
+    });
+
+    const files = [
+      createMockFile({ id: '1', name: 'image.png' }),
+      createMockFile({ id: '2', name: 'image.png' }),
+    ];
+
+    const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, files);
+
+    expect(skipped).toEqual([]);
+    expect(saved).toHaveLength(2);
+    // Both keep the user-facing original name in their metadata.
+    expect(saved.map(f => f.originalName)).toEqual(['image.png', 'image.png']);
+
+    // On disk they get distinct names: the second gets a numeric suffix.
+    const onDisk = saved.map(f => f.absolutePath.split('/').pop());
+    expect(onDisk).toEqual(['image.png', 'image_1.png']);
+
+    // And both files actually exist with their own bytes.
+    expect((await readFile(saved[0].absolutePath)).toString()).toBe('paste-1');
+    expect((await readFile(saved[1].absolutePath)).toString()).toBe('paste-2');
   });
 
   it('surfaces a download failure as a skipped file rather than crashing', async () => {
