@@ -1,10 +1,11 @@
 /**
- * Authorization decision helper for session sinks.
+ * Authorization decision helper for the session paths that invoke Claude.
  *
  * This is the single authoritative place that decides whether a given user is
- * allowed to drive Claude in a session. It is enforced at the three sinks that
- * actually invoke Claude (startSession, sendFollowUp, resumePausedSession), so
- * no caller path — current or future — can reach Claude without passing it.
+ * allowed to drive Claude in a session. Every user-driven path routes through
+ * it: startSession, sendFollowUp, resumePausedSession, and resume-from-reaction.
+ * The two system-triggered resume paths (bulk restore after a bot restart)
+ * carry no user identity and stay ungated by design.
  *
  * The decision is fail-closed: a missing, empty, or 'unknown' username is
  * denied. Authorization is granted only when the platform's global allowlist

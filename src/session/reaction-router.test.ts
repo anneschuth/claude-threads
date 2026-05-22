@@ -167,7 +167,7 @@ describe('ReactionRouter.handleReaction', () => {
     });
 
     test('lets the session owner past the resume gate (no rejection post)', async () => {
-      const createPost = mock(() => Promise.resolve({ id: 'p' }));
+      const createPost = mock((_message: string, _threadId: string) => Promise.resolve({ id: 'p' }));
       const platform = {
         isUserAllowed: mock((u: string) => u === 'alice'),
         createPost,

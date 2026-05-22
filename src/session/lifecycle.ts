@@ -825,8 +825,9 @@ export async function startSession(
   // Fail-closed authorization gate (#388). A brand-new session has no
   // session allowlist yet, so only the platform's global allowlist applies.
   // The message-handler's new-session branch already posts "not authorized",
-  // so we just refuse to start here without re-posting. This is the backstop
-  // that guarantees no caller path reaches Claude unauthorized.
+  // so we just refuse to start here without re-posting. (When a running
+  // session already exists, the early-return above forwards to sendFollowUp,
+  // which runs its own gate; this one covers the fresh-start path.)
   if (!isAuthorizedForSession({ username, platform, sessionAllowedUsers: undefined })) {
     log.warn(`auth.denied.startSession: @${username || 'unknown'} not authorized to start session in ${threadId.substring(0, 8)}...`);
     return;
