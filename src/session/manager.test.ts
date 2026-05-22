@@ -296,7 +296,7 @@ describe('SessionManager', () => {
   describe('resumePausedSession', () => {
     test('handles unknown thread gracefully', async () => {
       // This will try to find a persisted session which doesn't exist
-      await manager.resumePausedSession('unknown-thread', 'message');
+      await manager.resumePausedSession('unknown-thread', 'message', undefined, 'someuser');
       // Should not throw - method handles missing session internally
     });
   });

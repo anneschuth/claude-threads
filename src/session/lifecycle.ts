@@ -16,6 +16,7 @@ import {
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
+import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
 import { ClaudeCli } from '../claude/cli.js';
@@ -821,6 +822,16 @@ export async function startSession(
     throw new Error(`Platform '${platformId}' not found. Call addPlatform() first.`);
   }
 
+  // Fail-closed authorization gate (#388). A brand-new session has no
+  // session allowlist yet, so only the platform's global allowlist applies.
+  // The message-handler's new-session branch already posts "not authorized",
+  // so we just refuse to start here without re-posting. This is the backstop
+  // that guarantees no caller path reaches Claude unauthorized.
+  if (!isAuthorizedForSession({ username, platform, sessionAllowedUsers: undefined })) {
+    log.warn(`auth.denied.startSession: @${username || 'unknown'} not authorized to start session in ${threadId.substring(0, 8)}...`);
+    return;
+  }
+
   // Check max sessions limit. Count pending starts alongside committed sessions
   // — without this, concurrent startSession() calls all see the same stale size
   // across the awaits below and over-admit above the configured cap.
@@ -1482,9 +1493,22 @@ export async function sendFollowUp(
   files: PlatformFile[] | undefined,
   ctx: SessionContext,
   username?: string,
-  displayName?: string
+  displayName?: string,
+  options?: { system?: boolean }
 ): Promise<void> {
   if (!session.claude.isRunning()) return;
+
+  // Fail-closed authorization gate (#388). Internal/system follow-ups (e.g.
+  // passthrough slash commands like /context, already gated upstream by the
+  // command executor's isAllowed check) pass `system: true` and skip the
+  // identity check. Every user-driven follow-up must carry a username that
+  // clears the global allowlist or the session's own allowlist.
+  if (!options?.system) {
+    if (!isAuthorizedForSession({ username, platform: session.platform, sessionAllowedUsers: session.sessionAllowedUsers })) {
+      sessionLog(session).warn(`auth.denied.sendFollowUp: @${username || 'unknown'} not authorized`);
+      return;
+    }
+  }
 
   // Check if we need to offer context prompt (e.g., after !cd)
   // This must happen BEFORE MessageManager handles the message
@@ -1534,7 +1558,8 @@ export async function resumePausedSession(
   threadId: string,
   message: string,
   files: PlatformFile[] | undefined,
-  ctx: SessionContext
+  ctx: SessionContext,
+  username: string
 ): Promise<void> {
   // Find persisted session by raw threadId
   const persisted = ctx.state.sessionStore.load();
@@ -1545,6 +1570,22 @@ export async function resumePausedSession(
   }
 
   const shortId = threadId.substring(0, 8);
+
+  // Fail-closed authorization gate (#388). Resume previously ran purely from
+  // persisted state with no identity check at the sink — the core gap that let
+  // an unauthorized user reach Claude. Rebuild the session allowlist from the
+  // persisted state (defensive default to the original owner if the array is
+  // missing) and check it alongside the platform's global allowlist.
+  const platform = (ctx.state.platforms as Map<string, PlatformClient>).get(state.platformId);
+  if (!platform) {
+    log.warn(`auth.denied.resume: platform '${state.platformId}' not found for ${shortId}...`);
+    return;
+  }
+  const sessionAllowedUsers = new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean));
+  if (!isAuthorizedForSession({ username, platform, sessionAllowedUsers })) {
+    log.warn(`auth.denied.resume: @${username || 'unknown'} not authorized to resume ${shortId}...`);
+    return;
+  }
   log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session

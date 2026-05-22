@@ -41,6 +41,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     getPost: mock(() => Promise.resolve(null)),
     getFormatter: mock(() => createMockFormatter()),
     sendTyping: mock(() => Promise.resolve()),
+    getThreadLink: mock(() => 'https://example.test/thread'),
     ...overrides,
   } as unknown as PlatformClient;
 }
@@ -696,7 +697,7 @@ describe('sendFollowUp', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx, 'user');
 
     // Should not have called handleUserMessage (early return)
     const mockMsgManager = session.messageManager as any;
@@ -712,7 +713,7 @@ describe('sendFollowUp', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx);
+    await lifecycle.sendFollowUp(session, 'New message', undefined, ctx, 'user');
 
     expect(session.messageCount).toBe(6);
   });
@@ -1157,6 +1158,185 @@ describe('resolveSessionHeaderMode', () => {
 // resumeSessionHeaderMode — issue #383 / PR #384
 // Fallback cascade for resumed sessions.
 // ===========================================================================
+
+// =============================================================================
+// Fail-closed authorization at the sinks (#388)
+// =============================================================================
+
+describe('authorization gate at sinks (#388)', () => {
+  describe('startSession', () => {
+    it('refuses to start for an unauthorized user (no Claude account acquired)', async () => {
+      // Platform with a non-empty allowlist that excludes jonas.gn.
+      const platform = createMockPlatform({
+        isUserAllowed: mock((u: string) => u === 'alice') as any,
+      });
+      const sessions = new Map<string, Session>();
+      const ctx = createMockSessionContext(sessions);
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+      await lifecycle.startSession(
+        { prompt: 'do something' },
+        'jonas.gn',
+        'Jonas',
+        'thread-new',
+        'test-platform',
+        ctx,
+      );
+
+      // The Claude-invoking path is reached only after the gate. If the gate
+      // is removed, startSession reserves an account and commits a session.
+      expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+      expect(sessions.size).toBe(0);
+      expect(ctx.ops.emitSessionAdd).not.toHaveBeenCalled();
+    });
+
+    it('starts for a globally allowlisted user', async () => {
+      const platform = createMockPlatform({
+        isUserAllowed: mock((u: string) => u === 'alice') as any,
+      });
+      const sessions = new Map<string, Session>();
+      const ctx = createMockSessionContext(sessions);
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+      await lifecycle.startSession(
+        { prompt: 'do something' },
+        'alice',
+        'Alice',
+        'thread-new',
+        'test-platform',
+        ctx,
+      );
+
+      // Gate passed: startSession proceeded to reserve a Claude account.
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+
+    it('starts for any user when the allowlist is empty (allow-all)', async () => {
+      const platform = createMockPlatform({ isUserAllowed: mock(() => true) as any });
+      const sessions = new Map<string, Session>();
+      const ctx = createMockSessionContext(sessions);
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+      await lifecycle.startSession(
+        { prompt: 'do something' },
+        'anyone',
+        'Anyone',
+        'thread-new',
+        'test-platform',
+        ctx,
+      );
+
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+  });
+
+  describe('sendFollowUp', () => {
+    it('does not reach handleUserMessage for an unauthorized user', async () => {
+      const mockMsgManager = createMockMessageManager();
+      const session = createMockSession({
+        platform: createMockPlatform({ isUserAllowed: mock((u: string) => u === 'alice') as any }),
+        sessionAllowedUsers: new Set(['alice']),
+        messageManager: mockMsgManager as any,
+      });
+      const ctx = createMockSessionContext(new Map([['test-platform:thread-123', session]]));
+
+      await lifecycle.sendFollowUp(session, 'do it', undefined, ctx, 'jonas.gn');
+
+      expect(mockMsgManager.handleUserMessage).not.toHaveBeenCalled();
+    });
+
+    it('reaches handleUserMessage for a per-session invited user', async () => {
+      const mockMsgManager = createMockMessageManager();
+      const session = createMockSession({
+        platform: createMockPlatform({ isUserAllowed: mock((u: string) => u === 'alice') as any }),
+        sessionAllowedUsers: new Set(['alice', 'invited']),
+        messageManager: mockMsgManager as any,
+      });
+      const ctx = createMockSessionContext(new Map([['test-platform:thread-123', session]]));
+
+      await lifecycle.sendFollowUp(session, 'do it', undefined, ctx, 'invited');
+
+      expect(mockMsgManager.handleUserMessage).toHaveBeenCalled();
+    });
+
+    it('reaches handleUserMessage for a system follow-up with no username', async () => {
+      const mockMsgManager = createMockMessageManager();
+      const session = createMockSession({
+        platform: createMockPlatform({ isUserAllowed: mock((u: string) => u === 'alice') as any }),
+        sessionAllowedUsers: new Set(['alice']),
+        messageManager: mockMsgManager as any,
+      });
+      const ctx = createMockSessionContext(new Map([['test-platform:thread-123', session]]));
+
+      await lifecycle.sendFollowUp(session, '/context', undefined, ctx, undefined, undefined, {
+        system: true,
+      });
+
+      expect(mockMsgManager.handleUserMessage).toHaveBeenCalled();
+    });
+  });
+
+  describe('resumePausedSession', () => {
+    function persistedState(overrides?: Record<string, unknown>) {
+      return {
+        threadId: 'thread-paused',
+        platformId: 'test-platform',
+        claudeSessionId: 'claude-session-1',
+        // Use a directory that actually exists so resumeSession proceeds past
+        // its existsSync check and reaches acquireClaudeAccount when the gate
+        // allows it. The negative test bails at the gate before this matters.
+        workingDir: process.cwd(),
+        startedBy: 'alice',
+        sessionAllowedUsers: ['alice'],
+        ...overrides,
+      };
+    }
+
+    function contextWithPersisted(state: Record<string, unknown>) {
+      // Platform with a non-empty allowlist excluding the resumer, and a
+      // getPost that returns a thread so resumeSession would proceed if the
+      // gate were absent.
+      const platform = createMockPlatform({
+        isUserAllowed: mock((u: string) => u === 'alice') as any,
+        getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+      });
+      const ctx = createMockSessionContext(new Map());
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+      (ctx.state.sessionStore.load as any).mockReturnValue(
+        new Map([['test-platform:thread-paused', state]]),
+      );
+      return ctx;
+    }
+
+    it('does not resume for an unauthorized user (no Claude account acquired)', async () => {
+      const ctx = contextWithPersisted(persistedState());
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn');
+
+      // resumeSession (reached only past the gate) acquires a Claude account.
+      expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+    });
+
+    it('proceeds past the gate for the session owner', async () => {
+      const ctx = contextWithPersisted(persistedState());
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+
+      // Owner clears the gate, so resumeSession runs and acquires an account.
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+
+    it('proceeds for an invited collaborator from persisted sessionAllowedUsers', async () => {
+      const ctx = contextWithPersisted(
+        persistedState({ sessionAllowedUsers: ['alice', 'invited'] }),
+      );
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'invited');
+
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+  });
+});
 
 describe('resumeSessionHeaderMode', () => {
   it('honors the persisted mode when present', () => {

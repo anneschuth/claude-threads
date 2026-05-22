@@ -976,10 +976,10 @@ export class SessionManager extends EventEmitter {
   }
 
 
-  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string): Promise<void> {
+  async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string, options?: { system?: boolean }): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
     if (!session || !session.claude.isRunning()) return;
-    await lifecycle.sendFollowUp(session, message, files, this.getContext(), username, displayName);
+    await lifecycle.sendFollowUp(session, message, files, this.getContext(), username, displayName, options);
   }
 
   isSessionActive(): boolean {
@@ -1006,8 +1006,8 @@ export class SessionManager extends EventEmitter {
     return this.registry.getPersistedByThreadId(threadId) !== undefined;
   }
 
-  async resumePausedSession(threadId: string, message: string, files?: PlatformFile[]): Promise<void> {
-    await lifecycle.resumePausedSession(threadId, message, files, this.getContext());
+  async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string): Promise<void> {
+    await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username);
   }
 
   getPersistedSession(threadId: string): PersistedSession | undefined {

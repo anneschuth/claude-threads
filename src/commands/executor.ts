@@ -434,7 +434,10 @@ function createPassthroughHandler(slashCommand: string): CommandHandler {
       return { handled: false }; // Passthrough commands don't work in first message
     }
     if (ctx.isAllowed) {
-      await ctx.sessionManager.sendFollowUp(ctx.threadId, `/${slashCommand}`);
+      // Authorization was already verified upstream (ctx.isAllowed). Mark this
+      // as a system follow-up so the sink's identity gate (#388) does not
+      // reject it for lacking a username.
+      await ctx.sessionManager.sendFollowUp(ctx.threadId, `/${slashCommand}`, undefined, undefined, undefined, { system: true });
     }
     return { handled: true };
   };
@@ -532,7 +535,9 @@ export async function handleDynamicSlashCommand(
   }
   if (ctx.isAllowed) {
     const fullCommand = args ? `/${command} ${args}` : `/${command}`;
-    await ctx.sessionManager.sendFollowUp(ctx.threadId, fullCommand);
+    // Authorization verified upstream (ctx.isAllowed); flag as system so the
+    // sink's identity gate (#388) does not reject this username-less call.
+    await ctx.sessionManager.sendFollowUp(ctx.threadId, fullCommand, undefined, undefined, undefined, { system: true });
   }
   return { handled: true };
 }

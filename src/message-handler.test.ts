@@ -418,7 +418,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined);
+      expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
     });
 
     test('rejects resume for unauthorized user', async () => {
@@ -1185,7 +1185,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/context');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/context', undefined, undefined, undefined, { system: true });
     });
 
     test('handles !cost command', async () => {
@@ -1202,7 +1202,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/cost');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/cost', undefined, undefined, undefined, { system: true });
     });
 
     test('handles !compact command', async () => {
@@ -1219,7 +1219,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/compact');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/compact', undefined, undefined, undefined, { system: true });
     });
 
     test('does not send slash commands for unauthorized user', async () => {
@@ -1261,7 +1261,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review', undefined, undefined, undefined, { system: true });
     });
 
     test('handles dynamic slash commands with arguments', async () => {
@@ -1283,7 +1283,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review --detailed');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', '/review --detailed', undefined, undefined, undefined, { system: true });
     });
 
     test('does not pass through unknown commands', async () => {

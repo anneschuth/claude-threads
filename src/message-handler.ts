@@ -246,7 +246,7 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
-        await session.resumePausedSession(threadRoot, content, files);
+        await session.resumePausedSession(threadRoot, content, files, username);
       }
       return;
     }
