@@ -128,6 +128,69 @@ describe('ReactionRouter.handleReaction', () => {
     });
   });
 
+  describe('resume-from-reaction authorization (#388)', () => {
+    // A timed-out session lives only in the persistence store. The resume
+    // path can't use the live session's allowlist, so it authorizes against
+    // the persisted sessionAllowedUsers + the platform allowlist via the same
+    // isAuthorizedForSession helper as the lifecycle sinks. These tests guard
+    // that an unauthorized user reacting 🔄 cannot revive someone's session.
+    function persistedFixture() {
+      return {
+        threadId: 'thread-paused',
+        platformId: 'test',
+        sessionAllowedUsers: ['alice'],
+        startedBy: 'alice',
+      };
+    }
+
+    test('rejects an unauthorized resumer with a not-authorized post', async () => {
+      const createPost = mock(() => Promise.resolve({ id: 'p' }));
+      const platform = {
+        isUserAllowed: mock((u: string) => u === 'alice'),
+        createPost,
+      } as unknown as PlatformClient;
+      const deps = makeDeps(null, {
+        sessionStore: {
+          findByPostId: mock(() => persistedFixture()),
+        } as unknown as SessionStore,
+        platforms: new Map([['test', platform]]),
+      });
+
+      await handleReaction(deps, 'test', 'header-post', 'arrows_counterclockwise', 'mallory', 'added');
+
+      // mallory is in neither the persisted session allowlist nor the platform
+      // allowlist, so the resume is refused and the rejection is posted.
+      expect(createPost).toHaveBeenCalledWith(
+        expect.stringContaining('not authorized'),
+        'thread-paused',
+      );
+    });
+
+    test('lets the session owner past the resume gate (no rejection post)', async () => {
+      const createPost = mock(() => Promise.resolve({ id: 'p' }));
+      const platform = {
+        isUserAllowed: mock((u: string) => u === 'alice'),
+        createPost,
+        getFormatter: mock(() => ({ formatBold: (s: string) => s })),
+      } as unknown as PlatformClient;
+      // registry.size >= maxSessions would trip the capacity guard; keep it 0.
+      const deps = makeDeps(null, {
+        sessionStore: {
+          findByPostId: mock(() => persistedFixture()),
+        } as unknown as SessionStore,
+        platforms: new Map([['test', platform]]),
+      });
+
+      await handleReaction(deps, 'test', 'header-post', 'arrows_counterclockwise', 'alice', 'added');
+
+      // alice owns the session: the gate must not post a not-authorized message.
+      const postedNotAuthorized = createPost.mock.calls.some(
+        (call) => typeof call[0] === 'string' && call[0].includes('not authorized'),
+      );
+      expect(postedNotAuthorized).toBe(false);
+    });
+  });
+
   describe('cross-platform isolation', () => {
     test('ignores a reaction from a different platform than the session', async () => {
       const session = makeSession({ platformId: 'mattermost' });

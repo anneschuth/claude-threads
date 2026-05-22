@@ -35,6 +35,7 @@ import {
   isBugReportEmoji,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
+import { isAuthorizedForSession } from './authorization.js';
 import * as lifecycle from './lifecycle.js';
 import * as commands from '../operations/commands/index.js';
 import * as worktreeModule from '../operations/worktree/index.js';
@@ -140,10 +141,14 @@ async function tryResumeFromReaction(
   if (deps.registry.hasById(sessionId)) return false;
 
   // Authorization against the *persisted* allowlist — the session object
-  // doesn't exist yet, so we can't use `session.sessionAllowedUsers`.
-  const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+  // doesn't exist yet, so we can't use `session.sessionAllowedUsers`. Routed
+  // through the same isAuthorizedForSession helper as the lifecycle sinks
+  // (#388) so there is one authorization decision, not two copies.
   const platform = deps.platforms.get(platformId);
-  if (!allowedUsers.has(username) && !platform?.isUserAllowed(username)) {
+  const sessionAllowedUsers = new Set(
+    persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean),
+  );
+  if (!platform || !isAuthorizedForSession({ username, platform, sessionAllowedUsers })) {
     if (platform) {
       await platform.createPost(
         `⚠️ @${username} is not authorized to resume this session`,
