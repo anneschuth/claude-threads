@@ -9,7 +9,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -32,12 +32,15 @@ describe.skipIf(SKIP)('Session Questions', () => {
     let config: ReturnType<typeof loadConfig>;
     let ctx: TestSessionContext;
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
     let bot: TestBot;
     const testThreadIds: string[] = [];
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Admin API only available for Mattermost
       if (platformType === 'mattermost') {
@@ -60,6 +63,8 @@ describe.skipIf(SKIP)('Session Questions', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -85,7 +90,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
           scenario: 'ask-question',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'I need to make a choice', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -115,7 +120,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
           scenario: 'ask-question',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Help me choose', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -149,7 +154,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'ask-question',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Complex task with questions', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -168,7 +173,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response', // TODO: Use plan-approval scenario when created
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Make a plan for me', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -186,7 +191,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Create a step by step plan', getBotUsername());
         testThreadIds.push(rootPost.id);

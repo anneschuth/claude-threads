@@ -309,6 +309,13 @@ export class MattermostTestApi {
     });
   }
 
+  /**
+   * Delete (archive) a channel. Used to clean up per-suite isolated channels.
+   */
+  async deleteChannel(channelId: string): Promise<void> {
+    await this.api('DELETE', `/channels/${channelId}`);
+  }
+
   // ============================================================================
   // Posts
   // ============================================================================

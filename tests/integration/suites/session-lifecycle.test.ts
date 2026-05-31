@@ -16,7 +16,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -45,6 +45,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
     // Mattermost-specific: admin API for privileged operations (cleanup)
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     // Helper to get bot username based on platform
     const getBotUsername = () => {
@@ -94,15 +95,16 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         adminApi = initAdminApi();
       }
 
-      // Initialize test context for the platform
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Start the test bot with simple-response scenario
       bot = await startTestBot(getPlatformBotOptions(platformType, {
         scenario: 'simple-response',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -119,6 +121,9 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -170,7 +175,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
           scenario: 'simple-response',
           skipPermissions: true,
           allowedUsersOverride: user1Username ? [user1Username] : [], // Only user1 allowed
-        }));
+        }, ctx));
 
         // Create API client for testuser2
         const user2Api = createUser2Api();
@@ -239,7 +244,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         // Start a session
         const rootPost = await startSession(ctx, 'Start a conversation', getBotUsername());
@@ -275,7 +280,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
           scenario: 'simple-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start a session
         const rootPost = await startSession(ctx, 'Hello bot', getBotUsername());
@@ -319,7 +324,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Give me a simple response', getBotUsername());
         testThreadIds.push(rootPost.id);

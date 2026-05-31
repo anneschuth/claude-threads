@@ -17,7 +17,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -47,6 +47,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
 
     // Mattermost-specific: admin API for privileged operations
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     // User 2 context (Mattermost only)
     let user2Api: PlatformTestApi | null = null;
@@ -103,8 +104,9 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         }
       }
 
-      // Initialize test context for the platform
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Start bot with just user1 as allowed (for invite/kick tests)
       // This uses allowedUsersOverride to exclude user2 from global allowed list
@@ -115,7 +117,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         skipPermissions: true,
         allowedUsersOverride: [user1Username], // Only user1 globally allowed
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -133,6 +135,9 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

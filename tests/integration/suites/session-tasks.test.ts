@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForBotResponse,
   waitForPostMatching,
@@ -36,10 +36,13 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
     // Mattermost-specific: admin API for cleanup
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Set up admin API for Mattermost cleanup
       if (platformType === 'mattermost') {
@@ -58,6 +61,8 @@ describe.skipIf(SKIP)('Task List Display', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     describe('Task List Creation', () => {
@@ -74,7 +79,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
@@ -102,7 +107,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
@@ -126,7 +131,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';
@@ -164,7 +169,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
           scenario: 'task-list',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
           : 'claude-test-bot';

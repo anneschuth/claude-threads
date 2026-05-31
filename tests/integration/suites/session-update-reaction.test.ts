@@ -12,7 +12,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import type { PlatformType } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForSessionHeader,
   waitForPostMatching,
@@ -78,6 +78,7 @@ describe.skipIf(SKIP)('Session Update Reaction', () => {
     let ctx: TestSessionContext;
     let bot: TestBot;
     const testThreadIds: string[] = [];
+    let cleanupContext: () => Promise<void> = async () => {};
 
     // Helper to get bot username based on platform
     const getBotUsername = () => {
@@ -89,7 +90,9 @@ describe.skipIf(SKIP)('Session Update Reaction', () => {
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Start bot with persistent-session scenario (keeps session active)
       // We need the session to stay active so we can call postUpdateAskMessage
@@ -97,13 +100,15 @@ describe.skipIf(SKIP)('Session Update Reaction', () => {
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
       if (bot) {
         await bot.stop();
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

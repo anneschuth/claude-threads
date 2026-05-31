@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForPostMatching,
   waitForSessionActive,
@@ -82,10 +82,13 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
 
     // Mattermost-specific: admin API for cleanup
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
       cleanupTempRepos();
 
       // Set up admin API for Mattermost cleanup
@@ -107,6 +110,8 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
       }
       // Clean up temp repos
       cleanupTempRepos();
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     beforeEach(async () => {
@@ -129,7 +134,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           workingDir: testRepoPath,
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
-        }));
+        }, ctx));
 
         // Add uncommitted changes
         addUncommittedChanges(testRepoPath);
@@ -160,7 +165,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           workingDir: testRepoPath,
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
-        }));
+        }, ctx));
 
         // Add uncommitted changes
         addUncommittedChanges(testRepoPath);
@@ -198,7 +203,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           workingDir: testRepoPath,
           clearPersistedSessions: true,
           worktreeMode: 'prompt', // Enable worktree prompts
-        }));
+        }, ctx));
 
         // Add uncommitted changes
         addUncommittedChanges(testRepoPath);
@@ -246,7 +251,7 @@ describe.skipIf(SKIP)('Worktree Prompts', () => {
           workingDir: testRepoPath,
           clearPersistedSessions: true,
           worktreeMode: 'off', // Explicitly disable worktree prompts
-        }));
+        }, ctx));
 
         // Add uncommitted changes
         addUncommittedChanges(testRepoPath);

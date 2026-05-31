@@ -5,9 +5,9 @@
  * Parameterized to run against both Mattermost and Slack platforms.
  */
 
-import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
@@ -33,16 +33,20 @@ describe.skipIf(SKIP)('Messaging', () => {
     let botCtx: TestSessionContext | null = null;
     let config: ReturnType<typeof loadConfig>;
     let testPostIds: string[] = [];
+    let cleanupContext: () => Promise<void> = async () => {};
 
-    beforeAll(() => {
+    beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // For Mattermost, we also need admin and bot APIs for some tests
       if (platformType === 'mattermost') {
         adminApi = initAdminApi();
 
-        // Create a bot context for bot-specific tests
+        // Create a bot context for bot-specific tests, bound to the same
+        // isolated channel as ctx.
         if (config.mattermost.bot.token) {
           const botApi = createPlatformTestApi('mattermost', {
             baseUrl: config.mattermost.url,
@@ -55,12 +59,17 @@ describe.skipIf(SKIP)('Messaging', () => {
             botUserIds: config.mattermost.bots
               .map(b => b.userId)
               .filter((id): id is string => !!id),
-            channelId: config.mattermost.channel.id!,
+            channelId: ctx.channelId,
             testUserId: config.mattermost.bot.userId!,
             testUserToken: config.mattermost.bot.token,
           };
         }
       }
+    });
+
+    afterAll(async () => {
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

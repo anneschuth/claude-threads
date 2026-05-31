@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -35,12 +35,15 @@ describe.skipIf(SKIP)('Plan Approval', () => {
     let config: ReturnType<typeof loadConfig>;
     let ctx: TestSessionContext;
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
     let bot: TestBot;
     const testThreadIds: string[] = [];
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Admin API only available for Mattermost
       if (platformType === 'mattermost') {
@@ -52,7 +55,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
         scenario: 'plan-approval',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -68,6 +71,9 @@ describe.skipIf(SKIP)('Plan Approval', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

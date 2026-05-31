@@ -15,7 +15,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForBotResponse,
   waitForSessionHeader,
@@ -44,10 +44,13 @@ describe.skipIf(SKIP)('Session Resume', () => {
 
     // Mattermost-specific: admin API for privileged operations (cleanup)
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       if (platformType === 'mattermost') {
         adminApi = new MattermostTestApi(config.mattermost.url, config.mattermost.admin.token!);
@@ -58,7 +61,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -74,6 +77,9 @@ describe.skipIf(SKIP)('Session Resume', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -273,7 +279,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
           debug: process.env.DEBUG === '1',
           clearPersistedSessions: false, // Keep persisted sessions
           sessionsPath: savedSessionsPath, // Reuse same sessions file
-        }));
+        }, ctx));
 
         // Wait for initialization and auto-resume
         await new Promise((r) => setTimeout(r, 1000));
