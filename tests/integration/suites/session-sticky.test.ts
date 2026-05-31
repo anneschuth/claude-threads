@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForBotResponse,
   getPlatformBotOptions,
@@ -58,10 +58,13 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
 
     // Mattermost-specific: admin API for privileged operations (pinned posts)
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Set up admin API for Mattermost-specific tests
       if (platformType === 'mattermost') {
@@ -84,6 +87,9 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -106,7 +112,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           scenario: 'simple-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Wait for the sticky message to appear (polls with retries)
         const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
@@ -122,7 +128,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           scenario: 'persistent-session',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
@@ -159,7 +165,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
                 bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
@@ -205,7 +211,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
 
@@ -222,7 +228,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
-        }));
+        }, ctx));
 
         const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
 

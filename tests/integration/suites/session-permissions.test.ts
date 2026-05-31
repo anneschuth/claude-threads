@@ -14,7 +14,7 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -37,12 +37,15 @@ describe.skipIf(SKIP)('Session Permissions', () => {
     let config: ReturnType<typeof loadConfig>;
     let ctx: TestSessionContext;
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
     let bot: TestBot;
     const testThreadIds: string[] = [];
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Admin API only available for Mattermost
       if (platformType === 'mattermost') {
@@ -65,6 +68,9 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           }
         }
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -97,7 +103,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           scenario: 'permission-request',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Write a file for me', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -133,7 +139,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           scenario: 'permission-request',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Create a test file', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -164,7 +170,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           scenario: 'permission-request',
           skipPermissions: true, // Skip prompts
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Write without asking', getBotUsername());
         testThreadIds.push(rootPost.id);
@@ -196,7 +202,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           scenario: 'permission-request',
           skipPermissions: false, // Enable permission mode
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost = await startSession(ctx, 'Test permission mode', getBotUsername());
         testThreadIds.push(rootPost.id);

@@ -14,7 +14,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   waitForPostMatching,
   getThreadPosts,
   addReaction,
@@ -42,10 +42,13 @@ describe.skipIf(SKIP)('Context Prompt', () => {
 
     // Mattermost-specific: admin API for privileged operations (cleanup)
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       if (platformType === 'mattermost') {
         adminApi = new MattermostTestApi(config.mattermost.url, config.mattermost.admin.token!);
@@ -56,7 +59,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -72,6 +75,8 @@ describe.skipIf(SKIP)('Context Prompt', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

@@ -10,7 +10,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
 import { loadConfig } from '../setup/config.js';
 import { MattermostTestApi } from '../fixtures/mattermost/api-helpers.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForBotResponse,
   waitForSessionActive,
@@ -36,10 +36,13 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
 
     // Mattermost-specific: admin API for cleanup
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Set up admin API for Mattermost cleanup
       if (platformType === 'mattermost') {
@@ -58,6 +61,8 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     describe('Claude CLI Error Response', () => {
@@ -75,7 +80,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           scenario: 'error-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
@@ -105,7 +110,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           scenario: 'error-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
@@ -152,7 +157,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           scenario: 'simple-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const botUsername = platformType === 'mattermost'
           ? (bot?.botUsername ?? config.mattermost.bot.username)
@@ -197,7 +202,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           scenario: 'error-response',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         const rootPost1 = await startSession(ctx, 'First session', botUsernameFor(bot));
         testThreadIds.push(rootPost1.id);
@@ -219,7 +224,7 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
           scenario: 'persistent-session',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start second session — use the new bot's username (pool gives us a different one)
         const rootPost2 = await startSession(ctx, 'Second session', botUsernameFor(bot));

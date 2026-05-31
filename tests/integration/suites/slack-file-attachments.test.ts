@@ -15,7 +15,7 @@ import {
   type SlackFile,
 } from '../fixtures/slack/mock-server.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   waitForBotResponse,
   waitForSessionActive,
   getPlatformBotOptions,
@@ -32,6 +32,7 @@ describe.skipIf(SKIP)('Slack File Attachments', () => {
     const platformType = 'slack' as const;
     let config: ReturnType<typeof loadConfig>;
     let ctx: TestSessionContext;
+    let cleanupContext: () => Promise<void> = async () => {};
     let bot: TestBot;
     let mockServer: SlackMockServer;
     let slackConfig: typeof DEFAULT_SLACK_CONFIG;
@@ -67,14 +68,16 @@ describe.skipIf(SKIP)('Slack File Attachments', () => {
       }
 
       // Initialize test context
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Start the test bot
       bot = await startTestBot(getPlatformBotOptions(platformType, {
         scenario: 'simple-response',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -85,6 +88,9 @@ describe.skipIf(SKIP)('Slack File Attachments', () => {
       if (mockServer) {
         await mockServer.stop();
       }
+
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {

@@ -13,7 +13,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   startSession,
   waitForBotResponse,
   waitForPostMatching,
@@ -39,10 +39,13 @@ describe.skipIf(SKIP)('!kill Command', () => {
 
     // Mattermost-specific: admin API for privileged operations (cleanup)
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     beforeAll(async () => {
       config = loadConfig();
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       if (platformType === 'mattermost') {
         adminApi = new MattermostTestApi(config.mattermost.url, config.mattermost.admin.token!);
@@ -60,6 +63,8 @@ describe.skipIf(SKIP)('!kill Command', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     /**
@@ -121,7 +126,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
           allowedUsersOverride: [user1Username],
-        }));
+        }, ctx));
 
         // Start a session first
         const rootPost = await startSession(ctx, 'Test session', getBotUsername(bot));
@@ -170,7 +175,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
           scenario: 'persistent-session',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start two sessions
         const rootPost1 = await startSession(ctx, 'Session 1 for kill test', getBotUsername(bot));
@@ -218,7 +223,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
           scenario: 'persistent-session',
           skipPermissions: true,
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start a session
         const rootPost = await startSession(ctx, 'Kill via mention', getBotUsername(bot));

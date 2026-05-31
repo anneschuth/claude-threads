@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Integration tests now isolate each suite in its own Mattermost channel.** Previously every pooled test bot posted into one shared channel, each maintaining its own sticky message. Run concurrently, the suites flooded that channel with sticky updates and tripped the Mattermost threads write race (`threads_pkey` 500s), which surfaced as flaky task-list / context-prompt / sticky failures (these also failed on `main`, confirming a pre-existing infra flake rather than a regression). Each suite now provisions a fresh channel via `initIsolatedTestContext`, routes its bot there, and removes it in `afterAll`. `createIsolatedChannel` adds every pooled bot as a member (MattermostClient filters WebSocket events by channel, so a bot must belong to the channel to receive triggers). Across repeated full-suite runs this removed the 500 storms entirely and the previously-flaky tests are now stable. Test-only change; no runtime behavior affected. (#396)
+
 ## [1.16.2] - 2026-05-31
 
 ### Fixed

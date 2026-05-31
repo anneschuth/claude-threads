@@ -15,7 +15,7 @@ import {
   MattermostTestApi,
 } from '../fixtures/platform-test-api.js';
 import {
-  initTestContext,
+  initIsolatedTestContext,
   initAdminApi,
   startSession,
   waitForBotResponse,
@@ -49,6 +49,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
     // Mattermost-specific: admin API for privileged operations
     let adminApi: MattermostTestApi | null = null;
+    let cleanupContext: () => Promise<void> = async () => {};
 
     // Helper to get bot username based on platform
     const getBotUsername = () => {
@@ -103,8 +104,9 @@ describe.skipIf(SKIP)('Session Commands', () => {
         adminApi = initAdminApi();
       }
 
-      // Initialize test context for the platform
-      ctx = initTestContext(platformType);
+      // Isolated channel per suite so concurrent suites don't cross-talk
+      // (sticky storms / thread write races) in the shared config channel.
+      ({ ctx, cleanup: cleanupContext } = await initIsolatedTestContext(platformType));
 
       // Start the test bot with persistent-session scenario
       // This keeps sessions alive (no result event) so we can test commands
@@ -112,7 +114,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
         scenario: 'persistent-session',
         skipPermissions: true,
         debug: process.env.DEBUG === '1',
-      }));
+      }, ctx));
     });
 
     afterAll(async () => {
@@ -128,6 +130,8 @@ describe.skipIf(SKIP)('Session Commands', () => {
           }
         }
       }
+      // Remove the isolated channel.
+      await cleanupContext();
     });
 
     afterEach(async () => {
@@ -348,7 +352,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
           skipPermissions: true,
           allowedUsersOverride: [user1Username], // Only user1 is globally allowed
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start session as user1
         const rootPost = await startSession(ctx, 'User1 session', getBotUsername());
@@ -528,7 +532,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
           skipPermissions: true, // Start with skip so we can test enabling interactive
           allowedUsersOverride: [user1Username], // Only user1 is globally allowed
           debug: process.env.DEBUG === '1',
-        }));
+        }, ctx));
 
         // Start session as user1
         const rootPost = await startSession(ctx, 'Owner only permissions', getBotUsername());
