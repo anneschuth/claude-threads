@@ -37,7 +37,9 @@ const STICKY_REGEX = /claude-threads|Claude.*Threads|Active.*Claude/i;
 async function waitForStickyPost(
   adminApi: MattermostTestApi,
   channelId: string,
-  timeoutMs = 10000,
+  // 30s: under CI load the bot's connect + first sticky post can exceed a
+  // tight 10s budget, even though the sticky does get created (passes locally).
+  timeoutMs = 30000,
 ): Promise<{ message: string; id: string } | undefined> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
