@@ -22,6 +22,7 @@ import { SessionStore } from './persistence/session-store.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
+import { startReactMeasureCleanup } from './utils/perf-cleanup.js';
 import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIProvider } from './ui/index.js';
@@ -400,17 +401,10 @@ async function startWithoutDaemon() {
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
 
-  // React 19 calls performance.measure() with a structured-clone'd prop-diff
-  // detail on every re-render when user timing is supported (Node.js 25+).
-  // Node buffers each PerformanceMeasure entry indefinitely, leaking ~50-205 KB
-  // per render. Nothing in the bot reads these entries, so clear them
-  // periodically. .unref() keeps this from blocking a clean process exit.
-  if (
-    typeof performance !== 'undefined' &&
-    typeof performance.clearMeasures === 'function'
-  ) {
-    setInterval(() => performance.clearMeasures(), 60_000).unref();
-  }
+  // React 19 buffers a PerformanceMeasure per re-render on Node.js 25+, which
+  // leaks until OOM. Nothing reads these entries, so drop them on a timer.
+  // See src/utils/perf-cleanup.ts for the full rationale and safety notes.
+  startReactMeasureCleanup();
 
   // Check if this is a daemon restart after update - restore runtime settings if so
   const updateState = loadUpdateState();
