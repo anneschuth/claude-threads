@@ -45,14 +45,15 @@ let mattermostBotPoolCursor = 0;
 function nextMattermostBot(testConfig: ReturnType<typeof loadConfig>): {
   bot: { username: string; displayName: string; token?: string; userId?: string };
   index: number;
+  seq: number;
 } {
   const pool = testConfig.mattermost.bots;
+  const seq = mattermostBotPoolCursor++;
   if (!pool || pool.length === 0) {
-    return { bot: testConfig.mattermost.bot, index: 0 };
+    return { bot: testConfig.mattermost.bot, index: 0, seq };
   }
-  const idx = mattermostBotPoolCursor % pool.length;
-  mattermostBotPoolCursor++;
-  return { bot: pool[idx], index: idx };
+  const idx = seq % pool.length;
+  return { bot: pool[idx], index: idx, seq };
 }
 
 export interface TestBot {
@@ -223,13 +224,18 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     botUsername = slackBotName;
     botUserId = 'U_BOT_USER';
   } else {
-    // Default: Mattermost — pick the next bot from the pool so each test
-    // has its own user token (no cross-test event interference). Use a
-    // unique platformId per pool slot so module-level state in
-    // src/operations/sticky-message/handler.ts doesn't conflate bots
-    // (its stickyPostIds Map is keyed by platformId).
-    const { bot: poolBot, index: poolIndex } = nextMattermostBot(testConfig);
-    platformId = `test-mattermost-${poolIndex}`;
+    // Default: Mattermost — pick the next bot from the pool so each test has
+    // its own user token (no cross-test event interference). The platformId
+    // must be unique PER BOT START, not just per pool slot: module-level state
+    // in src/operations/sticky-message/handler.ts is keyed by platformId and
+    // persists across the whole test process. With only `test-mattermost-N`
+    // (N = pool index, which recurs as the cursor wraps), a later suite reusing
+    // slot N would inherit the previous suite's sticky post ID and keep
+    // updating that stale post in its OLD (now isolated) channel — so the new
+    // channel never gets a sticky. The monotonic seq makes each start a fresh
+    // namespace.
+    const { bot: poolBot, index: poolIndex, seq } = nextMattermostBot(testConfig);
+    platformId = `test-mattermost-${poolIndex}-${seq}`;
     const allowedUsers = allowedUsersOverride ?? [
       ...testConfig.mattermost.testUsers.map(u => u.username),
       ...extraAllowedUsers,
