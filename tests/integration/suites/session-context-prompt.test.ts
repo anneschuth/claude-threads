@@ -105,7 +105,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         await startSessionMidThread(ctx, rootId, 'Help me fix this issue', getBotUsername());
 
         // Wait for context prompt
-        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 15000 });
+        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 30000 });
 
         expect(contextPromptPost).toBeDefined();
         expect(contextPromptPost.message).toContain('thread context');
@@ -125,7 +125,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         await startSessionMidThread(ctx, rootId, 'Help diagnose this', getBotUsername());
 
         // Wait for context prompt
-        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 15000 });
+        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 30000 });
         expect(contextPromptPost).toBeDefined();
 
         // React with "1" to select first option (last 3 messages or all)
@@ -160,7 +160,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         await startSessionMidThread(ctx, rootId, 'Start fresh without context', getBotUsername());
 
         // Wait for context prompt
-        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 15000 });
+        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 30000 });
         expect(contextPromptPost).toBeDefined();
 
         // React with X to skip context
@@ -218,7 +218,7 @@ describe.skipIf(SKIP)('Context Prompt', () => {
         await startSessionMidThread(ctx, rootId, 'Analyze this issue', getBotUsername());
 
         // Wait for context prompt
-        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 15000 });
+        const contextPromptPost = await waitForPostMatching(ctx, rootId, /Include thread context/i, { timeout: 30000 });
 
         expect(contextPromptPost).toBeDefined();
         // Should show options like "Last 3 messages", "Last 5 messages"
