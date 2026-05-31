@@ -1182,6 +1182,10 @@ export class MessageManager {
   dispose(): void {
     this.cancelScheduledFlush();
     this.postTracker.clearSession(this.sessionId);
+    // Remove all listeners attached to this session's per-instance emitter.
+    // Without this the closures held by listeners keep session state alive
+    // after the session ends, leaking across many sessions.
+    this.events.removeAllListeners();
     this.reset();
   }
 }

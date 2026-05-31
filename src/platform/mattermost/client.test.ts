@@ -84,6 +84,29 @@ describe('MattermostClient pure helpers', () => {
     expect(makeClient().getMessageLimits()).toEqual({ maxLength: 16000, hardThreshold: 14000 });
   });
 
+  it('retryDelayMs grows exponentially, caps, and stays within equal-jitter bounds', () => {
+    const c = makeClient();
+    // ceil(n) = min(500 * 2^n, 2000); equal jitter => result in [ceil/2, ceil].
+    const ceils = [500, 1000, 2000, 2000, 2000, 2000];
+    for (let n = 0; n < ceils.length; n++) {
+      const ceil = ceils[n];
+      // Sample repeatedly to exercise the random jitter.
+      for (let i = 0; i < 200; i++) {
+        const d = c.retryDelayMs(n);
+        expect(d).toBeGreaterThanOrEqual(ceil / 2);
+        expect(d).toBeLessThanOrEqual(ceil);
+      }
+    }
+  });
+
+  it('retryDelayMs never exceeds the cap even for large retry counts', () => {
+    const c = makeClient();
+    for (let i = 0; i < 200; i++) {
+      // Well past MAX_RETRIES — must still be bounded by the 2000ms cap.
+      expect(c.retryDelayMs(20)).toBeLessThanOrEqual(2000);
+    }
+  });
+
   it('isBotMentioned matches @botname at start and mid-message', () => {
     const c = makeClient({ botName: 'claude' });
     expect(c.isBotMentioned('@claude do stuff')).toBe(true);

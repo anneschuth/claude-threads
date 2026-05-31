@@ -22,6 +22,7 @@ import { SessionStore } from './persistence/session-store.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
+import { startReactMeasureCleanup } from './utils/perf-cleanup.js';
 import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIProvider } from './ui/index.js';
@@ -399,6 +400,11 @@ async function startWithoutDaemon() {
 
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
+
+  // React 19 buffers a PerformanceMeasure per re-render on Node.js 25+, which
+  // leaks until OOM. Nothing reads these entries, so drop them on a timer.
+  // See src/utils/perf-cleanup.ts for the full rationale and safety notes.
+  startReactMeasureCleanup();
 
   // Check if this is a daemon restart after update - restore runtime settings if so
   const updateState = loadUpdateState();

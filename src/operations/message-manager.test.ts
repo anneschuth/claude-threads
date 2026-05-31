@@ -241,6 +241,22 @@ describe('MessageManager', () => {
       // Other sessions must not be affected.
       expect(postTracker.getPostsForSession('test:other-session')).toHaveLength(1);
     });
+
+    it('removes all event listeners on dispose', () => {
+      // Sessions attach listeners (question:complete, task:update, etc.) to the
+      // per-instance emitter. Their closures hold session state alive, so
+      // dispose() must remove them or they leak across many sessions (#394).
+      manager.events.on('task:update', () => {});
+      manager.events.on('question:complete', () => {});
+
+      expect(manager.events.listenerCount('task:update')).toBeGreaterThan(0);
+      expect(manager.events.listenerCount('question:complete')).toBeGreaterThan(0);
+
+      manager.dispose();
+
+      expect(manager.events.listenerCount('task:update')).toBe(0);
+      expect(manager.events.listenerCount('question:complete')).toBe(0);
+    });
   });
 
   describe('Event Handling', () => {

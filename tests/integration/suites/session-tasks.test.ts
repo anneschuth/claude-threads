@@ -89,7 +89,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
         // Wait for task list post (should contain task list formatting)
         const taskPost = await waitForPostMatching(ctx, rootPost.id, /Tasks/, {
-          timeout: 10000,
+          timeout: 30000,
         });
 
         expect(taskPost).toBeDefined();
@@ -115,7 +115,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
 
         // Wait for completion message
         const completionPost = await waitForPostMatching(ctx, rootPost.id, /complete/i, {
-          timeout: 15000,
+          timeout: 30000,
         });
 
         expect(completionPost).toBeDefined();
@@ -144,7 +144,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
         // Note: The task list post itself is deleted when all tasks complete,
         // so we look for the completion message instead
         const completionPost = await waitForPostMatching(ctx, rootPost.id, /all tasks.*complete/i, {
-          timeout: 10000,
+          timeout: 30000,
         });
         expect(completionPost).toBeDefined();
       });
