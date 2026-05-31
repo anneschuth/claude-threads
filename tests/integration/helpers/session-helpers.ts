@@ -101,6 +101,49 @@ export function initTestContext(platformType: PlatformType = 'mattermost'): Test
 }
 
 /**
+ * Like {@link initTestContext}, but for Mattermost it provisions a fresh,
+ * isolated channel so concurrent suites don't cross-talk (sticky storms and
+ * thread write races) in the one shared config channel. Returns the context
+ * plus a `cleanup()` that removes the channel; call it in `afterAll`.
+ *
+ * Pass `ctx.channelId` through to the bot via
+ * `getPlatformBotOptions(platformType, { ... }, ctx)` so the bot operates in
+ * the same isolated channel.
+ *
+ * For Slack this is a no-op wrapper over {@link initTestContext}: the Slack
+ * mock server is per-job and deterministic, so there's nothing to isolate.
+ */
+export async function initIsolatedTestContext(
+  platformType: PlatformType = 'mattermost',
+): Promise<{ ctx: TestSessionContext; cleanup: () => Promise<void> }> {
+  const base = initTestContext(platformType);
+
+  if (platformType !== 'mattermost') {
+    return { ctx: base, cleanup: async () => {} };
+  }
+
+  const config = loadConfig();
+  const adminApi = initAdminApi();
+  const channelId = await createIsolatedChannel(
+    adminApi,
+    config.mattermost.team.id!,
+    'iso',
+  );
+
+  const ctx: TestSessionContext = { ...base, channelId };
+
+  const cleanup = async () => {
+    try {
+      await adminApi.deleteChannel(channelId);
+    } catch {
+      // Best-effort: a failed channel delete must not fail the suite.
+    }
+  };
+
+  return { ctx, cleanup };
+}
+
+/**
  * Create API client with admin privileges (Mattermost only)
  */
 export function initAdminApi(): MattermostTestApi {
@@ -475,9 +518,19 @@ export async function createIsolatedChannel(
     type: 'O',
   });
 
-  // Add bot to channel
-  if (config.mattermost.bot.userId) {
-    await adminApi.addUserToChannel(channel.id, config.mattermost.bot.userId);
+  // Add every bot that could serve this suite to the channel. A test draws
+  // its bot from a pool (each with its own user token), and MattermostClient
+  // only receives WebSocket events for channels its user is a member of
+  // (it filters on channel_id). Miss a pool bot here and any test that draws
+  // it would silently never see the trigger message. Dedupe so the single
+  // default bot (also present in the pool) isn't added twice.
+  const botUserIds = new Set<string>();
+  if (config.mattermost.bot.userId) botUserIds.add(config.mattermost.bot.userId);
+  for (const b of config.mattermost.bots) {
+    if (b.userId) botUserIds.add(b.userId);
+  }
+  for (const userId of botUserIds) {
+    await adminApi.addUserToChannel(channel.id, userId);
   }
 
   // Add test users to channel
@@ -697,6 +750,7 @@ export async function waitForSessionPersisted(
 export function getPlatformBotOptions(
   platformType: PlatformType,
   baseOptions: Omit<StartBotOptions, 'platform' | 'slackMockPort' | 'slackBotToken' | 'slackAppToken' | 'slackChannelId' | 'slackBotName'> = {},
+  ctx?: TestSessionContext,
 ): StartBotOptions {
   if (platformType === 'slack') {
     const config = loadConfig();
@@ -714,9 +768,12 @@ export function getPlatformBotOptions(
     };
   }
 
-  // Mattermost - just pass through base options (default platform)
+  // Mattermost - pass through base options, and route the bot to the context's
+  // channel when one is given (per-suite isolated channel). Falls back to the
+  // shared config channel when ctx is omitted.
   return {
     ...baseOptions,
     platform: 'mattermost',
+    mattermostChannelId: ctx?.channelId,
   };
 }

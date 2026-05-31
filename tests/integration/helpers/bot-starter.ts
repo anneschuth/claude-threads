@@ -110,6 +110,13 @@ export interface StartBotOptions {
   slackChannelId?: string;
   /** Slack bot name for testing (default: 'claude-test-bot') */
   slackBotName?: string;
+  /**
+   * Mattermost channel id the bot should operate in. Defaults to the shared
+   * config channel. Pass a per-suite isolated channel to keep concurrent
+   * suites from cross-talking (sticky storms / thread write races) in one
+   * channel.
+   */
+  mattermostChannelId?: string;
 }
 
 /**
@@ -135,6 +142,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     slackAppToken,
     slackChannelId,
     slackBotName = 'claude-test-bot',
+    mattermostChannelId,
   } = options;
 
   // Load test config
@@ -233,7 +241,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       displayName: 'Test Mattermost',
       url: testConfig.mattermost.url,
       token: poolBot.token!,
-      channelId: testConfig.mattermost.channel.id!,
+      channelId: mattermostChannelId ?? testConfig.mattermost.channel.id!,
       botName: poolBot.username,
       allowedUsers,
       skipPermissions,
