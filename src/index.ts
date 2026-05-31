@@ -400,6 +400,18 @@ async function startWithoutDaemon() {
   // Mutable reference for shutdown - set after all components initialized
   let triggerShutdown: (() => void) | null = null;
 
+  // React 19 calls performance.measure() with a structured-clone'd prop-diff
+  // detail on every re-render when user timing is supported (Node.js 25+).
+  // Node buffers each PerformanceMeasure entry indefinitely, leaking ~50-205 KB
+  // per render. Nothing in the bot reads these entries, so clear them
+  // periodically. .unref() keeps this from blocking a clean process exit.
+  if (
+    typeof performance !== 'undefined' &&
+    typeof performance.clearMeasures === 'function'
+  ) {
+    setInterval(() => performance.clearMeasures(), 60_000).unref();
+  }
+
   // Check if this is a daemon restart after update - restore runtime settings if so
   const updateState = loadUpdateState();
   const restoredSettings = updateState.justUpdated ? updateState.runtimeSettings : undefined;

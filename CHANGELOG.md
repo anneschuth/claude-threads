@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Two remaining memory leaks after #351.** First, `MessageManager.dispose()` cleared the post tracker but never called `this.events.removeAllListeners()` on the per-session emitter. Each session attaches a handful of listeners (`question:complete`, `task:update`, `approval:complete`, and the rest), and their closures kept session state reachable after the session ended, so the heap grew with every session. `dispose()` now removes the listeners before resetting. Second, React 19 enables user timing when both `console.timeStamp` and `performance.measure` exist (the case on Node.js 25+), so every component re-render calls `performance.measure()` with a structured-clone'd prop-diff detail that Node buffers indefinitely (~50-205 KB per entry, ~2 GB after a long uptime). Nothing in the bot reads those entries, so a guarded `setInterval` clears them every 60 seconds with `.unref()` so it never blocks a clean exit. (#394)
+
 ## [1.16.1] - 2026-05-22
 
 ### Security
