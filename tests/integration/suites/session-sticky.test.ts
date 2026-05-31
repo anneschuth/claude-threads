@@ -69,15 +69,24 @@ async function waitForStickyWithTrigger(
   timeoutMs = 30000,
 ): Promise<{ message: string; id: string } | undefined> {
   const start = Date.now();
+  let lastSeen: string[] = [];
   while (Date.now() - start < timeoutMs) {
     await adminApi.createPost({ channel_id: channelId, message: 'kick the sticky' });
     // Give the channel_post → updateStickyMessage → createPost round trip a
     // moment, then check.
     await new Promise((r) => setTimeout(r, 1000));
-    const { posts } = await adminApi.getChannelPosts(channelId, { per_page: 20 });
+    const { posts } = await adminApi.getChannelPosts(channelId, { per_page: 50 });
+    lastSeen = Object.values(posts).map((p) => p.message);
     const sticky = Object.values(posts).find((p) => STICKY_REGEX.test(p.message));
     if (sticky) return sticky;
   }
+  // Diagnostic: dump what we did see in this channel so a CI failure is
+  // debuggable without DEBUG=1 on the bot.
+  // eslint-disable-next-line no-console
+  console.log(
+    `[sticky-test] no sticky in channel ${channelId} after ${timeoutMs}ms; ` +
+      `last ${lastSeen.length} messages: ${JSON.stringify(lastSeen.map((m) => m.slice(0, 60)))}`,
+  );
   return undefined;
 }
 
@@ -143,8 +152,11 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'simple-response',
           skipPermissions: true,
-          debug: process.env.DEBUG === '1',
+          debug: true, // TEMP: diagnose CI sticky failure
         }, ctx));
+
+        // eslint-disable-next-line no-console
+        console.log(`[sticky-test] startup test channel=${ctx.channelId} bot=${bot.botUsername}`);
 
         // Wait for the sticky message to appear (re-triggers each round)
         const stickyPost = await waitForStickyWithTrigger(adminApi, ctx.channelId);
