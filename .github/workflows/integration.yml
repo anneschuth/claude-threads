@@ -79,31 +79,11 @@ jobs:
       - name: Wait for Mattermost to be ready
         if: matrix.platform == 'mattermost'
         run: |
-          # The plain /system/ping returns 200 as soon as the web tier is up,
-          # but the database layer warms a few seconds later. Tests that POST
-          # too early hit a storm of 500s on /posts (the known threads write
-          # race), surfacing as flaky task-list / sticky / context-prompt
-          # failures. Gate on database_status (only reported with
-          # get_server_status=true) so we proceed only once posts will succeed.
-          # NB: we check database_status, not the top-level status. The
-          # container's local filestore reports UNHEALTHY (which does not block
-          # posting), and that makes the endpoint return HTTP 500 with the
-          # health detail in the body. So this probe must NOT use curl -f
-          # (which would discard the 500 body and hang the gate forever); we
-          # read the body unconditionally and match the database_status field.
-          echo "Waiting for Mattermost web tier..."
+          echo "Waiting for Mattermost to start..."
           timeout 180 bash -c '
             until curl -sf http://localhost:8065/api/v4/system/ping; do
               echo "Waiting..."
               sleep 5
-            done
-          '
-          echo "Waiting for Mattermost database tier..."
-          timeout 120 bash -c '
-            until curl -s "http://localhost:8065/api/v4/system/ping?get_server_status=true" \
-              | grep -q "\"database_status\":\"OK\""; do
-              echo "Database not ready yet..."
-              sleep 3
             done
           '
           echo "Mattermost is ready!"
