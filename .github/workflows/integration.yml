@@ -113,12 +113,36 @@ jobs:
           '
           echo "Slack mock server is ready!"
 
-      # Run integration tests
+      # Run integration tests — ONE process per suite file.
+      #
+      # The bot/session/sticky layer keeps module-level global state
+      # (stickyPostIds, the session registry, the bot pool cursor) and live
+      # WebSocket connections. Bun runs all suite files in a single process, so
+      # a bot whose WebSocket isn't fully torn down in one suite keeps
+      # processing events (and posting "Bot Offline" stickies, resuming stale
+      # sessions) into the next suite — which made the sticky suite flaky. A
+      # per-test cleanup audit across 21 suites is fragile; running each file in
+      # its own process makes process exit clear all of that by construction, so
+      # no state can leak between suites.
+      #
       # Per-test cap: 120s. Some tests (Skip Permissions, Tool Use Display)
-      # take 60-90s in CI under Mattermost retry pressure. Keep in sync with
-      # package.json's test:integration:run script.
+      # take 60-90s in CI under Mattermost retry pressure.
       - name: Run integration tests
-        run: bun test tests/integration/suites --timeout 120000
+        run: |
+          set -uo pipefail
+          failed=0
+          for suite in tests/integration/suites/*.test.ts; do
+            echo "::group::$suite"
+            if ! bun test "$suite" --timeout 120000; then
+              echo "❌ $suite failed"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "One or more integration suites failed."
+            exit 1
+          fi
         env:
           MATTERMOST_URL: http://localhost:8065
           SLACK_MOCK_URL: http://localhost:3457/api
