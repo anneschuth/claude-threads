@@ -34,20 +34,6 @@ const STICKY_REGEX = /claude-threads|Claude.*Threads|Active.*Claude/i;
  * in Mattermost don't have pin permissions by default.
  * The bot's createPost can retry on 500 errors, so we poll.
  */
-/**
- * The bot (re)creates its sticky in response to channel activity (the
- * `channel_post` handler in SessionManager), not purely on connect. In the
- * shared config channel ambient traffic from other suites used to trigger it
- * incidentally; in a per-suite isolated channel nothing posts unless we do.
- * Post a plain channel message to fire the sticky path deterministically.
- */
-async function triggerSticky(
-  adminApi: MattermostTestApi,
-  channelId: string,
-): Promise<void> {
-  await adminApi.createPost({ channel_id: channelId, message: 'kick the sticky' });
-}
-
 async function waitForStickyPost(
   adminApi: MattermostTestApi,
   channelId: string,
@@ -59,6 +45,38 @@ async function waitForStickyPost(
     const sticky = Object.values(posts).find((p) => STICKY_REGEX.test(p.message));
     if (sticky) return sticky;
     await new Promise((r) => setTimeout(r, 250));
+  }
+  return undefined;
+}
+
+/**
+ * Get the bot's first sticky in a freshly-isolated channel.
+ *
+ * The bot (re)creates its sticky in response to channel activity (the
+ * `channel_post` handler in SessionManager), not purely on connect. In the old
+ * shared config channel, ambient traffic from other suites triggered it
+ * incidentally; in a per-suite isolated channel nothing posts unless we do.
+ *
+ * A single trigger post isn't enough: right after startup the bot's WebSocket
+ * may not yet be subscribed to the new channel, so an early `channel_post` is
+ * missed and the sticky never appears (this is why the startup test timed out
+ * in CI but not locally). So we re-post the trigger each poll round until the
+ * sticky shows up — once the subscription is live, the next trigger lands.
+ */
+async function waitForStickyWithTrigger(
+  adminApi: MattermostTestApi,
+  channelId: string,
+  timeoutMs = 30000,
+): Promise<{ message: string; id: string } | undefined> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await adminApi.createPost({ channel_id: channelId, message: 'kick the sticky' });
+    // Give the channel_post → updateStickyMessage → createPost round trip a
+    // moment, then check.
+    await new Promise((r) => setTimeout(r, 1000));
+    const { posts } = await adminApi.getChannelPosts(channelId, { per_page: 20 });
+    const sticky = Object.values(posts).find((p) => STICKY_REGEX.test(p.message));
+    if (sticky) return sticky;
   }
   return undefined;
 }
@@ -128,10 +146,8 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           debug: process.env.DEBUG === '1',
         }, ctx));
 
-        await triggerSticky(adminApi, ctx.channelId);
-
-        // Wait for the sticky message to appear (polls with retries)
-        const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
+        // Wait for the sticky message to appear (re-triggers each round)
+        const stickyPost = await waitForStickyWithTrigger(adminApi, ctx.channelId);
         expect(stickyPost).toBeDefined();
       });
 
@@ -151,8 +167,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           : 'claude-test-bot';
 
         // Wait for initial sticky message
-        await triggerSticky(adminApi, ctx.channelId);
-        const initialSticky = await waitForStickyPost(adminApi, ctx.channelId);
+        const initialSticky = await waitForStickyWithTrigger(adminApi, ctx.channelId);
 
         // Start a session
         const rootPost = await startSession(ctx, 'Test session for sticky', botUsername);
@@ -230,8 +245,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           skipPermissions: true,
         }, ctx));
 
-        await triggerSticky(adminApi, ctx.channelId);
-        const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
+        const stickyPost = await waitForStickyWithTrigger(adminApi, ctx.channelId);
 
         expect(stickyPost).toBeDefined();
         // Should contain version number (e.g., "v0.34.0")
@@ -248,8 +262,7 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
           skipPermissions: true,
         }, ctx));
 
-        await triggerSticky(adminApi, ctx.channelId);
-        const stickyPost = await waitForStickyPost(adminApi, ctx.channelId);
+        const stickyPost = await waitForStickyWithTrigger(adminApi, ctx.channelId);
 
         expect(stickyPost).toBeDefined();
         // Should contain status indicators (Auto/Interactive, Keep-alive, etc.)
