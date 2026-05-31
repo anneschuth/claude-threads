@@ -25,11 +25,20 @@ describe('startReactMeasureCleanup', () => {
     timer = startReactMeasureCleanup(10);
     expect(timer).not.toBeNull();
 
-    // Wait for at least one tick.
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    // Poll until the buffer drains, bounded by a generous deadline. This passes
+    // as soon as a tick fires (no fixed sleep to race against a loaded CI box),
+    // and only fails if cleanup never happens — preserving the RED signal when
+    // the fix is removed (#394).
+    const deadline = Date.now() + 1000;
+    while (
+      performance.getEntriesByType('measure').length > 0 &&
+      Date.now() < deadline
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
 
     // Without the cleanup these entries would persist (and leak); the helper
-    // must have drained the buffer (#394).
+    // must have drained the buffer.
     expect(performance.getEntriesByType('measure').length).toBe(0);
   });
 
