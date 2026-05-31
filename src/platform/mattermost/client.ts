@@ -168,9 +168,18 @@ export class MattermostClient extends BasePlatformClient {
     }
   }
 
-  // Maximum number of retry attempts for transient errors
-  private readonly MAX_RETRIES = 3;
+  // Retry budget for transient 500s. The dominant case is the Mattermost
+  // threads write race (duplicate key on threads_pkey / app.post.save.app_error)
+  // that fires when several posts stream to the same thread under load. With
+  // only 3 retries a heavy burst exhausts the budget and a post is dropped; we
+  // saw integration runs draw 14-17 such 500s and break, while lighter bursts
+  // recovered. More attempts plus a capped, jittered backoff ride out the
+  // burst. The cap keeps total wait bounded (so retries never themselves cause
+  // a test timeout), and the jitter de-correlates concurrent posts retrying in
+  // lockstep — without it they re-collide on the same row lock every round.
+  private readonly MAX_RETRIES = 6;
   private readonly RETRY_DELAY_MS = 500;
+  private readonly RETRY_DELAY_CAP_MS = 2000;
 
   // REST API helper with retry logic for transient errors
   // Options:
@@ -199,7 +208,7 @@ export class MattermostClient extends BasePlatformClient {
       // Retry on 500 errors (transient server issues like app.post.save.app_error)
       // These can occur due to database contention under load
       if (response.status === 500 && retryCount < this.MAX_RETRIES) {
-        const delay = this.RETRY_DELAY_MS * Math.pow(2, retryCount); // Exponential backoff
+        const delay = this.retryDelayMs(retryCount);
         log.warn(`API ${method} ${path} failed with 500, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
         await new Promise((resolve) => setTimeout(resolve, delay));
         return this.api<T>(method, path, body, retryCount + 1, options);
@@ -217,6 +226,28 @@ export class MattermostClient extends BasePlatformClient {
 
     log.debug(`API ${method} ${path} → ${response.status}`);
     return response.json() as Promise<T>;
+  }
+
+  /**
+   * Backoff for the Nth retry (0-indexed): exponential growth, capped, with
+   * equal jitter. Exposed for testing. Returns a value in
+   * [ceil/2, ceil] where ceil = min(RETRY_DELAY_MS * 2^retryCount,
+   * RETRY_DELAY_CAP_MS).
+   *
+   * Equal (not full) jitter keeps a guaranteed minimum spacing — a full-jitter
+   * delay can land near 0 and immediately re-collide under a write storm — while
+   * still decorrelating concurrent retries (several posts streaming to the same
+   * thread) so they stop hitting the same row lock in lockstep each round. The
+   * cap bounds total wait so a long retry chain can't itself trip a test
+   * timeout.
+   */
+  retryDelayMs(retryCount: number): number {
+    const ceil = Math.min(
+      this.RETRY_DELAY_MS * Math.pow(2, retryCount),
+      this.RETRY_DELAY_CAP_MS
+    );
+    const half = ceil / 2;
+    return Math.floor(half + Math.random() * half);
   }
 
   // Get current bot user info
