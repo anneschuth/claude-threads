@@ -265,9 +265,16 @@ describe.skipIf(SKIP)('Sticky Channel Message', () => {
         const stickyPost = await waitForStickyWithTrigger(adminApi, ctx.channelId);
 
         expect(stickyPost).toBeDefined();
-        // Should contain status indicators (Auto/Interactive, Keep-alive, etc.)
+        // The status bar always carries a permission-mode chip (Default / Auto /
+        // Bypass) plus a session count and uptime. Keep-alive (💓) is only shown
+        // when enabled, so don't require it: this bot runs skipPermissions
+        // (Bypass mode) with no active session, so 💓 / Auto need not appear.
+        // (The previous assertion only passed by luck when keep-alive state
+        // leaked in from a prior suite — process isolation exposed that.)
         const hasStatusIndicators =
-          /Auto|Interactive|Keep-alive|💓|⚡/i.test(stickyPost!.message);
+          /Default|Auto|Bypass|Interactive|Keep-alive|💓|⚡|sessions|⏱️/i.test(
+            stickyPost!.message,
+          );
         expect(hasStatusIndicators).toBe(true);
       });
     });
