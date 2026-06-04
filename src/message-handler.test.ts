@@ -59,6 +59,7 @@ function createMockSessionManager() {
     interruptSession: mock(async () => {}),
     inviteUser: mock(async () => {}),
     kickUser: mock(async () => {}),
+    setRespondOnlyWhenMentioned: mock(async () => {}),
     enableInteractivePermissions: mock(async () => {}),
     setSessionPermissionMode: mock(async () => {}),
     changeDirectory: mock(async () => {}),
@@ -392,6 +393,134 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.requestMessageApproval).toHaveBeenCalledWith('thread1', 'outsider', 'can I help?');
+    });
+  });
+
+  describe('quiet mode (respondOnlyWhenMentioned, #402)', () => {
+    test('handles !mentions on command', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!mentions on',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.setRespondOnlyWhenMentioned).toHaveBeenCalledWith('thread1', 'allowed-user', 'on');
+    });
+
+    test('bare !mentions toggles (no arg)', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({ sessionId: 'test:thread1' });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!mentions',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.setRespondOnlyWhenMentioned).toHaveBeenCalledWith('thread1', 'allowed-user', undefined);
+    });
+
+    test('when quiet mode on, ignores a reply that does not @mention the bot', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'just chatting with a colleague here',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    test('when quiet mode on, responds to a reply that @mentions the bot', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot please continue',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'please continue', undefined, 'allowed-user', 'User');
+    });
+
+    test('when quiet mode off (default), responds to a non-mention reply', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: false,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'keep going please',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'keep going please', undefined, 'allowed-user', 'User');
+    });
+
+    test('when quiet mode on, !mentions off command still works (commands bypass the gate)', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!mentions off',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.setRespondOnlyWhenMentioned).toHaveBeenCalledWith('thread1', 'allowed-user', 'off');
     });
   });
 

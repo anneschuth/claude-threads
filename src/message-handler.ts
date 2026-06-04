@@ -165,6 +165,15 @@ export async function handleMessage(
         return;
       }
 
+      // Quiet mode (#402): when the session opts into "respond only when
+      // mentioned", a non-command reply that doesn't @mention the bot is a side
+      // conversation between users — ignore it so it doesn't interrupt Claude.
+      // Commands are already handled above and so always work, including
+      // `!mentions off` to leave quiet mode.
+      if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+        return;
+      }
+
       // Check for pending worktree prompt - treat message as branch name response
       if (session.hasPendingWorktreePrompt(threadRoot)) {
         // Only session owner can respond

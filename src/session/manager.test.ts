@@ -521,6 +521,7 @@ describe('SessionManager', () => {
       planApproved: false,
       sessionAllowedUsers: new Set(['alice']),
       forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
       sessionStartPostId: null,
       timers: { timeoutTimer: null, warningTimer: null, cleanupTimer: null },
       lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: true },
@@ -722,7 +723,8 @@ describe('SessionManager', () => {
       const expectedKeys = new Set([
         'platformId', 'threadId', 'claudeSessionId', 'startedBy', 'startedByDisplayName',
         'startedAt', 'lastActivityAt', 'sessionNumber', 'workingDir', 'planApproved',
-        'sessionAllowedUsers', 'forceInteractivePermissions', 'sessionStartPostId',
+        'sessionAllowedUsers', 'forceInteractivePermissions', 'respondOnlyWhenMentioned',
+        'sessionStartPostId',
         'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
         'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
         'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',

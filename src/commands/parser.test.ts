@@ -105,6 +105,23 @@ describe('parseCommand', () => {
     });
   });
 
+  describe('mentions (quiet mode) command', () => {
+    test('parses !mentions on', () => {
+      const result = parseCommand('!mentions on');
+      expect(result).toEqual({ command: 'mentions', args: 'on', match: '!mentions on' });
+    });
+
+    test('parses !mentions off', () => {
+      const result = parseCommand('!mentions off');
+      expect(result).toEqual({ command: 'mentions', args: 'off', match: '!mentions off' });
+    });
+
+    test('parses bare !mentions (no arg) as a toggle', () => {
+      const result = parseCommand('!mentions');
+      expect(result).toEqual({ command: 'mentions', args: undefined, match: '!mentions' });
+    });
+  });
+
   describe('update commands', () => {
     test('parses !update', () => {
       const result = parseCommand('!update');

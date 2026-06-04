@@ -295,6 +295,18 @@ export interface Session {
   forceInteractivePermissions: boolean;
 
   /**
+   * When `true`, the bot only treats a thread reply as input for Claude if the
+   * message explicitly @mentions the bot. Replies that don't mention it are
+   * ignored (the way side conversations to other users already are), so users
+   * can hold quiet side conversations in the thread without interrupting.
+   *
+   * Commands (`!...`) are still honored regardless, so `!mentions off` can
+   * always turn it back off. Toggled by `!mentions [on|off]`. Defaults to
+   * `false` (every approved-user reply is input). Persisted across restart.
+   */
+  respondOnlyWhenMentioned: boolean;
+
+  /**
    * Current effective permission mode for THIS session when it differs from
    * the bot-wide default. Set by `!permissions <mode>`. Not persisted —
    * on bot restart, `auto` and `bypass` overrides revert to bot-wide mode

@@ -622,6 +622,7 @@ export class SessionManager extends EventEmitter {
       planApproved: session.planApproved,
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
+      respondOnlyWhenMentioned: session.respondOnlyWhenMentioned,
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,
@@ -1081,6 +1082,20 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.setGitHubEmail(session, username, arg, this.getContext());
+  }
+
+  /**
+   * Toggle "respond only when @mentioned" (quiet mode) for a session (#402).
+   * `arg` accepts `on`/`off`; anything else toggles the current value.
+   */
+  async setRespondOnlyWhenMentioned(
+    threadId: string,
+    username: string,
+    arg: string | undefined,
+  ): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.setRespondOnlyWhenMentioned(session, username, arg, this.getContext());
   }
 
   /**

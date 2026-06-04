@@ -143,6 +143,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     tasksPostId: null,
     skipPermissions: true,
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     platformId: 'test-platform',
     currentPostId: null,
     messageCount: 0,

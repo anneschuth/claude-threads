@@ -98,6 +98,7 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
     lastTasksContent: null,
     tasksPostId: null,
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     planApproved: false,
     pendingApproval: null,
     pendingQuestionSet: null,
@@ -862,5 +863,54 @@ describe('updateSessionHeader (sessionHeaderMode)', () => {
 
     const updatePost = platform.updatePost as ReturnType<typeof mock>;
     expect(updatePost).not.toHaveBeenCalled();
+  });
+});
+
+describe('setRespondOnlyWhenMentioned (#402)', () => {
+  it('enables quiet mode on "on" and persists', async () => {
+    const session = createMockSession();
+    expect(session.respondOnlyWhenMentioned).toBe(false);
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.setRespondOnlyWhenMentioned(session, 'testuser', 'on', ctx);
+
+    expect(session.respondOnlyWhenMentioned).toBe(true);
+    expect(ctx.ops.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it('disables quiet mode on "off"', async () => {
+    const session = createMockSession({ respondOnlyWhenMentioned: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.setRespondOnlyWhenMentioned(session, 'testuser', 'off', ctx);
+
+    expect(session.respondOnlyWhenMentioned).toBe(false);
+    expect(ctx.ops.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it('bare !mentions toggles the current value', async () => {
+    const session = createMockSession({ respondOnlyWhenMentioned: false });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.setRespondOnlyWhenMentioned(session, 'testuser', undefined, ctx);
+    expect(session.respondOnlyWhenMentioned).toBe(true);
+
+    await commands.setRespondOnlyWhenMentioned(session, 'testuser', undefined, ctx);
+    expect(session.respondOnlyWhenMentioned).toBe(false);
+  });
+
+  it('rejects an unauthorized (non-owner, non-allowed) user and does not change state', async () => {
+    // mock platform isUserAllowed returns false by default, so a non-owner is unauthorized.
+    const session = createMockSession({ respondOnlyWhenMentioned: false });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.setRespondOnlyWhenMentioned(session, 'outsider', 'on', ctx);
+
+    expect(session.respondOnlyWhenMentioned).toBe(false);
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
   });
 });

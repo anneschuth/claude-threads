@@ -148,6 +148,7 @@ function createMockSession(overrides?: Partial<Session> & {
     tasksPostId: null,
     skipPermissions: true,
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     messageManager: createMockMessageManager() as any,
     ...overrides,
   } as Session;

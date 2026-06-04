@@ -91,6 +91,7 @@ function makeSession(spies: SessionSpies): Session {
     planApproved: false,
     sessionAllowedUsers: new Set(['alice']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     sessionStartPostId: null,
     timers: { timeoutTimer: null, warningTimer: null, cleanupTimer: null } as unknown as Session['timers'],
     lifecycle: { state: 'active' } as unknown as Session['lifecycle'],

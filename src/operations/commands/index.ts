@@ -19,6 +19,7 @@ export {
   inviteUser,
   kickUser,
   setGitHubEmail,
+  setRespondOnlyWhenMentioned,
 
   // Permission management
   setSessionPermissionMode,

@@ -103,6 +103,7 @@ function createTestSession(platform: PlatformClient): Session {
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     sessionStartPostId: 'start_post',
     sessionHeaderMode: 'full',
     timers: createSessionTimers(),

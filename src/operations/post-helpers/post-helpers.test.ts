@@ -69,6 +69,7 @@ function createMockSession(overrides?: Partial<{
     tasksPostId: null,
     skipPermissions: true,
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     messageCount: 0,
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),

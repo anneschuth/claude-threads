@@ -123,6 +123,7 @@ function createMockSession(overrides: Partial<Session> = {}, taskContent: string
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     sessionStartPostId: null,
     sessionHeaderMode: 'full',
     tasksPostId: null,
