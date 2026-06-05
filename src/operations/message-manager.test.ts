@@ -84,6 +84,7 @@ function createMockSession(platform: PlatformClient): Session {
     planApproved: false,
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     sessionStartPostId: null,
     tasksPostId: null,
     lastTasksContent: null,

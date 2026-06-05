@@ -226,6 +226,14 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     worksInFirstMessage: true,
     isStackable: true,  // !permissions <mode> can be followed by more commands or prompt
   },
+  {
+    command: 'mentions',
+    description: 'Toggle quiet mode: only respond when @mentioned by name',
+    args: 'on / off',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+  },
 
   // ---------------------------------------------------------------------------
   // System

@@ -85,6 +85,7 @@ Type `!help` in any session thread:
 | `!compact`                                  | Compress context to free up space                                                        |
 | `!cd <path>`                                | Change working directory (restarts Claude)                                               |
 | `!permissions <mode>`                       | Set permission mode: `default` / `auto` / `bypass`                                       |
+| `!mentions [on\|off]`                       | Quiet mode: only respond when @mentioned (bare `!mentions` toggles)                      |
 | `!worktree <branch>`                        | Create and switch to a git worktree (also: `list`, `switch`, `remove`, `cleanup`, `off`) |
 | `!plugin <list\|install\|uninstall> [name]` | Manage Claude Code plugins (restarts Claude)                                             |
 | `!invite @user`                             | Invite a user to this session (added as `Co-Authored-By:` on commits)                    |

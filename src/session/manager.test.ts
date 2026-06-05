@@ -100,6 +100,21 @@ describe('SessionManager', () => {
       const m = new SessionManager('/test', false, true, 'require', '/tmp/sessions.json');
       expect(m).toBeDefined();
     });
+
+    test('respondOnlyWhenMentioned defaults to false in the session config (#402)', () => {
+      const m = new SessionManager('/test');
+      expect(m.getContext().config.respondOnlyWhenMentioned).toBe(false);
+    });
+
+    test('respondOnlyWhenMentioned=true flows into the session config (#402)', () => {
+      // Positional: workingDir, permMode, chrome, worktreeMode, sessionsPath,
+      // threadLogsEnabled, retentionDays, limits, claudeAccounts, respondOnlyWhenMentioned.
+      const m = new SessionManager(
+        '/test', 'default', false, 'prompt', undefined,
+        true, 30, undefined, undefined, true,
+      );
+      expect(m.getContext().config.respondOnlyWhenMentioned).toBe(true);
+    });
   });
 
   describe('addPlatform / removePlatform', () => {
@@ -521,6 +536,7 @@ describe('SessionManager', () => {
       planApproved: false,
       sessionAllowedUsers: new Set(['alice']),
       forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
       sessionStartPostId: null,
       timers: { timeoutTimer: null, warningTimer: null, cleanupTimer: null },
       lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: true },
@@ -722,7 +738,8 @@ describe('SessionManager', () => {
       const expectedKeys = new Set([
         'platformId', 'threadId', 'claudeSessionId', 'startedBy', 'startedByDisplayName',
         'startedAt', 'lastActivityAt', 'sessionNumber', 'workingDir', 'planApproved',
-        'sessionAllowedUsers', 'forceInteractivePermissions', 'sessionStartPostId',
+        'sessionAllowedUsers', 'forceInteractivePermissions', 'respondOnlyWhenMentioned',
+        'sessionStartPostId',
         'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
         'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
         'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',

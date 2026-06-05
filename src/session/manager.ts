@@ -69,6 +69,8 @@ export class SessionManager extends EventEmitter {
   private permissionMode: PermissionMode;
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
+  /** Config default for the per-session "respond only when @mentioned" toggle (#402). */
+  private respondOnlyWhenMentioned: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -126,7 +128,8 @@ export class SessionManager extends EventEmitter {
     threadLogsEnabled = true,
     threadLogsRetentionDays = 30,
     limits?: LimitsConfig,
-    claudeAccounts?: ClaudeAccount[]
+    claudeAccounts?: ClaudeAccount[],
+    respondOnlyWhenMentioned = false
   ) {
     super();
     this.workingDir = workingDir;
@@ -136,6 +139,7 @@ export class SessionManager extends EventEmitter {
         : permissionModeOrSkipFlag;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
+    this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -275,6 +279,7 @@ export class SessionManager extends EventEmitter {
       workingDir: this.workingDir,
       permissionMode: this.permissionMode,
       chromeEnabled: this.chromeEnabled,
+      respondOnlyWhenMentioned: this.respondOnlyWhenMentioned,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,
@@ -622,6 +627,7 @@ export class SessionManager extends EventEmitter {
       planApproved: session.planApproved,
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
+      respondOnlyWhenMentioned: session.respondOnlyWhenMentioned,
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,
@@ -1081,6 +1087,20 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.setGitHubEmail(session, username, arg, this.getContext());
+  }
+
+  /**
+   * Toggle "respond only when @mentioned" (quiet mode) for a session (#402).
+   * `arg` accepts `on`/`off`; anything else toggles the current value.
+   */
+  async setRespondOnlyWhenMentioned(
+    threadId: string,
+    username: string,
+    arg: string | undefined,
+  ): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.setRespondOnlyWhenMentioned(session, username, arg, this.getContext());
   }
 
   /**

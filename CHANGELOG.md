@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`!mentions` quiet mode: respond only when @mentioned.** New per-session toggle for holding side conversations inside a bot thread without the bot replying to every message. `!mentions on` makes the bot ignore thread replies that don't explicitly @mention it; `!mentions off` (or a bare `!mentions` to flip the current value) turns it back off. Commands and pending worktree-branch-name prompts always bypass the gate, so `!mentions off` (and answering a worktree prompt) works even while quiet mode is on. When quiet mode is on, the session header shows a row noting it, so a returning user can see why the bot is staying quiet. The setting is owned by the session owner or a globally allowed user and persists across a bot restart. A global `respondOnlyWhenMentioned: true` in `config.yaml` (also offered in the onboarding wizard) seeds quiet mode on every new thread, so users who mostly want quiet threads don't have to run `!mentions on` each time; each session still keeps its own value and can override per-thread. The default everywhere is unchanged (the bot treats every approved-user reply as input), so existing threads and configs are unaffected. (#402)
+
 ## [1.16.3] - 2026-05-31
 
 ### Changed

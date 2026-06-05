@@ -258,6 +258,19 @@ const handlePermissions: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Handle !mentions command — toggle quiet mode (respond only when @mentioned, #402).
+ */
+const handleMentions: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // !mentions needs an existing session
+  }
+  if (ctx.isAllowed) {
+    await ctx.sessionManager.setRespondOnlyWhenMentioned(ctx.threadId, ctx.username, args);
+  }
+  return { handled: true };
+};
+
+/**
  * Handle !worktree command (unified handling for subcommands and branch creation).
  */
 const handleWorktree: CommandHandler = async (ctx, args) => {
@@ -458,6 +471,7 @@ handlers.set('kick', handleKick);
 handlers.set('github-email', handleGitHubEmail);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
+handlers.set('mentions', handleMentions);
 handlers.set('worktree', handleWorktree);
 handlers.set('bug', handleBug);
 handlers.set('plugin', handlePlugin);

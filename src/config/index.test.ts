@@ -104,6 +104,22 @@ describe('saveConfig', () => {
     expect(parsed.platforms[0].id).toBe('slack');
   });
 
+  test('round-trips respondOnlyWhenMentioned through YAML (#402)', () => {
+    const config: Config = {
+      version: 2,
+      workingDir: '/home/user/project',
+      chrome: false,
+      worktreeMode: 'prompt',
+      respondOnlyWhenMentioned: true,
+      platforms: [{ id: 'slack', type: 'slack', displayName: 'Test Slack' }],
+    };
+
+    saveConfig(config, testConfigPath);
+    const parsed = yaml.load(readFileSync(testConfigPath, 'utf-8')) as Config;
+
+    expect(parsed.respondOnlyWhenMentioned).toBe(true);
+  });
+
   test('fixes permissions on existing directory with wrong permissions', () => {
     // Pre-create directory with wrong permissions
     mkdirSync(testDir, { recursive: true, mode: 0o755 });

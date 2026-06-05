@@ -49,6 +49,7 @@ function createMockSession(): Session {
     // Collaboration
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
 
     // Display state
     sessionStartPostId: null,

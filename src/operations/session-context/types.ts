@@ -35,6 +35,12 @@ export interface SessionConfig {
   permissionMode: PermissionMode;
   /** Whether Chrome browser automation is enabled */
   chromeEnabled: boolean;
+  /**
+   * Config default for the per-session "respond only when @mentioned" toggle
+   * (#402). Seeds `Session.respondOnlyWhenMentioned` on new sessions. Default
+   * `false`. Optional so existing `SessionConfig` literals stay valid.
+   */
+  respondOnlyWhenMentioned?: boolean;
   /** Debug mode flag */
   debug: boolean;
   /** Maximum concurrent sessions allowed */

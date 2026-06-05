@@ -59,6 +59,7 @@ function makeSession(): Session {
     planApproved: false,
     sessionAllowedUsers: new Set(['tester']),
     forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
     sessionStartPostId: null,
     timers: createSessionTimers(),
     lifecycle: createSessionLifecycle(),

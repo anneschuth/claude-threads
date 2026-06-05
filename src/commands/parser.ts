@@ -67,6 +67,10 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   // legacy `interactive` (→ default) and `skip` (→ bypass) aliases.
   ['permissions', /^!permissions?\s+(default|auto|bypass|interactive|skip)\s*$/i],
 
+  // Quiet mode — only respond when @mentioned. Bare !mentions toggles;
+  // optional on/off makes it idempotent.
+  ['mentions', /^!mentions(?:\s+(on|off))?\s*$/i],
+
   // Updates
   ['update', /^!update(?:\s+(now|defer))?\s*$/i],
 

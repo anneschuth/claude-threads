@@ -619,6 +619,58 @@ export async function kickUser(
 }
 
 /**
+ * Handle `!mentions [on|off]` — toggle "respond only when @mentioned" for this
+ * session (issue #402). When on, the bot ignores thread replies that don't
+ * @mention it, so users can hold side conversations without interrupting.
+ * Commands still work either way, so `!mentions off` can always turn it back.
+ *
+ * Bare `!mentions` toggles. An explicit `on`/`off` argument is idempotent.
+ */
+export async function setRespondOnlyWhenMentioned(
+  session: Session,
+  username: string,
+  arg: string | undefined,
+  ctx: SessionContext
+): Promise<void> {
+  // Same authorization as other per-session settings: owner or globally allowed.
+  if (!await requireSessionOwner(session, username, 'change session settings')) {
+    return;
+  }
+
+  const normalized = arg?.toLowerCase();
+  let enabled: boolean;
+  if (normalized === 'on') {
+    enabled = true;
+  } else if (normalized === 'off') {
+    enabled = false;
+  } else {
+    // Bare !mentions (or anything else) toggles the current value.
+    enabled = !session.respondOnlyWhenMentioned;
+  }
+
+  session.respondOnlyWhenMentioned = enabled;
+  ctx.ops.persistSession(session);
+
+  const botName = session.platform.getBotName();
+  if (enabled) {
+    await post(
+      session,
+      'success',
+      `Quiet mode on — I'll only respond when you @mention me (\`@${botName}\`). Use \`!mentions off\` to turn this off.`
+    );
+  } else {
+    await post(
+      session,
+      'success',
+      `Quiet mode off — I'll respond to every message in this thread again.`
+    );
+  }
+  sessionLog(session).info(`🔕 respondOnlyWhenMentioned=${enabled} by @${username}`);
+  session.threadLogger?.logCommand('mentions', enabled ? 'on' : 'off', username);
+  await updateSessionHeader(session, ctx);
+}
+
+/**
  * Handle `!github-email` — register/show/reset the caller's GitHub noreply email.
  *
  * Always self-scoped: a user can only register their own address. Owners
@@ -971,6 +1023,13 @@ export async function updateSessionHeader(
 
   if (otherParticipants) {
     items.push(['👥', 'Participants', otherParticipants]);
+  }
+
+  // Quiet mode (#402): only surfaced when on, so a returning user can see why
+  // the bot is ignoring unaddressed replies. Off is the default and stays
+  // unmentioned to keep the header compact.
+  if (session.respondOnlyWhenMentioned) {
+    items.push(['🔕', 'Replies', `only when ${formatter.formatBold('@mentioned')} (${formatter.formatCode('!mentions off')} to disable)`]);
   }
 
   // Claude account (only when the bot is running in multi-account mode)

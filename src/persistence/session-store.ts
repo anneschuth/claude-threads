@@ -43,6 +43,7 @@ export interface PersistedSession {
   workingDir: string;            // Can change via !cd
   sessionAllowedUsers: string[]; // Collaboration list
   forceInteractivePermissions: boolean;
+  respondOnlyWhenMentioned?: boolean; // Quiet mode: only respond to messages that @mention the bot (default false)
   sessionStartPostId: string | null;
   tasksPostId: string | null;
   lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom

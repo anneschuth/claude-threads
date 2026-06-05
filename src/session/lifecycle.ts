@@ -1033,6 +1033,9 @@ export async function startSession(
     planApproved: false,
     sessionAllowedUsers: new Set([username]),
     forceInteractivePermissions,
+    // Seed from the config default (#402); users can still flip it per-session
+    // with `!mentions`. Resumed sessions keep their own persisted value.
+    respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
     sessionHeaderMode,
@@ -1304,6 +1307,7 @@ export async function resumeSession(
     planApproved: state.planApproved ?? false,
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
+    respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
     sessionStartPostId: state.sessionStartPostId ?? null,
     sessionHeaderMode: resumeSessionHeaderMode(
       state.sessionHeaderMode,

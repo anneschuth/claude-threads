@@ -110,6 +110,7 @@ version: 1
 workingDir: /home/user/repos/myproject
 chrome: false
 worktreeMode: prompt
+respondOnlyWhenMentioned: false   # New threads only reply when @mentioned (per-thread !mentions overrides)
 
 # Optional: Customize the sticky channel message
 stickyMessage:
