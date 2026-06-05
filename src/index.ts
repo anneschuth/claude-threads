@@ -577,7 +577,8 @@ async function startWithoutDaemon() {
     threadLogsEnabled,
     threadLogsRetentionDays,
     config.limits,  // Resource limits (optional, has sensible defaults)
-    config.claudeAccounts  // Claude account pool (undefined = single-account mode)
+    config.claudeAccounts,  // Claude account pool (undefined = single-account mode)
+    config.respondOnlyWhenMentioned  // Quiet-mode default for new sessions (#402)
   );
 
   // Set sticky message customization from config

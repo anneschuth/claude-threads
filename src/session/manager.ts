@@ -69,6 +69,8 @@ export class SessionManager extends EventEmitter {
   private permissionMode: PermissionMode;
   private chromeEnabled: boolean;
   private worktreeMode: WorktreeMode;
+  /** Config default for the per-session "respond only when @mentioned" toggle (#402). */
+  private respondOnlyWhenMentioned: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -126,7 +128,8 @@ export class SessionManager extends EventEmitter {
     threadLogsEnabled = true,
     threadLogsRetentionDays = 30,
     limits?: LimitsConfig,
-    claudeAccounts?: ClaudeAccount[]
+    claudeAccounts?: ClaudeAccount[],
+    respondOnlyWhenMentioned = false
   ) {
     super();
     this.workingDir = workingDir;
@@ -136,6 +139,7 @@ export class SessionManager extends EventEmitter {
         : permissionModeOrSkipFlag;
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
+    this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -275,6 +279,7 @@ export class SessionManager extends EventEmitter {
       workingDir: this.workingDir,
       permissionMode: this.permissionMode,
       chromeEnabled: this.chromeEnabled,
+      respondOnlyWhenMentioned: this.respondOnlyWhenMentioned,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,

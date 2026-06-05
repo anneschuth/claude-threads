@@ -100,6 +100,21 @@ describe('SessionManager', () => {
       const m = new SessionManager('/test', false, true, 'require', '/tmp/sessions.json');
       expect(m).toBeDefined();
     });
+
+    test('respondOnlyWhenMentioned defaults to false in the session config (#402)', () => {
+      const m = new SessionManager('/test');
+      expect(m.getContext().config.respondOnlyWhenMentioned).toBe(false);
+    });
+
+    test('respondOnlyWhenMentioned=true flows into the session config (#402)', () => {
+      // Positional: workingDir, permMode, chrome, worktreeMode, sessionsPath,
+      // threadLogsEnabled, retentionDays, limits, claudeAccounts, respondOnlyWhenMentioned.
+      const m = new SessionManager(
+        '/test', 'default', false, 'prompt', undefined,
+        true, 30, undefined, undefined, true,
+      );
+      expect(m.getContext().config.respondOnlyWhenMentioned).toBe(true);
+    });
   });
 
   describe('addPlatform / removePlatform', () => {

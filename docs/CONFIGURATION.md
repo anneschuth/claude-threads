@@ -9,6 +9,7 @@ version: 1
 workingDir: /home/user/repos/myproject
 chrome: false
 worktreeMode: prompt
+respondOnlyWhenMentioned: false
 
 platforms:
   # Mattermost
@@ -41,6 +42,7 @@ platforms:
 | `workingDir` | Default working directory for Claude | Current directory |
 | `chrome` | Enable Chrome integration | `false` |
 | `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` | `prompt` |
+| `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
 
 ## Platform Settings
 

@@ -399,6 +399,13 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       initial: existingConfig?.worktreeMode === 'off' ? 1 :
                existingConfig?.worktreeMode === 'require' ? 2 : 0,
     },
+    {
+      type: 'confirm',
+      name: 'respondOnlyWhenMentioned',
+      message: 'Respond only when @mentioned?',
+      initial: existingConfig?.respondOnlyWhenMentioned || false,
+      hint: 'New threads start in quiet mode; users can still toggle per-thread with !mentions',
+    },
   ], { onCancel });
 
   const config: Config = {
@@ -406,6 +413,12 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     ...globalSettings,
     platforms: [],
   };
+
+  // Keep the config clean: this field defaults to false, so only persist the
+  // opt-in. Mirrors how keepAlive is only written when disabled.
+  if (!config.respondOnlyWhenMentioned) {
+    delete config.respondOnlyWhenMentioned;
+  }
 
   // Step 2: Add platforms (loop)
   console.log('');
@@ -549,7 +562,7 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
       {
         title: 'Global settings',
         value: 'global',
-        description: `workingDir, chrome, worktreeMode`
+        description: `workingDir, chrome, worktreeMode, mentions`
       },
     ];
 
@@ -610,9 +623,20 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
           initial: config.worktreeMode === 'off' ? 1 :
                    config.worktreeMode === 'require' ? 2 : 0,
         },
+        {
+          type: 'confirm',
+          name: 'respondOnlyWhenMentioned',
+          message: 'Respond only when @mentioned?',
+          initial: config.respondOnlyWhenMentioned || false,
+          hint: 'New threads start in quiet mode; users can still toggle per-thread with !mentions',
+        },
       ], { onCancel });
 
       config = { ...config, ...globalSettings };
+      // Only persist the opt-in (default is false), same as keepAlive.
+      if (!config.respondOnlyWhenMentioned) {
+        delete config.respondOnlyWhenMentioned;
+      }
       console.log(green('  ✓ Global settings updated'));
     } else if (action === 'add-new') {
       // Add new platform
@@ -777,6 +801,7 @@ async function showConfigSummary(config: Config): Promise<void> {
   console.log(dim(`    Working Directory: ${config.workingDir}`));
   console.log(dim(`    Chrome Integration: ${config.chrome ? 'Enabled' : 'Disabled'}`));
   console.log(dim(`    Worktree Mode: ${config.worktreeMode}`));
+  console.log(dim(`    Respond Only When Mentioned: ${config.respondOnlyWhenMentioned ? 'Enabled' : 'Disabled'}`));
   console.log('');
   console.log(dim(`  Platforms (${config.platforms.length}):`));
   for (const platform of config.platforms) {

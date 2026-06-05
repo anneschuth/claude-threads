@@ -188,6 +188,15 @@ export interface Config {
   workingDir: string;
   chrome: boolean;
   worktreeMode: WorktreeMode;
+  /**
+   * Default for the per-session "respond only when @mentioned" toggle (#402).
+   * When `true`, every NEW session starts in quiet mode (the bot only replies
+   * to thread messages that @mention it); users can still flip it per-session
+   * with `!mentions`. Omitted/`false` keeps the original behavior (the bot
+   * responds to every approved-user reply). Does not affect already-running or
+   * resumed sessions — each session persists its own value.
+   */
+  respondOnlyWhenMentioned?: boolean;
   keepAlive?: boolean; // Optional, defaults to true when undefined
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   threadLogs?: ThreadLogsConfig; // Optional thread logging configuration
