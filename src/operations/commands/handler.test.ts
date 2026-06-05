@@ -809,6 +809,22 @@ describe('updateSessionHeader (sessionHeaderMode)', () => {
     expect(body).toContain('Session ID');
   });
 
+  it('full mode shows the quiet-mode row only when respondOnlyWhenMentioned is on (#402)', async () => {
+    const platform = createMockPlatform();
+
+    // Off (default): no quiet-mode row.
+    const offSession = createMockSession({ platform, sessionHeaderMode: 'full', respondOnlyWhenMentioned: false });
+    await commands.updateSessionHeader(offSession, createMockSessionContext(new Map([[offSession.sessionId, offSession]])));
+    const offBody = (platform.updatePost as ReturnType<typeof mock>).mock.calls[0][1] as string;
+    expect(offBody).not.toContain('!mentions off');
+
+    // On: the row appears with a hint on how to disable it.
+    const onSession = createMockSession({ platform, sessionHeaderMode: 'full', respondOnlyWhenMentioned: true });
+    await commands.updateSessionHeader(onSession, createMockSessionContext(new Map([[onSession.sessionId, onSession]])));
+    const onBody = (platform.updatePost as ReturnType<typeof mock>).mock.calls[1][1] as string;
+    expect(onBody).toContain('!mentions off');
+  });
+
   it('minimal mode posts only the status bar (no table)', async () => {
     const platform = createMockPlatform();
     const session = createMockSession({ platform, sessionHeaderMode: 'minimal' });

@@ -1025,6 +1025,13 @@ export async function updateSessionHeader(
     items.push(['👥', 'Participants', otherParticipants]);
   }
 
+  // Quiet mode (#402): only surfaced when on, so a returning user can see why
+  // the bot is ignoring unaddressed replies. Off is the default and stays
+  // unmentioned to keep the header compact.
+  if (session.respondOnlyWhenMentioned) {
+    items.push(['🔕', 'Replies', `only when ${formatter.formatBold('@mentioned')} (${formatter.formatCode('!mentions off')} to disable)`]);
+  }
+
   // Claude account (only when the bot is running in multi-account mode)
   if (session.claudeAccountId) {
     const account = ctx.ops.getClaudeAccount(session.claudeAccountId);

@@ -165,16 +165,11 @@ export async function handleMessage(
         return;
       }
 
-      // Quiet mode (#402): when the session opts into "respond only when
-      // mentioned", a non-command reply that doesn't @mention the bot is a side
-      // conversation between users — ignore it so it doesn't interrupt Claude.
-      // Commands are already handled above and so always work, including
-      // `!mentions off` to leave quiet mode.
-      if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
-        return;
-      }
-
-      // Check for pending worktree prompt - treat message as branch name response
+      // Check for pending worktree prompt - treat message as branch name response.
+      // This runs BEFORE the quiet-mode gate below: a pending interactive prompt
+      // means the bot just asked the user for a branch name, so their plain reply
+      // (typically without an @mention) is clearly directed at the bot and must be
+      // consumed even in quiet mode. Mirrors how commands bypass the gate.
       if (session.hasPendingWorktreePrompt(threadRoot)) {
         // Only session owner can respond
         if (session.isUserAllowedInSession(threadRoot, username)) {
@@ -186,6 +181,15 @@ export async function handleMessage(
           );
           if (handled) return;
         }
+      }
+
+      // Quiet mode (#402): when the session opts into "respond only when
+      // mentioned", a non-command reply that doesn't @mention the bot is a side
+      // conversation between users — ignore it so it doesn't interrupt Claude.
+      // Commands and pending worktree-prompt responses are already handled above
+      // and so always work, including `!mentions off` to leave quiet mode.
+      if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+        return;
       }
 
       // Check if user is allowed in this session

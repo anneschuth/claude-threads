@@ -501,6 +501,38 @@ describe('handleMessage', () => {
       expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'keep going please', undefined, 'allowed-user', 'User');
     });
 
+    test('when quiet mode on, a pending worktree-prompt reply is still handled (bypasses the gate)', async () => {
+      // Regression for the config-default-on + worktree-prompt case: the bot
+      // just asked for a branch name, so a plain reply (no @mention) must be
+      // consumed even in quiet mode, not dropped by the gate.
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+      (session.hasPendingWorktreePrompt as any).mockReturnValue(true);
+      (session.handleWorktreeBranchResponse as any).mockResolvedValue(true);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'feature/my-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.handleWorktreeBranchResponse).toHaveBeenCalledWith(
+        'thread1',
+        'feature/my-branch',
+        'allowed-user',
+        'post1'
+      );
+    });
+
     test('when quiet mode on, !mentions off command still works (commands bypass the gate)', async () => {
       (session.registry.findByThreadId as any).mockReturnValue({
         sessionId: 'test:thread1',

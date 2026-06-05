@@ -50,6 +50,21 @@ describe('SessionStore', () => {
       expect(loaded.get(sessionId)).toEqual(session);
     });
 
+    it('loads a pre-#402 record that lacks respondOnlyWhenMentioned (backward compat)', () => {
+      // Simulate an old sessions.json written before the field existed: the
+      // key is simply absent. The store must load it without crashing; resume
+      // (lifecycle.ts) then defaults the in-memory flag to false via `?? false`.
+      const session = createTestSession();
+      delete (session as Partial<PersistedSession>).respondOnlyWhenMentioned;
+      const sessionId = `${session.platformId}:${session.threadId}`;
+
+      store.save(sessionId, session);
+      const loaded = store.load().get(sessionId);
+
+      expect(loaded).toBeDefined();
+      expect(loaded?.respondOnlyWhenMentioned).toBeUndefined();
+    });
+
     it('saves multiple sessions', () => {
       const session1 = createTestSession({ threadId: 'thread-1' });
       const session2 = createTestSession({ threadId: 'thread-2' });
