@@ -255,6 +255,16 @@ export async function handleMessage(
         }
       }
 
+      // Quiet mode (#402, fix #410): a session that opted into "respond only
+      // when mentioned" keeps that setting while paused. A plain reply that
+      // doesn't @mention the bot must not silently resume the session — the
+      // persisted flag survives the idle pause, so honor it here just like the
+      // active-session gate above. Commands (incl. !stop) are handled earlier
+      // and so still bypass this gate.
+      if (persistedSession?.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+        return;
+      }
+
       // Get any attached files (images)
       const files = post.metadata?.files;
 
