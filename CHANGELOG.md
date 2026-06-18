@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Quiet mode (`!mentions on`) now survives an idle pause.** A session with "respond only when mentioned" enabled would still resume on the first non-mention reply once it had been paused for inactivity, defeating the whole point of quiet mode. The active-session path honored the gate but the paused-session resume path did not check the persisted `respondOnlyWhenMentioned` flag, so any plain message woke the session up. The resume path now applies the same gate: while quiet mode is on, a reply that doesn't @mention the bot no longer resumes a paused session. Commands (including `!stop`) still bypass the gate as before. (#410)
+
 ### Security
 - **`hono` 4.12.23 → 4.12.25** to resolve CVE-2026-54290 (HIGH): the CORS middleware reflected any `Origin` with credentials when `origin` defaulted to `*`.
 - **Pinned transitive `ws` ≥ 8.21.0 and `shell-quote` ≥ 1.8.4** (both pulled in via `ink`) to clear GHSA-96hv-2xvq-fx4p (HIGH, `ws` memory-exhaustion DoS) and GHSA-w7jw-789q-3m8p (CRITICAL, `shell-quote` newline escaping). Added to the existing `overrides`/`resolutions` blocks; runtime behavior is unchanged.

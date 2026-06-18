@@ -656,6 +656,75 @@ describe('handleMessage', () => {
 
       expect(session.resumePausedSession).not.toHaveBeenCalled();
     });
+
+    test('quiet mode on: a non-mention reply does not resume the paused session (#410)', async () => {
+      // Regression for #410: the persisted respondOnlyWhenMentioned flag must
+      // survive the idle pause. A plain reply (no @mention) should be ignored,
+      // not silently resume the session like it did before the fix.
+      (session.getPersistedSession as any).mockReturnValue({
+        sessionAllowedUsers: ['allowed-user'],
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'just chatting with a colleague here',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+    });
+
+    test('quiet mode on: an @mention reply still resumes the paused session (#410)', async () => {
+      (session.getPersistedSession as any).mockReturnValue({
+        sessionAllowedUsers: ['allowed-user'],
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot please continue',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'please continue', undefined, 'allowed-user');
+    });
+
+    test('quiet mode off (default): a non-mention reply still resumes the paused session', async () => {
+      (session.getPersistedSession as any).mockReturnValue({
+        sessionAllowedUsers: ['allowed-user'],
+        respondOnlyWhenMentioned: false,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'continue please',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
+    });
   });
 
   describe('new session', () => {
