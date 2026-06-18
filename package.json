@@ -71,7 +71,7 @@
     "commander": "^14.0.2",
     "diff": "^8.0.3",
     "express-rate-limit": "^8.3.0",
-    "hono": "4.12.23",
+    "hono": "4.12.25",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
     "js-yaml": "^4.1.1",
@@ -116,7 +116,9 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2"
+    "fast-uri": ">=3.1.2",
+    "ws": "$ws",
+    "shell-quote": ">=1.8.4"
   },
   "resolutions": {
     "hono": "$hono",
@@ -125,6 +127,8 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2"
+    "fast-uri": ">=3.1.2",
+    "ws": "$ws",
+    "shell-quote": ">=1.8.4"
   }
 }

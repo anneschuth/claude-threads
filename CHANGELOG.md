@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **`hono` 4.12.23 → 4.12.25** to resolve CVE-2026-54290 (HIGH): the CORS middleware reflected any `Origin` with credentials when `origin` defaulted to `*`.
+- **Pinned transitive `ws` ≥ 8.21.0 and `shell-quote` ≥ 1.8.4** (both pulled in via `ink`) to clear GHSA-96hv-2xvq-fx4p (HIGH, `ws` memory-exhaustion DoS) and GHSA-w7jw-789q-3m8p (CRITICAL, `shell-quote` newline escaping). Added to the existing `overrides`/`resolutions` blocks; runtime behavior is unchanged.
+
 ## [1.17.0] - 2026-06-05
 
 ### Added
