@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.2] - 2026-06-19
+
+### Security
+- **`@hono/node-server` 2.0.4 → 2.0.5** to resolve GHSA-frvp-7c67-39w9: on Windows, prefix-mounted Serve Static middleware could be bypassed. Only affects Windows deployments using Serve Static. (#408)
+
+### Dependencies
+- **Production:** `hono` 4.12.25 → 4.12.26, `semver` 7.8.1 → 7.8.4. (#408)
+- **Dev:** `@types/node` 25.9.1 → 25.9.3, `@types/react` 19.2.16 → 19.2.17, `eslint` 10.4.1 → 10.5.0, `prettier` 3.8.3 → 3.8.4, `typescript-eslint` 8.60.1 → 8.61.1. (#409)
+
 ## [1.17.1] - 2026-06-19
 
 ### Fixed
