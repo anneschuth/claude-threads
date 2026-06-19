@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.17.1] - 2026-06-19
+
 ### Fixed
 - **Quiet mode (`!mentions on`) now survives an idle pause.** A session with "respond only when mentioned" enabled would still resume on the first non-mention reply once it had been paused for inactivity, defeating the whole point of quiet mode. The active-session path honored the gate but the paused-session resume path did not check the persisted `respondOnlyWhenMentioned` flag, so any plain message woke the session up. The resume path now applies the same gate: while quiet mode is on, a reply that doesn't @mention the bot no longer resumes a paused session. Commands (including `!stop`) still bypass the gate as before. (#410)
 
