@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.17.2] - 2026-06-19
+## [1.17.3] - 2026-07-01
+
+### Dependencies
+- **Production:** `@hono/node-server` 2.0.5 → 2.0.6, `hono` 4.12.26 → 4.12.27, `semver` 7.8.4 → 7.8.5. (#417)
+- **Dev:** `@types/node` 25 → 26, `typescript-eslint` 8.61.1 → 8.62.1. (#416)
+
+### Changed
+- **Held `js-yaml` on 4.x and added a dependabot ignore for `js-yaml >=5.0.0`.** Dependabot grouped a `js-yaml` 4.x → 5.x major into the production bump, but 5.x is ESM-only and dropped the CommonJS `default` export, breaking our `import yaml from 'js-yaml'` call sites with `Missing 'default' export`. The bump now stays on 4.x until the code migrates to named ESM imports. (#417)
+- **CI:** `actions/checkout` 6 → 7. (#413)
 
 ### Security
 - **`@hono/node-server` 2.0.4 → 2.0.5** to resolve GHSA-frvp-7c67-39w9: on Windows, prefix-mounted Serve Static middleware could be bypassed. Only affects Windows deployments using Serve Static. (#408)
