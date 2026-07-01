@@ -5,6 +5,12 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
+    ignore:
+      # js-yaml 5.x is ESM-only and dropped the CommonJS default export,
+      # which breaks our `import yaml from 'js-yaml'` usage. Stay on 4.x
+      # until the code migrates to named ESM imports.
+      - dependency-name: "js-yaml"
+        versions: [">=5.0.0"]
     groups:
       dev-dependencies:
         dependency-type: "development"
