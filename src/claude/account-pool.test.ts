@@ -48,8 +48,11 @@ describe('AccountPool', () => {
     });
   });
 
-  describe('acquire / round-robin', () => {
-    it('returns accounts in round-robin order', () => {
+  describe('acquire / least-loaded selection', () => {
+    // With usage unknown (nothing probed yet) selection falls back to fewest
+    // active sessions, then config order — which spreads sequential acquires
+    // across accounts just like the old round-robin did.
+    it('spreads sequential acquires across accounts (active-count tiebreak)', () => {
       const pool = new AccountPool([
         { id: 'a', home: '/tmp/a' },
         { id: 'b', home: '/tmp/b' },
@@ -58,7 +61,7 @@ describe('AccountPool', () => {
       expect(pool.acquire()?.id).toBe('a');
       expect(pool.acquire()?.id).toBe('b');
       expect(pool.acquire()?.id).toBe('c');
-      expect(pool.acquire()?.id).toBe('a'); // wraps
+      expect(pool.acquire()?.id).toBe('a'); // wraps back to least-active
     });
 
     it('returns preferred account when supplied and known', () => {
@@ -70,12 +73,12 @@ describe('AccountPool', () => {
       expect(pool.acquire('b')?.id).toBe('b');
     });
 
-    it('falls back to round-robin when preferred id is unknown', () => {
+    it('falls back to least-loaded when preferred id is unknown', () => {
       const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
       expect(pool.acquire('ghost')?.id).toBe('a');
     });
 
-    it('skips cooling accounts in round-robin', () => {
+    it('skips cooling accounts', () => {
       const pool = new AccountPool([
         { id: 'a', home: '/tmp/a' },
         { id: 'b', home: '/tmp/b' },
@@ -136,43 +139,35 @@ describe('AccountPool', () => {
       // independent of intervening calls from other threads.
       pool.acquire(undefined, 'thread-other-1');
       pool.acquire(undefined, 'thread-other-2');
-      pool.acquire(); // anonymous round-robin must not affect sticky binding
+      pool.acquire(); // anonymous acquire must not affect sticky binding
       pool.acquire(undefined, 'thread-other-3');
       for (let i = 0; i < 20; i++) {
         expect(pool.acquire(undefined, 'thread-xyz')?.id).toBe(first?.id);
       }
     });
 
-    it('does not advance roundRobinIndex when sticky path serves the request', () => {
-      // Design invariant: sticky-bound threads must not perturb the cursor
-      // the anonymous round-robin path uses. Otherwise heavy use of one
-      // sticky thread silently shifts how anonymous acquires distribute,
-      // which is exactly the kind of subtle drift this fix is meant to
-      // eliminate.
-      //
-      // n=2 is required for RED-GREEN: with n=3 the cursor cycles back to 0
-      // after 3 RR calls "by luck" and the test passes either way. With n=2,
-      // 3 RR calls leave the cursor at index 1, so the anonymous acquire
-      // returns 'b' under the broken code path and 'a' under the fix.
+    it('new sessions (balanceByUsage) skip the sticky binding', () => {
+      // The sticky path is a resume-compat shim: a new session opts into usage
+      // balancing and must NOT be pinned by thread hash. We can't assert the
+      // exact account (depends on hashes/usage), but we can assert that the
+      // balanced pick is chosen by load, not by the thread hash — here by
+      // pre-loading one account and confirming the balanced acquire avoids it.
       const pool = new AccountPool([
         { id: 'a', home: '/tmp/a' },
         { id: 'b', home: '/tmp/b' },
       ]);
-      pool.acquire(undefined, 'sticky-1');
-      pool.acquire(undefined, 'sticky-2');
-      pool.acquire(undefined, 'sticky-3');
-      // Sticky path didn't touch the cursor → first anonymous acquire still
-      // starts at index 0.
-      expect(pool.acquire()?.id).toBe('a');
+      // Find which account the thread hash pins to, then make THAT one busy.
+      const sticky = pool.acquire(undefined, 'thread-pin')!;
+      // With sticky busy (active=1) and the other idle, a usage-balanced
+      // acquire for the same thread must pick the idle one, not the sticky.
+      const balanced = pool.acquire(undefined, 'thread-pin', { balanceByUsage: true });
+      expect(balanced?.id).not.toBe(sticky.id);
     });
 
-    it('falls back to round-robin when sticky pick is cooling, then restores once cooldown lifts', () => {
-      // n=3 is required to make this test RED-GREEN — with n=2, plain
-      // round-robin happens to alternate back to the original account on the
-      // third call by sheer luck and the test would pass without the sticky
-      // branch. With n=3, plain round-robin walks 'a','b','c' regardless of
-      // threadId, so the third call returns 'c'; only sticky restores the
-      // original account after cooldown.
+    it('falls back to least-loaded when sticky pick is cooling, then restores once cooldown lifts', () => {
+      // n=3 keeps the assertion meaningful: with the sticky account cooling,
+      // the fallback picks a different non-cooling account; only the sticky
+      // branch restores the original account once cooldown lifts.
       //
       // setSystemTime advances the clock past the cooldown rather than
       // re-calling markCooling — markCooling has a "never shortens" guard
@@ -246,6 +241,118 @@ describe('AccountPool', () => {
       const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
       pool.release('ghost'); // does not throw
       expect(pool.status()[0].activeSessions).toBe(0);
+    });
+  });
+
+  describe('usage-based selection', () => {
+    const usage = (loadPct: number) => ({
+      sessionPct: loadPct,
+      weekAllModelsPct: 0,
+      weekPerModelPct: null,
+      sessionResetsAt: null,
+      weekResetsAt: null,
+    });
+
+    it('routes a new session to the account with the lowest usage', () => {
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+        { id: 'c', home: '/tmp/c' },
+      ]);
+      pool.setUsage('a', usage(80));
+      pool.setUsage('b', usage(10)); // least loaded
+      pool.setUsage('c', usage(50));
+      expect(pool.acquire(undefined, 'any-thread', { balanceByUsage: true })?.id).toBe('b');
+    });
+
+    it('lower usage wins even against a lower active-session count', () => {
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      // 'a' has an active session but far more headroom; usage is the primary key.
+      pool.acquire('a');
+      pool.setUsage('a', usage(5));
+      pool.setUsage('b', usage(90));
+      expect(pool.acquire(undefined, undefined, { balanceByUsage: true })?.id).toBe('a');
+    });
+
+    it('never routes to a cooling account even if it has the lowest usage', () => {
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      pool.setUsage('a', usage(1)); // lowest but cooling
+      pool.setUsage('b', usage(70));
+      pool.markCooling('a', Date.now() + 60_000);
+      expect(pool.acquire(undefined, undefined, { balanceByUsage: true })?.id).toBe('b');
+    });
+
+    it('prefers a probed low-usage account over an unprobed one', () => {
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      // 'b' known-low, 'a' unknown → unknown sorts last so 'b' is chosen.
+      pool.setUsage('b', usage(30));
+      expect(pool.acquire(undefined, undefined, { balanceByUsage: true })?.id).toBe('b');
+    });
+
+    it('rotates among equally-loaded accounts on serial traffic', () => {
+      // Regression (round-robin tiebreak): when accounts tie on both usage
+      // score and active count, sequential acquire→release must cycle through
+      // them instead of hammering the config-first account. Without the
+      // rotating cursor this returns ['a','a','a','a'].
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+        { id: 'c', home: '/tmp/c' },
+      ]);
+      pool.setUsage('a', usage(10));
+      pool.setUsage('b', usage(10));
+      pool.setUsage('c', usage(10));
+      const picks: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        const acc = pool.acquire(undefined, undefined, { balanceByUsage: true });
+        picks.push(acc!.id);
+        pool.release(acc!.id); // serial: one at a time, active returns to 0
+      }
+      expect(picks).toEqual(['a', 'b', 'c', 'a']);
+    });
+
+    it('spreads a concurrent burst instead of piling onto the lowest-usage account', () => {
+      // Regression (#5): concurrent starts read the same usage snapshot; without
+      // the in-flight active-session penalty all of them pick the single lowest
+      // account. Here b is lowest (10%) but should not absorb every session.
+      const pool = new AccountPool([
+        { id: 'a', home: '/tmp/a' },
+        { id: 'b', home: '/tmp/b' },
+      ]);
+      pool.setUsage('a', usage(12));
+      pool.setUsage('b', usage(10));
+      // No release between acquires — simulates a burst of overlapping sessions.
+      const picks: string[] = [];
+      for (let i = 0; i < 4; i++) {
+        picks.push(pool.acquire(undefined, undefined, { balanceByUsage: true })!.id);
+      }
+      // b (10) first, then a once b's effective load (10+5) exceeds a (12), etc.
+      expect(picks).toEqual(['b', 'a', 'b', 'a']);
+      // Both accounts got work; neither was starved.
+      expect(picks.filter((p) => p === 'a').length).toBe(2);
+      expect(picks.filter((p) => p === 'b').length).toBe(2);
+    });
+
+    it('surfaces usagePercent in status()', () => {
+      const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
+      expect(pool.status()[0].usagePercent).toBeNull();
+      pool.setUsage('a', usage(42));
+      expect(pool.status()[0].usagePercent).toBe(42);
+    });
+
+    it('ignores setUsage for unknown accounts', () => {
+      const pool = new AccountPool([{ id: 'a', home: '/tmp/a' }]);
+      pool.setUsage('ghost', usage(10)); // no throw
+      expect(pool.status()).toHaveLength(1);
     });
   });
 

@@ -154,9 +154,9 @@ Configuration is stored in YAML only - no `.env` file support.
 
 By default every session spawns `claude` with the bot's own `process.env`, so
 they all share one subscription's token budget. When you expect heavy concurrent
-use, configure a pool of accounts in `config.yaml` — sessions will round-robin
-across them and new ones automatically skip accounts that are in rate-limit
-cooldown.
+use, configure a pool of accounts in `config.yaml` — new sessions are routed to
+whichever account has the most subscription headroom (see **usage balancing**
+below) and automatically skip accounts that are in rate-limit cooldown.
 
 ```yaml
 # Omit this block entirely → single-account mode (unchanged behavior).
@@ -188,12 +188,41 @@ How it works:
    extracted reset time (fallback: 1 hour). Future `acquireClaudeAccount()` calls
    skip cooling accounts; resumed sessions bypass cooldown because their history
    can't move.
+4. **Usage balancing (new sessions).** Instead of round-robin, the pool routes
+   each new session to the account with the most subscription headroom. At new
+   session start (and only then — there is no background polling) the bot probes
+   every account **on-demand and in parallel** with `claude -p "/usage"
+   --output-format json` under each account's HOME (costs $0, zero turns) and
+   parses the real limit percentages (`Current session` + `Current week`). The
+   load score is `max(session%, week%)`; `acquire()` picks the lowest
+   non-cooling score, tie-breaking by fewest active sessions then config order.
+   Each probe is capped at 10s; an account whose probe fails/times out sorts
+   last (usage "unknown"), so a fresh session is never routed onto a
+   possibly-maxed account before its real usage is known. The sticky channel
+   message shows the pool's `min–max % used` range.
+
+   > On-demand probing adds ~1–2s to new session start (all accounts are probed
+   > so they can be compared) — negligible next to spawning Claude + the MCP
+   > server, and it keeps routing data always-fresh with zero idle work. Probing
+   > no-ops for pools with fewer than two accounts.
+   >
+   > Usage balancing targets **OAuth (subscription)** accounts — only they
+   > report `/usage` limits. API-key accounts return no percentages; they sort
+   > as "usage unknown" and are picked by the active-session tiebreak. Usage is
+   > cached in memory only for the current pool state; it is re-probed fresh at
+   > each new session start.
+
+   **Resume is unaffected:** it still passes the persisted `claudeAccountId` as
+   `preferredId`, so a resumed session always re-binds to the account its
+   history lives under, cooling or not.
 
 Files involved:
 
 | File | Role |
 |------|------|
-| `src/claude/account-pool.ts` | `AccountPool` — round-robin, cooldown tracking, usage accounting. |
+| `src/claude/account-pool.ts` | `AccountPool` — usage-balanced selection, cooldown tracking, active-session accounting. |
+| `src/claude/usage-probe.ts` | Runs `claude -p "/usage"` per account + pure `parseUsageOutput` / `usageLoadScore`. |
+| `src/session/manager.ts` | `refreshAccountUsage()` probes all accounts on-demand at session start; exposed to lifecycle as `ops.refreshClaudeAccountUsage()`. |
 | `src/claude/rate-limit-detector.ts` | Pure parser that turns stderr/JSON into `{ detected, resetAtEpochMs }`. |
 | `src/claude/cli.ts` | `ClaudeCliOptions.account` → overrides `HOME` / `ANTHROPIC_API_KEY` on spawn. Emits `rate-limit` events. |
 | `src/session/lifecycle.ts` | Acquires the account on `startSession`/`resumeSession`, releases on `removeFromRegistry`, handles `rate-limit` events. |

@@ -983,14 +983,18 @@ export async function startSession(
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
 
-  // Reserve a Claude account from the pool (null = single-account mode).
-  // Pass threadId so the pool sticky-binds this thread to a deterministic
-  // account: the chosen $HOME at spawn time and the claudeAccountId persisted
-  // to sessions.json are derived from the same hash, so they can no longer
-  // drift apart under concurrent acquisitions (which previously left resumed
-  // sessions pointing at the wrong account's HOME → "conversation history no
-  // longer exists" failure on bot restart).
-  const claudeAccount = ctx.ops.acquireClaudeAccount(undefined, actualThreadId);
+  // Reserve a Claude account from the pool (null = single-account mode). New
+  // sessions balance by real subscription headroom (`/usage`), routing to
+  // whichever account is least loaded and skipping any in rate-limit cooldown.
+  // Probe usage synchronously right here (no background polling) so the pick is
+  // made on fresh data; the probe no-ops for pools with <2 accounts. The chosen
+  // account id is persisted to sessions.json so resume re-binds to the same
+  // $HOME the conversation history lives under. threadId is still passed as the
+  // resume-compat sticky fallback for pre-account-pool sessions.
+  await ctx.ops.refreshClaudeAccountUsage();
+  const claudeAccount = ctx.ops.acquireClaudeAccount(undefined, actualThreadId, {
+    balanceByUsage: true,
+  });
   if (claudeAccount) {
     log.info(`Session ${sessionId.substring(0, 20)} reserved Claude account "${claudeAccount.id}"`);
   }

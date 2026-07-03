@@ -431,9 +431,19 @@ async function buildStatusBar(
     const total = config.accountPoolStatus.length;
     const cooling = config.accountPoolStatus.filter((a) => a.coolingUntil !== null).length;
     const available = total - cooling;
-    const label = cooling > 0
+    let label = cooling > 0
       ? `🔑 ${available}/${total} accounts (${cooling} cooling)`
       : `🔑 ${total} account${total === 1 ? '' : 's'}`;
+    // Append the /usage headroom range once at least one account has been
+    // probed, so operators can see how loaded the pool is at a glance.
+    const pcts = config.accountPoolStatus
+      .map((a) => a.usagePercent)
+      .filter((p): p is number => p !== null);
+    if (pcts.length > 0) {
+      const min = Math.min(...pcts);
+      const max = Math.max(...pcts);
+      label += min === max ? ` · ${max}% used` : ` · ${min}–${max}% used`;
+    }
     items.push(formatter.formatCode(label));
   }
 
