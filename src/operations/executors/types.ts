@@ -180,6 +180,8 @@ export interface QuestionApprovalState {
     postId: string;
     type: 'plan' | 'action';
     toolUseId: string;
+    /** Whether an "Allow all" (✅) option was offered (Codex permission prompts) */
+    allowSession?: boolean;
   } | null;
 }
 

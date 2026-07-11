@@ -89,6 +89,7 @@ function createTestSession(platform: PlatformClient): Session {
     threadId: 'thread1',
     sessionId: 'test:thread1',
     claudeSessionId: 'uuid-123',
+    agentType: 'claude',
     startedBy: 'testuser',
     startedAt: new Date(),
     lastActivityAt: new Date(),

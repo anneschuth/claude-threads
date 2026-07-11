@@ -25,6 +25,8 @@ import { keepAlive } from './utils/keep-alive.js';
 import { startReactMeasureCleanup } from './utils/perf-cleanup.js';
 import { dim, red } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
+import { validateCodexCli } from './agents/codex/version-check.js';
+import type { AgentType } from './agents/types.js';
 import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
 import { handleMessage } from './message-handler.js';
@@ -375,6 +377,24 @@ async function startWithoutDaemon() {
     process.exit(1);
   }
 
+  // Default agent backend: per-platform override > global config > claude
+  const defaultAgent: AgentType = firstPlatformConfig.agent ?? config.agent ?? 'claude';
+
+  // Validate Codex CLI only when the config actually references it,
+  // so claude-only setups never touch the codex binary
+  const configReferencesCodex = defaultAgent === 'codex'
+    || config.platforms.some((p) => p.agent === 'codex');
+  if (configReferencesCodex) {
+    const codexValidation = validateCodexCli(config.codex?.path);
+    if (!codexValidation.compatible && !opts.skipVersionCheck) {
+      console.error(red(`  ❌ ${codexValidation.message}`));
+      console.error('');
+      console.error(dim(`  Use --skip-version-check to bypass this check (not recommended)`));
+      console.error('');
+      process.exit(1);
+    }
+  }
+
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
   // forces Claude CLI into permissionMode: default and rejects
   // --dangerously-skip-permissions (verified on CLI 2.1.116). If any platform is
@@ -578,7 +598,9 @@ async function startWithoutDaemon() {
     threadLogsRetentionDays,
     config.limits,  // Resource limits (optional, has sensible defaults)
     config.claudeAccounts,  // Claude account pool (undefined = single-account mode)
-    config.respondOnlyWhenMentioned  // Quiet-mode default for new sessions (#402)
+    config.respondOnlyWhenMentioned,  // Quiet-mode default for new sessions (#402)
+    defaultAgent,
+    config.codex
   );
 
   // Set sticky message customization from config

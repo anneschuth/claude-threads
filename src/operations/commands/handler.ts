@@ -15,8 +15,11 @@ import {
 } from '../../config/index.js';
 import type { PermissionMode } from '../../config/index.js';
 import { handleRateLimit } from '../../session/lifecycle.js';
-import { ClaudeCli } from '../../claude/cli.js';
 import { buildRestartCliOptions } from '../../claude/restart-options.js';
+import { createAgentBackend } from '../../agents/factory.js';
+import type { AgentBackendOptions } from '../../agents/types.js';
+import { getCodexCliVersion } from '../../agents/codex/version-check.js';
+import { getClaudeCliVersion } from '../../claude/version-check.js';
 import { randomUUID } from 'crypto';
 import { resolve } from 'path';
 import { existsSync, statSync } from 'fs';
@@ -109,11 +112,11 @@ function commonRestartCliOptions(
  */
 export async function restartClaudeSession(
   session: Session,
-  cliOptions: ClaudeCliOptions,
+  cliOptions: AgentBackendOptions,
   ctx: SessionContext,
   actionName: string
 ): Promise<boolean> {
-  // Stop the current Claude CLI
+  // Stop the current agent CLI
   ctx.ops.stopTyping(session);
   transitionTo(session, 'restarting');
   session.claude.kill();
@@ -121,8 +124,9 @@ export async function restartClaudeSession(
   // Flush any pending content
   await ctx.ops.flush(session);
 
-  // Create new Claude CLI
-  session.claude = new ClaudeCli(cliOptions);
+  // Create new agent CLI
+  session.claude = createAgentBackend(cliOptions);
+  session.agentType = cliOptions.agentType;
 
   // Rebind event handlers (use sessionId which is the composite key).
   // The rate-limit listener MUST be rebound here too — without it, a !cd or
@@ -409,8 +413,10 @@ export async function changeDirectory(
     ctx.state.githubEmailsStore,
   );
 
-  const cliOptions: ClaudeCliOptions = {
+  const cliOptions: AgentBackendOptions = {
     ...commonRestartCliOptions(session, ctx),
+    agentType: session.agentType,
+    codex: ctx.config.codex,
     workingDir: absoluteDir,
     // Keep the session in its current effective mode across the respawn.
     permissionMode: effectivePermissionMode({
@@ -802,8 +808,10 @@ export async function setSessionPermissionMode(
   // preserved (it lives in the platform, not Claude).
   const canResume = session.lifecycle.hasClaudeResponded;
 
-  const cliOptions: ClaudeCliOptions = {
+  const cliOptions: AgentBackendOptions = {
     ...commonRestartCliOptions(session, ctx),
+    agentType: session.agentType,
+    codex: ctx.config.codex,
     workingDir: session.workingDir,
     permissionMode: mode,
     sessionId: session.claudeSessionId,
@@ -872,6 +880,26 @@ export async function requestMessageApproval(
 // Session header
 // ---------------------------------------------------------------------------
 
+// Agent CLI versions for the session header, fetched once per process
+// (version lookups shell out to `--version`, too slow for every header update)
+const cachedAgentVersions = new Map<string, string>();
+
+function formatAgentVersion(agentType: Session['agentType']): string {
+  const cached = cachedAgentVersions.get(agentType);
+  if (cached) return cached;
+
+  let display: string;
+  if (agentType === 'codex') {
+    const version = getCodexCliVersion().version;
+    display = version ? `Codex v${version}` : 'Codex';
+  } else {
+    const version = getClaudeCliVersion().version;
+    display = version ? `Claude Code v${version}` : 'Claude Code';
+  }
+  cachedAgentVersions.set(agentType, display);
+  return display;
+}
+
 /**
  * Build the one-line status bar shared between `minimal` and `full` modes.
  * Exported for testing and reuse from compact renderers.
@@ -893,13 +921,21 @@ export async function buildSessionHeaderStatusBar(
   // Version info at the start (matches sticky message)
   items.push(formatter.formatCode(formatVersionString()));
 
+  // Agent indicator (model chip below already implies it once usage stats exist)
+  if (!session.usageStats) {
+    items.push(formatter.formatCode(session.agentType === 'codex' ? '🤖 Codex' : '🤖 Claude'));
+  }
+
   // Model and context usage (if available)
   if (session.usageStats) {
     const stats = session.usageStats;
     items.push(formatter.formatCode(`🤖 ${stats.modelDisplayName}`));
     const contextPercent = Math.round((stats.contextTokens / stats.contextWindowSize) * 100);
     items.push(formatter.formatCode(`${formatContextBar(contextPercent)} ${contextPercent}%`));
-    items.push(formatter.formatCode(`💰 $${stats.totalCostUSD.toFixed(2)}`));
+    // Show cost (Codex reports no per-call cost - hide the misleading $0.00)
+    if (stats.totalCostUSD > 0) {
+      items.push(formatter.formatCode(`💰 $${stats.totalCostUSD.toFixed(2)}`));
+    }
   }
 
   items.push(formatter.formatCode(permMode));
@@ -911,7 +947,7 @@ export async function buildSessionHeaderStatusBar(
     items.push(formatter.formatCode('🔨 Implementing'));
   }
 
-  if (ctx.config.chromeEnabled) {
+  if (ctx.config.chromeEnabled && session.agentType === 'claude') {
     items.push(formatter.formatCode('🌐 Chrome'));
   }
   if (keepAlive.isActive()) {
@@ -990,6 +1026,7 @@ export async function updateSessionHeader(
     items.push(['🏷️', 'Tags', session.sessionTags.map(t => formatter.formatCode(t)).join(' ')]);
   }
 
+  items.push(['🤖', 'Agent', formatAgentVersion(session.agentType)]);
   items.push(['📂', 'Directory', formatter.formatCode(shortDir)]);
   items.push(['👤', 'Started by', formatter.formatUserMention(session.startedBy)]);
 

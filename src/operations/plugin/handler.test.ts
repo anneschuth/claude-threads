@@ -82,6 +82,7 @@ function makeSession(spies: SessionSpies): Session {
     sessionId: 'mm:thread-1',
     threadId: 'thread-1',
     claudeSessionId: 'uuid-1',
+    agentType: 'claude',
     workingDir: '/tmp/proj',
     platformId: 'mm',
     startedBy: 'alice',

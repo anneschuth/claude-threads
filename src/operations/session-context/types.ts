@@ -13,6 +13,7 @@
 
 import type { Session } from '../../session/types.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
+import type { AgentType, CodexAgentConfig } from '../../agents/types.js';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
@@ -53,6 +54,10 @@ export interface SessionConfig {
   permissionTimeoutMs?: number;
   /** Streaming flush cadence in ms (default: 500). Lower = snappier updates. */
   flushDelayMs?: number;
+  /** Default agent backend for new sessions (default: 'claude') */
+  defaultAgent?: AgentType;
+  /** Codex-specific settings from config.yaml */
+  codex?: CodexAgentConfig;
 }
 
 // =============================================================================

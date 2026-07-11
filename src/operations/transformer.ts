@@ -25,7 +25,7 @@ import {
   createSubagentOp,
   createStatusUpdateOp,
 } from './types.js';
-import { toolFormatterRegistry } from './tool-formatters/index.js';
+import { toolFormatterRegistry, formatToolForPermission } from './tool-formatters/index.js';
 import type { WorktreeContext } from './tool-formatters/index.js';
 
 // ---------------------------------------------------------------------------
@@ -77,10 +77,43 @@ export function transformEvent(
     case 'result':
       return transformResult(event, ctx);
 
+    case 'permission_request':
+      return transformPermissionRequest(event, ctx);
+
     default:
       // Unknown event type - no operations
       return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Permission Request Transformation (Codex in-process approvals)
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform a permission_request event (emitted by the Codex backend when the
+ * app-server asks to run a command or apply a patch) into an action approval
+ * with an extra "Allow all" option. Rendered with the same formatter as the
+ * MCP permission server uses for Claude.
+ */
+function transformPermissionRequest(
+  event: ClaudeEvent,
+  ctx: TransformContext
+): MessageOperation[] {
+  const request = event.permission_request as {
+    tool_use_id: string;
+    name: string;
+    input: Record<string, unknown>;
+  } | undefined;
+  if (!request?.tool_use_id) return [];
+
+  const toolInfo = formatToolForPermission(request.name, request.input ?? {}, ctx.formatter, {
+    worktreeInfo: ctx.worktreeInfo,
+  });
+
+  return [
+    createApprovalOp(ctx.sessionId, request.tool_use_id, 'action', toolInfo, { allowSession: true }),
+  ];
 }
 
 // ---------------------------------------------------------------------------

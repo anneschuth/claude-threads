@@ -18,6 +18,7 @@ function createMockSession(): Session {
     threadId: 'thread-123',
     sessionId: 'test-platform:thread-123',
     claudeSessionId: 'claude-session-1',
+    agentType: 'claude',
     startedBy: 'testuser',
     startedAt: new Date(),
     lastActivityAt: new Date(),

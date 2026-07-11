@@ -2,7 +2,7 @@
  * Session management types and interfaces
  */
 
-import type { ClaudeCli } from '../claude/cli.js';
+import type { AgentBackend, AgentType } from '../agents/types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
@@ -44,6 +44,8 @@ export interface InitialSessionOptions {
   forceInteractivePermissions?: boolean;
   /** Switch to existing worktree instead of creating new (from !worktree switch) */
   switchToExisting?: boolean;
+  /** Agent backend override (from !agent command) */
+  agent?: AgentType;
 }
 
 // =============================================================================
@@ -252,7 +254,8 @@ export interface Session {
   platformId: string;       // Which platform instance (e.g., 'mattermost-main')
   threadId: string;         // Thread ID within that platform
   sessionId: string;        // Composite key "platformId:threadId"
-  claudeSessionId: string;  // UUID for --session-id / --resume
+  claudeSessionId: string;  // Agent session id — Claude: UUID we pass via --session-id/--resume; Codex: threadId returned by thread/start
+  agentType: AgentType;     // Which agent backend runs this session
   startedBy: string;            // Username (for permissions)
   startedByDisplayName?: string; // Display name (for UI)
   startedAt: Date;
@@ -265,8 +268,8 @@ export interface Session {
   // Working directory (can be changed per-session)
   workingDir: string;
 
-  // Claude process
-  claude: ClaudeCli;
+  // Agent process (Claude CLI or Codex CLI behind the common interface)
+  claude: AgentBackend;
 
   // Claude account id the session is running under (when the bot is configured
   // with a `claudeAccounts` pool). Undefined in single-account mode.

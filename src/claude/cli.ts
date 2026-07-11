@@ -10,6 +10,7 @@ import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
 import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import type { AgentBackend } from '../agents/types.js';
 import type { PermissionMode } from '../config/types.js';
 
 const log = createLogger('claude');
@@ -378,7 +379,8 @@ const STDERR_AGGREGATE_SOFT_CAP = 10 * 1024 * 1024; // 10MB
 // Module-private — safe to share: every ClaudeCli runs in the same process.
 let totalStderrBytes = 0;
 
-export class ClaudeCli extends EventEmitter {
+export class ClaudeCli extends EventEmitter implements AgentBackend {
+  readonly agentType = 'claude' as const;
   private process: ChildProcess | null = null;
   private options: ClaudeCliOptions;
   private buffer = '';

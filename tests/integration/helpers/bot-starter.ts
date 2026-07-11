@@ -17,6 +17,7 @@ import { MattermostClient } from '../../../src/platform/mattermost/client.js';
 import { SlackClient } from '../../../src/platform/slack/client.js';
 import { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
+import * as stickyMessage from '../../../src/operations/sticky-message/index.js';
 import type { PlatformClient } from '../../../src/platform/client.js';
 import type { PlatformPost, PlatformUser } from '../../../src/platform/types.js';
 import { loadConfig } from '../setup/config.js';
@@ -179,6 +180,15 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   process.env.CLAUDE_PATH = mockClaudePath;
   process.env.CLAUDE_SCENARIO = scenario;
+
+  // Set environment variables for mock Codex CLI (used by `!agent codex` sessions)
+  const mockCodexPath = join(__dirname, '../fixtures/mock-codex/mock-codex');
+  if (!existsSync(mockCodexPath)) {
+    throw new Error(`Mock Codex CLI not found at: ${mockCodexPath}`);
+  }
+  process.env.CODEX_PATH = mockCodexPath;
+  process.env.CODEX_SCENARIO = scenario;
+
   if (debug) {
     process.env.DEBUG = '1';
   }
@@ -257,6 +267,13 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     botUsername = poolBot.username;
     botUserId = poolBot.userId!;
   }
+
+  // Reset the sticky-message module's global shutdown flag. It's module-level
+  // state shared across every test file in the bun process; a previous test's
+  // stopAndPreserveSessions() leaves it true, which would make THIS bot render
+  // all its stickies as "Bot Offline" (breaks session-sticky whenever it runs
+  // after any suite that used stopAndPreserveSessions).
+  stickyMessage.setShuttingDown(false);
 
   // Create the session manager (no UI, no chrome for tests)
   // Pass explicit sessionsPath for test isolation

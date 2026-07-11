@@ -2,14 +2,19 @@
 
 ## What This Project Does
 
-This is a multi-platform bot that lets users interact with Claude Code through chat platforms. When someone @mentions the bot in a channel, it spawns a Claude Code CLI session in a configured working directory and streams all output to a thread. The user can continue the conversation by replying in the thread.
+This is a multi-platform bot that lets users interact with coding agents (Claude Code, OpenAI Codex) through chat platforms. When someone @mentions the bot in a channel, it spawns an agent CLI session in a configured working directory and streams all output to a thread. The user can continue the conversation by replying in the thread.
 
 **Currently Supported Platforms:**
 - Mattermost (full support)
 - Slack (full support)
 
+**Supported Agent Backends:**
+- Claude Code CLI (default)
+- OpenAI Codex CLI (`!agent codex` or `agent: codex` in config)
+
 **Key Features:**
 - Real-time streaming of Claude responses to chat platforms
+- **Multiple agent backends** - Claude Code (default) or OpenAI Codex per session
 - **Multi-platform support** - connect to multiple Mattermost/Slack instances simultaneously
 - **Multiple concurrent sessions** - one per thread, across all platforms
 - **Session persistence** - sessions resume automatically after bot restart
@@ -86,6 +91,20 @@ This is a multi-platform bot that lets users interact with Claude Code through c
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
   - `read_post` — fetches a Mattermost/Slack post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)
 
+## Agent Backends
+
+Sessions can run either Claude Code CLI (default) or OpenAI Codex CLI. The abstraction lives in `src/agents/`:
+
+- **`AgentBackend` interface** (`src/agents/types.ts`) - common process-wrapper surface: `start/sendMessage/isRunning/kill/interrupt`, events `event`/`exit`/`error`. All backends emit **normalized events shaped like Claude CLI stream-json events** (`assistant`, `tool_use`, `tool_result`, `result`, `system`), so the whole downstream pipeline (transformer → MessageManager → executors) is agent-agnostic.
+- **Factory** (`src/agents/factory.ts`) - `createAgentBackend(options)` is used at every construction/restart site; never `new ClaudeCli()` directly.
+- **CodexCli** (`src/agents/codex/cli.ts`) drives `codex app-server` (JSON-RPC 2.0 over stdio): handshake `initialize`/`initialized`, `thread/start`/`thread/resume`, one `turn/start` per user message (messages are queued while a turn is active - codex does not accept interleaved input), `turn/interrupt` for !escape. Protocol translation is pure and lives in `src/agents/codex/translator.ts`; **all protocol strings are constants there** so a codex version bump is a one-file change.
+- **Codex approvals** don't use the MCP permission server. The app-server sends JSON-RPC requests (`item/commandExecution/requestApproval` etc.); CodexCli emits a synthetic `permission_request` event → transformer creates an action `ApprovalOp` with 👍 ✅ 👎 reactions → the `approval:complete` listener in `src/session/lifecycle.ts` routes `codex-perm:*` toolUseIds to `CodexCli.respondToPermission()`.
+- **Session identity**: `session.claudeSessionId` holds the agent session id for both backends. Claude: a UUID we generate and pass via `--session-id`. Codex: the threadId **returned by** `thread/start` - it arrives via a synthetic `system/init` event and is adopted in `handleEventPreProcessing`. Resume goes through `thread/resume`.
+- **Selection**: config `agent:` (global) / per-platform `agent:` / first-message command `!agent codex`. Persisted per session as `agentType` (missing = `claude` for pre-codex sessions).
+- **Version check**: `src/agents/codex/version-check.ts` (`CODEX_CLI_VERSION_RANGE`, `CODEX_PATH` env override - also how integration tests inject the mock). Validated at startup only when config references codex, and lazily on `!agent codex`.
+- **Degradation**: plugins, Chrome, statusline, and quickQuery title/tag suggestions are Claude-only. Codex reports no cost (💰 chip hidden), usage comes from `thread/tokenUsage/updated` (synthesized into `result.modelUsage` - required, or usage stats silently never appear).
+- **Testing**: mock app-server at `tests/integration/fixtures/mock-codex/` (scenarios `codex-simple`, `codex-approval`, `codex-persistent`), suite `tests/integration/suites/session-codex.test.ts`.
+
 ## Multi-Platform Support
 
 **Architecture**: claude-threads supports connecting to multiple chat platforms simultaneously through a platform abstraction layer.
@@ -111,6 +130,14 @@ workingDir: /home/user/repos/myproject
 chrome: false
 worktreeMode: prompt
 respondOnlyWhenMentioned: false   # New threads only reply when @mentioned (per-thread !mentions overrides)
+
+# Optional: default agent backend for new sessions (claude | codex, default: claude)
+agent: claude
+# Optional: Codex CLI settings (used by codex sessions)
+codex:
+  model: gpt-5.5-codex     # model override
+  # path: /custom/codex    # custom binary path
+  # sandbox: workspace-write  # sandbox for skipPermissions mode (or danger-full-access)
 
 # Optional: Customize the sticky channel message
 stickyMessage:
@@ -291,11 +318,16 @@ Each executor owns a specific piece of interactive state:
 
 **Design Pattern**: MessageManager delegates to executors. Each executor owns its state and handles its reactions. This keeps Session minimal while centralizing all message operations.
 
-### Claude CLI
+### Agent Backends
 | File | Purpose |
 |------|---------|
-| `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
-| `src/claude/types.ts` | TypeScript types for Claude stream-json events |
+| `src/agents/types.ts` | AgentBackend interface + normalized event/option types (AgentType, AgentEvent, ContentBlock) |
+| `src/agents/factory.ts` | `createAgentBackend()` - the only place backends are instantiated |
+| `src/agents/codex/cli.ts` | CodexCli - drives `codex app-server`, turn queueing, in-process approvals |
+| `src/agents/codex/rpc.ts` | JSON-RPC 2.0 client over stdio (requests, notifications, server-initiated requests) |
+| `src/agents/codex/translator.ts` | Pure translation: codex notifications → normalized AgentEvents; all protocol constants |
+| `src/agents/codex/version-check.ts` | Codex CLI discovery/version validation (CODEX_PATH, CODEX_CLI_VERSION_RANGE) |
+| `src/claude/cli.ts` | ClaudeCli - spawns Claude CLI with platform-specific MCP config (re-exports event types) |
 | `src/claude/version-check.ts` | Claude CLI version validation and compatibility check |
 
 ### Platform Layer

@@ -35,7 +35,8 @@ export interface PersistedContextPrompt {
 export interface PersistedSession {
   platformId: string;            // Which platform instance (e.g., 'default', 'mattermost-main')
   threadId: string;              // Thread ID within that platform
-  claudeSessionId: string;       // UUID for --session-id / --resume
+  claudeSessionId: string;       // Agent session id — Claude: UUID for --session-id/--resume; Codex: threadId
+  agentType?: 'claude' | 'codex'; // Agent backend; missing in pre-codex sessions → default 'claude'
   startedBy: string;             // Username who started the session
   startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date

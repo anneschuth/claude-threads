@@ -23,11 +23,12 @@ import {
   writeWorktreeMetadata,
   isValidWorktreePath,
 } from '../../git/worktree.js';
-import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
-import { ClaudeCli } from '../../claude/cli.js';
+import type { ClaudeEvent } from '../../claude/cli.js';
 import { buildRestartCliOptions } from '../../claude/restart-options.js';
 import { buildAppendSystemPrompt } from '../../commands/system-prompt-generator.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
+import { createAgentBackend } from '../../agents/factory.js';
+import type { AgentBackendOptions, CodexAgentConfig } from '../../agents/types.js';
 import { randomUUID } from 'crypto';
 import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
@@ -398,6 +399,7 @@ export async function createAndSwitchToWorktree(
     chromeEnabled: boolean;
     worktreeMode: WorktreeMode;
     permissionTimeoutMs?: number;
+    codex?: CodexAgentConfig;
     handleEvent: (sessionId: string, event: ClaudeEvent) => void;
     handleExit: (sessionId: string, code: number) => Promise<void>;
     updateSessionHeader: (session: Session) => Promise<void>;
@@ -494,11 +496,13 @@ export async function createAndSwitchToWorktree(
         // The session-context line is only re-included when Claude still needs
         // to generate a title (preserves the existing optimization).
         const needsTitlePrompt = !session.sessionTitle;
-        const cliOptions: ClaudeCliOptions = {
+        const cliOptions: AgentBackendOptions = {
           ...buildRestartCliOptions(session, {
             chromeEnabled: options.chromeEnabled,
             permissionTimeoutMs: options.permissionTimeoutMs,
           }),
+          agentType: session.agentType,
+          codex: options.codex,
           workingDir: existing.path,
           permissionMode: effectivePermissionMode({
             override: session.permissionModeOverride,
@@ -519,7 +523,7 @@ export async function createAndSwitchToWorktree(
             { omitSessionContext: !needsTitlePrompt },
           ),
         };
-        session.claude = new ClaudeCli(cliOptions);
+        session.claude = createAgentBackend(cliOptions);
 
         // Rebind event handlers
         session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
@@ -654,11 +658,13 @@ export async function createAndSwitchToWorktree(
       // Session-context preamble re-included only when Claude still owes a title.
       const needsTitlePrompt = !session.sessionTitle;
 
-      const cliOptions: ClaudeCliOptions = {
+      const cliOptions: AgentBackendOptions = {
         ...buildRestartCliOptions(session, {
           chromeEnabled: options.chromeEnabled,
           permissionTimeoutMs: options.permissionTimeoutMs,
         }),
+        agentType: session.agentType,
+        codex: options.codex,
         workingDir: worktreePath,
         permissionMode: effectivePermissionMode({
           override: session.permissionModeOverride,
@@ -679,7 +685,7 @@ export async function createAndSwitchToWorktree(
           { omitSessionContext: !needsTitlePrompt },
         ),
       };
-      session.claude = new ClaudeCli(cliOptions);
+      session.claude = createAgentBackend(cliOptions);
 
       // Rebind event handlers (use sessionId which is the composite key)
       session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));

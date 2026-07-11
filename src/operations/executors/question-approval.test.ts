@@ -106,7 +106,7 @@ describe('QuestionApprovalExecutor', () => {
   let ctx: ExecutorContext;
   let registeredPosts: Map<string, unknown>;
   let questionCompleted: { toolUseId: string; answers: Array<{ header: string; answer: string }> } | null;
-  let approvalCompleted: { toolUseId: string; approved: boolean } | null;
+  let approvalCompleted: { toolUseId: string; approved: boolean; allowAll?: boolean } | null;
 
   beforeEach(() => {
     registeredPosts = new Map();
@@ -118,8 +118,8 @@ describe('QuestionApprovalExecutor', () => {
     events.on('question:complete', ({ toolUseId, answers }) => {
       questionCompleted = { toolUseId, answers };
     });
-    events.on('approval:complete', ({ toolUseId, approved }) => {
-      approvalCompleted = { toolUseId, approved };
+    events.on('approval:complete', ({ toolUseId, approved, allowAll }) => {
+      approvalCompleted = { toolUseId, approved, allowAll };
     });
 
     const registerPost = (postId: string, options: unknown) => {
@@ -322,6 +322,76 @@ describe('QuestionApprovalExecutor', () => {
       expect(handled).toBe(true);
       expect(approvalCompleted).not.toBeNull();
       expect(approvalCompleted!.approved).toBe(false);
+    });
+  });
+
+  describe('Codex permission approvals (allowSession)', () => {
+    const codexOp: ApprovalOp = {
+      type: 'approval',
+      sessionId: 'test:session-1',
+      timestamp: Date.now(),
+      toolUseId: 'codex-perm:7',
+      approvalType: 'action',
+      content: '`rm -rf build`',
+      allowSession: true,
+    };
+
+    it('posts three reaction options including allow-all', async () => {
+      await executor.execute(codexOp, ctx);
+
+      const calls = (ctx.platform.createInteractivePost as ReturnType<typeof mock>).mock.calls;
+      expect(calls).toHaveLength(1);
+      const [message, reactions] = calls[0] as [string, string[]];
+      expect(reactions).toEqual(['+1', 'white_check_mark', '-1']);
+      expect(message).toContain('rm -rf build');
+      expect(message).toContain('Approve all for this session');
+    });
+
+    it('emits allowAll on the allow-all reaction', async () => {
+      await executor.execute(codexOp, ctx);
+      const postId = executor.getPendingApproval()!.postId;
+
+      const handled = await executor.handleReaction(postId, 'white_check_mark', 'alice', 'added', ctx);
+
+      expect(handled).toBe(true);
+      expect(approvalCompleted).toEqual({ toolUseId: 'codex-perm:7', approved: true, allowAll: true });
+      expect(executor.hasPendingApproval()).toBe(false);
+    });
+
+    it('plain approve emits allowAll false', async () => {
+      await executor.execute(codexOp, ctx);
+      const postId = executor.getPendingApproval()!.postId;
+
+      await executor.handleReaction(postId, '+1', 'alice', 'added', ctx);
+
+      expect(approvalCompleted).toEqual({ toolUseId: 'codex-perm:7', approved: true, allowAll: false });
+    });
+
+    it('deny emits approved false', async () => {
+      await executor.execute(codexOp, ctx);
+      const postId = executor.getPendingApproval()!.postId;
+
+      await executor.handleReaction(postId, '-1', 'alice', 'added', ctx);
+
+      expect(approvalCompleted).toEqual({ toolUseId: 'codex-perm:7', approved: false, allowAll: false });
+    });
+
+    it('ignores the allow-all emoji on plan approvals (no allowSession)', async () => {
+      const planOp: ApprovalOp = {
+        type: 'approval',
+        sessionId: 'test:session-1',
+        timestamp: Date.now(),
+        toolUseId: 'tool-plan',
+        approvalType: 'plan',
+      };
+      await executor.execute(planOp, ctx);
+      const postId = executor.getPendingApproval()!.postId;
+
+      const handled = await executor.handleReaction(postId, 'white_check_mark', 'alice', 'added', ctx);
+
+      expect(handled).toBe(false);
+      expect(approvalCompleted).toBeNull();
+      expect(executor.hasPendingApproval()).toBe(true);
     });
   });
 

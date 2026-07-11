@@ -14,6 +14,7 @@
 
 import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
+import type { AgentType, CodexAgentConfig } from '../agents/types.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
@@ -90,6 +91,8 @@ export class SessionManager extends EventEmitter {
   private worktreeMode: WorktreeMode;
   /** Config default for the per-session "respond only when @mentioned" toggle (#402). */
   private respondOnlyWhenMentioned: boolean;
+  private defaultAgent: AgentType;
+  private codexConfig?: CodexAgentConfig;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -152,7 +155,9 @@ export class SessionManager extends EventEmitter {
     threadLogsRetentionDays = 30,
     limits?: LimitsConfig,
     claudeAccounts?: ClaudeAccount[],
-    respondOnlyWhenMentioned = false
+    respondOnlyWhenMentioned = false,
+    defaultAgent: AgentType = 'claude',
+    codexConfig?: CodexAgentConfig
   ) {
     super();
     this.workingDir = workingDir;
@@ -163,6 +168,8 @@ export class SessionManager extends EventEmitter {
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
+    this.defaultAgent = defaultAgent;
+    this.codexConfig = codexConfig;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -309,6 +316,8 @@ export class SessionManager extends EventEmitter {
       threadLogsRetentionDays: this.threadLogsRetentionDays,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       flushDelayMs: this.limits.flushDelayMs,
+      defaultAgent: this.defaultAgent,
+      codex: this.codexConfig,
     };
 
     const state: SessionState = {
@@ -643,6 +652,7 @@ export class SessionManager extends EventEmitter {
       platformId: session.platformId,
       threadId: session.threadId,
       claudeSessionId: session.claudeSessionId,
+      agentType: session.agentType,
       startedBy: session.startedBy,
       startedByDisplayName: session.startedByDisplayName,
       startedAt: session.startedAt.toISOString(),
@@ -1356,6 +1366,7 @@ export class SessionManager extends EventEmitter {
       chromeEnabled: this.chromeEnabled,
       worktreeMode: this.worktreeMode,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
+      codex: this.codexConfig,
       handleEvent: (tid, e) => this.handleEvent(tid, e),
       handleExit: (tid, code) => this.handleExit(tid, code),
       updateSessionHeader: (s) => this.updateSessionHeader(s),

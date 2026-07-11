@@ -181,7 +181,19 @@ export function handleEventPreProcessing(
       status?: string;
       compact_metadata?: unknown;
       slash_commands?: string[];
+      session_id?: string;
     };
+
+    // Adopt the agent-reported session id when it differs from ours.
+    // Codex generates its own threadId (only known after thread/start);
+    // Claude echoes back the UUID we passed, so this is a no-op for it.
+    // Note: the thread-log file stays keyed by the original placeholder id.
+    if (e.subtype === 'init' && typeof e.session_id === 'string' && e.session_id
+        && e.session_id !== session.claudeSessionId) {
+      sessionLog(session).info(`Agent session id assigned: ${e.session_id}`);
+      session.claudeSessionId = e.session_id;
+      ctx.ops.persistSession(session);
+    }
 
     // Capture available slash commands from init event
     if (e.subtype === 'init' && e.slash_commands && Array.isArray(e.slash_commands)) {
@@ -253,9 +265,23 @@ export function handleEventPostProcessing(
 
   // Handle system errors
   if (event.type === 'system') {
-    const e = event as ClaudeEvent & { subtype?: string; error?: string };
+    const e = event as ClaudeEvent & { subtype?: string; error?: string; tool_use_id?: string };
     if (e.subtype === 'error') {
       trackEvent(session, 'system_error', String(e.error).substring(0, 80));
+    }
+
+    // Codex permission prompt timed out (the backend already declined it) -
+    // update the approval post and clear the pending state
+    if (e.subtype === 'permission_timeout' && e.tool_use_id) {
+      const pending = session.messageManager?.getPendingApproval();
+      if (pending?.toolUseId === e.tool_use_id) {
+        session.messageManager?.clearPendingApproval();
+        session.platform.updatePost(
+          pending.postId,
+          `⏱️ ${session.platform.getFormatter().formatBold('Timed out')} - permission denied`
+        ).catch(() => {});
+        sessionLog(session).info(`Permission request timed out: ${e.tool_use_id}`);
+      }
     }
   }
 
@@ -356,6 +382,13 @@ interface ResultEvent {
  * e.g., "claude-opus-4-5-20251101" -> "Opus 4.5"
  */
 function getModelDisplayName(modelId: string): string {
+  // OpenAI Codex model patterns (e.g., "gpt-5.5-codex" -> "Codex 5.5")
+  const codexMatch = modelId.match(/gpt-([\d.]+)-codex/);
+  if (codexMatch) return `Codex ${codexMatch[1]}`;
+  if (modelId.includes('codex')) return 'Codex';
+  const gptMatch = modelId.match(/gpt-([\d.]+)/);
+  if (gptMatch) return `GPT-${gptMatch[1]}`;
+
   // Common model name patterns
   if (modelId.includes('opus-4-5') || modelId.includes('opus-4.5')) return 'Opus 4.5';
   if (modelId.includes('opus-4')) return 'Opus 4';
@@ -404,8 +437,10 @@ function updateUsageStats(
     totalTokensUsed += usage.inputTokens + usage.outputTokens +
       usage.cacheReadInputTokens + usage.cacheCreationInputTokens;
 
-    // Track primary model by highest cost
-    if (usage.costUSD > highestCost) {
+    // Track primary model by highest cost.
+    // Codex reports zero cost, so fall back to the first model seen
+    // (codex sessions only ever report one model).
+    if (usage.costUSD > highestCost || !primaryModel) {
       highestCost = usage.costUSD;
       primaryModel = modelId;
       contextWindowSize = usage.contextWindow;

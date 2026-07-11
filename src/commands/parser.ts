@@ -207,6 +207,8 @@ const STACKABLE_PATTERNS: Array<[string, RegExp, number, number]> = [
   ['cd', /^!cd\s+(\S+)(?:\s+(.*))?$/i, 1, 2],
   // !permissions <mode> [remainder]. Accepts all canonical and legacy modes.
   ['permissions', /^!permissions?\s+(default|auto|bypass|interactive|skip)(?:\s+(.*))?$/i, 1, 2],
+  // !agent <claude|codex> [remainder]
+  ['agent', /^!agent\s+(\S+)(?:\s+(.*))?$/i, 1, 2],
   // !worktree - capture everything after !worktree as args
   // The executor will parse subcommand vs branch from the args
   ['worktree', /^!worktree\s+(.+)$/i, 1, -1],  // -1 means no remainder group

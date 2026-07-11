@@ -1,0 +1,48 @@
+{
+  "name": "codex-simple",
+  "description": "Simple codex text response with token usage",
+  "model": "gpt-5.5-codex-mock",
+  "turnEvents": [
+    {
+      "method": "item/started",
+      "delay": 50,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "startedAtMs": 0,
+        "item": { "type": "agentMessage", "id": "msg-1-$TURN_ID", "text": "" }
+      }
+    },
+    {
+      "method": "item/completed",
+      "delay": 50,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "completedAtMs": 0,
+        "item": { "type": "agentMessage", "id": "msg-1-$TURN_ID", "text": "Hello from mock Codex! This is a simple response for integration testing." }
+      }
+    },
+    {
+      "method": "thread/tokenUsage/updated",
+      "delay": 20,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "tokenUsage": {
+          "total": { "totalTokens": 1200, "inputTokens": 1000, "cachedInputTokens": 800, "outputTokens": 200, "reasoningOutputTokens": 0 },
+          "last": { "totalTokens": 1200, "inputTokens": 1000, "cachedInputTokens": 800, "outputTokens": 200, "reasoningOutputTokens": 0 },
+          "modelContextWindow": 272000
+        }
+      }
+    },
+    {
+      "method": "turn/completed",
+      "delay": 30,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turn": { "id": "$TURN_ID", "items": [], "status": "completed", "error": null }
+      }
+    }
+  ]
+}

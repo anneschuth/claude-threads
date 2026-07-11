@@ -6,6 +6,7 @@
 
 import type { PlatformClient, PlatformFormatter, PlatformFile } from '../platform/index.js';
 import type { SessionManager } from '../session/index.js';
+import type { AgentType } from '../agents/types.js';
 
 // =============================================================================
 // Command Context
@@ -46,6 +47,8 @@ export interface InitialSessionOptions {
   forceInteractivePermissions?: boolean;
   /** Switch to existing worktree instead of creating new (from !worktree switch) */
   switchToExisting?: boolean;
+  /** Agent backend override (from !agent command) */
+  agent?: AgentType;
 }
 
 /** Result of command execution */

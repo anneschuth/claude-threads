@@ -221,6 +221,38 @@ function parsePermissionMode(
 }
 
 /**
+ * Handle !agent command.
+ * First message: selects the agent backend for the new session.
+ * In-session: shows the current agent (switching mid-session would lose all context).
+ */
+const handleAgent: CommandHandler = async (ctx, args) => {
+  const requested = args?.trim().toLowerCase();
+
+  if (ctx.commandContext === 'first-message') {
+    if (requested === 'claude' || requested === 'codex') {
+      return {
+        sessionOptions: { agent: requested },
+        continueProcessing: true,
+      };
+    }
+    await ctx.client.createPost(
+      `❌ Unknown agent: ${ctx.formatter.formatCode(requested ?? '')}. Available agents: ${ctx.formatter.formatCode('claude')}, ${ctx.formatter.formatCode('codex')}`,
+      ctx.threadId
+    );
+    return { handled: true };
+  }
+
+  // In-session: the agent can only be selected when starting a session
+  const session = ctx.sessionManager.getContext().ops.findSessionByThreadId(ctx.threadId);
+  const current = session?.agentType ?? 'claude';
+  await ctx.client.createPost(
+    `🤖 Current agent: ${ctx.formatter.formatCode(current)}\n${ctx.formatter.formatItalic(`The agent can only be selected when starting a session, e.g. ${ctx.formatter.formatCode('!agent codex <prompt>')}`)}`,
+    ctx.threadId
+  );
+  return { handled: true };
+};
+
+/**
  * Handle !permissions command.
  *
  * Accepts `default` | `auto` | `bypass` (canonical) and `interactive` | `skip`
@@ -472,6 +504,7 @@ handlers.set('github-email', handleGitHubEmail);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
 handlers.set('mentions', handleMentions);
+handlers.set('agent', handleAgent);
 handlers.set('worktree', handleWorktree);
 handlers.set('bug', handleBug);
 handlers.set('plugin', handlePlugin);

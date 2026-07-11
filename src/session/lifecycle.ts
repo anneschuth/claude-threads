@@ -18,9 +18,11 @@ import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
-import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
-import { ClaudeCli } from '../claude/cli.js';
+import type { ClaudeEvent, RateLimitHit } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
+import { createAgentBackend } from '../agents/factory.js';
+import { CODEX_PERMISSION_PREFIX } from '../agents/codex/translator.js';
+import type { AgentBackendOptions, AgentType } from '../agents/types.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
 import { VERSION } from '../version.js';
@@ -326,8 +328,18 @@ function createMessageManager(
     session.claude.sendMessage(answerJson);
   });
 
-  messageManager.events.on('approval:complete', ({ toolUseId: _toolUseId, approved }) => {
-    // Send approval/denial back to Claude
+  messageManager.events.on('approval:complete', ({ toolUseId, approved, allowAll }) => {
+    // Codex permission prompts are answered on the pending JSON-RPC request,
+    // not via a chat message (see CodexCli.respondToPermission)
+    if (toolUseId.startsWith(CODEX_PERMISSION_PREFIX) && session.claude.respondToPermission) {
+      session.claude.respondToPermission(
+        toolUseId,
+        approved ? (allowAll ? 'allow_session' : 'allow') : 'deny'
+      );
+      return;
+    }
+
+    // Claude plan approvals: send approval/denial back as a message
     const response = approved ? 'approved' : 'denied';
     session.claude.sendMessage(response);
   });
@@ -964,6 +976,24 @@ export async function startSession(
     log.info(`Starting session with interactive permissions (from !permissions command)`);
   }
 
+  // Resolve agent backend: !agent command > config default > claude
+  const agentType: AgentType = initialOptions?.agent ?? ctx.config.defaultAgent ?? 'claude';
+  if (agentType === 'codex') {
+    // Lazy validation: covers "!agent codex" on setups where claude is the default
+    // and startup never checked the codex binary
+    const { validateCodexCli } = await import('../agents/codex/version-check.js');
+    const codexValidation = validateCodexCli(ctx.config.codex?.path);
+    if (!codexValidation.installed || !codexValidation.compatible) {
+      if (startPost) {
+        await platform.updatePost(startPost.id, `❌ ${codexValidation.message}`);
+      } else {
+        await platform.createPost(`❌ ${codexValidation.message}`, actualThreadId);
+      }
+      return;
+    }
+    log.info(`Starting session with Codex agent (${codexValidation.version})`);
+  }
+
   // Build system prompt with session context. New sessions only have the
   // owner in `sessionAllowedUsers`, so the collaborator section is the
   // standby one-liner. The full list is published into the thread later
@@ -991,15 +1021,22 @@ export async function startSession(
   // account id is persisted to sessions.json so resume re-binds to the same
   // $HOME the conversation history lives under. threadId is still passed as the
   // resume-compat sticky fallback for pre-account-pool sessions.
-  await ctx.ops.refreshClaudeAccountUsage();
-  const claudeAccount = ctx.ops.acquireClaudeAccount(undefined, actualThreadId, {
-    balanceByUsage: true,
-  });
+  // (Codex sessions don't use the Claude account pool.)
+  const claudeAccount = agentType === 'claude'
+    ? await (async () => {
+      await ctx.ops.refreshClaudeAccountUsage();
+      return ctx.ops.acquireClaudeAccount(undefined, actualThreadId, {
+        balanceByUsage: true,
+      });
+    })()
+    : null;
   if (claudeAccount) {
     log.info(`Session ${sessionId.substring(0, 20)} reserved Claude account "${claudeAccount.id}"`);
   }
 
-  const cliOptions: ClaudeCliOptions = {
+  const cliOptions: AgentBackendOptions = {
+    agentType,
+    codex: ctx.config.codex,
     workingDir,
     threadId: actualThreadId,
     permissionMode,
@@ -1017,7 +1054,7 @@ export async function startSession(
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: username,
   };
-  const claude = new ClaudeCli(cliOptions);
+  const claude = createAgentBackend(cliOptions);
 
   // Create the session object
   const session: Session = {
@@ -1027,6 +1064,7 @@ export async function startSession(
     platform,
     claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    agentType,
     startedBy: username,
     startedByDisplayName: displayName,
     startedAt: new Date(),
@@ -1273,7 +1311,10 @@ export async function resumeSession(
     );
   }
 
-  const cliOptions: ClaudeCliOptions = {
+  const agentType: AgentType = state.agentType ?? 'claude';
+  const cliOptions: AgentBackendOptions = {
+    agentType,
+    codex: ctx.config.codex,
     workingDir: state.workingDir,
     threadId: state.threadId,
     permissionMode: resumePermissionMode,
@@ -1291,7 +1332,7 @@ export async function resumeSession(
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: state.startedBy,
   };
-  const claude = new ClaudeCli(cliOptions);
+  const claude = createAgentBackend(cliOptions);
 
   // Rebuild Session object from persisted state
   const session: Session = {
@@ -1301,6 +1342,7 @@ export async function resumeSession(
     platform,
     claudeSessionId: state.claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    agentType,
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
@@ -1390,10 +1432,16 @@ export async function resumeSession(
       toolUseId: string;
     } | null;
   };
-  if (persistedWithInteractive.pendingQuestionSet || persistedWithInteractive.pendingApproval) {
+  // Codex permission prompts die with the process (the pending JSON-RPC
+  // request is gone) - don't rehydrate them; codex re-asks on the next turn
+  const pendingApprovalToRestore =
+    persistedWithInteractive.pendingApproval?.toolUseId.startsWith(CODEX_PERMISSION_PREFIX)
+      ? null
+      : persistedWithInteractive.pendingApproval;
+  if (persistedWithInteractive.pendingQuestionSet || pendingApprovalToRestore) {
     session.messageManager.hydrateInteractiveState({
       pendingQuestionSet: persistedWithInteractive.pendingQuestionSet,
-      pendingApproval: persistedWithInteractive.pendingApproval,
+      pendingApproval: pendingApprovalToRestore,
     });
   }
 

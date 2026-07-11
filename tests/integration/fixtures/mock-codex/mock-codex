@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Mock Codex CLI wrapper for integration tests
+# Runs the mock app-server runner with bun
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# `codex --version` is used by version-check.ts
+if [ "$1" = "--version" ]; then
+  echo "codex-cli 0.144.0"
+  exit 0
+fi
+
+exec bun run "$SCRIPT_DIR/runner.ts" "$@"

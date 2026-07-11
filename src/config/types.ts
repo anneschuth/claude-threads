@@ -3,9 +3,13 @@
  */
 
 import type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow } from '../auto-update/types.js';
+import type { AgentType, CodexAgentConfig } from '../agents/types.js';
 
 // Re-export auto-update types for convenience
 export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
+
+// Re-export agent types for convenience
+export type { AgentType, CodexAgentConfig };
 
 // =============================================================================
 // Types
@@ -204,6 +208,8 @@ export interface Config {
   stickyMessage?: StickyMessageCustomization; // Optional sticky message customization
   /** Optional Claude account pool. When omitted, bot runs in single-account mode. */
   claudeAccounts?: ClaudeAccount[];
+  agent?: AgentType; // Default agent backend for new sessions (default: 'claude')
+  codex?: CodexAgentConfig; // Codex CLI settings (path, model, sandbox)
   platforms: PlatformInstanceConfig[];
 }
 
@@ -226,6 +232,8 @@ export interface PlatformInstanceConfig {
    * the sticky's `description` / `footer` for platforms still rendering it.
    */
   stickyMessage?: OverheadVisibility;
+  /** Per-platform default agent backend (overrides top-level `agent`) */
+  agent?: AgentType;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }

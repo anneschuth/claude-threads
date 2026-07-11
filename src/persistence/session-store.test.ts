@@ -75,6 +75,29 @@ describe('SessionStore', () => {
       const loaded = store.load();
       expect(loaded.size).toBe(2);
     });
+
+    it('round-trips agentType', () => {
+      const session = createTestSession({ agentType: 'codex' });
+      const sessionId = `${session.platformId}:${session.threadId}`;
+
+      store.save(sessionId, session);
+      const loaded = store.load();
+
+      expect(loaded.get(sessionId)?.agentType).toBe('codex');
+    });
+
+    it('loads pre-codex sessions without agentType (backward compat)', () => {
+      const session = createTestSession();
+      delete session.agentType;
+      const sessionId = `${session.platformId}:${session.threadId}`;
+
+      store.save(sessionId, session);
+      const loaded = store.load();
+
+      // Field is simply absent; consumers default it with ?? 'claude'
+      expect(loaded.get(sessionId)?.agentType).toBeUndefined();
+      expect(loaded.get(sessionId)?.agentType ?? 'claude').toBe('claude');
+    });
   });
 
   describe('remove', () => {

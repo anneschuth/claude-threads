@@ -8,7 +8,7 @@
  * - Processing user responses via reactions
  */
 
-import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
+import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, ALLOW_ALL_EMOJIS, isApprovalEmoji, isDenialEmoji, isAllowAllEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import { formatShortId } from '../../utils/format.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, QuestionApprovalState } from './types.js';
@@ -177,16 +177,22 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       if (op.content) {
         message += `${op.content}\n\n`;
       }
+      message += `👍 Approve\n`;
+      if (op.allowSession) {
+        message += `✅ Approve all for this session\n`;
+      }
       message +=
-        `👍 Approve\n` +
         `👎 Deny\n\n` +
         ctx.formatter.formatItalic('React to respond');
     }
 
     // Create interactive post with approval reactions
+    const reactions = op.allowSession
+      ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+      : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]];
     const post = await ctx.createInteractivePost(
       message,
-      [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      reactions,
       {
         type: 'plan_approval',
         interactionType: 'plan_approval',
@@ -199,6 +205,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       postId: post.id,
       type: op.approvalType,
       toolUseId: op.toolUseId,
+      allowSession: op.allowSession,
     };
 
     ctx.logger.debug(`Created ${op.approvalType} approval post ${formatShortId(post.id)}`);
@@ -315,19 +322,25 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
   async handleApprovalResponse(
     postId: string,
     approved: boolean,
-    ctx: ExecutorContext
+    ctx: ExecutorContext,
+    allowAll = false
   ): Promise<boolean> {
     if (!this.state.pendingApproval) return false;
     if (this.state.pendingApproval.postId !== postId) return false;
 
-        const { type, toolUseId } = this.state.pendingApproval;
+    const { type, toolUseId } = this.state.pendingApproval;
 
-    ctx.logger.info(`${type} ${approved ? 'approved' : 'rejected'}`);
+    ctx.logger.info(`${type} ${approved ? (allowAll ? 'approved (allow all)' : 'approved') : 'rejected'}`);
 
     // Update the post to show decision
-    const statusMessage = approved
-      ? `✅ ${ctx.formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`
-      : `❌ ${ctx.formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
+    let statusMessage: string;
+    if (approved && allowAll) {
+      statusMessage = `✅ ${ctx.formatter.formatBold('Action approved for the rest of the session')} - proceeding...`;
+    } else if (approved) {
+      statusMessage = `✅ ${ctx.formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`;
+    } else {
+      statusMessage = `❌ ${ctx.formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
+    }
 
     try {
       await ctx.platform.updatePost(postId, statusMessage);
@@ -340,7 +353,7 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     // Emit approval complete event
     if (this.events) {
-      this.events.emit('approval:complete', { toolUseId, approved });
+      this.events.emit('approval:complete', { toolUseId, approved, allowAll });
     }
 
     return true;
@@ -417,6 +430,12 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
         ctx.logger.debug(`Approval reaction from @${user}: approved`);
         const handled = await this.handleApprovalResponse(postId, true, ctx);
         ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=approved, handled=${handled}`);
+        return handled;
+      }
+      if (this.state.pendingApproval.allowSession && isAllowAllEmoji(emoji)) {
+        ctx.logger.debug(`Approval reaction from @${user}: approved (allow all)`);
+        const handled = await this.handleApprovalResponse(postId, true, ctx, true);
+        ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=allow-all, handled=${handled}`);
         return handled;
       }
       if (isDenialEmoji(emoji)) {

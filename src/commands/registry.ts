@@ -234,6 +234,16 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
   },
+  {
+    command: 'agent',
+    description: 'Select agent backend for a new session (claude or codex)',
+    args: 'claude|codex',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+    worksInFirstMessage: true,
+    isStackable: true,  // !agent codex can be followed by more commands or prompt
+  },
 
   // ---------------------------------------------------------------------------
   // System

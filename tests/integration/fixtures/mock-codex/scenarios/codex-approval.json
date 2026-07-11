@@ -1,0 +1,49 @@
+{
+  "name": "codex-approval",
+  "description": "Codex requests command approval, then runs the command",
+  "model": "gpt-5.5-codex-mock",
+  "approval": {
+    "command": "/bin/zsh -lc 'touch /tmp/mock-codex-test.txt'",
+    "cwd": "/tmp"
+  },
+  "turnEvents": [
+    {
+      "method": "item/started",
+      "delay": 50,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "startedAtMs": 0,
+        "item": { "type": "commandExecution", "id": "exec-$TURN_ID", "command": "/bin/zsh -lc 'touch /tmp/mock-codex-test.txt'", "status": "inProgress" }
+      }
+    },
+    {
+      "method": "item/completed",
+      "delay": 80,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "completedAtMs": 0,
+        "item": { "type": "commandExecution", "id": "exec-$TURN_ID", "command": "/bin/zsh -lc 'touch /tmp/mock-codex-test.txt'", "status": "completed", "exitCode": 0 }
+      }
+    },
+    {
+      "method": "item/completed",
+      "delay": 50,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "completedAtMs": 0,
+        "item": { "type": "agentMessage", "id": "msg-done-$TURN_ID", "text": "Command executed successfully after approval." }
+      }
+    },
+    {
+      "method": "turn/completed",
+      "delay": 30,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turn": { "id": "$TURN_ID", "items": [], "status": "completed", "error": null }
+      }
+    }
+  ]
+}

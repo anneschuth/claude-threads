@@ -1,0 +1,38 @@
+{
+  "name": "codex-persistent",
+  "description": "Codex session that supports resume (thread/resume succeeds)",
+  "model": "gpt-5.5-codex-mock",
+  "turnEvents": [
+    {
+      "method": "item/completed",
+      "delay": 50,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "completedAtMs": 0,
+        "item": { "type": "agentMessage", "id": "msg-1-$TURN_ID", "text": "Mock codex response (persistent session)." }
+      }
+    },
+    {
+      "method": "thread/tokenUsage/updated",
+      "delay": 20,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turnId": "$TURN_ID",
+        "tokenUsage": {
+          "total": { "totalTokens": 500, "inputTokens": 400, "cachedInputTokens": 0, "outputTokens": 100, "reasoningOutputTokens": 0 },
+          "last": { "totalTokens": 500, "inputTokens": 400, "cachedInputTokens": 0, "outputTokens": 100, "reasoningOutputTokens": 0 },
+          "modelContextWindow": 272000
+        }
+      }
+    },
+    {
+      "method": "turn/completed",
+      "delay": 30,
+      "params": {
+        "threadId": "$THREAD_ID",
+        "turn": { "id": "$TURN_ID", "items": [], "status": "completed", "error": null }
+      }
+    }
+  ]
+}

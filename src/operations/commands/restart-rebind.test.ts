@@ -35,7 +35,7 @@ mock.module('../../claude/cli.js', () => ({
 }));
 
 import { restartClaudeSession } from './handler.js';
-import type { ClaudeCliOptions } from '../../claude/cli.js';
+import type { AgentBackendOptions } from '../../agents/types.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
@@ -87,7 +87,7 @@ describe('restartClaudeSession', () => {
   it('binds listeners for event, exit, AND rate-limit on the new Claude CLI', async () => {
     const session = makeSession();
     const ctx = makeCtx();
-    const cliOptions = { workingDir: '/tmp' } as ClaudeCliOptions;
+    const cliOptions = { workingDir: '/tmp', agentType: 'claude' } as AgentBackendOptions;
 
     const ok = await restartClaudeSession(session, cliOptions, ctx, 'test');
     expect(ok).toBe(true);

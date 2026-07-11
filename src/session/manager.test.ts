@@ -745,7 +745,7 @@ describe('SessionManager', () => {
         'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
         'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
         'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
-        'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode',
+        'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode', 'agentType',
       ]);
       expect(new Set(Object.keys(written))).toEqual(expectedKeys);
 

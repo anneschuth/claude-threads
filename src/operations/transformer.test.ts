@@ -528,6 +528,38 @@ describe('Event Transformer', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Permission Requests (Codex approvals)
+  // ---------------------------------------------------------------------------
+
+  describe('permission_request events (Codex approvals)', () => {
+    it('creates an action approval with the allow-all option', () => {
+      const event: ClaudeEvent = {
+        type: 'permission_request',
+        permission_request: {
+          tool_use_id: 'codex-perm:42',
+          name: 'Bash',
+          input: { command: 'rm -rf build' },
+        },
+      };
+
+      const ops = transformEvent(event, ctx);
+
+      expect(ops).toHaveLength(1);
+      expect(ops[0].type).toBe('approval');
+      const approval = ops[0] as { approvalType: string; toolUseId: string; allowSession?: boolean; content?: string };
+      expect(approval.approvalType).toBe('action');
+      expect(approval.toolUseId).toBe('codex-perm:42');
+      expect(approval.allowSession).toBe(true);
+      expect(approval.content).toContain('rm -rf build');
+    });
+
+    it('ignores malformed permission_request events', () => {
+      const event: ClaudeEvent = { type: 'permission_request' };
+      expect(transformEvent(event, ctx)).toEqual([]);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Unknown Events
   // ---------------------------------------------------------------------------
 

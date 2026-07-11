@@ -140,6 +140,8 @@ export interface ApprovalOp extends BaseOperation {
   readonly approvalType: 'plan' | 'action';
   /** Content being approved (plan content, action description) */
   readonly content?: string;
+  /** Offer an "Allow all" (✅) option that approves all future requests this session */
+  readonly allowSession?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -397,7 +399,8 @@ export function createApprovalOp(
   sessionId: string,
   toolUseId: string,
   approvalType: ApprovalOp['approvalType'],
-  content?: string
+  content?: string,
+  options?: { allowSession?: boolean }
 ): ApprovalOp {
   return {
     type: 'approval',
@@ -406,6 +409,7 @@ export function createApprovalOp(
     toolUseId,
     approvalType,
     content,
+    allowSession: options?.allowSession,
   };
 }
 

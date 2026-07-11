@@ -124,6 +124,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
       interrupt: mock(() => {}),
     } as any,
     claudeSessionId: 'claude-session-1',
+    agentType: 'claude',
     owner: 'testuser',
     startedBy: 'testuser',
     startedAt: new Date(),

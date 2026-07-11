@@ -1133,6 +1133,51 @@ describe('handleMessage', () => {
         );
       });
 
+      test('!agent codex in first message passes agent to startSession', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !agent codex fix a bug',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).toHaveBeenCalledWith(
+          { prompt: 'fix a bug', files: undefined },
+          'allowed-user',
+          'thread1',
+          'test-platform',
+          'User',
+          'post1',
+          { agent: 'codex' }  // initialOptions with agent override
+        );
+      });
+
+      test('!agent with unknown backend posts error without starting session', async () => {
+        const post: PlatformPost = {
+          id: 'post1',
+          platformId: 'test',
+          channelId: 'channel1',
+          userId: 'user1',
+          message: '@claude-bot !agent gemini fix a bug',
+          rootId: 'thread1',
+          createAt: Date.now(),
+        };
+        const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+        await handleMessage(client, session, post, user, options);
+
+        expect(session.startSession).not.toHaveBeenCalled();
+        expect(client.createPost).toHaveBeenCalled();
+        const postContent = (client.createPost as any).mock.calls[0][0];
+        expect(postContent).toContain('Unknown agent');
+      });
+
       test('!update in first message shows update status without starting session', async () => {
         const post: PlatformPost = {
           id: 'post1',

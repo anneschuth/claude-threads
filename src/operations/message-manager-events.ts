@@ -46,6 +46,8 @@ export interface MessageManagerEventMap {
   'approval:complete': {
     toolUseId: string;
     approved: boolean;
+    /** True when the user picked "Allow all" (✅) on a Codex permission prompt */
+    allowAll?: boolean;
   };
 
   /**

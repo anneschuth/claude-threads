@@ -8,8 +8,8 @@
 import { crossSpawn } from '../../utils/spawn.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
-import type { ClaudeCliOptions } from '../../claude/cli.js';
 import { effectivePermissionMode } from '../../config/index.js';
+import type { AgentBackendOptions } from '../../agents/types.js';
 import { post, postError } from '../post-helpers/index.js';
 import { restartClaudeSession } from '../commands/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -100,6 +100,10 @@ export async function handlePluginInstall(
   ctx: SessionContext
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
+  if (session.agentType !== 'claude') {
+    await post(session, 'warning', `Plugins are a Claude Code feature and aren't available with the ${formatter.formatCode(session.agentType)} agent`);
+    return;
+  }
 
   await post(session, 'info', `📦 Installing plugin: ${formatter.formatCode(pluginName)}...`);
   sessionLog(session).info(`Installing plugin: ${pluginName} (requested by @${username})`);
@@ -124,7 +128,9 @@ export async function handlePluginInstall(
   // Only resume when Claude has actually responded — an early restart (e.g.
   // plugin install before the first turn) has no conversation to resume and
   // Claude CLI rejects `--resume <uuid>` with "No conversation found".
-  const cliOptions: ClaudeCliOptions = {
+  const cliOptions: AgentBackendOptions = {
+    agentType: session.agentType,
+    codex: ctx.config.codex,
     workingDir: session.workingDir,
     threadId: session.threadId,
     permissionMode: effectivePermissionMode({
@@ -165,6 +171,10 @@ export async function handlePluginUninstall(
   ctx: SessionContext
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
+  if (session.agentType !== 'claude') {
+    await post(session, 'warning', `Plugins are a Claude Code feature and aren't available with the ${formatter.formatCode(session.agentType)} agent`);
+    return;
+  }
 
   await post(session, 'info', `🗑️ Uninstalling plugin: ${formatter.formatCode(pluginName)}...`);
   sessionLog(session).info(`Uninstalling plugin: ${pluginName} (requested by @${username})`);
@@ -189,7 +199,9 @@ export async function handlePluginUninstall(
   // Only resume when Claude has actually responded — an early restart (e.g.
   // plugin install before the first turn) has no conversation to resume and
   // Claude CLI rejects `--resume <uuid>` with "No conversation found".
-  const cliOptions: ClaudeCliOptions = {
+  const cliOptions: AgentBackendOptions = {
+    agentType: session.agentType,
+    codex: ctx.config.codex,
     workingDir: session.workingDir,
     threadId: session.threadId,
     permissionMode: effectivePermissionMode({

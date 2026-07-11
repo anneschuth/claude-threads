@@ -25,6 +25,7 @@
 ## Features
 
 - **Real-time streaming** - Claude's responses stream live to chat
+- **Multiple agents** - Run Claude Code or OpenAI Codex per session (`!agent codex`)
 - **Multi-platform** - Connect to multiple Mattermost and Slack workspaces simultaneously
 - **Concurrent sessions** - Each thread gets its own Claude session, persisted across bot restarts
 - **Collaboration** - `!invite` teammates to participate; they get added as `Co-Authored-By:` trailers on Claude's commits
@@ -72,6 +73,26 @@ Mention the bot in your chat:
 @claude help me fix the bug in src/auth.ts
 ```
 
+### Using OpenAI Codex (optional)
+
+Sessions run Claude Code by default. With the [Codex CLI](https://github.com/openai/codex) installed (`codex --version`, logged in via `codex login`), you can run a session with Codex instead:
+
+```
+@claude !agent codex help me fix the bug in src/auth.ts
+```
+
+Or make Codex the default in `~/.config/claude-threads/config.yaml`:
+
+```yaml
+agent: codex          # default agent for new sessions (claude | codex)
+codex:                # optional codex settings
+  model: gpt-5.5-codex
+  # path: /custom/path/to/codex
+  # sandbox: workspace-write   # or danger-full-access (with skipPermissions)
+```
+
+Codex sessions support streaming, interactive command approvals (👍 ✅ 👎), task lists, interrupts, and resume after restart. Claude-specific features (plugins, Chrome automation, plan mode) are unavailable with Codex. Title/tag suggestions still use the Claude CLI when present.
+
 ## Session Commands
 
 Type `!help` in any session thread:
@@ -85,6 +106,7 @@ Type `!help` in any session thread:
 | `!compact`                                  | Compress context to free up space                                                        |
 | `!cd <path>`                                | Change working directory (restarts Claude)                                               |
 | `!permissions <mode>`                       | Set permission mode: `default` / `auto` / `bypass`                                       |
+| `!agent <claude\|codex>`                    | Select agent backend for a new session: Claude Code or OpenAI Codex (first message only) |
 | `!mentions [on\|off]`                       | Quiet mode: only respond when @mentioned (bare `!mentions` toggles)                      |
 | `!worktree <branch>`                        | Create and switch to a git worktree (also: `list`, `switch`, `remove`, `cleanup`, `off`) |
 | `!plugin <list\|install\|uninstall> [name]` | Manage Claude Code plugins (restarts Claude)                                             |
