@@ -359,6 +359,44 @@ describe('handleMessage', () => {
       expect(session.sendFollowUp).not.toHaveBeenCalled();
     });
 
+    test('message starting with @user but also mentioning the bot is NOT a side conversation', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@someone-else look at this - @claude-bot please fix the test',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalled();
+      // The other user's mention stays in the prompt; only the bot mention is stripped
+      const content = (session.sendFollowUp as any).mock.calls[0][1];
+      expect(content).toContain('@someone-else');
+      expect(content).not.toContain('@claude-bot');
+    });
+
+    test('mention of the bot with trailing punctuation is NOT a side conversation', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot. run the tests',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalled();
+    });
+
     test('sends follow-up for regular messages', async () => {
       const post: PlatformPost = {
         id: 'post1',
@@ -580,6 +618,23 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
+    });
+
+    test('message starting with @user but also mentioning the bot resumes the session', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@someone-else fyi @claude-bot continue with the fix',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).toHaveBeenCalled();
     });
 
     test('rejects resume for unauthorized user', async () => {

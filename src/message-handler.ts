@@ -102,9 +102,12 @@ export async function handleMessage(
     // Use registry to check for active session directly
     const activeSession = session.registry.findByThreadId(threadRoot);
     if (activeSession) {
-      // If message starts with @mention to someone else, track it as side conversation (if from approved user)
+      // If message starts with @mention to someone else, track it as side conversation (if from approved user).
+      // A message that ALSO mentions the bot anywhere is directed at the bot, not a side
+      // conversation ("@anna fyi - @bot please fix X" must still trigger the bot).
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()
+          && !client.isBotMentioned(message)) {
         // Track side conversation if from approved user
         if (session.isUserAllowedInSession(threadRoot, username)) {
           session.addSideConversation(threadRoot, {
@@ -210,9 +213,11 @@ export async function handleMessage(
     // Use registry to check for persisted session directly
     const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
     if (hasPausedSession) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
+      // If message starts with @mention to someone else, ignore it (side conversation).
+      // Same bot-mention override as the active-session branch above.
       const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()
+          && !client.isBotMentioned(message)) {
         return; // Side conversation, don't interrupt
       }
 
