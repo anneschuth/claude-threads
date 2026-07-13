@@ -1662,6 +1662,9 @@ export async function resumePausedSession(
   // Wait a moment for the session to be ready, then send the message
   const session = ctx.ops.findSessionByThreadId(threadId);
   if (session && session.claude.isRunning() && session.messageManager) {
+    // Arbiter: the resuming message can add or cancel delivery obligations,
+    // same as any other user message (fire-and-forget)
+    extractObligations(session, message, ctx);
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
     await session.messageManager.handleUserMessage(message, files, state.startedBy);

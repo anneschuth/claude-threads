@@ -14,7 +14,7 @@ import { describe, it, expect, mock, beforeEach, afterAll } from 'bun:test';
 const quickQueryCfg: { current: { success: boolean; response?: string } } = {
   current: { success: true, response: '{"obligations": []}' },
 };
-const quickQueryMock = mock(async () => ({ ...quickQueryCfg.current, durationMs: 1 }));
+const quickQueryMock = mock(async (_opts: { prompt: string }) => ({ ...quickQueryCfg.current, durationMs: 1 }));
 
 const realQuickQuery = await import('../../claude/quick-query.js');
 mock.module('../../claude/quick-query.js', () => ({
@@ -102,14 +102,19 @@ function makeSession(spies: Spies, overrides: Partial<Session> = {}): Session {
       getPendingApproval: () => null,
       hasPendingQuestions: () => false,
       getPendingContextPrompt: () => null,
+      getPendingMessageApproval: () => null,
+      getPendingBugReport: () => null,
     } as unknown as Session['messageManager'],
     ...overrides,
   } as unknown as Session;
 }
 
-function makeCtx(spies: Spies, arbiterEnabled = true): SessionContext {
+function makeCtx(spies: Spies, arbiterEnabled = true, sessions?: Session[]): SessionContext {
+  const registry = new Map<string, Session>();
+  for (const s of sessions ?? []) registry.set(s.sessionId, s);
   return {
     config: { arbiterEnabled },
+    state: { sessions: registry },
     ops: {
       persistSession: mock(() => {
         spies.persisted++;
@@ -190,7 +195,7 @@ describe('mightContainDeliveryRequest', () => {
 describe('extractObligations', () => {
   it('adds obligations from the extractor response', async () => {
     const session = makeSession(spies);
-    const ctx = makeCtx(spies);
+    const ctx = makeCtx(spies, true, [session]);
     quickQueryCfg.current = {
       success: true,
       response: '{"obligations":[{"description":"reply to ~releases when done","tool":"send_dm"}]}',
@@ -251,7 +256,7 @@ describe('extractObligations', () => {
 // -----------------------------------------------------------------------------
 
 describe('noteEvent', () => {
-  it('fulfills a matching obligation when the delivery tool is called', () => {
+  it('a tool_use alone does NOT fulfill — fulfillment waits for the result', () => {
     const session = makeSession(spies);
     getArbiterState(session).obligations = [openObligation('send_dm')];
 
@@ -261,8 +266,46 @@ describe('noteEvent', () => {
     });
 
     const state = getArbiterState(session);
+    expect(state.obligations[0].status).toBe('open');
+    expect(state.deliveryToolCalls).toEqual([]);
+    expect(state.pendingDeliveryCalls.get('t1')).toBe('send_dm');
+  });
+
+  it('fulfills the obligation when the delivery tool result comes back clean', () => {
+    const session = makeSession(spies);
+    getArbiterState(session).obligations = [openObligation('send_dm')];
+
+    noteEvent(session, {
+      type: 'tool_use',
+      tool_use: { id: 't1', name: 'mcp__claude-threads-mcp__send_dm', input: {} },
+    });
+    noteEvent(session, {
+      type: 'tool_result',
+      tool_result: { tool_use_id: 't1', is_error: false },
+    });
+
+    const state = getArbiterState(session);
     expect(state.obligations[0].status).toBe('fulfilled');
     expect(state.deliveryToolCalls).toEqual(['send_dm']);
+    expect(state.pendingDeliveryCalls.size).toBe(0);
+  });
+
+  it('a FAILED delivery keeps the obligation open', () => {
+    const session = makeSession(spies);
+    getArbiterState(session).obligations = [openObligation('send_dm')];
+
+    noteEvent(session, {
+      type: 'tool_use',
+      tool_use: { id: 't1', name: 'mcp__claude-threads-mcp__send_dm', input: {} },
+    });
+    noteEvent(session, {
+      type: 'tool_result',
+      tool_result: { tool_use_id: 't1', is_error: true },
+    });
+
+    const state = getArbiterState(session);
+    expect(state.obligations[0].status).toBe('open');
+    expect(state.deliveryToolCalls).toEqual([]);
   });
 
   it('ignores non-delivery tools', () => {
@@ -441,6 +484,105 @@ describe('onTurnComplete — stall nudges', () => {
 });
 
 // -----------------------------------------------------------------------------
+// Review fixes: concurrency, persist guard, liveness rechecks, text consumption
+// -----------------------------------------------------------------------------
+
+describe('extractObligations — serialization', () => {
+  it('does not lose obligations when two extractions overlap', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+
+    // First call resolves slowly with obligation A; second call's prompt must
+    // see A in the ledger (serialization) and returns A + B.
+    const prompts: string[] = [];
+    quickQueryMock.mockImplementationOnce(async (opts: { prompt: string }) => {
+      prompts.push(opts.prompt);
+      await new Promise((r) => setTimeout(r, 30));
+      return { success: true, response: '{"obligations":[{"description":"DM @alice","tool":"send_dm"}]}', durationMs: 1 };
+    });
+    quickQueryMock.mockImplementationOnce(async (opts: { prompt: string }) => {
+      prompts.push(opts.prompt);
+      return { success: true, response: '{"obligations":[{"description":"DM @alice","tool":"send_dm"},{"description":"post to ~releases","tool":"send_dm"}]}', durationMs: 1 };
+    });
+
+    const first = extractObligations(session, 'напиши @alice когда закончишь', ctx);
+    const second = extractObligations(session, 'и ещё отпишись в ~releases', ctx);
+    await Promise.all([first, second]);
+
+    const open = getArbiterState(session).obligations.filter((o) => o.status === 'open');
+    expect(open.map((o) => o.description).sort()).toEqual(['DM @alice', 'post to ~releases']);
+    // Second extraction saw the first one's result in its prompt
+    expect(prompts[1]).toContain('DM @alice');
+  });
+});
+
+describe('persist guard (killed session)', () => {
+  it('does not persist from a late extraction when the session was unregistered', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, []); // session NOT in the registry (killed)
+    quickQueryCfg.current = {
+      success: true,
+      response: '{"obligations":[{"description":"reply to ~releases","tool":"send_dm"}]}',
+    };
+
+    await extractObligations(session, 'отпишись в ~releases', ctx);
+
+    expect(spies.persisted).toBe(0);
+  });
+
+  it('does not persist a reminder for an unregistered session', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, []);
+    getArbiterState(session).obligations = [openObligation('send_dm')];
+
+    await onTurnComplete(session, ctx);
+
+    expect(spies.persisted).toBe(0);
+  });
+});
+
+describe('liveness recheck before sending', () => {
+  it('drops the delivery reminder if session.claude was replaced mid-flight (e.g. !cd)', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).obligations = [openObligation('send_dm')];
+
+    // Simulate a !cd restart happening during the arbiter's thread post
+    (session.platform.createPost as ReturnType<typeof mock>).mockImplementationOnce(async (message: string) => {
+      spies.createdMessages.push(message);
+      session.claude = {
+        isRunning: () => true,
+        sendMessage: mock((msg: string) => spies.sentToAgent.push(`WRONG:${msg}`)),
+      } as unknown as Session['claude'];
+      return { id: 'post-x', message, userId: 'bot' };
+    });
+
+    await onTurnComplete(session, ctx);
+
+    expect(spies.sentToAgent).toHaveLength(0);
+    // The reminder was not consumed — it can retry on the next turn
+    expect(getArbiterState(session).obligations[0].remindCount).toBe(0);
+  });
+});
+
+describe('lastAssistantText consumption', () => {
+  it('a stall check consumes the text — no re-judging on a later text-less turn', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).lastAssistantText = 'Should I continue?';
+    quickQueryCfg.current = { success: true, response: '{"verdict":"wait_for_human"}' };
+
+    await onTurnComplete(session, ctx);
+    expect(quickQueryMock).toHaveBeenCalledTimes(1);
+    expect(getArbiterState(session).lastAssistantText).toBeUndefined();
+
+    // Next turn ends without any assistant text — stale question must not re-trigger
+    await onTurnComplete(session, ctx);
+    expect(quickQueryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// -----------------------------------------------------------------------------
 // canIntervene
 // -----------------------------------------------------------------------------
 
@@ -461,5 +603,27 @@ describe('canIntervene', () => {
 
   it('is false when a worktree prompt is pending', () => {
     expect(canIntervene(makeSession(spies, { pendingWorktreePrompt: true } as Partial<Session>))).toBe(false);
+  });
+
+  it('is false while a message approval or bug report is pending', () => {
+    expect(canIntervene(makeSession(spies, {
+      messageManager: {
+        getPendingApproval: () => null,
+        hasPendingQuestions: () => false,
+        getPendingContextPrompt: () => null,
+        getPendingMessageApproval: () => ({ fromUser: 'bob' }),
+        getPendingBugReport: () => null,
+      } as unknown as Session['messageManager'],
+    } as Partial<Session>))).toBe(false);
+
+    expect(canIntervene(makeSession(spies, {
+      messageManager: {
+        getPendingApproval: () => null,
+        hasPendingQuestions: () => false,
+        getPendingContextPrompt: () => null,
+        getPendingMessageApproval: () => null,
+        getPendingBugReport: () => ({ postId: 'p1' }),
+      } as unknown as Session['messageManager'],
+    } as Partial<Session>))).toBe(false);
   });
 });

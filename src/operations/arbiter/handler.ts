@@ -147,16 +147,18 @@ export function extractObligations(
 
   const state = getArbiterState(session);
 
-  // Cheap pre-filter: only spend a Haiku call when there's something to
-  // update — either the ledger is non-empty (message may cancel/modify) or
-  // the message plausibly asks for an external delivery.
-  const open = openObligations(state);
-  if (open.length === 0 && !mightContainDeliveryRequest(message)) return Promise.resolve();
-
-  // Returned promise is ignored by production callers (fire-and-forget)
-  // but awaited by tests.
-  return (async () => {
+  // Serialize per session: extractions snapshot the ledger and write it back
+  // after an LLM round trip; two concurrent follow-ups would race and the
+  // last writer would silently drop the other's obligations. The chain also
+  // means the ledger snapshot below always reflects prior messages.
+  const run = async (): Promise<void> => {
     try {
+      // Cheap pre-filter: only spend a Haiku call when there's something to
+      // update — either the ledger is non-empty (message may cancel/modify)
+      // or the message plausibly asks for an external delivery.
+      const open = openObligations(state);
+      if (open.length === 0 && !mightContainDeliveryRequest(message)) return;
+
       const result = await quickQuery({
         prompt: buildExtractionPrompt(message, open),
         model: 'haiku',
@@ -179,11 +181,31 @@ export function extractObligations(
           `⚖️ Tracking ${updated.length} delivery obligation(s): ${updated.map((o) => o.description).join('; ')}`
         );
       }
-      ctx.ops.persistSession(session);
+      persistIfActive(session, ctx);
     } catch (err) {
       log.debug(`Obligation extraction failed: ${err}`);
     }
-  })();
+  };
+
+  // Returned promise is ignored by production callers (fire-and-forget)
+  // but awaited by tests. run() never rejects, so the chain never breaks.
+  const chained = (state.extractionChain ?? Promise.resolve()).then(run);
+  state.extractionChain = chained;
+  return chained;
+}
+
+/**
+ * Persist the session only while it is still registered. The arbiter's
+ * async continuations can outlive the session (e.g. !stop during a Haiku
+ * round trip); a late persist would overwrite the store record and wipe the
+ * soft-delete marker, resurrecting a session the user explicitly killed.
+ */
+function persistIfActive(session: Session, ctx: SessionContext): void {
+  if (!ctx.state.sessions.has(session.sessionId)) {
+    log.debug(`Skipping persist for unregistered session ${session.sessionId}`);
+    return;
+  }
+  ctx.ops.persistSession(session);
 }
 
 /**
@@ -200,22 +222,41 @@ export function mightContainDeliveryRequest(message: string): boolean {
 // ---------------------------------------------------------------------------
 
 /**
- * Observe the normalized event stream: record delivery tool calls (fulfilling
- * matching obligations) and remember the turn's final assistant text.
+ * Observe the normalized event stream: track delivery tool calls (an
+ * obligation is fulfilled only when the tool RESULT comes back without
+ * error) and remember the turn's final assistant text.
  */
 export function noteEvent(session: Session, event: ClaudeEvent): void {
   const state = getArbiterState(session);
 
   if (event.type === 'tool_use') {
-    const tool = event.tool_use as { name?: string } | undefined;
+    const tool = event.tool_use as { id?: string; name?: string } | undefined;
     const delivery = tool?.name ? DELIVERY_TOOL_NAMES[tool.name] : undefined;
-    if (delivery) {
-      state.deliveryToolCalls.push(delivery);
-      for (const obligation of state.obligations) {
-        if (obligation.status === 'open' && obligation.tool === delivery) {
-          obligation.status = 'fulfilled';
-          sessionLog(session).info(`⚖️ Obligation fulfilled (${delivery}): ${obligation.description}`);
-        }
+    if (delivery && tool?.id) {
+      // Attempt only — fulfillment waits for a non-error tool_result.
+      // A send_dm the MCP server rejects must not count as delivered.
+      state.pendingDeliveryCalls.set(tool.id, delivery);
+    }
+    return;
+  }
+
+  if (event.type === 'tool_result') {
+    const result = event.tool_result as { tool_use_id?: string; is_error?: boolean } | undefined;
+    if (!result?.tool_use_id) return;
+    const delivery = state.pendingDeliveryCalls.get(result.tool_use_id);
+    if (!delivery) return;
+    state.pendingDeliveryCalls.delete(result.tool_use_id);
+
+    if (result.is_error) {
+      sessionLog(session).info(`⚖️ Delivery attempt failed (${delivery}) — obligation stays open`);
+      return;
+    }
+
+    state.deliveryToolCalls.push(delivery);
+    for (const obligation of state.obligations) {
+      if (obligation.status === 'open' && obligation.tool === delivery) {
+        obligation.status = 'fulfilled';
+        sessionLog(session).info(`⚖️ Obligation fulfilled (${delivery}): ${obligation.description}`);
       }
     }
     return;
@@ -281,10 +322,13 @@ export function canIntervene(session: Session): boolean {
   const state = session.lifecycle.state;
   if (state !== 'active' && state !== 'processing') return false;
   // A genuine interactive prompt is pending (plan approval, AskUserQuestion,
-  // context prompt, worktree branch prompt) — waiting for a human is correct
+  // context prompt, worktree branch prompt, message approval, bug report) —
+  // waiting for a human is correct
   if (session.messageManager?.getPendingApproval()) return false;
   if (session.messageManager?.hasPendingQuestions()) return false;
   if (session.messageManager?.getPendingContextPrompt()) return false;
+  if (session.messageManager?.getPendingMessageApproval()) return false;
+  if (session.messageManager?.getPendingBugReport()) return false;
   if (session.pendingWorktreePrompt) return false;
   return true;
 }
@@ -328,19 +372,52 @@ async function runTurnCompleteCheck(
   ctx: SessionContext,
   state: ArbiterSessionState
 ): Promise<void> {
+  // The agent process this turn belongs to. If a !cd/!permissions restart
+  // replaces session.claude while we're doing async work below, our message
+  // would land in a fresh conversation that never heard about the task —
+  // every send re-checks identity first.
+  const claudeAtStart = session.claude;
+
+  // Consume this turn's final text NOW: a later text-less turn (interrupt,
+  // error, pure tool-use) must not reuse it for a stale stall verdict.
+  const lastText = state.lastAssistantText;
+  state.lastAssistantText = undefined;
+
+  const stillSafe = (): boolean =>
+    session.claude === claudeAtStart && canIntervene(session);
+
   // 1. Delivery obligations — deterministic, checked first
   const unmet = unmetObligations(state);
   if (unmet.length > 0) {
     const remindable = unmet.filter((o) => o.remindCount < MAX_DELIVERY_REMINDERS);
 
     if (remindable.length > 0) {
+      sessionLog(session).info(
+        `⚖️ Reminding agent about ${remindable.length} unmet delivery obligation(s)`
+      );
+      const formatter = session.platform.getFormatter();
+      await post(
+        session,
+        'info',
+        `⚖️ ${formatter.formatItalic(`Arbiter: reminding the agent about ${remindable.length === 1 ? 'an unfinished delivery' : 'unfinished deliveries'}`)}`
+      );
+
+      // Re-check after the network round trip; count the reminder only if
+      // it is actually sent
+      if (!stillSafe()) return;
       for (const o of remindable) o.remindCount++;
-      ctx.ops.persistSession(session);
-      await remindAgent(session, ctx, remindable);
+      persistIfActive(session, ctx);
+
+      const list = remindable.map((o) => `- ${o.description} (use the ${o.tool} tool)`).join('\n');
+      sendToAgent(
+        session,
+        ctx,
+        `[Arbiter] You finished your turn, but the user asked for the following and you have NOT done it yet:\n${list}\nDo it now. If it is genuinely impossible, say so explicitly in this thread.`
+      );
     } else {
       // Out of reminders — surface to the humans once and stop tracking
       for (const o of unmet) o.status = 'failed';
-      ctx.ops.persistSession(session);
+      persistIfActive(session, ctx);
       const formatter = session.platform.getFormatter();
       await post(
         session,
@@ -355,7 +432,6 @@ async function runTurnCompleteCheck(
 
   // 2. Stall check — only when deliveries are in order
   if (state.continuationNudges >= MAX_CONTINUATION_NUDGES) return;
-  const lastText = state.lastAssistantText;
   if (!lastText) return;
 
   // Quick lexical gate: a final message with no question mark and no
@@ -373,12 +449,13 @@ async function runTurnCompleteCheck(
   const verdict = parseStallVerdict(result.response);
   if (verdict !== 'continue') return;
 
-  // Re-check: a human may have replied while we were judging
+  // Re-check: a human may have replied (or the session may have moved on)
+  // while we were judging
   if (session.messageCount !== messageCountBefore) return;
-  if (!canIntervene(session)) return;
+  if (!stillSafe()) return;
 
   state.continuationNudges++;
-  ctx.ops.persistSession(session);
+  persistIfActive(session, ctx);
   sessionLog(session).info(
     `⚖️ Stall detected — nudging agent to continue (${state.continuationNudges}/${MAX_CONTINUATION_NUDGES})`
   );
@@ -390,35 +467,11 @@ async function runTurnCompleteCheck(
     `⚖️ ${formatter.formatItalic(`Arbiter: the agent paused to ask permission — nudging it to continue (${state.continuationNudges}/${MAX_CONTINUATION_NUDGES})`)}`
   );
 
+  if (!stillSafe()) return;
   sendToAgent(
     session,
     ctx,
     '[Arbiter] Nobody is watching this thread right now. You ended your turn asking whether to continue — do not wait for permission: continue working on the task autonomously until it is complete. Only stop to ask when you genuinely cannot decide yourself (missing access, destructive action, or a real choice the user must make).'
-  );
-}
-
-/** Remind the agent about unmet delivery obligations (starts a new turn) */
-async function remindAgent(
-  session: Session,
-  ctx: SessionContext,
-  obligations: ArbiterObligation[]
-): Promise<void> {
-  sessionLog(session).info(
-    `⚖️ Reminding agent about ${obligations.length} unmet delivery obligation(s)`
-  );
-
-  const formatter = session.platform.getFormatter();
-  await post(
-    session,
-    'info',
-    `⚖️ ${formatter.formatItalic(`Arbiter: reminding the agent about ${obligations.length === 1 ? 'an unfinished delivery' : 'unfinished deliveries'}`)}`
-  );
-
-  const list = obligations.map((o) => `- ${o.description} (use the ${o.tool} tool)`).join('\n');
-  sendToAgent(
-    session,
-    ctx,
-    `[Arbiter] You finished your turn, but the user asked for the following and you have NOT done it yet:\n${list}\nDo it now. If it is genuinely impossible, say so explicitly in this thread.`
   );
 }
 

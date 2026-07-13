@@ -36,7 +36,7 @@ export type StallVerdict = 'continue' | 'wait_for_human' | 'done';
 export interface ArbiterSessionState {
   /** Extracted delivery obligations */
   obligations: ArbiterObligation[];
-  /** Short names of delivery tools called during this session (e.g. 'send_dm') */
+  /** Short names of delivery tools that COMPLETED successfully this session (e.g. 'send_dm') */
   deliveryToolCalls: string[];
   /** Total continuation nudges sent this session (capped) */
   continuationNudges: number;
@@ -44,6 +44,20 @@ export interface ArbiterSessionState {
   lastAssistantText?: string;
   /** In-flight guard so overlapping turn-complete checks don't double-ping */
   checking?: boolean;
+  /**
+   * Delivery tool calls awaiting their tool_result (tool_use_id → tool).
+   * An obligation is only fulfilled when the result comes back without
+   * is_error — a rejected/failed send_dm must NOT count as delivered.
+   * In-memory only: a pending call can't survive a process restart anyway.
+   */
+  pendingDeliveryCalls: Map<string, DeliveryTool>;
+  /**
+   * Serialization chain for obligation extractions (in-memory only).
+   * Extractions snapshot the ledger and write it back after an LLM round
+   * trip; running them concurrently would let the last writer silently drop
+   * obligations added by the other.
+   */
+  extractionChain?: Promise<void>;
 }
 
 /** Persisted subset of ArbiterSessionState (survives bot restarts) */
@@ -58,5 +72,6 @@ export function createArbiterState(persisted?: PersistedArbiterState): ArbiterSe
     obligations: persisted?.obligations ?? [],
     deliveryToolCalls: persisted?.deliveryToolCalls ?? [],
     continuationNudges: persisted?.continuationNudges ?? 0,
+    pendingDeliveryCalls: new Map(),
   };
 }

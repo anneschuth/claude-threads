@@ -248,8 +248,8 @@ export function handleEventPostProcessing(
     }
   }
 
-  // Arbiter bookkeeping: delivery tool calls + the turn's final assistant text
-  if (event.type === 'tool_use' || event.type === 'assistant') {
+  // Arbiter bookkeeping: delivery tool calls/results + the turn's final assistant text
+  if (event.type === 'tool_use' || event.type === 'tool_result' || event.type === 'assistant') {
     arbiter.noteEvent(session, event);
   }
 
