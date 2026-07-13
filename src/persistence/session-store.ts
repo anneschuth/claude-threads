@@ -4,6 +4,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import type { PlatformFile } from '../platform/types.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
+import type { PersistedArbiterState } from '../operations/arbiter/types.js';
 import type { OverheadVisibility } from '../config/types.js';
 
 const log = createLogger('persist');
@@ -37,6 +38,8 @@ export interface PersistedSession {
   threadId: string;              // Thread ID within that platform
   claudeSessionId: string;       // Agent session id — Claude: UUID for --session-id/--resume; Codex: threadId
   agentType?: 'claude' | 'codex'; // Agent backend; missing in pre-codex sessions → default 'claude'
+  /** Arbiter watchdog state (delivery obligations, nudge counters); missing in older sessions */
+  arbiter?: PersistedArbiterState;
   startedBy: string;             // Username who started the session
   startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date

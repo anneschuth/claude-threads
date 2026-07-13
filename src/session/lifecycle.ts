@@ -47,6 +47,7 @@ import {
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
 import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
+import { extractObligations, createArbiterState } from '../operations/arbiter/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -1118,6 +1119,9 @@ export async function startSession(
   // Fire out-of-band title/tag suggestions (don't block session startup)
   fireMetadataSuggestions(session, options.prompt, ctx);
 
+  // Arbiter: track explicit external-delivery obligations from the first message
+  extractObligations(session, options.prompt, ctx);
+
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
 
@@ -1343,6 +1347,7 @@ export async function resumeSession(
     claudeSessionId: state.claudeSessionId,
     claudeAccountId: claudeAccount?.id,
     agentType,
+    arbiter: createArbiterState(state.arbiter),
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
@@ -1565,6 +1570,12 @@ export async function sendFollowUp(
       sessionLog(session).warn(`auth.denied.sendFollowUp: @${username || 'unknown'} not authorized`);
       return;
     }
+  }
+
+  // Arbiter: user follow-ups can add or cancel delivery obligations
+  // (fire-and-forget ledger upkeep, independent of how the message is routed)
+  if (!options?.system) {
+    extractObligations(session, message, ctx);
   }
 
   // Check if we need to offer context prompt (e.g., after !cd)

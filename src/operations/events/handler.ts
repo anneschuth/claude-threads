@@ -21,6 +21,7 @@ import { extractPullRequestUrl } from '../../utils/pr-detector.js';
 import { changeDirectory, reportBug } from '../commands/index.js';
 import { buildWorktreeListMessage } from '../worktree/index.js';
 import { trackEvent } from '../bug-report/index.js';
+import * as arbiter from '../arbiter/index.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
@@ -247,12 +248,20 @@ export function handleEventPostProcessing(
     }
   }
 
+  // Arbiter bookkeeping: delivery tool calls + the turn's final assistant text
+  if (event.type === 'tool_use' || event.type === 'assistant') {
+    arbiter.noteEvent(session, event);
+  }
+
   // Handle result events - stop typing, update UI, extract usage
   if (event.type === 'result') {
     ctx.ops.stopTyping(session);
     session.isProcessing = false;
     ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
     updateUsageStats(session, event, ctx);
+    // Arbiter: remind about unmet deliveries / nudge past permission-stalls
+    // (fire-and-forget, runs out-of-band)
+    arbiter.onTurnComplete(session, ctx);
   }
 
   // Track tool errors for bug reporting context

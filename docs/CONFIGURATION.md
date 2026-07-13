@@ -43,6 +43,7 @@ platforms:
 | `chrome` | Enable Chrome integration | `false` |
 | `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` | `prompt` |
 | `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
+| `arbiter` | Completion watchdog. After each turn: reminds the agent about external deliveries it forgot (a `send_dm`/`send_file` the user asked for, max 2 reminders then a warning post), and nudges it to continue when it stalls asking "should I proceed?" (max 3 nudges per session; genuine blocking questions are left to humans). Uses out-of-band Haiku calls. | `true` |
 
 ## Platform Settings
 

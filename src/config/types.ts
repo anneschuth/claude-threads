@@ -210,6 +210,12 @@ export interface Config {
   claudeAccounts?: ClaudeAccount[];
   agent?: AgentType; // Default agent backend for new sessions (default: 'claude')
   codex?: CodexAgentConfig; // Codex CLI settings (path, model, sandbox)
+  /**
+   * Arbiter watchdog (default: true). After each turn it reminds the agent
+   * about forgotten external deliveries (send_dm/send_file the user asked
+   * for) and nudges it to continue when it stalls asking "should I proceed?".
+   */
+  arbiter?: boolean;
   platforms: PlatformInstanceConfig[];
 }
 

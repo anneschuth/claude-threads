@@ -3,6 +3,7 @@
  */
 
 import type { AgentBackend, AgentType } from '../agents/types.js';
+import type { ArbiterSessionState } from '../operations/arbiter/types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
@@ -379,6 +380,9 @@ export interface Session {
 
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
+
+  // Arbiter watchdog state (delivery obligations, stall nudges)
+  arbiter?: ArbiterSessionState;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;

@@ -58,6 +58,8 @@ export interface SessionConfig {
   defaultAgent?: AgentType;
   /** Codex-specific settings from config.yaml */
   codex?: CodexAgentConfig;
+  /** Arbiter watchdog: delivery reminders + stall nudges (default: true) */
+  arbiterEnabled?: boolean;
 }
 
 // =============================================================================

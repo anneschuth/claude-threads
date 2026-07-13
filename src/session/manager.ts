@@ -93,6 +93,7 @@ export class SessionManager extends EventEmitter {
   private respondOnlyWhenMentioned: boolean;
   private defaultAgent: AgentType;
   private codexConfig?: CodexAgentConfig;
+  private arbiterEnabled: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -157,7 +158,8 @@ export class SessionManager extends EventEmitter {
     claudeAccounts?: ClaudeAccount[],
     respondOnlyWhenMentioned = false,
     defaultAgent: AgentType = 'claude',
-    codexConfig?: CodexAgentConfig
+    codexConfig?: CodexAgentConfig,
+    arbiterEnabled = true
   ) {
     super();
     this.workingDir = workingDir;
@@ -170,6 +172,7 @@ export class SessionManager extends EventEmitter {
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
     this.defaultAgent = defaultAgent;
     this.codexConfig = codexConfig;
+    this.arbiterEnabled = arbiterEnabled;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -318,6 +321,7 @@ export class SessionManager extends EventEmitter {
       flushDelayMs: this.limits.flushDelayMs,
       defaultAgent: this.defaultAgent,
       codex: this.codexConfig,
+      arbiterEnabled: this.arbiterEnabled,
     };
 
     const state: SessionState = {
@@ -653,6 +657,13 @@ export class SessionManager extends EventEmitter {
       threadId: session.threadId,
       claudeSessionId: session.claudeSessionId,
       agentType: session.agentType,
+      arbiter: session.arbiter
+        ? {
+          obligations: session.arbiter.obligations,
+          deliveryToolCalls: session.arbiter.deliveryToolCalls,
+          continuationNudges: session.arbiter.continuationNudges,
+        }
+        : undefined,
       startedBy: session.startedBy,
       startedByDisplayName: session.startedByDisplayName,
       startedAt: session.startedAt.toISOString(),
