@@ -37,6 +37,8 @@ const {
   mightContainDeliveryRequest,
   unmetObligations,
   canIntervene,
+  classifyDeliveryTool,
+  parseDisputeVerdict,
   MAX_DELIVERY_REMINDERS,
   MAX_CONTINUATION_NUDGES,
 } = await import('./handler.js');
@@ -126,7 +128,7 @@ function makeCtx(spies: Spies, arbiterEnabled = true, sessions?: Session[]): Ses
   } as unknown as SessionContext;
 }
 
-function openObligation(tool: 'send_dm' | 'send_file', remindCount = 0): ArbiterObligation {
+function openObligation(tool: 'message' | 'file', remindCount = 0): ArbiterObligation {
   return { description: `deliver via ${tool}`, tool, status: 'open', remindCount };
 }
 
@@ -142,19 +144,24 @@ beforeEach(() => {
 // -----------------------------------------------------------------------------
 
 describe('parseObligationsResponse', () => {
-  it('parses a valid response', () => {
+  it('parses a valid response (kinds)', () => {
+    expect(parseObligationsResponse('{"obligations":[{"description":"reply to ~releases","tool":"message"}]}'))
+      .toEqual([{ description: 'reply to ~releases', tool: 'message' }]);
+  });
+
+  it('maps legacy tool names to kinds', () => {
     expect(parseObligationsResponse('{"obligations":[{"description":"reply to ~releases","tool":"send_dm"}]}'))
-      .toEqual([{ description: 'reply to ~releases', tool: 'send_dm' }]);
+      .toEqual([{ description: 'reply to ~releases', tool: 'message' }]);
   });
 
   it('tolerates surrounding prose', () => {
-    expect(parseObligationsResponse('Sure! {"obligations":[{"description":"send report.pdf to @boss","tool":"send_file"}]} hope that helps'))
-      .toEqual([{ description: 'send report.pdf to @boss', tool: 'send_file' }]);
+    expect(parseObligationsResponse('Sure! {"obligations":[{"description":"send report.pdf to @boss","tool":"file"}]} hope that helps'))
+      .toEqual([{ description: 'send report.pdf to @boss', tool: 'file' }]);
   });
 
   it('filters out unknown tools and junk entries', () => {
-    expect(parseObligationsResponse('{"obligations":[{"description":"x","tool":"launch_rocket"},{"description":"","tool":"send_dm"},{"description":"ok","tool":"send_dm"}]}'))
-      .toEqual([{ description: 'ok', tool: 'send_dm' }]);
+    expect(parseObligationsResponse('{"obligations":[{"description":"x","tool":"launch_rocket"},{"description":"","tool":"message"},{"description":"ok","tool":"message"}]}'))
+      .toEqual([{ description: 'ok', tool: 'message' }]);
   });
 
   it('returns null for garbage', () => {
@@ -198,13 +205,13 @@ describe('extractObligations', () => {
     const ctx = makeCtx(spies, true, [session]);
     quickQueryCfg.current = {
       success: true,
-      response: '{"obligations":[{"description":"reply to ~releases when done","tool":"send_dm"}]}',
+      response: '{"obligations":[{"description":"reply to ~releases when done","tool":"message"}]}',
     };
 
     await extractObligations(session, 'почини тест и отпишись в ~releases', ctx);
 
     expect(getArbiterState(session).obligations).toEqual([
-      { description: 'reply to ~releases when done', tool: 'send_dm', status: 'open', remindCount: 0 },
+      { description: 'reply to ~releases when done', tool: 'message', status: 'open', remindCount: 0 },
     ]);
     expect(spies.persisted).toBe(1);
   });
@@ -212,7 +219,7 @@ describe('extractObligations', () => {
   it('drops cancelled obligations (extractor returns empty list)', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
     quickQueryCfg.current = { success: true, response: '{"obligations":[]}' };
 
     await extractObligations(session, 'не надо никуда писать, я передумал', ctx);
@@ -223,7 +230,7 @@ describe('extractObligations', () => {
   it('keeps the ledger when the extractor fails', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
     quickQueryCfg.current = { success: false };
 
     await extractObligations(session, 'отправь ещё и файл', ctx);
@@ -258,7 +265,7 @@ describe('extractObligations', () => {
 describe('noteEvent', () => {
   it('a tool_use alone does NOT fulfill — fulfillment waits for the result', () => {
     const session = makeSession(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     noteEvent(session, {
       type: 'tool_use',
@@ -268,12 +275,12 @@ describe('noteEvent', () => {
     const state = getArbiterState(session);
     expect(state.obligations[0].status).toBe('open');
     expect(state.deliveryToolCalls).toEqual([]);
-    expect(state.pendingDeliveryCalls.get('t1')).toBe('send_dm');
+    expect(state.pendingDeliveryCalls.get('t1')).toBe('message');
   });
 
   it('fulfills the obligation when the delivery tool result comes back clean', () => {
     const session = makeSession(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     noteEvent(session, {
       type: 'tool_use',
@@ -286,13 +293,13 @@ describe('noteEvent', () => {
 
     const state = getArbiterState(session);
     expect(state.obligations[0].status).toBe('fulfilled');
-    expect(state.deliveryToolCalls).toEqual(['send_dm']);
+    expect(state.deliveryToolCalls).toEqual(['message']);
     expect(state.pendingDeliveryCalls.size).toBe(0);
   });
 
   it('a FAILED delivery keeps the obligation open', () => {
     const session = makeSession(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     noteEvent(session, {
       type: 'tool_use',
@@ -310,7 +317,7 @@ describe('noteEvent', () => {
 
   it('ignores non-delivery tools', () => {
     const session = makeSession(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     noteEvent(session, { type: 'tool_use', tool_use: { id: 't1', name: 'Bash', input: {} } });
 
@@ -330,10 +337,10 @@ describe('noteEvent', () => {
 describe('unmetObligations', () => {
   it('returns open obligations whose tool was never called', () => {
     const state = createArbiterState();
-    state.obligations = [openObligation('send_dm'), openObligation('send_file')];
-    state.deliveryToolCalls = ['send_file'];
+    state.obligations = [openObligation('message'), openObligation('file')];
+    state.deliveryToolCalls = ['file'];
 
-    expect(unmetObligations(state).map((o) => o.tool)).toEqual(['send_dm']);
+    expect(unmetObligations(state).map((o) => o.tool)).toEqual(['message']);
   });
 });
 
@@ -345,13 +352,13 @@ describe('onTurnComplete — delivery reminders', () => {
   it('reminds the agent about an unmet delivery', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     await onTurnComplete(session, ctx);
 
     expect(spies.sentToAgent).toHaveLength(1);
     expect(spies.sentToAgent[0]).toContain('[Arbiter]');
-    expect(spies.sentToAgent[0]).toContain('send_dm');
+    expect(spies.sentToAgent[0]).toContain('message delivery');
     expect(getArbiterState(session).obligations[0].remindCount).toBe(1);
     // Thread got an informational note, typing restarted
     expect(spies.createdMessages.some((m) => m.includes('Arbiter'))).toBe(true);
@@ -362,8 +369,8 @@ describe('onTurnComplete — delivery reminders', () => {
   it('does not remind when the delivery tool was called', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
-    getArbiterState(session).deliveryToolCalls = ['send_dm'];
+    getArbiterState(session).obligations = [openObligation('message')];
+    getArbiterState(session).deliveryToolCalls = ['message'];
 
     await onTurnComplete(session, ctx);
 
@@ -373,7 +380,7 @@ describe('onTurnComplete — delivery reminders', () => {
   it('gives up after MAX reminders and warns the humans', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm', MAX_DELIVERY_REMINDERS)];
+    getArbiterState(session).obligations = [openObligation('message', MAX_DELIVERY_REMINDERS)];
 
     await onTurnComplete(session, ctx);
 
@@ -395,7 +402,7 @@ describe('onTurnComplete — delivery reminders', () => {
       } as unknown as Session['messageManager'],
     } as Partial<Session>);
     const ctx = makeCtx(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     await onTurnComplete(session, ctx);
 
@@ -404,7 +411,7 @@ describe('onTurnComplete — delivery reminders', () => {
 
   it('does nothing when disabled', async () => {
     const session = makeSession(spies);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     await onTurnComplete(session, makeCtx(spies, false));
 
@@ -533,7 +540,7 @@ describe('persist guard (killed session)', () => {
   it('does not persist a reminder for an unregistered session', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies, true, []);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     await onTurnComplete(session, ctx);
 
@@ -545,7 +552,7 @@ describe('liveness recheck before sending', () => {
   it('drops the delivery reminder if session.claude was replaced mid-flight (e.g. !cd)', async () => {
     const session = makeSession(spies);
     const ctx = makeCtx(spies, true, [session]);
-    getArbiterState(session).obligations = [openObligation('send_dm')];
+    getArbiterState(session).obligations = [openObligation('message')];
 
     // Simulate a !cd restart happening during the arbiter's thread post
     (session.platform.createPost as ReturnType<typeof mock>).mockImplementationOnce(async (message: string) => {
@@ -579,6 +586,120 @@ describe('lastAssistantText consumption', () => {
     // Next turn ends without any assistant text — stale question must not re-trigger
     await onTurnComplete(session, ctx);
     expect(quickQueryMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// Delivery via ANY chat MCP + dispute resolution (bug: arbiter bullied the
+// agent into a forbidden send_dm after it delivered via post_message)
+// -----------------------------------------------------------------------------
+
+describe('classifyDeliveryTool', () => {
+  it('recognizes delivery tools from any MCP server by short name', () => {
+    expect(classifyDeliveryTool('mcp__claude-threads-mcp__send_dm')).toBe('message');
+    expect(classifyDeliveryTool('mcp__mattermost__post_message')).toBe('message');
+    expect(classifyDeliveryTool('mcp__slack-tools__send_message')).toBe('message');
+    expect(classifyDeliveryTool('mcp__claude-threads-mcp__send_file')).toBe('file');
+    expect(classifyDeliveryTool('mcp__drive__upload_file')).toBe('file');
+  });
+
+  it('does not classify unrelated tools', () => {
+    expect(classifyDeliveryTool('Bash')).toBeUndefined();
+    expect(classifyDeliveryTool('mcp__mattermost__read_post')).toBeUndefined();
+    expect(classifyDeliveryTool('mcp__gitlab__create_merge_request')).toBeUndefined();
+  });
+});
+
+describe('delivery through another MCP server', () => {
+  it('post_message from a different MCP fulfills a message obligation — no reminder', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).obligations = [openObligation('message')];
+
+    // The agent delivers via the mattermost MCP, not claude-threads send_dm
+    noteEvent(session, {
+      type: 'tool_use',
+      tool_use: { id: 'pm1', name: 'mcp__mattermost__post_message', input: {} },
+    });
+    noteEvent(session, {
+      type: 'tool_result',
+      tool_result: { tool_use_id: 'pm1', is_error: false },
+    });
+
+    expect(getArbiterState(session).obligations[0].status).toBe('fulfilled');
+
+    await onTurnComplete(session, ctx);
+    expect(spies.sentToAgent).toHaveLength(0);
+  });
+});
+
+describe('dispute resolution after a reminder', () => {
+  it('waives the obligation when the agent explains it delivered another way', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).obligations = [openObligation('message', 1)]; // already reminded once
+    getArbiterState(session).lastAssistantText =
+      'Уже сделано — отправил через post_message в канал рокстеди (post_id 94ydo). send_dm в нашей связке запрещён и не работает.';
+    quickQueryCfg.current = { success: true, response: '{"verdict":"resolved"}' };
+
+    await onTurnComplete(session, ctx);
+
+    expect(getArbiterState(session).obligations[0].status).toBe('waived');
+    expect(spies.sentToAgent).toHaveLength(0); // no second reminder
+    expect(spies.createdMessages.some((m) => m.includes('accepting'))).toBe(true);
+
+    // Waived obligations never trigger the arbiter again
+    await onTurnComplete(session, ctx);
+    expect(spies.sentToAgent).toHaveLength(0);
+  });
+
+  it('keeps reminding when the judge says the delivery is still not done', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).obligations = [openObligation('message', 1)];
+    getArbiterState(session).lastAssistantText = 'Понял, сейчас займусь этим.';
+    quickQueryCfg.current = { success: true, response: '{"verdict":"not_done"}' };
+
+    await onTurnComplete(session, ctx);
+
+    expect(getArbiterState(session).obligations[0].status).toBe('open');
+    expect(getArbiterState(session).obligations[0].remindCount).toBe(2);
+    expect(spies.sentToAgent).toHaveLength(1);
+  });
+
+  it('the FIRST reminder is sent without judging (nothing to dispute yet)', async () => {
+    const session = makeSession(spies);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).obligations = [openObligation('message', 0)];
+    getArbiterState(session).lastAssistantText = 'Готово, MR запушен.';
+
+    await onTurnComplete(session, ctx);
+
+    expect(quickQueryMock).not.toHaveBeenCalled();
+    expect(spies.sentToAgent).toHaveLength(1);
+  });
+});
+
+describe('parseDisputeVerdict', () => {
+  it('parses verdicts and rejects garbage', () => {
+    expect(parseDisputeVerdict('{"verdict":"resolved"}')).toBe('resolved');
+    expect(parseDisputeVerdict('{"verdict":"not_done"}')).toBe('not_done');
+    expect(parseDisputeVerdict('{"verdict":"maybe"}')).toBeNull();
+    expect(parseDisputeVerdict('nope')).toBeNull();
+  });
+});
+
+describe('legacy persisted state normalization', () => {
+  it('maps send_dm/send_file to kinds on hydration', () => {
+    const state = createArbiterState({
+      obligations: [{ description: 'x', tool: 'send_dm' as never, status: 'open', remindCount: 1 }],
+      deliveryToolCalls: ['send_file'],
+      continuationNudges: 2,
+    });
+
+    expect(state.obligations[0].tool).toBe('message');
+    expect(state.deliveryToolCalls).toEqual(['file']);
+    expect(state.continuationNudges).toBe(2);
   });
 });
 

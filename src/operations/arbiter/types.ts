@@ -14,17 +14,27 @@
  *    Detection is a cheap LLM verdict over the turn's final message.
  */
 
-/** Delivery tools the arbiter can hold the agent accountable for */
-export type DeliveryTool = 'send_dm' | 'send_file';
+/**
+ * Kind of external delivery the arbiter can hold the agent accountable for.
+ * 'message' — post to another channel/person (send_dm, post_message, ...);
+ * 'file' — send/upload a file (send_file, upload_file, ...).
+ * Kinds, not concrete tool names: deployments carry different MCP servers
+ * and any of their delivery tools must count as fulfillment.
+ */
+export type DeliveryKind = 'message' | 'file';
 
 /** A single external-delivery obligation extracted from user messages */
 export interface ArbiterObligation {
   /** Human-readable description, e.g. "reply to ~releases when the fix is ready" */
   description: string;
-  /** Which delivery tool fulfills this obligation */
-  tool: DeliveryTool;
-  /** Lifecycle: open → fulfilled (tool was called) or failed (gave up after reminders) */
-  status: 'open' | 'fulfilled' | 'failed';
+  /** Which kind of delivery fulfills this obligation */
+  tool: DeliveryKind;
+  /**
+   * Lifecycle: open → fulfilled (a delivery tool completed successfully),
+   * waived (after a reminder the agent credibly reported it delivered another
+   * way or that delivery is impossible), or failed (gave up after reminders).
+   */
+  status: 'open' | 'fulfilled' | 'waived' | 'failed';
   /** How many arbiter reminders have been sent for this obligation */
   remindCount: number;
 }
@@ -50,7 +60,7 @@ export interface ArbiterSessionState {
    * is_error — a rejected/failed send_dm must NOT count as delivered.
    * In-memory only: a pending call can't survive a process restart anyway.
    */
-  pendingDeliveryCalls: Map<string, DeliveryTool>;
+  pendingDeliveryCalls: Map<string, DeliveryKind>;
   /**
    * Serialization chain for obligation extractions (in-memory only).
    * Extractions snapshot the ledger and write it back after an LLM round
@@ -67,10 +77,19 @@ export interface PersistedArbiterState {
   continuationNudges: number;
 }
 
+/** Normalize legacy persisted tool names ('send_dm'/'send_file') to kinds */
+function normalizeKind(tool: string): DeliveryKind {
+  if (tool === 'file' || tool === 'send_file') return 'file';
+  return 'message';
+}
+
 export function createArbiterState(persisted?: PersistedArbiterState): ArbiterSessionState {
   return {
-    obligations: persisted?.obligations ?? [],
-    deliveryToolCalls: persisted?.deliveryToolCalls ?? [],
+    obligations: (persisted?.obligations ?? []).map((o) => ({
+      ...o,
+      tool: normalizeKind(o.tool as string),
+    })),
+    deliveryToolCalls: (persisted?.deliveryToolCalls ?? []).map(normalizeKind),
     continuationNudges: persisted?.continuationNudges ?? 0,
     pendingDeliveryCalls: new Map(),
   };

@@ -28,7 +28,7 @@ import {
   createArbiterState,
   type ArbiterObligation,
   type ArbiterSessionState,
-  type DeliveryTool,
+  type DeliveryKind,
   type StallVerdict,
 } from './types.js';
 
@@ -51,14 +51,24 @@ const MAX_LAST_TEXT_LENGTH = 1500;
 const MAX_MESSAGE_LENGTH = 2000;
 
 /**
- * MCP delivery tools → short obligation tool names.
- * Codex sessions don't get these MCP tools, so delivery obligations are
- * Claude-only (see extractObligations gate).
+ * Tool-name patterns that count as an external delivery, matched against the
+ * SHORT tool name of any MCP server (mcp__<server>__<tool>) or a bare tool
+ * name. Deployments wire different chat MCPs (claude-threads send_dm,
+ * a Mattermost/Slack server's post_message, ...) — a delivery through ANY of
+ * them must count, otherwise the arbiter nags about work that is already done.
  */
-const DELIVERY_TOOL_NAMES: Record<string, DeliveryTool> = {
-  'mcp__claude-threads-mcp__send_dm': 'send_dm',
-  'mcp__claude-threads-mcp__send_file': 'send_file',
-};
+const MESSAGE_DELIVERY_PATTERN = /^(send_dm|send_message|post_message|create_post|post_to_channel|send_channel_message|send_direct_message)$/;
+const FILE_DELIVERY_PATTERN = /^(send_file|upload_file|attach_file|share_file)$/;
+
+/** Classify a tool_use name as a delivery kind. Exported for tests. */
+export function classifyDeliveryTool(toolName: string): DeliveryKind | undefined {
+  const shortName = toolName.startsWith('mcp__')
+    ? toolName.split('__').slice(2).join('__')
+    : toolName;
+  if (MESSAGE_DELIVERY_PATTERN.test(shortName)) return 'message';
+  if (FILE_DELIVERY_PATTERN.test(shortName)) return 'file';
+  return undefined;
+}
 
 /** Get (lazily creating) the arbiter state for a session */
 export function getArbiterState(session: Session): ArbiterSessionState {
@@ -84,8 +94,8 @@ function buildExtractionPrompt(message: string, current: ArbiterObligation[]): s
   return `You maintain a ledger of EXTERNAL DELIVERY obligations for a coding agent working in a chat thread.
 
 A delivery obligation exists ONLY when the user explicitly asks the agent to deliver something OUTSIDE the current thread when the work is done:
-- post a reply/summary to another channel or to a person (tool: send_dm)
-- send/upload a file to someone or somewhere (tool: send_file)
+- post a reply/summary to another channel or to a person (tool: "message")
+- send/upload a file to someone or somewhere (tool: "file")
 
 NOT obligations: the work itself, replying in the current thread, committing/pushing code, opening PRs, or anything the user merely mentions without asking for delivery.
 
@@ -102,14 +112,14 @@ Return the UPDATED list of open obligations after this message:
 - drop any the message cancels or completes
 
 Respond with ONLY a JSON object, no other text:
-{"obligations": [{"description": "<short imperative description with the target, in the user's language>", "tool": "send_dm" | "send_file"}]}`;
+{"obligations": [{"description": "<short imperative description with the target, in the user's language>", "tool": "message" | "file"}]}`;
 }
 
 /**
  * Parse the extraction response. Exported for tests.
  * Returns null when the response is unusable (keep the current ledger).
  */
-export function parseObligationsResponse(response: string): Array<{ description: string; tool: DeliveryTool }> | null {
+export function parseObligationsResponse(response: string): Array<{ description: string; tool: DeliveryKind }> | null {
   const jsonMatch = response.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
 
@@ -117,11 +127,16 @@ export function parseObligationsResponse(response: string): Array<{ description:
     const parsed = JSON.parse(jsonMatch[0]) as { obligations?: Array<{ description?: unknown; tool?: unknown }> };
     if (!Array.isArray(parsed.obligations)) return null;
 
-    const result: Array<{ description: string; tool: DeliveryTool }> = [];
+    const result: Array<{ description: string; tool: DeliveryKind }> = [];
     for (const item of parsed.obligations) {
       if (typeof item.description !== 'string' || !item.description.trim()) continue;
-      if (item.tool !== 'send_dm' && item.tool !== 'send_file') continue;
-      result.push({ description: item.description.trim().substring(0, 300), tool: item.tool });
+      // Accept kinds plus legacy tool names (older prompts/persisted data)
+      const kind: DeliveryKind | undefined =
+        item.tool === 'message' || item.tool === 'send_dm' ? 'message'
+          : item.tool === 'file' || item.tool === 'send_file' ? 'file'
+            : undefined;
+      if (!kind) continue;
+      result.push({ description: item.description.trim().substring(0, 300), tool: kind });
     }
     return result;
   } catch {
@@ -231,7 +246,7 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
 
   if (event.type === 'tool_use') {
     const tool = event.tool_use as { id?: string; name?: string } | undefined;
-    const delivery = tool?.name ? DELIVERY_TOOL_NAMES[tool.name] : undefined;
+    const delivery = tool?.name ? classifyDeliveryTool(tool.name) : undefined;
     if (delivery && tool?.id) {
       // Attempt only — fulfillment waits for a non-error tool_result.
       // A send_dm the MCP server rejects must not count as delivered.
@@ -275,6 +290,40 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
 // ---------------------------------------------------------------------------
 // Turn-complete check (on result events)
 // ---------------------------------------------------------------------------
+
+/** Verdict for a delivery dispute: did the agent credibly resolve it? */
+export type DisputeVerdict = 'resolved' | 'not_done';
+
+function buildDisputePrompt(obligations: ArbiterObligation[], lastText: string): string {
+  const list = obligations.map((o) => `- ${o.description}`).join('\n');
+  return `A coding agent was asked to make these external deliveries and was reminded about them, but no successful delivery tool call was observed:
+${list}
+
+The agent's reply to the reminder:
+"""
+${lastText}
+"""
+
+Classify the reply:
+- "resolved": the agent states it ALREADY delivered this through some other concrete mechanism (names a tool/channel/post it used), or that delivery is impossible or forbidden in this environment.
+- "not_done": anything else — the delivery still has to happen (promises, questions, unrelated text).
+
+Respond with ONLY a JSON object, no other text:
+{"verdict": "resolved" | "not_done"}`;
+}
+
+/** Parse the dispute verdict response. Exported for tests. */
+export function parseDisputeVerdict(response: string): DisputeVerdict | null {
+  const jsonMatch = response.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  try {
+    const parsed = JSON.parse(jsonMatch[0]) as { verdict?: unknown };
+    if (parsed.verdict === 'resolved' || parsed.verdict === 'not_done') return parsed.verdict;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 function buildStallPrompt(lastText: string, originalTask: string | undefined): string {
   return `An autonomous coding agent working in a chat thread just ENDED its turn. Nobody may be watching the thread, so if the agent stopped to ask permission to continue, the task silently stalls.
@@ -392,6 +441,35 @@ async function runTurnCompleteCheck(
     const remindable = unmet.filter((o) => o.remindCount < MAX_DELIVERY_REMINDERS);
 
     if (remindable.length > 0) {
+      // If we've already reminded and the agent replied with text instead of
+      // a delivery call, it may be disputing ("already delivered another
+      // way" / "forbidden here") — judge that reply before nagging again.
+      // This is what breaks the loop of the arbiter bullying the agent into
+      // a delivery tool that is disabled in this deployment.
+      const alreadyReminded = remindable.some((o) => o.remindCount > 0);
+      if (alreadyReminded && lastText) {
+        const dispute = await quickQuery({
+          prompt: buildDisputePrompt(unmet, lastText),
+          model: 'haiku',
+          timeout: ARBITER_QUERY_TIMEOUT,
+        });
+        const disputeVerdict = dispute.success && dispute.response
+          ? parseDisputeVerdict(dispute.response)
+          : null;
+        if (disputeVerdict === 'resolved') {
+          for (const o of unmet) o.status = 'waived';
+          persistIfActive(session, ctx);
+          const fmt = session.platform.getFormatter();
+          await post(
+            session,
+            'info',
+            `⚖️ ${fmt.formatItalic('Arbiter: the agent reports the delivery was handled another way (or is not possible here) — accepting.')}`
+          );
+          sessionLog(session).info(`⚖️ Waived ${unmet.length} obligation(s) after the agent's explanation`);
+          return;
+        }
+      }
+
       sessionLog(session).info(
         `⚖️ Reminding agent about ${remindable.length} unmet delivery obligation(s)`
       );
@@ -408,11 +486,11 @@ async function runTurnCompleteCheck(
       for (const o of remindable) o.remindCount++;
       persistIfActive(session, ctx);
 
-      const list = remindable.map((o) => `- ${o.description} (use the ${o.tool} tool)`).join('\n');
+      const list = remindable.map((o) => `- ${o.description} (${o.tool} delivery)`).join('\n');
       sendToAgent(
         session,
         ctx,
-        `[Arbiter] You finished your turn, but the user asked for the following and you have NOT done it yet:\n${list}\nDo it now. If it is genuinely impossible, say so explicitly in this thread.`
+        `[Arbiter] You finished your turn, but the user asked for the following and no successful delivery was observed:\n${list}\nDeliver it now using whatever tool is appropriate in this environment (a channel/DM posting tool for messages, a file upload tool for files). If you have ALREADY delivered it another way, or delivery is impossible or forbidden here, say so plainly in one sentence — I will accept that and stop reminding.`
       );
     } else {
       // Out of reminders — surface to the humans once and stop tracking

@@ -16,6 +16,5 @@ export {
   type ArbiterObligation,
   type ArbiterSessionState,
   type PersistedArbiterState,
-  type DeliveryTool,
   type StallVerdict,
 } from './types.js';
