@@ -802,6 +802,16 @@ export class SlackClient extends BasePlatformClient {
     return `#${targetTs}`;
   }
 
+  /**
+   * Permalink to one specific post. Slack permalinks are ts-based, so route the
+   * post id (which IS the message ts) through getThreadLink's `lastMessageTs`
+   * slot (the base default would use the id-slot, which Slack ignores → it would
+   * fall back to the thread root).
+   */
+  getPostPermalink(post: PlatformPost): string {
+    return this.getThreadLink(post.rootId || post.id, undefined, post.id);
+  }
+
   // ============================================================================
   // Messaging
   // ============================================================================

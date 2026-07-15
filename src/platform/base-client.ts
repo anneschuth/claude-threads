@@ -188,6 +188,15 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   abstract getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;
 
   /**
+   * Permalink to one specific post. Default builds it from the post ID via
+   * getThreadLink's `lastMessageId` slot, which is correct for Mattermost-style
+   * `/pl/{id}` links. Slack overrides this (its permalinks are ts-based).
+   */
+  getPostPermalink(post: PlatformPost): string {
+    return this.getThreadLink(post.rootId || post.id, post.id);
+  }
+
+  /**
    * Get MCP config for permission server.
    */
   abstract getMcpConfig(): BaseMcpConfig;

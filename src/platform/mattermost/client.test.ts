@@ -168,6 +168,12 @@ describe('MattermostClient pure helpers', () => {
     expect(c.getThreadLink('thread-1', 'msg-9')).toBe('https://x.test/_redirect/pl/msg-9');
   });
 
+  it('getPostPermalink links to the specific post, not the thread root', () => {
+    const c = makeClient({ url: 'https://x.test' });
+    const post = { id: 'reply-42', platformId: 'mm', channelId: 'c1', userId: 'u1', message: 'hi', rootId: 'thread-1' } as any;
+    expect(c.getPostPermalink(post)).toBe('https://x.test/_redirect/pl/reply-42');
+  });
+
   it('platform identity fields reflect config', () => {
     const c = makeClient({ id: 'mm-x', displayName: 'X' });
     expect(c.platformId).toBe('mm-x');

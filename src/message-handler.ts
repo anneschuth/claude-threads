@@ -20,6 +20,17 @@ import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
 
 /**
+ * Prefix a user message with a permalink to THAT specific message, so the model
+ * has a handle on the exact message (rather than only the thread-root permalink
+ * from the session context). Kept to a bare metadata line — WHAT to do with it
+ * (e.g. react to the message) is taught once in the base/system prompt and the
+ * tool descriptions, not repeated per message.
+ */
+function withMessagePermalink(client: PlatformClient, post: PlatformPost, content: string): string {
+  return `[message permalink: ${client.getPostPermalink(post)}]\n${content}`;
+}
+
+/**
  * Logger interface for message handler
  */
 export interface MessageHandlerLogger {
@@ -202,7 +213,15 @@ export async function handleMessage(
       // Get any attached files (images)
       const files = post.metadata?.files;
 
-      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
+      if (content || files?.length) {
+        // Attach this message's own permalink when it differs from the thread
+        // root (the root's permalink is already in the session context). Only
+        // annotate when there's text.
+        const contentForAgent = content && post.id !== threadRoot
+          ? withMessagePermalink(client, post, content)
+          : content;
+        await session.sendFollowUp(threadRoot, contentForAgent, files, username, user?.displayName);
+      }
       return;
     }
 
