@@ -44,6 +44,16 @@ describe('generateChatPlatformPrompt', () => {
     expect(prompt).toContain('Permission requests');
   });
 
+  it('tells the bot to react to every user message (min eyes) via react_to_post', () => {
+    const prompt = generateChatPlatformPrompt();
+
+    // The emoji must be given by NAME (`eyes`) — the tool's validator rejects
+    // the unicode 👀 — and the react target is the per-message permalink tag.
+    expect(prompt).toContain('react_to_post');
+    expect(prompt).toContain('`eyes`');
+    expect(prompt).toContain('[message permalink: <url>]');
+  });
+
   it('includes User Commands section', () => {
     const prompt = generateChatPlatformPrompt();
 
