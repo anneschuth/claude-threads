@@ -23,7 +23,7 @@ jobs:
       # would silently break users on Node 20. CI's node-smoke matrix verifies
       # the built artifact also runs on 22 and 24. Do not bump this past the
       # floor without updating engines.node in package.json.
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
