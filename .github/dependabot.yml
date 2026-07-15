@@ -11,6 +11,13 @@ updates:
       # until the code migrates to named ESM imports.
       - dependency-name: "js-yaml"
         versions: [">=5.0.0"]
+      # TypeScript 7 (the native rewrite) is not yet supported by
+      # typescript-eslint 8.x: @typescript-eslint/typescript-estree crashes
+      # at load time ("Cannot read properties of undefined (reading 'Cjs')"),
+      # failing the lint job. Stay on 6.x until typescript-eslint ships
+      # TS 7 support.
+      - dependency-name: "typescript"
+        versions: [">=7.0.0"]
     groups:
       dev-dependencies:
         dependency-type: "development"
