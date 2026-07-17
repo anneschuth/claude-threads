@@ -1,10 +1,10 @@
 # Claude Threads
 
-```
-●─ ┏━ ━┳━   claude-threads
-├─ ┃   ┃    Claude Code × Slack & Mattermost
-╰─ ┗━  ╹
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/anneschuth/claude-threads/main/website/assets/logo.svg" alt="claude-threads logo: a chat-thread spine next to the letters CT" width="200">
+</p>
+
+<p align="center"><sub>Claude Code × Slack &amp; Mattermost</sub></p>
 
 <p align="center">
   <a href="https://claude-threads.run"><strong>claude-threads.run</strong></a>
