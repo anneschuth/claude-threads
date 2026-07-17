@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **`react_to_post` resolves the triggering message server-side instead of via a per-message permalink.** v1.18.0 fixed `react_to_post` always landing on the thread root by prepending a `[message permalink: ...]` line to every follow-up message's content — correct, but paid for on every single message in every thread even though reactions are occasional. `url` is now optional: when omitted, the MCP server resolves it to the most recent message in the session's own thread via the same `readThread` call `list_thread` already uses, so no per-message metadata needs to ride along in message content at all. (Mattermost and Slack `readThread` apply `limit` differently — Mattermost takes the newest N, Slack's `conversations.replies` paginates from the thread root forward — so the resolver fetches the default page and takes the last element on both platforms rather than relying on `limit: 1`.)
+
 ## [1.18.0] - 2026-07-17
 
 ### Added

@@ -374,16 +374,9 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      // Content now carries this message's own permalink (so a reaction targets
-      // THIS message, not the thread root), followed by the user's text.
       expect(session.sendFollowUp).toHaveBeenCalledWith(
-        'thread1',
-        expect.stringContaining('please help me with this code'),
-        undefined, 'allowed-user', 'User',
+        'thread1', 'please help me with this code', undefined, 'allowed-user', 'User',
       );
-      const sentContent = (session.sendFollowUp as any).mock.calls[0][1] as string;
-      expect(sentContent).toContain('message permalink');
-      expect(sentContent).toContain('https://mm.test/pl/post1'); // permalink to the follow-up post
     });
 
     test('requests approval for unauthorized user', async () => {
@@ -486,7 +479,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', expect.stringContaining('please continue'), undefined, 'allowed-user', 'User');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'please continue', undefined, 'allowed-user', 'User');
     });
 
     test('when quiet mode off (default), responds to a non-mention reply', async () => {
@@ -508,7 +501,7 @@ describe('handleMessage', () => {
 
       await handleMessage(client, session, post, user, options);
 
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', expect.stringContaining('keep going please'), undefined, 'allowed-user', 'User');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'keep going please', undefined, 'allowed-user', 'User');
     });
 
     test('when quiet mode on, a pending worktree-prompt reply is still handled (bypasses the gate)', async () => {
@@ -1907,7 +1900,7 @@ describe('handleMessage', () => {
 
       expect(session.handleWorktreeBranchResponse).toHaveBeenCalled();
       // Should fall through to sendFollowUp
-      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', expect.stringContaining('not a valid branch response'), undefined, 'allowed-user', 'User');
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'not a valid branch response', undefined, 'allowed-user', 'User');
     });
 
     test('does not handle branch response for unauthorized user', async () => {

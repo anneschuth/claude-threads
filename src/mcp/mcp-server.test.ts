@@ -853,6 +853,7 @@ function makeReactCfg(api: FakeApi, overrides: Partial<ReactToPostHandlerConfig>
     platformUrl: PLATFORM_URL,
     platformType: 'mattermost',
     channelId: 'C-default',
+    sessionThreadId: 'session-thread-1',
     ...overrides,
   };
 }
@@ -946,6 +947,47 @@ describe('handleReactToPostWith', () => {
     expect(api.readPostCalls).toHaveLength(0);
     expect(api.addReactionCalls).toHaveLength(0);
   });
+
+  it('without a url, reacts to the most recent message in the session thread', async () => {
+    // RED test: fails if the no-url path reacts to thread.at(0) (the root)
+    // instead of thread.at(-1) (the latest reply) — exactly the bug #422 was
+    // about, just moved server-side instead of via a per-message permalink.
+    const api = new FakeApi();
+    const root = fakePost({ id: 'root-post' });
+    const latest = fakePost({ id: 'latest-post' });
+    api.readThreadImpl = async () => [root, latest];
+    const result = await handleReactToPostWith(
+      { emoji: 'eyes' },
+      makeReactCfg(api),
+    );
+    expect(result).toEqual({ ok: true });
+    expect(api.readThreadCalls).toEqual([{ rootId: 'session-thread-1', limit: undefined }]);
+    expect(api.addReactionCalls).toEqual([{ postId: 'latest-post', emojiName: 'eyes' }]);
+    expect(api.readPostCalls).toHaveLength(0); // no permalink to resolve
+  });
+
+  it('without a url, fails gracefully when there is no session thread', async () => {
+    const api = new FakeApi();
+    const result = await handleReactToPostWith(
+      { emoji: 'eyes' },
+      makeReactCfg(api, { sessionThreadId: '' }),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/no session thread/);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
+
+  it('without a url, fails gracefully when the session thread is empty', async () => {
+    const api = new FakeApi();
+    api.readThreadImpl = async () => [];
+    const result = await handleReactToPostWith(
+      { emoji: 'eyes' },
+      makeReactCfg(api),
+    );
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/empty/);
+    expect(api.addReactionCalls).toHaveLength(0);
+  });
 });
 
 describe('handleReactToPostWith — Slack', () => {
@@ -955,6 +997,7 @@ describe('handleReactToPostWith — Slack', () => {
       platformUrl: '',
       platformType: 'slack',
       channelId: SLACK_CHANNEL,
+      sessionThreadId: 'session-thread-1',
       ...overrides,
     };
   }
