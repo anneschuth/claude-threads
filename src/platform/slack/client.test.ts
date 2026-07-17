@@ -197,6 +197,18 @@ describe('SlackClient pure helpers', () => {
     const c = makeClient();
     expect(c.getFormatter()).toBe(c.getFormatter());
   });
+
+  it('getPostPermalink links to the specific post via its ts (not the thread root)', () => {
+    const c = makeClient();
+    // teamUrl is resolved at connect time; set it + channelId for the test.
+    (c as any).teamUrl = 'https://x.slack.com';
+    (c as any).channelId = 'C1';
+    const post = { id: '1767690059.430179', platformId: 'slack', channelId: 'C1', userId: 'u1', message: 'hi', rootId: '1767690000.000100' } as any;
+    const link = c.getPostPermalink(post);
+    // Points at the reply's own ts, and carries the thread_ts of the root.
+    expect(link).toContain('/archives/C1/p1767690059430179');
+    expect(link).toContain('thread_ts=1767690000.000100');
+  });
 });
 
 describe('SlackClient API methods', () => {

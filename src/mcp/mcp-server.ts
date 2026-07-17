@@ -382,7 +382,9 @@ const reactToPostInputSchema = {
   url: z
     .string()
     .describe(
-      'Permalink URL to a post the bot can already see (its own channel, or a public channel on the same instance).',
+      'Permalink URL to a post the bot can already see (its own channel, or a public channel on the same instance). '
+      + 'To react to a specific user message (e.g. to acknowledge the one that triggered the current task), use the '
+      + 'per-message permalink provided in that message\'s context — do NOT default to the thread-root permalink.',
     ),
   emoji: z
     .string()

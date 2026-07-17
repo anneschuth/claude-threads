@@ -138,6 +138,16 @@ export interface PlatformClient extends EventEmitter {
    */
   getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;
 
+  /**
+   * Permalink to ONE specific post (not just the thread root). Used to give the
+   * model a handle on the exact message it should act on — e.g. so
+   * `react_to_post` lands the reaction on the message that triggered the task
+   * instead of on the thread root.
+   * @param post - The post to link to
+   * @returns Platform-specific permalink URL pointing at that post
+   */
+  getPostPermalink(post: PlatformPost): string;
+
   // ============================================================================
   // Messaging
   // ============================================================================
