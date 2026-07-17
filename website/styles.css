@@ -297,6 +297,7 @@ section.last.lit h2::before {
 
 .screenshot-scroll img {
   width: 100%;
+  height: auto;
   display: block;
   will-change: transform;
 }
