@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.2] - 2026-07-17
+
+### Changed
+- **New visual identity: the thread-spine mark.** The ✴-star ASCII logo (a leftover of the Claude Code Christmas logo) is replaced everywhere by a mark of our own: heavy box-drawing CT letters with a light thread gutter showing a root node, a reply branch, and a closing arc. Applied consistently to the terminal header, the favicon, a rebuilt pure-vector `logo.svg` with no font dependency, the README, and the website. (#431)
+- **README overhaul.** Screenshots for both platforms directly under the pitch, a How it works section, a table of all nine MCP tools with their guardrails (seven were previously undocumented), and a command table synced with the registry. Corrected copy along the way: multi-account selection is usage-balanced since 1.18.0 (the README still said round-robin), the resume reaction is 🔄 (the documented ↩️ was never accepted), and the `send_dm` guardrail is approved from the session thread, not by the recipient. Cross-file links are now absolute so they no longer break on the npm package page, and the configuration link points at `docs/CONFIGURATION.md` instead of the internal `CLAUDE.md`. (#431)
+- **Docs sync.** `docs/CONFIGURATION.md` audited against the real config schema: the `limits` block, `threadLogs`, sticky text customization, permission modes, `outboundFiles`, usage-balanced accounts, and the env var list. New `docs/MCP-TOOLS.md` documents every MCP tool with inputs and guardrails. `SETUP_GUIDE.md` drops stale version pins and deprecated permission vocabulary; `CONTRIBUTING.md` gains dev commands and a pointer to the platform implementation guide. (#431)
+- **Website redesign: the page is a thread.** claude-threads.run rebuilt on the same terminal identity with the thread as its structure: a rail runs down the content and every section attaches to it as a reply, the last one closing the arc. Content synced with 1.18 (MCP tools table, full command list, a Mattermost showcase section), OpenGraph/Twitter cards with a generated social image, and the Node prerequisite corrected from 18+ to 20+. (#432)
+- **npm metadata.** The package description finally mentions Slack, keywords gain `slack`, `chatops`, `pair-programming`, and `collaboration`, and the homepage points at claude-threads.run. Takes effect with this release. (#431)
+
 ## [1.18.1] - 2026-07-17
 
 ### Changed
