@@ -381,10 +381,11 @@ export const readPostInputSchema = {
 const reactToPostInputSchema = {
   url: z
     .string()
+    .optional()
     .describe(
       'Permalink URL to a post the bot can already see (its own channel, or a public channel on the same instance). '
-      + 'To react to a specific user message (e.g. to acknowledge the one that triggered the current task), use the '
-      + 'per-message permalink provided in that message\'s context — do NOT default to the thread-root permalink.',
+      + 'Omit to react to the most recent message in the current session thread (e.g. to acknowledge the message '
+      + 'that triggered the current task) — this is the common case and does NOT default to the thread root.',
     ),
   emoji: z
     .string()
@@ -701,10 +702,47 @@ export interface ReactToPostHandlerConfig {
   platformUrl: string;
   platformType: string;
   channelId: string;
+  /** The bot's current session thread id (Mattermost root_id / Slack thread_ts). */
+  sessionThreadId: string;
+}
+
+/**
+ * Resolve "the most recent message in the current session thread" — used when
+ * `react_to_post` is called without a url. Reuses the same `readThread` call
+ * `list_thread` makes (oldest-first; last element is the newest message), so
+ * no per-message permalink needs to be threaded through message content.
+ *
+ * Deliberately does NOT pass `limit: 1` through to `readThread`: Mattermost's
+ * `limit` takes the newest N (slice from the end), but Slack's
+ * `conversations.replies` applies `limit` from the thread root forward, so
+ * `limit: 1` there would return the ROOT post, not the latest reply — exactly
+ * the bug this whole feature exists to avoid. Fetching the default page and
+ * slicing client-side works correctly on both platforms.
+ */
+async function resolveLatestThreadPost(cfg: ReactToPostHandlerConfig): Promise<ResolvedPostResult> {
+  if (!cfg.api.readThread) {
+    return { ok: false, reason: 'this platform does not support reading threads' };
+  }
+  if (!cfg.sessionThreadId) {
+    return { ok: false, reason: 'no session thread to react in — pass a permalink URL instead' };
+  }
+  let thread: McpPost[];
+  try {
+    thread = await cfg.api.readThread(cfg.sessionThreadId);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    mcpLogger.warn(`react_to_post: failed to resolve latest thread message: ${reason}`);
+    return { ok: false, reason };
+  }
+  const latest = thread.at(-1);
+  if (!latest) {
+    return { ok: false, reason: 'session thread is empty — pass a permalink URL instead' };
+  }
+  return { ok: true, post: latest };
 }
 
 export async function handleReactToPostWith(
-  args: { url: string; emoji: string },
+  args: { url?: string; emoji: string },
   cfg: ReactToPostHandlerConfig,
 ): Promise<ReactToPostResult> {
   if (!cfg.api.addReaction) {
@@ -717,7 +755,7 @@ export async function handleReactToPostWith(
     };
   }
 
-  const resolved = await resolvePostFromUrl(args.url, cfg);
+  const resolved = args.url ? await resolvePostFromUrl(args.url, cfg) : await resolveLatestThreadPost(cfg);
   if (!resolved.ok) return { ok: false, reason: resolved.reason };
 
   try {
@@ -730,12 +768,13 @@ export async function handleReactToPostWith(
   }
 }
 
-async function handleReactToPost(args: { url: string; emoji: string }): Promise<ReactToPostResult> {
+async function handleReactToPost(args: { url?: string; emoji: string }): Promise<ReactToPostResult> {
   return handleReactToPostWith(args, {
     api: getApi(),
     platformUrl: PLATFORM_URL,
     platformType: PLATFORM_TYPE,
     channelId: PLATFORM_CHANNEL_ID,
+    sessionThreadId: PLATFORM_THREAD_ID,
   });
 }
 
@@ -1635,11 +1674,12 @@ async function main() {
   (server as any).tool(
     'react_to_post',
     'Add an emoji reaction to a post on the chat platform. Use this to acknowledge a request ' +
-      "(✅), flag something ambiguous (👀), mark a triggering message done, etc. The post must be in " +
-      "the bot's own channel or in a public channel on the same instance. Returns { ok: true } on " +
+      "(✅), flag something ambiguous (👀), mark a triggering message done, etc. Omit `url` to react " +
+      'to the most recent message in the current session thread — the common case. The post must be ' +
+      "in the bot's own channel or in a public channel on the same instance. Returns { ok: true } on " +
       'success or { ok: false, reason } on failure.',
     reactToPostInputSchema,
-    async ({ url, emoji }: { url: string; emoji: string }) => {
+    async ({ url, emoji }: { url?: string; emoji: string }) => {
       const result = await handleReactToPost({ url, emoji });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
