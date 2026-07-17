@@ -270,9 +270,8 @@ export async function waitForSessionHeader(
   }
 
   // Fallback: pattern matching (less reliable due to API race conditions)
-  // Session header contains the logo pattern or "claude-threads v" version text
-  // Logo format: ✴ ▄█▀ ███ ✴   claude-threads v0.33.8
-  const sessionHeaderPattern = /claude-threads v\d+\.\d+\.\d+|✴ ▄█▀|Starting session/;
+  // Session header contains "claude-threads v" version text
+  const sessionHeaderPattern = /claude-threads v\d+\.\d+\.\d+|Starting session/;
 
   return waitFor(
     async () => {
