@@ -1,7 +1,7 @@
 {
   "name": "claude-threads",
   "version": "1.18.1",
-  "description": "Share Claude Code sessions live in a Mattermost channel with interactive features",
+  "description": "Run Claude Code from Slack or Mattermost. Sessions stream live into threads where your team can watch, steer, and approve.",
   "main": "dist/index.js",
   "type": "module",
   "bin": {
@@ -35,12 +35,16 @@
   "keywords": [
     "claude",
     "claude-code",
+    "slack",
     "mattermost",
     "bot",
     "ai",
     "cli",
     "anthropic",
     "chat",
+    "chatops",
+    "pair-programming",
+    "collaboration",
     "bun"
   ],
   "author": "Anne Schuth",
@@ -52,7 +56,7 @@
   "bugs": {
     "url": "https://github.com/anneschuth/claude-threads/issues"
   },
-  "homepage": "https://github.com/anneschuth/claude-threads#readme",
+  "homepage": "https://claude-threads.run",
   "files": [
     "dist",
     "bin",

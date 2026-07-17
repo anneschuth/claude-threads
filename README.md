@@ -1,9 +1,9 @@
 # Claude Threads
 
 ```
- ✴ ▄█▀ ███ ✴   claude-threads
-✴  █▀   █   ✴  Mattermost & Slack × Claude Code
- ✴ ▀█▄  █  ✴
+●─ ┏━ ━┳━   claude-threads
+├─ ┃   ┃    Claude Code × Slack & Mattermost
+╰─ ┗━  ╹
 ```
 
 <p align="center">
@@ -18,27 +18,63 @@
 [![Node](https://img.shields.io/node/v/claude-threads.svg)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/anneschuth/claude-threads/pulls)
 
-**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost or Slack. Colleagues can watch, collaborate, and run their own sessions—all from chat.
+**Run Claude Code from your team's chat.** The bot lives on your machine, next to your checkout and your local tools. Sessions stream live into Slack or Mattermost threads where teammates watch, steer, and approve what Claude does. No cloud sandbox and no enterprise plan required: it works with the Claude subscription or API key you already have.
 
 > _Think of it as screen-sharing for AI pair programming, but everyone can type._
 
+<table>
+  <tr>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/anneschuth/claude-threads/main/website/assets/screenshots/slack-thread.png" alt="A Claude Code session streaming into a Slack thread, with session header badges and live tool output"></td>
+    <td width="50%" valign="top"><img src="https://raw.githubusercontent.com/anneschuth/claude-threads/main/website/assets/screenshots/mattermost-thread.png" alt="The same bot in a Mattermost thread, showing the session header table and Claude's reply"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Slack</sub></td>
+    <td align="center"><sub>Mattermost</sub></td>
+  </tr>
+</table>
+
+## How it works
+
+1. Mention the bot in a channel: `@claude fix the flaky test in ci.yml`
+2. It spawns a real Claude Code session in a working directory on your machine.
+3. Everything streams into the thread: output, diffs, task lists, permission prompts.
+4. Steer by replying in the thread or reacting with emoji. Anyone you invite can do the same.
+
 ## Features
 
-- **Real-time streaming** - Claude's responses stream live to chat
-- **Multi-platform** - Connect to multiple Mattermost and Slack workspaces simultaneously
-- **Concurrent sessions** - Each thread gets its own Claude session, persisted across bot restarts
-- **Collaboration** - `!invite` teammates to participate; they get added as `Co-Authored-By:` trailers on Claude's commits
-- **Permission modes** - Three-way control over Claude's tool-use: `default` (every action prompts for 👍/✅/👎 approval via emoji), `auto` (Claude's classifier auto-approves low-risk; high-risk still prompts — recommended), or `bypass` (no prompts, all tools allowed). Set via config, `--permission-mode` CLI flag, or in-session with `!permissions default|auto|bypass`.
-- **Claude posts back to chat** - Claude can call `send_file` to drop screenshots, generated PDFs, plots, or audio directly into the thread, and `read_post` to follow a Mattermost or Slack permalink the user shares
-- **Git worktrees** - Isolate Claude's changes in a branch with `!worktree feature/foo`; supports `list`, `switch`, `remove`, `cleanup`, `off`
-- **File attachments** - Drop images, PDFs, archives, or any file into the chat; Claude reads them from disk via its own `Read`/Bash tools (100 MB cap)
-- **Chrome automation** - Optional integration with Claude in Chrome for web tasks
-- **Multi-account Claude (opt-in)** - Round-robin sessions across multiple Claude subscriptions or API keys with automatic rate-limit cooldown — see [Configuration](docs/CONFIGURATION.md#claude-accounts-optional-multi-account-mode)
-- **Auto-update** - Bot checks npm for new versions and offers to restart; `!update now` / `!update defer` controls the timing
+- **Live streaming** - Responses, tool calls, diffs, and a sticky task list render in the thread as the session runs
+- **Slack and Mattermost** - Connect multiple workspaces at once. Mattermost support means this also works where chat is self-hosted and cloud assistants cannot go
+- **A session per thread** - Concurrent sessions, each with its own working directory, resumed automatically after a bot restart
+- **Your machine, your setup** - Sessions use your local checkout plus whatever MCP servers and plugins you already configured
+- **Your existing subscription** - Any Claude Pro/Max account or API key works. An optional multi-account pool routes each new session to the account with the most subscription headroom and cools down rate-limited ones ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#claude-accounts-optional-multi-account-mode))
+- **Permission control by emoji** - `default` prompts the thread for every tool use (👍/✅/👎), `auto` lets Claude's classifier approve low-risk actions, `bypass` skips prompts entirely. Switch per session with `!permissions`
+- **Collaboration** - `!invite` teammates into a session; commits Claude makes get `Co-Authored-By:` trailers for everyone involved
+- **A real chat citizen** - Nine MCP tools let Claude post files, follow permalinks, react, and DM, each behind its own guardrail (see [What Claude can do in your chat](#what-claude-can-do-in-your-chat))
+- **Git worktrees** - `!worktree feature/foo` isolates Claude's changes on a branch
+- **Files both ways** - Drop any file into the chat for Claude to read (100 MB cap, multimodal for images and PDFs); Claude posts screenshots, plots, or PDFs back with `send_file`
+- **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
+- **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
+- **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat
+
+## What Claude can do in your chat
+
+Each session runs its own MCP server, giving Claude tools that act on the chat platform. Every tool carries its own guardrail; nothing reaches beyond the channels the bot can already see.
+
+| Tool                   | What Claude does with it                              | Guardrail                                                     |
+| :--------------------- | :---------------------------------------------------- | :------------------------------------------------------------ |
+| `send_file`            | Post a file from the working directory into the thread | Path validated against the session working directory          |
+| `read_post`            | Resolve a Slack or Mattermost permalink to its content | Bot's channel plus public channels only                       |
+| `list_thread`          | Read the current thread, or a permalinked one          | Same channel scoping                                          |
+| `read_channel_history` | Read recent messages from a channel                    | Bot's channel plus public channels, capped at 100 messages    |
+| `search_messages`      | Search messages                                        | Mattermost only, capped at 25 results                         |
+| `react_to_post`        | Add an emoji reaction                                  | Defaults to the message that triggered it                     |
+| `update_own_post`      | Edit one of its earlier posts                          | Bot-authored posts only                                       |
+| `send_dm`              | Send a direct message to a channel member              | 3 per recipient per session; each recipient approves it first |
+| `permission_prompt`    | Ask the thread to approve a tool use                   | This one _is_ the approval flow (👍/✅/👎)                    |
+
+The full reference, including inputs and scoping rules, is in [docs/MCP-TOOLS.md](https://github.com/anneschuth/claude-threads/blob/main/docs/MCP-TOOLS.md).
 
 ## Quick Start
-
-### Install & Run
 
 ```bash
 # Install (pick one)
@@ -50,23 +86,14 @@ cd /your/project
 claude-threads
 ```
 
-The **interactive setup wizard** will guide you through everything:
+The interactive wizard configures your Slack or Mattermost bot, tests the credentials, and gets you running in minutes. For creating the bot account itself, follow the [Setup Guide](https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md).
 
-- Configure Claude Code CLI (if needed)
-- Set up your Mattermost or Slack bot
-- Test credentials and permissions
-- Get you up and running in minutes
-
-**Need help with platform setup?** See the [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack bot creation.
-
-### Prerequisites
+**Prerequisites**
 
 - **Bun 1.2.21+** or **Node 20+** - [Install Bun](https://bun.sh/) or [Install Node](https://nodejs.org/)
-- **Claude Code CLI working** - test with `claude --version` (needs API key or subscription)
+- **Claude Code CLI** - test with `claude --version` (needs a subscription or API key)
 
-### Use
-
-Mention the bot in your chat:
+Then mention the bot in your channel:
 
 ```
 @claude help me fix the bug in src/auth.ts
@@ -93,33 +120,28 @@ Type `!help` in any session thread:
 | `!github-email <email>`                     | Register your GitHub noreply email so `!invite` can attribute commits to you             |
 | `!update`                                   | Show auto-update status (`!update now` / `!update defer`)                                |
 | `!bug <desc>`                               | Report a bug with context (creates a GitHub issue)                                       |
-| `!approve`                                  | Approve pending plan (alternative to 👍 reaction)                                        |
-| `!escape`                                   | Interrupt current task (session stays active)                                            |
-| `!stop`                                     | Stop this session                                                                        |
+| `!approve`                                  | Approve pending plan (alternative to 👍; also `!yes`)                                    |
+| `!escape`                                   | Interrupt current task, session stays active (also `!interrupt`)                         |
+| `!stop`                                     | Stop this session (also `!cancel`)                                                       |
 | `!kill`                                     | Emergency shutdown (kills ALL sessions and exits the bot)                                |
+
+Unknown `!commands` are checked against Claude Code's own slash commands and passed through when they match.
 
 ## Interactive Controls
 
-**Permission approval** - When Claude wants to execute a tool:
+**Permission approval** - When Claude wants to run a tool:
 
 - 👍 Allow this action
 - ✅ Allow all future actions
 - 👎 Deny
 
-**Plan approval** - When Claude creates a plan:
-
-- 👍 Approve and start
-- 👎 Request changes
+**Plan approval** - When Claude presents a plan: 👍 approve, 👎 request changes
 
 **Questions** - React with 1️⃣ 2️⃣ 3️⃣ 4️⃣ to answer multiple choice
 
-**Session control** - ⏸️ to interrupt, ❌ or 🛑 to stop, ↩️ to resume a timed-out session
+**Session control** - ⏸️ interrupt, ❌ or 🛑 stop, ↩️ resume a timed-out session
 
-## File Attachments
-
-Drop any file into the chat (image, PDF, archive, source, log, you name it). The bot saves it to a per-thread directory and prepends the path to your message; Claude reads it with its own `Read` tool (full multimodal for images and PDFs) or processes it via Bash. Single 100 MB cap per file. Need to extract a zip? Claude runs `unzip` itself.
-
-Going the other way, Claude can post files back into the thread (screenshots, generated PDFs, plots, MP3s) by calling the `send_file` MCP tool. Path is validated against the session working directory; auto-approved so the user doesn't have to 👍 every screenshot.
+**Housekeeping** - 🔽 collapses long task lists and subagent output; 🐛 on an error post opens a bug report
 
 ## Collaboration
 
@@ -128,13 +150,9 @@ Going the other way, Claude can post files back into the thread (screenshots, ge
 !kick @colleague      # Remove access
 ```
 
-Unauthorized users can request message approval from the session owner with a 👍 reaction.
+Messages from users outside the session can be approved one at a time by the session owner with a 👍 reaction.
 
-Invited collaborators are added as `Co-Authored-By:` trailers on any commits Claude makes during the session. Each collaborator runs `!github-email <their-noreply-address>` once (find yours at <https://github.com/settings/emails>) and the bot remembers it across sessions.
-
-## Sharing Links With Claude
-
-Paste a Mattermost or Slack permalink in the thread and Claude can resolve it to the post body (and optional thread context) via the `read_post` MCP tool, instead of asking you to copy-paste. Auto-approved; scoped to channels the bot can already see.
+Invited collaborators end up as `Co-Authored-By:` trailers on commits Claude makes during the session. Each collaborator runs `!github-email <their-noreply-address>` once (find yours at <https://github.com/settings/emails>) and the bot remembers it across sessions.
 
 ## Git Worktrees
 
@@ -148,14 +166,17 @@ Or mid-session: `!worktree feature/add-auth`
 
 ## Access Control
 
-Restrict who can use the bot during setup (or reconfigure later with `claude-threads --setup`).
+Restrict who can use the bot during setup, or reconfigure later with `claude-threads --setup`. An empty allowlist lets anyone in the channel start sessions, so leave it empty only in channels you trust.
 
-Leave the allowed users list empty to let anyone in the channel use the bot (be careful!)
+Who may do what (start sessions, react to permission prompts, approve guest messages) is written down in the [authorization model](https://github.com/anneschuth/claude-threads/blob/main/SECURITY.md).
 
 ## Documentation
 
-- **[Setup Guide](SETUP_GUIDE.md)** - Step-by-step setup for Mattermost and Slack
-- **[Configuration Reference](CLAUDE.md)** - Technical details and architecture
+- **[Setup Guide](https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md)** - Creating the bot account on Mattermost or Slack, step by step
+- **[Configuration Reference](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md)** - Every `config.yaml` option, environment variables, CLI flags
+- **[MCP Tools Reference](https://github.com/anneschuth/claude-threads/blob/main/docs/MCP-TOOLS.md)** - The nine tools Claude gets in chat, with their guardrails
+- **[Security Model](https://github.com/anneschuth/claude-threads/blob/main/SECURITY.md)** - Authorization matrix and vulnerability reporting
+- **[Changelog](https://github.com/anneschuth/claude-threads/blob/main/CHANGELOG.md)** - Detailed release history
 
 ## Updates
 
@@ -163,7 +184,7 @@ Leave the allowed users list empty to let anyone in the channel use the bot (be 
 npm install -g claude-threads
 ```
 
-The bot checks for updates automatically and notifies you when new versions are available.
+The bot checks npm for new versions on its own and offers the update in chat.
 
 ## License
 

@@ -337,7 +337,7 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
-| `src/logo.ts` | ASCII art logo |
+| `src/ui/components/Header.tsx` | Terminal header with the ASCII logo |
 
 ## How the Permission System Works
 

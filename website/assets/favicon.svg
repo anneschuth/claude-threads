@@ -2,10 +2,13 @@
   <!-- Background -->
   <rect width="32" height="32" rx="6" fill="#151517"/>
 
-  <!-- Sparkles (yellow) -->
-  <path d="M5 6 L6 7 L5 8 L4 7 Z" fill="#eab308"/>
-  <path d="M27 6 L28 7 L27 8 L26 7 Z" fill="#eab308"/>
+  <!-- Thread spine: root node, reply branch, closing arc (light) -->
+  <circle cx="7" cy="8" r="2.2" fill="#8b90a0"/>
+  <path d="M7 10.5 V21 Q7 24 10 24" stroke="#8b90a0" stroke-width="1.6" stroke-linecap="round"/>
+  <path d="M7 16 H10.5" stroke="#8b90a0" stroke-width="1.6" stroke-linecap="round"/>
 
-  <!-- CT block characters (blue) - simplified -->
-  <text x="6" y="22" font-family="monospace" font-size="12" font-weight="bold" fill="#3b82f6">CT</text>
+  <!-- CT in heavy strokes (blue) -->
+  <path d="M19 9.5 H15.5 V22.5 H19" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter"/>
+  <path d="M21.5 9.5 H29" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt"/>
+  <path d="M25.25 9.5 V22.5" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt"/>
 </svg>
