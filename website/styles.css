@@ -83,18 +83,10 @@ h2 {
   flex-wrap: wrap;
 }
 
-.ascii-logo {
-  font-size: 1.9rem;
-  line-height: 1.15;
-  font-weight: 600;
-}
-
-.ascii-logo .ct {
-  color: var(--accent);
-}
-
-.ascii-logo .thread {
-  color: var(--thread);
+.logo-mark {
+  display: block;
+  width: 182px;
+  height: auto;
 }
 
 .hero-title h1 {
@@ -218,23 +210,25 @@ h2 {
   color: var(--thread);
 }
 
-/* ---------- The thread rail ---------- */
+/* ---------- The thread rail ----------
 
-.thread-rail {
-  position: relative;
-}
+   The rail and its connectors are drawn per section, inside the same
+   .container coordinate system, so they stay joined at any zoom or DPR:
+   each section's container carries a rail segment at left 0.4rem, and
+   each h2 draws its own connector from that exact x. The last section
+   replaces both with a single rounded corner that closes the thread. */
 
 .thread-rail .container {
   position: relative;
+  padding-left: 3.4rem;
 }
 
-/* the spine */
-.thread-rail::before {
+.thread-rail .container::before {
   content: "";
   position: absolute;
   top: 0;
-  bottom: 2.4rem;
-  left: calc(50% - 440px + 1.95rem);
+  bottom: 0;
+  left: 0.4rem;
   width: 1px;
   background: var(--border);
 }
@@ -244,21 +238,44 @@ section {
 }
 
 section h2 {
-  margin-left: -0.35rem;
+  position: relative;
 }
 
-.tick {
-  color: var(--thread);
-  font-weight: 400;
-  transition: color 0.6s ease;
+/* connector: from the rail to the heading */
+section h2::before {
+  content: "";
+  position: absolute;
+  left: -3rem; /* container padding 3.4rem minus rail x 0.4rem */
+  top: 50%;
+  width: 1.6rem;
+  height: 1px;
+  background: var(--thread);
+  transition: background-color 0.6s ease;
 }
 
-section.lit .tick {
-  color: var(--accent);
+section.lit h2::before {
+  background: var(--accent);
 }
 
-section > .container > *:not(h2) {
-  padding-left: 1.75rem;
+/* last section: a rounded corner closes the thread */
+section.last .container::before {
+  display: none;
+}
+
+section.last h2::before {
+  top: 50%;
+  transform: translateY(-100%);
+  height: 3.7rem; /* section padding-top 2.75rem + half the h2 line box */
+  width: 1.6rem;
+  background: none;
+  border-left: 1px solid var(--thread);
+  border-bottom: 1px solid var(--thread);
+  border-bottom-left-radius: 9px;
+  transition: border-color 0.6s ease;
+}
+
+section.last.lit h2::before {
+  border-color: var(--accent);
 }
 
 .section-intro {
@@ -525,22 +542,16 @@ footer a:hover {
     scroll-behavior: auto;
   }
 
-  .tick {
+  section h2::before {
     transition: none;
   }
 }
 
 /* ---------- Responsive ---------- */
 
-@media (max-width: 920px) {
-  .thread-rail::before {
-    left: 1.95rem;
-  }
-}
-
 @media (max-width: 640px) {
-  .ascii-logo {
-    font-size: 1.35rem;
+  .logo-mark {
+    width: 130px;
   }
 
   .hero {
@@ -551,20 +562,17 @@ footer a:hover {
     gap: 1.25rem;
   }
 
-  .thread-rail::before {
+  .thread-rail .container {
+    padding-left: 1.5rem;
+  }
+
+  .thread-rail .container::before,
+  section h2::before {
     display: none;
   }
 
   section {
     padding: 2rem 0;
-  }
-
-  section > .container > *:not(h2) {
-    padding-left: 0;
-  }
-
-  section h2 {
-    margin-left: 0;
   }
 
   .screenshot-scroll {
@@ -575,10 +583,6 @@ footer a:hover {
 
   .features-list {
     columns: 1;
-  }
-
-  .shot-pair {
-    grid-template-columns: 1fr;
   }
 
   .controls-grid {
