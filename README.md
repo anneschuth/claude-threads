@@ -18,7 +18,7 @@
 [![Node](https://img.shields.io/node/v/claude-threads.svg)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/anneschuth/claude-threads/pulls)
 
-**Run Claude Code from your team's chat.** The bot lives on your machine, next to your checkout and your local tools. Sessions stream live into Slack or Mattermost threads where teammates watch, steer, and approve what Claude does. No cloud sandbox and no enterprise plan required: it works with the Claude subscription or API key you already have.
+**Run Claude Code from your team's chat.** The bot lives on your machine, next to your checkout and your local tools. Sessions stream live into Slack or Mattermost threads where teammates watch and steer what Claude does. No cloud sandbox and no enterprise plan required: it works with the Claude subscription or API key you already have.
 
 > _Think of it as screen-sharing for AI pair programming, but everyone can type._
 
@@ -51,7 +51,7 @@
 - **Collaboration** - `!invite` teammates into a session; commits Claude makes get `Co-Authored-By:` trailers for everyone involved
 - **A real chat citizen** - Nine MCP tools let Claude post files, follow permalinks, react, and DM, each behind its own guardrail (see [What Claude can do in your chat](#what-claude-can-do-in-your-chat))
 - **Git worktrees** - `!worktree feature/foo` isolates Claude's changes on a branch
-- **Files both ways** - Drop any file into the chat for Claude to read (100 MB cap, multimodal for images and PDFs); Claude posts screenshots, plots, or PDFs back with `send_file`
+- **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
 - **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
 - **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat
@@ -69,7 +69,7 @@ Each session runs its own MCP server, giving Claude tools that act on the chat p
 | `search_messages`      | Search messages                                        | Mattermost only, capped at 25 results                         |
 | `react_to_post`        | Add an emoji reaction                                  | Defaults to the message that triggered it                     |
 | `update_own_post`      | Edit one of its earlier posts                          | Bot-authored posts only                                       |
-| `send_dm`              | Send a direct message to a channel member              | 3 per recipient per session; each recipient approves it first |
+| `send_dm`              | Send a direct message to a channel member              | 3 per recipient per session; the thread approves each one     |
 | `permission_prompt`    | Ask the thread to approve a tool use                   | This one _is_ the approval flow (👍/✅/👎)                    |
 
 The full reference, including inputs and scoping rules, is in [docs/MCP-TOOLS.md](https://github.com/anneschuth/claude-threads/blob/main/docs/MCP-TOOLS.md).
@@ -139,7 +139,7 @@ Unknown `!commands` are checked against Claude Code's own slash commands and pas
 
 **Questions** - React with 1️⃣ 2️⃣ 3️⃣ 4️⃣ to answer multiple choice
 
-**Session control** - ⏸️ interrupt, ❌ or 🛑 stop, ↩️ resume a timed-out session
+**Session control** - ⏸️ interrupt, ❌ or 🛑 stop, 🔄 resume a timed-out session
 
 **Housekeeping** - 🔽 collapses long task lists and subagent output; 🐛 on an error post opens a bug report
 

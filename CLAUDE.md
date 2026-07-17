@@ -443,7 +443,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run unit tests (~1700 tests)
+bun test             # Run unit tests (~2600 tests)
 bun run lint         # Run ESLint
 ```
 

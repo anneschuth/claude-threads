@@ -152,7 +152,7 @@ The `permissionMode` field controls how the bot handles a session's tool-use req
 | Mode | Behavior |
 |------|----------|
 | `default` | Every tool-use prompts for approval. The bot posts a permission request in the thread and the user reacts 👍 (allow once) / ✅ (allow all) / 👎 (deny). Safest option. |
-| `auto` | Claude's built-in classifier decides per tool. Low-risk tools (Read, Grep, Write inside the working dir) are auto-approved; high-risk tools still prompt. Requires Claude CLI 2.1.x. |
+| `auto` | Claude's built-in classifier decides per tool: low-risk actions are auto-approved, high-risk ones still prompt. Requires Claude CLI 2.1.x. |
 | `bypass` | No prompts and no classifier. Every tool-use is allowed. Equivalent to `--dangerously-skip-permissions`. This is what the legacy `skipPermissions: true` maps to. |
 
 A running session can switch mode at any time with `!permissions <mode>`; that override is not persisted across a bot restart.
