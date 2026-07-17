@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 100" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 190 100" fill="none">
   <!--
     claude-threads mark: a chat thread (root node, reply branch, closing arc)
     threading into the CT letters. Thread in light strokes, letters in heavy.
@@ -12,9 +12,9 @@
   <path d="M12 50 H32" stroke="#8b90a0" stroke-width="4" stroke-linecap="round"/>
 
   <!-- C in heavy strokes -->
-  <path d="M70 21 H51 V79 H70" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt" stroke-linejoin="miter"/>
+  <path d="M92 21 H52 V79 H92" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt" stroke-linejoin="miter"/>
 
   <!-- T in heavy strokes -->
-  <path d="M80 21 H126" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
-  <path d="M103 21 V79" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
+  <path d="M112 21 H182" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
+  <path d="M147 21 V79" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
 </svg>
