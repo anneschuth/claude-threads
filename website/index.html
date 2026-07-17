@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>claude-threads — Claude Code in Slack and Mattermost threads</title>
+    <title>claude-threads: Claude Code in Slack and Mattermost threads</title>
     <meta
       name="description"
       content="Run Claude Code on your machine. Your team follows along in Slack or Mattermost threads and types right back."
@@ -121,6 +121,8 @@
               <img
                 src="assets/screenshots/slack-long.png"
                 alt="A long Claude Code session streaming into a Slack thread"
+                width="1290"
+                height="2200"
               />
             </div>
             <p class="caption">
@@ -591,15 +593,24 @@ claude-threads</pre>
       // Copy-to-clipboard on the install commands
       document.querySelectorAll(".copyable").forEach((el) => {
         el.addEventListener("click", () => {
-          navigator.clipboard.writeText(el.dataset.copy).then(() => {
-            const hint = el.querySelector(".copy-hint");
-            hint.textContent = "copied!";
-            el.classList.add("copied");
-            setTimeout(() => {
-              hint.textContent = "click to copy";
-              el.classList.remove("copied");
-            }, 2000);
-          });
+          const hint = el.querySelector(".copy-hint");
+          if (!navigator.clipboard) {
+            hint.textContent = "copy not available";
+            return;
+          }
+          navigator.clipboard
+            .writeText(el.dataset.copy)
+            .then(() => {
+              hint.textContent = "copied!";
+              el.classList.add("copied");
+              setTimeout(() => {
+                hint.textContent = "click to copy";
+                el.classList.remove("copied");
+              }, 2000);
+            })
+            .catch(() => {
+              hint.textContent = "copy failed";
+            });
         });
       });
 
@@ -607,36 +618,49 @@ claude-threads</pre>
         "(prefers-reduced-motion: reduce)",
       ).matches;
 
-      // Scroll-driven reveal of the long session screenshot
+      // Scroll-driven reveal of the long session screenshot.
+      // All measurements live in measure(), which reruns on (debounced)
+      // resize, so rotation or crossing the mobile breakpoint never leaves
+      // stale geometry or a leftover transform behind.
       (function () {
         const container = document.querySelector(".screenshot-scroll");
         if (!container || reducedMotion) return;
         const img = container.querySelector("img");
+        let maxScroll = 0;
+        let scrollRange = 1;
+        let active = false;
 
-        function setup() {
-          if (window.innerWidth <= 640) return;
-
-          const containerHeight = container.offsetHeight;
-          const imgHeight = img.offsetHeight;
-          const maxScroll = imgHeight - containerHeight;
-          if (maxScroll <= 0) return;
-
-          const initialTop = container.getBoundingClientRect().top;
-          const scrollRange = window.innerHeight * 0.5;
-
-          function onScroll() {
-            const rect = container.getBoundingClientRect();
-            const moved = initialTop - rect.top;
-            const progress = Math.max(0, Math.min(1, moved / scrollRange));
-            img.style.transform = `translateY(${-maxScroll * progress}px)`;
+        function measure() {
+          if (window.innerWidth <= 640) {
+            active = false;
+            img.style.transform = "";
+            return;
           }
-
-          window.addEventListener("scroll", onScroll, { passive: true });
-          onScroll();
+          maxScroll = img.offsetHeight - container.offsetHeight;
+          scrollRange = window.innerHeight * 0.5;
+          active = maxScroll > 0;
+          if (!active) img.style.transform = "";
+          else onScroll();
         }
 
-        if (img.complete) setup();
-        else img.onload = setup;
+        function onScroll() {
+          if (!active) return;
+          const progress = Math.max(
+            0,
+            Math.min(1, window.scrollY / scrollRange),
+          );
+          img.style.transform = `translateY(${-maxScroll * progress}px)`;
+        }
+
+        let resizeTimer;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(measure, 150);
+        });
+        window.addEventListener("scroll", onScroll, { passive: true });
+
+        if (img.complete) measure();
+        else img.onload = measure;
       })();
 
       // Light up each section's thread tick as it enters the viewport
