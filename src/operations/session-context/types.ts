@@ -19,7 +19,7 @@ import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
 import type { ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
-import type { AccountPoolStatus } from '../../claude/account-pool.js';
+import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
 
 // =============================================================================
 // Configuration (read-only state)
@@ -255,19 +255,31 @@ export interface SessionOperations {
    * `preferredId` is honored even if the account is currently cooling — this
    * is required for resume, because OAuth history lives under a specific HOME.
    *
-   * `threadId` enables sticky-by-thread distribution for new sessions: the
-   * pool deterministically picks `accounts[hash(threadId) % n]`, so a thread
-   * always lands on the same account regardless of multi-session ordering.
-   * This closes the race between round-robin selection and `sessions.json`
-   * persistence that previously caused `claudeAccountId` to drift away from
-   * the `$HOME` Claude actually spawned under.
+   * With `opts.balanceByUsage` (new sessions), the pool routes to whichever
+   * account has the most subscription headroom (lowest `/usage` load score),
+   * skipping accounts in cooldown. Without it (resume), `threadId` enables the
+   * sticky-by-thread compat binding — the pool deterministically picks
+   * `accounts[hash(threadId) % n]` so a pre-account-pool session with no
+   * recorded `claudeAccountId` re-derives the same account across restarts.
    */
-  acquireClaudeAccount(preferredId?: string, threadId?: string): ClaudeAccount | null;
+  acquireClaudeAccount(
+    preferredId?: string,
+    threadId?: string,
+    opts?: AcquireOptions
+  ): ClaudeAccount | null;
+
+  /**
+   * Probe every pooled account's live `/usage` headroom and update the pool, so
+   * the following `acquireClaudeAccount({ balanceByUsage: true })` routes on
+   * fresh data. Called on-demand at new session start. Resolves quickly (no-op)
+   * when the pool has fewer than two accounts.
+   */
+  refreshClaudeAccountUsage(): Promise<void>;
 
   /**
    * Look up the Claude account metadata for a session that already holds one.
    * Used by session restart paths (e.g. !cd) that must keep using the same
-   * account without re-acquiring it from the round-robin pool.
+   * account without re-selecting one from the pool.
    */
   getClaudeAccount(accountId: string): ClaudeAccount | undefined;
 
@@ -276,7 +288,7 @@ export interface SessionOperations {
 
   /**
    * Mark an account as rate-limited until the given epoch timestamp. Future
-   * round-robin picks skip the account until the timestamp passes.
+   * account selection skips the account until the timestamp passes.
    */
   markClaudeAccountCooling(accountId: string, untilEpochMs: number): void;
 

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Multi-account pool balances new sessions by real subscription usage.** When a Claude account pool is configured, new sessions used to be spread by round-robin / sticky-by-thread, which ignores how much of each account's rate limit has actually been consumed — a nearly-capped account was as likely to be picked as a fresh one. The pool now routes each new session to the account with the most headroom: at session start the bot probes every account's live limits with `claude -p "/usage" --output-format json` (runs zero turns, costs $0) under that account's `HOME`, parses the reported percentages, and selects the lowest `max(session%, week%)` non-cooling account. Probing is on-demand and synchronous — an idle bot probes nothing — with a short hot-path deadline, in-flight coalescing, and a brief result cache so a burst of concurrent starts triggers a single set of probes rather than one per start. In-flight sessions add a small provisional load penalty so a burst spreads across accounts instead of piling onto the single lowest one, and a rotating cursor breaks exact ties. A failed/timed-out/unparseable probe marks that account "usage unknown" so it sorts last (routing around a logged-out OAuth account, whose auth error never triggers rate-limit cooldown); if every account is unknown, selection degrades gracefully to round-robin. Resume is unaffected — it still re-binds to the persisted `claudeAccountId` so a session resumes under the `HOME` its history lives in. Targets OAuth (subscription) accounts; API-key accounts have no `/usage` limits and sort as unknown. The channel sticky message now shows the pool's `min–max % used` range. (#419)
+
 ## [1.17.3] - 2026-07-01
 
 ### Dependencies

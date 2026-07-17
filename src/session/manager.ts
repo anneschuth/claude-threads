@@ -19,6 +19,7 @@ import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persi
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
+import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
 import { CleanupScheduler } from '../cleanup/index.js';
 import { SessionMonitor } from '../operations/monitor/index.js';
@@ -52,6 +53,24 @@ import {
 
 // Import constants for internal use
 import { getSessionStatus } from './types.js';
+
+/**
+ * Per-account cap on a single `/usage` probe (kills a hung child). Below the
+ * probe module's own default so one stuck account can't run long.
+ */
+const USAGE_PROBE_TIMEOUT_MS = 10_000;
+/**
+ * Hard cap on how long a new-session start blocks waiting for the probe cycle.
+ * If a probe is still running at this point the session proceeds anyway; that
+ * account keeps its prior/unknown score and the cycle updates it for next time.
+ */
+const USAGE_REFRESH_DEADLINE_MS = 5_000;
+/**
+ * Reuse the last probe cycle's results if it finished within this window,
+ * instead of re-probing. Coalesces a burst of near-simultaneous session starts
+ * onto a single set of `/usage` spawns rather than one set per start.
+ */
+const USAGE_CACHE_TTL_MS = 15_000;
 
 /**
  * SessionManager - Main orchestrator for Claude Code sessions
@@ -111,6 +130,10 @@ export class SessionManager extends EventEmitter {
 
   // Claude account pool (single-account mode when empty)
   private readonly accountPool: AccountPool;
+  // On-demand /usage probe coalescing: the in-flight cycle (shared by concurrent
+  // session starts) and the epoch ms it last completed (for the TTL skip).
+  private usageRefreshInFlight: Promise<void> | null = null;
+  private usageRefreshedAt = 0;
 
   constructor(
     workingDir: string,
@@ -355,7 +378,9 @@ export class SessionManager extends EventEmitter {
       emitSessionRemove: (sid) => this.emitSessionRemove(sid),
 
       // Claude account pool (null when single-account mode)
-      acquireClaudeAccount: (preferredId, threadId) => this.accountPool.acquire(preferredId, threadId),
+      acquireClaudeAccount: (preferredId, threadId, opts) =>
+        this.accountPool.acquire(preferredId, threadId, opts),
+      refreshClaudeAccountUsage: () => this.refreshAccountUsage(),
       getClaudeAccount: (id) => this.accountPool.get(id),
       releaseClaudeAccount: (id) => this.accountPool.release(id),
       markClaudeAccountCooling: (id, untilMs) => this.accountPool.markCooling(id, untilMs),
@@ -867,6 +892,63 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
+
+  /**
+   * Probe every pooled account's `/usage` and feed the results into the pool, so
+   * the next `acquire({ balanceByUsage: true })` routes on fresh subscription
+   * headroom. Called on-demand right before a new session starts — there is no
+   * background polling; an idle bot probes nothing.
+   *
+   * Coalescing keeps this off the critical path:
+   * - A cycle that finished within `USAGE_CACHE_TTL_MS` is reused (skip re-probe).
+   * - Concurrent session starts share one in-flight cycle rather than each
+   *   spawning `claude` for every account (which would be K×N processes).
+   * - The caller waits at most `USAGE_REFRESH_DEADLINE_MS`; a slower probe still
+   *   updates the pool in the background for the next start.
+   *
+   * On a failed/timed-out/unparseable probe the account's usage is set to
+   * "unknown" (sorts last in selection). This is deliberate under on-demand
+   * probing: a genuinely broken account (e.g. logged-out OAuth, which surfaces
+   * as an auth error, not a rate-limit, so cooldown never triggers) must be
+   * routed around — and a one-off transient failure only costs that single
+   * session's pick, since the next start re-probes from scratch.
+   *
+   * No-op unless the pool has at least two accounts (nothing to balance with fewer).
+   */
+  private async refreshAccountUsage(): Promise<void> {
+    const accounts = this.accountPool.all;
+    if (accounts.length < 2) return;
+    // Fresh enough — the last cycle's numbers still stand.
+    if (Date.now() - this.usageRefreshedAt < USAGE_CACHE_TTL_MS) return;
+    // Start a cycle only if one isn't already running; concurrent callers join it.
+    if (!this.usageRefreshInFlight) {
+      this.usageRefreshInFlight = this.probeAllAccounts(accounts).finally(() => {
+        this.usageRefreshedAt = Date.now();
+        this.usageRefreshInFlight = null;
+      });
+    }
+    // Bound the hot-path wait; the in-flight cycle keeps updating the pool after.
+    await Promise.race([
+      this.usageRefreshInFlight,
+      new Promise<void>((resolve) => setTimeout(resolve, USAGE_REFRESH_DEADLINE_MS)),
+    ]);
+  }
+
+  /** Probe every account in parallel, writing each result (or "unknown") to the pool. */
+  private async probeAllAccounts(accounts: readonly ClaudeAccount[]): Promise<void> {
+    await Promise.all(
+      accounts.map(async (acc) => {
+        try {
+          this.accountPool.setUsage(
+            acc.id,
+            await probeAccountUsage(acc, { timeoutMs: USAGE_PROBE_TIMEOUT_MS })
+          );
+        } catch {
+          this.accountPool.setUsage(acc.id, null);
+        }
+      })
+    );
+  }
 
   async initialize(): Promise<void> {
     // Initialize sticky message module with session store for persistence
