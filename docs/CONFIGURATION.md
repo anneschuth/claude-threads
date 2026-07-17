@@ -21,7 +21,7 @@ platforms:
     channelId: abc123
     botName: claude-code
     allowedUsers: [alice, bob]
-    skipPermissions: false
+    permissionMode: default
 
   # Slack
   - id: slack-eng
@@ -32,17 +32,80 @@ platforms:
     channelId: C0123456789
     botName: claude
     allowedUsers: [alice, bob]
-    skipPermissions: false
+    permissionMode: default
 ```
 
 ## Global Settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|
+| `version` | Config schema version | `1` |
 | `workingDir` | Default working directory for Claude | Current directory |
 | `chrome` | Enable Chrome integration | `false` |
 | `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` | `prompt` |
 | `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
+| `keepAlive` | Prevent system sleep while sessions are active | `true` |
+| `limits` | Resource limits and timeouts (see below) | see below |
+| `threadLogs` | Thread logging (see below) | enabled |
+| `stickyMessage` | Sticky message text customization (see below) | none |
+| `claudeAccounts` | Multi-account pool (see below) | single-account mode |
+
+### Resource Limits (`limits`)
+
+Every field is optional and falls back to the default. Older `config.yaml` files predate most of these, so leaving the block out is fine.
+
+```yaml
+limits:
+  maxSessions: 5
+  sessionTimeoutMinutes: 30
+  sessionWarningMinutes: 5
+  cleanupIntervalMinutes: 60
+  maxWorktreeAgeHours: 24
+  cleanupWorktrees: true
+  permissionTimeoutSeconds: 120
+  flushDelayMs: 500
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `maxSessions` | Maximum concurrent sessions | `5` |
+| `sessionTimeoutMinutes` | Idle timeout before a session auto-terminates | `30` |
+| `sessionWarningMinutes` | Warn the user this many minutes before timeout | `5` |
+| `cleanupIntervalMinutes` | How often the background cleanup runs | `60` |
+| `maxWorktreeAgeHours` | Clean up orphaned worktrees older than this | `24` |
+| `cleanupWorktrees` | Enable automatic cleanup of orphaned worktrees | `true` |
+| `permissionTimeoutSeconds` | How long a permission prompt waits for a reaction | `120` |
+| `flushDelayMs` | Delay before flushing batched output to the platform. Lower is snappier with more API calls; higher posts less often with coarser streaming. | `500` |
+
+The legacy env vars `MAX_SESSIONS` and `SESSION_TIMEOUT_MS` still work as fallbacks when `limits.maxSessions` / `limits.sessionTimeoutMinutes` are unset. See [Environment Variables](#environment-variables).
+
+### Thread Logs (`threadLogs`)
+
+```yaml
+threadLogs:
+  enabled: true
+  retentionDays: 30
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `enabled` | Write per-thread session logs to disk | `true` |
+| `retentionDays` | Delete logs this many days after a session ends | `30` |
+
+### Sticky Message Text (`stickyMessage`)
+
+Customize the text of the channel sticky message. This is distinct from the per-platform `stickyMessage: <mode>` visibility field documented under [Platform Settings](#platform-settings).
+
+```yaml
+stickyMessage:
+  description: "Porygon — Mixpanel analytics bot"
+  footer: "• !stop — End session\n• !help — Show help"
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `description` | Line shown below the sticky title | none |
+| `footer` | Content shown before the default "Mention me to start a session" line | none |
 
 ## Platform Settings
 
@@ -58,7 +121,9 @@ platforms:
 | `channelId` | Yes | Channel to listen in |
 | `botName` | No | Mention name (default: `claude-code`) |
 | `allowedUsers` | No | List of usernames who can use the bot |
-| `skipPermissions` | No | Auto-approve actions (default: `false`) |
+| `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
+| `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
+| `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
@@ -74,9 +139,23 @@ platforms:
 | `channelId` | Yes | Channel ID (e.g., `C0123456789`) |
 | `botName` | No | Mention name (default: `claude`) |
 | `allowedUsers` | No | List of Slack usernames |
-| `skipPermissions` | No | Auto-approve actions (default: `false`) |
+| `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
+| `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
+| `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+
+### Permission Modes
+
+The `permissionMode` field controls how the bot handles a session's tool-use requests.
+
+| Mode | Behavior |
+|------|----------|
+| `default` | Every tool-use prompts for approval. The bot posts a permission request in the thread and the user reacts 👍 (allow once) / ✅ (allow all) / 👎 (deny). Safest option. |
+| `auto` | Claude's built-in classifier decides per tool. Low-risk tools (Read, Grep, Write inside the working dir) are auto-approved; high-risk tools still prompt. Requires Claude CLI 2.1.x. |
+| `bypass` | No prompts and no classifier. Every tool-use is allowed. Equivalent to `--dangerously-skip-permissions`. This is what the legacy `skipPermissions: true` maps to. |
+
+A running session can switch mode at any time with `!permissions <mode>`; that override is not persisted across a bot restart.
 
 ### Quieting the bot's overhead messages
 
@@ -87,7 +166,7 @@ platforms:
   - id: mattermost-main
     type: mattermost
     # ... credentials ...
-    sessionHeader: hidden    # no header post — Claude's reply is the first message in the thread
+    sessionHeader: hidden    # no header post, Claude's reply is the first message in the thread
     stickyMessage: minimal   # one-line status bar at the channel bottom, no sessions list
 ```
 
@@ -95,11 +174,13 @@ Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-le
 
 ## Claude Accounts (optional, multi-account mode)
 
-By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts — the bot round-robins new sessions across the pool and automatically skips accounts in rate-limit cooldown. Omit the block entirely to stay in single-account mode (unchanged behavior).
+By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts. Omit the block entirely to stay in single-account mode (unchanged behavior).
+
+Selection is usage-balanced (since v1.18.0). At each new-session start the bot probes every account's live limits with `claude -p "/usage" --output-format json` under that account's `HOME` (costs nothing, uses no turns) and routes the session to the account with the most subscription headroom, meaning the lowest `max(session%, week%)`. Round-robin is only the fallback when probing yields no usable numbers (for example an API-key account, which reports no percentages). Accounts in rate-limit cooldown are skipped until their reset time. A resumed session always re-binds to the account its history lives under, cooling or not.
 
 ```yaml
 claudeAccounts:
-  # OAuth accounts — prepare each HOME first with `HOME=<path> claude login`
+  # OAuth accounts (prepare each HOME first with `HOME=<path> claude login`)
   - id: primary
     home: /home/bot/.claude-accounts/primary
   - id: backup
@@ -124,11 +205,14 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `MAX_SESSIONS` | Max concurrent sessions | `5` |
-| `SESSION_TIMEOUT_MS` | Idle timeout in milliseconds | `1800000` (30 min) |
-| `NO_UPDATE_NOTIFIER` | Disable update checks | - |
+| `MAX_SESSIONS` | Max concurrent sessions. Legacy fallback for `limits.maxSessions`. | `5` |
+| `SESSION_TIMEOUT_MS` | Idle timeout in milliseconds. Legacy fallback for `limits.sessionTimeoutMinutes`. | `1800000` (30 min) |
 | `DEBUG` | Enable verbose logging | - |
-| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*` / `AWS_*_TOKEN` / `CLAUDE_CODE_OAUTH_TOKEN` / `GOOGLE_APPLICATION_CREDENTIALS` etc. from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`** — `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
+| `CLAUDE_PATH` | Path to the `claude` binary. Overrides the PATH lookup and the common install locations. | `claude` (from PATH) |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
+| `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
+| `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
+| `NO_UPDATE_NOTIFIER` | Disable update checks | - |
 
 ### Forwarded to Claude CLI automatically
 
@@ -155,8 +239,9 @@ Options:
   --channel <id>           Channel ID
   --bot-name <name>        Bot mention name (default: claude-code)
   --allowed-users <list>   Comma-separated allowed usernames
-  --skip-permissions       Skip permission prompts (auto-approve)
-  --no-skip-permissions    Enable permission prompts (override env)
+  --permission-mode <mode> Permission mode: default | auto | bypass
+  --skip-permissions       [deprecated] Alias for --permission-mode bypass
+  --no-skip-permissions    [deprecated] Alias for --permission-mode default
   --chrome                 Enable Chrome integration
   --no-chrome              Disable Chrome integration
   --worktree-mode <mode>   Git worktree mode: off, prompt, require

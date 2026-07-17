@@ -346,13 +346,13 @@ platforms:
 ### General Issues
 
 #### "Claude CLI not found"
-- **Install** Claude Code CLI: `npm install -g @anthropic-ai/claude-code@2.0.76`
+- **Install** Claude Code CLI: `npm install -g @anthropic-ai/claude-code@2.1.116`
 - **Verify** it's in PATH: `which claude`
 - **Set** custom path if needed: `CLAUDE_PATH=/path/to/claude claude-threads`
 
 #### "Incompatible Claude CLI version"
 - **Check** your version: `claude --version`
-- **Install** compatible version: `npm install -g @anthropic-ai/claude-code@2.0.76`
+- **Install** compatible version: `npm install -g @anthropic-ai/claude-code@2.1.116`
 - **Skip check** (not recommended): `claude-threads --skip-version-check`
 
 #### Can't find config file
@@ -361,9 +361,9 @@ platforms:
 - **Run onboarding**: `claude-threads` will create the config
 
 #### Bot works but permissions don't prompt
-- **Check** `skipPermissions` is set to `false` in config
+- **Check** `permissionMode` is `default` in config (the legacy `skipPermissions: false` maps to the same thing)
 - **Restart** claude-threads after changing config
-- **Try** `!permissions interactive` in a running session
+- **Try** `!permissions default` in a running session
 
 ### Getting Help
 
@@ -398,7 +398,7 @@ Once configured, test your bot:
 
 4. **Explore** commands:
    - `!help` - Show available commands
-   - `!permissions interactive` - Enable permission prompts
+   - `!permissions default` - Enable permission prompts
    - `!cd /path` - Change working directory
    - `!stop` - End the session
 
