@@ -13,12 +13,27 @@ bun run dev
 
 ## Development
 
-Requires [Bun](https://bun.sh/) 1.2.21+.
+Requires [Bun](https://bun.sh/) 1.2.21+ and Node 20+.
 
+- `bun install` - Install dependencies
 - `bun run dev` - Watch mode for development
 - `bun run build` - Build for production
-- `bun test` - Run tests
+- `bun test` - Run the unit tests (~2500 of them)
 - `bun run lint` - Check code style
+
+### Integration Tests
+
+Integration tests run the real bot against a Mattermost instance in Docker with a mock Claude CLI. They need Docker running.
+
+- `bun run test:integration:setup` - Start Mattermost in Docker and seed users and channels
+- `bun run test:integration:run` - Run the integration suite
+- `bun run test:integration:teardown` - Stop Mattermost and clean up
+
+`bun run test:integration` chains setup and run in one command.
+
+### Adding a Platform
+
+Want to add support for another chat platform? Start with [`src/platform/IMPLEMENTATION_GUIDE.md`](src/platform/IMPLEMENTATION_GUIDE.md), which walks through the `PlatformClient` interface and what each platform needs to implement.
 
 ## Pull Requests
 

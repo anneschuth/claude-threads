@@ -337,7 +337,7 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
-| `src/logo.ts` | ASCII art logo |
+| `src/ui/components/Header.tsx` | Terminal header with the ASCII logo |
 
 ## How the Permission System Works
 
@@ -443,7 +443,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run unit tests (~1700 tests)
+bun test             # Run unit tests (~2600 tests)
 bun run lint         # Run ESLint
 ```
 
