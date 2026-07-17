@@ -3,16 +3,38 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>claude-threads</title>
+    <title>claude-threads: Claude Code in Slack and Mattermost threads</title>
     <meta
       name="description"
-      content="Run Claude Code on your machine. Team members watch and collaborate through Slack or Mattermost."
+      content="Run Claude Code on your machine. Your team follows along in Slack or Mattermost threads and types right back."
+    />
+    <link rel="canonical" href="https://claude-threads.run/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://claude-threads.run/" />
+    <meta property="og:title" content="claude-threads" />
+    <meta
+      property="og:description"
+      content="Run Claude Code on your machine. Your team follows along in Slack or Mattermost threads and types right back."
+    />
+    <meta
+      property="og:image"
+      content="https://claude-threads.run/assets/og-card.png"
+    />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="claude-threads" />
+    <meta
+      name="twitter:description"
+      content="Run Claude Code on your machine. Your team follows along in Slack or Mattermost threads and types right back."
+    />
+    <meta
+      name="twitter:image"
+      content="https://claude-threads.run/assets/og-card.png"
     />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,600;0,800;1,400&display=swap"
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
@@ -20,28 +42,47 @@
   <body>
     <main>
       <!-- Hero -->
-      <section class="hero">
+      <header class="hero">
         <div class="container">
-          <!-- prettier-ignore -->
-          <pre class="ascii-logo"> <span class="star">✴</span> ▄█▀ ███ <span class="star">✴</span>
-<span class="star">✴</span>  █▀   █   <span class="star">✴</span>
- <span class="star">✴</span> ▀█▄  █  <span class="star">✴</span></pre>
+          <div class="hero-mark">
+            <img
+              class="logo-mark"
+              src="assets/logo.svg"
+              alt=""
+              width="182"
+              height="96"
+            />
+            <div class="hero-title">
+              <h1>claude-threads</h1>
+              <p class="tagline">Claude Code × Slack &amp; Mattermost</p>
+            </div>
+          </div>
           <p class="hero-text">
-            Run Claude Code on your machine.<br />
-            Team members watch and collaborate through Slack or Mattermost.
+            Run Claude Code on your machine. Your team follows along in Slack or
+            Mattermost threads and types right back. Permission prompts land in
+            the thread as emoji reactions, and it all runs on the Claude
+            subscription you already have.
           </p>
           <div class="install-buttons">
-            <div class="copyable" onclick="copyText(this)">
+            <button
+              class="copyable"
+              type="button"
+              data-copy="bun install -g claude-threads"
+            >
               <code class="install-cmd">bun install -g claude-threads</code>
               <span class="copy-hint">click to copy</span>
-            </div>
+            </button>
             <span class="separator">or</span>
-            <div class="copyable" onclick="copyText(this)">
+            <button
+              class="copyable"
+              type="button"
+              data-copy="npm install -g claude-threads"
+            >
               <code class="install-cmd install-alt"
                 >npm install -g claude-threads</code
               >
               <span class="copy-hint">click to copy</span>
-            </div>
+            </button>
           </div>
           <div class="hero-links">
             <a
@@ -58,315 +99,470 @@
               rel="noopener"
               >npm</a
             >
+            <a
+              href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md"
+              class="btn"
+              target="_blank"
+              rel="noopener"
+              >setup guide</a
+            >
             <span class="license">Apache-2.0</span>
           </div>
         </div>
-      </section>
+      </header>
 
-      <!-- Screenshot -->
-      <section class="screenshot">
-        <div class="container">
-          <div class="screenshot-scroll">
-            <img
-              src="assets/screenshots/slack-long.png"
-              alt="Claude Code session in Slack"
-            />
+      <!-- Thread: every section is a reply -->
+      <div class="thread-rail">
+        <!-- Screenshot -->
+        <section class="screenshot" id="session">
+          <div class="container">
+            <h2>A session, live in a thread</h2>
+            <div class="screenshot-scroll">
+              <img
+                src="assets/screenshots/slack-long.png"
+                alt="A long Claude Code session streaming into a Slack thread"
+                width="1290"
+                height="2200"
+              />
+            </div>
+            <p class="caption">
+              Scroll: the thread scrolls with you. Task lists, diffs, and
+              permission prompts all land as messages.
+            </p>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Features -->
-      <section class="features">
-        <div class="container">
-          <h2>Features</h2>
-          <ul>
-            <li>Output streams live to chat as Claude works</li>
-            <li>Sticky to-do lists at the bottom of each thread</li>
-            <li>
-              Works with Slack and Mattermost, multiple workspaces at once
-            </li>
-            <li>
-              Multiple concurrent sessions (one per thread), persisted across
-              bot restarts
-            </li>
-            <li>
-              Three permission modes: prompt every action, let Claude classify,
-              or skip prompts entirely
-            </li>
-            <li>
-              Invite teammates to collaborate on a session; they get added as
-              <code>Co-Authored-By:</code> on Claude's commits
-            </li>
-            <li>Approve file writes and commands via emoji reactions</li>
-            <li>
-              Attach any file (100 MB cap); Claude reads it from disk with full
-              multimodal for images and PDFs
-            </li>
-            <li>
-              Claude posts files back into chat (screenshots, generated PDFs,
-              plots, audio)
-            </li>
-            <li>
-              Share a Slack or Mattermost permalink and Claude follows the
-              thread
-            </li>
-            <li>Git worktrees to isolate changes in branches</li>
-            <li>
-              Round-robin across multiple Claude subscriptions or API keys with
-              automatic rate-limit cooldown
-            </li>
-          </ul>
-        </div>
-      </section>
+        <!-- How it works -->
+        <section id="how">
+          <div class="container">
+            <h2>How it works</h2>
+            <ol class="steps">
+              <li>
+                <code>@claude fix the flaky test in ci.yml</code> in your
+                channel
+              </li>
+              <li>
+                The bot spawns a real Claude Code session in a working directory
+                on your machine
+              </li>
+              <li>
+                Everything streams into the thread: output, diffs, task lists,
+                permission prompts
+              </li>
+              <li>
+                Steer by replying or reacting with emoji. Anyone you invite can
+                do the same
+              </li>
+            </ol>
+          </div>
+        </section>
 
-      <!-- Why I built this -->
-      <section class="why">
-        <div class="container">
-          <h2>Why I built this</h2>
-          <p>
-            I wanted my team to use Claude Code without everyone needing their
-            own setup. Screen sharing works but only one person can type. With
-            claude-threads, colleagues watch Claude work in Slack and can jump
-            in to help, approve actions, or ask questions. All from chat.
-          </p>
-          <p>
-            After the first minimal version, I built claude-threads using
-            claude-threads. Colleagues watched, asked questions, and caught bugs
-            in real time. It turns out that multiple people guiding the same AI
-            session actually works.
-          </p>
-          <p>
-            The bot runs on your machine. You control what projects Claude can
-            access.
-          </p>
-        </div>
-      </section>
+        <!-- MCP tools -->
+        <section id="chat-tools">
+          <div class="container">
+            <h2>What Claude can do in your chat</h2>
+            <p class="section-intro">
+              Each session runs its own MCP server, so Claude acts in the chat
+              itself. Every tool carries its own guardrail; nothing reaches
+              beyond the channels the bot can already see.
+            </p>
+            <table>
+              <tr>
+                <th>Tool</th>
+                <th>What Claude does with it</th>
+                <th>Guardrail</th>
+              </tr>
+              <tr>
+                <td><code>send_file</code></td>
+                <td>Post a file into the thread</td>
+                <td>Path validated against the working directory</td>
+              </tr>
+              <tr>
+                <td><code>read_post</code></td>
+                <td>Resolve a permalink you paste</td>
+                <td>Bot's channel plus public channels</td>
+              </tr>
+              <tr>
+                <td><code>list_thread</code></td>
+                <td>Read the current or a linked thread</td>
+                <td>Same channel scoping</td>
+              </tr>
+              <tr>
+                <td><code>read_channel_history</code></td>
+                <td>Read recent channel messages</td>
+                <td>Capped at 100 messages</td>
+              </tr>
+              <tr>
+                <td><code>search_messages</code></td>
+                <td>Search messages</td>
+                <td>Mattermost only, capped at 25 results</td>
+              </tr>
+              <tr>
+                <td><code>react_to_post</code></td>
+                <td>Add an emoji reaction</td>
+                <td>Defaults to the message that triggered it</td>
+              </tr>
+              <tr>
+                <td><code>update_own_post</code></td>
+                <td>Edit one of its earlier posts</td>
+                <td>Bot-authored posts only</td>
+              </tr>
+              <tr>
+                <td><code>send_dm</code></td>
+                <td>DM a channel member</td>
+                <td>
+                  3 per recipient per session, each recipient approves first
+                </td>
+              </tr>
+              <tr>
+                <td><code>permission_prompt</code></td>
+                <td>Ask the thread to approve a tool use</td>
+                <td>This one is the approval flow (👍 / ✅ / 👎)</td>
+              </tr>
+            </table>
+          </div>
+        </section>
 
-      <!-- Commands -->
-      <section class="commands">
-        <div class="container">
-          <h2>Commands</h2>
-          <table>
-            <tr>
-              <th>Command</th>
-              <th>Description</th>
-            </tr>
-            <tr>
-              <td><code>!help</code></td>
-              <td>Show available commands</td>
-            </tr>
-            <tr>
-              <td><code>!context</code></td>
-              <td>Show context usage</td>
-            </tr>
-            <tr>
-              <td><code>!cost</code></td>
-              <td>Show token usage and cost</td>
-            </tr>
-            <tr>
-              <td><code>!compact</code></td>
-              <td>Compress context</td>
-            </tr>
-            <tr>
-              <td><code>!cd &lt;path&gt;</code></td>
-              <td>Change working directory</td>
-            </tr>
-            <tr>
-              <td><code>!permissions &lt;mode&gt;</code></td>
-              <td>
-                Switch between <code>default</code>, <code>auto</code>,
-                <code>bypass</code>
-              </td>
-            </tr>
-            <tr>
-              <td><code>!worktree &lt;branch&gt;</code></td>
-              <td>
-                Create git worktree (also: <code>list</code>,
-                <code>switch</code>, <code>remove</code>, <code>cleanup</code>)
-              </td>
-            </tr>
-            <tr>
-              <td><code>!plugin &lt;cmd&gt;</code></td>
-              <td>Manage Claude Code plugins</td>
-            </tr>
-            <tr>
-              <td><code>!invite @user</code></td>
-              <td>
-                Invite user (added as <code>Co-Authored-By:</code> on commits)
-              </td>
-            </tr>
-            <tr>
-              <td><code>!kick @user</code></td>
-              <td>Remove invited user</td>
-            </tr>
-            <tr>
-              <td><code>!github-email &lt;email&gt;</code></td>
-              <td>
-                Register your GitHub noreply address for commit attribution
-              </td>
-            </tr>
-            <tr>
-              <td><code>!update</code></td>
-              <td>
-                Auto-update status (<code>!update now</code> /
-                <code>!update defer</code>)
-              </td>
-            </tr>
-            <tr>
-              <td><code>!release-notes</code></td>
-              <td>What changed in the running version</td>
-            </tr>
-            <tr>
-              <td><code>!bug &lt;desc&gt;</code></td>
-              <td>Report a bug (creates a GitHub issue)</td>
-            </tr>
-            <tr>
-              <td><code>!escape</code></td>
-              <td>Interrupt current task</td>
-            </tr>
-            <tr>
-              <td><code>!stop</code></td>
-              <td>Stop session</td>
-            </tr>
-          </table>
-        </div>
-      </section>
+        <!-- Features -->
+        <section id="features">
+          <div class="container">
+            <h2>Features</h2>
+            <ul class="features-list">
+              <li>
+                Live output, diffs, and a sticky task list streaming into the
+                thread
+              </li>
+              <li>
+                Multiple workspaces at once, Slack and Mattermost side by side
+              </li>
+              <li>
+                One session per thread, resumed automatically after a bot
+                restart
+              </li>
+              <li>
+                Sessions run against your local checkout, with your own MCP
+                servers and plugins
+              </li>
+              <li>
+                Optional account pool that routes each new session to the
+                subscription with the most headroom
+              </li>
+              <li>Three permission modes, switchable mid-session</li>
+              <li>
+                <code>!invite</code> collaborators; commits carry
+                <code>Co-Authored-By:</code> for everyone involved
+              </li>
+              <li>
+                Attach files up to 100 MB; images and PDFs are read multimodally
+              </li>
+              <li>
+                Claude posts screenshots, plots, or generated files back into
+                the thread
+              </li>
+              <li>Git worktrees isolate each session's changes on a branch</li>
+              <li>Quiet mode and per-channel verbosity dials</li>
+              <li>Runs on macOS, Linux, and Windows</li>
+            </ul>
+          </div>
+        </section>
 
-      <!-- Controls -->
-      <section class="controls">
-        <div class="container">
-          <h2>Controls</h2>
-          <div class="controls-grid">
-            <div class="control-group">
-              <h3>Permissions</h3>
-              <p>When Claude wants to run a tool:</p>
-              <div class="emoji-row">
-                <span><span class="emoji">👍</span> allow</span>
-                <span><span class="emoji">✅</span> allow all</span>
-                <span><span class="emoji">👎</span> deny</span>
+        <!-- Mattermost showcase -->
+        <section id="self-hosted">
+          <div class="container">
+            <h2>At home on self-hosted chat</h2>
+            <p class="section-intro">
+              Half of claude-threads lives on Mattermost, where teams run their
+              own chat because the work cannot leave the building. The bot, the
+              session, and the repository all stay on hardware you control.
+            </p>
+            <figure class="shot-single">
+              <img
+                src="assets/screenshots/mattermost-thread.png"
+                alt="A Claude Code session in a Mattermost thread, with the session header table"
+                loading="lazy"
+              />
+              <figcaption>A session thread in Mattermost</figcaption>
+            </figure>
+          </div>
+        </section>
+
+        <!-- Commands -->
+        <section class="commands" id="commands">
+          <div class="container">
+            <h2>Commands</h2>
+            <table>
+              <tr>
+                <th>Command</th>
+                <th>Description</th>
+              </tr>
+              <tr>
+                <td><code>!help</code></td>
+                <td>Show available commands</td>
+              </tr>
+              <tr>
+                <td><code>!context</code></td>
+                <td>Show context usage</td>
+              </tr>
+              <tr>
+                <td><code>!cost</code></td>
+                <td>Show token usage and cost</td>
+              </tr>
+              <tr>
+                <td><code>!compact</code></td>
+                <td>Compress context</td>
+              </tr>
+              <tr>
+                <td><code>!cd &lt;path&gt;</code></td>
+                <td>Change working directory</td>
+              </tr>
+              <tr>
+                <td><code>!permissions &lt;mode&gt;</code></td>
+                <td>
+                  Switch between <code>default</code>, <code>auto</code>,
+                  <code>bypass</code>
+                </td>
+              </tr>
+              <tr>
+                <td><code>!mentions [on|off]</code></td>
+                <td>Quiet mode: respond only when @mentioned</td>
+              </tr>
+              <tr>
+                <td><code>!worktree &lt;branch&gt;</code></td>
+                <td>
+                  Create a git worktree (also: <code>list</code>,
+                  <code>switch</code>, <code>remove</code>,
+                  <code>cleanup</code>, <code>off</code>)
+                </td>
+              </tr>
+              <tr>
+                <td><code>!plugin &lt;cmd&gt;</code></td>
+                <td>Manage Claude Code plugins</td>
+              </tr>
+              <tr>
+                <td><code>!invite @user</code></td>
+                <td>
+                  Invite a user (added as <code>Co-Authored-By:</code> on
+                  commits)
+                </td>
+              </tr>
+              <tr>
+                <td><code>!kick @user</code></td>
+                <td>Remove an invited user</td>
+              </tr>
+              <tr>
+                <td><code>!github-email &lt;email&gt;</code></td>
+                <td>
+                  Register your GitHub noreply address for commit attribution
+                </td>
+              </tr>
+              <tr>
+                <td><code>!update</code></td>
+                <td>
+                  Auto-update status (<code>!update now</code> /
+                  <code>!update defer</code>)
+                </td>
+              </tr>
+              <tr>
+                <td><code>!release-notes</code></td>
+                <td>What changed in the running version</td>
+              </tr>
+              <tr>
+                <td><code>!bug &lt;desc&gt;</code></td>
+                <td>Report a bug (creates a GitHub issue)</td>
+              </tr>
+              <tr>
+                <td><code>!approve</code></td>
+                <td>Approve a pending plan (or react 👍)</td>
+              </tr>
+              <tr>
+                <td><code>!escape</code></td>
+                <td>Interrupt the current task</td>
+              </tr>
+              <tr>
+                <td><code>!stop</code></td>
+                <td>Stop the session</td>
+              </tr>
+              <tr>
+                <td><code>!kill</code></td>
+                <td>Emergency stop for all sessions</td>
+              </tr>
+            </table>
+          </div>
+        </section>
+
+        <!-- Controls -->
+        <section class="controls" id="controls">
+          <div class="container">
+            <h2>Controls</h2>
+            <div class="controls-grid">
+              <div class="control-group">
+                <h3>Permissions</h3>
+                <p>When Claude wants to run a tool:</p>
+                <div class="emoji-row">
+                  <span><span class="emoji">👍</span> allow</span>
+                  <span><span class="emoji">✅</span> allow all</span>
+                  <span><span class="emoji">👎</span> deny</span>
+                </div>
               </div>
-            </div>
-            <div class="control-group">
-              <h3>Plans</h3>
-              <p>When Claude creates a plan:</p>
-              <div class="emoji-row">
-                <span><span class="emoji">👍</span> approve</span>
-                <span><span class="emoji">👎</span> reject</span>
+              <div class="control-group">
+                <h3>Plans</h3>
+                <p>When Claude presents a plan:</p>
+                <div class="emoji-row">
+                  <span><span class="emoji">👍</span> approve</span>
+                  <span><span class="emoji">👎</span> request changes</span>
+                </div>
               </div>
-            </div>
-            <div class="control-group">
-              <h3>Questions</h3>
-              <p>Multiple choice:</p>
-              <div class="emoji-row">
-                <span><span class="emoji">1️⃣</span></span>
-                <span><span class="emoji">2️⃣</span></span>
-                <span><span class="emoji">3️⃣</span></span>
-                <span><span class="emoji">4️⃣</span></span>
+              <div class="control-group">
+                <h3>Questions</h3>
+                <p>Multiple choice:</p>
+                <div class="emoji-row">
+                  <span><span class="emoji">1️⃣</span></span>
+                  <span><span class="emoji">2️⃣</span></span>
+                  <span><span class="emoji">3️⃣</span></span>
+                  <span><span class="emoji">4️⃣</span></span>
+                </div>
               </div>
-            </div>
-            <div class="control-group">
-              <h3>Session</h3>
-              <p>Interrupt, stop, or resume:</p>
-              <div class="emoji-row">
-                <span><span class="emoji">⏸️</span> interrupt</span>
-                <span><span class="emoji">❌</span> stop</span>
-                <span><span class="emoji">↩️</span> resume</span>
+              <div class="control-group">
+                <h3>Session</h3>
+                <p>Pause, stop, or pick a session back up:</p>
+                <div class="emoji-row">
+                  <span><span class="emoji">⏸️</span> interrupt</span>
+                  <span><span class="emoji">❌</span> stop</span>
+                  <span><span class="emoji">↩️</span> resume</span>
+                </div>
+              </div>
+              <div class="control-group">
+                <h3>Housekeeping</h3>
+                <p>On long output and error posts:</p>
+                <div class="emoji-row">
+                  <span><span class="emoji">🔽</span> collapse</span>
+                  <span><span class="emoji">🐛</span> file a bug</span>
+                </div>
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      <!-- Permission modes -->
-      <section class="commands">
-        <div class="container">
-          <h2>Permission modes</h2>
-          <p>
-            Three ways to control what Claude can run. Pick per session with
-            <code>!permissions default|auto|bypass</code>, set as a default in
-            config, or pass <code>--permission-mode</code> on the command line.
-          </p>
-          <table>
-            <tr>
-              <th>Mode</th>
-              <th>Behavior</th>
-            </tr>
-            <tr>
-              <td><code>default</code> 🔐</td>
-              <td>Every tool use prompts the thread for 👍 / ✅ / 👎</td>
-            </tr>
-            <tr>
-              <td><code>auto</code> ⚡</td>
-              <td>
-                Claude's classifier auto-approves low-risk actions; high-risk
-                still prompts. Recommended.
-              </td>
-            </tr>
-            <tr>
-              <td><code>bypass</code> ⚠️</td>
-              <td>No prompts, all tools allowed. Trusted environments only.</td>
-            </tr>
-          </table>
-        </div>
-      </section>
+        <!-- Permission modes -->
+        <section class="commands" id="permission-modes">
+          <div class="container">
+            <h2>Permission modes</h2>
+            <p class="section-intro">
+              Pick per session with
+              <code>!permissions default|auto|bypass</code>, set a default in
+              config, or pass <code>--permission-mode</code> on the command
+              line.
+            </p>
+            <table>
+              <tr>
+                <th>Mode</th>
+                <th>Behavior</th>
+              </tr>
+              <tr>
+                <td><code>default</code> 🔐</td>
+                <td>Every tool use prompts the thread for 👍 / ✅ / 👎</td>
+              </tr>
+              <tr>
+                <td><code>auto</code> ⚡</td>
+                <td>
+                  Claude's classifier approves low-risk actions; high-risk still
+                  prompts. Recommended.
+                </td>
+              </tr>
+              <tr>
+                <td><code>bypass</code> ⚠️</td>
+                <td>
+                  No prompts, all tools allowed. Trusted environments only.
+                </td>
+              </tr>
+            </table>
+          </div>
+        </section>
 
-      <!-- Quickstart -->
-      <section class="quickstart">
-        <div class="container">
-          <h2>Quickstart</h2>
-          <p class="prereq">
-            Requires
-            <a href="https://bun.sh/" target="_blank" rel="noopener">Bun</a>
-            or
-            <a href="https://nodejs.org/" target="_blank" rel="noopener"
-              >Node 18+</a
+        <!-- Why I built this -->
+        <section class="why" id="why">
+          <div class="container">
+            <h2>Why I built this</h2>
+            <p>
+              I wanted my team to use Claude Code without everyone needing their
+              own setup. Screen sharing works but only one person can type. With
+              claude-threads, colleagues watch Claude work in a thread and can
+              jump in to help, approve actions, or ask questions. All from chat.
+            </p>
+            <p>
+              After the first minimal version, I built claude-threads using
+              claude-threads. Colleagues watched, asked questions, and caught
+              bugs in real time. It turns out that multiple people guiding the
+              same AI session actually works.
+            </p>
+            <p>
+              There is now an official way to put Claude in Slack, built by
+              Anthropic and gated to Enterprise plans. claude-threads remains
+              the local one: your machine, your chat server, any subscription.
+            </p>
+          </div>
+        </section>
+
+        <!-- Quickstart -->
+        <section class="quickstart last" id="quickstart">
+          <div class="container">
+            <h2>Quickstart</h2>
+            <p class="prereq">
+              Requires
+              <a href="https://bun.sh/" target="_blank" rel="noopener"
+                >Bun 1.2.21+</a
+              >
+              or
+              <a href="https://nodejs.org/" target="_blank" rel="noopener"
+                >Node 20+</a
+              >
+              and the
+              <a
+                href="https://claude.ai/download"
+                target="_blank"
+                rel="noopener"
+                >Claude Code CLI</a
+              >
+            </p>
+            <button
+              class="copyable block"
+              type="button"
+              data-copy="bun install -g claude-threads
+cd /your/project
+claude-threads"
             >
-            and
-            <a href="https://claude.ai/download" target="_blank" rel="noopener"
-              >Claude Code CLI</a
-            >
-          </p>
-          <div class="copyable" onclick="copyText(this)">
-            <pre>
+              <pre>
 bun install -g claude-threads    # or: npm install -g claude-threads
 cd /your/project
-claude-threads</pre
-            >
-            <span class="copy-hint">click to copy</span>
+claude-threads</pre>
+              <span class="copy-hint">click to copy</span>
+            </button>
+            <p>
+              The setup wizard walks you through connecting Slack or Mattermost.
+            </p>
+            <div class="platform-links">
+              <a
+                href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#slack-setup"
+                class="platform-link"
+                target="_blank"
+                rel="noopener"
+              >
+                <img src="assets/slack.svg" alt="" />
+                Slack setup guide
+              </a>
+              <a
+                href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#mattermost-setup"
+                class="platform-link"
+                target="_blank"
+                rel="noopener"
+              >
+                <img src="assets/mattermost.svg" alt="" />
+                Mattermost setup guide
+              </a>
+            </div>
           </div>
-          <p>
-            The setup wizard will guide you through connecting Slack or
-            Mattermost.
-          </p>
-        </div>
-      </section>
-
-      <!-- Platforms -->
-      <section class="platforms">
-        <div class="container">
-          <h2>Platforms</h2>
-          <div class="platform-links">
-            <a
-              href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#slack-setup"
-              class="platform-link"
-              target="_blank"
-              rel="noopener"
-            >
-              <img src="assets/slack.svg" alt="" />
-              Slack setup guide
-            </a>
-            <a
-              href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#mattermost-setup"
-              class="platform-link"
-              target="_blank"
-              rel="noopener"
-            >
-              <img src="assets/mattermost.svg" alt="" />
-              Mattermost setup guide
-            </a>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
 
     <!-- Footer -->
@@ -382,57 +578,107 @@ claude-threads</pre
           rel="noopener"
           >source</a
         >
+        &middot;
+        <a
+          href="https://github.com/anneschuth/claude-threads/blob/main/CHANGELOG.md"
+          target="_blank"
+          rel="noopener"
+          >changelog</a
+        >
         &middot; Apache-2.0
       </div>
     </footer>
 
     <script>
-      function copyText(el) {
-        const code = el.querySelector("code, pre");
-        const text = code.textContent.trim();
-        navigator.clipboard.writeText(text).then(() => {
+      // Copy-to-clipboard on the install commands
+      document.querySelectorAll(".copyable").forEach((el) => {
+        el.addEventListener("click", () => {
           const hint = el.querySelector(".copy-hint");
-          hint.textContent = "copied!";
-          el.classList.add("copied");
-          setTimeout(() => {
-            hint.textContent = "click to copy";
-            el.classList.remove("copied");
-          }, 2000);
+          if (!navigator.clipboard) {
+            hint.textContent = "copy not available";
+            return;
+          }
+          navigator.clipboard
+            .writeText(el.dataset.copy)
+            .then(() => {
+              hint.textContent = "copied!";
+              el.classList.add("copied");
+              setTimeout(() => {
+                hint.textContent = "click to copy";
+                el.classList.remove("copied");
+              }, 2000);
+            })
+            .catch(() => {
+              hint.textContent = "copy failed";
+            });
         });
-      }
+      });
 
+      const reducedMotion = window.matchMedia(
+        "(prefers-reduced-motion: reduce)",
+      ).matches;
+
+      // Scroll-driven reveal of the long session screenshot.
+      // All measurements live in measure(), which reruns on (debounced)
+      // resize, so rotation or crossing the mobile breakpoint never leaves
+      // stale geometry or a leftover transform behind.
       (function () {
         const container = document.querySelector(".screenshot-scroll");
-        if (!container) return;
+        if (!container || reducedMotion) return;
         const img = container.querySelector("img");
+        let maxScroll = 0;
+        let scrollRange = 1;
+        let active = false;
 
-        function setup() {
-          // Skip animation on mobile - use native scroll instead
-          if (window.innerWidth <= 640) return;
-
-          const containerHeight = container.offsetHeight;
-          const imgHeight = img.offsetHeight;
-          const maxScroll = imgHeight - containerHeight;
-
-          if (maxScroll <= 0) return;
-
-          const initialTop = container.getBoundingClientRect().top;
-          const scrollRange = window.innerHeight * 0.5;
-
-          function onScroll() {
-            const rect = container.getBoundingClientRect();
-            // How far container has moved up from initial position
-            const moved = initialTop - rect.top;
-            const progress = Math.max(0, Math.min(1, moved / scrollRange));
-            img.style.transform = `translateY(${-maxScroll * progress}px)`;
+        function measure() {
+          if (window.innerWidth <= 640) {
+            active = false;
+            img.style.transform = "";
+            return;
           }
-
-          window.addEventListener("scroll", onScroll, { passive: true });
-          onScroll();
+          maxScroll = img.offsetHeight - container.offsetHeight;
+          scrollRange = window.innerHeight * 0.5;
+          active = maxScroll > 0;
+          if (!active) img.style.transform = "";
+          else onScroll();
         }
 
-        if (img.complete) setup();
-        else img.onload = setup;
+        function onScroll() {
+          if (!active) return;
+          const progress = Math.max(
+            0,
+            Math.min(1, window.scrollY / scrollRange),
+          );
+          img.style.transform = `translateY(${-maxScroll * progress}px)`;
+        }
+
+        let resizeTimer;
+        window.addEventListener("resize", () => {
+          clearTimeout(resizeTimer);
+          resizeTimer = setTimeout(measure, 150);
+        });
+        window.addEventListener("scroll", onScroll, { passive: true });
+
+        if (img.complete) measure();
+        else img.onload = measure;
+      })();
+
+      // Light up each section's thread tick as it enters the viewport
+      (function () {
+        const sections = document.querySelectorAll(".thread-rail section");
+        if (reducedMotion || !("IntersectionObserver" in window)) {
+          sections.forEach((s) => s.classList.add("lit"));
+          return;
+        }
+        const observer = new IntersectionObserver(
+          (entries) => {
+            entries.forEach((e) => {
+              if (e.isIntersecting) e.target.classList.add("lit");
+            });
+          },
+          { rootMargin: "0px 0px -40% 0px" },
+        );
+        sections.forEach((s) => observer.observe(s));
       })();
     </script>
   </body>
