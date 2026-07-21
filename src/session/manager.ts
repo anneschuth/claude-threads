@@ -1345,7 +1345,7 @@ export class SessionManager extends EventEmitter {
       session,
       username,
       (s) => this.persistSession(s),
-      (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender)
+      (s, q, _f, e, sender) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler(), e, sender)
     );
   }
 

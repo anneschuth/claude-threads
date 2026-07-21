@@ -432,6 +432,29 @@ describe('Worktree Module', () => {
         expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined, undefined, undefined);
       });
 
+      it('forwards session.queuedByUsername as the sender when skipping after failure', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+          queuedByUsername: 'alice',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const persistSession = mock(() => {});
+        const offerContextPrompt = mock(() => Promise.resolve(false));
+
+        await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+        // Should forward the real sender login, not undefined
+        expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined, undefined, 'alice');
+      });
+
       it('allows user to retry with different branch name after failure', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,
