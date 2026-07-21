@@ -1345,7 +1345,7 @@ export class SessionManager extends EventEmitter {
       session,
       username,
       (s) => this.persistSession(s),
-      (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
+      (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender)
     );
   }
 
@@ -1368,7 +1368,7 @@ export class SessionManager extends EventEmitter {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
+      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
       buildMessageContent: (text, s, files) => {
         const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
         return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug);

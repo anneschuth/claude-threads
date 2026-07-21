@@ -222,6 +222,8 @@ async function dispatch(
             q,
             undefined,
             deps.getContextPromptHandler(),
+            undefined,
+            s.queuedByUsername,
           ),
       );
       return;
