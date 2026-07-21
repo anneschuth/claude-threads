@@ -82,6 +82,15 @@ describe('generateChatPlatformPrompt', () => {
   });
 });
 
+describe('generateChatPlatformPrompt - attribution note', () => {
+  it('explains the [@username]: prefix and tells Claude not to echo it', () => {
+    const prompt = generateChatPlatformPrompt();
+    expect(prompt).toContain('[@username]:');
+    expect(prompt).toContain('do not echo it');
+    expect(prompt).toContain('do not include it in commit messages');
+  });
+});
+
 describe('buildSessionContext', () => {
   const mattermostPlatform = {
     platformType: 'mattermost',
