@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Per-message user attribution.** In a shared thread where several people talk to the bot, Claude previously had no way to tell who sent which message. Every genuine user turn is now prefixed with `[@username]:` (the platform login) right before it is handed to Claude, so Claude can distinguish speakers in a multi-participant session. The prefix is composed only at the send boundary — the sender identity is carried separately and never baked into the stored prompt — so it never leaks into thread titles, git branch-name suggestions, or persisted session state. Attribution covers every real send path: in-thread follow-ups, resumed turns, the initial mid-thread prompt, post-`!cd` re-sends, the thread-context-prompt paths, and worktree re-sends. System/control sends (slash-command passthrough, plan approval, question/approval completion) are deliberately left unattributed. A line in the system prompt tells Claude to treat the prefix as speaker metadata and not to echo it in replies or commit messages. The worktree-queued prompt's sender is persisted with the session, so its attribution is preserved across a bot restart. Backward-compatible: the new persisted fields are optional and absent on older sessions, where a turn simply sends unattributed.
+
 ## [1.18.2] - 2026-07-17
 
 ### Changed
