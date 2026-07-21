@@ -1117,6 +1117,7 @@ export async function startSession(
   const shouldPrompt = options.skipWorktreePrompt ? null : await ctx.ops.shouldPromptForWorktree(session);
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
+    session.queuedByUsername = username;   // owner — used when the worktree prompt later re-sends
     session.queuedFiles = options.files;
     session.pendingWorktreePrompt = true;
     await ctx.ops.postWorktreePrompt(session, shouldPrompt);
@@ -1147,7 +1148,7 @@ export async function startSession(
   // twice. Caught by stack-trace diagnostic in PR #340.
   if (replyToPostId) {
     const excludePostId = triggeringPostId || replyToPostId;
-    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId);
+    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username);
     // Either path inside offerContextPrompt sends or queues. Surface any
     // skipped-file warnings and return — the fallback claude.sendMessage()
     // below would be a duplicate.
@@ -1161,7 +1162,7 @@ export async function startSession(
   // pipeline; kept because SessionManager.startSession's signature allows
   // omitting replyToPostId.
   session.messageCount++;
-  claude.sendMessage(content);
+  claude.sendMessage(formatUserTurn(content, username));
 
   // Surface any skipped attachments to the user
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
@@ -1329,6 +1330,7 @@ export async function resumeSession(
     pendingWorktreePrompt: state.pendingWorktreePrompt,
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
+    queuedByUsername: state.queuedByUsername,
     queuedFiles: state.queuedFiles,
     firstPrompt: state.firstPrompt,
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
@@ -1531,7 +1533,7 @@ export async function sendFollowUp(
 
     // offerContextPrompt processes files itself and surfaces skipped-file warnings.
     // We pass the raw text — file content is attached downstream when Claude is sent to.
-    const contextOffered = await ctx.ops.offerContextPrompt(session, message, files);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, message, files, undefined, username);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
       session.lastActivityAt = new Date();

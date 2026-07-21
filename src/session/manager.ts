@@ -370,7 +370,7 @@ export class SessionManager extends EventEmitter {
       handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
 
       // Context prompt (inlined - no wrapper method needed)
-      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
+      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -664,6 +664,7 @@ export class SessionManager extends EventEmitter {
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
+      queuedByUsername: session.queuedByUsername,
       queuedFiles: session.queuedFiles,
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: contextPromptSnapshot,

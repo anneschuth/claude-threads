@@ -225,7 +225,8 @@ export interface SessionOperations {
     session: Session,
     queuedPrompt: string,
     queuedFiles?: PlatformFile[],
-    excludePostId?: string
+    excludePostId?: string,
+    sender?: string,
   ): Promise<boolean>;
 
   // ---------------------------------------------------------------------------

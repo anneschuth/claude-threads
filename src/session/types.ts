@@ -343,6 +343,7 @@ export interface Session {
   pendingWorktreePrompt?: boolean;          // Waiting for branch name response
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  queuedByUsername?: string;                // Sender login of queuedPrompt/firstPrompt, for send-boundary attribution
   queuedFiles?: PlatformFile[];             // Files attached to the queued prompt (for images)
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   worktreeResponsePostId?: string;          // Post ID of user's worktree branch response (to exclude from context)

@@ -702,6 +702,7 @@ describe('SessionManager', () => {
         pullRequestUrl: 'https://github.com/x/y/pull/1',
         lifecyclePostId: 'lifecycle-1',
         firstPrompt: 'Hello',
+        queuedByUsername: 'alice',
       });
 
       session.messageManager = {
@@ -742,7 +743,7 @@ describe('SessionManager', () => {
         'sessionStartPostId',
         'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
         'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
-        'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
+        'queuedPrompt', 'queuedByUsername', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
         'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
         'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
         'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode',
@@ -760,6 +761,7 @@ describe('SessionManager', () => {
       expect(ctxPrompt.queuedPrompt).toBe('followup');
       expect(written.forceInteractivePermissions).toBe(true);
       expect(written.sessionTitle).toBe('Test session');
+      expect(written.queuedByUsername).toBe('alice');
     });
 
     test('persists a minimal session (no task list, no context prompt)', () => {

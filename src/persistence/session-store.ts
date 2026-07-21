@@ -58,6 +58,7 @@ export interface PersistedSession {
   pendingWorktreePrompt?: boolean;          // Waiting for branch name response
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  queuedByUsername?: string;                // Sender login for attribution (backward-compatible; undefined on old data)
   queuedFiles?: PlatformFile[];             // Files attached to the queued prompt (for images)
   firstPrompt?: string;                     // First user message, sent again after mid-session worktree creation
   // Context prompt support
