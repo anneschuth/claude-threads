@@ -30,6 +30,7 @@ import {
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
+import { waitFor } from '../helpers/wait-for.js';
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;
@@ -211,6 +212,25 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         );
 
         expect(user2Post).toBeDefined();
+
+        // The mock Claude process logs every stdin line it receives to its
+        // own stderr, which ClaudeCli buffers verbatim regardless of DEBUG
+        // (see getLastStderr()). Poll that buffer for the per-message
+        // attribution prefix so we verify user2's follow-up actually reached
+        // Claude tagged as user2 — not just that the chat post appeared.
+        const attributedPrefix = `[@${user2Username}]:`;
+        await waitFor(
+          () => {
+            const session = bot.sessionManager.registry.findByThreadId(rootPost.id);
+            const stderr = session?.claude.getLastStderr() ?? '';
+            return stderr.includes(attributedPrefix) ? stderr : null;
+          },
+          {
+            timeout: 5000,
+            interval: 200,
+            description: `mock Claude stderr to show "${attributedPrefix}"`,
+          },
+        );
       });
     });
 
