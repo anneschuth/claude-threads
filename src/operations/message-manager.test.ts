@@ -925,4 +925,18 @@ describe('MessageManager', () => {
       expect(taskUpdateReceived!.allComplete).toBe(true);
     });
   });
+
+  describe('handleUserMessage attribution', () => {
+    it('prefixes the sent message with the sender login', async () => {
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('[@alice]: deploy it');
+    });
+
+    it('does NOT attribute when no username is provided (system/control send)', async () => {
+      await manager.handleUserMessage('/context', undefined, undefined);
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('/context');
+    });
+  });
 });

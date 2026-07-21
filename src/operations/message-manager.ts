@@ -63,6 +63,7 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent, type SkippedFile } from './streaming/handler.js';
+import { formatUserTurn } from './user-attribution/index.js';
 
 const log = createLogger('msg-mgr');
 
@@ -1062,12 +1063,18 @@ export class MessageManager {
     // Prepare for the new message (flush, reset, bump tasks)
     await this.prepareForUserMessage();
 
+    // Attribute this user turn so Claude can tell who is speaking in a shared
+    // thread. Wrap the raw message BEFORE buildMessageContent so any file-list
+    // header it prepends stays OUTSIDE the [@user]: prefix. A system/control
+    // follow-up carries no username → formatUserTurn returns it unchanged.
+    const attributed = formatUserTurn(message, username);
+
     // Build message content (with files if provided). buildMessageContent processes
     // files once and returns both content and any files it had to skip.
-    let content: string = message;
+    let content: string = attributed;
     let skippedFiles: SkippedFile[] = [];
     if (this.buildMessageContentCallback) {
-      const built = await this.buildMessageContentCallback(message, this.platform, files);
+      const built = await this.buildMessageContentCallback(attributed, this.platform, files);
       content = built.content;
       skippedFiles = built.skipped;
     }

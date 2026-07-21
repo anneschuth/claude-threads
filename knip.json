@@ -4,7 +4,6 @@
     "src/index.ts",
     "src/mcp/mcp-server.ts",
     "src/statusline/writer.ts",
-    "src/operations/user-attribution/index.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts"
   ],
