@@ -8,6 +8,9 @@ import {
   getThreadContextCount,
   getThreadMessagesForContext,
   updateContextPromptPost,
+  offerContextPrompt,
+  handleContextPromptTimeout,
+  type ContextPromptHandler,
 } from './handler.js';
 import type { ThreadMessage, PlatformClient, PlatformPost } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
@@ -480,6 +483,58 @@ describe('context-prompt', () => {
 
       // Should not throw
       await expect(updateContextPromptPost(session, 'post-123', 'timeout')).resolves.toBeUndefined();
+    });
+  });
+
+  function makeHandlerCtx(): ContextPromptHandler {
+    return {
+      registerPost: () => {},
+      startTyping: () => {},
+      persistSession: () => {},
+      injectMetadataReminder: (msg: string) => msg,
+      buildMessageContent: async (text: string) => ({ content: text, skipped: [] }),
+    };
+  }
+
+  describe('offerContextPrompt attribution', () => {
+    it('attributes the queued prompt on the no-context (0 messages) branch', async () => {
+      const session = createMockSession({
+        platformOverrides: { getThreadHistory: mock(() => Promise.resolve([])) },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      const posted = await offerContextPrompt(session, 'ship it', undefined, makeHandlerCtx(), undefined, 'alice');
+
+      expect(posted).toBe(false); // sent directly, no prompt posted
+      expect(sent[0]).toBe('[@alice]: ship it');
+    });
+  });
+
+  describe('handleContextPromptTimeout attribution', () => {
+    it('attributes the queued prompt using the persisted sender on timeout', async () => {
+      const pending = {
+        postId: 'ctx-1',
+        queuedPrompt: 'ship it',
+        queuedByUsername: 'bob',
+        threadMessageCount: 5,
+        createdAt: 1_700_000_000_000,
+        availableOptions: [3, 5],
+      };
+      const session = createMockSession({
+        sessionOverrides: {
+          messageManager: {
+            getPendingContextPrompt: () => pending,
+            clearPendingContextPrompt: () => {},
+          } as any,
+        },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      await handleContextPromptTimeout(session, makeHandlerCtx());
+
+      expect(sent[0]).toBe('[@bob]: ship it');
     });
   });
 

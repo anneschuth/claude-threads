@@ -24,6 +24,7 @@ export interface PersistedContextPrompt {
   postId: string;
   queuedPrompt: string;
   queuedFiles?: ContextPromptFile[];  // Simplified file refs (id, name) for storage
+  queuedByUsername?: string;   // Sender login for attribution (backward-compatible; undefined on old data)
   threadMessageCount: number;
   createdAt: number;
   availableOptions: number[];

@@ -45,6 +45,7 @@ import {
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
 import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
+import { formatUserTurn } from '../operations/user-attribution/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -353,9 +354,10 @@ function createMessageManager(
     // 'deny' - nothing extra to do, post already updated by MessageManager
   });
 
-  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
+  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
-    let messageToSend = queuedPrompt;
+    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername);
+    let messageToSend = userTurn;
 
     // Get any previous work summary (from directory change)
     const previousWorkSummary = session.previousWorkSummary;
@@ -367,13 +369,13 @@ function createMessageManager(
       const messages = await getThreadMessagesForContext(session, selection);
       if (messages.length > 0 || previousWorkSummary) {
         const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
-        messageToSend = contextPrefix + queuedPrompt;
+        messageToSend = contextPrefix + userTurn;
       }
       sessionLog(session).debug(`🧵 Including ${selection} messages as context${previousWorkSummary ? ' + work summary' : ''}`);
     } else if (previousWorkSummary) {
       // No thread context selected, but we have a work summary from directory change
       const contextPrefix = formatContextForClaude([], previousWorkSummary);
-      messageToSend = contextPrefix + queuedPrompt;
+      messageToSend = contextPrefix + userTurn;
       sessionLog(session).debug(`🧵 Including work summary (no thread context)`);
     } else {
       // No context (selection is 0 for skip, or 'timeout')

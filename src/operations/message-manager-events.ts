@@ -65,6 +65,7 @@ export interface MessageManagerEventMap {
     selection: number | 'timeout';
     queuedPrompt: string;
     queuedFiles?: Array<{ id: string; name: string }>;
+    queuedByUsername?: string;
     threadMessageCount: number;
   };
 
