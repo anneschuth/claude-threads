@@ -394,7 +394,7 @@ export async function handleContextPromptTimeout(
 
   // Get the queued prompt and files
   const sender = pending.queuedByUsername;
-  const userTurn = formatUserTurn(pending.queuedPrompt, sender);
+  const userTurn = formatUserTurn(pending.queuedPrompt, sender, session.userAttribution);
   // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
   const queuedFiles = getContextPromptFilesForSession(session);
 
@@ -455,7 +455,7 @@ export async function offerContextPrompt(
 ): Promise<boolean> {
   // Get thread history count (exclude bot messages and the triggering message)
   const messageCount = await getThreadContextCount(session, excludePostId);
-  const userTurn = formatUserTurn(queuedPrompt, sender);
+  const userTurn = formatUserTurn(queuedPrompt, sender, session.userAttribution);
 
   if (messageCount === 0) {
     // No previous messages - but check for work summary from directory change

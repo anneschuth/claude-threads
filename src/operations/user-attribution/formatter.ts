@@ -27,6 +27,11 @@ export function sanitizeUsername(username: string): string {
 /**
  * Wrap a user message with sender attribution.
  *
+ * `enabled` is the session's `userAttribution` flag. It is a REQUIRED
+ * parameter so the compiler forces every send site to decide; the "disabled"
+ * semantics live here, in one tested place. When `false` the message always
+ * passes through unchanged (the feature is opt-in, default off).
+ *
  * - Usable username → `[@<sanitized>]: <message>`.
  * - Empty / falsy / "unknown" / sanitizes-to-empty → `message` unchanged
  *   (never break or half-tag a message; system/control sends pass no username
@@ -35,7 +40,12 @@ export function sanitizeUsername(username: string): string {
  * The message body is NOT sanitized — it is the user's own content and
  * downstream (buildMessageContent, the platform) already handles it.
  */
-export function formatUserTurn(message: string, username?: string): string {
+export function formatUserTurn(
+  message: string,
+  username: string | undefined,
+  enabled: boolean,
+): string {
+  if (!enabled) return message;
   if (!username) return message;
   if (username.toLowerCase() === UNKNOWN_USERNAME) return message;
   const safe = sanitizeUsername(username);

@@ -149,6 +149,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     skipPermissions: true,
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
     platformId: 'test-platform',
     currentPostId: null,
     messageCount: 0,
@@ -626,10 +627,11 @@ describe('Worktree Module', () => {
         expect(options.startTyping).toHaveBeenCalled();
       });
 
-      it('attributes the re-sent firstPrompt to the session owner', async () => {
+      it('attributes the re-sent firstPrompt to the session owner when the session flag is on', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: false,  // Mid-session
           firstPrompt: 'continue my work',
+          userAttribution: true,
         });
         const options = createMockOptions();
 
@@ -642,6 +644,21 @@ describe('Worktree Module', () => {
         const sent = mockNewClaudeCliSendMessage.mock.calls;
         const lastSent = sent[sent.length - 1][0] as string;
         expect(lastSent).toContain(`[@${session.startedBy}]: continue my work`);
+      });
+
+      it('re-sends the firstPrompt raw when the session flag is off (default)', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Mid-session
+          firstPrompt: 'continue my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        const sent = mockNewClaudeCliSendMessage.mock.calls;
+        const lastSent = sent[sent.length - 1][0] as string;
+        expect(lastSent).toContain('continue my work');
+        expect(lastSent).not.toContain('[@');
       });
 
       it('includes work summary in formatted context', async () => {

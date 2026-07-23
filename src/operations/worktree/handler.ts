@@ -719,7 +719,7 @@ export async function createAndSwitchToWorktree(
         // Attribute only the user's own re-sent firstPrompt to the owner
         // (session.startedBy) — the context prefix stays unattributed.
         const contextPrefix = options.formatContextForClaude(threadMessages, workSummary);
-        const messageToSend = contextPrefix + formatUserTurn(session.firstPrompt, session.startedBy);
+        const messageToSend = contextPrefix + formatUserTurn(session.firstPrompt, session.startedBy, session.userAttribution);
 
         // Build and send the message
         session.messageCount++;

@@ -356,7 +356,7 @@ function createMessageManager(
 
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
-    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername);
+    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, session.userAttribution);
     let messageToSend = userTurn;
 
     // Get any previous work summary (from directory change)
@@ -1167,7 +1167,7 @@ export async function startSession(
   // pipeline; kept because SessionManager.startSession's signature allows
   // omitting replyToPostId.
   session.messageCount++;
-  claude.sendMessage(formatUserTurn(content, username));
+  claude.sendMessage(formatUserTurn(content, username, session.userAttribution));
 
   // Surface any skipped attachments to the user
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);

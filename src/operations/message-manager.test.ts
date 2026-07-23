@@ -85,6 +85,7 @@ function createMockSession(platform: PlatformClient): Session {
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
     sessionStartPostId: null,
     tasksPostId: null,
     lastTasksContent: null,
@@ -927,13 +928,21 @@ describe('MessageManager', () => {
   });
 
   describe('handleUserMessage attribution', () => {
-    it('prefixes the sent message with the sender login', async () => {
+    it('prefixes the sent message with the sender login when the session flag is on', async () => {
+      session.userAttribution = true;
       await manager.handleUserMessage('deploy it', undefined, 'alice');
       const sent = (session.claude.sendMessage as any).mock.calls[0][0];
       expect(sent).toBe('[@alice]: deploy it');
     });
 
+    it('sends the raw message when the session flag is off (default)', async () => {
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('deploy it');
+    });
+
     it('does NOT attribute when no username is provided (system/control send)', async () => {
+      session.userAttribution = true;
       await manager.handleUserMessage('/context', undefined, undefined);
       const sent = (session.claude.sendMessage as any).mock.calls[0][0];
       expect(sent).toBe('/context');

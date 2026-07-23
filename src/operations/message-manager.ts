@@ -1067,7 +1067,7 @@ export class MessageManager {
     // thread. Wrap the raw message BEFORE buildMessageContent so any file-list
     // header it prepends stays OUTSIDE the [@user]: prefix. A system/control
     // follow-up carries no username → formatUserTurn returns it unchanged.
-    const attributed = formatUserTurn(message, username);
+    const attributed = formatUserTurn(message, username, this.session.userAttribution);
 
     // Build message content (with files if provided). buildMessageContent processes
     // files once and returns both content and any files it had to skip.
