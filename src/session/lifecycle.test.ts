@@ -1436,3 +1436,45 @@ describe('userAttribution flag seeding', () => {
   });
 });
 
+describe('resumePausedSession sender attribution (regression)', () => {
+  it('sends the reviving username, not the persisted session owner, as the message sender', async () => {
+    // Owner 'alice' started the session; 'bob' (an invited collaborator) is
+    // the one reviving it now. handleUserMessage's 3rd arg must be the real
+    // sender so [@bob]: (not [@alice]:) is what Claude sees when
+    // userAttribution is on.
+    const platform = createMockPlatform({
+      isUserAllowed: mock((u: string) => u === 'alice') as any,
+      getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+    });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+    (ctx.state.sessionStore.load as any).mockReturnValue(
+      new Map([['test-platform:thread-paused', {
+        threadId: 'thread-paused',
+        platformId: 'test-platform',
+        claudeSessionId: 'claude-session-1',
+        workingDir: process.cwd(),
+        startedBy: 'alice',
+        sessionAllowedUsers: ['alice', 'bob'],
+      }]]),
+    );
+
+    // resumeSession's internal ClaudeCli.start() throws in this mock
+    // environment (no real platformConfig), so the session it builds gets
+    // rolled back out of the registry before resumePausedSession looks it
+    // up. Wire findSessionByThreadId directly to a mock session (with a
+    // mock messageManager) so handleUserMessage's call args are
+    // observable — this is the same seam resumePausedSession itself
+    // queries to find the session to message.
+    const mockMsgManager = createMockMessageManager();
+    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
+    (ctx.ops.findSessionByThreadId as any).mockReturnValue(mockSession);
+
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob');
+
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledTimes(1);
+    const sender = (mockMsgManager.handleUserMessage as any).mock.calls[0][2];
+    expect(sender).toBe('bob');
+  });
+});
+

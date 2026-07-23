@@ -1618,7 +1618,7 @@ export async function resumePausedSession(
   if (session && session.claude.isRunning() && session.messageManager) {
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
-    await session.messageManager.handleUserMessage(message, files, state.startedBy);
+    await session.messageManager.handleUserMessage(message, files, username);
   } else {
     log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }
