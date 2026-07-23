@@ -948,4 +948,40 @@ describe('MessageManager', () => {
       expect(sent).toBe('/context');
     });
   });
+
+  describe('handleUserMessage side-conversation composition', () => {
+    it('keeps the [@user]: prefix on the sender turn only — side-conversation context stays OUTSIDE it', async () => {
+      // Regression-defender for the attribution/side-conversation collision:
+      // the sender's turn must be the only thing wrapped by [@alice]:, while
+      // other users' side remarks (which are self-attributed) sit before it.
+      // A revert to "wrap the whole sideContext+message" would prefix bob's
+      // words with [@alice]: and fail the negative assertion below.
+      session.userAttribution = true;
+      session.pendingSideConversations = [
+        { fromUser: 'bob', mentionedUser: 'carol', message: 'ping carol', timestamp: new Date() },
+      ] as unknown as Session['pendingSideConversations'];
+
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0] as string;
+
+      // The sender's own turn is attributed...
+      expect(sent).toContain('[@alice]: deploy it');
+      // ...but the [@alice]: prefix does NOT swallow the side-conversation block.
+      expect(sent).not.toContain('[@alice]: [Side conversation');
+      // Ordering: the side context precedes the attributed turn.
+      expect(sent.indexOf('Side conversation')).toBeLessThan(sent.indexOf('[@alice]:'));
+      // bob's remark is still present for Claude's awareness.
+      expect(sent).toContain('@bob to @carol');
+    });
+
+    it('clears pending side conversations once composed into the outgoing message', async () => {
+      session.pendingSideConversations = [
+        { fromUser: 'bob', mentionedUser: 'carol', message: 'x', timestamp: new Date() },
+      ] as unknown as Session['pendingSideConversations'];
+
+      await manager.handleUserMessage('hi', undefined, 'alice');
+
+      expect(session.pendingSideConversations?.length ?? 0).toBe(0);
+    });
+  });
 });
