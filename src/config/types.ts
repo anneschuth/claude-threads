@@ -197,6 +197,13 @@ export interface Config {
    * resumed sessions — each session persists its own value.
    */
   respondOnlyWhenMentioned?: boolean;
+  /**
+   * Prefix each user turn sent to Claude with the sender's `[@username]:` so
+   * Claude can tell who is speaking in a shared thread. Default `false` — no
+   * behavior change unless explicitly enabled. Applies to NEW sessions;
+   * resumed sessions keep the value they were started with.
+   */
+  userAttribution?: boolean;
   keepAlive?: boolean; // Optional, defaults to true when undefined
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   threadLogs?: ThreadLogsConfig; // Optional thread logging configuration

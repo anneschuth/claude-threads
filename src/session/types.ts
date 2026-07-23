@@ -307,6 +307,14 @@ export interface Session {
   respondOnlyWhenMentioned: boolean;
 
   /**
+   * When `true`, every genuine user turn sent to Claude is prefixed with the
+   * sender's `[@username]:` so Claude can tell who is speaking in a shared
+   * thread. Seeded from `Config.userAttribution` at session start; resumed
+   * sessions keep their persisted value. No runtime toggle. Default `false`.
+   */
+  userAttribution: boolean;
+
+  /**
    * Current effective permission mode for THIS session when it differs from
    * the bot-wide default. Set by `!permissions <mode>`. Not persisted —
    * on bot restart, `auto` and `bypass` overrides revert to bot-wide mode

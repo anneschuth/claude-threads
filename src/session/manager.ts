@@ -90,6 +90,8 @@ export class SessionManager extends EventEmitter {
   private worktreeMode: WorktreeMode;
   /** Config default for the per-session "respond only when @mentioned" toggle (#402). */
   private respondOnlyWhenMentioned: boolean;
+  /** Config default for per-message `[@username]:` attribution on new sessions. */
+  private userAttribution: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -152,7 +154,8 @@ export class SessionManager extends EventEmitter {
     threadLogsRetentionDays = 30,
     limits?: LimitsConfig,
     claudeAccounts?: ClaudeAccount[],
-    respondOnlyWhenMentioned = false
+    respondOnlyWhenMentioned = false,
+    userAttribution = false
   ) {
     super();
     this.workingDir = workingDir;
@@ -163,6 +166,7 @@ export class SessionManager extends EventEmitter {
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
+    this.userAttribution = userAttribution;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -303,6 +307,7 @@ export class SessionManager extends EventEmitter {
       permissionMode: this.permissionMode,
       chromeEnabled: this.chromeEnabled,
       respondOnlyWhenMentioned: this.respondOnlyWhenMentioned,
+      userAttribution: this.userAttribution,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,
@@ -653,6 +658,7 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       respondOnlyWhenMentioned: session.respondOnlyWhenMentioned,
+      userAttribution: session.userAttribution,
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,

@@ -50,6 +50,7 @@ function createMockSession(): Session {
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
 
     // Display state
     sessionStartPostId: null,

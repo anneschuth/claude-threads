@@ -966,6 +966,10 @@ export async function startSession(
     log.info(`Starting session with interactive permissions (from !permissions command)`);
   }
 
+  // Per-message [@username]: attribution — resolved once so the session seed
+  // and the system-prompt note (see buildAppendSystemPrompt) can never disagree.
+  const userAttribution = ctx.config.userAttribution ?? false;
+
   // Build system prompt with session context. New sessions only have the
   // owner in `sessionAllowedUsers`, so the collaborator section is the
   // standby one-liner. The full list is published into the thread later
@@ -1042,6 +1046,7 @@ export async function startSession(
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
     respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
+    userAttribution,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
     sessionHeaderMode,
@@ -1247,6 +1252,7 @@ export async function resumeSession(
   //   bot-wide default on resume and would need to rerun the command.
   const resumePermissionMode: PermissionMode =
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
+  const userAttribution = state.userAttribution ?? false;
   const platformMcpConfig = platform.getMcpConfig();
 
   // Include system prompt for resumed sessions (platform context, command info,
@@ -1315,6 +1321,7 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
+    userAttribution,
     sessionStartPostId: state.sessionStartPostId ?? null,
     sessionHeaderMode: resumeSessionHeaderMode(
       state.sessionHeaderMode,
