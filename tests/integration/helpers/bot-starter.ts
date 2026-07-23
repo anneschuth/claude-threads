@@ -99,6 +99,8 @@ export interface StartBotOptions {
   sessionsPath?: string;
   /** Git worktree mode: 'off' (default for tests), 'prompt', or 'require' */
   worktreeMode?: 'off' | 'prompt' | 'require';
+  /** Per-message [@username]: attribution flag (default: false — the production default) */
+  userAttribution?: boolean;
   /** Platform type to use (default: 'mattermost') */
   platform?: 'mattermost' | 'slack';
   /** Port for Slack mock server (required when platform is 'slack') */
@@ -137,6 +139,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     allowedUsersOverride,
     sessionsPath: explicitSessionsPath,
     worktreeMode = 'off',
+    userAttribution = false,
     platform = 'mattermost',
     slackMockPort,
     slackBotToken,
@@ -266,6 +269,12 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     false, // chrome disabled
     worktreeMode,
     sessionsPath, // isolated session storage
+    true,       // threadLogsEnabled (constructor default)
+    30,         // threadLogsRetentionDays (constructor default)
+    undefined,  // limits
+    undefined,  // claudeAccounts
+    false,      // respondOnlyWhenMentioned (constructor default)
+    userAttribution,
   );
 
   // Register platform (this wires up reaction handlers)

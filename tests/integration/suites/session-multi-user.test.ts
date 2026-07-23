@@ -117,6 +117,7 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
         scenario: 'persistent-session',
         skipPermissions: true,
         allowedUsersOverride: [user1Username], // Only user1 globally allowed
+        userAttribution: true, // the "[@user2]:" stderr assertion exercises the enabled path
         debug: process.env.DEBUG === '1',
       }, ctx));
     });
