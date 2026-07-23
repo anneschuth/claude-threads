@@ -174,6 +174,15 @@ export function formatCollaboratorListForChat(collaborators: ResolvedCollaborato
 }
 
 /**
+ * System-prompt note for per-message user attribution. Appended by
+ * `buildAppendSystemPrompt` ONLY when the session has `userAttribution`
+ * enabled — otherwise Claude would be told about a prefix that never
+ * arrives (the feature is opt-in, default off).
+ */
+export const USER_ATTRIBUTION_NOTE =
+  'Each user message is prefixed with `[@username]:` identifying who sent it. Treat the prefix as metadata about the speaker — do not echo it in your replies and do not include it in commit messages.';
+
+/**
  * Compose the full `appendSystemPrompt` for a Claude session.
  *
  * Layers (in order, blank-line-separated):
@@ -183,6 +192,8 @@ export function formatCollaboratorListForChat(collaborators: ResolvedCollaborato
  *   2. static chat-platform prompt (commands, send_file, etc.)
  *   3. collaborator co-author section — always included so the rule can't
  *      silently disappear across `!cd` / worktree / resume.
+ *   4. user-attribution note — only when the session has `userAttribution`
+ *      enabled, so Claude is never taught a prefix that doesn't arrive.
  *
  * Centralizing every spawn-site through this helper guarantees they all
  * teach Claude the same conventions; adding a layer in one place but not
@@ -201,7 +212,7 @@ export async function buildAppendSystemPrompt(
   allowedUsers: Iterable<string>,
   staticChatPlatformPrompt: string,
   githubEmailsStore: Pick<GitHubEmailsStore, 'get'>,
-  options?: { omitSessionContext?: boolean },
+  options?: { omitSessionContext?: boolean; userAttribution?: boolean },
 ): Promise<string> {
   const collaborators = await resolveCollaborators(
     platform,
@@ -218,6 +229,9 @@ export async function buildAppendSystemPrompt(
   }
   parts.push(staticChatPlatformPrompt);
   parts.push(collaboratorSection);
+  if (options?.userAttribution) {
+    parts.push(USER_ATTRIBUTION_NOTE);
+  }
   return parts.join('\n\n');
 }
 
@@ -269,7 +283,6 @@ You are running inside a chat platform (like Mattermost or Slack). Users interac
 - Your responses appear as messages in a chat thread
 - Keep responses concise - very long responses are split across multiple messages
 - Multiple users may participate in a session (the owner can invite others)
-- Each user message is prefixed with \`[@username]:\` identifying who sent it. Treat the prefix as metadata about the speaker — do not echo it in your replies and do not include it in commit messages.
 
 ## Sending files into THIS thread
 You are RIGHT NOW running inside a chat thread (Mattermost or Slack). The \`send_file\` MCP tool — exposed as \`mcp__claude-threads-mcp__send_file\` in your tool list — uploads a file from your working directory and posts it directly into THIS thread, where the user is talking to you. It is NOT a hypothetical capability that requires extra setup; it works for the session you are in right now.

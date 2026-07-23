@@ -10,6 +10,7 @@ import {
   resolveCollaborators,
   formatCollaboratorListForChat,
   buildAppendSystemPrompt,
+  USER_ATTRIBUTION_NOTE,
   type ResolvedCollaborator,
 } from './system-prompt-generator.js';
 import { VERSION } from '../version.js';
@@ -83,11 +84,9 @@ describe('generateChatPlatformPrompt', () => {
 });
 
 describe('generateChatPlatformPrompt - attribution note', () => {
-  it('explains the [@username]: prefix and tells Claude not to echo it', () => {
+  it('does not mention the [@username]: prefix in the base prompt (attribution is opt-in)', () => {
     const prompt = generateChatPlatformPrompt();
-    expect(prompt).toContain('[@username]:');
-    expect(prompt).toContain('do not echo it');
-    expect(prompt).toContain('do not include it in commit messages');
+    expect(prompt).not.toContain('[@username]:');
   });
 });
 
@@ -387,6 +386,48 @@ describe('buildAppendSystemPrompt', () => {
     );
     expect(prompt).not.toContain('bob@private.example.com');
     expect(prompt).not.toContain('- Bob B');
+  });
+
+  it('appends the attribution note when userAttribution is enabled', async () => {
+    const prompt = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC_PROMPT_BODY',
+      fakeStore({}),
+      { userAttribution: true },
+    );
+    expect(prompt).toContain(USER_ATTRIBUTION_NOTE);
+    expect(prompt).toContain('do not echo it');
+  });
+
+  it('omits the attribution note by default (flag off or options absent)', async () => {
+    const withFalse = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC_PROMPT_BODY',
+      fakeStore({}),
+      { userAttribution: false },
+    );
+    const withNoOptions = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC_PROMPT_BODY',
+      fakeStore({}),
+    );
+    expect(withFalse).not.toContain('[@username]:');
+    expect(withNoOptions).not.toContain('[@username]:');
   });
 });
 

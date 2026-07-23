@@ -517,7 +517,7 @@ export async function createAndSwitchToWorktree(
             session.sessionAllowedUsers,
             options.appendSystemPrompt ?? '',
             options.githubEmailsStore,
-            { omitSessionContext: !needsTitlePrompt },
+            { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
           ),
         };
         session.claude = new ClaudeCli(cliOptions);
@@ -677,7 +677,7 @@ export async function createAndSwitchToWorktree(
           session.sessionAllowedUsers,
           options.appendSystemPrompt ?? '',
           options.githubEmailsStore,
-          { omitSessionContext: !needsTitlePrompt },
+          { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
         ),
       };
       session.claude = new ClaudeCli(cliOptions);
