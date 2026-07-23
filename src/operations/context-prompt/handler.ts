@@ -510,7 +510,7 @@ export async function offerContextPrompt(
   }
 
   // Deferred: carry the sender on the pending prompt so the eventual send
-  // (complete/timeout) attributes correctly, even across a bot restart.
+  // (complete/timeout) attributes correctly.
   const pending = await postContextPrompt(
     session,
     queuedPrompt,
