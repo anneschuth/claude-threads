@@ -803,12 +803,30 @@ export async function setSessionPermissionMode(
   // preserved (it lives in the platform, not Claude).
   const canResume = session.lifecycle.hasClaudeResponded;
 
+  // Rebuild the append-system-prompt for the respawn. commonRestartCliOptions
+  // does NOT carry it, and --append-system-prompt is a per-invocation flag that
+  // --resume does not re-apply — so omitting it here would strip the platform
+  // context, command list, co-author rules, and the [@username]: attribution
+  // note from the new process. Mirrors the !cd path (changeDirectory).
+  const appendSystemPrompt = await buildAppendSystemPrompt(
+    session.platform,
+    session.platformId,
+    session.workingDir,
+    session.threadId,
+    session.startedBy,
+    session.sessionAllowedUsers,
+    CHAT_PLATFORM_PROMPT,
+    ctx.state.githubEmailsStore,
+    { userAttribution: session.userAttribution },
+  );
+
   const cliOptions: ClaudeCliOptions = {
     ...commonRestartCliOptions(session, ctx),
     workingDir: session.workingDir,
     permissionMode: mode,
     sessionId: session.claudeSessionId,
     resume: canResume,
+    appendSystemPrompt,
   };
 
   const success = await restartClaudeSession(

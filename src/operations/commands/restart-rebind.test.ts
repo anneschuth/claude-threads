@@ -24,8 +24,13 @@ import { EventEmitter } from 'events';
 // lifecycle.test.ts and break its own tests of the real handler. Since this
 // test only checks listener counts (never fires the event), the real import
 // is harmless.
+//
+// Records the options the LAST `new ClaudeCli(...)` was constructed with, so a
+// test can assert what a restart site (e.g. !permissions) actually wired.
+let lastCliOptions: ClaudeCliOptions | null = null;
 mock.module('../../claude/cli.js', () => ({
   ClaudeCli: class MockClaudeCli extends EventEmitter {
+    constructor(opts?: ClaudeCliOptions) { super(); lastCliOptions = opts ?? null; }
     isRunning() { return true; }
     kill() { return Promise.resolve(); }
     start() {}
@@ -34,11 +39,13 @@ mock.module('../../claude/cli.js', () => ({
   },
 }));
 
-import { restartClaudeSession } from './handler.js';
+import { restartClaudeSession, setSessionPermissionMode } from './handler.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
+import { createMockFormatter } from '../../test-utils/mock-formatter.js';
+import { USER_ATTRIBUTION_NOTE } from '../../commands/system-prompt-generator.js';
 
 function makeSession(): Session {
   return {
@@ -82,6 +89,97 @@ function makeCtx(): SessionContext {
     } as unknown as SessionContext['ops'],
   };
 }
+
+// A session/ctx rich enough to drive setSessionPermissionMode end-to-end.
+// sessionHeaderMode 'hidden' makes updateSessionHeader a no-op; the owner is
+// 'tester' so the ownership gate passes.
+function makePermSession(userAttribution: boolean): Session {
+  const platform = {
+    platformId: 'test',
+    platformType: 'mattermost',
+    displayName: 'Test',
+    getThreadLink: (t: string) => `https://chat.example/${t}`,
+    getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
+    getUserByUsername: async () => null,
+    isUserAllowed: () => false,
+    getFormatter: () => createMockFormatter(),
+    createPost: async (message: string) => ({ id: 'p1', platformId: 'test', channelId: 'c', userId: 'bot', message }),
+    updatePost: async () => {},
+  } as unknown as Session['platform'];
+
+  return {
+    sessionId: 'test:thread-1',
+    platformId: 'test',
+    threadId: 'thread-1',
+    claudeSessionId: 'uuid-1',
+    startedBy: 'tester',
+    startedAt: new Date(),
+    lastActivityAt: new Date(),
+    sessionNumber: 1,
+    workingDir: '/tmp',
+    userAttribution,
+    sessionHeaderMode: 'hidden',
+    platform,
+    claude: new (class extends EventEmitter {
+      isRunning() { return true; }
+      kill() { return Promise.resolve(); }
+    })() as unknown as Session['claude'],
+    planApproved: false,
+    sessionAllowedUsers: new Set(['tester']),
+    forceInteractivePermissions: false,
+    respondOnlyWhenMentioned: false,
+    sessionStartPostId: null,
+    timers: createSessionTimers(),
+    lifecycle: createSessionLifecycle(),
+    timeoutWarningPosted: false,
+    messageCount: 0,
+    isProcessing: false,
+  } as unknown as Session;
+}
+
+function makePermCtx(): SessionContext {
+  return {
+    config: { chromeEnabled: false, permissionTimeoutMs: 30000, permissionMode: 'default' } as SessionContext['config'],
+    state: { githubEmailsStore: { get: () => undefined } } as unknown as SessionContext['state'],
+    ops: {
+      stopTyping: mock(() => {}),
+      flush: mock(async () => {}),
+      handleEvent: mock(() => {}),
+      handleExit: mock(async () => {}),
+      getClaudeAccount: mock(() => undefined),
+    } as unknown as SessionContext['ops'],
+  };
+}
+
+describe('setSessionPermissionMode — appendSystemPrompt on respawn', () => {
+  it('rebuilds the append-system-prompt (session context + attribution note) when the session opted into attribution', async () => {
+    // Regression-defender: !permissions respawns Claude via commonRestartCliOptions,
+    // which does NOT carry appendSystemPrompt. Without an explicit rebuild here,
+    // the respawned Claude loses the platform context, command list, co-author
+    // rules, AND the [@username]: note — silently degrading behavior after a
+    // common command. Mirrors what !cd already does.
+    const session = makePermSession(true);
+    const ctx = makePermCtx();
+
+    await setSessionPermissionMode(session, 'tester', 'default', ctx);
+
+    expect(lastCliOptions?.appendSystemPrompt).toBeDefined();
+    expect(lastCliOptions?.appendSystemPrompt).toContain(USER_ATTRIBUTION_NOTE);
+    // Session context is included (omitSessionContext is not set for !permissions).
+    expect(lastCliOptions?.appendSystemPrompt).toContain('Working Directory:');
+  });
+
+  it('teaches the platform prompt but OMITS the attribution note when the session did not opt in', async () => {
+    const session = makePermSession(false);
+    const ctx = makePermCtx();
+
+    await setSessionPermissionMode(session, 'tester', 'default', ctx);
+
+    expect(lastCliOptions?.appendSystemPrompt).toBeDefined();
+    expect(lastCliOptions?.appendSystemPrompt).not.toContain(USER_ATTRIBUTION_NOTE);
+    expect(lastCliOptions?.appendSystemPrompt).toContain('chat platform');
+  });
+});
 
 describe('restartClaudeSession', () => {
   it('binds listeners for event, exit, AND rate-limit on the new Claude CLI', async () => {
