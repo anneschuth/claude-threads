@@ -456,6 +456,33 @@ describe('Worktree Module', () => {
         expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined, undefined, 'alice');
       });
 
+      it('clears session.queuedByUsername after consuming it, alongside queuedPrompt/queuedFiles', async () => {
+        // Symmetric-cleanup defender: queuedByUsername must not linger past the
+        // queued prompt it belongs to, or a later queued prompt set without its
+        // own sender could inherit this stale login and be mis-attributed.
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+          queuedByUsername: 'alice',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const persistSession = mock(() => {});
+        const offerContextPrompt = mock(() => Promise.resolve(false));
+
+        await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+        expect(session.queuedPrompt).toBeUndefined();
+        expect(session.queuedFiles).toBeUndefined();
+        expect(session.queuedByUsername).toBeUndefined();
+      });
+
       it('allows user to retry with different branch name after failure', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: true,

@@ -375,15 +375,17 @@ export async function handleWorktreeSkip(
   session.pendingWorktreeSuggestions = undefined;
   const queuedPrompt = session.queuedPrompt;
   const queuedFiles = session.queuedFiles;
+  const queuedByUsername = session.queuedByUsername;
   session.queuedPrompt = undefined;
   session.queuedFiles = undefined;
+  session.queuedByUsername = undefined;
 
   // Persist updated state
   persistSession(session);
 
   // Now send the queued message to Claude (with context prompt if thread has history)
   if (queuedPrompt && session.claude.isRunning()) {
-    await offerContextPrompt(session, queuedPrompt, queuedFiles, undefined, session.queuedByUsername);
+    await offerContextPrompt(session, queuedPrompt, queuedFiles, undefined, queuedByUsername);
   }
 }
 
