@@ -5,4 +5,4 @@
  * send boundary for every genuine user turn.
  */
 
-export { formatUserTurn, sanitizeUsername } from './formatter.js';
+export { formatUserTurn } from './formatter.js';
