@@ -120,7 +120,7 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2",
+    "fast-uri": ">=4.1.1",
     "ws": "$ws",
     "shell-quote": ">=1.8.4"
   },
@@ -131,7 +131,7 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2",
+    "fast-uri": ">=4.1.1",
     "ws": "$ws",
     "shell-quote": ">=1.8.4"
   }
