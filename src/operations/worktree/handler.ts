@@ -43,7 +43,7 @@ import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { shortenPath } from '../index.js';
 import type { ThreadMessage } from '../../platform/index.js';
-import { formatUserTurn } from '../user-attribution/index.js';
+import { formatUserTurn, shouldAttribute } from '../user-attribution/index.js';
 
 const log = createLogger('worktree');
 const sessionLog = createSessionLog(log);
@@ -721,7 +721,7 @@ export async function createAndSwitchToWorktree(
         // Attribute only the user's own re-sent firstPrompt to the owner
         // (session.startedBy) — the context prefix stays unattributed.
         const contextPrefix = options.formatContextForClaude(threadMessages, workSummary);
-        const messageToSend = contextPrefix + formatUserTurn(session.firstPrompt, session.startedBy, session.userAttribution);
+        const messageToSend = contextPrefix + formatUserTurn(session.firstPrompt, session.startedBy, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
 
         // Build and send the message
         session.messageCount++;

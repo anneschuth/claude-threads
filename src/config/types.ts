@@ -199,9 +199,15 @@ export interface Config {
   respondOnlyWhenMentioned?: boolean;
   /**
    * Prefix each user turn sent to Claude with the sender's `[@username]:` so
-   * Claude can tell who is speaking in a shared thread. Default `false` — no
-   * behavior change unless explicitly enabled. Applies to NEW sessions;
-   * resumed sessions keep the value they were started with.
+   * Claude can tell who is speaking in a shared thread. Default `true`.
+   *
+   * The prefix is only actually applied once a session has more than one
+   * participant (after `!invite`, or another user reviving a paused session) —
+   * in a solo thread there is only one person it could be, so attribution stays
+   * silent. Set `false` to disable the feature outright.
+   *
+   * Applies to NEW sessions; resumed sessions keep the value they were started
+   * with, and sessions persisted before this flag existed stay unattributed.
    */
   userAttribution?: boolean;
   keepAlive?: boolean; // Optional, defaults to true when undefined

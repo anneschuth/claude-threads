@@ -869,10 +869,12 @@ describe('pruneDefaultFalseFlags', () => {
     };
   }
 
-  test('deletes userAttribution when false so the emitted config stays clean', () => {
+  test('keeps userAttribution when false — it is the only way to record an opt-out', () => {
+    // userAttribution defaults to TRUE, so pruning an explicit `false` would
+    // silently re-enable attribution on the next start.
     const config = baseConfig({ userAttribution: false });
     pruneDefaultFalseFlags(config);
-    expect('userAttribution' in config).toBe(false);
+    expect(config.userAttribution).toBe(false);
   });
 
   test('keeps userAttribution when true (the opt-in is persisted)', () => {

@@ -254,9 +254,9 @@ export function pruneDefaultFalseFlags(config: Config): void {
   if (!config.respondOnlyWhenMentioned) {
     delete config.respondOnlyWhenMentioned;
   }
-  if (!config.userAttribution) {
-    delete config.userAttribution;
-  }
+  // NOT pruned like respondOnlyWhenMentioned: userAttribution defaults to true,
+  // so an explicit `false` is the only way to record an opt-out. Deleting it
+  // here would silently re-enable attribution on the next start.
 }
 
 export async function runOnboarding(reconfigure = false): Promise<void> {
@@ -424,8 +424,8 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       type: 'confirm',
       name: 'userAttribution',
       message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
-      initial: existingConfig?.userAttribution || false,
-      hint: 'For multi-user threads. Applies to new sessions; default off',
+      initial: existingConfig?.userAttribution ?? true,
+      hint: 'Only applied once a thread has more than one participant; default on',
     },
   ], { onCancel });
 
@@ -653,8 +653,8 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
           type: 'confirm',
           name: 'userAttribution',
           message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
-          initial: config.userAttribution || false,
-          hint: 'For multi-user threads. Applies to new sessions; default off',
+          initial: config.userAttribution ?? true,
+          hint: 'Only applied once a thread has more than one participant; default on',
         },
       ], { onCancel });
 

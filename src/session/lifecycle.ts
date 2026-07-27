@@ -44,7 +44,7 @@ import {
   getThreadMessagesForContext,
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
-import { formatUserTurn } from '../operations/user-attribution/index.js';
+import { formatUserTurn, shouldAttribute } from '../operations/user-attribution/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -355,7 +355,7 @@ function createMessageManager(
 
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
-    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, session.userAttribution);
+    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
     let messageToSend = userTurn;
 
     // Get any previous work summary (from directory change)
@@ -967,7 +967,7 @@ export async function startSession(
 
   // Per-message [@username]: attribution — resolved once so the session seed
   // and the system-prompt note (see buildAppendSystemPrompt) can never disagree.
-  const userAttribution = ctx.config.userAttribution ?? false;
+  const userAttribution = ctx.config.userAttribution ?? true;
 
   // Build system prompt with session context. New sessions only have the
   // owner in `sessionAllowedUsers`, so the collaborator section is the
@@ -1167,7 +1167,7 @@ export async function startSession(
   // pipeline; kept because SessionManager.startSession's signature allows
   // omitting replyToPostId.
   session.messageCount++;
-  claude.sendMessage(formatUserTurn(content, username, session.userAttribution));
+  claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
 
   // Surface any skipped attachments to the user
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);

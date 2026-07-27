@@ -9,7 +9,7 @@ import type { Session } from '../../session/types.js';
 import type { ThreadMessage, PlatformFile } from '../../platform/index.js';
 import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
-import { formatUserTurn } from '../user-attribution/index.js';
+import { formatUserTurn, shouldAttribute } from '../user-attribution/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../../utils/emoji.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { updateLastMessage } from '../post-helpers/index.js';
@@ -394,7 +394,7 @@ export async function handleContextPromptTimeout(
 
   // Get the queued prompt and files
   const sender = pending.queuedByUsername;
-  const userTurn = formatUserTurn(pending.queuedPrompt, sender, session.userAttribution);
+  const userTurn = formatUserTurn(pending.queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
   // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
   const queuedFiles = getContextPromptFilesForSession(session);
 
@@ -455,7 +455,7 @@ export async function offerContextPrompt(
 ): Promise<boolean> {
   // Get thread history count (exclude bot messages and the triggering message)
   const messageCount = await getThreadContextCount(session, excludePostId);
-  const userTurn = formatUserTurn(queuedPrompt, sender, session.userAttribution);
+  const userTurn = formatUserTurn(queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
 
   if (messageCount === 0) {
     // No previous messages - but check for work summary from directory change

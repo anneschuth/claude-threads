@@ -1390,9 +1390,9 @@ describe('userAttribution flag seeding', () => {
     expect(session.userAttribution).toBe(true);
   });
 
-  it('defaults Session.userAttribution to false when the config omits it', async () => {
+  it('defaults Session.userAttribution to true when the config omits it', async () => {
     const session = await startAndCaptureSession(undefined);
-    expect(session.userAttribution).toBe(false);
+    expect(session.userAttribution).toBe(true);
   });
 
   // Resume registers the session (and emits session:add) before claude.start(),

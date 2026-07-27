@@ -116,9 +116,9 @@ describe('SessionManager', () => {
       expect(m.getContext().config.respondOnlyWhenMentioned).toBe(true);
     });
 
-    test('userAttribution defaults to false in the session config', () => {
+    test('userAttribution defaults to true in the session config', () => {
       const m = new SessionManager('/test');
-      expect(m.getContext().config.userAttribution).toBe(false);
+      expect(m.getContext().config.userAttribution).toBe(true);
     });
 
     test('userAttribution=true flows into the session config', () => {

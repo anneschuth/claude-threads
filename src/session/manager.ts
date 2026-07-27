@@ -155,7 +155,7 @@ export class SessionManager extends EventEmitter {
     limits?: LimitsConfig,
     claudeAccounts?: ClaudeAccount[],
     respondOnlyWhenMentioned = false,
-    userAttribution = false
+    userAttribution = true
   ) {
     super();
     this.workingDir = workingDir;

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { formatUserTurn, sanitizeUsername } from './formatter.js';
+import { formatUserTurn, sanitizeUsername, shouldAttribute } from './formatter.js';
 
 describe('formatUserTurn', () => {
   it('prefixes a normal message with the sanitized login when enabled', () => {
@@ -43,5 +43,29 @@ describe('sanitizeUsername', () => {
 
   it('drops spaces and punctuation', () => {
     expect(sanitizeUsername('a b@c!')).toBe('abc');
+  });
+});
+
+describe('shouldAttribute', () => {
+  it('stays silent in a solo session even when the flag is on', () => {
+    // The whole point of the multi-user gate: a prefix on a one-person thread
+    // names the only person who could have spoken.
+    expect(shouldAttribute(true, 1)).toBe(false);
+  });
+
+  it('attributes once a session has more than one participant', () => {
+    expect(shouldAttribute(true, 2)).toBe(true);
+    expect(shouldAttribute(true, 5)).toBe(true);
+  });
+
+  it('never attributes when the flag is off, however many participants', () => {
+    expect(shouldAttribute(false, 1)).toBe(false);
+    expect(shouldAttribute(false, 2)).toBe(false);
+    expect(shouldAttribute(false, 99)).toBe(false);
+  });
+
+  it('treats a degenerate participant count as solo', () => {
+    // Defensive: an empty allowlist should never produce a prefix.
+    expect(shouldAttribute(true, 0)).toBe(false);
   });
 });
