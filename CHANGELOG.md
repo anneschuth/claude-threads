@@ -10,6 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Opt-in per-message user attribution (`userAttribution`, default off).** No behavior change out of the box: upgrading produces byte-for-byte the same prompts and system prompt as before. Set `userAttribution: true` in `config.yaml` (also offered as an onboarding question) and every genuine user turn in NEW sessions is prefixed with `[@username]:` (the platform login) right before it is handed to Claude, so Claude can distinguish speakers in a multi-participant session. The prefix is composed only at the send boundary — the sender identity is carried separately and never baked into the stored prompt — so it never leaks into thread titles, git branch-name suggestions, or persisted session state. Attribution covers every real send path: in-thread follow-ups, resumed turns, the initial mid-thread prompt, post-`!cd` re-sends, the thread-context-prompt paths, and worktree re-sends. System/control sends (slash-command passthrough, plan approval, question/approval completion) are deliberately left unattributed. When the flag is on, a system-prompt note tells Claude to treat the prefix as speaker metadata and not to echo it in replies or commit messages; when off, the note is omitted too, so Claude is never taught a prefix that doesn't arrive. The flag is persisted per session (a session keeps its behavior across bot restarts); persisted sessions from before the flag read as off. (#437)
 
+## [1.18.4] - 2026-07-27
+
+> Version 1.18.3 was bumped but never tagged or published — releasing it needed a
+> local machine with the `gh` CLI, which is the very gap `release.yml` (below)
+> closes. Its contents ship here instead; no 1.18.3 artifact ever existed.
+
+### Fixed
+- **CI is green again on `main`.** Two jobs had been failing on the daily scheduled run without any code change, both because an unpinned tool pulled a newer release. (#441)
+  - **Knip (`lint` job).** A knip release started flagging every barrel-file re-export as an unused export (86 findings) plus the `eslint`/`husky`/`lint-staged`/`tsc` tooling. Knip is now pinned to an exact version as a devDependency (matching how Bun and the Claude CLI are pinned so a release can't silently break CI), run via `bun run knip`. `knip.json` treats `src/**/index.ts` as entry points so public barrel exports are no longer false positives, and the tooling deps/binaries are ignored the same way `prettier` already is. One genuinely dead re-export (`clearAllTimers` from `session/types.ts`) was removed.
+  - **Trivy + `bun audit` (`security` job).** Cleared HIGH advisories by bumping `js-yaml` to `^4.3.0` (CVE-2026-59869) and raising the `fast-uri` override to `>=3.1.4` (CVE-2026-13676, CVE-2026-16221). With Trivy passing, the previously-skipped `bun audit` step now runs; its newly-surfaced advisories are cleared by raising the `shell-quote` override to `>=1.10.0` (GHSA-395f-4hp3-45gv) and adding a `brace-expansion` `>=5.0.7` override (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg).
+
+### Added
+- **Releases can be cut without a local machine.** A new `release.yml` workflow fires when a version change lands on `main` (or on demand via `workflow_dispatch`), re-runs typecheck/lint/knip/tests/build, then creates the tag, creates the GitHub release, and publishes to npm. Previously a release needed someone at a terminal with the `gh` CLI to run `gh release create`. The job publishes in-process rather than handing off to `publish.yml`, because a release created with `GITHUB_TOKEN` does not emit a `release: published` event that can start another workflow — the alternative would be storing a long-lived PAT. It exits before tagging when the current version's tag already exists, so re-runs and unrelated `package.json` edits are no-ops. `publish.yml` is unchanged and still handles releases a human creates by hand.
+
+### Changed
+- **Dependency updates.** `hono` 4.12.30 → 4.12.31 and `@hono/node-server` 2.0.9 → 2.0.11, the latter carrying a fix for an unauthenticated memory-leak DoS via aborted WebSocket handshake (GHSA-9mqv-5hh9-4cgg). (#434)
+- **`body-parser` 2.2.2 → 2.3.0.** (#436)
+- **Dev tooling updates.** `eslint` 10.7.0 → 10.8.0, `lint-staged` 17.0.8 → 17.2.0, `prettier` 3.9.5 → 3.9.6, `typescript-eslint` 8.64.0 → 8.65.0. Dependabot maintains `package-lock.json` only, so `bun.lock` was regenerated alongside it — CI installs with Bun, and without that sync the bumps would not actually reach CI. (#442)
+
 ## [1.18.2] - 2026-07-17
 
 ### Changed

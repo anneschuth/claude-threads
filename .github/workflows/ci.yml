@@ -39,7 +39,14 @@ jobs:
           ignore-unfixed: true
           format: "table"
 
+      # `if: always()` so a Trivy failure does not mask this. The two scanners
+      # read different lockfiles (Trivy both, bun audit bun.lock) and surface
+      # different advisories, so skipping this one on a Trivy failure hides real
+      # findings until the unrelated Trivy issue is fixed — which is exactly what
+      # happened while Trivy was red on main and three HIGH advisories sat
+      # unreported behind it.
       - name: Run bun audit
+        if: always()
         run: bun audit --audit-level=high --ignore GHSA-3ppc-4f35-3m26 --ignore GHSA-7r86-cg39-jmmj --ignore GHSA-23c5-xmqv-rm74
 
   lint:
@@ -58,7 +65,7 @@ jobs:
         run: bun run lint
 
       - name: Run Knip
-        run: bunx knip --no-config-hints
+        run: bun run knip
 
   typecheck:
     runs-on: ubuntu-latest
