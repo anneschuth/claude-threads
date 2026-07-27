@@ -528,12 +528,25 @@ Everything here can be done from the GitHub web UI or by an agent that can only
 push branches and merge PRs:
 
 ```
-1. Open a PR that updates CHANGELOG.md and bumps the version in package.json
-   (npm version patch|minor|major --no-git-tag-version).
+1. Open a PR that:
+   a. Bumps the version in package.json with the semver level the change
+      warrants — fixes only → `npm version patch`, a new feature → `npm version
+      minor`, a breaking change → `npm version major` (all with
+      --no-git-tag-version). `npm version` also updates package-lock.json; run
+      `bun install` afterwards so bun.lock stays in lockstep (bun.lock does not
+      record the root version, so it is usually a no-op — see the lockfile note
+      above).
+   b. Promotes the CHANGELOG's `## [Unreleased]` heading to
+      `## [X.Y.Z] - YYYY-MM-DD` (the new version and today's date), so the
+      release notes match the tag.
 2. Merge it to main once CI is green.
 3. release.yml picks up the package.json change, re-runs typecheck/lint/knip/
    tests/build, then tags, releases and publishes.
 ```
+
+The bump must land as a **new** version: release.yml exits without publishing if
+the current version's tag already exists, so re-using a version that was already
+released (e.g. leaving package.json unchanged) is a silent no-op, not a release.
 
 `release.yml` is safe to re-run and safe against unrelated `package.json` edits:
 if the tag for the current version already exists it exits before tagging or
