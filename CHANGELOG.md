@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.18.3] - 2026-07-27
+## [1.18.4] - 2026-07-27
+
+> Version 1.18.3 was bumped but never tagged or published — releasing it needed a
+> local machine with the `gh` CLI, which is the very gap `release.yml` (below)
+> closes. Its contents ship here instead; no 1.18.3 artifact ever existed.
 
 ### Fixed
 - **CI is green again on `main`.** Two jobs had been failing on the daily scheduled run without any code change, both because an unpinned tool pulled a newer release. (#441)
