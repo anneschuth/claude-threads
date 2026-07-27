@@ -10,7 +10,7 @@ workingDir: /home/user/repos/myproject
 chrome: false
 worktreeMode: prompt
 respondOnlyWhenMentioned: false
-userAttribution: false
+userAttribution: true
 
 platforms:
   # Mattermost
@@ -45,7 +45,7 @@ platforms:
 | `chrome` | Enable Chrome integration | `false` |
 | `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` | `prompt` |
 | `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
-| `userAttribution` | Prefix each user turn sent to Claude with the sender's `[@username]:` so Claude can tell who is speaking in multi-user threads. Applies to new sessions. | `false` |
+| `userAttribution` | Prefix each user turn sent to Claude with the sender's `[@username]:` so Claude can tell who is speaking in multi-user threads. Only applied once a thread has more than one participant (after `!invite`); solo threads are left untouched. Set `false` to disable. Applies to new sessions. | `true` |
 | `keepAlive` | Prevent system sleep while sessions are active | `true` |
 | `limits` | Resource limits and timeouts (see below) | see below |
 | `threadLogs` | Thread logging (see below) | enabled |

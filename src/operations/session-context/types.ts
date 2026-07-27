@@ -43,7 +43,7 @@ export interface SessionConfig {
   respondOnlyWhenMentioned?: boolean;
   /**
    * Config default for per-message `[@username]:` attribution. Seeds
-   * `Session.userAttribution` on new sessions. Default `false`. Optional so
+   * `Session.userAttribution` on new sessions. Default `true`. Optional so
    * existing `SessionConfig` literals stay valid.
    */
   userAttribution?: boolean;
