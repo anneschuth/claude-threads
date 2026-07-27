@@ -29,7 +29,7 @@
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",
-    "knip": "npx knip",
+    "knip": "knip --no-config-hints",
     "prepare": "husky"
   },
   "keywords": [
@@ -78,7 +78,7 @@
     "hono": "4.12.30",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
-    "js-yaml": "^4.1.1",
+    "js-yaml": "^4.3.0",
     "prompts": "^2.4.2",
     "react": "^19.2.3",
     "semver": "7.8.5",
@@ -98,6 +98,7 @@
     "@types/ws": "^8.18.0",
     "eslint": "^10.7.0",
     "husky": "^9.1.7",
+    "knip": "6.29.0",
     "lint-staged": "^17.0.4",
     "prettier": "^3.9.5",
     "typescript": "^6.0.2",
@@ -120,9 +121,10 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2",
+    "fast-uri": ">=3.1.4",
+    "brace-expansion": ">=5.0.7",
     "ws": "$ws",
-    "shell-quote": ">=1.8.4"
+    "shell-quote": ">=1.10.0"
   },
   "resolutions": {
     "hono": "$hono",
@@ -131,8 +133,9 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.2",
+    "fast-uri": ">=3.1.4",
+    "brace-expansion": ">=5.0.7",
     "ws": "$ws",
-    "shell-quote": ">=1.8.4"
+    "shell-quote": ">=1.10.0"
   }
 }

@@ -16,7 +16,7 @@ import { checkTransition } from './lifecycle-fsm.js';
 
 // Re-export timer types
 export type { SessionTimers };
-export { createSessionTimers, clearAllTimers } from './timer-manager.js';
+export { createSessionTimers } from './timer-manager.js';
 
 // =============================================================================
 // Initial Session Options (for commands in first message)

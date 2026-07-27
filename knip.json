@@ -4,6 +4,7 @@
     "src/index.ts",
     "src/mcp/mcp-server.ts",
     "src/statusline/writer.ts",
+    "src/**/index.ts",
     "src/**/*.test.ts",
     "tests/**/*.ts"
   ],
@@ -11,7 +12,7 @@
   "ignore": [
     "src/test-utils/**/*"
   ],
-  "ignoreDependencies": ["prettier", "hono", "@hono/node-server", "express-rate-limit"],
-  "ignoreBinaries": ["pkill", "sleep", "prettier", "knip", "dist/index.js", "gh", "caffeinate", "systemd-inhibit", "powershell"],
+  "ignoreDependencies": ["prettier", "hono", "@hono/node-server", "express-rate-limit", "eslint", "husky", "lint-staged"],
+  "ignoreBinaries": ["pkill", "sleep", "prettier", "knip", "dist/index.js", "gh", "caffeinate", "systemd-inhibit", "powershell", "eslint", "tsc", "husky"],
   "ignoreExportsUsedInFile": true
 }

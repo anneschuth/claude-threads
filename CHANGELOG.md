@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **CI is green again on `main`.** Two jobs had been failing on the daily scheduled run without any code change, both because an unpinned tool pulled a newer release:
+  - **Knip (`lint` job).** A knip release started flagging every barrel-file re-export as an unused export (86 findings) plus the `eslint`/`husky`/`lint-staged`/`tsc` tooling. Knip is now pinned to an exact version as a devDependency (matching how Bun and the Claude CLI are pinned so a release can't silently break CI), run via `bun run knip`. `knip.json` treats `src/**/index.ts` as entry points so public barrel exports are no longer false positives, and the tooling deps/binaries are ignored the same way `prettier` already is. One genuinely dead re-export (`clearAllTimers` from `session/types.ts`) was removed.
+  - **Trivy + `bun audit` (`security` job).** Cleared HIGH advisories by bumping `js-yaml` to `^4.3.0` (CVE-2026-59869) and raising the `fast-uri` override to `>=3.1.4` (CVE-2026-13676, CVE-2026-16221). With Trivy passing, the previously-skipped `bun audit` step now runs; its newly-surfaced advisories are cleared by raising the `shell-quote` override to `>=1.10.0` (GHSA-395f-4hp3-45gv) and adding a `brace-expansion` `>=5.0.7` override (GHSA-3jxr-9vmj-r5cp, GHSA-mh99-v99m-4gvg).
+
 ## [1.18.2] - 2026-07-17
 
 ### Changed
