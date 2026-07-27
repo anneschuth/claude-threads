@@ -484,7 +484,40 @@ bun run test:integration
 
 ## Publishing a New Version
 
-Releases are automated via GitHub Actions. When you create a GitHub release, it automatically publishes to the npm registry.
+Releases are automated via GitHub Actions. There are two paths, and both end in an
+npm publish:
+
+1. **Version bump lands on `main` → `.github/workflows/release.yml`** verifies the
+   tree, creates the tag, creates the GitHub release, and publishes. This needs no
+   local machine and no `gh` CLI — merging the version-bump commit is enough.
+2. **You create a release by hand with `gh release create`** → the existing
+   `.github/workflows/publish.yml` fires on `release: published` and publishes.
+
+### Automated Release Flow (no local machine needed)
+
+Everything here can be done from the GitHub web UI or by an agent that can only
+push branches and merge PRs:
+
+```
+1. Open a PR that updates CHANGELOG.md and bumps the version in package.json
+   (npm version patch|minor|major --no-git-tag-version).
+2. Merge it to main once CI is green.
+3. release.yml picks up the package.json change, re-runs typecheck/lint/knip/
+   tests/build, then tags, releases and publishes.
+```
+
+`release.yml` is safe to re-run and safe against unrelated `package.json` edits:
+if the tag for the current version already exists it exits before tagging or
+publishing. It also exposes `workflow_dispatch`, so a release can be kicked off
+from the Actions tab (or the API) if the push trigger was missed — for example
+when the version bump reached `main` before the workflow existed.
+
+> **Why `release.yml` publishes directly instead of handing off to `publish.yml`:**
+> a release created with `GITHUB_TOKEN` does not emit a `release: published` event
+> that can start another workflow — GitHub suppresses those to avoid recursive
+> runs. A tag-and-release-only job would therefore create the release and then
+> never publish. The alternative is a long-lived PAT; publishing in-job avoids
+> that credential entirely.
 
 ### Quick Release Flow (with open PRs)
 
@@ -560,11 +593,18 @@ gh release create vX.Y.Z --title "vX.Y.Z" --generate-notes
 - Builds TypeScript and publishes to the npm registry
 - Requires `NPM_TOKEN` secret in repository settings
 
-**⚠️ IMPORTANT: NEVER modify the workflow trigger!**
+**⚠️ IMPORTANT: NEVER modify `publish.yml`'s trigger!**
 - The workflow MUST trigger on `release: types: [published]`
 - NEVER change it to trigger on tag pushes
-- The user creates releases manually via `gh release create`
-- This is the preferred release workflow - do not change it
+- This is the path for a release a human creates via `gh release create`
+- This is the preferred manual release workflow - do not change it
+- Automating a release is done in `release.yml` instead, which is a *separate*
+  workflow — never by retargeting this one
+
+**Both workflows publish, but they cannot double-publish silently:** `release.yml`
+skips entirely when the current version's tag already exists, and npm refuses to
+republish a version that is already on the registry, so a redundant run fails
+loudly rather than shipping anything unexpected.
 
 **Token Setup (already configured):**
 - Classic Automation token stored in GitHub repository secrets as `NPM_TOKEN`
