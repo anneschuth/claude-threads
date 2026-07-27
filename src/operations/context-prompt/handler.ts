@@ -9,6 +9,7 @@ import type { Session } from '../../session/types.js';
 import type { ThreadMessage, PlatformFile } from '../../platform/index.js';
 import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
+import { formatUserTurn, shouldAttribute } from '../user-attribution/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../../utils/emoji.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { updateLastMessage } from '../post-helpers/index.js';
@@ -112,6 +113,7 @@ export interface PendingContextPrompt {
   postId: string;
   queuedPrompt: string;       // The prompt to send after decision
   queuedFiles?: PlatformFile[]; // Files attached to the queued prompt (for images)
+  queuedByUsername?: string;  // Sender login, for send-boundary attribution
   threadMessageCount: number; // Total messages in thread before this point
   createdAt: number;          // Timestamp for timeout tracking
   timeoutId?: ReturnType<typeof setTimeout>; // Reference to timeout for cleanup
@@ -165,7 +167,8 @@ export async function postContextPrompt(
   queuedFiles: PlatformFile[] | undefined,
   messageCount: number,
   registerPost: (postId: string, threadId: string) => void,
-  onTimeout: () => void
+  onTimeout: () => void,
+  queuedByUsername?: string
 ): Promise<PendingContextPrompt> {
   // Filter options to only those <= messageCount
   const validOptions = getValidContextOptions(messageCount);
@@ -230,6 +233,7 @@ export async function postContextPrompt(
     postId: post.id,
     queuedPrompt,
     queuedFiles,
+    queuedByUsername,
     threadMessageCount: messageCount,
     createdAt: Date.now(),
     timeoutId,
@@ -389,7 +393,8 @@ export async function handleContextPromptTimeout(
   await updateContextPromptPost(session, pending.postId, 'timeout');
 
   // Get the queued prompt and files
-  let queuedPrompt = pending.queuedPrompt;
+  const sender = pending.queuedByUsername;
+  const userTurn = formatUserTurn(pending.queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
   // Get original PlatformFiles from local storage (MessageManager only stores simplified refs)
   const queuedFiles = getContextPromptFilesForSession(session);
 
@@ -402,10 +407,11 @@ export async function handleContextPromptTimeout(
   // Clear it after use - it's a one-time context transfer
   session.previousWorkSummary = undefined;
 
+  let queuedPrompt = userTurn;
   // If we have a work summary, include it even though user didn't select thread context
   if (previousWorkSummary) {
     const contextPrefix = formatContextForClaude([], previousWorkSummary);
-    queuedPrompt = contextPrefix + queuedPrompt;
+    queuedPrompt = contextPrefix + userTurn;
     sessionLog(session).debug(`🧵 Including work summary despite timeout`);
   }
 
@@ -444,10 +450,12 @@ export async function offerContextPrompt(
   queuedPrompt: string,
   queuedFiles: PlatformFile[] | undefined,
   ctx: ContextPromptHandler,
-  excludePostId?: string
+  excludePostId?: string,
+  sender?: string
 ): Promise<boolean> {
   // Get thread history count (exclude bot messages and the triggering message)
   const messageCount = await getThreadContextCount(session, excludePostId);
+  const userTurn = formatUserTurn(queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
 
   if (messageCount === 0) {
     // No previous messages - but check for work summary from directory change
@@ -456,10 +464,10 @@ export async function offerContextPrompt(
     session.previousWorkSummary = undefined;
 
     session.messageCount++;
-    let messageToSend = queuedPrompt;
+    let messageToSend = userTurn;
     if (previousWorkSummary) {
       const contextPrefix = formatContextForClaude([], previousWorkSummary);
-      messageToSend = contextPrefix + queuedPrompt;
+      messageToSend = contextPrefix + userTurn;
       sessionLog(session).debug(`🧵 Including work summary (no thread messages)`);
     }
     messageToSend = ctx.injectMetadataReminder(messageToSend, session);
@@ -481,10 +489,10 @@ export async function offerContextPrompt(
     // Clear it after use - it's a one-time context transfer
     session.previousWorkSummary = undefined;
 
-    let messageToSend = queuedPrompt;
+    let messageToSend = userTurn;
     if (messages.length > 0 || previousWorkSummary) {
       const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
-      messageToSend = contextPrefix + queuedPrompt;
+      messageToSend = contextPrefix + userTurn;
     }
 
     session.messageCount++;
@@ -501,14 +509,16 @@ export async function offerContextPrompt(
     return false;
   }
 
-  // Post context prompt - files will be stored with the pending prompt
+  // Deferred: carry the sender on the pending prompt so the eventual send
+  // (complete/timeout) attributes correctly.
   const pending = await postContextPrompt(
     session,
     queuedPrompt,
     queuedFiles,
     messageCount,
     ctx.registerPost,
-    () => handleContextPromptTimeout(session, ctx)
+    () => handleContextPromptTimeout(session, ctx),
+    sender
   );
 
   // Store in MessageManager (timeoutId and files stored locally)

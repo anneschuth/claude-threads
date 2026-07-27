@@ -149,6 +149,7 @@ function createMockSession(overrides?: Partial<Session> & {
     skipPermissions: true,
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
     messageManager: createMockMessageManager() as any,
     ...overrides,
   } as Session;
@@ -1359,6 +1360,121 @@ describe('resumeSessionHeaderMode', () => {
 
   it('falls back to full when both are missing (legacy + unconfigured platform)', () => {
     expect(lifecycle.resumeSessionHeaderMode(undefined, undefined)).toBe('full');
+  });
+});
+
+describe('userAttribution flag seeding', () => {
+  // startSession fails at claude.start() in this mock environment and rolls
+  // the session back out of the registry, so assertions read the session from
+  // the updateSessionHeader call — it fires after the Session object is built
+  // and registered, before the spawn attempt.
+  async function startAndCaptureSession(userAttribution?: boolean): Promise<Session> {
+    const platform = createMockPlatform();
+    const ctx = createMockSessionContext(new Map());
+    if (userAttribution !== undefined) {
+      ctx.config.userAttribution = userAttribution;
+    }
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+    await lifecycle.startSession(
+      { prompt: 'do something' }, 'alice', 'Alice', 'thread-new', 'test-platform', ctx,
+    );
+
+    const calls = (ctx.ops.updateSessionHeader as any).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    return calls[0][0] as Session;
+  }
+
+  it('seeds Session.userAttribution from the config default', async () => {
+    const session = await startAndCaptureSession(true);
+    expect(session.userAttribution).toBe(true);
+  });
+
+  it('defaults Session.userAttribution to true when the config omits it', async () => {
+    const session = await startAndCaptureSession(undefined);
+    expect(session.userAttribution).toBe(true);
+  });
+
+  // Resume registers the session (and emits session:add) before claude.start(),
+  // so the added session is observable even though the spawn fails in mocks.
+  function resumeCtx(stateOverrides: Record<string, unknown>) {
+    const platform = createMockPlatform({
+      getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+    });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+    (ctx.state.sessionStore.load as any).mockReturnValue(
+      new Map([['test-platform:thread-paused', {
+        threadId: 'thread-paused',
+        platformId: 'test-platform',
+        claudeSessionId: 'claude-session-1',
+        workingDir: process.cwd(),
+        startedBy: 'alice',
+        sessionAllowedUsers: ['alice'],
+        ...stateOverrides,
+      }]]),
+    );
+    return ctx;
+  }
+
+  it('seeds userAttribution from persisted state on resume', async () => {
+    const ctx = resumeCtx({ userAttribution: true });
+
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+
+    const added = (ctx.ops.emitSessionAdd as any).mock.calls[0]?.[0] as Session;
+    expect(added.userAttribution).toBe(true);
+  });
+
+  it('reads absent persisted userAttribution as false (pre-flag sessions.json)', async () => {
+    const ctx = resumeCtx({});
+
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+
+    const added = (ctx.ops.emitSessionAdd as any).mock.calls[0]?.[0] as Session;
+    expect(added.userAttribution).toBe(false);
+  });
+});
+
+describe('resumePausedSession sender attribution (regression)', () => {
+  it('sends the reviving username, not the persisted session owner, as the message sender', async () => {
+    // Owner 'alice' started the session; 'bob' (an invited collaborator) is
+    // the one reviving it now. handleUserMessage's 3rd arg must be the real
+    // sender so [@bob]: (not [@alice]:) is what Claude sees when
+    // userAttribution is on.
+    const platform = createMockPlatform({
+      isUserAllowed: mock((u: string) => u === 'alice') as any,
+      getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+    });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+    (ctx.state.sessionStore.load as any).mockReturnValue(
+      new Map([['test-platform:thread-paused', {
+        threadId: 'thread-paused',
+        platformId: 'test-platform',
+        claudeSessionId: 'claude-session-1',
+        workingDir: process.cwd(),
+        startedBy: 'alice',
+        sessionAllowedUsers: ['alice', 'bob'],
+      }]]),
+    );
+
+    // resumeSession's internal ClaudeCli.start() throws in this mock
+    // environment (no real platformConfig), so the session it builds gets
+    // rolled back out of the registry before resumePausedSession looks it
+    // up. Wire findSessionByThreadId directly to a mock session (with a
+    // mock messageManager) so handleUserMessage's call args are
+    // observable — this is the same seam resumePausedSession itself
+    // queries to find the session to message.
+    const mockMsgManager = createMockMessageManager();
+    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
+    (ctx.ops.findSessionByThreadId as any).mockReturnValue(mockSession);
+
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob');
+
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledTimes(1);
+    const sender = (mockMsgManager.handleUserMessage as any).mock.calls[0][2];
+    expect(sender).toBe('bob');
   });
 });
 

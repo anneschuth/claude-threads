@@ -245,6 +245,20 @@ export function deriveDisplayName(url: string): string {
   }
 }
 
+/**
+ * Drop default-false opt-in flags from an emitted config so an
+ * out-of-the-box config.yaml stays clean — only the opt-in is persisted.
+ * Mirrors how keepAlive is only written when disabled.
+ */
+export function pruneDefaultFalseFlags(config: Config): void {
+  if (!config.respondOnlyWhenMentioned) {
+    delete config.respondOnlyWhenMentioned;
+  }
+  // NOT pruned like respondOnlyWhenMentioned: userAttribution defaults to true,
+  // so an explicit `false` is the only way to record an opt-out. Deleting it
+  // here would silently re-enable attribution on the next start.
+}
+
 export async function runOnboarding(reconfigure = false): Promise<void> {
   console.log('');
   console.log(bold('  claude-threads setup'));
@@ -406,6 +420,13 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       initial: existingConfig?.respondOnlyWhenMentioned || false,
       hint: 'New threads start in quiet mode; users can still toggle per-thread with !mentions',
     },
+    {
+      type: 'confirm',
+      name: 'userAttribution',
+      message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
+      initial: existingConfig?.userAttribution ?? true,
+      hint: 'Only applied once a thread has more than one participant; default on',
+    },
   ], { onCancel });
 
   const config: Config = {
@@ -414,11 +435,9 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     platforms: [],
   };
 
-  // Keep the config clean: this field defaults to false, so only persist the
-  // opt-in. Mirrors how keepAlive is only written when disabled.
-  if (!config.respondOnlyWhenMentioned) {
-    delete config.respondOnlyWhenMentioned;
-  }
+  // Keep the config clean: these fields default to false, so only persist
+  // the opt-in. Mirrors how keepAlive is only written when disabled.
+  pruneDefaultFalseFlags(config);
 
   // Step 2: Add platforms (loop)
   console.log('');
@@ -630,13 +649,18 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
           initial: config.respondOnlyWhenMentioned || false,
           hint: 'New threads start in quiet mode; users can still toggle per-thread with !mentions',
         },
+        {
+          type: 'confirm',
+          name: 'userAttribution',
+          message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
+          initial: config.userAttribution ?? true,
+          hint: 'Only applied once a thread has more than one participant; default on',
+        },
       ], { onCancel });
 
       config = { ...config, ...globalSettings };
-      // Only persist the opt-in (default is false), same as keepAlive.
-      if (!config.respondOnlyWhenMentioned) {
-        delete config.respondOnlyWhenMentioned;
-      }
+      // Only persist the opt-ins (defaults are false), same as keepAlive.
+      pruneDefaultFalseFlags(config);
       console.log(green('  ✓ Global settings updated'));
     } else if (action === 'add-new') {
       // Add new platform
@@ -802,6 +826,7 @@ async function showConfigSummary(config: Config): Promise<void> {
   console.log(dim(`    Chrome Integration: ${config.chrome ? 'Enabled' : 'Disabled'}`));
   console.log(dim(`    Worktree Mode: ${config.worktreeMode}`));
   console.log(dim(`    Respond Only When Mentioned: ${config.respondOnlyWhenMentioned ? 'Enabled' : 'Disabled'}`));
+  console.log(dim(`    User Attribution: ${config.userAttribution ? 'Enabled' : 'Disabled'}`));
   console.log('');
   console.log(dim(`  Platforms (${config.platforms.length}):`));
   for (const platform of config.platforms) {

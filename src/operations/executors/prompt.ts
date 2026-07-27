@@ -158,7 +158,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     if (!this.state.pendingContextPrompt) return false;
     if (this.state.pendingContextPrompt.postId !== postId) return false;
 
-        const { queuedPrompt, queuedFiles, threadMessageCount } = this.state.pendingContextPrompt;
+        const { queuedPrompt, queuedFiles, queuedByUsername, threadMessageCount } = this.state.pendingContextPrompt;
 
     // Update the post based on selection
     let statusMessage: string;
@@ -188,6 +188,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         selection,
         queuedPrompt,
         queuedFiles,
+        queuedByUsername,
         threadMessageCount,
       });
     }

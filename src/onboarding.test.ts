@@ -3,7 +3,9 @@ import {
   deriveDisplayName,
   validateMattermostCredentials,
   validateSlackCredentials,
+  pruneDefaultFalseFlags,
 } from './onboarding.js';
+import type { Config } from './config/index.js';
 
 // Store original fetch to restore after tests
 const originalFetch = globalThis.fetch;
@@ -852,5 +854,44 @@ describe('validateSlackCredentials token validation', () => {
       'G0123456789'
     );
     expect(result.success).toBe(true);
+  });
+});
+
+describe('pruneDefaultFalseFlags', () => {
+  function baseConfig(overrides: Partial<Config> = {}): Config {
+    return {
+      version: 2,
+      workingDir: '/tmp',
+      chrome: false,
+      worktreeMode: 'prompt',
+      platforms: [],
+      ...overrides,
+    };
+  }
+
+  test('keeps userAttribution when false — it is the only way to record an opt-out', () => {
+    // userAttribution defaults to TRUE, so pruning an explicit `false` would
+    // silently re-enable attribution on the next start.
+    const config = baseConfig({ userAttribution: false });
+    pruneDefaultFalseFlags(config);
+    expect(config.userAttribution).toBe(false);
+  });
+
+  test('keeps userAttribution when true (the opt-in is persisted)', () => {
+    const config = baseConfig({ userAttribution: true });
+    pruneDefaultFalseFlags(config);
+    expect(config.userAttribution).toBe(true);
+  });
+
+  test('deletes respondOnlyWhenMentioned when false (pre-existing behavior)', () => {
+    const config = baseConfig({ respondOnlyWhenMentioned: false });
+    pruneDefaultFalseFlags(config);
+    expect('respondOnlyWhenMentioned' in config).toBe(false);
+  });
+
+  test('keeps respondOnlyWhenMentioned when true', () => {
+    const config = baseConfig({ respondOnlyWhenMentioned: true });
+    pruneDefaultFalseFlags(config);
+    expect(config.respondOnlyWhenMentioned).toBe(true);
   });
 });

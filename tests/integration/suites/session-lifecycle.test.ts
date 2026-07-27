@@ -23,11 +23,13 @@ import {
   sendFollowUp,
   getThreadPosts,
   waitForSessionEnded,
+  waitForSessionActive,
   waitForStableBotPostCount,
   getPlatformBotOptions,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, stopSharedBot, type TestBot } from '../helpers/bot-starter.js';
+import { waitFor } from '../helpers/wait-for.js';
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;
@@ -271,6 +273,37 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
         // Bot should have responded to the follow-up
         expect(followUpResponses.length).toBeGreaterThan(initialBotPostCount);
+      });
+
+      it('sends user turns to Claude raw when userAttribution is not configured (default off)', async () => {
+        // PR-safety: a default config must produce the pre-feature wire
+        // format — no [@username]: prefix on anything Claude receives.
+        await bot.stop();
+        bot = await startTestBot(getPlatformBotOptions(platformType, {
+          scenario: 'persistent-session',
+          skipPermissions: true,
+        }, ctx));
+
+        const rootPost = await startSession(ctx, 'Attribution default check', getBotUsername());
+        testThreadIds.push(rootPost.id);
+        await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+
+        await sendFollowUp(ctx, rootPost.id, 'raw follow-up please');
+
+        // The mock Claude logs every stdin line to its own stderr (see
+        // getLastStderr()); poll until the follow-up shows up there.
+        const stderr = await waitFor(
+          () => {
+            const session = bot.sessionManager.registry.findByThreadId(rootPost.id);
+            const s = session?.claude.getLastStderr() ?? '';
+            return s.includes('raw follow-up please') ? s : null;
+          },
+          { timeout: 5000, interval: 200, description: 'mock Claude stderr to show the raw follow-up' },
+        );
+
+        // Neither the initial prompt nor the follow-up may carry a prefix.
+        expect(stderr).not.toContain('[@');
       });
 
       it('should ignore side conversations (@other_user)', async () => {

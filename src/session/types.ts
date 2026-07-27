@@ -307,6 +307,17 @@ export interface Session {
   respondOnlyWhenMentioned: boolean;
 
   /**
+   * When `true`, every genuine user turn sent to Claude is prefixed with the
+   * sender's `[@username]:` so Claude can tell who is speaking in a shared
+   * thread (only actually applied once the session has more than one
+   * participant — see `shouldAttribute`). Seeded from `Config.userAttribution`
+   * at session start (default `true`); resumed sessions keep their persisted
+   * value, and sessions persisted before the flag existed read as `false`.
+   * No runtime toggle.
+   */
+  userAttribution: boolean;
+
+  /**
    * Current effective permission mode for THIS session when it differs from
    * the bot-wide default. Set by `!permissions <mode>`. Not persisted —
    * on bot restart, `auto` and `bypass` overrides revert to bot-wide mode
@@ -343,6 +354,7 @@ export interface Session {
   pendingWorktreePrompt?: boolean;          // Waiting for branch name response
   worktreePromptDisabled?: boolean;         // User opted out with !worktree off
   queuedPrompt?: string;                    // User's original message when waiting for worktree response
+  queuedByUsername?: string;                // Sender login of queuedPrompt/firstPrompt, for send-boundary attribution
   queuedFiles?: PlatformFile[];             // Files attached to the queued prompt (for images)
   worktreePromptPostId?: string;            // Post ID of the worktree prompt (for ❌ reaction)
   worktreeResponsePostId?: string;          // Post ID of user's worktree branch response (to exclude from context)

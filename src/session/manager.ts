@@ -90,6 +90,8 @@ export class SessionManager extends EventEmitter {
   private worktreeMode: WorktreeMode;
   /** Config default for the per-session "respond only when @mentioned" toggle (#402). */
   private respondOnlyWhenMentioned: boolean;
+  /** Config default for per-message `[@username]:` attribution on new sessions. */
+  private userAttribution: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -152,7 +154,8 @@ export class SessionManager extends EventEmitter {
     threadLogsRetentionDays = 30,
     limits?: LimitsConfig,
     claudeAccounts?: ClaudeAccount[],
-    respondOnlyWhenMentioned = false
+    respondOnlyWhenMentioned = false,
+    userAttribution = true
   ) {
     super();
     this.workingDir = workingDir;
@@ -163,6 +166,7 @@ export class SessionManager extends EventEmitter {
     this.chromeEnabled = chromeEnabled;
     this.worktreeMode = worktreeMode;
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
+    this.userAttribution = userAttribution;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -303,6 +307,7 @@ export class SessionManager extends EventEmitter {
       permissionMode: this.permissionMode,
       chromeEnabled: this.chromeEnabled,
       respondOnlyWhenMentioned: this.respondOnlyWhenMentioned,
+      userAttribution: this.userAttribution,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
       threadLogsEnabled: this.threadLogsEnabled,
@@ -370,7 +375,7 @@ export class SessionManager extends EventEmitter {
       handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
 
       // Context prompt (inlined - no wrapper method needed)
-      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
+      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -653,6 +658,7 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       respondOnlyWhenMentioned: session.respondOnlyWhenMentioned,
+      userAttribution: session.userAttribution,
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,
@@ -664,6 +670,7 @@ export class SessionManager extends EventEmitter {
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
       queuedPrompt: session.queuedPrompt,
+      queuedByUsername: session.queuedByUsername,
       queuedFiles: session.queuedFiles,
       firstPrompt: session.firstPrompt,
       pendingContextPrompt: contextPromptSnapshot,
@@ -1344,7 +1351,7 @@ export class SessionManager extends EventEmitter {
       session,
       username,
       (s) => this.persistSession(s),
-      (s, q) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler())
+      (s, q, _f, e, sender) => contextPrompt.offerContextPrompt(s, q, undefined, this.getContextPromptHandler(), e, sender)
     );
   }
 
@@ -1367,7 +1374,7 @@ export class SessionManager extends EventEmitter {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, f, e) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e),
+      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
       buildMessageContent: (text, s, files) => {
         const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
         return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug);

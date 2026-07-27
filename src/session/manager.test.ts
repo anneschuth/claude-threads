@@ -115,6 +115,22 @@ describe('SessionManager', () => {
       );
       expect(m.getContext().config.respondOnlyWhenMentioned).toBe(true);
     });
+
+    test('userAttribution defaults to true in the session config', () => {
+      const m = new SessionManager('/test');
+      expect(m.getContext().config.userAttribution).toBe(true);
+    });
+
+    test('userAttribution=true flows into the session config', () => {
+      // Positional: workingDir, permMode, chrome, worktreeMode, sessionsPath,
+      // threadLogsEnabled, retentionDays, limits, claudeAccounts,
+      // respondOnlyWhenMentioned, userAttribution.
+      const m = new SessionManager(
+        '/test', 'default', false, 'prompt', undefined,
+        true, 30, undefined, undefined, false, true,
+      );
+      expect(m.getContext().config.userAttribution).toBe(true);
+    });
   });
 
   describe('addPlatform / removePlatform', () => {
@@ -537,6 +553,7 @@ describe('SessionManager', () => {
       sessionAllowedUsers: new Set(['alice']),
       forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+      userAttribution: false,
       sessionStartPostId: null,
       timers: { timeoutTimer: null, warningTimer: null, cleanupTimer: null },
       lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: true },
@@ -693,6 +710,7 @@ describe('SessionManager', () => {
         startedByDisplayName: 'Alice',
         sessionAllowedUsers: new Set(['alice', 'bob']),
         forceInteractivePermissions: true,
+        userAttribution: true,
         planApproved: true,
         sessionStartPostId: 'start-1',
         messageCount: 3,
@@ -702,6 +720,7 @@ describe('SessionManager', () => {
         pullRequestUrl: 'https://github.com/x/y/pull/1',
         lifecyclePostId: 'lifecycle-1',
         firstPrompt: 'Hello',
+        queuedByUsername: 'alice',
       });
 
       session.messageManager = {
@@ -738,11 +757,11 @@ describe('SessionManager', () => {
       const expectedKeys = new Set([
         'platformId', 'threadId', 'claudeSessionId', 'startedBy', 'startedByDisplayName',
         'startedAt', 'lastActivityAt', 'sessionNumber', 'workingDir', 'planApproved',
-        'sessionAllowedUsers', 'forceInteractivePermissions', 'respondOnlyWhenMentioned',
+        'sessionAllowedUsers', 'forceInteractivePermissions', 'respondOnlyWhenMentioned', 'userAttribution',
         'sessionStartPostId',
         'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
         'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
-        'queuedPrompt', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
+        'queuedPrompt', 'queuedByUsername', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
         'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
         'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
         'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode',
@@ -759,7 +778,9 @@ describe('SessionManager', () => {
       expect(ctxPrompt.postId).toBe('ctx-1');
       expect(ctxPrompt.queuedPrompt).toBe('followup');
       expect(written.forceInteractivePermissions).toBe(true);
+      expect(written.userAttribution).toBe(true);
       expect(written.sessionTitle).toBe('Test session');
+      expect(written.queuedByUsername).toBe('alice');
     });
 
     test('persists a minimal session (no task list, no context prompt)', () => {

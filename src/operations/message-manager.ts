@@ -63,6 +63,8 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent, type SkippedFile } from './streaming/handler.js';
+import { formatUserTurn, shouldAttribute } from './user-attribution/index.js';
+import { formatSideConversationsForClaude } from './side-conversation/index.js';
 
 const log = createLogger('msg-mgr');
 
@@ -1062,12 +1064,30 @@ export class MessageManager {
     // Prepare for the new message (flush, reset, bump tasks)
     await this.prepareForUserMessage();
 
+    // Attribute this user turn so Claude can tell who is speaking in a shared
+    // thread. Wrap the raw message BEFORE buildMessageContent so any file-list
+    // header it prepends stays OUTSIDE the [@user]: prefix. A system/control
+    // follow-up carries no username → formatUserTurn returns it unchanged.
+    const attributed = formatUserTurn(message, username, shouldAttribute(this.session.userAttribution, this.session.sessionAllowedUsers.size));
+
+    // Prepend any pending side-conversation context OUTSIDE the [@user]: prefix,
+    // by the same rule as the file-list header: the prefix must tag only the
+    // sender's own turn. The side-conversation block is already self-attributed
+    // (`@from to @to`) and explicitly marked "not instructions", so wrapping it
+    // under [@sender]: would falsely credit other users' remarks to the sender.
+    // These are ephemeral — cleared once composed in.
+    let outgoing = attributed;
+    if (this.session.pendingSideConversations && this.session.pendingSideConversations.length > 0) {
+      outgoing = formatSideConversationsForClaude(this.session.pendingSideConversations) + attributed;
+      this.session.pendingSideConversations = [];
+    }
+
     // Build message content (with files if provided). buildMessageContent processes
     // files once and returns both content and any files it had to skip.
-    let content: string = message;
+    let content: string = outgoing;
     let skippedFiles: SkippedFile[] = [];
     if (this.buildMessageContentCallback) {
-      const built = await this.buildMessageContentCallback(message, this.platform, files);
+      const built = await this.buildMessageContentCallback(outgoing, this.platform, files);
       content = built.content;
       skippedFiles = built.skipped;
     }

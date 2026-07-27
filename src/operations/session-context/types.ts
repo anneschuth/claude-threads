@@ -41,6 +41,12 @@ export interface SessionConfig {
    * `false`. Optional so existing `SessionConfig` literals stay valid.
    */
   respondOnlyWhenMentioned?: boolean;
+  /**
+   * Config default for per-message `[@username]:` attribution. Seeds
+   * `Session.userAttribution` on new sessions. Default `true`. Optional so
+   * existing `SessionConfig` literals stay valid.
+   */
+  userAttribution?: boolean;
   /** Debug mode flag */
   debug: boolean;
   /** Maximum concurrent sessions allowed */
@@ -225,7 +231,8 @@ export interface SessionOperations {
     session: Session,
     queuedPrompt: string,
     queuedFiles?: PlatformFile[],
-    excludePostId?: string
+    excludePostId?: string,
+    sender?: string,
   ): Promise<boolean>;
 
   // ---------------------------------------------------------------------------

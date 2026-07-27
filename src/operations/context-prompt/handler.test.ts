@@ -8,6 +8,9 @@ import {
   getThreadContextCount,
   getThreadMessagesForContext,
   updateContextPromptPost,
+  offerContextPrompt,
+  handleContextPromptTimeout,
+  type ContextPromptHandler,
 } from './handler.js';
 import type { ThreadMessage, PlatformClient, PlatformPost } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
@@ -480,6 +483,93 @@ describe('context-prompt', () => {
 
       // Should not throw
       await expect(updateContextPromptPost(session, 'post-123', 'timeout')).resolves.toBeUndefined();
+    });
+  });
+
+  function makeHandlerCtx(): ContextPromptHandler {
+    return {
+      registerPost: () => {},
+      startTyping: () => {},
+      persistSession: () => {},
+      injectMetadataReminder: (msg: string) => msg,
+      buildMessageContent: async (text: string) => ({ content: text, skipped: [] }),
+    };
+  }
+
+  describe('offerContextPrompt attribution', () => {
+    it('attributes the queued prompt on the no-context branch when the session flag is on', async () => {
+      const session = createMockSession({
+        platformOverrides: { getThreadHistory: mock(() => Promise.resolve([])) },
+        // Attribution only applies once a thread is genuinely shared.
+        sessionOverrides: { userAttribution: true, sessionAllowedUsers: new Set(['testuser', 'collaborator']) },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      const posted = await offerContextPrompt(session, 'ship it', undefined, makeHandlerCtx(), undefined, 'alice');
+
+      expect(posted).toBe(false); // sent directly, no prompt posted
+      expect(sent[0]).toBe('[@alice]: ship it');
+    });
+
+    it('sends the raw queued prompt when the session flag is off (default)', async () => {
+      const session = createMockSession({
+        platformOverrides: { getThreadHistory: mock(() => Promise.resolve([])) },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      await offerContextPrompt(session, 'ship it', undefined, makeHandlerCtx(), undefined, 'alice');
+
+      expect(sent[0]).toBe('ship it');
+    });
+  });
+
+  describe('handleContextPromptTimeout attribution', () => {
+    const pending = {
+      postId: 'ctx-1',
+      queuedPrompt: 'ship it',
+      queuedByUsername: 'bob',
+      threadMessageCount: 5,
+      createdAt: 1_700_000_000_000,
+      availableOptions: [3, 5],
+    };
+
+    it('attributes the queued prompt using the persisted sender when the session flag is on', async () => {
+      const session = createMockSession({
+        sessionOverrides: {
+          userAttribution: true,
+          // Attribution only applies once a thread is genuinely shared.
+          sessionAllowedUsers: new Set(['testuser', 'collaborator']),
+          messageManager: {
+            getPendingContextPrompt: () => pending,
+            clearPendingContextPrompt: () => {},
+          } as any,
+        },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      await handleContextPromptTimeout(session, makeHandlerCtx());
+
+      expect(sent[0]).toBe('[@bob]: ship it');
+    });
+
+    it('sends the raw queued prompt on timeout when the session flag is off (default)', async () => {
+      const session = createMockSession({
+        sessionOverrides: {
+          messageManager: {
+            getPendingContextPrompt: () => pending,
+            clearPendingContextPrompt: () => {},
+          } as any,
+        },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      await handleContextPromptTimeout(session, makeHandlerCtx());
+
+      expect(sent[0]).toBe('ship it');
     });
   });
 

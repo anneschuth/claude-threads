@@ -43,6 +43,7 @@ import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { shortenPath } from '../index.js';
 import type { ThreadMessage } from '../../platform/index.js';
+import { formatUserTurn, shouldAttribute } from '../user-attribution/index.js';
 
 const log = createLogger('worktree');
 const sessionLog = createSessionLog(log);
@@ -340,7 +341,7 @@ export async function handleWorktreeSkip(
   session: Session,
   username: string,
   persistSession: (session: Session) => void,
-  offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>
+  offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string) => Promise<boolean>
 ): Promise<void> {
   // Check if we're handling a failure retry prompt or the initial worktree prompt
   const isFailurePrompt = !!session.pendingWorktreeFailurePrompt;
@@ -374,15 +375,17 @@ export async function handleWorktreeSkip(
   session.pendingWorktreeSuggestions = undefined;
   const queuedPrompt = session.queuedPrompt;
   const queuedFiles = session.queuedFiles;
+  const queuedByUsername = session.queuedByUsername;
   session.queuedPrompt = undefined;
   session.queuedFiles = undefined;
+  session.queuedByUsername = undefined;
 
   // Persist updated state
   persistSession(session);
 
   // Now send the queued message to Claude (with context prompt if thread has history)
   if (queuedPrompt && session.claude.isRunning()) {
-    await offerContextPrompt(session, queuedPrompt, queuedFiles);
+    await offerContextPrompt(session, queuedPrompt, queuedFiles, undefined, queuedByUsername);
   }
 }
 
@@ -405,7 +408,7 @@ export async function createAndSwitchToWorktree(
     persistSession: (session: Session) => void;
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
-    offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string) => Promise<boolean>;
+    offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string) => Promise<boolean>;
     buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<BuiltMessageContent>;
     // Context preservation for mid-session worktree creation
     generateWorkSummary: (session: Session) => Promise<string | undefined>;
@@ -516,7 +519,7 @@ export async function createAndSwitchToWorktree(
             session.sessionAllowedUsers,
             options.appendSystemPrompt ?? '',
             options.githubEmailsStore,
-            { omitSessionContext: !needsTitlePrompt },
+            { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
           ),
         };
         session.claude = new ClaudeCli(cliOptions);
@@ -542,7 +545,7 @@ export async function createAndSwitchToWorktree(
       // Send the queued prompt to the new Claude CLI
       if (session.claude.isRunning() && queuedPrompt) {
         const excludePostId = session.worktreeResponsePostId;
-        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
+        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId, session.queuedByUsername);
         session.worktreeResponsePostId = undefined;
       }
 
@@ -676,7 +679,7 @@ export async function createAndSwitchToWorktree(
           session.sessionAllowedUsers,
           options.appendSystemPrompt ?? '',
           options.githubEmailsStore,
-          { omitSessionContext: !needsTitlePrompt },
+          { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
         ),
       };
       session.claude = new ClaudeCli(cliOptions);
@@ -708,15 +711,17 @@ export async function createAndSwitchToWorktree(
       const excludePostId = session.worktreeResponsePostId;
       if (wasPending && queuedPrompt) {
         // Session start: let user choose how much thread context to include
-        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId);
+        await options.offerContextPrompt(session, queuedPrompt, queuedFiles, excludePostId, session.queuedByUsername);
       } else if (!wasPending && session.firstPrompt) {
         // Mid-session worktree creation: auto-include ALL context (continuity expected)
         // Get all thread messages for context
         const threadMessages = await options.getThreadMessagesForContext(session, 50, excludePostId);
 
-        // Build context with work summary + all thread messages
+        // Build context with work summary + all thread messages.
+        // Attribute only the user's own re-sent firstPrompt to the owner
+        // (session.startedBy) — the context prefix stays unattributed.
         const contextPrefix = options.formatContextForClaude(threadMessages, workSummary);
-        const messageToSend = contextPrefix + session.firstPrompt;
+        const messageToSend = contextPrefix + formatUserTurn(session.firstPrompt, session.startedBy, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
 
         // Build and send the message
         session.messageCount++;

@@ -85,6 +85,7 @@ function createMockSession(platform: PlatformClient): Session {
     sessionAllowedUsers: new Set(['testuser']),
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
     sessionStartPostId: null,
     tasksPostId: null,
     lastTasksContent: null,
@@ -923,6 +924,70 @@ describe('MessageManager', () => {
       expect(taskUpdateReceived!.completed).toBe(2);
       expect(taskUpdateReceived!.total).toBe(2);
       expect(taskUpdateReceived!.allComplete).toBe(true);
+    });
+  });
+
+  describe('handleUserMessage attribution', () => {
+    it('prefixes the sent message with the sender login when the session flag is on', async () => {
+      session.userAttribution = true;
+      // Attribution only applies once a thread is genuinely shared.
+      session.sessionAllowedUsers.add('collaborator');
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('[@alice]: deploy it');
+    });
+
+    it('sends the raw message when the session flag is off (default)', async () => {
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('deploy it');
+    });
+
+    it('does NOT attribute when no username is provided (system/control send)', async () => {
+      session.userAttribution = true;
+      // Attribution only applies once a thread is genuinely shared.
+      session.sessionAllowedUsers.add('collaborator');
+      await manager.handleUserMessage('/context', undefined, undefined);
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
+      expect(sent).toBe('/context');
+    });
+  });
+
+  describe('handleUserMessage side-conversation composition', () => {
+    it('keeps the [@user]: prefix on the sender turn only — side-conversation context stays OUTSIDE it', async () => {
+      // Regression-defender for the attribution/side-conversation collision:
+      // the sender's turn must be the only thing wrapped by [@alice]:, while
+      // other users' side remarks (which are self-attributed) sit before it.
+      // A revert to "wrap the whole sideContext+message" would prefix bob's
+      // words with [@alice]: and fail the negative assertion below.
+      session.userAttribution = true;
+      // Attribution only applies once a thread is genuinely shared.
+      session.sessionAllowedUsers.add('collaborator');
+      session.pendingSideConversations = [
+        { fromUser: 'bob', mentionedUser: 'carol', message: 'ping carol', timestamp: new Date() },
+      ] as unknown as Session['pendingSideConversations'];
+
+      await manager.handleUserMessage('deploy it', undefined, 'alice');
+      const sent = (session.claude.sendMessage as any).mock.calls[0][0] as string;
+
+      // The sender's own turn is attributed...
+      expect(sent).toContain('[@alice]: deploy it');
+      // ...but the [@alice]: prefix does NOT swallow the side-conversation block.
+      expect(sent).not.toContain('[@alice]: [Side conversation');
+      // Ordering: the side context precedes the attributed turn.
+      expect(sent.indexOf('Side conversation')).toBeLessThan(sent.indexOf('[@alice]:'));
+      // bob's remark is still present for Claude's awareness.
+      expect(sent).toContain('@bob to @carol');
+    });
+
+    it('clears pending side conversations once composed into the outgoing message', async () => {
+      session.pendingSideConversations = [
+        { fromUser: 'bob', mentionedUser: 'carol', message: 'x', timestamp: new Date() },
+      ] as unknown as Session['pendingSideConversations'];
+
+      await manager.handleUserMessage('hi', undefined, 'alice');
+
+      expect(session.pendingSideConversations?.length ?? 0).toBe(0);
     });
   });
 });

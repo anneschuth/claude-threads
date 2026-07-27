@@ -44,7 +44,7 @@ import {
   getThreadMessagesForContext,
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
-import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
+import { formatUserTurn, shouldAttribute } from '../operations/user-attribution/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -353,9 +353,10 @@ function createMessageManager(
     // 'deny' - nothing extra to do, post already updated by MessageManager
   });
 
-  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
+  messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
-    let messageToSend = queuedPrompt;
+    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
+    let messageToSend = userTurn;
 
     // Get any previous work summary (from directory change)
     const previousWorkSummary = session.previousWorkSummary;
@@ -367,13 +368,13 @@ function createMessageManager(
       const messages = await getThreadMessagesForContext(session, selection);
       if (messages.length > 0 || previousWorkSummary) {
         const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
-        messageToSend = contextPrefix + queuedPrompt;
+        messageToSend = contextPrefix + userTurn;
       }
       sessionLog(session).debug(`🧵 Including ${selection} messages as context${previousWorkSummary ? ' + work summary' : ''}`);
     } else if (previousWorkSummary) {
       // No thread context selected, but we have a work summary from directory change
       const contextPrefix = formatContextForClaude([], previousWorkSummary);
-      messageToSend = contextPrefix + queuedPrompt;
+      messageToSend = contextPrefix + userTurn;
       sessionLog(session).debug(`🧵 Including work summary (no thread context)`);
     } else {
       // No context (selection is 0 for skip, or 'timeout')
@@ -964,6 +965,10 @@ export async function startSession(
     log.info(`Starting session with interactive permissions (from !permissions command)`);
   }
 
+  // Per-message [@username]: attribution — resolved once so the session seed
+  // and the system-prompt note (see buildAppendSystemPrompt) can never disagree.
+  const userAttribution = ctx.config.userAttribution ?? true;
+
   // Build system prompt with session context. New sessions only have the
   // owner in `sessionAllowedUsers`, so the collaborator section is the
   // standby one-liner. The full list is published into the thread later
@@ -978,6 +983,7 @@ export async function startSession(
     [username],
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    { userAttribution },
   );
 
   // Create Claude CLI with options
@@ -1040,6 +1046,7 @@ export async function startSession(
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
     respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
+    userAttribution,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
     sessionHeaderMode,
@@ -1115,6 +1122,7 @@ export async function startSession(
   const shouldPrompt = options.skipWorktreePrompt ? null : await ctx.ops.shouldPromptForWorktree(session);
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
+    session.queuedByUsername = username;   // owner — used when the worktree prompt later re-sends
     session.queuedFiles = options.files;
     session.pendingWorktreePrompt = true;
     await ctx.ops.postWorktreePrompt(session, shouldPrompt);
@@ -1145,7 +1153,7 @@ export async function startSession(
   // twice. Caught by stack-trace diagnostic in PR #340.
   if (replyToPostId) {
     const excludePostId = triggeringPostId || replyToPostId;
-    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId);
+    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username);
     // Either path inside offerContextPrompt sends or queues. Surface any
     // skipped-file warnings and return — the fallback claude.sendMessage()
     // below would be a duplicate.
@@ -1159,7 +1167,7 @@ export async function startSession(
   // pipeline; kept because SessionManager.startSession's signature allows
   // omitting replyToPostId.
   session.messageCount++;
-  claude.sendMessage(content);
+  claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
 
   // Surface any skipped attachments to the user
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
@@ -1244,6 +1252,7 @@ export async function resumeSession(
   //   bot-wide default on resume and would need to rerun the command.
   const resumePermissionMode: PermissionMode =
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
+  const userAttribution = state.userAttribution ?? false;
   const platformMcpConfig = platform.getMcpConfig();
 
   // Include system prompt for resumed sessions (platform context, command info,
@@ -1257,6 +1266,7 @@ export async function resumeSession(
     state.sessionAllowedUsers || [state.startedBy],
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    { userAttribution },
   );
 
   // Resume MUST re-use the same Claude account the session started on —
@@ -1312,6 +1322,7 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
+    userAttribution,
     sessionStartPostId: state.sessionStartPostId ?? null,
     sessionHeaderMode: resumeSessionHeaderMode(
       state.sessionHeaderMode,
@@ -1327,6 +1338,7 @@ export async function resumeSession(
     pendingWorktreePrompt: state.pendingWorktreePrompt,
     worktreePromptDisabled: state.worktreePromptDisabled,
     queuedPrompt: state.queuedPrompt,
+    queuedByUsername: state.queuedByUsername,
     queuedFiles: state.queuedFiles,
     firstPrompt: state.firstPrompt,
     needsContextPromptOnNextMessage: state.needsContextPromptOnNextMessage,
@@ -1529,7 +1541,7 @@ export async function sendFollowUp(
 
     // offerContextPrompt processes files itself and surfaces skipped-file warnings.
     // We pass the raw text — file content is attached downstream when Claude is sent to.
-    const contextOffered = await ctx.ops.offerContextPrompt(session, message, files);
+    const contextOffered = await ctx.ops.offerContextPrompt(session, message, files, undefined, username);
     if (contextOffered) {
       // Context prompt was posted, message is queued - don't send directly
       session.lastActivityAt = new Date();
@@ -1545,19 +1557,10 @@ export async function sendFollowUp(
     return;
   }
 
-  // Prepend side conversation context if any
-  let messageToSend = message;
-  if (session.pendingSideConversations && session.pendingSideConversations.length > 0) {
-    const sideContext = formatSideConversationsForClaude(session.pendingSideConversations);
-    messageToSend = sideContext + message;
-    // Clear after use - side conversations are ephemeral
-    session.pendingSideConversations = [];
-  }
-
   // Increment message counter
   session.messageCount++;
 
-  await session.messageManager.handleUserMessage(messageToSend, files, username, displayName);
+  await session.messageManager.handleUserMessage(message, files, username, displayName);
 }
 
 /**
@@ -1605,7 +1608,7 @@ export async function resumePausedSession(
   if (session && session.claude.isRunning() && session.messageManager) {
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
-    await session.messageManager.handleUserMessage(message, files, state.startedBy);
+    await session.messageManager.handleUserMessage(message, files, username);
   } else {
     log.warn(`Failed to resume session ${shortId}..., could not send message`);
   }

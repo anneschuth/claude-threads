@@ -29,13 +29,18 @@ mock.module('../../git/worktree.js', () => ({
   writeWorktreeMetadata: mockWriteWorktreeMetadata,
 }));
 
-// Mock the ClaudeCli class to avoid spawning real processes
+// Mock the ClaudeCli class to avoid spawning real processes.
+// sendMessage is routed through a shared spy so tests can inspect what was
+// actually sent to the *new* ClaudeCli instance created on worktree restart
+// (session.claude gets replaced wholesale, so the sendMessage mock set on the
+// original createMockSession().claude is gone by the time the send happens).
+const mockNewClaudeCliSendMessage = mock((..._args: unknown[]) => {});
 mock.module('../../claude/cli.js', () => ({
   ClaudeCli: class MockClaudeCli {
     isRunning() { return true; }
     kill() {}
     start() {}
-    sendMessage() {}
+    sendMessage(...args: unknown[]) { return mockNewClaudeCliSendMessage(...args); }
     on() {}
     interrupt() {}
   },
@@ -144,6 +149,7 @@ function createMockSession(overrides?: Partial<Session>): Session {
     skipPermissions: true,
     forceInteractivePermissions: false,
     respondOnlyWhenMentioned: false,
+    userAttribution: false,
     platformId: 'test-platform',
     currentPostId: null,
     messageCount: 0,
@@ -189,6 +195,7 @@ describe('Worktree Module', () => {
     mockGetRepositoryRoot.mockReset();
     mockFindWorktreeByBranch.mockReset();
     mockCreateWorktree.mockReset();
+    mockNewClaudeCliSendMessage.mockReset();
 
     // Set default return values
     mockIsGitRepository.mockImplementation(() => Promise.resolve(true));
@@ -237,7 +244,8 @@ describe('Worktree Module', () => {
           session,
           'do something',
           undefined,  // queuedFiles
-          undefined   // excludePostId
+          undefined,  // excludePostId
+          undefined   // sender (session.queuedByUsername not set)
         );
 
         // Should persist session
@@ -422,7 +430,57 @@ describe('Worktree Module', () => {
         expect(session.pendingWorktreeFailurePrompt).toBeUndefined();
 
         // Should send the queued prompt
-        expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined);
+        expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined, undefined, undefined);
+      });
+
+      it('forwards session.queuedByUsername as the sender when skipping after failure', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+          queuedByUsername: 'alice',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const persistSession = mock(() => {});
+        const offerContextPrompt = mock(() => Promise.resolve(false));
+
+        await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+        // Should forward the real sender login, not undefined
+        expect(offerContextPrompt).toHaveBeenCalledWith(session, 'do something', undefined, undefined, 'alice');
+      });
+
+      it('clears session.queuedByUsername after consuming it, alongside queuedPrompt/queuedFiles', async () => {
+        // Symmetric-cleanup defender: queuedByUsername must not linger past the
+        // queued prompt it belongs to, or a later queued prompt set without its
+        // own sender could inherit this stale login and be mis-attributed.
+        const session = createMockSession({
+          pendingWorktreePrompt: true,
+          worktreePromptPostId: 'prompt-post-1',
+          queuedPrompt: 'do something',
+          queuedByUsername: 'alice',
+          pendingWorktreeFailurePrompt: {
+            postId: 'failure-prompt-post',
+            failedBranch: 'bad-branch',
+            errorMessage: 'Failed',
+            username: 'testuser',
+          },
+        });
+
+        const persistSession = mock(() => {});
+        const offerContextPrompt = mock(() => Promise.resolve(false));
+
+        await worktree.handleWorktreeSkip(session, 'testuser', persistSession, offerContextPrompt);
+
+        expect(session.queuedPrompt).toBeUndefined();
+        expect(session.queuedFiles).toBeUndefined();
+        expect(session.queuedByUsername).toBeUndefined();
       });
 
       it('allows user to retry with different branch name after failure', async () => {
@@ -519,7 +577,8 @@ describe('Worktree Module', () => {
           session,
           'do something',
           undefined,  // queuedFiles
-          undefined   // excludePostId
+          undefined,  // excludePostId
+          undefined   // sender (session.queuedByUsername not set)
         );
       });
 
@@ -595,6 +654,42 @@ describe('Worktree Module', () => {
         expect(options.startTyping).toHaveBeenCalled();
       });
 
+      it('attributes the re-sent firstPrompt to the session owner when the session flag is on', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Mid-session
+          firstPrompt: 'continue my work',
+          userAttribution: true,
+          // Attribution only applies once a thread is genuinely shared.
+          sessionAllowedUsers: new Set(['testuser', 'collaborator']),
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        // session.claude is replaced by a fresh ClaudeCli instance when Claude
+        // restarts into the new worktree directory, so the send is observed
+        // via the shared mockNewClaudeCliSendMessage spy, not the original
+        // createMockSession().claude.sendMessage mock.
+        const sent = mockNewClaudeCliSendMessage.mock.calls;
+        const lastSent = sent[sent.length - 1][0] as string;
+        expect(lastSent).toContain(`[@${session.startedBy}]: continue my work`);
+      });
+
+      it('re-sends the firstPrompt raw when the session flag is off (default)', async () => {
+        const session = createMockSession({
+          pendingWorktreePrompt: false,  // Mid-session
+          firstPrompt: 'continue my work',
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'new-branch', 'testuser', options);
+
+        const sent = mockNewClaudeCliSendMessage.mock.calls;
+        const lastSent = sent[sent.length - 1][0] as string;
+        expect(lastSent).toContain('continue my work');
+        expect(lastSent).not.toContain('[@');
+      });
+
       it('includes work summary in formatted context', async () => {
         const session = createMockSession({
           pendingWorktreePrompt: false,
@@ -626,7 +721,8 @@ describe('Worktree Module', () => {
           session,
           'start my work',
           undefined,
-          undefined
+          undefined,
+          undefined   // sender (session.queuedByUsername not set)
         );
 
         // Should NOT auto-include context

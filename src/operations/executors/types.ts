@@ -120,6 +120,8 @@ export interface PendingContextPrompt {
   postId: string;
   queuedPrompt: string;
   queuedFiles?: ContextPromptFile[];
+  /** Login of the user whose queued prompt this is; used for send-boundary attribution. */
+  queuedByUsername?: string;
   threadMessageCount: number;
   createdAt: number;
   availableOptions: number[];
