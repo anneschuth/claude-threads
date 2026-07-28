@@ -59,11 +59,11 @@ describe('Event Transformer', () => {
 
       const [useOp] = transformEvent(bashUse, ctx) as any[];
       expect(useOp.toolGroup).toEqual({
-        key: 'Bash', role: 'start', prefix: '💻 **Bash**', body: '`npm run check`',
+        key: 'inspect', role: 'start', prefix: '💻 **Bash**', body: '`npm run check`',
       });
 
       const [resultOp] = transformEvent(bashResult, ctx) as any[];
-      expect(resultOp.toolGroup).toEqual({ key: 'Bash', role: 'result', status: '✓' });
+      expect(resultOp.toolGroup).toEqual({ key: 'inspect', role: 'result', status: '✓' });
       // The `↳` line is what the status replaces.
       expect(resultOp.content).toBe('');
       expect(ctx.toolGroups!.size).toBe(0);
@@ -78,11 +78,11 @@ describe('Event Transformer', () => {
       expect(resultOp.content).toBe('  ↳ ✓');
     });
 
-    it('leaves non-grouped tools on their own line', () => {
+    it('leaves a diff-bearing tool on its own line', () => {
       ctx.toolGroups = new Map();
       const [useOp] = transformEvent({
         type: 'tool_use',
-        tool_use: { id: 't2', name: 'Read', input: { file_path: '/tmp/a.ts' } },
+        tool_use: { id: 't2', name: 'Write', input: { file_path: '/tmp/a.ts', content: 'x' } },
       } as ClaudeEvent, ctx) as any[];
 
       expect(useOp.toolGroup).toBeUndefined();

@@ -297,12 +297,24 @@ describe('Bash Formatter', () => {
     expect(result!.display).toContain('cd /tmp');
   });
 
-  it('opts Bash into a rolling display line', () => {
+  it('opts Bash into the shared inspection line', () => {
     const result = bashToolFormatter.format('Bash', { command: 'npm test' }, options);
 
     expect(result!.group).toEqual({
-      key: 'Bash', prefix: '💻 **Bash**', body: '`npm test`',
+      key: 'inspect', prefix: '💻 **Bash**', body: '`npm test`',
     });
+  });
+
+  /**
+   * Read/Bash/Grep/Glob interleave, so a per-tool key left the wall of lines the
+   * grouping was meant to remove. They share one line; Edit keeps its diff.
+   */
+  it('shares that line with Read, and leaves Edit alone', () => {
+    const read = fileToolsFormatter.format('Read', { file_path: '/tmp/a.ts' }, options);
+    const edit = fileToolsFormatter.format('Edit', { file_path: '/tmp/a.ts', old_string: 'a', new_string: 'b' }, options);
+
+    expect(read!.group?.key).toBe('inspect');
+    expect(edit!.group).toBeUndefined();
   });
 });
 

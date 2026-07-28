@@ -49,6 +49,14 @@ export interface ToolFormatOptions {
 // ---------------------------------------------------------------------------
 
 /**
+ * Shared rolling-line key for the cheap inspection tools (Bash, Read, Glob,
+ * Grep). They interleave — read a file, run a command, read another — so keying
+ * the line per tool name left the wall of lines the grouping was meant to
+ * remove. Edit/Write stay out of it: their diffs are the point.
+ */
+export const INSPECT_GROUP_KEY = 'inspect';
+
+/**
  * Result of formatting a tool for display.
  */
 export interface ToolFormatResult {

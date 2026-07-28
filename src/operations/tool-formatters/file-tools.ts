@@ -8,6 +8,7 @@
  */
 
 import * as Diff from 'diff';
+import { INSPECT_GROUP_KEY } from './types.js';
 import type { ToolFormatter, ToolFormatResult, ToolInput, ToolFormatOptions } from './types.js';
 import { shortenPath, escapeCodeBlockContent } from './utils.js';
 
@@ -31,6 +32,11 @@ export const fileToolsFormatter: ToolFormatter = {
         return {
           display: `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(filePath)}`,
           permissionText: `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(filePath)}`,
+          group: {
+            key: INSPECT_GROUP_KEY,
+            prefix: `📄 ${formatter.formatBold('Read')}`,
+            body: formatter.formatCode(filePath),
+          },
         };
       }
 
@@ -131,6 +137,11 @@ export const fileToolsFormatter: ToolFormatter = {
         return {
           display: `🔍 ${formatter.formatBold('Glob')} ${formatter.formatCode(pattern)}`,
           permissionText: `🔍 ${formatter.formatBold('Glob')} ${formatter.formatCode(pattern)}`,
+          group: {
+            key: INSPECT_GROUP_KEY,
+            prefix: `🔍 ${formatter.formatBold('Glob')}`,
+            body: formatter.formatCode(pattern),
+          },
         };
       }
 
@@ -139,6 +150,11 @@ export const fileToolsFormatter: ToolFormatter = {
         return {
           display: `🔎 ${formatter.formatBold('Grep')} ${formatter.formatCode(pattern)}`,
           permissionText: `🔎 ${formatter.formatBold('Grep')} ${formatter.formatCode(pattern)}`,
+          group: {
+            key: INSPECT_GROUP_KEY,
+            prefix: `🔎 ${formatter.formatBold('Grep')}`,
+            body: formatter.formatCode(pattern),
+          },
         };
       }
 

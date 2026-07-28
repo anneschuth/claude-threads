@@ -6,6 +6,7 @@
  * - Worktree path shortening in commands
  */
 
+import { INSPECT_GROUP_KEY } from './types.js';
 import type { ToolFormatter, ToolFormatResult, ToolInput, ToolFormatOptions } from './types.js';
 import { escapeRegExp } from './utils.js';
 
@@ -63,7 +64,7 @@ export const bashToolFormatter: ToolFormatter = {
       display: `${prefix} ${body}`,
       permissionText: `${prefix} ${formatter.formatCode(cmd.substring(0, 100) + (cmd.length >= 100 ? '...' : ''))}`,
       isDestructive: true, // Bash commands can be destructive
-      group: { key: 'Bash', prefix, body },
+      group: { key: INSPECT_GROUP_KEY, prefix, body },
     };
   },
 };
