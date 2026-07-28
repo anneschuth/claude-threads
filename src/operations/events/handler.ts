@@ -24,6 +24,7 @@ import { trackEvent } from '../bug-report/index.js';
 import * as arbiter from '../arbiter/index.js';
 import * as returnAddress from '../return-address/index.js';
 import * as docsPing from '../docs-ping/index.js';
+import * as teammates from '../../teammates/observer.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
@@ -255,6 +256,9 @@ export function handleEventPostProcessing(
     arbiter.noteEvent(session, event);
     returnAddress.noteEvent(session, event);
     docsPing.noteEvent(session, event, ctx);
+    // Handoffs happen inside the MCP child, whose logs never reach the journal —
+    // the bot logs them here so `journalctl -u claude-threads` shows them.
+    teammates.noteEvent(session, event);
   }
 
   // Handle result events - stop typing, update UI, extract usage
