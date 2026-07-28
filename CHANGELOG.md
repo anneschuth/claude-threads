@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.1] - 2026-07-28
+
+### Changed
+- **Dependency updates.** Production: `@modelcontextprotocol/sdk` 1.29.0 → 1.30.0, `hono` 4.12.31 → 4.12.32, `@hono/node-server` 2.0.11 → 2.0.12, `express-rate-limit` 8.6.0 → 8.6.1. Dev: `@types/node` 26.1.1 → 26.1.2. Dependabot maintains `package-lock.json` only, so `bun.lock` was regenerated alongside it — CI installs with Bun, and without that sync the bumps would not actually reach CI. (#447, #448)
+
 ## [1.19.0] - 2026-07-27
 
 ### Added
