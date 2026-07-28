@@ -320,6 +320,13 @@ export interface SessionOperations {
    * explicit settings.
    */
   getPlatformOverhead(platformId: string): PlatformOverhead;
+
+  /**
+   * Per-platform quiet-mode seed for new sessions, or undefined when the
+   * platform didn't set one (then the bot-wide default applies).
+   * Optional so existing SessionContext literals in tests stay valid.
+   */
+  getPlatformQuietMode?(platformId: string): boolean | undefined;
 }
 
 // =============================================================================

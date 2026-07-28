@@ -131,6 +131,12 @@ export class SessionManager extends EventEmitter {
 
   // Per-platform overhead visibility (sessionHeader / stickyMessage modes)
   private platformOverhead: Map<string, PlatformOverhead> = new Map();
+  /**
+   * Per-platform quiet-mode seed. Set for a shared channel where several bots
+   * hold sessions in one thread; unset platforms fall back to the bot-wide
+   * default. See PlatformInstanceConfig.respondOnlyWhenMentioned.
+   */
+  private platformQuietMode: Map<string, boolean> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -216,9 +222,13 @@ export class SessionManager extends EventEmitter {
   addPlatform(
     platformId: string,
     client: PlatformClient,
-    overhead?: Partial<PlatformOverhead>
+    overhead?: Partial<PlatformOverhead>,
+    respondOnlyWhenMentioned?: boolean
   ): void {
     this.platforms.set(platformId, client);
+    if (respondOnlyWhenMentioned !== undefined) {
+      this.platformQuietMode.set(platformId, respondOnlyWhenMentioned);
+    }
     this.platformOverhead.set(platformId, {
       sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
       stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
@@ -251,6 +261,7 @@ export class SessionManager extends EventEmitter {
   removePlatform(platformId: string): void {
     this.platforms.delete(platformId);
     this.platformOverhead.delete(platformId);
+    this.platformQuietMode.delete(platformId);
     stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
@@ -411,6 +422,7 @@ export class SessionManager extends EventEmitter {
       markClaudeAccountCooling: (id, untilMs) => this.accountPool.markCooling(id, untilMs),
       getClaudeAccountPoolStatus: () => this.accountPool.status(),
 
+      getPlatformQuietMode: (pid) => this.platformQuietMode.get(pid),
       getPlatformOverhead: (pid) => this.platformOverhead.get(pid) ?? {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,

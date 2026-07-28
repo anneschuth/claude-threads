@@ -118,6 +118,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `allowedUsers` | No | List of usernames who can use the bot |
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
+| `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Slack
@@ -134,6 +135,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `allowedUsers` | No | List of Slack usernames |
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
+| `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Quieting the bot's overhead messages

@@ -298,6 +298,18 @@ export interface PlatformInstanceConfig {
    */
   sessionHeader?: OverheadVisibility;
   /**
+   * Seed new sessions on this platform with quiet mode (only reply when
+   * @mentioned), overriding the bot-wide default.
+   *
+   * This is what makes a SHARED channel workable — several bots holding
+   * sessions in one thread so a whole task reads top-to-bottom in one place.
+   * Without it, each bot treats the others' output as a reply addressed to
+   * itself and they answer each other forever. It has to be per-platform:
+   * turning quiet mode on bot-wide would also silence the bot in its own
+   * channel, where people talk to it directly and expect plain replies.
+   */
+  respondOnlyWhenMentioned?: boolean;
+  /**
    * Channel-level sticky message visibility for this platform. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar (no active-sessions list);
    * `'hidden'` disables the sticky entirely (no post, no bumping). Distinct

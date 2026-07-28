@@ -1362,3 +1362,33 @@ describe('resumeSessionHeaderMode', () => {
   });
 });
 
+
+// ===========================================================================
+// resolveQuietMode — per-platform quiet mode for shared multi-bot channels
+// Pure helper extracted from startSession (which needs a spawned agent).
+// ===========================================================================
+
+describe('resolveQuietMode', () => {
+  it('defaults to conversational when nothing is configured', () => {
+    expect(lifecycle.resolveQuietMode(undefined, undefined)).toBe(false);
+  });
+
+  it('falls back to the bot-wide default when the platform sets nothing', () => {
+    expect(lifecycle.resolveQuietMode(undefined, true)).toBe(true);
+    expect(lifecycle.resolveQuietMode(undefined, false)).toBe(false);
+  });
+
+  /**
+   * The case the feature exists for: a shared channel is quiet even though the
+   * bot is conversational everywhere else. Without this, two bots holding
+   * sessions in one thread answer each other forever.
+   */
+  it('lets a shared channel be quiet while the bot stays conversational', () => {
+    expect(lifecycle.resolveQuietMode(true, false)).toBe(true);
+  });
+
+  /** And the reverse: the bot's own channel stays conversational under a quiet default. */
+  it('lets one platform opt OUT of a bot-wide quiet default', () => {
+    expect(lifecycle.resolveQuietMode(false, true)).toBe(false);
+  });
+});

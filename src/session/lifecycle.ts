@@ -796,6 +796,26 @@ export function resumeSessionHeaderMode(
  * Pure function — extracted from `startSession` so it can be tested without
  * the heavy harness around session start (ClaudeCli, MessageManager, etc.).
  */
+/**
+ * Resolve the quiet-mode seed for a new session.
+ *
+ * Per-platform wins over the bot-wide default. This asymmetry is the point: a
+ * shared channel where several bots hold sessions in the same thread MUST be
+ * quiet (otherwise each bot reads the others' output as a reply addressed to
+ * itself and they answer each other indefinitely), while the bot's own channel
+ * must stay conversational — people talk to it there directly and shouldn't
+ * have to @mention it in every message.
+ *
+ * Pure function — extracted from `startSession`, which can't be exercised
+ * without mocking the agent spawn.
+ */
+export function resolveQuietMode(
+  platformSeed: boolean | undefined,
+  botWideDefault: boolean | undefined,
+): boolean {
+  return platformSeed ?? botWideDefault ?? false;
+}
+
 export function resolveSessionHeaderMode(
   configured: OverheadVisibility | undefined,
   replyToPostId: string | undefined,
@@ -1094,7 +1114,10 @@ export async function startSession(
     forceInteractivePermissions,
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
-    respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
+    respondOnlyWhenMentioned: resolveQuietMode(
+      ctx.ops.getPlatformQuietMode?.(platformId),
+      ctx.config.respondOnlyWhenMentioned,
+    ),
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
     sessionHeaderMode,

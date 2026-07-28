@@ -662,7 +662,7 @@ async function startWithoutDaemon() {
         platformConfig.stickyMessage,
         `platforms[${platformConfig.id}].stickyMessage`,
       ),
-    });
+    }, platformConfig.respondOnlyWhenMentioned);
 
     // Wire up platform events
     wirePlatformEvents(platformConfig.id, client, session, ui);
