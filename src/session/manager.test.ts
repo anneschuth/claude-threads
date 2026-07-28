@@ -746,7 +746,7 @@ describe('SessionManager', () => {
         'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
         'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
         'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode', 'agentType', 'arbiter',
-        'returnDelivery', 'docsPing', 'autoIncludeThreadContext',
+        'returnDelivery', 'docsPing', 'reviewPing', 'autoIncludeThreadContext',
       ]);
       expect(new Set(Object.keys(written))).toEqual(expectedKeys);
 

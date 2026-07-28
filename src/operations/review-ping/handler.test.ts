@@ -8,6 +8,8 @@
 
 import { describe, it, expect, mock } from 'bun:test';
 import { onTurnComplete, cancelReviewPing } from './handler.js';
+import { getReviewPingState } from './handler.js';
+import { createReviewPingState } from './types.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { DeliveryTarget } from '../../platform/types.js';
@@ -168,5 +170,61 @@ describe('review-ping', () => {
     await settle();
 
     expect(spies.delivered).toHaveLength(0);
+  });
+});
+
+/**
+ * The guard used to live in an in-memory WeakMap, so a bot restart re-asked for
+ * a review of the same MR. That is not a harmless duplicate: with the channel
+ * route the ask posts at channel level, which opens a SECOND thread — and a
+ * thread is a session, so the reviewer gets a cold session that knows nothing
+ * about the review it already did.
+ */
+describe('review-ping — guard survives a restart', () => {
+  it('does not re-ask about an MR carried in the resumed session', async () => {
+    const spies = makeSpies();
+    const session = makeSession(spies, {
+      // Exactly what lifecycle.resumeSession rebuilds from sessions.json.
+      reviewPing: createReviewPingState({ pinged: [MR] }),
+    });
+    const ctx = makeCtx(session);
+
+    onTurnComplete(session, ctx);
+    await settle();
+
+    expect(spies.delivered).toHaveLength(0);
+  });
+
+  it('still asks about an MR the resumed session had not reached', async () => {
+    const spies = makeSpies();
+    const session = makeSession(spies, {
+      reviewPing: createReviewPingState({ pinged: ['https://gitlab.corp/other/-/merge_requests/1'] }),
+    });
+    const ctx = makeCtx(session);
+
+    onTurnComplete(session, ctx);
+    await settle();
+
+    expect(spies.delivered).toHaveLength(1);
+    expect(spies.delivered[0].message).toContain(MR);
+  });
+
+  it('records the ask on the session so the snapshot can carry it', async () => {
+    const spies = makeSpies();
+    const session = makeSession(spies);
+    const ctx = makeCtx(session);
+
+    onTurnComplete(session, ctx);
+    await settle();
+
+    expect([...getReviewPingState(session).pinged]).toEqual([MR]);
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+  });
+
+  /** Old sessions.json has no reviewPing at all, and must not crash on resume. */
+  it('tolerates persisted state that predates the field', () => {
+    expect([...createReviewPingState().pinged]).toEqual([]);
+    expect([...createReviewPingState(undefined).pinged]).toEqual([]);
+    expect([...createReviewPingState({ pinged: undefined as unknown as string[] }).pinged]).toEqual([]);
   });
 });

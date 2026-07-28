@@ -701,6 +701,7 @@ export class SessionManager extends EventEmitter {
         }
         : undefined,
       docsPing: session.docsPing ? { settled: session.docsPing.settled } : undefined,
+      reviewPing: session.reviewPing ? { pinged: [...session.reviewPing.pinged] } : undefined,
       startedBy: session.startedBy,
       startedByDisplayName: session.startedByDisplayName,
       startedAt: session.startedAt.toISOString(),

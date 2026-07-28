@@ -54,6 +54,7 @@ import {
   createReturnDeliveryState,
 } from '../operations/return-address/index.js';
 import { cancelDocsPing, createDocsPingState } from '../operations/docs-ping/index.js';
+import { createReviewPingState } from '../operations/review-ping/types.js';
 import { cancelReviewPing } from '../operations/review-ping/index.js';
 import {
   cleanupSessionUploads,
@@ -1397,6 +1398,7 @@ export async function resumeSession(
     arbiter: createArbiterState(state.arbiter),
     returnDelivery: createReturnDeliveryState(state.returnDelivery),
     docsPing: createDocsPingState(state.docsPing),
+    reviewPing: createReviewPingState(state.reviewPing),
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),

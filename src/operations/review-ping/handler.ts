@@ -21,6 +21,7 @@ import { noteBotDelivery } from '../arbiter/handler.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ReviewPingConfig } from '../../config/types.js';
+import { createReviewPingState, type ReviewPingState } from './types.js';
 
 const log = createLogger('review-ping');
 const sessionLog = createSessionLog(log);
@@ -29,25 +30,24 @@ const sessionLog = createSessionLog(log);
 export const QUIESCENCE_MS = 120_000;
 
 /**
- * Per-session bookkeeping. Deliberately in memory rather than on the persisted
- * session: the only cost of losing it is one duplicate review request after a
- * bot restart, which is far cheaper than another persisted field to keep
- * backward-compatible.
+ * Get (lazily creating) the review-ping state for a session. Lives on the
+ * session and is persisted — see types.ts for why the in-memory WeakMap this
+ * replaces was the wrong trade.
  */
-interface ReviewPingState {
-  pinged: Set<string>;
-  timer?: ReturnType<typeof setTimeout>;
+export function getReviewPingState(session: Session): ReviewPingState {
+  if (!session.reviewPing) {
+    session.reviewPing = createReviewPingState();
+  }
+  return session.reviewPing;
 }
 
-const states = new WeakMap<Session, ReviewPingState>();
-
-function getState(session: Session): ReviewPingState {
-  let state = states.get(session);
-  if (!state) {
-    state = { pinged: new Set() };
-    states.set(session, state);
-  }
-  return state;
+/**
+ * Persist only while the session is still registered — a timer continuation can
+ * outlive a !stop, and a late write would resurrect a killed session.
+ */
+function persistIfActive(session: Session, ctx: SessionContext): void {
+  if (!ctx.state.sessions.has(session.sessionId)) return;
+  ctx.ops.persistSession(session);
 }
 
 /**
@@ -84,7 +84,7 @@ export function onTurnComplete(session: Session, ctx: SessionContext): void {
   const mrUrl = session.pullRequestUrl;
   if (!mrUrl) return;
 
-  const state = getState(session);
+  const state = getReviewPingState(session);
   if (state.pinged.has(mrUrl)) return;
 
   if (state.timer) clearTimeout(state.timer);
@@ -97,7 +97,7 @@ export function onTurnComplete(session: Session, ctx: SessionContext): void {
 
 /** Clear the pending timer — call when the session ends or is killed. */
 export function cancelReviewPing(session: Session): void {
-  const state = states.get(session);
+  const state = session.reviewPing;
   if (state?.timer) {
     clearTimeout(state.timer);
     state.timer = undefined;
@@ -117,7 +117,7 @@ async function deliver(
   ctx: SessionContext,
   cfg: ResolvedReviewPing
 ): Promise<void> {
-  const state = getState(session);
+  const state = getReviewPingState(session);
   if (session.isProcessing) return; // work resumed; onTurnComplete re-arms
   if (!ctx.state.sessions.has(session.sessionId)) return;
 
@@ -142,6 +142,7 @@ async function deliver(
   // Marked before the await: a failed ping must not retry forever. The next MR
   // in this session arms a fresh one.
   state.pinged.add(mrUrl);
+  persistIfActive(session, ctx);
 
   const body = route
     ? buildHandoffMessage(route, reviewBody(mrUrl), platform.getThreadLink(session.threadId))

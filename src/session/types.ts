@@ -6,6 +6,7 @@ import type { AgentBackend, AgentType } from '../agents/types.js';
 import type { ArbiterSessionState } from '../operations/arbiter/types.js';
 import type { ReturnDeliveryState } from '../operations/return-address/types.js';
 import type { DocsPingState } from '../operations/docs-ping/types.js';
+import type { ReviewPingState } from '../operations/review-ping/types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
@@ -405,6 +406,8 @@ export interface Session {
 
   // Docs-ping state — whether the docs bot has been told about this change
   docsPing?: DocsPingState;
+  /** Review-ping guard: MRs already asked about (persisted). */
+  reviewPing?: ReviewPingState;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;
