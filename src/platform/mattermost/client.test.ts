@@ -143,7 +143,21 @@ describe('MattermostClient pure helpers', () => {
       channelId: 'cc',
       allowedUsers: ['u'],
       outboundFiles: undefined,
+      teammates: undefined,
+      teammatesPresent: undefined,
     });
+  });
+
+  // The MCP child routes teammate handoffs from this, so it has to survive the
+  // trip through getMcpConfig — five construction sites read it from here.
+  it('getMcpConfig carries the teammate registry when configured', () => {
+    const c = makeClient({
+      url: 'https://x', token: 't', channelId: 'cc', allowedUsers: ['u'],
+      teammates: [{ name: 'april', channelId: 'chan-april' }],
+      teammatesPresent: ['april'],
+    });
+    expect(c.getMcpConfig().teammates).toEqual([{ name: 'april', channelId: 'chan-april' }]);
+    expect(c.getMcpConfig().teammatesPresent).toEqual(['april']);
   });
 
   it('getMcpConfig surfaces outboundFiles when configured', () => {

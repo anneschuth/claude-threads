@@ -33,6 +33,11 @@ import { formatToolForPermission } from '../operations/index.js';
 import { mcpLogger } from '../utils/logger.js';
 import type { McpPlatformApi, MattermostMcpApiConfig, SlackMcpApiConfig, McpPost } from '../platform/mcp-platform-api.js';
 import { createMcpPlatformApi } from '../platform/mcp-platform-api-factory.js';
+import {
+  parseTeammateRegistry,
+  resolveTeammateRoute,
+  buildHandoffMessage,
+} from '../teammates/registry.js';
 import { validateOutboundPath } from './path-validator.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
 import {
@@ -58,6 +63,9 @@ const PLATFORM_URL = process.env.PLATFORM_URL || '';
 const PLATFORM_TOKEN = process.env.PLATFORM_TOKEN || '';
 const PLATFORM_CHANNEL_ID = process.env.PLATFORM_CHANNEL_ID || '';
 const PLATFORM_THREAD_ID = process.env.PLATFORM_THREAD_ID || '';
+const TEAMMATES = parseTeammateRegistry(process.env.TEAMMATES);
+const TEAMMATES_PRESENT = (process.env.TEAMMATES_PRESENT || '')
+  .split(',').map((n) => n.trim()).filter(Boolean);
 const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .split(',')
   .map(u => u.trim())
@@ -92,6 +100,7 @@ const LIST_THREAD_TOOL_NAME = 'mcp__claude-threads-mcp__list_thread';
 const READ_CHANNEL_HISTORY_TOOL_NAME = 'mcp__claude-threads-mcp__read_channel_history';
 const SEARCH_MESSAGES_TOOL_NAME = 'mcp__claude-threads-mcp__search_messages';
 const SEND_DM_TOOL_NAME = 'mcp__claude-threads-mcp__send_dm';
+const SEND_TO_TEAMMATE_TOOL_NAME = 'mcp__claude-threads-mcp__send_to_teammate';
 
 // Tools that bypass the standard permission_prompt flow because they
 // enforce their own gate inside the handler. The "gate" varies:
@@ -111,6 +120,9 @@ const SKIP_STANDARD_PERMISSION_PROMPT = new Set<string>([
   READ_CHANNEL_HISTORY_TOOL_NAME,
   SEARCH_MESSAGES_TOOL_NAME,
   SEND_DM_TOOL_NAME,
+  // Bounded by the configured teammate registry: it can only reach bots the
+  // deployment listed, so there is nothing per-call for a human to weigh.
+  SEND_TO_TEAMMATE_TOOL_NAME,
 ]);
 
 // =============================================================================
@@ -444,6 +456,83 @@ export const searchMessagesInputSchema = {
     .optional()
     .describe('Maximum results to return. Defaults to 10, capped at 25.'),
 };
+
+/**
+ * Link to the CURRENT thread, for a teammate to reply into.
+ *
+ * Only needed when reaching a teammate in their own channel — an in-thread
+ * handoff needs no link. Mattermost only: its permalink is derivable from the
+ * post id alone. Slack's needs a workspace host the MCP child isn't given, so
+ * there the handoff goes out without a backlink and the reply lands in the
+ * teammate's own thread — acceptable because the whole fleet is Mattermost;
+ * revisit if that changes.
+ */
+function ownThreadLink(): string {
+  if (PLATFORM_TYPE === 'mattermost' && PLATFORM_URL && PLATFORM_THREAD_ID) {
+    return `${PLATFORM_URL.replace(/\/+$/, '')}/_redirect/pl/${PLATFORM_THREAD_ID}`;
+  }
+  return '';
+}
+
+export interface SendToTeammateResult {
+  ok: boolean;
+  /** Where it landed: 'thread' (this thread) or 'channel' (their channel). */
+  routed?: 'thread' | 'channel';
+  postId?: string;
+  reason?: string;
+}
+
+const sendToTeammateInputSchema = {
+  teammate: z
+    .string()
+    .describe(
+      'Mention name of the teammate bot to hand work to, with or without a leading @ ' +
+        '(e.g. "rocksteady", "@april"). Must be one of the configured teammates.',
+    ),
+  message: z
+    .string()
+    .describe(
+      'What to tell them. Write only the substance — the mention and, when needed, ' +
+        'the reply-back link are added for you.',
+    ),
+};
+
+async function handleSendToTeammate(
+  args: { teammate: string; message: string },
+): Promise<SendToTeammateResult> {
+  // getApi(), not the raw singleton: in bypass mode handlePermission never runs,
+  // so mcpApi can still be null when this is the session's first MCP call.
+  const api = getApi();
+  if (!api.postTo) {
+    return { ok: false, reason: 'this platform cannot post messages' };
+  }
+  if (!args.message.trim()) {
+    return { ok: false, reason: 'message is empty' };
+  }
+
+  const route = resolveTeammateRoute(args.teammate, {
+    registry: TEAMMATES,
+    presentHere: TEAMMATES_PRESENT,
+    currentChannelId: PLATFORM_CHANNEL_ID,
+    currentThreadId: PLATFORM_THREAD_ID,
+  });
+  if (!route) {
+    const known = TEAMMATES.map((t) => t.name).join(', ') || '(none configured)';
+    return { ok: false, reason: `unknown teammate "${args.teammate}". Known: ${known}` };
+  }
+
+  const body = buildHandoffMessage(route, args.message.trim(), ownThreadLink());
+  try {
+    const { postId } = await api.postTo(route.target.channelId, body, route.target.rootId);
+    mcpLogger.info(
+      `Handed off to @${route.teammate.name} via ${route.kind} (post ${postId.substring(0, 8)})`,
+    );
+    return { ok: true, routed: route.kind, postId };
+  } catch (err) {
+    mcpLogger.error(`Handoff to @${route.teammate.name} failed: ${err}`);
+    return { ok: false, reason: `could not post: ${err}` };
+  }
+}
 
 const sendDmInputSchema = {
   recipient: z
@@ -1730,6 +1819,25 @@ async function main() {
     sendDmInputSchema,
     async ({ recipient, message }: { recipient: string; message: string }) => {
       const result = await handleSendDm({ recipient, message });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result) }],
+      };
+    },
+  );
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (server as any).tool(
+    'send_to_teammate',
+    'Hand work to another bot in the fleet (ask for a review, pull in a specialist, pass a result). ' +
+      'Use this instead of posting to their channel yourself: it puts the message where they will ' +
+      'actually see it and adds the reply-back link when one is needed. ' +
+      'Routing is automatic — a teammate who works in this same channel is addressed in THIS thread, ' +
+      'so the whole task stays readable in one place; anyone else is reached in their own channel. ' +
+      'Returns { ok: true, routed: "thread" | "channel", postId } on success, or ' +
+      '{ ok: false, reason } on failure (unknown teammate, empty message, post rejected).',
+    sendToTeammateInputSchema,
+    async ({ teammate, message }: { teammate: string; message: string }) => {
+      const result = await handleSendToTeammate({ teammate, message });
       return {
         content: [{ type: 'text', text: JSON.stringify(result) }],
       };

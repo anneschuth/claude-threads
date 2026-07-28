@@ -67,6 +67,7 @@ interface FakeApiOptions {
 
 class FakeApi implements McpPlatformApi {
   public createdPosts: Array<{ message: string; reactions: string[]; threadId?: string }> = [];
+  public postedTo: Array<{ channelId: string; message: string; rootId?: string }> = [];
   public updatedPosts: Array<{ postId: string; message: string }> = [];
   public waitForReactionCalls: Array<{ postId: string; botUserId: string; timeoutMs: number }> = [];
 
@@ -107,6 +108,11 @@ class FakeApi implements McpPlatformApi {
 
   async updatePost(postId: string, message: string): Promise<void> {
     this.updatedPosts.push({ postId, message });
+  }
+
+  async postTo(channelId: string, message: string, rootId?: string): Promise<{ postId: string }> {
+    this.postedTo.push({ channelId, message, rootId });
+    return { postId: 'posted-1' };
   }
 
   async waitForReaction(postId: string, botUserId: string, timeoutMs: number): Promise<ReactionEvent | null> {

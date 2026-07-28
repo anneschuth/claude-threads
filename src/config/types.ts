@@ -234,6 +234,12 @@ export interface Config {
    * bot's channel itself — instead of relying on the agent to remember.
    */
   docsPing?: DocsPingConfig;
+  /**
+   * Other bots this bot can hand work to. Backs the `send_to_teammate` tool
+   * and the docs ping, which route through one shared rule so they can't
+   * disagree about where a teammate lives.
+   */
+  teammates?: TeammateConfig[];
   platforms: PlatformInstanceConfig[];
 }
 
@@ -291,6 +297,12 @@ export interface DocsPingConfig {
  * setting: these all answer "how do sessions on THIS platform start", and a
  * shared multi-bot channel needs several of them at once.
  */
+/** One reachable teammate bot: mention name + the channel it lives in. */
+export interface TeammateConfig {
+  name: string;
+  channelId: string;
+}
+
 export interface PlatformSessionDefaults {
   respondOnlyWhenMentioned?: boolean;
   autoIncludeThreadContext?: number;
@@ -330,6 +342,19 @@ export interface PlatformInstanceConfig {
    * a long work thread would be costly and mostly irrelevant to drag in whole.
    */
   autoIncludeThreadContext?: number;
+  /**
+   * Teammate bots that also hold sessions in THIS channel. A handoff to one of
+   * them stays in the current thread; anyone else is reached in their own
+   * channel. It's a property of the channel, not of the bot — hence per-platform.
+   */
+  teammatesPresent?: string[];
+  /**
+   * The fleet's teammate registry, copied onto each platform at startup from
+   * the top-level `Config.teammates`. Not something a user writes here — it
+   * rides along so `platform.getMcpConfig()` can hand it to the MCP child,
+   * which is what every agent-construction site already reads from.
+   */
+  teammates?: TeammateConfig[];
   /**
    * Channel-level sticky message visibility for this platform. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar (no active-sessions list);

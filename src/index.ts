@@ -648,8 +648,9 @@ async function startWithoutDaemon() {
       enabled: isEnabled,
     });
 
-    // Create platform client using factory
-    const client = createPlatformClient(platformConfig);
+    // Inject the fleet-wide teammate registry so it reaches the MCP child via
+    // platform.getMcpConfig() — see PlatformInstanceConfig.teammates.
+    const client = createPlatformClient({ ...platformConfig, teammates: config.teammates });
     platforms.set(platformConfig.id, client);
 
     // Register with session manager (passes per-platform overhead visibility)

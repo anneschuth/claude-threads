@@ -55,6 +55,9 @@ export class SlackClient extends BasePlatformClient {
   private botToken: string;
   private appToken: string;
   private channelId: string;
+  /** Teammate registry + who else listens here (see PlatformMcpConfig). */
+  private teammates?: Array<{ name: string; channelId: string }>;
+  private teammatesPresent?: string[];
   private skipPermissions: boolean;
   private apiUrl: string;
 
@@ -90,6 +93,8 @@ export class SlackClient extends BasePlatformClient {
     this.botToken = platformConfig.botToken;
     this.appToken = platformConfig.appToken;
     this.channelId = platformConfig.channelId;
+    this.teammates = platformConfig.teammates;
+    this.teammatesPresent = platformConfig.teammatesPresent;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.skipPermissions = platformConfig.skipPermissions ?? false;
@@ -773,6 +778,8 @@ export class SlackClient extends BasePlatformClient {
       allowedUsers: this.allowedUsers,
       appToken: this.appToken, // Required for Socket Mode in permission server
       outboundFiles: this.outboundFiles,
+      teammates: this.teammates,
+      teammatesPresent: this.teammatesPresent,
     };
   }
 

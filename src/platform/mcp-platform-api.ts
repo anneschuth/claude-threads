@@ -243,6 +243,20 @@ export interface McpPlatformApi {
   sendDirectMessage?(recipientUserId: string, message: string): Promise<{ postId: string }>;
 
   /**
+   * Post a plain message into a channel, optionally inside a thread.
+   *
+   * Deliberately unscoped to the bot's own channel: this backs teammate
+   * handoffs, whose whole point is reaching a bot that lives elsewhere. Access
+   * is still bounded by the platform rejecting channels the bot isn't in.
+   *
+   * `rootId` empty/absent posts at channel level (a cold first contact).
+   *
+   * Optional only so test stubs and future platforms need not implement it;
+   * callers must guard. Every real platform supports it.
+   */
+  postTo?(channelId: string, message: string, rootId?: string): Promise<{ postId: string }>;
+
+  /**
    * Search messages on the platform. Returns posts in unspecified order
    * (the caller should sort if it cares). The caller is responsible for
    * filtering results to the in-scope predicate — this method just runs

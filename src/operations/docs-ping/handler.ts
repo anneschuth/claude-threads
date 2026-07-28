@@ -23,6 +23,7 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { createDocsPingState, type DocsPingState, type DocsVerdict } from './types.js';
+import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
 
 const log = createLogger('docs-ping');
 const sessionLog = createSessionLog(log);
@@ -226,7 +227,17 @@ export function parseDocsVerdict(response: string): DocsVerdict | null {
 // Delivery
 // ---------------------------------------------------------------------------
 
-/** Build the message posted into the docs bot's channel. Exported for tests. */
+/**
+ * The substance of the ping, without the mention or reply-back link — those are
+ * added by buildHandoffMessage so this reads the same wherever it lands.
+ */
+export function docsBody(verdict: DocsVerdict, mrUrl: string): string {
+  const lines = [verdict.summary, '', `MR: ${mrUrl}`];
+  if (verdict.whatToCheck) lines.push(`Что проверить в доке: ${verdict.whatToCheck}`);
+  return lines.join('\n');
+}
+
+/** Legacy shape, kept for the no-registry fallback. Exported for tests. */
 export function buildDocsMessage(
   session: Session,
   cfg: DocsPingConfig,
@@ -279,12 +290,26 @@ async function sendDocsPing(session: Session, ctx: SessionContext): Promise<void
   if (!ctx.state.sessions.has(session.sessionId)) return;
   if (state.agentPinged) return;
 
+  // Same rule as send_to_teammate: a docs bot that works in THIS channel is
+  // told in THIS thread, next to the work. Hardcoding "her own channel" was the
+  // inconsistency — she'd be pinged elsewhere while sitting in the very thread.
+  const mcp = platform.getMcpConfig?.();
+  const route = resolveTeammateRoute(cfg.botName, {
+    registry: mcp?.teammates ?? [{ name: cfg.botName, channelId: cfg.channelId }],
+    presentHere: mcp?.teammatesPresent ?? [],
+    currentChannelId: mcp?.channelId ?? '',
+    currentThreadId: session.threadId,
+  });
+  const target = route?.target ?? { channelId: cfg.channelId, rootId: '' };
+  const body = route
+    ? buildHandoffMessage(route, docsBody(verdict, mrUrl), platform.getThreadLink(session.threadId))
+    : buildDocsMessage(session, cfg, verdict, mrUrl);
+
   try {
-    await platform.deliverToThread(
-      { channelId: cfg.channelId, rootId: '' },
-      buildDocsMessage(session, cfg, verdict, mrUrl)
+    await platform.deliverToThread(target, body);
+    sessionLog(session).info(
+      `📗 Notified @${cfg.botName} about a docs-affecting change (${route?.kind ?? 'channel'})`
     );
-    sessionLog(session).info(`📗 Notified @${cfg.botName} about a docs-affecting change`);
 
     const fmt = platform.getFormatter();
     await post(session, 'info', `📗 ${fmt.formatItalic(`Позвал @${cfg.botName} проверить документацию`)}`);

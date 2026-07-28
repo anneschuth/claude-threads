@@ -24,6 +24,7 @@ export type {
   ArbiterPolicyConfig,
   DocsPingConfig,
   PlatformSessionDefaults,
+  TeammateConfig,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,

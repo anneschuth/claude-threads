@@ -39,6 +39,9 @@ export class MattermostClient extends BasePlatformClient {
 
   private ws: WebSocket | null = null;
   private url: string;
+  /** Teammate registry + who else listens in this channel (see PlatformMcpConfig). */
+  private teammates?: Array<{ name: string; channelId: string }>;
+  private teammatesPresent?: string[];
   private token: string;
   private channelId: string;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
@@ -54,6 +57,8 @@ export class MattermostClient extends BasePlatformClient {
     this.platformId = platformConfig.id;
     this.displayName = platformConfig.displayName;
     this.url = platformConfig.url;
+    this.teammates = platformConfig.teammates;
+    this.teammatesPresent = platformConfig.teammatesPresent;
     this.token = platformConfig.token;
     this.channelId = platformConfig.channelId;
     this.botName = platformConfig.botName;
@@ -787,6 +792,8 @@ export class MattermostClient extends BasePlatformClient {
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
       outboundFiles: this.outboundFiles,
+      teammates: this.teammates,
+      teammatesPresent: this.teammatesPresent,
     };
   }
 

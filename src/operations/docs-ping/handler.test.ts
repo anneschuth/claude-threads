@@ -362,3 +362,46 @@ describe('buildDocsMessage', () => {
     expect(msg).not.toContain('Что проверить');
   });
 });
+
+// ===========================================================================
+// Routing parity with send_to_teammate: the docs bot is told wherever she
+// actually is. Hardcoding "her own channel" meant she got pinged elsewhere
+// while sitting in the very thread the work happened in.
+// ===========================================================================
+
+describe('docs ping routing', () => {
+  function sessionWithRegistry(spies: Spies, presentHere: string[]) {
+    const s = makeSession(spies);
+    (s.platform as unknown as { getMcpConfig: () => unknown }).getMcpConfig = () => ({
+      channelId: 'chan-ai-work',
+      teammates: [{ name: 'april', channelId: DOCS_CHANNEL }],
+      teammatesPresent: presentHere,
+    });
+    return s;
+  }
+
+  it('posts into THIS thread when the docs bot works in this channel', async () => {
+    const session = sessionWithRegistry(spies, ['april']);
+    const ctx = makeCtx(spies, session);
+
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(1);
+    expect(spies.delivered[0].target).toEqual({ channelId: 'chan-ai-work', rootId: 'thread-1' });
+    // No backlink: a link to the thread we're posting in would send her reply nowhere.
+    expect(spies.delivered[0].message).not.toContain('Отвечай мне в тред');
+    expect(spies.delivered[0].message).toContain('@april');
+  });
+
+  it('falls back to her own channel, with a backlink, when she is not here', async () => {
+    const session = sessionWithRegistry(spies, []);
+    const ctx = makeCtx(spies, session);
+
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered[0].target).toEqual({ channelId: DOCS_CHANNEL, rootId: '' });
+    expect(spies.delivered[0].message).toContain('Отвечай мне в тред');
+  });
+});

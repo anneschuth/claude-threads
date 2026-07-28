@@ -95,6 +95,15 @@ export interface PlatformMcpConfig {
    * config. When omitted the bot defaults to enabled with 100MB cap.
    */
   outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  /**
+   * Teammate bots reachable from here, and which of them hold sessions in THIS
+   * channel. Carried on the platform config (not as separate CLI options) so
+   * every construction site — start, resume, and the !cd/!permissions respawn —
+   * gets it from `platform.getMcpConfig()` without five copies of the same
+   * wiring drifting apart.
+   */
+  teammates?: Array<{ name: string; channelId: string }>;
+  teammatesPresent?: string[];
 }
 
 export interface ClaudeCliOptions {
@@ -310,6 +319,10 @@ export function buildPermissionArgs(opts: {
     DEBUG: opts.debug ? '1' : '',
     PERMISSION_TIMEOUT_MS: String(opts.permissionTimeoutMs),
     SESSION_OWNER_USERNAME: opts.sessionOwnerUsername || '',
+    // Teammate routing for send_to_teammate. JSON so one var carries the
+    // whole registry; the child parses defensively (parseTeammateRegistry).
+    TEAMMATES: JSON.stringify(opts.platformConfig.teammates ?? []),
+    TEAMMATES_PRESENT: (opts.platformConfig.teammatesPresent ?? []).join(','),
   };
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;

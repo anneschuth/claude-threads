@@ -207,6 +207,24 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     return { id: messageTs };
   }
 
+  async postTo(channelId: string, message: string, rootId?: string): Promise<{ postId: string }> {
+    const body: Record<string, unknown> = {
+      channel: channelId,
+      text: message,
+      mrkdwn: true,
+    };
+    // Slack rejects an empty thread_ts — omit it for a channel-level post.
+    if (rootId) body.thread_ts = rootId;
+
+    const response = await slackApi<PostMessageResponse>(
+      'chat.postMessage',
+      this.config.botToken,
+      body
+    );
+    mcpLogger.debug(`Posted ${response.ts} to ${channelId}${rootId ? ` (thread ${rootId})` : ''}`);
+    return { postId: response.ts };
+  }
+
   async updatePost(postId: string, message: string): Promise<void> {
     mcpLogger.debug(`Updating post ${postId}`);
 

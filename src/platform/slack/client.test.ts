@@ -381,3 +381,21 @@ describe('SlackClient API methods', () => {
     await expect(makeClient().downloadFile('F1')).rejects.toThrow(/No download URL/);
   });
 });
+
+// Review finding: the teammate registry was wired into the Mattermost client
+// only, so send_to_teammate and docs-ping routing were dead on Slack — silently,
+// with no test covering it.
+describe('SlackClient teammate registry', () => {
+  it('carries teammates and teammatesPresent through getMcpConfig', () => {
+    const c = new SlackClient({
+      id: 'slack-1', type: 'slack', displayName: 'S',
+      botToken: 'xoxb-1', appToken: 'xapp-1', channelId: 'C1',
+      botName: 'bebop', allowedUsers: [],
+      teammates: [{ name: 'april', channelId: 'C-APRIL' }],
+      teammatesPresent: ['april'],
+    } as unknown as ConstructorParameters<typeof SlackClient>[0]);
+
+    expect(c.getMcpConfig().teammates).toEqual([{ name: 'april', channelId: 'C-APRIL' }]);
+    expect(c.getMcpConfig().teammatesPresent).toEqual(['april']);
+  });
+});

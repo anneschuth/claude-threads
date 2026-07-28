@@ -47,6 +47,7 @@ platforms:
 | `arbiterPolicy` | What the arbiter does when a session is parked waiting on a human and nobody answers — see [Arbiter policy](#arbiter-policy) below. | see below |
 | `returnDelivery` | Guaranteed reply to the requester's thread. When an incoming message carries a reply-to directive with a permalink ("отвечай мне в тред: `<url>`" / "reply in the thread: `<url>`"), the bot records that thread as the session's return address and — once the session has been quiet for 90s — posts the final assistant message there itself, mentioning the requester and linking back to its own thread. Purely deterministic, no LLM. If the agent already posted to that thread on its own, the bot stays out of the way. | `true` |
 | `docsPing` | Tells a docs bot about shipped changes — see [Docs ping](#docs-ping) below. | off |
+| `teammates` | Other bots this bot can hand work to (`[{name, channelId}]`). Backs the `send_to_teammate` tool and the docs ping, which route through one shared rule: a teammate who holds sessions in the current channel is addressed in the current thread; anyone else is reached in their own channel with a link back. Without it `send_to_teammate` reports an unknown teammate. | none |
 
 ### Arbiter policy
 
@@ -120,6 +121,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
 | `autoIncludeThreadContext` | No | Silently fold up to N previous thread messages into the first prompt when a session starts mid-thread, instead of asking. The other half of a shared channel: a joining bot always starts mid-thread, so the prompt would fire on every handoff and its timeout defaults to *no* context, leaving it blind to the task it was called about. Capped (e.g. `20`) so a long thread isn't dragged in whole. |
+| `teammatesPresent` | No | Names of teammates that also hold sessions in THIS channel. A handoff to one of them stays in the current thread; anyone else goes to their own channel. Property of the channel, hence per-platform. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Slack
@@ -138,6 +140,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
 | `autoIncludeThreadContext` | No | Silently fold up to N previous thread messages into the first prompt when a session starts mid-thread, instead of asking. The other half of a shared channel: a joining bot always starts mid-thread, so the prompt would fire on every handoff and its timeout defaults to *no* context, leaving it blind to the task it was called about. Capped (e.g. `20`) so a long thread isn't dragged in whole. |
+| `teammatesPresent` | No | Names of teammates that also hold sessions in THIS channel. A handoff to one of them stays in the current thread; anyone else goes to their own channel. Property of the channel, hence per-platform. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Quieting the bot's overhead messages

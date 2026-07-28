@@ -399,6 +399,15 @@ class MattermostMcpPlatformApi implements McpPlatformApi {
     await updatePostRaw(this.apiConfig, postId, message);
   }
 
+  async postTo(channelId: string, message: string, rootId?: string): Promise<{ postId: string }> {
+    // Empty rootId must become undefined — Mattermost rejects an empty string.
+    const post = await createPost(this.apiConfig, channelId, message, rootId || undefined);
+    mcpLogger.debug(
+      `Posted ${formatShortId(post.id)} to ${formatShortId(channelId)}${rootId ? ` (thread ${formatShortId(rootId)})` : ''}`
+    );
+    return { postId: post.id };
+  }
+
   async waitForReaction(
     postId: string,
     botUserId: string,

@@ -122,6 +122,13 @@ export interface PlatformClient extends EventEmitter {
     allowedUsers: string[];
     appToken?: string;
     outboundFiles?: { enabled?: boolean; maxBytes?: number };
+    /**
+     * Teammate registry and who else holds sessions in this channel. Rides on
+     * the MCP config so the agent's `send_to_teammate` and the bot's own docs
+     * ping route through one rule instead of each deciding for itself.
+     */
+    teammates?: Array<{ name: string; channelId: string }>;
+    teammatesPresent?: string[];
   };
 
   /**
