@@ -381,7 +381,11 @@ describe('buildDeliveryMessage', () => {
 
     expect(msg.startsWith('@bebop ')).toBe(true);
     expect(msg).toContain('VERDICT: PASS');
-    expect(msg).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
+    // A delivered ANSWER carries provenance, not an address — otherwise the
+    // requester re-parses it and re-points its own return address at us.
+    expect(msg).toContain('delivered-answer');
+    expect(msg).toContain('https://chat.corp/_redirect/pl/thread-1');
+    expect(msg).not.toContain('reply-to:');
   });
 });
 

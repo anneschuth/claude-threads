@@ -25,7 +25,7 @@ import { splitMessageForPosts } from '../../platform/utils.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
-import { buildReturnAddressMarker, findReturnAddressUrl } from './parser.js';
+import { buildDeliveredAnswerFooter, findReturnAddressUrl } from './parser.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
 import { noteBotDelivery } from '../arbiter/handler.js';
 import {
@@ -222,6 +222,12 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
       sessionLog(session).info(
         `📬 Turn did no work — not waking @${requester}`
       );
+      // Both, or the unused mention survives into an unrelated later turn and
+      // gets armed by its first tool call — waking a teammate who has nothing to
+      // do with that conversation. noteTeammateRequest only overwrites
+      // pendingMention when the NEXT message also comes from an in-thread
+      // teammate, so a human message in between would not clear it.
+      state.pendingMention = undefined;
       state.pendingHandback = undefined;
       persistIfActive(session, ctx);
       return;
@@ -393,7 +399,7 @@ export function buildDeliveryMessage(session: Session, address: ReturnAddress, t
   if (!backLink) return `@${address.requester} ${text}`;
   return (
     `@${address.requester} ${text}\n\n` +
-    `---\n${buildReturnAddressMarker(backLink)}`
+    `---\n${buildDeliveredAnswerFooter(backLink)}`
   );
 }
 

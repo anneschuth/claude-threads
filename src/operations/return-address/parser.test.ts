@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { buildReturnAddressMarker, findReturnAddressUrl } from './parser.js';
+import { buildDeliveredAnswerFooter, buildReturnAddressMarker, findReturnAddressUrl } from './parser.js';
 
 const PL = 'https://chat.corp.pushwoosh.com/_redirect/pl/w5pmoxp1xtg98y6jfwzop7at6r';
 const OTHER = 'https://gitlab.corp.pushwoosh.com/group/repo/-/merge_requests/42';
@@ -94,5 +94,29 @@ describe('findReturnAddressUrl — machine marker', () => {
 
   it('needs a URL right after the marker', () => {
     expect(findReturnAddressUrl('reply-to: (см. выше)')).toBeNull();
+  });
+});
+
+/**
+ * A delivered answer carries a link back to the answerer's thread as provenance.
+ * Reading it as an address hijacked the requester's session: we post
+ * "@bebop <answer> … <our thread>" into bebop's thread, bebop's bot is woken by
+ * the mention, re-parses the message, and its return address now points at OUR
+ * thread — so the next answer bebop writes for someone else is delivered to us.
+ */
+describe('findReturnAddressUrl — delivered answers are not addresses', () => {
+  it('ignores the backlink on our own delivered answer', () => {
+    expect(findReturnAddressUrl(`@bebop VERDICT: PASS\n\n---\n${buildDeliveredAnswerFooter(PL)}`))
+      .toBeNull();
+  });
+
+  it('ignores it even when the answer text itself talks about threads', () => {
+    expect(findReturnAddressUrl(
+      `@bebop ответил тебе в тред, смотри выше\n\n---\n${buildDeliveredAnswerFooter(PL)}`
+    )).toBeNull();
+  });
+
+  it('still reads a real request that happens to quote the word', () => {
+    expect(findReturnAddressUrl(`сделай ревью, reply-to: ${PL}`)).toBe(PL);
   });
 });

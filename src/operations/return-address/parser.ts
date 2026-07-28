@@ -45,6 +45,20 @@ const URL_RE = /https?:\/\/[^\s<>()[\]"'`]+/g;
 const TRAILING_PUNCT_RE = /[.,;:!?)»"'`]+$/;
 
 /**
+ * Marks a message as a delivered ANSWER rather than a request. Such a message
+ * carries a link to the answerer's thread as a courtesy — "here is where this
+ * came from" — and that link must NOT be read as "deliver your next answer
+ * here".
+ *
+ * Without this, delivery hijacked the requester's session: we post
+ * `@bebop <answer> … reply-to: <our thread>` into bebop's thread, bebop's bot is
+ * woken by the mention (correct — it should see the answer), captureReturnAddress
+ * parses the marker, and bebop's return address now points at OUR thread. The
+ * next answer bebop produces for someone else is then delivered to us.
+ */
+const DELIVERED_ANSWER_RE = /(?<![\w-])delivered-answer(?![\w-])/i;
+
+/**
  * Render the machine marker. The single place the emitted format is decided —
  * every message code sends goes through here, so the shape can change without
  * hunting call sites, and `MACHINE_MARKER_RE` above is its only contract.
@@ -53,6 +67,15 @@ const TRAILING_PUNCT_RE = /[.,;:!?)»"'`]+$/;
  */
 export function buildReturnAddressMarker(url: string): string {
   return `↩ reply-to: ${url}`;
+}
+
+/**
+ * Footer for a delivered answer: the backlink without the directive. Reply to us
+ * through `send_to_teammate`, which resolves the route itself — a raw address
+ * here is what caused the hijack above.
+ */
+export function buildDeliveredAnswerFooter(url: string): string {
+  return `↩ delivered-answer · мой тред: ${url}`;
 }
 
 /**
@@ -66,6 +89,9 @@ export function buildReturnAddressMarker(url: string): string {
  */
 export function findReturnAddressUrl(message: string): string | null {
   if (!message) return null;
+
+  // Our own delivered answer: its backlink is provenance, not an address.
+  if (DELIVERED_ANSWER_RE.test(message)) return null;
 
   // Marker first: when a message carries both (a bot forwarding a human's
   // prose request, say), the machine form is the one that was written on
