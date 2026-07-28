@@ -186,12 +186,28 @@ export async function handleMessage(
         }
       }
 
-      // Quiet mode (#402): when the session opts into "respond only when
-      // mentioned", a non-command reply that doesn't @mention the bot is a side
-      // conversation between users — ignore it so it doesn't interrupt Claude.
-      // Commands and pending worktree-prompt responses are already handled above
-      // and so always work, including `!mentions off` to leave quiet mode.
+      // Quiet mode (#402): a non-command reply that doesn't @mention the bot
+      // must not interrupt Claude. But dropping it outright leaves the session
+      // blind: on a shared multi-bot channel teammates reply in this very
+      // thread, and a bot that never sees those replies reports "no answer yet"
+      // while the answer sits two posts above it (observed in #ai-work).
+      // So we record it as thread context instead — handed to the agent with
+      // its next real turn, waking nothing. Bounded by
+      // applySideConversationLimits (5 messages / 2000 chars / 30 min).
       if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+        // Platform allowlist, not the session's: this only becomes context, no
+        // action is taken on it, and it's the same boundary that decides who
+        // may address the bot at all.
+        if (content && client.isUserAllowed(username)) {
+          const target = message.trim().match(/^@([\w.-]+)/)?.[1];
+          session.addSideConversation(threadRoot, {
+            fromUser: username,
+            mentionedUser: target,
+            message: content,
+            timestamp: new Date(),
+            postId: post.id,
+          });
+        }
         return;
       }
 

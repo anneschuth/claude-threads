@@ -119,6 +119,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
+| `autoIncludeThreadContext` | No | Silently fold up to N previous thread messages into the first prompt when a session starts mid-thread, instead of asking. The other half of a shared channel: a joining bot always starts mid-thread, so the prompt would fire on every handoff and its timeout defaults to *no* context, leaving it blind to the task it was called about. Capped (e.g. `20`) so a long thread isn't dragged in whole. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Slack
@@ -136,6 +137,7 @@ channel — because a human asked it to — the bot stays out of the way.
 | `skipPermissions` | No | Auto-approve actions (default: `false`) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
+| `autoIncludeThreadContext` | No | Silently fold up to N previous thread messages into the first prompt when a session starts mid-thread, instead of asking. The other half of a shared channel: a joining bot always starts mid-thread, so the prompt would fire on every handoff and its timeout defaults to *no* context, leaving it blind to the task it was called about. Capped (e.g. `20`) so a long thread isn't dragged in whole. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Quieting the bot's overhead messages

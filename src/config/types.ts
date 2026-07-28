@@ -286,6 +286,16 @@ export interface DocsPingConfig {
   quiescenceMs?: number;
 }
 
+/**
+ * Per-platform seeds for new sessions. One record rather than a field per
+ * setting: these all answer "how do sessions on THIS platform start", and a
+ * shared multi-bot channel needs several of them at once.
+ */
+export interface PlatformSessionDefaults {
+  respondOnlyWhenMentioned?: boolean;
+  autoIncludeThreadContext?: number;
+}
+
 export interface PlatformInstanceConfig {
   id: string;
   type: 'mattermost' | 'slack';
@@ -309,6 +319,17 @@ export interface PlatformInstanceConfig {
    * channel, where people talk to it directly and expect plain replies.
    */
   respondOnlyWhenMentioned?: boolean;
+  /**
+   * Silently fold up to N previous thread messages into the first prompt when a
+   * session starts mid-thread, instead of asking. Unset/0 keeps the prompt.
+   *
+   * The other half of making a shared channel work: the second bot ALWAYS
+   * joins a thread that already has history, so the prompt fires every single
+   * time and its 30s timeout defaults to *no* context — the joining bot then
+   * can't see the task it was called about. Capped rather than boolean because
+   * a long work thread would be costly and mostly irrelevant to drag in whole.
+   */
+  autoIncludeThreadContext?: number;
   /**
    * Channel-level sticky message visibility for this platform. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar (no active-sessions list);

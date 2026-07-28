@@ -1115,9 +1115,11 @@ export async function startSession(
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
     respondOnlyWhenMentioned: resolveQuietMode(
-      ctx.ops.getPlatformQuietMode?.(platformId),
+      ctx.ops.getPlatformSessionDefaults?.(platformId)?.respondOnlyWhenMentioned,
       ctx.config.respondOnlyWhenMentioned,
     ),
+    autoIncludeThreadContext:
+      ctx.ops.getPlatformSessionDefaults?.(platformId)?.autoIncludeThreadContext,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
     sessionHeaderMode,
@@ -1403,6 +1405,7 @@ export async function resumeSession(
     sessionAllowedUsers: new Set(state.sessionAllowedUsers),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
+    autoIncludeThreadContext: state.autoIncludeThreadContext,
     sessionStartPostId: state.sessionStartPostId ?? null,
     sessionHeaderMode: resumeSessionHeaderMode(
       state.sessionHeaderMode,

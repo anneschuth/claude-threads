@@ -128,15 +128,23 @@ export interface PendingWorktreeSuggestions {
 // =============================================================================
 
 /**
- * A side conversation message (not directed at the bot).
- * These are messages from approved users that start with @someone-else.
- * They are tracked and included as context with the next message to Claude.
+ * A message in the session's thread that was not addressed to this bot.
+ * Tracked and handed to the agent as context with its next actual turn, so it
+ * stays aware of the thread without being woken by every line in it.
+ *
+ * Two sources: a message starting with @someone-else, and — on a quiet-mode
+ * platform — any message that doesn't mention us. The latter matters on a
+ * shared multi-bot channel, where teammates reply in the same thread and
+ * dropping those replies leaves each bot blind to the others.
  */
 export interface SideConversation {
   /** Username of the person who sent the message */
   fromUser: string;
-  /** Username of the person who was @mentioned (not the bot) */
-  mentionedUser: string;
+  /**
+   * Who the message was addressed to, when it opened with an @mention.
+   * Absent for quiet-mode messages with no explicit target.
+   */
+  mentionedUser?: string;
   /** The message content */
   message: string;
   /** When the message was sent */
@@ -385,6 +393,12 @@ export interface Session {
 
   // Arbiter watchdog state (delivery obligations, stall nudges)
   arbiter?: ArbiterSessionState;
+
+  /**
+   * Max previous thread messages to fold in silently when this session starts
+   * mid-thread (per-platform seed). Undefined/0 → ask the user instead.
+   */
+  autoIncludeThreadContext?: number;
 
   // Return-address state — guaranteed reply back to the requester's thread
   returnDelivery?: ReturnDeliveryState;

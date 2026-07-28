@@ -12,6 +12,7 @@ export {
 
   // Functions
   getThreadContextCount,
+  resolveAutoContextLimit,
   getValidContextOptions,
   postContextPrompt,
   getContextSelectionFromReaction,

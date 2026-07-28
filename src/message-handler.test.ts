@@ -77,6 +77,7 @@ function createMockSessionManager() {
     startSession: mock(async () => {}),
     startSessionWithWorktree: mock(async () => {}),
     requestMessageApproval: mock(async () => {}),
+    addSideConversation: mock(() => {}),
     showUpdateStatusWithoutSession: mock(async () => {}),
     listWorktreesWithoutSession: mock(async () => {}),
     switchToWorktreeWithoutSession: mock(async () => {}),
@@ -493,6 +494,87 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    /**
+     * Observed in #ai-work: a teammate bot replied in the shared thread without
+     * an @mention, quiet mode dropped it outright, and the first bot went on
+     * reporting "no answer yet" while the answer sat two posts above. Ignoring
+     * the message must not mean forgetting it.
+     */
+    test('when quiet mode on, a non-mention reply is kept as thread context', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'Йоу, Бибоп! Рокстеди на связи, вердикт: PASS',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      // Not woken...
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      // ...but remembered.
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        fromUser: 'allowed-user',
+        message: 'Йоу, Бибоп! Рокстеди на связи, вердикт: PASS',
+        postId: 'post1',
+      }));
+    });
+
+    test('quiet-mode context capture records the target when the message opens with a mention', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post2',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@april глянь доку по этому MR',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        mentionedUser: 'april',
+      }));
+    });
+
+    test('quiet-mode context capture skips users outside the platform allowlist', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+      });
+
+      const post: PlatformPost = {
+        id: 'post3',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user9',
+        message: 'random passer-by talking',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user9', username: 'stranger', displayName: 'Stranger' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
     });
 
     test('when quiet mode on, responds to a reply that @mentions the bot', async () => {

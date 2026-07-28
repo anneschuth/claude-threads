@@ -54,6 +54,8 @@ export interface PersistedSession {
   sessionAllowedUsers: string[]; // Collaboration list
   forceInteractivePermissions: boolean;
   respondOnlyWhenMentioned?: boolean; // Quiet mode: only respond to messages that @mention the bot (default false)
+  /** Per-platform seed: silently fold N previous thread messages in (0/unset = ask) */
+  autoIncludeThreadContext?: number;
   sessionStartPostId: string | null;
   tasksPostId: string | null;
   lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom

@@ -23,6 +23,7 @@ export type {
   PlatformOverhead,
   ArbiterPolicyConfig,
   DocsPingConfig,
+  PlatformSessionDefaults,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,

@@ -271,6 +271,27 @@ export function getContextSelectionFromReaction(
 /**
  * Get thread messages for context.
  */
+/**
+ * How many previous thread messages to fold in silently, or 0 to ask the user.
+ *
+ * A lone thread starter is auto-included regardless — there is nothing to
+ * decide. Beyond that it takes an explicit per-platform cap
+ * (`autoIncludeThreadContext`), which a shared multi-bot channel must set:
+ * every handoff there starts a session mid-thread, so the prompt would fire
+ * constantly and its timeout defaults to no context at all.
+ *
+ * Exported for tests.
+ */
+export function resolveAutoContextLimit(
+  session: Pick<Session, 'autoIncludeThreadContext'>,
+  messageCount: number,
+): number {
+  if (messageCount <= 0) return 0;
+  const configured = session.autoIncludeThreadContext ?? 0;
+  if (configured > 0) return Math.min(messageCount, configured);
+  return messageCount === 1 ? 1 : 0;
+}
+
 export async function getThreadMessagesForContext(
   session: Session,
   limit: number,
@@ -472,9 +493,15 @@ export async function offerContextPrompt(
     return false;
   }
 
-  if (messageCount === 1) {
-    // Only one message (the thread starter) - auto-include without asking
-    const messages = await getThreadMessagesForContext(session, 1, excludePostId);
+  // Auto-include without asking when either:
+  //  - there's just the thread starter (nothing to decide), or
+  //  - this platform is configured to fold context in silently. On a shared
+  //    multi-bot channel the prompt would fire on every handoff and time out
+  //    into "no context", leaving the joining bot blind to the task it was
+  //    called about.
+  const autoLimit = resolveAutoContextLimit(session, messageCount);
+  if (autoLimit > 0) {
+    const messages = await getThreadMessagesForContext(session, autoLimit, excludePostId);
 
     // Get any previous work summary (from directory change)
     const previousWorkSummary = session.previousWorkSummary;
@@ -495,8 +522,9 @@ export async function offerContextPrompt(
       ctx.startTyping(session);
     }
     await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-
-    sessionLog(session).debug(`🧵 Auto-included 1 message as context (thread starter)${previousWorkSummary ? ' + work summary' : ''}`);
+    sessionLog(session).info(
+      `🧵 Auto-included ${messages.length} message(s) as context${previousWorkSummary ? ' + work summary' : ''}`
+    );
 
     return false;
   }

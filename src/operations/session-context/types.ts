@@ -19,7 +19,7 @@ import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ArbiterPolicyConfig, DocsPingConfig, ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
+import type { ArbiterPolicyConfig, DocsPingConfig, PlatformSessionDefaults, ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
 import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -322,11 +322,11 @@ export interface SessionOperations {
   getPlatformOverhead(platformId: string): PlatformOverhead;
 
   /**
-   * Per-platform quiet-mode seed for new sessions, or undefined when the
-   * platform didn't set one (then the bot-wide default applies).
+   * Per-platform seeds for new sessions, or undefined when the platform set
+   * none (then bot-wide defaults apply).
    * Optional so existing SessionContext literals in tests stay valid.
    */
-  getPlatformQuietMode?(platformId: string): boolean | undefined;
+  getPlatformSessionDefaults?(platformId: string): PlatformSessionDefaults | undefined;
 }
 
 // =============================================================================

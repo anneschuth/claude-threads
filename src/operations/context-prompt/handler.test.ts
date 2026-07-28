@@ -8,6 +8,7 @@ import {
   getThreadContextCount,
   getThreadMessagesForContext,
   updateContextPromptPost,
+  resolveAutoContextLimit,
 } from './handler.js';
 import type { ThreadMessage, PlatformClient, PlatformPost } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
@@ -483,4 +484,40 @@ describe('context-prompt', () => {
     });
   });
 
+});
+
+// ===========================================================================
+// resolveAutoContextLimit — silent thread context on shared multi-bot channels
+// ===========================================================================
+
+describe('resolveAutoContextLimit', () => {
+  it('asks the user for a multi-message thread by default', () => {
+    expect(resolveAutoContextLimit({}, 5)).toBe(0);
+  });
+
+  it('still auto-includes a lone thread starter (nothing to decide)', () => {
+    expect(resolveAutoContextLimit({}, 1)).toBe(1);
+  });
+
+  /**
+   * The shared-channel case: every handoff starts a session mid-thread, so the
+   * prompt would fire constantly and time out into NO context, leaving the
+   * joining bot blind to the task it was called about.
+   */
+  it('folds context in silently when the platform sets a cap', () => {
+    expect(resolveAutoContextLimit({ autoIncludeThreadContext: 20 }, 5)).toBe(5);
+  });
+
+  it('never exceeds the configured cap on a long thread', () => {
+    expect(resolveAutoContextLimit({ autoIncludeThreadContext: 20 }, 500)).toBe(20);
+  });
+
+  it('treats an empty thread as nothing to include', () => {
+    expect(resolveAutoContextLimit({ autoIncludeThreadContext: 20 }, 0)).toBe(0);
+  });
+
+  it('a zero cap means "keep asking", not "include nothing"', () => {
+    expect(resolveAutoContextLimit({ autoIncludeThreadContext: 0 }, 5)).toBe(0);
+    expect(resolveAutoContextLimit({ autoIncludeThreadContext: 0 }, 1)).toBe(1);
+  });
 });

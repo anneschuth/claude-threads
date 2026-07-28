@@ -18,7 +18,7 @@ import type { AgentType, CodexAgentConfig } from '../agents/types.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type ArbiterPolicyConfig, type DocsPingConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type ArbiterPolicyConfig, type PlatformSessionDefaults, type DocsPingConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -132,11 +132,11 @@ export class SessionManager extends EventEmitter {
   // Per-platform overhead visibility (sessionHeader / stickyMessage modes)
   private platformOverhead: Map<string, PlatformOverhead> = new Map();
   /**
-   * Per-platform quiet-mode seed. Set for a shared channel where several bots
-   * hold sessions in one thread; unset platforms fall back to the bot-wide
-   * default. See PlatformInstanceConfig.respondOnlyWhenMentioned.
+   * Per-platform session seeds (quiet mode, auto thread context). Set for a
+   * shared channel where several bots hold sessions in one thread; unset
+   * platforms fall back to the bot-wide defaults.
    */
-  private platformQuietMode: Map<string, boolean> = new Map();
+  private platformSessionDefaults: Map<string, PlatformSessionDefaults> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -223,11 +223,11 @@ export class SessionManager extends EventEmitter {
     platformId: string,
     client: PlatformClient,
     overhead?: Partial<PlatformOverhead>,
-    respondOnlyWhenMentioned?: boolean
+    sessionDefaults?: PlatformSessionDefaults
   ): void {
     this.platforms.set(platformId, client);
-    if (respondOnlyWhenMentioned !== undefined) {
-      this.platformQuietMode.set(platformId, respondOnlyWhenMentioned);
+    if (sessionDefaults) {
+      this.platformSessionDefaults.set(platformId, sessionDefaults);
     }
     this.platformOverhead.set(platformId, {
       sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
@@ -261,7 +261,7 @@ export class SessionManager extends EventEmitter {
   removePlatform(platformId: string): void {
     this.platforms.delete(platformId);
     this.platformOverhead.delete(platformId);
-    this.platformQuietMode.delete(platformId);
+    this.platformSessionDefaults.delete(platformId);
     stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
@@ -422,7 +422,7 @@ export class SessionManager extends EventEmitter {
       markClaudeAccountCooling: (id, untilMs) => this.accountPool.markCooling(id, untilMs),
       getClaudeAccountPoolStatus: () => this.accountPool.status(),
 
-      getPlatformQuietMode: (pid) => this.platformQuietMode.get(pid),
+      getPlatformSessionDefaults: (pid) => this.platformSessionDefaults.get(pid),
       getPlatformOverhead: (pid) => this.platformOverhead.get(pid) ?? {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
@@ -706,6 +706,7 @@ export class SessionManager extends EventEmitter {
       sessionAllowedUsers: [...session.sessionAllowedUsers],
       forceInteractivePermissions: session.forceInteractivePermissions,
       respondOnlyWhenMentioned: session.respondOnlyWhenMentioned,
+      autoIncludeThreadContext: session.autoIncludeThreadContext,
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,
