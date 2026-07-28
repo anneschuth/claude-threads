@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **The arbiter no longer nags the agent for deliveries the bot already made.** Its obligation ledger is filled from the agent's own tool calls, so once delivery moved into code the arbiter stopped seeing it: the bot posted the answer, then the arbiter reminded the agent about exactly that obligation, and the agent spent a whole turn explaining itself before the reminder was waived — twice the posts, twice the tokens, and the agents started reciting post ids to defend themselves. Everything that delivers on the agent's behalf now reports to the ledger (`noteBotDelivery`): the return delivery, the teammate hand-back and the review ping.
+
 ### Added
 - **The bot asks for the review, not the agent (`reviewPing`).** Nothing in code ever requested a code review — it was a line in the agent's prompt ("write to @rocksteady when you need a review"), and an agent deep in its own task doesn't act on a suggestion. Observed: a docs bot opened an MR, noticed on its own that GitLab required an approver sign-off, reported that fact, and asked nobody. Now, once a session that opened a merge request goes quiet, the reviewer is called deterministically — routed by the same rule `send_to_teammate` and the docs ping use: a reviewer working in this channel is asked in this thread, next to the code; otherwise in their own channel with a link back. Asked once per MR, never of itself (guarded by name and by channel), and skipped while the agent is still working. No judge: the pain was reviews never being requested, not being requested too often.
 

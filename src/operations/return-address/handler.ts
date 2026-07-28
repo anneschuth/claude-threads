@@ -27,6 +27,7 @@ import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { findReturnAddressUrl } from './parser.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
+import { noteBotDelivery } from '../arbiter/handler.js';
 import {
   createReturnDeliveryState,
   type ReturnDeliveryState,
@@ -211,6 +212,7 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
   try {
     await platform.deliverToThread(route.target, body);
     sessionLog(session).info(`📬 Handed back to @${requester} (${route.kind})`);
+    noteBotDelivery(session, 'hand-back');
   } catch (err) {
     sessionLog(session).warn(`📬 Could not hand back to @${requester}: ${err}`);
   }
@@ -375,6 +377,7 @@ async function deliver(session: Session, ctx: SessionContext): Promise<void> {
     state.deliveredRootIds.push(address.target.rootId);
     persistIfActive(session, ctx);
     sessionLog(session).info(`📬 Delivered the answer to @${address.requester}`);
+    noteBotDelivery(session, 'return delivery');
 
     const fmt = platform.getFormatter();
     await post(

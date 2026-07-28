@@ -294,6 +294,28 @@ export function mightContainDeliveryRequest(message: string): boolean {
  * obligation is fulfilled only when the tool RESULT comes back without
  * error) and remember the turn's final assistant text.
  */
+/**
+ * Mark message-delivery obligations met by a delivery the BOT made itself.
+ *
+ * The ledger is filled from the agent's tool calls, so once delivery moved into
+ * code the arbiter stopped seeing it: the bot posted the answer, and the arbiter
+ * then nagged the agent for exactly that — costing a whole turn to explain
+ * itself and getting waived. Anything that delivers on the agent's behalf must
+ * tell the ledger.
+ */
+export function noteBotDelivery(session: Session, what: string): void {
+  const state = getArbiterState(session);
+  state.deliveryToolCalls.push('message');
+  for (const obligation of state.obligations) {
+    if (obligation.status === 'open' && obligation.tool === 'message') {
+      obligation.status = 'fulfilled';
+      sessionLog(session).info(
+        `⚖️ Obligation fulfilled by the bot itself (${what}): ${obligation.description}`
+      );
+    }
+  }
+}
+
 export function noteEvent(session: Session, event: ClaudeEvent): void {
   const state = getArbiterState(session);
 

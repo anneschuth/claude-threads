@@ -17,6 +17,7 @@ import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { post } from '../post-helpers/index.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
+import { noteBotDelivery } from '../arbiter/handler.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ReviewPingConfig } from '../../config/types.js';
@@ -151,6 +152,7 @@ async function deliver(
     sessionLog(session).info(
       `🔍 Asked @${cfg.botName} to review ${mrUrl} (${route?.kind ?? 'channel'})`
     );
+    noteBotDelivery(session, 'review ping');
 
     const fmt = platform.getFormatter();
     await post(session, 'info', `🔍 ${fmt.formatItalic(`Позвал @${cfg.botName} на ревью`)}`);
