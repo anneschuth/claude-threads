@@ -519,6 +519,8 @@ export interface SendToTeammateHandlerConfig {
   currentThreadId: string;
   ownThreadLink: string;
   maxMessageChars: number;
+  /** Per-post size; injectable so the chunking path is testable. */
+  chunkChars?: number;
 }
 
 /** Config-injected so it is testable without the module singletons. */
@@ -552,11 +554,17 @@ export async function handleSendToTeammateWith(
   try {
     const chunks = splitMessageForPosts(
       buildHandoffMessage(route, message, cfg.ownThreadLink),
-      SEND_TO_TEAMMATE_CHUNK_CHARS,
+      cfg.chunkChars ?? SEND_TO_TEAMMATE_CHUNK_CHARS,
     );
+    // Chunks 2..N go UNDER chunk 1. For a channel route rootId is empty, so
+    // without this each chunk would be its own root post — and only the first
+    // carries the @mention, so the recipient's bot would never see the rest
+    // while the tool still reported ok.
     let postId = '';
+    let rootId = route.target.rootId;
     for (const chunk of chunks) {
-      ({ postId } = await cfg.api.postTo(route.target.channelId, chunk, route.target.rootId));
+      ({ postId } = await cfg.api.postTo(route.target.channelId, chunk, rootId));
+      if (!rootId) rootId = postId;
     }
     mcpLogger.info(
       `Handed off to @${route.teammate.name} via ${route.kind} (post ${postId.substring(0, 8)})`,

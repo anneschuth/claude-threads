@@ -18,7 +18,8 @@ import type { AgentType, CodexAgentConfig } from '../agents/types.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type ArbiterPolicyConfig, type PlatformSessionDefaults, type DocsPingConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type ArbiterPolicyConfig, type PlatformSessionDefaults, type DocsPingConfig,
+  ReviewPingConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -96,6 +97,7 @@ export class SessionManager extends EventEmitter {
   private arbiterEnabled: boolean;
   private arbiterPolicy?: ArbiterPolicyConfig;
   private docsPingConfig?: DocsPingConfig;
+  private reviewPingConfig?: ReviewPingConfig;
   private returnDeliveryEnabled: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
@@ -171,7 +173,8 @@ export class SessionManager extends EventEmitter {
     arbiterEnabled = true,
     returnDeliveryEnabled = true,
     arbiterPolicy?: ArbiterPolicyConfig,
-    docsPingConfig?: DocsPingConfig
+    docsPingConfig?: DocsPingConfig,
+    reviewPingConfig?: ReviewPingConfig
   ) {
     super();
     this.workingDir = workingDir;
@@ -187,6 +190,7 @@ export class SessionManager extends EventEmitter {
     this.arbiterEnabled = arbiterEnabled;
     this.arbiterPolicy = arbiterPolicy;
     this.docsPingConfig = docsPingConfig;
+    this.reviewPingConfig = reviewPingConfig;
     this.returnDeliveryEnabled = returnDeliveryEnabled;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
@@ -344,6 +348,7 @@ export class SessionManager extends EventEmitter {
       arbiterEnabled: this.arbiterEnabled,
       arbiterPolicy: this.arbiterPolicy,
       docsPing: this.docsPingConfig,
+      reviewPing: this.reviewPingConfig,
       returnDeliveryEnabled: this.returnDeliveryEnabled,
     };
 

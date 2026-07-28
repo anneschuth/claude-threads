@@ -561,6 +561,35 @@ describe('handleMessage', () => {
     });
 
     /**
+     * A teammate-opened session must not treat that teammate as the dialogue
+     * owner: its streamed answers would wake this session, and paired with the
+     * hand-back ping that is a two-bot loop burning tokens on both sides.
+     */
+    test('quiet mode on: a teammate bot does not own the dialogue it opened', async () => {
+      (client.getMcpConfig as any) = () => ({ teammates: [{ name: 'bebop', channelId: 'c' }] });
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+        startedBy: 'bebop',
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'вот ещё контекст по задаче',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'bebop', displayName: 'Bebop' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+    });
+
+    /**
      * The second bot in a shared thread (pulled in by send_to_teammate, so
      * startedBy is the teammate) must stay mention-only — otherwise both bots
      * answer every message the human types.

@@ -47,11 +47,14 @@ export const bashToolFormatter: ToolFormatter = {
       );
     }
 
-    cmd = stripCdPrefix(cmd);
+    // Only the DISPLAY drops the cd — the approver must see where a command
+    // runs. `cd /etc && rm -rf ./conf.d` rendered as `rm -rf ./conf.d` asks for
+    // consent to a relative path with the directory hidden.
+    const shown = stripCdPrefix(cmd);
 
     // Truncate long commands
-    const truncated = cmd.length > maxCommandLength;
-    const displayCmd = cmd.substring(0, maxCommandLength);
+    const truncated = shown.length > maxCommandLength;
+    const displayCmd = shown.substring(0, maxCommandLength);
 
     const prefix = `💻 ${formatter.formatBold('Bash')}`;
     const body = formatter.formatCode(displayCmd + (truncated ? '...' : ''));

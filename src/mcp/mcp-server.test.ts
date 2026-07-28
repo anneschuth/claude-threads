@@ -2030,6 +2030,23 @@ describe('handleSendToTeammateWith', () => {
     expect(posted[0].message).toBe('@rocksteady смотри MR');
   });
 
+  /**
+   * A review runs past a single post. Chunks 2..N must go UNDER chunk 1 — for a
+   * channel route rootId starts empty, so otherwise each is its own root post
+   * and only the first carries the @mention, leaving the recipient's bot blind
+   * to the rest while the tool still reports ok.
+   */
+  it('threads continuation chunks under the first post', async () => {
+    const { posted, config } = cfg({ chunkChars: 40, maxMessageChars: 4000 });
+    const long = ['первый абзац ревью', 'второй абзац ревью', 'третий абзац ревью'].join('\n\n');
+    const r = await handleSendToTeammateWith({ teammate: 'krang', message: long }, config);
+
+    expect(r).toMatchObject({ ok: true, routed: 'channel' });
+    expect(posted.length).toBeGreaterThan(1);
+    expect(posted[0].rootId).toBeFalsy();
+    for (const p of posted.slice(1)) expect(p.rootId).toBe('p-1');
+  });
+
   it('routes everyone else to their own channel, with a backlink', async () => {
     const { posted, config } = cfg();
     const r = await handleSendToTeammateWith({ teammate: '@KRANG', message: 'глянь поды' }, config);

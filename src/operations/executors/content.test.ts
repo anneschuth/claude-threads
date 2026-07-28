@@ -207,6 +207,38 @@ describe('ContentExecutor', () => {
       expect(content).not.toContain('×');
     });
 
+    /**
+     * Events are not serialized (`void handleEvent`), so the next command's
+     * tool_use lands while the previous flush is awaiting the platform. The
+     * rewrite used to edit the head of pendingContent, which made
+     * clearFlushedContent()'s prefix match fail — and it wipes the buffer on a
+     * miss, destroying the queued line AND any assistant text behind it.
+     */
+    it('loses nothing when the next command arrives during a flush', async () => {
+      const ctx = getContext();
+      let release: (() => void) | undefined;
+      (platform.createPost as any).mockImplementation(
+        () => new Promise((resolve) => {
+          release = () => resolve({
+            id: 'post_1', platformId: 'test', channelId: 'channel-1',
+            message: '', createAt: Date.now(), userId: 'bot',
+          });
+        })
+      );
+
+      // The line is still in pendingContent when the flush captures it, so the
+      // rewrite below edits the very prefix clearFlushedContent() will look for.
+      await executor.executeAppend(start('npm test'), ctx);
+      const inFlight = executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+      await executor.executeAppend(result('✓'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Готово, вот итог.'), ctx);
+      release?.();
+      await inFlight;
+
+      const queued = executor.getState().pendingContent + executor.getState().currentPostContent;
+      expect(queued).toContain('Готово, вот итог.');
+    });
+
     it('keeps a run collapsed while it is still unflushed', async () => {
       const ctx = getContext();
       await executor.executeAppend(start('a'), ctx);

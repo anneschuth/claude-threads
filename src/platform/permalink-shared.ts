@@ -27,8 +27,12 @@ export const MAX_THREAD_LIMIT = 50;
  *
  * To read one long message in full, fetch it directly — the focal post of
  * read_post is not subject to this cap.
+ *
+ * Kept low on purpose: it multiplies by the message count (up to 50 for a
+ * thread, 100 for channel history), and an over-limit MCP result is replaced
+ * wholesale by an error — the reader would get nothing instead of a trim.
  */
-export const MAX_MESSAGE_BODY_CHARS = 4000;
+export const MAX_MESSAGE_BODY_CHARS = 2000;
 
 /**
  * Cap for the one post a read_post call is *about*. Set above the platforms'

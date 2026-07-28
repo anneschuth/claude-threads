@@ -24,6 +24,7 @@ import { trackEvent } from '../bug-report/index.js';
 import * as arbiter from '../arbiter/index.js';
 import * as returnAddress from '../return-address/index.js';
 import * as docsPing from '../docs-ping/index.js';
+import * as reviewPing from '../review-ping/index.js';
 import * as teammates from '../../teammates/observer.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
@@ -276,6 +277,7 @@ export function handleEventPostProcessing(
     // Docs ping: once this session has an MR, tell the docs bot about it after
     // the dust settles (judged out-of-band, delivered by us).
     docsPing.onTurnComplete(session, ctx);
+    reviewPing.onTurnComplete(session, ctx);
   }
 
   // Track tool errors for bug reporting context

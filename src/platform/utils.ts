@@ -347,6 +347,8 @@ export function convertMarkdownTablesToSlack(content: string): string {
  * a single paragraph that is itself too long.
  */
 export function splitMessageForPosts(message: string, maxLength: number): string[] {
+  // A non-positive limit would make the hard-cut loop below never advance.
+  if (!Number.isFinite(maxLength) || maxLength <= 0) return [message];
   if (message.length <= maxLength) return [message];
 
   const chunks: string[] = [];

@@ -42,15 +42,31 @@ export interface MessageHandlerOptions {
 
 /**
  * Whether this user's plain (un-mentioned) reply in the thread is addressed to
- * this bot: true for whoever opened the session, false for everyone else.
+ * this bot: true for the person who opened the session, false for everyone else.
  *
  * The first @mention picks your bot for the rest of the thread, so follow-ups
- * need no mention. Sessions a teammate opened via send_to_teammate have
- * startedBy = that bot, so they stay mention-only and a second bot in the same
- * thread never answers messages meant for the first.
+ * need no mention.
+ *
+ * Teammate bots are excluded on BOTH sides, and that exclusion is the whole
+ * safety property. A session opened via send_to_teammate has startedBy = that
+ * bot; treating it as the owner would let its streamed answers wake this
+ * session, which — paired with the hand-back ping — is a two-bot loop that
+ * burns tokens on both sides. So bot-opened sessions stay mention-only.
+ *
+ * Known limitation: if a human mentions two bots in one thread, both sessions
+ * have startedBy = that human, so both answer their later plain replies. Naming
+ * two bots is an explicit ask for both, and there is no cheap way to tell which
+ * mention came first.
  */
-export function ownsThreadDialogue(startedBy: string | undefined, username: string): boolean {
+export function ownsThreadDialogue(
+  startedBy: string | undefined,
+  username: string,
+  teammates: string[] = []
+): boolean {
   if (!startedBy || !username || username === 'unknown') return false;
+  const isTeammate = (name: string) =>
+    teammates.some((t) => t.toLowerCase() === name.toLowerCase());
+  if (isTeammate(startedBy) || isTeammate(username)) return false;
   return startedBy.toLowerCase() === username.toLowerCase();
 }
 
@@ -72,6 +88,7 @@ export async function handleMessage(
   const message = post.message;
   const threadRoot = post.rootId || post.id;
   const formatter = client.getFormatter();
+  const teammateNames = (client.getMcpConfig?.().teammates ?? []).map((t) => t.name);
 
   try {
     // Check for !kill command (emergency shutdown)
@@ -209,7 +226,7 @@ export async function handleMessage(
       // its next real turn, waking nothing. Bounded by
       // applySideConversationLimits (5 messages / 2000 chars / 30 min).
       if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)
-          && !ownsThreadDialogue(activeSession.startedBy, username)) {
+          && !ownsThreadDialogue(activeSession.startedBy, username, teammateNames)) {
         // Platform allowlist, not the session's: this only becomes context, no
         // action is taken on it, and it's the same boundary that decides who
         // may address the bot at all.
@@ -300,7 +317,7 @@ export async function handleMessage(
       // The session owner still owns the dialogue while it sleeps: their plain
       // reply resumes it, same as in the active branch above.
       if (persistedSession?.respondOnlyWhenMentioned && !client.isBotMentioned(message)
-          && !ownsThreadDialogue(persistedSession.startedBy, username)) {
+          && !ownsThreadDialogue(persistedSession.startedBy, username, teammateNames)) {
         return;
       }
 

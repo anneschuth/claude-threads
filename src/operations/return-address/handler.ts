@@ -257,9 +257,12 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
     return;
   }
 
-  // A tool call means whatever was said before it was running commentary, not
-  // the answer — start the answer over from here.
-  if (event.type === 'tool_use') state.finalTextParts = [];
+  // Two reset points, both meaning "what came before is not this answer":
+  // a tool call (the text before it was running commentary) and the end of a
+  // turn (the next turn's answer is a new one). Without the latter, text-only
+  // turns — the arbiter-nudge pattern — pile up and the requester receives
+  // every earlier turn concatenated ahead of the real answer.
+  if (event.type === 'tool_use' || event.type === 'result') state.finalTextParts = [];
 
   const targetRoot = state.address?.target.rootId;
   if (!targetRoot) return;

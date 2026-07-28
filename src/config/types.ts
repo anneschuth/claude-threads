@@ -234,6 +234,7 @@ export interface Config {
    * bot's channel itself — instead of relying on the agent to remember.
    */
   docsPing?: DocsPingConfig;
+  reviewPing?: ReviewPingConfig;
   /**
    * Other bots this bot can hand work to. Backs the `send_to_teammate` tool
    * and the docs ping, which route through one shared rule so they can't
@@ -280,6 +281,21 @@ export interface ArbiterPolicyConfig {
  * Docs-bot notification settings. Off unless `enabled` and `channelId` are set.
  * The docs bot's own sessions are skipped automatically.
  */
+/**
+ * Review ping — the bot asks the reviewer when a session opens a merge request.
+ * The mirror of DocsPingConfig; the reviewer's own sessions are skipped
+ * automatically (by name and by channel).
+ */
+export interface ReviewPingConfig {
+  enabled?: boolean;
+  /** Channel of the reviewer bot to post into. Required. */
+  channelId?: string;
+  /** Reviewer's mention name, used in the message and for the self-ping guard. */
+  botName?: string;
+  /** Quiet period before the ping fires, ms (default: 2 min). */
+  quiescenceMs?: number;
+}
+
 export interface DocsPingConfig {
   enabled?: boolean;
   /** Channel of the docs bot to post into. Required. */

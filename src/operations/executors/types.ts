@@ -79,6 +79,12 @@ export interface ContentState {
   updateTimer: ReturnType<typeof setTimeout> | null;
   /** Rolling tool line currently open, if any (see ToolGroupOp) */
   toolGroup: ToolGroupState | null;
+  /**
+   * True while a flush is awaiting the platform. Events are not serialized, so
+   * an append can land mid-flush; the rolling line must not rewrite the buffer
+   * in that window (see rewriteGroupLine).
+   */
+  flushing: boolean;
 }
 
 /**

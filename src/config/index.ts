@@ -23,6 +23,7 @@ export type {
   PlatformOverhead,
   ArbiterPolicyConfig,
   DocsPingConfig,
+  ReviewPingConfig,
   PlatformSessionDefaults,
   TeammateConfig,
 } from './types.js';

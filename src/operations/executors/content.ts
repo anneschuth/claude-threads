@@ -53,6 +53,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       pendingContent: '',
       updateTimer: null,
       toolGroup: null,
+      flushing: false,
     };
   }
 
@@ -219,6 +220,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   private rewriteGroupLine(ctx: ExecutorContext, oldLine: string, newLine: string): boolean {
     if (!oldLine) return false;
 
+    // A flush is in flight: it captured pendingContent by value and will clear
+    // it by prefix match on completion, so editing the buffer's head here makes
+    // that match fail and clearFlushedContent() wipes everything queued —
+    // including content that has nothing to do with this line. Losing text is
+    // far worse than an extra line, so stand down and let the caller open one.
+    if (this.state.flushing) return false;
+
     const pending = this.state.pendingContent;
     const pendingBody = pending.trimEnd();
     if (pendingBody.endsWith(oldLine)) {
@@ -263,10 +271,19 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Flush pending content to the platform.
    */
-  async flush(ctx: ExecutorContext, _reason: FlushOp['reason']): Promise<void> {
+  async flush(ctx: ExecutorContext, reason: FlushOp['reason']): Promise<void> {
     if (!this.state.pendingContent.trim()) {
       return; // Nothing to flush
     }
+    this.state.flushing = true;
+    try {
+      await this.flushInner(ctx, reason);
+    } finally {
+      this.state.flushing = false;
+    }
+  }
+
+  private async flushInner(ctx: ExecutorContext, _reason: FlushOp['reason']): Promise<void> {
 
     // Capture content at start of flush
     const pendingAtFlushStart = this.state.pendingContent;

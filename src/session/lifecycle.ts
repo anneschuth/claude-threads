@@ -54,6 +54,7 @@ import {
   createReturnDeliveryState,
 } from '../operations/return-address/index.js';
 import { cancelDocsPing, createDocsPingState } from '../operations/docs-ping/index.js';
+import { cancelReviewPing } from '../operations/review-ping/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -109,6 +110,7 @@ function cleanupSessionTimers(session: Session): void {
   // longer exists.
   cancelReturnDelivery(session);
   cancelDocsPing(session);
+  cancelReviewPing(session);
   cancelWaiting(session);
 }
 
@@ -234,6 +236,7 @@ function removeFromRegistry(session: Session, ctx: SessionContext): void {
   session.messageManager?.dispose();
   cancelReturnDelivery(session);
   cancelDocsPing(session);
+  cancelReviewPing(session);
   cancelWaiting(session);
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
