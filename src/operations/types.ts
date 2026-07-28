@@ -30,6 +30,18 @@ export interface BaseOperation {
 // ---------------------------------------------------------------------------
 
 /**
+ * A line that rewrites itself: consecutive `start` ops sharing a key collapse
+ * into one line with a run counter, and the matching `result` op stamps its
+ * outcome onto that same line instead of adding another one.
+ *
+ * The op's `content` is unused when this is set — the line is rendered from
+ * `prefix`/`body` so the counter and status can be re-rendered on each update.
+ */
+export type ToolGroupOp =
+  | { readonly key: string; readonly role: 'start'; readonly prefix: string; readonly body: string }
+  | { readonly key: string; readonly role: 'result'; readonly status: string };
+
+/**
  * Append content to the current streaming message.
  */
 export interface AppendContentOp extends BaseOperation {
@@ -38,6 +50,8 @@ export interface AppendContentOp extends BaseOperation {
   readonly content: string;
   /** Whether this content includes tool use formatting */
   readonly isToolOutput?: boolean;
+  /** Set for tools that render as a rolling line (see ToolGroupOp) */
+  readonly toolGroup?: ToolGroupOp;
 }
 
 /**
@@ -328,7 +342,8 @@ export function isLifecycleOp(op: MessageOperation): op is LifecycleOp {
 export function createAppendContentOp(
   sessionId: string,
   content: string,
-  isToolOutput?: boolean
+  isToolOutput?: boolean,
+  toolGroup?: ToolGroupOp
 ): AppendContentOp {
   return {
     type: 'append_content',
@@ -336,6 +351,7 @@ export function createAppendContentOp(
     timestamp: Date.now(),
     content,
     isToolOutput,
+    toolGroup,
   };
 }
 

@@ -531,6 +531,64 @@ describe('handleMessage', () => {
       }));
     });
 
+    /**
+     * Mentioning the bot on every follow-up is what users actually hate about a
+     * shared channel. The first @mention makes it your bot for the thread; from
+     * then on plain replies from the person who opened the session go through.
+     */
+    test('quiet mode on: the session owner needs no @mention for follow-ups', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+        startedBy: 'allowed-user',
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'а покажи диф',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalledWith('thread1', 'а покажи диф', undefined, 'allowed-user', 'User');
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The second bot in a shared thread (pulled in by send_to_teammate, so
+     * startedBy is the teammate) must stay mention-only — otherwise both bots
+     * answer every message the human types.
+     */
+    test('quiet mode on: a teammate-opened session ignores the human plain reply', async () => {
+      (session.registry.findByThreadId as any).mockReturnValue({
+        sessionId: 'test:thread1',
+        respondOnlyWhenMentioned: true,
+        startedBy: 'bebop',
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'а покажи диф',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalled();
+    });
+
     test('quiet-mode context capture records the target when the message opens with a mention', async () => {
       (session.registry.findByThreadId as any).mockReturnValue({
         sessionId: 'test:thread1',
@@ -817,6 +875,31 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.resumePausedSession).not.toHaveBeenCalled();
+    });
+
+    test('quiet mode on: the session owner\'s plain reply resumes it', async () => {
+      // The first @mention picks your bot for the thread; follow-ups need none,
+      // and that ownership survives the idle pause.
+      (session.getPersistedSession as any).mockReturnValue({
+        sessionAllowedUsers: ['allowed-user'],
+        respondOnlyWhenMentioned: true,
+        startedBy: 'allowed-user',
+      });
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'и тесты добавь',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'и тесты добавь', undefined, 'allowed-user');
     });
 
     test('quiet mode on: an @mention reply still resumes the paused session (#410)', async () => {

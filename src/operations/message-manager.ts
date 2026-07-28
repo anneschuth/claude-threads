@@ -164,6 +164,10 @@ export class MessageManager {
   // Tool start times for elapsed time calculation
   private toolStartTimes: Map<string, number> = new Map();
 
+  // toolUseId → rolling-line key, so a tool_result folds into the line its
+  // tool_use opened (see ToolGroupOp)
+  private toolGroups: Map<string, string> = new Map();
+
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly DEFAULT_FLUSH_DELAY_MS = 500;
@@ -291,6 +295,7 @@ export class MessageManager {
       sessionId: this.sessionId,
       formatter: this.platform.getFormatter(),
       toolStartTimes: this.toolStartTimes,
+      toolGroups: this.toolGroups,
       detailed: true,
       worktreeInfo: this.worktreePath && this.worktreeBranch
         ? { path: this.worktreePath, branch: this.worktreeBranch }
@@ -1166,6 +1171,7 @@ export class MessageManager {
   reset(): void {
     this.cancelScheduledFlush();
     this.toolStartTimes.clear();
+    this.toolGroups.clear();
     this.contentExecutor.reset();
     this.taskListExecutor.reset();
     this.questionApprovalExecutor.reset();

@@ -11,8 +11,8 @@
 import { truncateMessageSafely } from '../../platform/utils.js';
 import { formatShortId } from '../../utils/format.js';
 import { MIN_BREAK_THRESHOLD, splitContentForHeight } from '../content-breaker.js';
-import type { AppendContentOp, FlushOp } from '../types.js';
-import type { ExecutorContext, ContentState } from './types.js';
+import type { AppendContentOp, FlushOp, ToolGroupOp } from '../types.js';
+import type { ExecutorContext, ContentState, ToolGroupState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
 // ---------------------------------------------------------------------------
@@ -52,6 +52,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       currentPostContent: '',
       pendingContent: '',
       updateTimer: null,
+      toolGroup: null,
     };
   }
 
@@ -126,9 +127,19 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Execute an append content operation.
    */
-  async executeAppend(op: AppendContentOp, _ctx: ExecutorContext): Promise<void> {
+  async executeAppend(op: AppendContentOp, ctx: ExecutorContext): Promise<void> {
+    if (op.toolGroup) {
+      this.appendToolGroup(op.toolGroup, ctx);
+      return;
+    }
+    // Anything else ends the run, so the next tool line starts a fresh one.
+    this.state.toolGroup = null;
+    this.appendRaw(op.content, op.isToolOutput);
+  }
+
+  private appendRaw(content: string, isToolOutput?: boolean): void {
     // Tool output needs spacing before and after to separate from text
-    if (op.isToolOutput && this.state.pendingContent.length > 0) {
+    if (isToolOutput && this.state.pendingContent.length > 0) {
       if (!this.state.pendingContent.endsWith('\n\n')) {
         if (this.state.pendingContent.endsWith('\n')) {
           this.state.pendingContent += '\n';
@@ -137,12 +148,97 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         }
       }
     }
-    this.state.pendingContent += op.content;
+    this.state.pendingContent += content;
 
     // Add spacing after tool output so next content is separated
-    if (op.isToolOutput) {
+    if (isToolOutput) {
       this.state.pendingContent += '\n\n';
     }
+  }
+
+  // -------------------------------------------------------------------------
+  // Rolling tool line
+  //
+  // A run of consecutive calls to the same tool (a bot doing eight `Bash`
+  // commands in a row) used to stack eight near-identical lines. Instead the
+  // run shares one line that rewrites itself: `💻 Bash ×8 <last cmd> ✓ (41s)`.
+  // -------------------------------------------------------------------------
+
+  /** Shown until the tool's own result arrives and replaces it. */
+  private static readonly GROUP_RUNNING_STATUS = '⏳';
+
+  private static renderGroupLine(g: ToolGroupState, status: string): string {
+    const count = g.count > 1 ? ` ×${g.count}` : '';
+    return `${g.prefix}${count} ${g.body} ${status}`;
+  }
+
+  private appendToolGroup(group: ToolGroupOp, ctx: ExecutorContext): void {
+    const active = this.state.toolGroup;
+    const sameRun = active?.key === group.key;
+
+    if (group.role === 'result') {
+      if (!active || !sameRun) return;
+      const line = ContentExecutor.renderGroupLine(active, group.status);
+      if (this.rewriteGroupLine(ctx, active.line, line)) {
+        active.line = line;
+      } else {
+        this.state.toolGroup = null;
+      }
+      return;
+    }
+
+    if (active && sameRun) {
+      const next: ToolGroupState = {
+        ...active, prefix: group.prefix, body: group.body, count: active.count + 1,
+      };
+      next.line = ContentExecutor.renderGroupLine(next, ContentExecutor.GROUP_RUNNING_STATUS);
+      if (this.rewriteGroupLine(ctx, active.line, next.line)) {
+        this.state.toolGroup = next;
+        return;
+      }
+    }
+
+    // First call of a run, or the previous line is out of reach — open a new one.
+    const fresh: ToolGroupState = {
+      key: group.key, prefix: group.prefix, body: group.body, count: 1, line: '',
+    };
+    fresh.line = ContentExecutor.renderGroupLine(fresh, ContentExecutor.GROUP_RUNNING_STATUS);
+    this.appendRaw(fresh.line, true);
+    this.state.toolGroup = fresh;
+  }
+
+  /**
+   * Swap the run's line for a new one, wherever it currently sits: still in the
+   * pending buffer, or already written into the open post — in which case
+   * dropping it here makes the next flush edit that post in place.
+   *
+   * Returns false when the line is no longer at the tail (a split moved it into
+   * an earlier post, or other content landed after it), so the caller opens a
+   * new line instead of corrupting an old one.
+   */
+  private rewriteGroupLine(ctx: ExecutorContext, oldLine: string, newLine: string): boolean {
+    if (!oldLine) return false;
+
+    const pending = this.state.pendingContent;
+    const pendingBody = pending.trimEnd();
+    if (pendingBody.endsWith(oldLine)) {
+      const trailing = pending.slice(pendingBody.length);
+      this.state.pendingContent = pendingBody.slice(0, -oldLine.length) + newLine + trailing;
+      return true;
+    }
+
+    // Flushed already: the post holds it in platform-formatted shape, so match
+    // that. Only safe while nothing else is queued behind it.
+    const posted = this.state.currentPostContent;
+    if (!pendingBody && this.state.currentPostId && posted) {
+      const formattedOld = ctx.formatter.formatMarkdown(oldLine).trim();
+      if (formattedOld && posted.endsWith(formattedOld)) {
+        this.state.currentPostContent = posted.slice(0, -formattedOld.length);
+        this.state.pendingContent = newLine + '\n\n';
+        return true;
+      }
+    }
+    return false;
   }
 
   /**

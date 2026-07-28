@@ -39,6 +39,21 @@ export interface ReturnDeliveryState {
    */
   lastFinalText?: string;
   /**
+   * A teammate bot asked us something in this thread and has not been told the
+   * answer is ready. Their bot only wakes on a mention, so an answer streamed
+   * as plain thread content is invisible to them — the collaboration stalls
+   * with the answer sitting right there (observed repeatedly between bebop and
+   * rocksteady). Cleared once the hand-back is posted.
+   */
+  pendingHandback?: string;
+
+  /**
+   * Assistant messages since the last tool call, in order. A long answer (a
+   * code review, a verdict plus its rationale) arrives as several messages,
+   * and delivering only the last one hands the requester a fragment.
+   */
+  finalTextParts?: string[];
+  /**
    * Thread roots that already received this session's answer — whether the
    * agent delivered it or we did. Prevents a duplicate post.
    */

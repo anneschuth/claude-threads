@@ -159,10 +159,28 @@ describe('captureReturnAddress', () => {
 // ---------------------------------------------------------------------------
 
 describe('noteEvent', () => {
-  it('keeps the LAST assistant message as the answer', () => {
+  /**
+   * A review's verdict, findings and file list arrive as separate assistant
+   * messages. Keeping only the last one delivered a fragment — bebop got the
+   * tail of rocksteady's review and could not fetch the rest.
+   */
+  it('keeps every assistant message since the last tool call', () => {
+    const session = makeSession(spies);
+
+    noteEvent(session, { type: 'assistant', message: { content: [{ type: 'text', text: '## Review Summary' }] } });
+    noteEvent(session, { type: 'assistant', message: { content: [{ type: 'text', text: 'MUST FIX: renderCard.ts:98' }] } });
+    noteEvent(session, { type: 'assistant', message: { content: [{ type: 'text', text: 'VERDICT: FAIL' }] } });
+
+    expect(getReturnDeliveryState(session).lastFinalText).toBe(
+      '## Review Summary\n\nMUST FIX: renderCard.ts:98\n\nVERDICT: FAIL'
+    );
+  });
+
+  it('drops commentary made before a tool call', () => {
     const session = makeSession(spies);
 
     noteEvent(session, { type: 'assistant', message: { content: [{ type: 'text', text: 'смотрю код...' }] } });
+    noteEvent(session, { type: 'tool_use', tool_use: { id: 't1', name: 'Read', input: {} } });
     noteEvent(session, { type: 'assistant', message: { content: [{ type: 'text', text: 'VERDICT: PASS' }] } });
 
     expect(getReturnDeliveryState(session).lastFinalText).toBe('VERDICT: PASS');

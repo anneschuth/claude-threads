@@ -352,8 +352,9 @@ function formatHistoryEntry(
   const topic = getHistorySessionTopic(session, formatter);
   const threadLink = formatter.formatLink(topic, getThreadLink(session.threadId));
   const displayName = session.startedByDisplayName || session.startedBy;
-  // Determine if this is a timed-out (resumable) session or a completed session
-  const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
+  // Resumable = paused, not finished. lifecyclePostId covers sessions paused
+  // before idle timeout went silent; isPaused is the marker for new ones.
+  const isTimedOut = !session.cleanedAt && (session.lifecyclePostId || session.isPaused);
   // Show when the user last worked on it, not when it was cleaned up
   const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);

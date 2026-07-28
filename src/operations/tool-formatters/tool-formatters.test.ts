@@ -7,6 +7,7 @@ import {
   ToolFormatterRegistry,
   fileToolsFormatter,
   bashToolFormatter,
+  stripCdPrefix,
   taskToolsFormatter,
   chromeToolsFormatter,
   webToolsFormatter,
@@ -272,6 +273,51 @@ describe('Bash Formatter', () => {
     );
 
     expect(result!.display).toContain('[feature]');
+  });
+
+  /**
+   * `cd ~/workspaces/workdir/<project> &&` is ~40 characters of scaffolding on
+   * nearly every command, so with a 50-char budget a whole run of different
+   * commands rendered as the same truncated prefix.
+   */
+  it('drops the cd scaffolding so the command itself is visible', () => {
+    const result = bashToolFormatter.format(
+      'Bash',
+      { command: 'cd ~/workspaces/workdir/smart-blocks && glab mr create --fill --yes' },
+      options
+    );
+
+    expect(result!.display).toContain('glab mr create --fill --yes');
+    expect(result!.display).not.toContain('cd ~');
+  });
+
+  it('keeps a bare cd, which is the whole command', () => {
+    const result = bashToolFormatter.format('Bash', { command: 'cd /tmp' }, options);
+
+    expect(result!.display).toContain('cd /tmp');
+  });
+
+  it('opts Bash into a rolling display line', () => {
+    const result = bashToolFormatter.format('Bash', { command: 'npm test' }, options);
+
+    expect(result!.group).toEqual({
+      key: 'Bash', prefix: '💻 **Bash**', body: '`npm test`',
+    });
+  });
+});
+
+describe('stripCdPrefix', () => {
+  it.each([
+    ['cd /a/b && npm test', 'npm test'],
+    ['cd "/a b" && ls', 'ls'],
+    ['cd /a; ls -la', 'ls -la'],
+    ['cd /a && cd /a/b && make', 'make'],
+    ['cd [feature] && git status', 'git status'],
+    ['npm test', 'npm test'],
+    ['cd /a/b', 'cd /a/b'],
+    ['echo "cd /a && x"', 'echo "cd /a && x"'],
+  ])('%s → %s', (input, expected) => {
+    expect(stripCdPrefix(input)).toBe(expected);
   });
 });
 

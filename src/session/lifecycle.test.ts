@@ -335,33 +335,46 @@ describe('Lifecycle Module', () => {
       const sessions = new Map([['test-platform:thread-123', session]]);
       const ctx = createMockSessionContext(sessions);
 
-      await lifecycle.cleanupIdleSessions(
-        30 * 60 * 1000, // 30 min timeout
-        5 * 60 * 1000,  // 5 min warning
-        ctx
-      );
+      await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
       expect(sessions.has('test-platform:thread-123')).toBe(true);
       expect(session.claude.kill).not.toHaveBeenCalled();
     });
 
-    it('posts timeout warning before killing', async () => {
+    /**
+     * Idling out is silent. Both notices ("will timeout in ~N minutes" and
+     * "timed out, react 🔄 to resume") fired on every thread the user left
+     * open; a plain reply resumes the session without either of them.
+     */
+    it('posts nothing while a session idles toward its timeout', async () => {
       const session = createMockSession({
-        lastActivityAt: new Date(Date.now() - 26 * 60 * 1000), // 26 min ago
-        timeoutWarningPosted: false,
+        lastActivityAt: new Date(Date.now() - 26 * 60 * 1000), // inside the old warning window
       });
       const sessions = new Map([['test-platform:thread-123', session]]);
       const ctx = createMockSessionContext(sessions);
 
-      await lifecycle.cleanupIdleSessions(
-        30 * 60 * 1000, // 30 min timeout
-        5 * 60 * 1000,  // 5 min warning
-        ctx
-      );
+      await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
-      // Should post warning but not kill yet
-      expect(session.timeoutWarningPosted).toBe(true);
+      expect(session.platform.createPost).not.toHaveBeenCalled();
+      expect(session.platform.updatePost).not.toHaveBeenCalled();
       expect(sessions.has('test-platform:thread-123')).toBe(true);
+    });
+
+    it('posts nothing when the session actually times out', async () => {
+      const session = createMockSession({
+        lastActivityAt: new Date(Date.now() - 35 * 60 * 1000),
+      });
+      const sessions = new Map([['test-platform:thread-123', session]]);
+      const ctx = createMockSessionContext(sessions);
+
+      await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
+
+      expect(session.platform.createPost).not.toHaveBeenCalled();
+      expect(session.platform.updatePost).not.toHaveBeenCalled();
+      // Paused, not forgotten: persisted so a reply can resume it.
+      expect(sessions.has('test-platform:thread-123')).toBe(false);
+      expect(ctx.ops.persistSession).toHaveBeenCalled();
+      expect(ctx.state.sessionStore.remove).not.toHaveBeenCalled();
     });
   });
 });
@@ -514,11 +527,7 @@ describe('cleanupIdleSessions extended', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.cleanupIdleSessions(
-      30 * 60 * 1000, // 30 min timeout
-      5 * 60 * 1000,  // 5 min warning
-      ctx
-    );
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
     // Session should be killed
     expect(sessions.has('test-platform:thread-123')).toBe(false);
@@ -537,11 +546,7 @@ describe('cleanupIdleSessions extended', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.cleanupIdleSessions(
-      30 * 60 * 1000,
-      5 * 60 * 1000,
-      ctx
-    );
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
     // Session is killed even with pending approval (current behavior)
     expect(sessions.has('test-platform:thread-123')).toBe(false);
@@ -559,11 +564,7 @@ describe('cleanupIdleSessions extended', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.cleanupIdleSessions(
-      30 * 60 * 1000,
-      5 * 60 * 1000,
-      ctx
-    );
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
     // Session is killed even with pending question (current behavior)
     expect(sessions.has('test-platform:thread-123')).toBe(false);
@@ -579,11 +580,7 @@ describe('cleanupIdleSessions extended', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.cleanupIdleSessions(
-      30 * 60 * 1000,
-      5 * 60 * 1000,
-      ctx
-    );
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, ctx);
 
     // Session is killed even with pending worktree prompt (current behavior)
     expect(sessions.has('test-platform:thread-123')).toBe(false);
@@ -594,7 +591,7 @@ describe('cleanupIdleSessions extended', () => {
     const ctx = createMockSessionContext(sessions);
 
     // Should not throw
-    await lifecycle.cleanupIdleSessions(30000, 5000, ctx);
+    await lifecycle.cleanupIdleSessions(30000, ctx);
 
     expect(sessions.size).toBe(0);
   });

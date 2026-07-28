@@ -10,6 +10,7 @@ import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
+  MAX_FOCUSED_BODY_CHARS,
 } from './permalink.js';
 import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
 
@@ -249,10 +250,29 @@ describe('formatResolvedSlack', () => {
     expect(out).toContain('@bob:');
   });
 
-  it('truncates bodies longer than MAX_MESSAGE_BODY_CHARS', () => {
-    const post = makePost({ message: 'x'.repeat(MAX_MESSAGE_BODY_CHARS + 100) });
+  /**
+   * The post the call is about arrives whole — a long code review had been
+   * unreadable through every tool because it shared the listing cap.
+   */
+  it('does not truncate the focal post', () => {
+    const longBody = 'x'.repeat(MAX_MESSAGE_BODY_CHARS + 500);
+    const post = makePost({ message: longBody });
     const out = formatResolvedSlack({ post, thread: [] });
-    expect(out).toContain('[…truncated, 100 more chars]');
+    expect(out).not.toContain('truncated');
+  });
+
+  it('truncates thread-context bodies at the listing cap', () => {
+    const post = makePost({ message: 'short' });
+    const long = makePost({ id: '1700000000.000999', message: 'y'.repeat(MAX_MESSAGE_BODY_CHARS + 500) });
+    const out = formatResolvedSlack({ post, thread: [post, long] });
+    expect(out).toContain('[…truncated, 500 more chars]');
+    expect(out.match(/truncated/g)?.length).toBe(1);
+  });
+
+  it('truncates the focal post only past the platform post limit', () => {
+    const post = makePost({ message: 'z'.repeat(MAX_FOCUSED_BODY_CHARS + 10) });
+    const out = formatResolvedSlack({ post, thread: [] });
+    expect(out).toContain('[…truncated, 10 more chars]');
   });
 
   it('uses singular "message" for thread of one', () => {

@@ -21,10 +21,12 @@
 import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
 import { post } from '../post-helpers/index.js';
+import { splitMessageForPosts } from '../../platform/utils.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { findReturnAddressUrl } from './parser.js';
+import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
 import {
   createReturnDeliveryState,
   type ReturnDeliveryState,
@@ -100,6 +102,8 @@ export async function captureReturnAddress(
 ): Promise<void> {
   if (!enabled(ctx)) return;
 
+  noteTeammateRequest(session, requester);
+
   const url = findReturnAddressUrl(message);
   if (!url) return;
 
@@ -133,6 +137,85 @@ export async function captureReturnAddress(
   }
 }
 
+/** The teammate registry as this platform reports it, or an empty list. */
+function teammateRegistry(session: Session) {
+  return session.platform.getMcpConfig?.()?.teammates ?? [];
+}
+
+/**
+ * Remember that a teammate bot is waiting on us in this thread. Their bot wakes
+ * only on a mention, so finishing the turn silently leaves them blocked.
+ */
+export function noteTeammateRequest(session: Session, requester: string | undefined): void {
+  if (!requester) return;
+  const known = teammateRegistry(session)
+    .some((t) => t.name.toLowerCase() === requester.toLowerCase());
+  if (!known) return;
+  getReturnDeliveryState(session).pendingHandback = requester;
+}
+
+/** True when a teammate is still owed a "your answer is ready" ping. */
+export function handbackPending(state: ReturnDeliveryState): boolean {
+  return Boolean(state.pendingHandback);
+}
+
+/**
+ * Tell the teammate their answer is ready, routed by the same rule
+ * send_to_teammate and the docs ping use: present in this channel → mention in
+ * this thread; otherwise → their own channel, with a link back here.
+ *
+ * Deliberately a pointer, not a copy: the answer is already in this thread, and
+ * re-posting a full code review into another channel is noise. The cross-thread
+ * path (deliver()) is what copies text, because there the requester cannot see
+ * this thread at all.
+ */
+async function deliverHandback(session: Session, ctx: SessionContext): Promise<void> {
+  const state = getReturnDeliveryState(session);
+  const requester = state.pendingHandback;
+  if (!enabled(ctx) || !requester) return;
+  if (session.isProcessing) return; // work resumed; onTurnComplete re-arms
+  if (!ctx.state.sessions.has(session.sessionId)) return;
+
+  const platform = session.platform;
+  if (!platform.deliverToThread) return;
+
+  // Already answered them across threads — that post carries a mention.
+  if (state.address?.requester.toLowerCase() === requester.toLowerCase()
+      && state.deliveredRootIds.includes(state.address.target.rootId)) {
+    state.pendingHandback = undefined;
+    return;
+  }
+
+  const mcp = platform.getMcpConfig?.();
+  const route = resolveTeammateRoute(requester, {
+    registry: mcp?.teammates ?? [],
+    presentHere: mcp?.teammatesPresent ?? [],
+    currentChannelId: mcp?.channelId ?? '',
+    currentThreadId: session.threadId,
+  });
+  if (!route) {
+    state.pendingHandback = undefined;
+    return;
+  }
+
+  // Cleared before the await: a failed ping must not retry forever, and the
+  // next incoming message from them re-arms it anyway.
+  state.pendingHandback = undefined;
+  persistIfActive(session, ctx);
+
+  const body = buildHandoffMessage(
+    route,
+    'готово — мой ответ выше в треде.',
+    platform.getThreadLink(session.threadId),
+  );
+  try {
+    await platform.deliverToThread(route.target, body);
+    sessionLog(session).info(`📬 Handed back to @${requester} (${route.kind})`);
+  } catch (err) {
+    sessionLog(session).warn(`📬 Could not hand back to @${requester}: ${err}`);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Event bookkeeping
 // ---------------------------------------------------------------------------
@@ -157,16 +240,26 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
 
   if (event.type === 'assistant') {
     const message = event.message as { content?: Array<{ type: string; text?: string }> } | undefined;
-    // Join this message's text blocks; the LAST assistant message of the turn
-    // is the answer. Earlier ones are running commentary between tool calls.
     const text = (message?.content ?? [])
       .filter((b) => b.type === 'text' && b.text?.trim())
       .map((b) => b.text as string)
       .join('\n\n')
       .trim();
-    if (text) state.lastFinalText = text;
+    if (text) {
+      // Everything said since the last tool call, joined. A review's verdict,
+      // its findings and its file list arrive as separate messages; delivering
+      // only the last one hands the requester a fragment and they then can't
+      // fetch the rest (observed: bebop got the tail of rocksteady's review and
+      // burned a turn trying to read the thread back out through MCP).
+      state.finalTextParts = [...(state.finalTextParts ?? []), text];
+      state.lastFinalText = state.finalTextParts.join('\n\n');
+    }
     return;
   }
+
+  // A tool call means whatever was said before it was running commentary, not
+  // the answer — start the answer over from here.
+  if (event.type === 'tool_use') state.finalTextParts = [];
 
   const targetRoot = state.address?.target.rootId;
   if (!targetRoot) return;
@@ -218,12 +311,15 @@ export function deliveryPending(state: ReturnDeliveryState): boolean {
 export function onTurnComplete(session: Session, ctx: SessionContext): void {
   if (!enabled(ctx)) return;
   const state = getReturnDeliveryState(session);
-  if (!deliveryPending(state)) return;
+  if (!deliveryPending(state) && !handbackPending(state)) return;
 
   if (state.timer) clearTimeout(state.timer);
   state.timer = setTimeout(() => {
     state.timer = undefined;
-    void deliver(session, ctx).catch((err) => log.debug(`Return delivery failed: ${err}`));
+    void deliver(session, ctx)
+      .catch((err) => log.debug(`Return delivery failed: ${err}`))
+      .then(() => deliverHandback(session, ctx))
+      .catch((err) => log.debug(`Hand-back failed: ${err}`));
   }, quiescenceMs(ctx));
   // Don't hold the process open just for a pending delivery.
   state.timer.unref?.();
@@ -247,6 +343,7 @@ export function buildDeliveryMessage(session: Session, address: ReturnAddress, t
   );
 }
 
+
 async function deliver(session: Session, ctx: SessionContext): Promise<void> {
   const state = getReturnDeliveryState(session);
   const address = state.address;
@@ -266,7 +363,12 @@ async function deliver(session: Session, ctx: SessionContext): Promise<void> {
 
   state.attempts++;
   try {
-    await platform.deliverToThread(address.target, buildDeliveryMessage(session, address, text));
+    // Fallback keeps a delivery from being lost to a platform that can't report
+    // its limit; 16K is the smallest real one (Mattermost).
+    const maxLength = platform.getMessageLimits?.().maxLength ?? 16000;
+    for (const chunk of splitMessageForPosts(buildDeliveryMessage(session, address, text), maxLength)) {
+      await platform.deliverToThread(address.target, chunk);
+    }
     state.deliveredRootIds.push(address.target.rootId);
     persistIfActive(session, ctx);
     sessionLog(session).info(`📬 Delivered the answer to @${address.requester}`);

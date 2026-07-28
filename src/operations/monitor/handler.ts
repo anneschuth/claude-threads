@@ -19,8 +19,8 @@ export interface SessionMonitorOptions {
   intervalMs?: number;
   /** Session timeout in ms */
   sessionTimeoutMs: number;
-  /** Warning before timeout in ms */
-  sessionWarningMs: number;
+  /** @deprecated Idle timeout is silent now — nothing warns before it. */
+  sessionWarningMs?: number;
   /** Get the session context */
   getContext: () => SessionContext;
   /** Get active session count */
@@ -41,7 +41,6 @@ export interface SessionMonitorOptions {
 export class SessionMonitor {
   private readonly intervalMs: number;
   private readonly sessionTimeoutMs: number;
-  private readonly sessionWarningMs: number;
   private readonly getContext: () => SessionContext;
   private readonly getSessionCount: () => number;
   private readonly updateStickyMessage: () => Promise<void>;
@@ -52,7 +51,6 @@ export class SessionMonitor {
   constructor(options: SessionMonitorOptions) {
     this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
     this.sessionTimeoutMs = options.sessionTimeoutMs;
-    this.sessionWarningMs = options.sessionWarningMs;
     this.getContext = options.getContext;
     this.getSessionCount = options.getSessionCount;
     this.updateStickyMessage = options.updateStickyMessage;
@@ -94,11 +92,7 @@ export class SessionMonitor {
    */
   private async runCheck(): Promise<void> {
     // Check for idle sessions that need to be timed out
-    await lifecycle.cleanupIdleSessions(
-      this.sessionTimeoutMs,
-      this.sessionWarningMs,
-      this.getContext()
-    );
+    await lifecycle.cleanupIdleSessions(this.sessionTimeoutMs, this.getContext());
 
     // Refresh sticky message to keep relative times current (only if there are active sessions)
     if (this.getSessionCount() > 0) {

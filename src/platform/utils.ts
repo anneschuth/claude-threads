@@ -338,3 +338,36 @@ export function convertMarkdownTablesToSlack(content: string): string {
     return formattedRows.join('\n');
   });
 }
+
+/**
+ * Split a message into posts the platform will accept. A full code review runs
+ * past the per-post limit, and the point of sending it is that the recipient
+ * gets it entire — so it goes out as several posts rather than one rejected
+ * call or a truncated fragment. Paragraph boundaries first, hard cut only for
+ * a single paragraph that is itself too long.
+ */
+export function splitMessageForPosts(message: string, maxLength: number): string[] {
+  if (message.length <= maxLength) return [message];
+
+  const chunks: string[] = [];
+  let current = '';
+  for (const para of message.split('\n\n')) {
+    const piece = current ? `${current}\n\n${para}` : para;
+    if (piece.length <= maxLength) {
+      current = piece;
+      continue;
+    }
+    if (current) chunks.push(current);
+    if (para.length <= maxLength) {
+      current = para;
+      continue;
+    }
+    // One oversized paragraph (a giant code block): cut it into whole slices.
+    for (let i = 0; i < para.length; i += maxLength) {
+      chunks.push(para.slice(i, i + maxLength));
+    }
+    current = chunks.pop() ?? '';
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}

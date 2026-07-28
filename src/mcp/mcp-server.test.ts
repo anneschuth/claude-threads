@@ -25,6 +25,7 @@ import {
   type ReadChannelHistoryHandlerConfig,
   type SearchMessagesHandlerConfig,
   type SendDmHandlerConfig,
+  handleSendToTeammateWith,
 } from './mcp-server.js';
 import { z } from 'zod';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
@@ -1984,5 +1985,94 @@ describe('numeric input schemas accept both number and string', () => {
     // the integer check. Belt-and-suspenders: catches a future regression
     // where someone weakens the schema to plain coerce.number().
     expect(() => parse()).toThrow();
+  });
+});
+
+// ===========================================================================
+// send_to_teammate — the handoff handler. Routing itself is covered in
+// src/teammates/registry.test.ts; this covers the handler's own gates.
+// ===========================================================================
+
+describe('handleSendToTeammateWith', () => {
+  const REGISTRY = [
+    { name: 'rocksteady', channelId: 'chan-rock' },
+    { name: 'krang', channelId: 'chan-krang' },
+  ];
+
+  function cfg(overrides: Record<string, unknown> = {}) {
+    const posted: Array<{ channelId: string; message: string; rootId?: string }> = [];
+    return {
+      posted,
+      config: {
+        api: {
+          postTo: async (channelId: string, message: string, rootId?: string) => {
+            posted.push({ channelId, message, rootId });
+            return { postId: 'p-1' };
+          },
+        },
+        registry: REGISTRY,
+        presentHere: ['rocksteady'],
+        currentChannelId: 'chan-shared',
+        currentThreadId: 'thread-1',
+        ownThreadLink: 'https://chat/pl/thread-1',
+        maxMessageChars: 50,
+        ...overrides,
+      } as Parameters<typeof handleSendToTeammateWith>[1],
+    };
+  }
+
+  it('routes a co-located teammate into this thread, no backlink', async () => {
+    const { posted, config } = cfg();
+    const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: 'смотри MR' }, config);
+
+    expect(r).toMatchObject({ ok: true, routed: 'thread', postId: 'p-1' });
+    expect(posted[0]).toMatchObject({ channelId: 'chan-shared', rootId: 'thread-1' });
+    expect(posted[0].message).toBe('@rocksteady смотри MR');
+  });
+
+  it('routes everyone else to their own channel, with a backlink', async () => {
+    const { posted, config } = cfg();
+    const r = await handleSendToTeammateWith({ teammate: '@KRANG', message: 'глянь поды' }, config);
+
+    expect(r).toMatchObject({ ok: true, routed: 'channel' });
+    expect(posted[0].channelId).toBe('chan-krang');
+    expect(posted[0].message).toContain('https://chat/pl/thread-1');
+  });
+
+  it('names the known teammates when asked for a stranger', async () => {
+    const { posted, config } = cfg();
+    const r = await handleSendToTeammateWith({ teammate: 'shredder', message: 'yo' }, config);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('rocksteady, krang');
+    expect(posted).toHaveLength(0);
+  });
+
+  // Without the cap an oversized message surfaces as a raw platform error.
+  it('rejects an oversized message before posting', async () => {
+    const { posted, config } = cfg();
+    const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: 'x'.repeat(51) }, config);
+
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('limit is 50');
+    expect(posted).toHaveLength(0);
+  });
+
+  it('rejects a blank message', async () => {
+    const { config } = cfg();
+    expect((await handleSendToTeammateWith({ teammate: 'rocksteady', message: '   ' }, config)).ok).toBe(false);
+  });
+
+  it('reports a platform that cannot post instead of throwing', async () => {
+    const { config } = cfg({ api: {} });
+    const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: 'yo' }, config);
+    expect(r).toMatchObject({ ok: false });
+  });
+
+  it('surfaces a failed post as a reason, not an exception', async () => {
+    const { config } = cfg({ api: { postTo: async () => { throw new Error('channel not found'); } } });
+    const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: 'yo' }, config);
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('channel not found');
   });
 });

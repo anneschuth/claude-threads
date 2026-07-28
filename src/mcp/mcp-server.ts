@@ -37,6 +37,7 @@ import {
   parseTeammateRegistry,
   resolveTeammateRoute,
   buildHandoffMessage,
+  type Teammate,
 } from '../teammates/registry.js';
 import { validateOutboundPath } from './path-validator.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
@@ -53,6 +54,7 @@ import {
   formatResolvedSlack,
 } from '../platform/slack/permalink.js';
 import { clampThreadLimit, truncateBody, quoteBlock } from '../platform/permalink-shared.js';
+import { splitMessageForPosts } from '../platform/utils.js';
 
 // =============================================================================
 // Configuration
@@ -171,6 +173,18 @@ let allowAllSession = false;
 const SEND_DM_PER_RECIPIENT_LIMIT = 3;
 const SEND_DM_MEMBER_CACHE_TTL_MS = 60_000;
 const SEND_DM_MAX_MESSAGE_CHARS = 4000;
+/** Same cap for a teammate handoff: reject cleanly instead of letting the
+ *  platform API fail on a wall of text. */
+/**
+ * Sanity ceiling only. A real code review runs 6-8K, so this must never be a
+ * gate on legitimate handoffs — rejecting one sends the agent improvising into
+ * its own channel, which is the failure this tool exists to prevent. Anything
+ * under the ceiling is split across posts rather than refused.
+ */
+const SEND_TO_TEAMMATE_MAX_MESSAGE_CHARS = 40000;
+
+/** Per-post size; safely under Mattermost's 16383-char limit. */
+const SEND_TO_TEAMMATE_CHUNK_CHARS = 15000;
 const sendDmCounts = new Map<string, number>();
 const sendDmAllowedRecipients = new Set<string>();
 // Recipients currently being prompted. Prevents a parallel second call
@@ -497,33 +511,53 @@ const sendToTeammateInputSchema = {
     ),
 };
 
-async function handleSendToTeammate(
+export interface SendToTeammateHandlerConfig {
+  api: Pick<McpPlatformApi, 'postTo'>;
+  registry: Teammate[];
+  presentHere: string[];
+  currentChannelId: string;
+  currentThreadId: string;
+  ownThreadLink: string;
+  maxMessageChars: number;
+}
+
+/** Config-injected so it is testable without the module singletons. */
+export async function handleSendToTeammateWith(
   args: { teammate: string; message: string },
+  cfg: SendToTeammateHandlerConfig,
 ): Promise<SendToTeammateResult> {
-  // getApi(), not the raw singleton: in bypass mode handlePermission never runs,
-  // so mcpApi can still be null when this is the session's first MCP call.
-  const api = getApi();
-  if (!api.postTo) {
+  if (!cfg.api.postTo) {
     return { ok: false, reason: 'this platform cannot post messages' };
   }
-  if (!args.message.trim()) {
+
+  const message = args.message.trim();
+  if (!message) {
     return { ok: false, reason: 'message is empty' };
+  }
+  if (message.length > cfg.maxMessageChars) {
+    return { ok: false, reason: `message is ${message.length} chars, limit is ${cfg.maxMessageChars}` };
   }
 
   const route = resolveTeammateRoute(args.teammate, {
-    registry: TEAMMATES,
-    presentHere: TEAMMATES_PRESENT,
-    currentChannelId: PLATFORM_CHANNEL_ID,
-    currentThreadId: PLATFORM_THREAD_ID,
+    registry: cfg.registry,
+    presentHere: cfg.presentHere,
+    currentChannelId: cfg.currentChannelId,
+    currentThreadId: cfg.currentThreadId,
   });
   if (!route) {
-    const known = TEAMMATES.map((t) => t.name).join(', ') || '(none configured)';
+    const known = cfg.registry.map((t) => t.name).join(', ') || '(none configured)';
     return { ok: false, reason: `unknown teammate "${args.teammate}". Known: ${known}` };
   }
 
-  const body = buildHandoffMessage(route, args.message.trim(), ownThreadLink());
   try {
-    const { postId } = await api.postTo(route.target.channelId, body, route.target.rootId);
+    const chunks = splitMessageForPosts(
+      buildHandoffMessage(route, message, cfg.ownThreadLink),
+      SEND_TO_TEAMMATE_CHUNK_CHARS,
+    );
+    let postId = '';
+    for (const chunk of chunks) {
+      ({ postId } = await cfg.api.postTo(route.target.channelId, chunk, route.target.rootId));
+    }
     mcpLogger.info(
       `Handed off to @${route.teammate.name} via ${route.kind} (post ${postId.substring(0, 8)})`,
     );
@@ -532,6 +566,22 @@ async function handleSendToTeammate(
     mcpLogger.error(`Handoff to @${route.teammate.name} failed: ${err}`);
     return { ok: false, reason: `could not post: ${err}` };
   }
+}
+
+async function handleSendToTeammate(
+  args: { teammate: string; message: string },
+): Promise<SendToTeammateResult> {
+  return handleSendToTeammateWith(args, {
+    // getApi(), not the raw singleton: in bypass mode handlePermission never
+    // runs, so mcpApi can still be null on the session's first MCP call.
+    api: getApi(),
+    registry: TEAMMATES,
+    presentHere: TEAMMATES_PRESENT,
+    currentChannelId: PLATFORM_CHANNEL_ID,
+    currentThreadId: PLATFORM_THREAD_ID,
+    ownThreadLink: ownThreadLink(),
+    maxMessageChars: SEND_TO_TEAMMATE_MAX_MESSAGE_CHARS,
+  });
 }
 
 const sendDmInputSchema = {

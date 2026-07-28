@@ -139,6 +139,85 @@ describe('ContentExecutor', () => {
     });
   });
 
+  /**
+   * A bot doing eight `Bash` commands in a row used to post eight near-identical
+   * lines (worse: with a blank line and a `↳ ✓` under each). The run shares one
+   * line that rewrites itself instead.
+   */
+  describe('Rolling tool line', () => {
+    const PREFIX = '💻 **Bash**';
+
+    function start(body: string) {
+      return createAppendContentOp('test', 'ignored', true, {
+        key: 'Bash', role: 'start', prefix: PREFIX, body: `\`${body}\``,
+      });
+    }
+    function result(status: string) {
+      return createAppendContentOp('test', '', true, {
+        key: 'Bash', role: 'result', status,
+      });
+    }
+    function lastPostContent(): string {
+      const updates = (platform.updatePost as any).mock.calls;
+      if (updates.length) return updates[updates.length - 1][1];
+      const creates = (platform.createPost as any).mock.calls;
+      return creates[creates.length - 1][0];
+    }
+
+    it('collapses a run of commands into one self-rewriting line', async () => {
+      const ctx = getContext();
+
+      // Each command flushes on its own tool_result, so every step after the
+      // first has to rewrite a line that already went out to the post.
+      for (const cmd of ['npm run check', 'git diff --stat', 'glab ci status']) {
+        await executor.executeAppend(start(cmd), ctx);
+        await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+        await executor.executeAppend(result('✓'), ctx);
+        await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+      }
+
+      expect(platform.createPost).toHaveBeenCalledTimes(1);
+      expect(lastPostContent()).toBe('💻 **Bash** ×3 `glab ci status` ✓');
+    });
+
+    it('stamps the outcome onto the line instead of adding one below it', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(start('npm test'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+      expect(lastPostContent()).toBe('💻 **Bash** `npm test` ⏳');
+
+      await executor.executeAppend(result('❌ Error (12s)'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+      expect(lastPostContent()).toBe('💻 **Bash** `npm test` ❌ Error (12s)');
+    });
+
+    it('starts a new line when other content interrupts the run', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(start('git status'), ctx);
+      await executor.executeAppend(result('✓'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', 'Готово, вот диф:'), ctx);
+      await executor.executeAppend(start('git log -1'), ctx);
+      await executor.executeAppend(result('✓'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'tool_complete'), ctx);
+
+      const content = lastPostContent();
+      expect(content).toContain('💻 **Bash** `git status` ✓');
+      expect(content).toContain('💻 **Bash** `git log -1` ✓');
+      // Interrupted, so no counter: these are two runs of one, not one of two.
+      expect(content).not.toContain('×');
+    });
+
+    it('keeps a run collapsed while it is still unflushed', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(start('a'), ctx);
+      await executor.executeAppend(result('✓'), ctx);
+      await executor.executeAppend(start('b'), ctx);
+      await executor.executeAppend(result('✓'), ctx);
+
+      expect(executor.getState().pendingContent.trim()).toBe('💻 **Bash** ×2 `b` ✓');
+    });
+  });
+
   describe('Flush', () => {
     it('does nothing when no pending content', async () => {
       const ctx = getContext();

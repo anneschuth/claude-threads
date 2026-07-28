@@ -15,6 +15,7 @@ import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
+  MAX_FOCUSED_BODY_CHARS,
   clampThreadLimit,
   truncateBody,
   quoteBlock,
@@ -22,7 +23,7 @@ import {
 
 // Re-exported so the MCP server (and tests) can import caps from a single
 // per-platform entry point without learning about permalink-shared.ts.
-export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
+export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS, MAX_FOCUSED_BODY_CHARS };
 
 /**
  * Mattermost post IDs are 26-character base32-style strings (lowercase
@@ -208,7 +209,9 @@ export function formatResolved(resolved: ResolvedPermalink): string {
 
   lines.push(`Mattermost post by @${post.username ?? 'unknown'}:`);
   lines.push('');
-  lines.push(quoteBlock(truncateBody(post.message)));
+  // The post being asked about arrives whole; only the thread context below is
+  // capped per message.
+  lines.push(quoteBlock(truncateBody(post.message, MAX_FOCUSED_BODY_CHARS)));
 
   if (thread.length > 0) {
     lines.push('');

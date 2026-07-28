@@ -15,6 +15,7 @@ import type {
   TaskItem,
   Question,
   QuestionOption,
+  ToolGroupOp,
 } from './types.js';
 import {
   createAppendContentOp,
@@ -26,7 +27,7 @@ import {
   createStatusUpdateOp,
 } from './types.js';
 import { toolFormatterRegistry, formatToolForPermission } from './tool-formatters/index.js';
-import type { WorktreeContext } from './tool-formatters/index.js';
+import type { WorktreeContext, ToolFormatResult } from './tool-formatters/index.js';
 
 // ---------------------------------------------------------------------------
 // Transform Context
@@ -45,6 +46,11 @@ export interface TransformContext {
   worktreeInfo?: WorktreeContext;
   /** Active tool start times (for elapsed time calculation) */
   toolStartTimes: Map<string, number>;
+  /**
+   * toolUseId → rolling-line key, so a tool_result can be folded into the line
+   * its tool_use opened. Omit to render every tool on its own line.
+   */
+  toolGroups?: Map<string, string>;
   /** Whether to include detailed previews */
   detailed?: boolean;
 }
@@ -179,7 +185,9 @@ function transformAssistant(
           // Flush any accumulated text before the tool
           flushTextBuffer();
           // Create separate operation for tool with isToolOutput=true
-          operations.push(createAppendContentOp(ctx.sessionId, result.display, true));
+          operations.push(createAppendContentOp(
+            ctx.sessionId, result.display, true, startToolGroup(result, block.id, ctx)
+          ));
         }
       }
     } else if (block.type === 'thinking' && block.thinking) {
@@ -242,10 +250,26 @@ function transformToolUse(
   });
 
   if (result.display && !result.hidden) {
-    return [createAppendContentOp(ctx.sessionId, result.display, true)];
+    return [createAppendContentOp(
+      ctx.sessionId, result.display, true, startToolGroup(result, tool.id, ctx)
+    )];
   }
 
   return [];
+}
+
+/**
+ * Arm the rolling line for a tool that opted into one, remembering the id so
+ * its result can be folded back into the same line.
+ */
+function startToolGroup(
+  result: ToolFormatResult,
+  toolUseId: string | undefined,
+  ctx: TransformContext
+): ToolGroupOp | undefined {
+  if (!result.group || !ctx.toolGroups) return undefined;
+  if (toolUseId) ctx.toolGroups.set(toolUseId, result.group.key);
+  return { key: result.group.key, role: 'start', prefix: result.group.prefix, body: result.group.body };
 }
 
 // ---------------------------------------------------------------------------
@@ -287,9 +311,22 @@ function transformToolResult(
   // Format result indicator
   const icon = result.is_error ? '❌' : '✓';
   const errorNote = result.is_error ? ' Error' : '';
-  operations.push(
-    createAppendContentOp(ctx.sessionId, `  ↳ ${icon}${errorNote}${elapsed}`, true)
-  );
+
+  // Tools with a rolling line get their outcome stamped onto that line instead
+  // of a second `↳` line under it.
+  const groupKey = result.tool_use_id ? ctx.toolGroups?.get(result.tool_use_id) : undefined;
+  if (groupKey && result.tool_use_id) {
+    ctx.toolGroups?.delete(result.tool_use_id);
+    operations.push(createAppendContentOp(ctx.sessionId, '', true, {
+      key: groupKey,
+      role: 'result',
+      status: `${icon}${errorNote}${elapsed}`,
+    }));
+  } else {
+    operations.push(
+      createAppendContentOp(ctx.sessionId, `  ↳ ${icon}${errorNote}${elapsed}`, true)
+    );
+  }
 
   // Tool results are a natural break point - suggest flush
   operations.push(createFlushOp(ctx.sessionId, 'tool_complete'));

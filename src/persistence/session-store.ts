@@ -332,9 +332,9 @@ export class SessionStore {
         continue;
       }
 
-      // Include timed-out sessions that are not currently active
-      // These have lifecyclePostId set but no cleanedAt
-      if (session.lifecyclePostId && activeSessions && !activeSessions.has(sessionId)) {
+      // Include timed-out sessions that are not currently active. Pre-silent-
+      // timeout ones are marked by lifecyclePostId, newer ones by isPaused.
+      if ((session.lifecyclePostId || session.isPaused) && activeSessions && !activeSessions.has(sessionId)) {
         historySessions.push(session);
       }
     }

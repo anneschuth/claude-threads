@@ -41,6 +41,20 @@ export interface MessageHandlerOptions {
 }
 
 /**
+ * Whether this user's plain (un-mentioned) reply in the thread is addressed to
+ * this bot: true for whoever opened the session, false for everyone else.
+ *
+ * The first @mention picks your bot for the rest of the thread, so follow-ups
+ * need no mention. Sessions a teammate opened via send_to_teammate have
+ * startedBy = that bot, so they stay mention-only and a second bot in the same
+ * thread never answers messages meant for the first.
+ */
+export function ownsThreadDialogue(startedBy: string | undefined, username: string): boolean {
+  if (!startedBy || !username || username === 'unknown') return false;
+  return startedBy.toLowerCase() === username.toLowerCase();
+}
+
+/**
  * Handle an incoming message from a platform.
  *
  * This is the core message handling logic extracted from index.ts.
@@ -194,7 +208,8 @@ export async function handleMessage(
       // So we record it as thread context instead — handed to the agent with
       // its next real turn, waking nothing. Bounded by
       // applySideConversationLimits (5 messages / 2000 chars / 30 min).
-      if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+      if (activeSession.respondOnlyWhenMentioned && !client.isBotMentioned(message)
+          && !ownsThreadDialogue(activeSession.startedBy, username)) {
         // Platform allowlist, not the session's: this only becomes context, no
         // action is taken on it, and it's the same boundary that decides who
         // may address the bot at all.
@@ -282,7 +297,10 @@ export async function handleMessage(
       // persisted flag survives the idle pause, so honor it here just like the
       // active-session gate above. Commands (incl. !stop) are handled earlier
       // and so still bypass this gate.
-      if (persistedSession?.respondOnlyWhenMentioned && !client.isBotMentioned(message)) {
+      // The session owner still owns the dialogue while it sleeps: their plain
+      // reply resumes it, same as in the active branch above.
+      if (persistedSession?.respondOnlyWhenMentioned && !client.isBotMentioned(message)
+          && !ownsThreadDialogue(persistedSession.startedBy, username)) {
         return;
       }
 

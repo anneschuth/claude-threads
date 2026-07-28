@@ -75,6 +75,18 @@ export interface ToolFormatResult {
    * Some tools (like TodoWrite) have custom display handling.
    */
   hidden?: boolean;
+
+  /**
+   * Opt this tool into a rolling display line: a run of consecutive calls
+   * collapses into one line that rewrites itself instead of stacking up.
+   * `prefix` and `body` are rendered as `<prefix> ×<n> <body> <status>`.
+   */
+  group?: {
+    /** Run identity — consecutive ops with the same key share a line. */
+    key: string;
+    prefix: string;
+    body: string;
+  };
 }
 
 // ---------------------------------------------------------------------------

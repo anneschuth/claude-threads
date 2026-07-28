@@ -15,6 +15,7 @@ import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
+  MAX_FOCUSED_BODY_CHARS,
 } from './permalink.js';
 import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
 
@@ -416,14 +417,29 @@ describe('formatResolved', () => {
     expect(out).toContain('> line one\n> line two\n> line three');
   });
 
-  it('truncates bodies longer than MAX_MESSAGE_BODY_CHARS', () => {
+  /**
+   * The post the call is about arrives whole — a long code review had been
+   * unreadable through every tool because it shared the listing cap.
+   */
+  it('does not truncate the focal post', () => {
     const longBody = 'x'.repeat(MAX_MESSAGE_BODY_CHARS + 500);
     const post = makePost({ message: longBody });
     const out = formatResolved({ post, thread: [] });
+    expect(out).not.toContain('truncated');
+  });
+
+  it('truncates thread-context bodies at the listing cap', () => {
+    const post = makePost({ message: 'short' });
+    const long = makePost({ id: ID_B, message: 'y'.repeat(MAX_MESSAGE_BODY_CHARS + 500) });
+    const out = formatResolved({ post, thread: [post, long] });
     expect(out).toContain('[…truncated, 500 more chars]');
-    // The truncation marker must come after exactly MAX_MESSAGE_BODY_CHARS
-    // characters of body, and not be in the body itself.
     expect(out.match(/truncated/g)?.length).toBe(1);
+  });
+
+  it('truncates the focal post only past the platform post limit', () => {
+    const post = makePost({ message: 'z'.repeat(MAX_FOCUSED_BODY_CHARS + 10) });
+    const out = formatResolved({ post, thread: [] });
+    expect(out).toContain('[…truncated, 10 more chars]');
   });
 
   it('renders a thread with the linked post highlighted', () => {

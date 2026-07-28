@@ -43,7 +43,7 @@ export { ToolFormatterRegistry, toolFormatterRegistry } from './registry.js';
 
 // Export individual formatters (for testing and customization)
 export { fileToolsFormatter } from './file-tools.js';
-export { bashToolFormatter } from './bash-tools.js';
+export { bashToolFormatter, stripCdPrefix } from './bash-tools.js';
 export { taskToolsFormatter } from './task-tools.js';
 export { chromeToolsFormatter } from './chrome-tools.js';
 export { webToolsFormatter } from './web-tools.js';

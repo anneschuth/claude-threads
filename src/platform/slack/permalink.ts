@@ -20,12 +20,13 @@ import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
+  MAX_FOCUSED_BODY_CHARS,
   clampThreadLimit,
   truncateBody,
   quoteBlock,
 } from '../permalink-shared.js';
 
-export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
+export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS, MAX_FOCUSED_BODY_CHARS };
 
 /**
  * Slack channel IDs are 9–11 character strings starting with C/G/D
@@ -168,7 +169,8 @@ export function formatResolvedSlack(resolved: ResolvedSlackPermalink): string {
 
   lines.push(`Slack message by @${post.username ?? 'unknown'}:`);
   lines.push('');
-  lines.push(quoteBlock(truncateBody(post.message)));
+  // The message being asked about arrives whole; thread context stays capped.
+  lines.push(quoteBlock(truncateBody(post.message, MAX_FOCUSED_BODY_CHARS)));
 
   if (thread.length > 0) {
     lines.push('');

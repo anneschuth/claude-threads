@@ -348,7 +348,7 @@ export interface Session {
   // Lifecycle state machine (replaces scattered boolean flags)
   lifecycle: SessionLifecycle;
 
-  // Timeout warning state
+  /** @deprecated Idling out is silent now — nothing posts an idle warning. */
   timeoutWarningPosted: boolean;
 
   // Worktree support

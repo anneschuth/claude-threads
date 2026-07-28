@@ -41,6 +41,55 @@ describe('Event Transformer', () => {
   });
 
   // ---------------------------------------------------------------------------
+  // Rolling tool line
+  // ---------------------------------------------------------------------------
+
+  describe('rolling tool line', () => {
+    const bashUse: ClaudeEvent = {
+      type: 'tool_use',
+      tool_use: { id: 't1', name: 'Bash', input: { command: 'cd ~/workspaces/wd/smart-blocks && npm run check' } },
+    } as ClaudeEvent;
+    const bashResult: ClaudeEvent = {
+      type: 'tool_result',
+      tool_result: { tool_use_id: 't1' },
+    } as ClaudeEvent;
+
+    it('opens a rolling line for Bash and folds its result into it', () => {
+      ctx.toolGroups = new Map();
+
+      const [useOp] = transformEvent(bashUse, ctx) as any[];
+      expect(useOp.toolGroup).toEqual({
+        key: 'Bash', role: 'start', prefix: '💻 **Bash**', body: '`npm run check`',
+      });
+
+      const [resultOp] = transformEvent(bashResult, ctx) as any[];
+      expect(resultOp.toolGroup).toEqual({ key: 'Bash', role: 'result', status: '✓' });
+      // The `↳` line is what the status replaces.
+      expect(resultOp.content).toBe('');
+      expect(ctx.toolGroups!.size).toBe(0);
+    });
+
+    it('keeps the classic two-line rendering when grouping is not wired up', () => {
+      const [useOp] = transformEvent(bashUse, ctx) as any[];
+      expect(useOp.toolGroup).toBeUndefined();
+
+      const [resultOp] = transformEvent(bashResult, ctx) as any[];
+      expect(resultOp.toolGroup).toBeUndefined();
+      expect(resultOp.content).toBe('  ↳ ✓');
+    });
+
+    it('leaves non-grouped tools on their own line', () => {
+      ctx.toolGroups = new Map();
+      const [useOp] = transformEvent({
+        type: 'tool_use',
+        tool_use: { id: 't2', name: 'Read', input: { file_path: '/tmp/a.ts' } },
+      } as ClaudeEvent, ctx) as any[];
+
+      expect(useOp.toolGroup).toBeUndefined();
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // Assistant Events
   // ---------------------------------------------------------------------------
 

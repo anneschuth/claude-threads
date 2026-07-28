@@ -1545,6 +1545,11 @@ export async function resumeSession(
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
       transitionTo(session, 'active');
+    } else if (state.isPaused) {
+      // Idle timeout pauses silently, so waking up is silent too: the user's
+      // message is already in the thread and the answer follows it. Posting a
+      // banner here would just restore the notice we stopped posting.
+      transitionTo(session, 'active');
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
@@ -2009,7 +2014,6 @@ export async function killAllSessions(ctx: SessionContext): Promise<void> {
  */
 export async function cleanupIdleSessions(
   timeoutMs: number,
-  warningMs: number,
   ctx: SessionContext
 ): Promise<void> {
   const now = Date.now();
@@ -2017,61 +2021,20 @@ export async function cleanupIdleSessions(
   for (const [_sessionId, session] of ctx.state.sessions) {
     const idleMs = now - session.lastActivityAt.getTime();
 
-    // Check for timeout
+    // Idling out is silent: neither the "will timeout in ~N minutes" warning nor
+    // the "timed out, react 🔄 to resume" notice is posted. They fired on every
+    // thread the user left open and carried no information the thread didn't
+    // already show; a plain reply resumes the session either way (isPaused keeps
+    // it out of auto-resume, and resumeSession skips the resume banner for it).
     if (idleMs > timeoutMs) {
       sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
 
-      const timeoutFormatter = session.platform.getFormatter();
-      const timeoutMessage = `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
-
-      // Update existing warning post or create a new one
-      if (session.lifecyclePostId) {
-        // Update the existing warning post to show timeout
-        const postId = session.lifecyclePostId;
-        await withErrorHandling(
-          () => session.platform.updatePost(postId, `⏱️ ${timeoutMessage}`),
-          { action: 'Update timeout post', session }
-        );
-      } else {
-        // Create new timeout post (no warning was posted)
-        const timeoutPost = await withErrorHandling(
-          () => post(session, 'timeout', timeoutMessage),
-          { action: 'Post session timeout', session }
-        );
-        if (timeoutPost) {
-          session.lifecyclePostId = timeoutPost.id;
-          ctx.ops.registerPost(timeoutPost.id, session.threadId);
-        }
-      }
-      // Mark as paused so it won't auto-resume on bot restart
       transitionTo(session, 'paused');
       ctx.ops.persistSession(session);
 
       // Kill without unpersisting to allow resume
       await killSession(session, false, ctx);
       continue;
-    }
-
-    // Check for warning threshold (warn when X minutes before timeout)
-    // warningMs = how long before timeout to warn (e.g., 5 min = 300000)
-    // So warn when: idleMs > (timeoutMs - warningMs)
-    const warningThresholdMs = timeoutMs - warningMs;
-    if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
-      const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
-      const warningFormatter = session.platform.getFormatter();
-      const warningMessage = `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
-
-      // Create the warning post and store its ID for later updates
-      const warningPost = await withErrorHandling(
-        () => post(session, 'timeout', warningMessage),
-        { action: 'Post timeout warning', session }
-      );
-      if (warningPost) {
-        session.lifecyclePostId = warningPost.id;
-        ctx.ops.registerPost(warningPost.id, session.threadId);
-      }
-      session.timeoutWarningPosted = true;
-      sessionLog(session).debug(`⏰ Idle warning posted`);
     }
   }
 }

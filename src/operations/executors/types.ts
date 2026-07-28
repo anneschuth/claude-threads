@@ -77,6 +77,20 @@ export interface ContentState {
   pendingContent: string;
   /** Scheduled flush timer */
   updateTimer: ReturnType<typeof setTimeout> | null;
+  /** Rolling tool line currently open, if any (see ToolGroupOp) */
+  toolGroup: ToolGroupState | null;
+}
+
+/**
+ * The one line a run of consecutive same-tool calls shares. `line` is the raw
+ * (unformatted) text last written, used to find and replace it.
+ */
+export interface ToolGroupState {
+  key: string;
+  prefix: string;
+  body: string;
+  count: number;
+  line: string;
 }
 
 /**
