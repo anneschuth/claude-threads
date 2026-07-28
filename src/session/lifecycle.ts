@@ -53,6 +53,7 @@ import {
   cancelReturnDelivery,
   createReturnDeliveryState,
 } from '../operations/return-address/index.js';
+import { cancelDocsPing, createDocsPingState } from '../operations/docs-ping/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -107,6 +108,7 @@ function cleanupSessionTimers(session: Session): void {
   // post into a thread nobody can answer, or ping people about a task that no
   // longer exists.
   cancelReturnDelivery(session);
+  cancelDocsPing(session);
   cancelWaiting(session);
 }
 
@@ -231,6 +233,7 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
 function removeFromRegistry(session: Session, ctx: SessionContext): void {
   session.messageManager?.dispose();
   cancelReturnDelivery(session);
+  cancelDocsPing(session);
   cancelWaiting(session);
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
@@ -1365,6 +1368,7 @@ export async function resumeSession(
     agentType,
     arbiter: createArbiterState(state.arbiter),
     returnDelivery: createReturnDeliveryState(state.returnDelivery),
+    docsPing: createDocsPingState(state.docsPing),
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),

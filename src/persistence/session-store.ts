@@ -6,6 +6,7 @@ import type { PlatformFile } from '../platform/types.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { PersistedArbiterState } from '../operations/arbiter/types.js';
 import type { PersistedReturnDeliveryState } from '../operations/return-address/types.js';
+import type { PersistedDocsPingState } from '../operations/docs-ping/types.js';
 import type { OverheadVisibility } from '../config/types.js';
 
 const log = createLogger('persist');
@@ -43,6 +44,8 @@ export interface PersistedSession {
   arbiter?: PersistedArbiterState;
   /** Return-address state (who to reply to, what was already delivered); missing in older sessions */
   returnDelivery?: PersistedReturnDeliveryState;
+  /** Docs-ping state (whether the docs bot was already told); missing in older sessions */
+  docsPing?: PersistedDocsPingState;
   startedBy: string;             // Username who started the session
   startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date

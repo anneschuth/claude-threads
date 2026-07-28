@@ -18,7 +18,7 @@ import type { AgentType, CodexAgentConfig } from '../agents/types.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type ArbiterPolicyConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type ArbiterPolicyConfig, type DocsPingConfig, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -95,6 +95,7 @@ export class SessionManager extends EventEmitter {
   private codexConfig?: CodexAgentConfig;
   private arbiterEnabled: boolean;
   private arbiterPolicy?: ArbiterPolicyConfig;
+  private docsPingConfig?: DocsPingConfig;
   private returnDeliveryEnabled: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
@@ -163,7 +164,8 @@ export class SessionManager extends EventEmitter {
     codexConfig?: CodexAgentConfig,
     arbiterEnabled = true,
     returnDeliveryEnabled = true,
-    arbiterPolicy?: ArbiterPolicyConfig
+    arbiterPolicy?: ArbiterPolicyConfig,
+    docsPingConfig?: DocsPingConfig
   ) {
     super();
     this.workingDir = workingDir;
@@ -178,6 +180,7 @@ export class SessionManager extends EventEmitter {
     this.codexConfig = codexConfig;
     this.arbiterEnabled = arbiterEnabled;
     this.arbiterPolicy = arbiterPolicy;
+    this.docsPingConfig = docsPingConfig;
     this.returnDeliveryEnabled = returnDeliveryEnabled;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
@@ -329,6 +332,7 @@ export class SessionManager extends EventEmitter {
       codex: this.codexConfig,
       arbiterEnabled: this.arbiterEnabled,
       arbiterPolicy: this.arbiterPolicy,
+      docsPing: this.docsPingConfig,
       returnDeliveryEnabled: this.returnDeliveryEnabled,
     };
 
@@ -679,6 +683,7 @@ export class SessionManager extends EventEmitter {
           attempts: session.returnDelivery.attempts,
         }
         : undefined,
+      docsPing: session.docsPing ? { settled: session.docsPing.settled } : undefined,
       startedBy: session.startedBy,
       startedByDisplayName: session.startedByDisplayName,
       startedAt: session.startedAt.toISOString(),

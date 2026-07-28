@@ -23,6 +23,7 @@ import { buildWorktreeListMessage } from '../worktree/index.js';
 import { trackEvent } from '../bug-report/index.js';
 import * as arbiter from '../arbiter/index.js';
 import * as returnAddress from '../return-address/index.js';
+import * as docsPing from '../docs-ping/index.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
@@ -253,6 +254,7 @@ export function handleEventPostProcessing(
   if (event.type === 'tool_use' || event.type === 'tool_result' || event.type === 'assistant') {
     arbiter.noteEvent(session, event);
     returnAddress.noteEvent(session, event);
+    docsPing.noteEvent(session, event, ctx);
   }
 
   // Handle result events - stop typing, update UI, extract usage
@@ -267,6 +269,9 @@ export function handleEventPostProcessing(
     // Return address: (re)arm the quiescence timer that delivers the final
     // answer back to the requester's thread once the session settles.
     returnAddress.onTurnComplete(session, ctx);
+    // Docs ping: once this session has an MR, tell the docs bot about it after
+    // the dust settles (judged out-of-band, delivered by us).
+    docsPing.onTurnComplete(session, ctx);
   }
 
   // Track tool errors for bug reporting context

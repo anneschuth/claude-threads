@@ -870,15 +870,19 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Post into an arbitrary thread. Unlike createPost this takes the channel
    * explicitly — the target usually lives in a teammate's channel, not ours.
+   * An empty `rootId` means a channel-level post (cold start).
    */
   async deliverToThread(target: DeliveryTarget, message: string): Promise<PlatformPost> {
-    const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', {
+    const body: Record<string, unknown> = {
       channel: target.channelId,
       text: this.truncateMessageIfNeeded(message),
-      thread_ts: target.rootId,
       unfurl_links: true,
       unfurl_media: true,
-    });
+    };
+    // Slack rejects an empty thread_ts outright — omit it for a channel post.
+    if (target.rootId) body.thread_ts = target.rootId;
+
+    const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', body);
 
     return {
       id: response.ts,
@@ -886,7 +890,7 @@ export class SlackClient extends BasePlatformClient {
       channelId: response.channel,
       userId: this.botUserId || '',
       message: response.message.text,
-      rootId: target.rootId,
+      rootId: target.rootId || undefined,
       createAt: Math.floor(parseFloat(response.ts) * 1000),
     };
   }

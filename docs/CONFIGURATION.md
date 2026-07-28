@@ -46,6 +46,7 @@ platforms:
 | `arbiter` | Completion watchdog. After each turn: reminds the agent about external deliveries it forgot (a `send_dm`/`send_file` the user asked for, max 2 reminders then a warning post), and nudges it to continue when it stalls asking "should I proceed?" (max 3 nudges per session; genuine blocking questions are left to humans). Uses out-of-band Haiku calls. | `true` |
 | `arbiterPolicy` | What the arbiter does when a session is parked waiting on a human and nobody answers — see [Arbiter policy](#arbiter-policy) below. | see below |
 | `returnDelivery` | Guaranteed reply to the requester's thread. When an incoming message carries a reply-to directive with a permalink ("отвечай мне в тред: `<url>`" / "reply in the thread: `<url>`"), the bot records that thread as the session's return address and — once the session has been quiet for 90s — posts the final assistant message there itself, mentioning the requester and linking back to its own thread. Purely deterministic, no LLM. If the agent already posted to that thread on its own, the bot stays out of the way. | `true` |
+| `docsPing` | Tells a docs bot about shipped changes — see [Docs ping](#docs-ping) below. | off |
 
 ### Arbiter policy
 
@@ -75,6 +76,31 @@ arbiterPolicy:
 `escalateTo` matters for bot-to-bot work: without it the ping goes to the
 agent that handed the task over, which may be just as stuck. Naming a human
 routes it to someone who can actually unblock things.
+
+### Docs ping
+
+For fleets with a dedicated documentation bot. When a session opens an MR, the
+bot decides whether the change is something the docs team needs to hear about
+and, if so, posts a summary into the docs bot's channel itself.
+
+The split matters: the **trigger** and the **delivery** are code — a session
+either has an MR or it doesn't, and the post either happened or it didn't. Only
+the judgement ("does this touch documentation?") is a model call, made
+out-of-band once per session. Asking the agent to remember this last step
+doesn't work: forty minutes into a task, it doesn't.
+
+```yaml
+docsPing:
+  enabled: true
+  channelId: C0123DOCS       # docs bot's channel — required
+  botName: april             # used in the message and for the self-ping guard
+  judgeModel: sonnet
+  quiescenceMs: 120000       # quiet period before the ping fires
+```
+
+Nothing fires for a session without an MR, the docs bot never pings itself
+(guarded by both name and channel), and if the agent already posted to that
+channel — because a human asked it to — the bot stays out of the way.
 
 ## Platform Settings
 

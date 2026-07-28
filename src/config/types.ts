@@ -228,6 +228,12 @@ export interface Config {
    * instead of relying on the agent to remember the tool call.
    */
   returnDelivery?: boolean;
+  /**
+   * Docs-bot notification. When a session opens an MR, the bot judges whether
+   * the change touches documentation and, if so, posts a summary into the docs
+   * bot's channel itself — instead of relying on the agent to remember.
+   */
+  docsPing?: DocsPingConfig;
   platforms: PlatformInstanceConfig[];
 }
 
@@ -262,6 +268,22 @@ export interface ArbiterPolicyConfig {
    * Haiku is cheaper but noticeably worse at this particular call.
    */
   judgeModel?: 'haiku' | 'sonnet' | 'opus';
+}
+
+/**
+ * Docs-bot notification settings. Off unless `enabled` and `channelId` are set.
+ * The docs bot's own sessions are skipped automatically.
+ */
+export interface DocsPingConfig {
+  enabled?: boolean;
+  /** Channel of the docs bot to post into. Required. */
+  channelId?: string;
+  /** Docs bot's mention name, used in the message and for the self-ping guard. */
+  botName?: string;
+  /** Model judging whether the change touches docs (default: sonnet). */
+  judgeModel?: 'haiku' | 'sonnet' | 'opus';
+  /** Quiet period before the ping fires, ms (default: 2 min). */
+  quiescenceMs?: number;
 }
 
 export interface PlatformInstanceConfig {

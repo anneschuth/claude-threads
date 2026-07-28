@@ -22,6 +22,7 @@ export type {
   OverheadVisibility,
   PlatformOverhead,
   ArbiterPolicyConfig,
+  DocsPingConfig,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,

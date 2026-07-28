@@ -19,7 +19,7 @@ import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ArbiterPolicyConfig, ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
+import type { ArbiterPolicyConfig, DocsPingConfig, ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
 import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
 
 // =============================================================================
@@ -66,6 +66,8 @@ export interface SessionConfig {
   returnDeliveryEnabled?: boolean;
   /** Quiet period before the return delivery fires, ms (default: QUIESCENCE_MS) */
   returnDeliveryQuiescenceMs?: number;
+  /** Docs-bot notification settings (off unless enabled + channelId) */
+  docsPing?: DocsPingConfig;
 }
 
 // =============================================================================

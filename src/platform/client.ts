@@ -166,6 +166,8 @@ export interface PlatformClient extends EventEmitter {
 
   /**
    * Post a message into an arbitrary thread, possibly in another channel.
+   * An empty `target.rootId` posts at channel level instead of in a thread —
+   * that's the cold-start case (e.g. first contact with a teammate bot).
    * @param target - Channel + thread root to post into
    * @param message - Message text
    */
