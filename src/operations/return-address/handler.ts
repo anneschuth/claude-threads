@@ -154,19 +154,25 @@ function resolveRequesterRoute(session: Session, requester: string) {
  * only on a mention, so finishing the turn silently leaves them blocked.
  *
  * When they hold their session in THIS thread, the mention goes into the first
- * line of the answer itself — armed here, spliced in by ContentExecutor. The
- * separate ping it replaces arrived a quiescence window after the answer and,
- * to everyone reading the channel, made the answer look addressed to nobody.
- * For the channel route there is nothing to ride on, so the ping stays.
+ * line of the answer itself — recorded here, armed once the turn calls a tool,
+ * spliced in by ContentExecutor. The separate ping it replaces arrived a
+ * quiescence window after the answer and, to everyone reading the channel, made
+ * the answer look addressed to nobody. For the channel route there is nothing to
+ * ride on, so the ping stays.
+ *
+ * Deliberately NOT armed here: a mention wakes their session, and a turn that
+ * does no work has nothing to wake them for — see pendingMention in types.ts for
+ * the two loops that cost.
  */
 export function noteTeammateRequest(session: Session, requester: string | undefined): void {
   if (!requester) return;
   const route = resolveRequesterRoute(session, requester);
   if (!route) return;
 
-  getReturnDeliveryState(session).pendingHandback = requester;
+  const state = getReturnDeliveryState(session);
+  state.pendingHandback = requester;
   if (route.kind === 'thread') {
-    session.messageManager?.armAnswerMention(`@${route.teammate.name}`);
+    state.pendingMention = `@${route.teammate.name}`;
   }
 }
 
@@ -208,12 +214,23 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
     return;
   }
 
-  // In-thread: the answer already called them by name (noteTeammateRequest
-  // armed it). Only a turn that produced no answer text at all leaves the
-  // mention unused — then fall through and ping, or they wait forever.
   if (route.kind === 'thread') {
-    // No message manager (a session torn down mid-flight) means nothing was
-    // armed and nothing carried the mention — treat it as unused and ping.
+    // The turn never called a tool, so the mention was never armed: there is
+    // nothing for them to act on, and pinging anyway is how the two idle-bot
+    // loops of 2026-07-28 sustained themselves. Stay silent.
+    if (state.pendingMention) {
+      sessionLog(session).info(
+        `📬 Turn did no work — not waking @${requester}`
+      );
+      state.pendingHandback = undefined;
+      persistIfActive(session, ctx);
+      return;
+    }
+
+    // Armed and consumed: the answer above already called them by name.
+    // Armed and unused means a turn that worked but said nothing — then fall
+    // through and ping, or they wait forever.
+    // No message manager (a session torn down mid-flight) counts as unused.
     const mm = session.messageManager;
     const unused = mm ? mm.takeAnswerMention() : `@${route.teammate.name}`;
     if (!unused) {
@@ -289,6 +306,13 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
   // turns — the arbiter-nudge pattern — pile up and the requester receives
   // every earlier turn concatenated ahead of the real answer.
   if (event.type === 'tool_use' || event.type === 'result') state.finalTextParts = [];
+
+  // The turn just did something, so it has an answer worth waking a teammate
+  // for. Any tool counts — reading one file is work; saying "ждём" is not.
+  if (event.type === 'tool_use' && state.pendingMention) {
+    session.messageManager?.armAnswerMention(state.pendingMention);
+    state.pendingMention = undefined;
+  }
 
   const targetRoot = state.address?.target.rootId;
   if (!targetRoot) return;

@@ -46,6 +46,22 @@ export interface ReturnDeliveryState {
    * rocksteady). Cleared once the hand-back is posted.
    */
   pendingHandback?: string;
+  /**
+   * Mention waiting for the turn to earn it — armed into the answer stream only
+   * once this turn actually calls a tool.
+   *
+   * Why the gate: every mention wakes the teammate's session, and their answer
+   * mentions us back, so two idle bots keep each other awake forever. Observed
+   * twice on 2026-07-28 in #ai-work — "@Bebop Жду." / "@April Ждём." for a dozen
+   * rounds, and a rate-limited session whose only output was "You've hit your
+   * session limit", delivered with a mention, which woke the other side to say
+   * "нового нет", which woke it again. Both loops are turns and tokens spent to
+   * say nothing.
+   *
+   * A turn with no tool call produced nothing for the teammate to act on, so it
+   * has no business waking them. A turn that did work announces itself.
+   */
+  pendingMention?: string;
 
   /**
    * Assistant messages since the last tool call, in order. A long answer (a

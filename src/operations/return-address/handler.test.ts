@@ -442,19 +442,44 @@ describe('teammate hand-back', () => {
     return { session, mm };
   }
 
-  it('arms the answer mention when the teammate is in this thread', () => {
+  const toolUse = { type: 'tool_use', tool_use: { id: 't1', name: 'Read', input: {} } } as never;
+
+  it('arms the answer mention once the turn calls a tool', () => {
     const { session, mm } = makeTeammateSession(['krang']);
 
     noteTeammateRequest(session, 'krang');
+    expect(mm.isArmed()).toBeUndefined(); // nothing done yet — nothing to announce
+
+    noteEvent(session, toolUse);
 
     expect(mm.isArmed()).toBe('@krang');
     expect(getReturnDeliveryState(session).pendingHandback).toBe('krang');
+  });
+
+  /**
+   * The loop breaker. Two idle bots mentioning each other ("@Bebop Жду." /
+   * "@April Ждём.") burn a turn per round forever, and a rate-limited session
+   * whose only output is "You've hit your session limit" would wake the other
+   * side to answer nothing. A turn that called no tool wakes nobody.
+   */
+  it('stays silent when the turn did no work', async () => {
+    const { session, mm } = makeTeammateSession(['krang']);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(mm.isArmed()).toBeUndefined();
+    expect(spies.delivered).toHaveLength(0);
+    expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
   });
 
   it('arms nothing for a teammate reachable only in their own channel', () => {
     const { session, mm } = makeTeammateSession([]);
 
     noteTeammateRequest(session, 'krang');
+    noteEvent(session, toolUse);
 
     expect(mm.isArmed()).toBeUndefined();
     expect(getReturnDeliveryState(session).pendingHandback).toBe('krang');
@@ -464,6 +489,7 @@ describe('teammate hand-back', () => {
     const { session, mm } = makeTeammateSession(['krang']);
 
     noteTeammateRequest(session, 'alice');
+    noteEvent(session, toolUse);
 
     expect(mm.isArmed()).toBeUndefined();
     expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
@@ -474,6 +500,7 @@ describe('teammate hand-back', () => {
     const ctx = makeCtx(spies, true, [session]);
 
     noteTeammateRequest(session, 'krang');
+    noteEvent(session, toolUse);
     mm.simulateAnswerText();
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
@@ -487,11 +514,12 @@ describe('teammate hand-back', () => {
    * ran tools and said nothing leaves the mention unused, so it has to be
    * delivered the old way.
    */
-  it('falls back to the ping when the turn produced no answer text', async () => {
+  it('falls back to the ping when the turn worked but said nothing', async () => {
     const { session } = makeTeammateSession(['krang']);
     const ctx = makeCtx(spies, true, [session]);
 
     noteTeammateRequest(session, 'krang');
+    noteEvent(session, toolUse);
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
 
