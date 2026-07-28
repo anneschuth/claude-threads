@@ -12,6 +12,21 @@ export {
   MAX_CONTINUATION_NUDGES,
 } from './handler.js';
 export {
+  noteWaiting,
+  cancelWaiting,
+  detectPendingPrompt,
+  stillWaitingOnSame,
+  parseJudgeVerdict,
+  buildJudgePrompt,
+  escalationTargets,
+  resolvePolicy,
+  DEFAULT_WAIT_TIMEOUT_MS,
+  DEFAULT_ESCALATE_INTERVAL_MS,
+  DEFAULT_MAX_ESCALATIONS,
+  type PendingPrompt,
+  type JudgeVerdict,
+} from './waiting.js';
+export {
   createArbiterState,
   type ArbiterObligation,
   type ArbiterSessionState,

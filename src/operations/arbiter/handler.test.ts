@@ -42,6 +42,7 @@ const {
   MAX_DELIVERY_REMINDERS,
   MAX_CONTINUATION_NUDGES,
 } = await import('./handler.js');
+const { cancelWaiting } = await import('./waiting.js');
 const { createArbiterState } = await import('./types.js');
 
 import type { Session } from '../../session/types.js';
@@ -420,6 +421,63 @@ describe('onTurnComplete — delivery reminders', () => {
     await onTurnComplete(session, ctx);
 
     expect(spies.sentToAgent).toHaveLength(0);
+  });
+
+  /**
+   * The inversion that makes the human-wait watchdog work: canIntervene()
+   * refuses to touch a session with a pending interactive prompt, and
+   * onTurnComplete used to return right there. The wait clock has to be armed
+   * BEFORE that gate, or the very case that silently parks the fleet — an
+   * unanswered AskUserQuestion — is the one case nothing watches.
+   */
+  it('arms the human-wait clock even though it will not intervene', async () => {
+    const session = makeSession(spies, {
+      messageManager: {
+        getPendingApproval: () => ({ postId: 'p', type: 'plan', toolUseId: 't' }),
+        hasPendingQuestions: () => false,
+        getPendingQuestionSet: () => null,
+        getPendingContextPrompt: () => null,
+      } as unknown as Session['messageManager'],
+    } as Partial<Session>);
+    const ctx = makeCtx(spies, true, [session]);
+    (ctx.config as { arbiterPolicy?: unknown }).arbiterPolicy = {
+      waitTimeoutMs: 60_000, // long: we assert the clock exists, not that it fires
+    };
+    getArbiterState(session).obligations = [openObligation('message')];
+
+    await onTurnComplete(session, ctx);
+
+    const waiting = getArbiterState(session).waiting;
+    expect(waiting?.kind).toBe('approval');
+    expect(waiting?.timer).toBeDefined();
+    expect(spies.sentToAgent).toHaveLength(0); // still does not barge in
+
+    cancelWaiting(session);
+  });
+
+  it('drops the wait clock once the prompt is gone', async () => {
+    const session = makeSession(spies, {
+      messageManager: {
+        getPendingApproval: () => null,
+        hasPendingQuestions: () => false,
+        getPendingQuestionSet: () => null,
+        getPendingContextPrompt: () => null,
+      } as unknown as Session['messageManager'],
+    } as Partial<Session>);
+    const ctx = makeCtx(spies, true, [session]);
+    getArbiterState(session).waiting = {
+      kind: 'approval',
+      signature: 'a:stale',
+      text: 'old',
+      messageCountAtArm: 0,
+      since: Date.now(),
+      escalations: 0,
+      autoAnswered: false,
+    };
+
+    await onTurnComplete(session, ctx);
+
+    expect(getArbiterState(session).waiting).toBeUndefined();
   });
 
   it('does nothing when disabled', async () => {

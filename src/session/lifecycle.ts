@@ -47,7 +47,7 @@ import {
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
 import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
-import { extractObligations, createArbiterState } from '../operations/arbiter/index.js';
+import { extractObligations, createArbiterState, cancelWaiting } from '../operations/arbiter/index.js';
 import {
   captureReturnAddress,
   cancelReturnDelivery,
@@ -102,10 +102,12 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
  */
 function cleanupSessionTimers(session: Session): void {
   clearAllTimers(session.timers);
-  // The return-delivery timer lives outside SessionTimers (it belongs to the
-  // return-address module's state); a fired timer on a dead session would
-  // post into a teammate's thread from a session nobody can answer.
+  // The return-delivery and human-wait timers live outside SessionTimers (they
+  // belong to their modules' state); a timer firing on a dead session would
+  // post into a thread nobody can answer, or ping people about a task that no
+  // longer exists.
   cancelReturnDelivery(session);
+  cancelWaiting(session);
 }
 
 /**
@@ -229,6 +231,7 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
 function removeFromRegistry(session: Session, ctx: SessionContext): void {
   session.messageManager?.dispose();
   cancelReturnDelivery(session);
+  cancelWaiting(session);
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);

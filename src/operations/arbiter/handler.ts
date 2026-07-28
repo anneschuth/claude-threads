@@ -24,6 +24,7 @@ import { post } from '../post-helpers/index.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
+import { noteWaiting } from './waiting.js';
 import {
   createArbiterState,
   type ArbiterObligation,
@@ -403,6 +404,14 @@ export function onTurnComplete(session: Session, ctx: SessionContext): Promise<v
   if (ctx.config.arbiterEnabled === false) return Promise.resolve();
 
   const state = getArbiterState(session);
+
+  // Human-wait watchdog. This MUST run before the canIntervene() gate below:
+  // a pending question/approval is exactly what that gate refuses to touch,
+  // and exactly the case that parks a task forever in an unwatched channel.
+  // Passing no stalled text arms only the interactive kinds — a prose stall
+  // is armed later, once the stall check has judged it wait_for_human.
+  noteWaiting(session, ctx, undefined);
+
   if (state.checking) return Promise.resolve();
 
   const hasOpenObligations = openObligations(state).length > 0;
@@ -530,6 +539,12 @@ async function runTurnCompleteCheck(
   if (!result.success || !result.response) return;
 
   const verdict = parseStallVerdict(result.response);
+  if (verdict === 'wait_for_human') {
+    // A real blocking question asked in prose — there's no prompt to answer,
+    // but the humans still need to learn about it if nobody replies.
+    noteWaiting(session, ctx, lastText);
+    return;
+  }
   if (verdict !== 'continue') return;
 
   // Re-check: a human may have replied (or the session may have moved on)

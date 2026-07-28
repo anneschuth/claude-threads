@@ -217,6 +217,11 @@ export interface Config {
    */
   arbiter?: boolean;
   /**
+   * What the arbiter does when a session is parked waiting on a human and
+   * nobody answers. Omit for sensible defaults.
+   */
+  arbiterPolicy?: ArbiterPolicyConfig;
+  /**
    * Return-address delivery (default: true). When an incoming message says
    * "reply to me in this thread: <permalink>", the bot itself posts the
    * session's final answer into that thread once the session goes quiet —
@@ -224,6 +229,39 @@ export interface Config {
    */
   returnDelivery?: boolean;
   platforms: PlatformInstanceConfig[];
+}
+
+/**
+ * Arbiter behaviour for a session blocked on a human.
+ *
+ * The default posture is "act, then tell the humans": in an unattended
+ * channel a task that waits for an answer nobody will give is simply lost,
+ * and every decision the arbiter takes is announced in the thread and can be
+ * reversed by a reply.
+ */
+export interface ArbiterPolicyConfig {
+  /**
+   * Answer routine prompts on the human's behalf (default: true). Set false
+   * to only ever ping people and never decide for them.
+   */
+  autoAnswer?: boolean;
+  /** Quiet time before the arbiter steps in, ms (default: 10 min). */
+  waitTimeoutMs?: number;
+  /** Base gap between escalation pings, doubling each time, ms (default: 30 min). */
+  escalateIntervalMs?: number;
+  /** Escalation pings before the arbiter gives up (default: 3). */
+  maxEscalations?: number;
+  /**
+   * Usernames to @mention when escalating. Defaults to whoever started the
+   * session — set this when a human should be pulled in instead of the bot
+   * that handed the task over.
+   */
+  escalateTo?: string[];
+  /**
+   * Model judging whether a prompt genuinely needs a human (default: sonnet).
+   * Haiku is cheaper but noticeably worse at this particular call.
+   */
+  judgeModel?: 'haiku' | 'sonnet' | 'opus';
 }
 
 export interface PlatformInstanceConfig {

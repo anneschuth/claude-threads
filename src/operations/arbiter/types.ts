@@ -42,6 +42,60 @@ export interface ArbiterObligation {
 /** Verdict for the stall check on a turn's final message */
 export type StallVerdict = 'continue' | 'wait_for_human' | 'done';
 
+/**
+ * What the session is blocked on while waiting for a human.
+ * 'question' — an AskUserQuestion set with options to pick from;
+ * 'approval' — a plan/action approval prompt (👍/👎);
+ * 'text'     — the agent just ended its turn asking something in prose, with
+ *              no interactive prompt to answer (only the agent can be nudged).
+ */
+export type WaitingKind = 'question' | 'approval' | 'text';
+
+/**
+ * A session parked waiting for a human.
+ *
+ * The arbiter used to stand down completely here — a genuine interactive
+ * prompt "means a human should answer". In a channel nobody watches that is
+ * the same as the task dying silently. So instead we time the wait: after
+ * `waitTimeoutMs` either the arbiter answers on the human's behalf (when the
+ * decision plainly doesn't need one) or it pings the humans so they know.
+ */
+export interface ArbiterWaitingState {
+  kind: WaitingKind;
+  /**
+   * Identifies the specific prompt being waited on. A new prompt gets a new
+   * signature and restarts the clock; a human answering makes the signature
+   * disappear, which is how we notice we're no longer waiting.
+   */
+  signature: string;
+  /**
+   * The prompt text as it read when we started waiting. Kept here because a
+   * 'text' wait has no live prompt to re-read later, and the arbiter's
+   * `lastAssistantText` is consumed by the stall check on the same turn.
+   */
+  text: string;
+  /**
+   * session.messageCount when the wait was armed. Any change means a human
+   * (or another agent) spoke, so the wait is over regardless of what the
+   * pending-prompt state looks like.
+   */
+  messageCountAtArm: number;
+  /** When the wait started (epoch ms). */
+  since: number;
+  /** Escalation pings already sent for this prompt. */
+  escalations: number;
+  /** True once the arbiter answered this prompt itself (don't do it twice). */
+  autoAnswered: boolean;
+  /**
+   * True once the judge has ruled that this prompt genuinely needs a person.
+   * The prompt and the task don't change between escalation pings, so
+   * re-judging would just spend another Sonnet call on the same answer.
+   */
+  judgedNeedsHuman?: boolean;
+  /** Pending timer (in-memory only). */
+  timer?: ReturnType<typeof setTimeout>;
+}
+
 /** Arbiter state carried on the session (subset is persisted) */
 export interface ArbiterSessionState {
   /** Extracted delivery obligations */
@@ -68,6 +122,12 @@ export interface ArbiterSessionState {
    * obligations added by the other.
    */
   extractionChain?: Promise<void>;
+  /**
+   * Current human-wait, if the session is parked on a prompt.
+   * In-memory only: the timer can't survive a restart, and after a restart
+   * the next turn re-arms it from the (persisted) pending prompt anyway.
+   */
+  waiting?: ArbiterWaitingState;
 }
 
 /** Persisted subset of ArbiterSessionState (survives bot restarts) */

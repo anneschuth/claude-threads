@@ -602,7 +602,8 @@ async function startWithoutDaemon() {
     defaultAgent,
     config.codex,
     config.arbiter ?? true,
-    config.returnDelivery ?? true
+    config.returnDelivery ?? true,
+    config.arbiterPolicy
   );
 
   // Set sticky message customization from config

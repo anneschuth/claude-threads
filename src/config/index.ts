@@ -21,6 +21,7 @@ export type {
   PermissionMode,
   OverheadVisibility,
   PlatformOverhead,
+  ArbiterPolicyConfig,
 } from './types.js';
 export {
   LIMITS_DEFAULTS,
