@@ -25,6 +25,7 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { noteWaiting } from './waiting.js';
+import { findReturnAddressUrl } from '../return-address/parser.js';
 import {
   createArbiterState,
   type ArbiterObligation,
@@ -176,6 +177,11 @@ export function extractObligations(
       // or the message plausibly asks for an external delivery.
       const open = openObligations(state);
       if (open.length === 0 && !mightContainDeliveryRequest(message)) return;
+      // Nothing to deliver when the only ask is "answer me here" (shared channel).
+      if (open.length === 0 && asksOnlyForSelfThreadReply(message, session.threadId)) {
+        log.debug('Skipping extraction: message only asks for a reply in this thread');
+        return;
+      }
 
       const result = await quickQuery({
         prompt: buildExtractionPrompt(message, open),
@@ -224,6 +230,47 @@ function persistIfActive(session: Session, ctx: SessionContext): void {
     return;
   }
   ctx.ops.persistSession(session);
+}
+
+/**
+ * Pull the bare post id out of a chat permalink (Mattermost .../pl/<id>,
+ * Slack .../p<ts>). Sync and allocation-cheap — used on the hot path before
+ * deciding whether an extraction is worth an LLM call.
+ */
+function permalinkPostId(url: string): string | undefined {
+  return /\/pl\/([A-Za-z0-9]+)/.exec(url)?.[1]
+    ?? /\/p(\d{6,})/.exec(url)?.[1];
+}
+
+/**
+ * Does this message only ask to be answered in THIS very thread?
+ *
+ * On a shared multi-bot channel teammates hold their sessions in the same
+ * thread, so "отвечай мне в тред: <link to this thread>" asks for nothing: the
+ * session already writes there, and its ordinary reply IS the delivery. Left
+ * unfiltered the arbiter books an obligation no tool call can ever satisfy,
+ * reminds about work already done, and pushes the agent into a pointless
+ * post_in_thread into the thread it is sitting in — observed in #ai-work.
+ *
+ * "Only" matters: a message can ask for a reply here AND a file sent to
+ * someone else. So we strip the self-directive and re-test the remainder for
+ * any other delivery intent. Exported for tests.
+ */
+export function asksOnlyForSelfThreadReply(message: string, ownThreadId: string): boolean {
+  const url = findReturnAddressUrl(message);
+  if (!url) return false;
+  if (permalinkPostId(url) !== ownThreadId) return false;
+
+  // Strip the directive, its link, and bare @mentions, then see if anything
+  // delivery-ish is left. Mentions have to go: in a shared thread naming a
+  // teammate is ordinary conversation, not an instruction to deliver anywhere.
+  // Real deliveries keep their own cues (напиши/отправь/канал/~channel/file).
+  const remainder = message
+    .split(url).join(' ')
+    .replace(/(отвеч\S*|ответ\S*|отпиш\S*)[^.\n]{0,40}?в\s+тред/gi, ' ')
+    .replace(/(reply|respond|answer|report|post)\b[^\n]{0,40}?\bthread/gi, ' ')
+    .replace(/@[\w.-]+/g, ' ');
+  return !mightContainDeliveryRequest(remainder);
 }
 
 /**

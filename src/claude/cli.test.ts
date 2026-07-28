@@ -577,3 +577,29 @@ describe('buildPermissionArgs', () => {
     expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
   });
 });
+
+// ===========================================================================
+// PLATFORM_THREAD_ID / PLATFORM_CHANNEL_ID in the agent env
+// PreToolUse hooks inherit this env. A hook policing cross-bot messaging must
+// distinguish "a teammate's thread" from "my own" — in a shared multi-bot
+// channel the channel is identical and only the thread id separates them.
+// ===========================================================================
+
+describe('buildClaudeChildEnv — session identity for hooks', () => {
+  it('exposes the session thread and channel', () => {
+    const env = buildClaudeChildEnv({}, undefined, { threadId: 'thr-1', channelId: 'chan-1' });
+    expect(env.PLATFORM_THREAD_ID).toBe('thr-1');
+    expect(env.PLATFORM_CHANNEL_ID).toBe('chan-1');
+  });
+
+  it('omits them when unknown rather than setting empty strings', () => {
+    const env = buildClaudeChildEnv({}, undefined, {});
+    expect('PLATFORM_THREAD_ID' in env).toBe(false);
+    expect('PLATFORM_CHANNEL_ID' in env).toBe(false);
+  });
+
+  it('works with no session argument at all (back-compat)', () => {
+    const env = buildClaudeChildEnv({});
+    expect(env.PLATFORM_THREAD_ID).toBeUndefined();
+  });
+});

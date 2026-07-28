@@ -157,9 +157,19 @@ export interface ClaudeCliAccount {
  */
 export function buildClaudeChildEnv(
   parentEnv: NodeJS.ProcessEnv,
-  account?: ClaudeCliAccount
+  account?: ClaudeCliAccount,
+  session?: { threadId?: string; channelId?: string }
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parentEnv };
+
+  // Where this session lives, for PreToolUse hooks (which inherit this env).
+  // A hook that polices cross-bot messaging has to be able to tell "posting
+  // into a teammate's thread" from "posting into my own" — in a shared
+  // multi-bot channel those are the same channel and only the thread id
+  // distinguishes them. The MCP child already gets these two under the same
+  // names; hooks had no way to know either.
+  if (session?.threadId) env.PLATFORM_THREAD_ID = session.threadId;
+  if (session?.channelId) env.PLATFORM_CHANNEL_ID = session.channelId;
 
   // Always-on tuning flags (opt-out by setting them in the parent env).
   if (env.MCP_CONNECTION_NONBLOCKING === undefined) {
@@ -861,7 +871,10 @@ export class ClaudeCli extends EventEmitter implements AgentBackend {
    * env-assembly logic straightforward to audit.
    */
   private buildChildEnv(): NodeJS.ProcessEnv {
-    return buildClaudeChildEnv(process.env, this.options.account);
+    return buildClaudeChildEnv(process.env, this.options.account, {
+      threadId: this.options.threadId,
+      channelId: this.options.platformConfig?.channelId,
+    });
   }
 
   private getMcpServerPath(): string {

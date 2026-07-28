@@ -35,6 +35,7 @@ const {
   parseObligationsResponse,
   parseStallVerdict,
   mightContainDeliveryRequest,
+  asksOnlyForSelfThreadReply,
   unmetObligations,
   canIntervene,
   classifyDeliveryTool,
@@ -212,6 +213,38 @@ describe('mightContainDeliveryRequest', () => {
 // -----------------------------------------------------------------------------
 // Extraction
 // -----------------------------------------------------------------------------
+
+describe('asksOnlyForSelfThreadReply', () => {
+  const OWN = 'ye1k3bcyxprd9gknsiuizx1upc';
+  const link = (id: string) => `https://chat.corp/_redirect/pl/${id}`;
+
+  /**
+   * Observed in #ai-work: teammates share one thread, so "reply to me here"
+   * asks for nothing — yet the arbiter booked an obligation, nagged about work
+   * already done, and pushed the agent into a redundant post_in_thread.
+   */
+  it('is true when the reply-to link is this very thread', () => {
+    expect(asksOnlyForSelfThreadReply(
+      `@rocksteady что думаешь про squash? Отвечай мне в тред: ${link(OWN)}`, OWN
+    )).toBe(true);
+  });
+
+  it('is false when the link points at ANOTHER thread', () => {
+    expect(asksOnlyForSelfThreadReply(
+      `сделай и отпишись в тред: ${link('someotherthread1234567890x')}`, OWN
+    )).toBe(false);
+  });
+
+  it('is false when something else must still be delivered elsewhere', () => {
+    expect(asksOnlyForSelfThreadReply(
+      `отвечай мне в тред: ${link(OWN)} и пришли отчёт в канал ~releases`, OWN
+    )).toBe(false);
+  });
+
+  it('is false without any reply-to link', () => {
+    expect(asksOnlyForSelfThreadReply('почини баг в ci.yml', OWN)).toBe(false);
+  });
+});
 
 describe('extractObligations', () => {
   it('adds obligations from the extractor response', async () => {
