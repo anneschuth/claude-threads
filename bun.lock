@@ -5,7 +5,7 @@
     "": {
       "name": "claude-threads",
       "dependencies": {
-        "@hono/node-server": "2.0.11",
+        "@hono/node-server": "2.0.12",
         "@inkjs/ui": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@redactpii/node": "^1.0.16",
@@ -13,7 +13,7 @@
         "commander": "^14.0.2",
         "diff": "^8.0.3",
         "express-rate-limit": "^8.3.0",
-        "hono": "4.12.31",
+        "hono": "4.12.32",
         "ink": "^6.6.0",
         "ink-scroll-view": "^0.3.5",
         "js-yaml": "^4.3.0",
@@ -45,12 +45,12 @@
     },
   },
   "overrides": {
-    "@hono/node-server": "2.0.11",
+    "@hono/node-server": "2.0.12",
     "brace-expansion": ">=5.0.7",
     "express-rate-limit": "^8.3.0",
     "fast-uri": ">=3.1.4",
     "flatted": ">=3.4.0",
-    "hono": "4.12.31",
+    "hono": "4.12.32",
     "path-to-regexp": ">=8.4.0",
     "picomatch": ">=2.3.2",
     "shell-quote": ">=1.10.0",
@@ -81,7 +81,7 @@
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.7.2", "", { "dependencies": { "@eslint/core": "^1.2.1", "levn": "^0.4.1" } }, "sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A=="],
 
-    "@hono/node-server": ["@hono/node-server@2.0.11", "", { "peerDependencies": { "hono": "^4" } }, "sha512-bjD221KPLoJTWUwso1J6fGKiTXEUFedG/s0visavY4zakFPkeGURMRNly+FhBHs7T8Dz4qHaZIMX9ZoJHSJtKA=="],
+    "@hono/node-server": ["@hono/node-server@2.0.12", "", { "peerDependencies": { "hono": "^4" } }, "sha512-eWpQYr67tqJLeaSUl0Q+TquuYfUdTibpOJlUMV2FfUP7+KqCC5TufnwnlXL6mobZBJbGAYRd7ZvEBDCbLInjhg=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.1", "", {}, "sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA=="],
 
@@ -425,7 +425,7 @@
 
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
 
-    "hono": ["hono@4.12.31", "", {}, "sha512-zJIHFrl6bq3RDd2YusFNCDlM8qUprxKswyi/OPzPyzKDdyBXDqWx8bZlZ7R+saTdSTatUmb3O7K4SspGPaEOQg=="],
+    "hono": ["hono@4.12.32", "", {}, "sha512-XcuyW9qE2kJn07PkecMOBd5Vq/hMy7mmGw+idz1yblbg9N17ijJODrvPkn7/dwL3Kulj8LcRJ69DLOWf91dRUg=="],
 
     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ=="],
 
