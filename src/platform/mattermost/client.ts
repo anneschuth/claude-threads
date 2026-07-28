@@ -25,9 +25,11 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  DeliveryTarget,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
+import { parseMattermostPermalink } from './permalink.js';
 
 export class MattermostClient extends BasePlatformClient {
   // Platform identity (required by PlatformClient)
@@ -388,6 +390,39 @@ export class MattermostClient extends BasePlatformClient {
       log.debug(`Post ${postId.substring(0, 8)} not found: ${err}`);
       return null; // Post doesn't exist or was deleted
     }
+  }
+
+  /**
+   * Resolve a Mattermost permalink to the thread a reply belongs in.
+   *
+   * A permalink can point at any post in a thread, not just its root, so we
+   * fetch it and use `root_id || id` — replying to a reply's id would start a
+   * second thread that the requester isn't watching.
+   */
+  async resolveDeliveryTarget(url: string): Promise<DeliveryTarget | null> {
+    const parsed = parseMattermostPermalink(url, this.url);
+    if (!parsed) return null;
+
+    const post = await this.getPost(parsed.postId);
+    if (!post) {
+      log.debug(`Delivery target ${parsed.postId.substring(0, 8)} not readable`);
+      return null;
+    }
+    return { channelId: post.channelId, rootId: post.rootId || post.id };
+  }
+
+  /**
+   * Post into an arbitrary thread. Unlike createPost this takes the channel
+   * explicitly — the target usually lives in a teammate's channel, not ours.
+   */
+  async deliverToThread(target: DeliveryTarget, message: string): Promise<PlatformPost> {
+    const request: CreatePostRequest = {
+      channel_id: target.channelId,
+      message,
+      root_id: target.rootId || undefined,
+    };
+    const post = await this.api<MattermostPost>('POST', '/posts', request);
+    return this.normalizePlatformPost(post);
   }
 
   // Delete a post

@@ -216,6 +216,13 @@ export interface Config {
    * for) and nudges it to continue when it stalls asking "should I proceed?".
    */
   arbiter?: boolean;
+  /**
+   * Return-address delivery (default: true). When an incoming message says
+   * "reply to me in this thread: <permalink>", the bot itself posts the
+   * session's final answer into that thread once the session goes quiet —
+   * instead of relying on the agent to remember the tool call.
+   */
+  returnDelivery?: boolean;
   platforms: PlatformInstanceConfig[];
 }
 

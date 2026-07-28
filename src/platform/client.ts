@@ -5,6 +5,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  DeliveryTarget,
 } from './types.js';
 import type { PlatformFormatter } from './formatter.js';
 
@@ -149,6 +150,26 @@ export interface PlatformClient extends EventEmitter {
    * @returns The created post
    */
   createPost(message: string, threadId?: string): Promise<PlatformPost>;
+
+  /**
+   * Resolve a chat permalink to the thread a reply must land in.
+   *
+   * Unlike the `read_post` MCP tool this is NOT scoped to the bot's own
+   * channel: the whole point is answering a teammate whose thread lives in
+   * their channel. Access is still bounded by the bot's membership — the
+   * platform API rejects channels it isn't in.
+   *
+   * @param url - Candidate permalink (may be any URL; non-permalinks return null)
+   * @returns Delivery target, or null if the URL isn't a permalink for this platform
+   */
+  resolveDeliveryTarget?(url: string): Promise<DeliveryTarget | null>;
+
+  /**
+   * Post a message into an arbitrary thread, possibly in another channel.
+   * @param target - Channel + thread root to post into
+   * @param message - Message text
+   */
+  deliverToThread?(target: DeliveryTarget, message: string): Promise<PlatformPost>;
 
   /**
    * Update an existing post/message

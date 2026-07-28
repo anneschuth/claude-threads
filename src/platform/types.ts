@@ -33,6 +33,18 @@ export interface PlatformPost {
 }
 
 /**
+ * A thread to deliver a message into, which may live in a channel other than
+ * the one this client is configured for. Used for guaranteed replies back to
+ * a requester's thread (see src/operations/return-address/).
+ */
+export interface DeliveryTarget {
+  /** Channel/conversation containing the thread. */
+  channelId: string;
+  /** Thread root: Mattermost root post id, Slack thread parent ts. */
+  rootId: string;
+}
+
+/**
  * Normalized reaction representation across platforms
  */
 export interface PlatformReaction {

@@ -31,9 +31,11 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  DeliveryTarget,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
+import { parseSlackPermalink } from './permalink.js';
 
 /**
  * Slack platform client implementation using Socket Mode.
@@ -844,6 +846,47 @@ export class SlackClient extends BasePlatformClient {
       userId: this.botUserId || '',
       message: response.message.text,
       rootId: threadId,
+      createAt: Math.floor(parseFloat(response.ts) * 1000),
+    };
+  }
+
+  /**
+   * Resolve a Slack permalink to the thread a reply belongs in.
+   *
+   * Slack permalinks carry the channel and timestamp inline, so unlike
+   * Mattermost this needs no API round trip. A link to a reply carries the
+   * parent ts in `thread_ts` — prefer it, otherwise the linked message is
+   * itself the root.
+   */
+  resolveDeliveryTarget(url: string): Promise<DeliveryTarget | null> {
+    const parsed = parseSlackPermalink(url);
+    if (!parsed) return Promise.resolve(null);
+    return Promise.resolve({
+      channelId: parsed.channelId,
+      rootId: parsed.threadParentTs || parsed.ts,
+    });
+  }
+
+  /**
+   * Post into an arbitrary thread. Unlike createPost this takes the channel
+   * explicitly — the target usually lives in a teammate's channel, not ours.
+   */
+  async deliverToThread(target: DeliveryTarget, message: string): Promise<PlatformPost> {
+    const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', {
+      channel: target.channelId,
+      text: this.truncateMessageIfNeeded(message),
+      thread_ts: target.rootId,
+      unfurl_links: true,
+      unfurl_media: true,
+    });
+
+    return {
+      id: response.ts,
+      platformId: this.platformId,
+      channelId: response.channel,
+      userId: this.botUserId || '',
+      message: response.message.text,
+      rootId: target.rootId,
       createAt: Math.floor(parseFloat(response.ts) * 1000),
     };
   }

@@ -60,6 +60,10 @@ export interface SessionConfig {
   codex?: CodexAgentConfig;
   /** Arbiter watchdog: delivery reminders + stall nudges (default: true) */
   arbiterEnabled?: boolean;
+  /** Return-address delivery: bot posts the final answer to the requester's thread (default: true) */
+  returnDeliveryEnabled?: boolean;
+  /** Quiet period before the return delivery fires, ms (default: QUIESCENCE_MS) */
+  returnDeliveryQuiescenceMs?: number;
 }
 
 // =============================================================================

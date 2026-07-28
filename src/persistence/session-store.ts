@@ -5,6 +5,7 @@ import { createLogger } from '../utils/logger.js';
 import type { PlatformFile } from '../platform/types.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { PersistedArbiterState } from '../operations/arbiter/types.js';
+import type { PersistedReturnDeliveryState } from '../operations/return-address/types.js';
 import type { OverheadVisibility } from '../config/types.js';
 
 const log = createLogger('persist');
@@ -40,6 +41,8 @@ export interface PersistedSession {
   agentType?: 'claude' | 'codex'; // Agent backend; missing in pre-codex sessions → default 'claude'
   /** Arbiter watchdog state (delivery obligations, nudge counters); missing in older sessions */
   arbiter?: PersistedArbiterState;
+  /** Return-address state (who to reply to, what was already delivered); missing in older sessions */
+  returnDelivery?: PersistedReturnDeliveryState;
   startedBy: string;             // Username who started the session
   startedByDisplayName?: string; // Display name for UI
   startedAt: string;             // ISO date

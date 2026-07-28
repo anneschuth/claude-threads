@@ -94,6 +94,7 @@ export class SessionManager extends EventEmitter {
   private defaultAgent: AgentType;
   private codexConfig?: CodexAgentConfig;
   private arbiterEnabled: boolean;
+  private returnDeliveryEnabled: boolean;
   private threadLogsEnabled: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -159,7 +160,8 @@ export class SessionManager extends EventEmitter {
     respondOnlyWhenMentioned = false,
     defaultAgent: AgentType = 'claude',
     codexConfig?: CodexAgentConfig,
-    arbiterEnabled = true
+    arbiterEnabled = true,
+    returnDeliveryEnabled = true
   ) {
     super();
     this.workingDir = workingDir;
@@ -173,6 +175,7 @@ export class SessionManager extends EventEmitter {
     this.defaultAgent = defaultAgent;
     this.codexConfig = codexConfig;
     this.arbiterEnabled = arbiterEnabled;
+    this.returnDeliveryEnabled = returnDeliveryEnabled;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -322,6 +325,7 @@ export class SessionManager extends EventEmitter {
       defaultAgent: this.defaultAgent,
       codex: this.codexConfig,
       arbiterEnabled: this.arbiterEnabled,
+      returnDeliveryEnabled: this.returnDeliveryEnabled,
     };
 
     const state: SessionState = {
@@ -662,6 +666,13 @@ export class SessionManager extends EventEmitter {
           obligations: session.arbiter.obligations,
           deliveryToolCalls: session.arbiter.deliveryToolCalls,
           continuationNudges: session.arbiter.continuationNudges,
+        }
+        : undefined,
+      returnDelivery: session.returnDelivery
+        ? {
+          address: session.returnDelivery.address,
+          deliveredRootIds: session.returnDelivery.deliveredRootIds,
+          attempts: session.returnDelivery.attempts,
         }
         : undefined,
       startedBy: session.startedBy,

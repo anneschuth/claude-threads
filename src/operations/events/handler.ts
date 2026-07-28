@@ -22,6 +22,7 @@ import { changeDirectory, reportBug } from '../commands/index.js';
 import { buildWorktreeListMessage } from '../worktree/index.js';
 import { trackEvent } from '../bug-report/index.js';
 import * as arbiter from '../arbiter/index.js';
+import * as returnAddress from '../return-address/index.js';
 import { parseClaudeCommand, removeCommandFromText, isClaudeAllowedCommand } from '../../commands/index.js';
 
 const log = createLogger('events');
@@ -251,6 +252,7 @@ export function handleEventPostProcessing(
   // Arbiter bookkeeping: delivery tool calls/results + the turn's final assistant text
   if (event.type === 'tool_use' || event.type === 'tool_result' || event.type === 'assistant') {
     arbiter.noteEvent(session, event);
+    returnAddress.noteEvent(session, event);
   }
 
   // Handle result events - stop typing, update UI, extract usage
@@ -262,6 +264,9 @@ export function handleEventPostProcessing(
     // Arbiter: remind about unmet deliveries / nudge past permission-stalls
     // (fire-and-forget, runs out-of-band)
     arbiter.onTurnComplete(session, ctx);
+    // Return address: (re)arm the quiescence timer that delivers the final
+    // answer back to the requester's thread once the session settles.
+    returnAddress.onTurnComplete(session, ctx);
   }
 
   // Track tool errors for bug reporting context

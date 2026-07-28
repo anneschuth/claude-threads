@@ -57,7 +57,7 @@ const MAX_MESSAGE_LENGTH = 2000;
  * a Mattermost/Slack server's post_message, ...) — a delivery through ANY of
  * them must count, otherwise the arbiter nags about work that is already done.
  */
-const MESSAGE_DELIVERY_PATTERN = /^(send_dm|send_message|post_message|create_post|post_to_channel|send_channel_message|send_direct_message)$/;
+const MESSAGE_DELIVERY_PATTERN = /^(send_dm|send_message|post_message|post_in_thread|reply_in_thread|post_reply|create_post|post_to_channel|send_channel_message|send_direct_message)$/;
 const FILE_DELIVERY_PATTERN = /^(send_file|upload_file|attach_file|share_file)$/;
 
 /** Classify a tool_use name as a delivery kind. Exported for tests. */
@@ -94,10 +94,12 @@ function buildExtractionPrompt(message: string, current: ArbiterObligation[]): s
   return `You maintain a ledger of EXTERNAL DELIVERY obligations for a coding agent working in a chat thread.
 
 A delivery obligation exists ONLY when the user explicitly asks the agent to deliver something OUTSIDE the current thread when the work is done:
-- post a reply/summary to another channel or to a person (tool: "message")
+- post a reply/summary to another channel, another thread, or to a person (tool: "message")
 - send/upload a file to someone or somewhere (tool: "file")
 
-NOT obligations: the work itself, replying in the current thread, committing/pushing code, opening PRs, or anything the user merely mentions without asking for delivery.
+IMPORTANT — "reply to me in the thread" is almost always an obligation, not an exemption. Agents are messaged BY OTHER AGENTS from a different thread, and the request carries a permalink to THAT thread ("reply to me in the thread: <url>", "отвечай мне в тред: <ссылка>"). That target thread is somewhere else, so delivering to it needs an explicit tool call and IS an obligation. Only a reply with no target — no permalink, no channel, no person named — is exempt as "just answer here".
+
+NOT obligations: the work itself, plain conversation in this thread with no delivery target, committing/pushing code, opening PRs, or anything the user merely mentions without asking for delivery.
 
 Current open obligations (JSON): ${currentJson}
 
@@ -229,7 +231,10 @@ function persistIfActive(session: Session, ctx: SessionContext): void {
  * that message. Exported for tests.
  */
 export function mightContainDeliveryRequest(message: string): boolean {
-  return /(send|dm|message|post|reply|notify|ping|forward|отправ|напиш|сообщи|ответ|отпиш|перешли|скинь|пингани|канал|channel|@[\w.-]+|~[\w-]+)/i.test(message);
+  // NB: `отвеч` — NOT `ответ`: the most common cross-agent phrasing is
+  // "отвечай мне в тред", which the `ответ` stem does not match.
+  // `/pl/` catches Mattermost/Slack permalinks even when the wording is odd.
+  return /(send|dm|message|post|reply|thread|notify|ping|forward|отправ|напиш|сообщи|ответ|отвеч|отпиш|перешли|скинь|пингани|тред|канал|channel|\/pl\/|@[\w.-]+|~[\w-]+)/i.test(message);
 }
 
 // ---------------------------------------------------------------------------

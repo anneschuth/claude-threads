@@ -4,6 +4,7 @@
 
 import type { AgentBackend, AgentType } from '../agents/types.js';
 import type { ArbiterSessionState } from '../operations/arbiter/types.js';
+import type { ReturnDeliveryState } from '../operations/return-address/types.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import type { WorktreeInfo } from '../persistence/session-store.js';
@@ -383,6 +384,9 @@ export interface Session {
 
   // Arbiter watchdog state (delivery obligations, stall nudges)
   arbiter?: ArbiterSessionState;
+
+  // Return-address state — guaranteed reply back to the requester's thread
+  returnDelivery?: ReturnDeliveryState;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;

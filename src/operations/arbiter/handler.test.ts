@@ -193,6 +193,19 @@ describe('mightContainDeliveryRequest', () => {
   it('skips plain work requests', () => {
     expect(mightContainDeliveryRequest('fix the flaky test in ci.yml')).toBe(false);
   });
+
+  // Regression: the cross-agent handoff phrasing. The `ответ` stem does NOT
+  // match "отвечай", so a review request whose only delivery cue was
+  // "отвечай мне в тред" was pre-filtered out and never became an obligation.
+  it('matches the cross-agent "отвечай мне в тред" handoff', () => {
+    expect(
+      mightContainDeliveryRequest('проведи ревью MR 42. Отвечай мне в тред: https://chat.corp/_redirect/pl/abc123')
+    ).toBe(true);
+  });
+
+  it('matches a bare permalink with no other delivery cue', () => {
+    expect(mightContainDeliveryRequest('см. https://chat.corp/_redirect/pl/abc123')).toBe(true);
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -598,6 +611,10 @@ describe('classifyDeliveryTool', () => {
   it('recognizes delivery tools from any MCP server by short name', () => {
     expect(classifyDeliveryTool('mcp__claude-threads-mcp__send_dm')).toBe('message');
     expect(classifyDeliveryTool('mcp__mattermost__post_message')).toBe('message');
+    // Regression: the tool a bot actually uses to answer a teammate's thread.
+    // Missing here, a CORRECT delivery went uncounted and the arbiter nagged
+    // about work that was already done, then filed a false "not delivered".
+    expect(classifyDeliveryTool('mcp__mattermost__post_in_thread')).toBe('message');
     expect(classifyDeliveryTool('mcp__slack-tools__send_message')).toBe('message');
     expect(classifyDeliveryTool('mcp__claude-threads-mcp__send_file')).toBe('file');
     expect(classifyDeliveryTool('mcp__drive__upload_file')).toBe('file');

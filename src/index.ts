@@ -601,7 +601,8 @@ async function startWithoutDaemon() {
     config.respondOnlyWhenMentioned,  // Quiet-mode default for new sessions (#402)
     defaultAgent,
     config.codex,
-    config.arbiter ?? true
+    config.arbiter ?? true,
+    config.returnDelivery ?? true
   );
 
   // Set sticky message customization from config

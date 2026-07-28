@@ -49,6 +49,11 @@ import {
 import { formatSideConversationsForClaude } from '../operations/side-conversation/index.js';
 import { extractObligations, createArbiterState } from '../operations/arbiter/index.js';
 import {
+  captureReturnAddress,
+  cancelReturnDelivery,
+  createReturnDeliveryState,
+} from '../operations/return-address/index.js';
+import {
   cleanupSessionUploads,
   getSessionUploadDir,
   postSkippedFilesFeedback,
@@ -97,6 +102,10 @@ function mutablePostIndex(ctx: SessionContext): Map<string, string> {
  */
 function cleanupSessionTimers(session: Session): void {
   clearAllTimers(session.timers);
+  // The return-delivery timer lives outside SessionTimers (it belongs to the
+  // return-address module's state); a fired timer on a dead session would
+  // post into a teammate's thread from a session nobody can answer.
+  cancelReturnDelivery(session);
 }
 
 /**
@@ -219,6 +228,7 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
  */
 function removeFromRegistry(session: Session, ctx: SessionContext): void {
   session.messageManager?.dispose();
+  cancelReturnDelivery(session);
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
@@ -1121,6 +1131,9 @@ export async function startSession(
 
   // Arbiter: track explicit external-delivery obligations from the first message
   extractObligations(session, options.prompt, ctx);
+  // Return address: a handoff usually carries "reply to me in the thread: <url>"
+  // in the very first message. Fire-and-forget — never blocks session startup.
+  void captureReturnAddress(session, options.prompt, username, ctx);
 
   // Notify keep-alive that a session started
   keepAlive.sessionStarted();
@@ -1348,6 +1361,7 @@ export async function resumeSession(
     claudeAccountId: claudeAccount?.id,
     agentType,
     arbiter: createArbiterState(state.arbiter),
+    returnDelivery: createReturnDeliveryState(state.returnDelivery),
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
@@ -1576,6 +1590,9 @@ export async function sendFollowUp(
   // (fire-and-forget ledger upkeep, independent of how the message is routed)
   if (!options?.system) {
     extractObligations(session, message, ctx);
+    // A follow-up can hand over a NEW reply-to thread (e.g. a different bot
+    // picks up the conversation) — re-capture on every user message.
+    void captureReturnAddress(session, message, username, ctx);
   }
 
   // Check if we need to offer context prompt (e.g., after !cd)
@@ -1665,6 +1682,7 @@ export async function resumePausedSession(
     // Arbiter: the resuming message can add or cancel delivery obligations,
     // same as any other user message (fire-and-forget)
     extractObligations(session, message, ctx);
+    void captureReturnAddress(session, message, state.startedBy, ctx);
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
     await session.messageManager.handleUserMessage(message, files, state.startedBy);

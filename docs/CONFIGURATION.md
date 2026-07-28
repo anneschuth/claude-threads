@@ -44,6 +44,7 @@ platforms:
 | `worktreeMode` | Git worktree mode: `off`, `prompt`, or `require` | `prompt` |
 | `respondOnlyWhenMentioned` | Start new threads in quiet mode, where the bot only replies to messages that @mention it. Users can still toggle per-thread with `!mentions`. | `false` |
 | `arbiter` | Completion watchdog. After each turn: reminds the agent about external deliveries it forgot (a `send_dm`/`send_file` the user asked for, max 2 reminders then a warning post), and nudges it to continue when it stalls asking "should I proceed?" (max 3 nudges per session; genuine blocking questions are left to humans). Uses out-of-band Haiku calls. | `true` |
+| `returnDelivery` | Guaranteed reply to the requester's thread. When an incoming message carries a reply-to directive with a permalink ("отвечай мне в тред: `<url>`" / "reply in the thread: `<url>`"), the bot records that thread as the session's return address and — once the session has been quiet for 90s — posts the final assistant message there itself, mentioning the requester and linking back to its own thread. Purely deterministic, no LLM. If the agent already posted to that thread on its own, the bot stays out of the way. | `true` |
 
 ## Platform Settings
 
