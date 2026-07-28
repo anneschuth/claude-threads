@@ -24,6 +24,7 @@ import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { createDocsPingState, type DocsPingState, type DocsVerdict } from './types.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
+import { buildReturnAddressMarker } from '../return-address/parser.js';
 
 const log = createLogger('docs-ping');
 const sessionLog = createSessionLog(log);
@@ -247,7 +248,7 @@ export function buildDocsMessage(
   const backLink = session.platform.getThreadLink(session.threadId);
   const lines = [`@${cfg.botName} ${verdict.summary}`, '', `MR: ${mrUrl}`];
   if (verdict.whatToCheck) lines.push(`Что проверить в доке: ${verdict.whatToCheck}`);
-  lines.push('', `Отвечай мне в тред: ${backLink}`);
+  lines.push('', buildReturnAddressMarker(backLink));
   return lines.join('\n');
 }
 

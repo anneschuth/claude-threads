@@ -151,14 +151,20 @@ function transformAssistant(
   const operations: MessageOperation[] = [];
   // Buffer for non-tool content (text, thinking, server_tool_use)
   const textBuffer: string[] = [];
+  // Whether the buffer holds real answer text, as opposed to only a thinking
+  // preview. Downstream, only answer text may carry a teammate mention.
+  let bufferHasAnswerText = false;
 
   /**
    * Flush accumulated text content as a non-tool operation.
    */
   const flushTextBuffer = () => {
     if (textBuffer.length > 0) {
-      operations.push(createAppendContentOp(ctx.sessionId, textBuffer.join('\n\n')));
+      operations.push(createAppendContentOp(
+        ctx.sessionId, textBuffer.join('\n\n'), undefined, undefined, bufferHasAnswerText
+      ));
       textBuffer.length = 0;
+      bufferHasAnswerText = false;
     }
   };
 
@@ -166,7 +172,10 @@ function transformAssistant(
     if (block.type === 'text' && block.text) {
       // Filter out <thinking> tags that may appear in text content
       const text = block.text.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').trim();
-      if (text) textBuffer.push(text);
+      if (text) {
+        textBuffer.push(text);
+        bufferHasAnswerText = true;
+      }
     } else if (block.type === 'tool_use' && block.name) {
       // Handle special tools that create their own operations
       const specialOps = handleSpecialTool(block.name, block.id || '', block.input || {}, ctx);

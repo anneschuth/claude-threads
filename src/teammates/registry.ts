@@ -11,6 +11,7 @@
  * (docs ping), so neither can route differently from the other.
  */
 
+import { buildReturnAddressMarker } from '../operations/return-address/parser.js';
 import type { DeliveryTarget } from '../platform/types.js';
 
 /** One reachable teammate bot. */
@@ -103,7 +104,7 @@ export function buildHandoffMessage(
   // No link available (platforms whose permalink the MCP child can't build):
   // omit the whole directive rather than emit a dangling "reply in thread:".
   if (!ownThreadLink) return `${mention} ${text}`;
-  return `${mention} ${text}\n\n---\nОтвечай мне в тред: ${ownThreadLink}`;
+  return `${mention} ${text}\n\n---\n${buildReturnAddressMarker(ownThreadLink)}`;
 }
 
 /** Parse the registry handed to the MCP child as JSON. Never throws. */

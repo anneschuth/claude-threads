@@ -819,6 +819,20 @@ export class MessageManager {
   }
 
   /**
+   * Arm a mention for the first line of the next answer (see return-address:
+   * a teammate who asked us something in a shared thread is called by name in
+   * the answer itself rather than pinged separately afterwards).
+   */
+  armAnswerMention(mention: string): void {
+    this.contentExecutor.armAnswerMention(mention);
+  }
+
+  /** Disarm; returns the mention only if no answer text ever carried it. */
+  takeAnswerMention(): string | undefined {
+    return this.contentExecutor.takeAnswerMention();
+  }
+
+  /**
    * Bump task list to bottom
    */
   async bumpTaskList(): Promise<void> {

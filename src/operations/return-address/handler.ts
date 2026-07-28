@@ -25,7 +25,7 @@ import { splitMessageForPosts } from '../../platform/utils.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
-import { findReturnAddressUrl } from './parser.js';
+import { buildReturnAddressMarker, findReturnAddressUrl } from './parser.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
 import { noteBotDelivery } from '../arbiter/handler.js';
 import {
@@ -138,21 +138,36 @@ export async function captureReturnAddress(
   }
 }
 
-/** The teammate registry as this platform reports it, or an empty list. */
-function teammateRegistry(session: Session) {
-  return session.platform.getMcpConfig?.()?.teammates ?? [];
+/** Where a reply to `requester` goes, by the fleet-wide routing rule. */
+function resolveRequesterRoute(session: Session, requester: string) {
+  const mcp = session.platform.getMcpConfig?.();
+  return resolveTeammateRoute(requester, {
+    registry: mcp?.teammates ?? [],
+    presentHere: mcp?.teammatesPresent ?? [],
+    currentChannelId: mcp?.channelId ?? '',
+    currentThreadId: session.threadId,
+  });
 }
 
 /**
  * Remember that a teammate bot is waiting on us in this thread. Their bot wakes
  * only on a mention, so finishing the turn silently leaves them blocked.
+ *
+ * When they hold their session in THIS thread, the mention goes into the first
+ * line of the answer itself — armed here, spliced in by ContentExecutor. The
+ * separate ping it replaces arrived a quiescence window after the answer and,
+ * to everyone reading the channel, made the answer look addressed to nobody.
+ * For the channel route there is nothing to ride on, so the ping stays.
  */
 export function noteTeammateRequest(session: Session, requester: string | undefined): void {
   if (!requester) return;
-  const known = teammateRegistry(session)
-    .some((t) => t.name.toLowerCase() === requester.toLowerCase());
-  if (!known) return;
+  const route = resolveRequesterRoute(session, requester);
+  if (!route) return;
+
   getReturnDeliveryState(session).pendingHandback = requester;
+  if (route.kind === 'thread') {
+    session.messageManager?.armAnswerMention(`@${route.teammate.name}`);
+  }
 }
 
 /** True when a teammate is still owed a "your answer is ready" ping. */
@@ -187,16 +202,25 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
     return;
   }
 
-  const mcp = platform.getMcpConfig?.();
-  const route = resolveTeammateRoute(requester, {
-    registry: mcp?.teammates ?? [],
-    presentHere: mcp?.teammatesPresent ?? [],
-    currentChannelId: mcp?.channelId ?? '',
-    currentThreadId: session.threadId,
-  });
+  const route = resolveRequesterRoute(session, requester);
   if (!route) {
     state.pendingHandback = undefined;
     return;
+  }
+
+  // In-thread: the answer already called them by name (noteTeammateRequest
+  // armed it). Only a turn that produced no answer text at all leaves the
+  // mention unused — then fall through and ping, or they wait forever.
+  if (route.kind === 'thread') {
+    // No message manager (a session torn down mid-flight) means nothing was
+    // armed and nothing carried the mention — treat it as unused and ping.
+    const mm = session.messageManager;
+    const unused = mm ? mm.takeAnswerMention() : `@${route.teammate.name}`;
+    if (!unused) {
+      state.pendingHandback = undefined;
+      persistIfActive(session, ctx);
+      return;
+    }
   }
 
   // Cleared before the await: a failed ping must not retry forever, and the
@@ -342,9 +366,10 @@ export function cancelReturnDelivery(session: Session): void {
 /** Build the message posted into the requester's thread. */
 export function buildDeliveryMessage(session: Session, address: ReturnAddress, text: string): string {
   const backLink = session.platform.getThreadLink(session.threadId);
+  if (!backLink) return `@${address.requester} ${text}`;
   return (
     `@${address.requester} ${text}\n\n` +
-    `---\nОтвечай мне в тред: ${backLink}`
+    `---\n${buildReturnAddressMarker(backLink)}`
   );
 }
 

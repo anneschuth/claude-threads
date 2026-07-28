@@ -135,7 +135,38 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     }
     // Anything else ends the run, so the next tool line starts a fresh one.
     this.state.toolGroup = null;
-    this.appendRaw(op.content, op.isToolOutput);
+    this.appendRaw(this.withAnswerMention(op), op.isToolOutput);
+  }
+
+  /**
+   * Arm a mention to be spliced into the first line of the next answer.
+   *
+   * Tool lines and thinking previews don't take it: `💻 Bash ×8 @krang` is not
+   * a greeting, and the teammate would be woken to watch us work rather than
+   * to read an answer.
+   */
+  armAnswerMention(mention: string): void {
+    this.state.answerMention = mention;
+  }
+
+  /**
+   * Disarm, returning the mention if it never found answer text to ride on.
+   * Take-and-clear rather than a predicate: the caller that discovers a mention
+   * went unused has to deliver it some other way, and leaving it armed would
+   * later graft it onto an unrelated answer.
+   */
+  takeAnswerMention(): string | undefined {
+    const mention = this.state.answerMention;
+    this.state.answerMention = undefined;
+    return mention;
+  }
+
+  /** Splice an armed mention into the head of this op's content, once. */
+  private withAnswerMention(op: AppendContentOp): string {
+    const mention = this.state.answerMention;
+    if (!mention || !op.isAnswerText || !op.content.trim()) return op.content;
+    this.state.answerMention = undefined;
+    return `${mention} ${op.content.replace(/^\s+/, '')}`;
   }
 
   private appendRaw(content: string, isToolOutput?: boolean): void {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { findReturnAddressUrl } from './parser.js';
+import { buildReturnAddressMarker, findReturnAddressUrl } from './parser.js';
 
 const PL = 'https://chat.corp.pushwoosh.com/_redirect/pl/w5pmoxp1xtg98y6jfwzop7at6r';
 const OTHER = 'https://gitlab.corp.pushwoosh.com/group/repo/-/merge_requests/42';
@@ -54,5 +54,45 @@ describe('findReturnAddressUrl', () => {
     const msg = `ответь в тред: ${PL}`;
     expect(findReturnAddressUrl(msg)).toBe(PL);
     expect(findReturnAddressUrl(msg)).toBe(PL);
+  });
+});
+
+/**
+ * The machine marker. Both forms have to parse at the same time — the prompts
+ * still teach agents the prose, while code emits the marker, and the whole
+ * point of introducing it before retiring the old form is that no message
+ * falls between the two and loses its return address.
+ */
+describe('findReturnAddressUrl — machine marker', () => {
+  it('reads what the emitter writes', () => {
+    expect(findReturnAddressUrl(buildReturnAddressMarker(PL))).toBe(PL);
+  });
+
+  it('needs no prose around it', () => {
+    expect(findReturnAddressUrl(`Готово, вердикт APPROVE.\n\n---\nreply-to: ${PL}`)).toBe(PL);
+  });
+
+  it('takes the marker over a prose directive in the same message', () => {
+    // A bot forwarding a human's request carries both; the marker is the one
+    // written on purpose by code.
+    expect(
+      findReturnAddressUrl(`отвечай мне в тред: ${OTHER}\n\nreply-to: ${PL}`)
+    ).toBe(PL);
+  });
+
+  it('is case-insensitive and tolerates decoration', () => {
+    expect(findReturnAddressUrl(`↩ Reply-To:  ${PL}`)).toBe(PL);
+  });
+
+  it('strips trailing sentence punctuation', () => {
+    expect(findReturnAddressUrl(`reply-to: ${PL}.`)).toBe(PL);
+  });
+
+  it('does not match compounds that merely end in the token', () => {
+    expect(findReturnAddressUrl(`no-reply-to: ${PL}`)).toBeNull();
+  });
+
+  it('needs a URL right after the marker', () => {
+    expect(findReturnAddressUrl('reply-to: (см. выше)')).toBeNull();
   });
 });

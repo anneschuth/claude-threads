@@ -88,7 +88,7 @@ describe('buildHandoffMessage', () => {
     const r = route('krang', [])!;
     const msg = buildHandoffMessage(r, 'глянь поды', link);
     expect(msg.startsWith('@krang глянь поды')).toBe(true);
-    expect(msg).toContain(`Отвечай мне в тред: ${link}`);
+    expect(msg).toContain(`reply-to: ${link}`);
   });
 
   /**
@@ -133,7 +133,7 @@ describe('buildHandoffMessage — no link available', () => {
     const msg = buildHandoffMessage(r, 'глянь поды', '');
 
     expect(msg).toBe('@krang глянь поды');
-    expect(msg).not.toContain('Отвечай мне в тред');
+    expect(msg).not.toContain('reply-to:');
     expect(msg).not.toMatch(/:\s*$/);
   });
 });

@@ -260,7 +260,7 @@ describe('onTurnComplete → ping', () => {
     expect(msg).toContain('починили сохранение Icon color');
     expect(msg).toContain(MR);
     expect(msg).toContain('раздел Account Defaults');
-    expect(msg).toContain('Отвечай мне в тред: https://chat.corp/_redirect/pl/thread-1');
+    expect(msg).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
     expect(getDocsPingState(session).settled).toBe(true);
   });
 
@@ -390,7 +390,7 @@ describe('docs ping routing', () => {
     expect(spies.delivered).toHaveLength(1);
     expect(spies.delivered[0].target).toEqual({ channelId: 'chan-ai-work', rootId: 'thread-1' });
     // No backlink: a link to the thread we're posting in would send her reply nowhere.
-    expect(spies.delivered[0].message).not.toContain('Отвечай мне в тред');
+    expect(spies.delivered[0].message).not.toContain('reply-to:');
     expect(spies.delivered[0].message).toContain('@april');
   });
 
@@ -402,6 +402,6 @@ describe('docs ping routing', () => {
     await Bun.sleep(QUIET_MS + 40);
 
     expect(spies.delivered[0].target).toEqual({ channelId: DOCS_CHANNEL, rootId: '' });
-    expect(spies.delivered[0].message).toContain('Отвечай мне в тред');
+    expect(spies.delivered[0].message).toContain('reply-to:');
   });
 });

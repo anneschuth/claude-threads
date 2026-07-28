@@ -16,6 +16,7 @@ import {
   getReturnDeliveryState,
   deliveryPending,
   buildDeliveryMessage,
+  noteTeammateRequest,
   MAX_DELIVERY_ATTEMPTS,
 } from './handler.js';
 import { createReturnDeliveryState, type ReturnAddress } from './types.js';
@@ -380,7 +381,7 @@ describe('buildDeliveryMessage', () => {
 
     expect(msg.startsWith('@bebop ')).toBe(true);
     expect(msg).toContain('VERDICT: PASS');
-    expect(msg).toContain('Отвечай мне в тред: https://chat.corp/_redirect/pl/thread-1');
+    expect(msg).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
   });
 });
 
@@ -399,5 +400,116 @@ describe('createReturnDeliveryState', () => {
     expect(empty.address).toBeUndefined();
     expect(empty.deliveredRootIds).toEqual([]);
     expect(empty.attempts).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hand-back to a teammate who asked us in this thread
+// ---------------------------------------------------------------------------
+
+/**
+ * The teammate's bot wakes only on a mention. Two shapes, and they must not be
+ * confused: in a SHARED thread the mention belongs in the answer itself (a
+ * separate ping a quiescence window later read as "called nobody"); from their
+ * OWN channel there is no answer of ours to ride on, so the ping stays.
+ */
+describe('teammate hand-back', () => {
+  const KRANG = { name: 'krang', channelId: 'chan-krang' };
+  const SHARED = 'chan-ai-work';
+
+  /** Fake MessageManager: records what the answer stream was handed. */
+  function makeMessageManager() {
+    let armed: string | undefined;
+    return {
+      armAnswerMention: (m: string) => { armed = m; },
+      takeAnswerMention: () => { const a = armed; armed = undefined; return a; },
+      /** What ContentExecutor would do once answer text arrives. */
+      simulateAnswerText: () => { armed = undefined; },
+      isArmed: () => armed,
+    };
+  }
+
+  function makeTeammateSession(presentHere: string[]) {
+    const mm = makeMessageManager();
+    const session = makeSession(spies, {
+      messageManager: mm as unknown as Session['messageManager'],
+    });
+    (session.platform as unknown as {
+      getMcpConfig: () => unknown;
+    }).getMcpConfig = () => ({
+      teammates: [KRANG], teammatesPresent: presentHere, channelId: SHARED,
+    });
+    return { session, mm };
+  }
+
+  it('arms the answer mention when the teammate is in this thread', () => {
+    const { session, mm } = makeTeammateSession(['krang']);
+
+    noteTeammateRequest(session, 'krang');
+
+    expect(mm.isArmed()).toBe('@krang');
+    expect(getReturnDeliveryState(session).pendingHandback).toBe('krang');
+  });
+
+  it('arms nothing for a teammate reachable only in their own channel', () => {
+    const { session, mm } = makeTeammateSession([]);
+
+    noteTeammateRequest(session, 'krang');
+
+    expect(mm.isArmed()).toBeUndefined();
+    expect(getReturnDeliveryState(session).pendingHandback).toBe('krang');
+  });
+
+  it('ignores a requester who is not a known teammate', () => {
+    const { session, mm } = makeTeammateSession(['krang']);
+
+    noteTeammateRequest(session, 'alice');
+
+    expect(mm.isArmed()).toBeUndefined();
+    expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
+  });
+
+  it('posts no separate ping once the answer carried the mention', async () => {
+    const { session, mm } = makeTeammateSession(['krang']);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    mm.simulateAnswerText();
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(0);
+    expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
+  });
+
+  /**
+   * The fallback that keeps the teammate from waiting forever: a turn that only
+   * ran tools and said nothing leaves the mention unused, so it has to be
+   * delivered the old way.
+   */
+  it('falls back to the ping when the turn produced no answer text', async () => {
+    const { session } = makeTeammateSession(['krang']);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(1);
+    expect(spies.delivered[0].message).toContain('@krang');
+    expect(spies.delivered[0].target).toEqual({ channelId: SHARED, rootId: 'thread-1' });
+  });
+
+  it('still pings a teammate in their own channel, with a backlink', async () => {
+    const { session } = makeTeammateSession([]);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(1);
+    expect(spies.delivered[0].target).toEqual({ channelId: 'chan-krang', rootId: '' });
+    expect(spies.delivered[0].message).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
   });
 });

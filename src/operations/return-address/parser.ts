@@ -1,6 +1,18 @@
 /**
  * Pure parsing of the "reply to me in this thread" directive.
  *
+ * Two accepted forms, and the order matters:
+ *
+ * 1. `reply-to: <url>` — the machine marker. One token, no natural language,
+ *    so it survives translation, rewording and an agent's paraphrasing.
+ * 2. Prose — "отвечай мне в тред: <url>" / "reply in the thread: <url>".
+ *
+ * The prose form is what the fleet's prompts still ask agents to write, so it
+ * stays understood indefinitely; the marker is what code emits. Teaching the
+ * parser both BEFORE anything emits the marker is the whole point — a parser
+ * that learns the new form after the old one is gone drops addresses in
+ * between, and a dropped address means an answer nobody ever receives.
+ *
  * Deliberately requires BOTH a directive and a URL: agents paste permalinks
  * for reference all the time ("see the discussion at <url>"), and treating
  * every link as a reply-to address would spray answers into unrelated threads.
@@ -17,11 +29,31 @@
 const REPLY_DIRECTIVE_RE =
   /(в\s+тред)|((reply|respond|answer|report|post)\b[^\n]{0,40}?\bthread)/i;
 
+/**
+ * The machine marker: `reply-to: <url>`.
+ *
+ * The lookbehind keeps `no-reply-to:` and similar compounds out. Nothing else
+ * is required around it — a leading `↩`, a list bullet or a `---` rule above
+ * are all cosmetics the emitter is free to change.
+ */
+const MACHINE_MARKER_RE = /(?<![\w-])reply-to:\s*(https?:\/\/[^\s<>()[\]"'`]+)/i;
+
 /** URL run: stops at whitespace and at characters that usually close a link. */
 const URL_RE = /https?:\/\/[^\s<>()[\]"'`]+/g;
 
 /** Trailing punctuation that is sentence, not URL. */
 const TRAILING_PUNCT_RE = /[.,;:!?)»"'`]+$/;
+
+/**
+ * Render the machine marker. The single place the emitted format is decided —
+ * every message code sends goes through here, so the shape can change without
+ * hunting call sites, and `MACHINE_MARKER_RE` above is its only contract.
+ *
+ * The `↩` is for the humans reading the thread; the parser ignores it.
+ */
+export function buildReturnAddressMarker(url: string): string {
+  return `↩ reply-to: ${url}`;
+}
 
 /**
  * Find the permalink the sender wants the answer delivered to.
@@ -34,6 +66,15 @@ const TRAILING_PUNCT_RE = /[.,;:!?)»"'`]+$/;
  */
 export function findReturnAddressUrl(message: string): string | null {
   if (!message) return null;
+
+  // Marker first: when a message carries both (a bot forwarding a human's
+  // prose request, say), the machine form is the one that was written on
+  // purpose by code.
+  const marker = MACHINE_MARKER_RE.exec(message);
+  if (marker) {
+    const url = marker[1].replace(TRAILING_PUNCT_RE, '');
+    if (url) return url;
+  }
 
   const directive = REPLY_DIRECTIVE_RE.exec(message);
   if (!directive) return null;

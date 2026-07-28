@@ -140,6 +140,53 @@ describe('ContentExecutor', () => {
   });
 
   /**
+   * A teammate bot that asked us something in a shared thread wakes only on a
+   * mention. Pinging them after the fact worked but read, to everyone else in
+   * the channel, as if the answer called nobody — so the mention rides on the
+   * first line of the answer itself.
+   */
+  describe('Answer mention', () => {
+    const answer = (text: string) =>
+      createAppendContentOp('test', text, undefined, undefined, true);
+
+    it('splices into the first line of the answer, once', async () => {
+      const ctx = getContext();
+      executor.armAnswerMention('@krang');
+
+      await executor.executeAppend(answer('Ревью готово: APPROVE.'), ctx);
+      await executor.executeAppend(answer('Замечаний три.'), ctx);
+
+      expect(executor.getState().pendingContent).toBe(
+        '@krang Ревью готово: APPROVE.Замечаний три.'
+      );
+      expect(executor.takeAnswerMention()).toBeUndefined();
+    });
+
+    /**
+     * The whole point of waiting for answer text: a mention on `💻 Bash ×8`
+     * (isToolOutput) or on a `💭` preview (neither tool output NOR answer text)
+     * wakes the teammate to watch us work instead of to read an answer.
+     */
+    it('waits past tool lines and thinking previews', async () => {
+      const ctx = getContext();
+      executor.armAnswerMention('@krang');
+
+      await executor.executeAppend(createAppendContentOp('test', '💻 **Bash** `ls`', true), ctx);
+      await executor.executeAppend(createAppendContentOp('test', '> 💭 _размышляю_'), ctx);
+
+      expect(executor.getState().pendingContent).not.toContain('@krang');
+      expect(executor.takeAnswerMention()).toBe('@krang');
+    });
+
+    it('leaves content untouched when nothing is armed', async () => {
+      const ctx = getContext();
+      await executor.executeAppend(answer('Готово.'), ctx);
+
+      expect(executor.getState().pendingContent).toBe('Готово.');
+    });
+  });
+
+  /**
    * A bot doing eight `Bash` commands in a row used to post eight near-identical
    * lines (worse: with a blank line and a `↳ ✓` under each). The run shares one
    * line that rewrites itself instead.

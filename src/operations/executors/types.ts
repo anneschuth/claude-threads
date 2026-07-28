@@ -80,6 +80,16 @@ export interface ContentState {
   /** Rolling tool line currently open, if any (see ToolGroupOp) */
   toolGroup: ToolGroupState | null;
   /**
+   * Mention to splice into the first line of the next answer, if armed.
+   *
+   * A teammate bot that asked us something in a shared thread wakes only on a
+   * mention, and the answer streamed as plain content is invisible to them.
+   * Pinging separately afterwards works but reads — to the humans in the
+   * channel — as if the bot called nobody. So the mention rides on the answer
+   * itself. Consumed by the first non-tool content that follows.
+   */
+  answerMention?: string;
+  /**
    * True while a flush is awaiting the platform. Events are not serialized, so
    * an append can land mid-flush; the rolling line must not rewrite the buffer
    * in that window (see rewriteGroupLine).

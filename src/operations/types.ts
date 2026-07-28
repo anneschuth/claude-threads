@@ -52,6 +52,15 @@ export interface AppendContentOp extends BaseOperation {
   readonly isToolOutput?: boolean;
   /** Set for tools that render as a rolling line (see ToolGroupOp) */
   readonly toolGroup?: ToolGroupOp;
+  /**
+   * The agent's own words — what a reader would call "the answer".
+   *
+   * Distinct from `!isToolOutput`, which is also false for thinking previews
+   * and tool-result markers. Only this flag is allowed to carry an armed
+   * teammate mention (see ContentState.answerMention): a mention spliced into
+   * a `💭` blockquote wakes the teammate to read our thinking out loud.
+   */
+  readonly isAnswerText?: boolean;
 }
 
 /**
@@ -343,7 +352,8 @@ export function createAppendContentOp(
   sessionId: string,
   content: string,
   isToolOutput?: boolean,
-  toolGroup?: ToolGroupOp
+  toolGroup?: ToolGroupOp,
+  isAnswerText?: boolean
 ): AppendContentOp {
   return {
     type: 'append_content',
@@ -352,6 +362,7 @@ export function createAppendContentOp(
     content,
     isToolOutput,
     toolGroup,
+    isAnswerText,
   };
 }
 
