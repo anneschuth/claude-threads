@@ -1716,6 +1716,26 @@ async function resolvePostFromUrl(
   };
 }
 
+/**
+ * Wrap a handler result for MCP. `isError` is set whenever the payload says
+ * `ok: false`, and that flag is load-bearing well beyond politeness: the
+ * arbiter's delivery ledger fulfils an obligation on any non-error tool_result
+ * (operations/arbiter/handler.ts). Without it a REFUSED send_to_teammate — now
+ * routine, since a teammate who holds no session here cannot be reached at all
+ * — was recorded as a delivered message. The agent was told "not sent", the
+ * ledger was told "sent", and the handoff vanished with nobody the wiser.
+ *
+ * Payloads with no `ok` field (permission_prompt's allow/deny) are untouched.
+ */
+export function toolResult(result: unknown) {
+  const failed = typeof result === 'object' && result !== null
+    && (result as { ok?: unknown }).ok === false;
+  return {
+    content: [{ type: 'text', text: JSON.stringify(result) }],
+    ...(failed ? { isError: true } : {}),
+  };
+}
+
 async function main() {
   const server = new McpServer({
     name: 'claude-threads-mcp',
@@ -1730,9 +1750,7 @@ async function main() {
     permissionInputSchema,
     async ({ tool_name, input }: { tool_name: string; input: Record<string, unknown> }) => {
       const result = await handlePermission(tool_name, input);
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     }
   );
 
@@ -1747,9 +1765,7 @@ async function main() {
     sendFileInputSchema,
     async ({ path, caption }: { path: string; caption?: string }) => {
       const result = await handleSendFile({ path, caption });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1768,9 +1784,7 @@ async function main() {
     readPostInputSchema,
     async ({ url, include_thread, max_messages }: { url: string; include_thread?: boolean; max_messages?: number }) => {
       const result = await handleReadPost({ url, include_thread, max_messages });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1784,9 +1798,7 @@ async function main() {
     reactToPostInputSchema,
     async ({ url, emoji }: { url: string; emoji: string }) => {
       const result = await handleReactToPost({ url, emoji });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1799,9 +1811,7 @@ async function main() {
     updateOwnPostInputSchema,
     async ({ url, message }: { url: string; message: string }) => {
       const result = await handleUpdateOwnPost({ url, message });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1817,9 +1827,7 @@ async function main() {
     listThreadInputSchema,
     async ({ url, max_messages }: { url?: string; max_messages?: number }) => {
       const result = await handleListThread({ url, max_messages });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1836,9 +1844,7 @@ async function main() {
     readChannelHistoryInputSchema,
     async ({ channel_id, max_messages }: { channel_id: string; max_messages?: number }) => {
       const result = await handleReadChannelHistory({ channel_id, max_messages });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1854,9 +1860,7 @@ async function main() {
     searchMessagesInputSchema,
     async ({ query, max_results }: { query: string; max_results?: number }) => {
       const result = await handleSearchMessages({ query, max_results });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1875,9 +1879,7 @@ async function main() {
     sendDmInputSchema,
     async ({ recipient, message }: { recipient: string; message: string }) => {
       const result = await handleSendDm({ recipient, message });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 
@@ -1885,18 +1887,19 @@ async function main() {
   (server as any).tool(
     'send_to_teammate',
     'Hand work to another bot in the fleet (ask for a review, pull in a specialist, pass a result). ' +
-      'Use this instead of posting to their channel yourself: it puts the message where they will ' +
-      'actually see it and adds the reply-back link when one is needed. ' +
-      'Routing is automatic — a teammate who works in this same channel is addressed in THIS thread, ' +
-      'so the whole task stays readable in one place; anyone else is reached in their own channel. ' +
-      'Returns { ok: true, routed: "thread" | "channel", postId } on success, or ' +
-      '{ ok: false, reason } on failure (unknown teammate, empty message, post rejected).',
+      'Use this instead of posting to their channel yourself: it adds the mention that actually ' +
+      'wakes them and keeps the whole task in one thread. ' +
+      'The message always lands in THIS thread — cross-bot work never goes to another channel, ' +
+      'because that opens a second thread for a conversation that already has one. ' +
+      'A teammate who holds no session in this channel therefore cannot be reached from here: ' +
+      'the call fails and NOTHING is sent, so read the result. ' +
+      'Returns { ok: true, routed: "thread", postId } on success, or ' +
+      '{ ok: false, reason } on failure (unknown teammate, not in this channel, empty message, ' +
+      'post rejected).',
     sendToTeammateInputSchema,
     async ({ teammate, message }: { teammate: string; message: string }) => {
       const result = await handleSendToTeammate({ teammate, message });
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      return toolResult(result);
     },
   );
 

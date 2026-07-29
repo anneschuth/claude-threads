@@ -116,7 +116,20 @@ describe('findReturnAddressUrl — delivered answers are not addresses', () => {
     )).toBeNull();
   });
 
-  it('still reads a real request that happens to quote the word', () => {
+  /**
+   * A real request that quotes a previous delivered answer as context — routine
+   * when work is passed onward. Its OWN directive must still be read, or the
+   * answer never arrives: captureReturnAddress fails silently on a missing URL.
+   */
+  it('still reads a request that quotes an earlier delivered answer', () => {
+    const quoted = buildDeliveredAnswerFooter('https://chat.corp/_redirect/pl/oldthread');
+    expect(findReturnAddressUrl(
+      `Контекст того, что уже сделано:\n\n> @bebop вердикт PASS\n> ${quoted}\n\n`
+      + `Теперь доделай пункт 5. reply-to: ${PL}`
+    )).toBe(PL);
+  });
+
+  it('still reads a request that merely mentions the token', () => {
     expect(findReturnAddressUrl(`сделай ревью, reply-to: ${PL}`)).toBe(PL);
   });
 });

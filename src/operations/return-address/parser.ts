@@ -59,6 +59,22 @@ const TRAILING_PUNCT_RE = /[.,;:!?)»"'`]+$/;
 const DELIVERED_ANSWER_RE = /(?<![\w-])delivered-answer(?![\w-])/i;
 
 /**
+ * True when THIS message is one of our delivered answers.
+ *
+ * Only the last non-empty line counts, because that is where the emitter puts the
+ * footer. Testing the whole message dropped the return address of any genuine
+ * request that quoted a previous delivered answer as context — routine in this
+ * fleet — and captureReturnAddress fails silently, so the answer would simply
+ * never arrive.
+ */
+function isDeliveredAnswer(message: string): boolean {
+  const lines = message.split('\n');
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop();
+  const lastLine = lines[lines.length - 1] ?? '';
+  return DELIVERED_ANSWER_RE.test(lastLine);
+}
+
+/**
  * Render the machine marker. The single place the emitted format is decided —
  * every message code sends goes through here, so the shape can change without
  * hunting call sites, and `MACHINE_MARKER_RE` above is its only contract.
@@ -91,7 +107,7 @@ export function findReturnAddressUrl(message: string): string | null {
   if (!message) return null;
 
   // Our own delivered answer: its backlink is provenance, not an address.
-  if (DELIVERED_ANSWER_RE.test(message)) return null;
+  if (isDeliveredAnswer(message)) return null;
 
   // Marker first: when a message carries both (a bot forwarding a human's
   // prose request, say), the machine form is the one that was written on

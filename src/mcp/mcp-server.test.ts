@@ -26,6 +26,7 @@ import {
   type SearchMessagesHandlerConfig,
   type SendDmHandlerConfig,
   handleSendToTeammateWith,
+  toolResult,
 } from './mcp-server.js';
 import { z } from 'zod';
 import type { McpPlatformApi, McpPost, ReactionEvent } from '../platform/mcp-platform-api.js';
@@ -2094,5 +2095,30 @@ describe('handleSendToTeammateWith', () => {
     const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: 'yo' }, config);
     expect(r.ok).toBe(false);
     expect(r.reason).toContain('channel not found');
+  });
+});
+
+/**
+ * `isError` is load-bearing far beyond politeness. The arbiter's delivery ledger
+ * fulfils an obligation on any non-error tool_result, so a REFUSED
+ * send_to_teammate used to be recorded as a delivered message: the agent was told
+ * "not sent", the ledger was told "sent", and the handoff vanished with nobody
+ * the wiser. That refusal became routine once the channel route was removed.
+ */
+describe('toolResult', () => {
+  it('marks a refusal as an error', () => {
+    const r = toolResult({ ok: false, reason: 'holds no session in this channel' });
+    expect(r.isError).toBe(true);
+    expect(r.content[0].text).toContain('holds no session');
+  });
+
+  it('leaves a success alone', () => {
+    expect(toolResult({ ok: true, routed: 'thread', postId: 'p1' }).isError).toBeUndefined();
+  });
+
+  /** permission_prompt answers allow/deny and has no `ok` — it must not become an error. */
+  it('ignores payloads that carry no ok field', () => {
+    expect(toolResult({ behavior: 'deny' }).isError).toBeUndefined();
+    expect(toolResult({ behavior: 'allow' }).isError).toBeUndefined();
   });
 });
