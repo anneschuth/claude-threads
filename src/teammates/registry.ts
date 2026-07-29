@@ -11,7 +11,6 @@
  * (docs ping), so neither can route differently from the other.
  */
 
-import { buildReturnAddressMarker } from '../operations/return-address/parser.js';
 import type { DeliveryTarget } from '../platform/types.js';
 
 /** One reachable teammate bot. */
@@ -22,18 +21,20 @@ export interface Teammate {
   channelId: string;
 }
 
-/** Where a handoff to a teammate should land, plus why. */
+/** Where a handoff to a teammate lands. Always a thread — see resolveTeammateRoute. */
 export interface TeammateRoute {
   target: DeliveryTarget;
   /**
-   * 'thread' — the teammate holds sessions in this very channel, so the whole
-   * exchange stays in one thread and needs no backlink.
-   * 'channel' — cold contact in their own channel; the message must carry a
-   * link back to our thread or the reply has nowhere to go.
+   * Always 'thread'. Kept as a field because logs and the send_to_teammate
+   * response report it, and a future second kind should have to declare itself
+   * rather than appear by omission.
    */
-  kind: 'thread' | 'channel';
+  kind: 'thread';
   teammate: Teammate;
 }
+
+/** Why a teammate could not be reached, for callers that must explain it. */
+export type UnreachableReason = 'unknown' | 'not-here';
 
 /** Find a teammate by mention name. Tolerates a leading '@' and any case. */
 export function findTeammate(registry: Teammate[], name: string): Teammate | undefined {
@@ -43,16 +44,24 @@ export function findTeammate(registry: Teammate[], name: string): Teammate | und
 }
 
 /**
- * Decide where a message to `name` goes.
+ * Decide where a message to `name` goes. One answer only: THIS thread.
  *
- * The rule, in one line: a teammate who listens in this channel is answered in
- * this thread; anyone else gets their own channel.
+ * Cross-bot work lives in threads and nowhere else. Posting into a teammate's
+ * channel used to be the "cold contact" path, and every time it fired it made
+ * things worse: it opens a SECOND thread for a conversation that already has
+ * one, the reply comes back in that new thread, and the two halves drift apart —
+ * which is the problem shared channels were introduced to end. Observed on
+ * 2026-07-29: krang pinged rocksteady correctly in his own thread, rocksteady
+ * came, and then krang pinged him AGAIN at channel level in ~ai-dev-rocksteady,
+ * duplicating the thread for no gain.
  *
- * `presentHere` lists teammates that hold sessions in the CURRENT channel —
- * per-platform config, because it's a property of the channel, not of the bot.
+ * So there is no channel route. `presentHere` lists the teammates that hold
+ * sessions in the CURRENT channel — per-platform config, because it is a
+ * property of the channel, not of the bot — and a teammate who is not among them
+ * cannot be reached from here at all. Callers get null and must say so rather
+ * than post somewhere plausible.
  *
- * Returns null when the name isn't a known teammate, so callers can say so
- * instead of silently posting somewhere plausible.
+ * Use `unreachableReason` to tell "no such teammate" from "not in this channel".
  */
 export function resolveTeammateRoute(
   name: string,
@@ -65,46 +74,49 @@ export function resolveTeammateRoute(
 ): TeammateRoute | null {
   const teammate = findTeammate(opts.registry, name);
   if (!teammate) return null;
+  if (!isPresentHere(teammate, opts.presentHere)) return null;
 
-  const isHere = opts.presentHere.some(
-    (n) => n.trim().replace(/^@/, '').toLowerCase() === teammate.name.toLowerCase(),
-  );
-
-  // Without a thread to reply in, "same channel" would post at channel level
-  // and start a thread the teammate can't tie back to anything — fall back.
-  if (isHere && opts.currentChannelId && opts.currentThreadId) {
-    return {
-      kind: 'thread',
-      teammate,
-      target: { channelId: opts.currentChannelId, rootId: opts.currentThreadId },
-    };
-  }
+  // No thread to land in (channel-level context) means no route: posting at
+  // channel level is exactly what this function refuses to do.
+  if (!opts.currentChannelId || !opts.currentThreadId) return null;
 
   return {
-    kind: 'channel',
+    kind: 'thread',
     teammate,
-    target: { channelId: teammate.channelId, rootId: '' },
+    target: { channelId: opts.currentChannelId, rootId: opts.currentThreadId },
   };
 }
 
+function isPresentHere(teammate: Teammate, presentHere: string[]): boolean {
+  return presentHere.some(
+    (n) => n.trim().replace(/^@/, '').toLowerCase() === teammate.name.toLowerCase(),
+  );
+}
+
 /**
- * Compose the message body for a handoff. Code owns this, not the agent: the
- * backlink is exactly what used to be forgotten (and what a PreToolUse hook
- * had to police), and in-thread handoffs must NOT carry one — a link to the
- * thread you are already posting in reads as the counterpart's thread and
- * sends the reply into a dead end.
+ * Why `resolveTeammateRoute` returned null. Lets a caller answer the agent with
+ * something actionable instead of a bare failure.
  */
-export function buildHandoffMessage(
-  route: TeammateRoute,
-  text: string,
-  ownThreadLink: string,
-): string {
-  const mention = `@${route.teammate.name}`;
-  if (route.kind === 'thread') return `${mention} ${text}`;
-  // No link available (platforms whose permalink the MCP child can't build):
-  // omit the whole directive rather than emit a dangling "reply in thread:".
-  if (!ownThreadLink) return `${mention} ${text}`;
-  return `${mention} ${text}\n\n---\n${buildReturnAddressMarker(ownThreadLink)}`;
+export function unreachableReason(
+  name: string,
+  opts: { registry: Teammate[]; presentHere: string[] },
+): UnreachableReason {
+  const teammate = findTeammate(opts.registry, name);
+  if (!teammate) return 'unknown';
+  return isPresentHere(teammate, opts.presentHere) ? 'unknown' : 'not-here';
+}
+
+/**
+ * Compose the message body for a handoff: the mention plus the text, nothing
+ * else. Code owns the mention because it is what wakes their session.
+ *
+ * No backlink any more. It existed for the channel route — "reply to me over
+ * there" — and the handoff now always lands in the thread both bots are already
+ * standing in, where a link to that same thread reads as the counterpart's
+ * thread and sends the reply into a dead end.
+ */
+export function buildHandoffMessage(route: TeammateRoute, text: string): string {
+  return `@${route.teammate.name} ${text}`;
 }
 
 /** Parse the registry handed to the MCP child as JSON. Never throws. */

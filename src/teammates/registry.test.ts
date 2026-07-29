@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import {
   findTeammate,
   resolveTeammateRoute,
+  unreachableReason,
   buildHandoffMessage,
   parseTeammateRegistry,
   type Teammate,
@@ -54,26 +55,31 @@ describe('resolveTeammateRoute', () => {
     expect(route('april', ['rocksteady', 'april'])?.kind).toBe('thread');
   });
 
-  it('falls back to their own channel when they do not listen here', () => {
-    const r = route('krang', ['rocksteady']);
-    expect(r?.kind).toBe('channel');
-    expect(r?.target).toEqual({ channelId: 'chan-krang', rootId: '' });
+  /**
+   * There is no channel route any more. Posting into a teammate's channel opened
+   * a SECOND thread for a conversation that already had one, and the two halves
+   * drifted apart — krang did exactly that to rocksteady on 2026-07-29, after
+   * having already reached him correctly in the shared thread.
+   */
+  it('refuses rather than falling back to their own channel', () => {
+    expect(route('krang', ['rocksteady'])).toBeNull();
+    expect(unreachableReason('krang', { registry: REGISTRY, presentHere: ['rocksteady'] }))
+      .toBe('not-here');
   });
 
-  it('uses their channel from a personal-channel session (nobody else present)', () => {
-    const r = route('april', [], 'chan-bebop', 'thread-personal');
-    expect(r?.kind).toBe('channel');
-    expect(r?.target.channelId).toBe('chan-april');
+  it('refuses from a session whose channel nobody else works in', () => {
+    expect(route('april', [], 'chan-bebop', 'thread-personal')).toBeNull();
   });
 
-  // Posting "in this channel" with no thread would open a thread the teammate
-  // can't tie back to anything.
-  it('does not claim same-thread without a thread to reply in', () => {
-    expect(route('rocksteady', ['rocksteady'], SHARED, '')?.kind).toBe('channel');
+  // Channel-level context: posting there is precisely what we refuse to do.
+  it('refuses when there is no thread to land in', () => {
+    expect(route('rocksteady', ['rocksteady'], SHARED, '')).toBeNull();
   });
 
   it('returns null for an unknown name so the caller can say so', () => {
     expect(route('shredder', ['rocksteady'])).toBeNull();
+    expect(unreachableReason('shredder', { registry: REGISTRY, presentHere: ['rocksteady'] }))
+      .toBe('unknown');
   });
 
   it('tolerates @ and case in the presentHere list', () => {
@@ -82,25 +88,19 @@ describe('resolveTeammateRoute', () => {
 });
 
 describe('buildHandoffMessage', () => {
-  const link = 'https://chat.corp/_redirect/pl/thread-42';
-
-  it('adds a backlink for a cold channel contact', () => {
-    const r = route('krang', [])!;
-    const msg = buildHandoffMessage(r, 'глянь поды', link);
-    expect(msg.startsWith('@krang глянь поды')).toBe(true);
-    expect(msg).toContain(`reply-to: ${link}`);
-  });
-
   /**
-   * A backlink to the thread you're posting into reads as the counterpart's
-   * thread — the reply lands in a dead end. This is the exact drift the
-   * require-thread-link hook was written to catch.
+   * Mention plus text, nothing else. A backlink would point at the thread we are
+   * already posting into, which reads as the counterpart's thread and sends the
+   * reply into a dead end — the exact drift the require-thread-link hook existed
+   * to catch, and now structurally impossible.
    */
-  it('omits the backlink for an in-thread handoff', () => {
+  it('is the mention and the text, with no backlink', () => {
     const r = route('rocksteady', ['rocksteady'])!;
-    const msg = buildHandoffMessage(r, 'посмотри MR 42', link);
+    const msg = buildHandoffMessage(r, 'посмотри MR 42');
+
     expect(msg).toBe('@rocksteady посмотри MR 42');
     expect(msg).not.toContain('тред');
+    expect(msg).not.toContain('reply-to');
   });
 });
 
@@ -120,20 +120,5 @@ describe('parseTeammateRegistry', () => {
     expect(parseTeammateRegistry('{"name":"a"}')).toEqual([]);
     expect(parseTeammateRegistry('')).toEqual([]);
     expect(parseTeammateRegistry(undefined)).toEqual([]);
-  });
-});
-
-// Review finding: a platform whose permalink the MCP child can't build passes an
-// empty link, and the message ended with a dangling "Отвечай мне в тред: ".
-describe('buildHandoffMessage — no link available', () => {
-  it('omits the directive entirely rather than emitting a dangling label', () => {
-    const r = resolveTeammateRoute('krang', {
-      registry: REGISTRY, presentHere: [], currentChannelId: SHARED, currentThreadId: THREAD,
-    })!;
-    const msg = buildHandoffMessage(r, 'глянь поды', '');
-
-    expect(msg).toBe('@krang глянь поды');
-    expect(msg).not.toContain('reply-to:');
-    expect(msg).not.toMatch(/:\s*$/);
   });
 });

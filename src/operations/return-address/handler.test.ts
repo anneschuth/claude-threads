@@ -479,14 +479,20 @@ describe('teammate hand-back', () => {
     expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
   });
 
-  it('arms nothing for a teammate reachable only in their own channel', () => {
+  /**
+   * A teammate who holds no session in this channel cannot be reached from here
+   * at all now that there is no channel route, so nothing is recorded: no
+   * mention, no obligation, and nothing to deliver later. Recording it would only
+   * arm a hand-back with nowhere to go.
+   */
+  it('records nothing for a teammate who holds no session in this channel', () => {
     const { session, mm } = makeTeammateSession([]);
 
     noteTeammateRequest(session, 'krang');
     noteEvent(session, toolUse);
 
     expect(mm.isArmed()).toBeUndefined();
-    expect(getReturnDeliveryState(session).pendingHandback).toBe('krang');
+    expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
   });
 
   it('ignores a requester who is not a known teammate', () => {
@@ -532,33 +538,18 @@ describe('teammate hand-back', () => {
     expect(spies.delivered[0].target).toEqual({ channelId: SHARED, rootId: 'thread-1' });
   });
 
-  it('still pings a teammate in their own channel, with a backlink', async () => {
+  /**
+   * The regression this replaces: the hand-back went into their channel, which
+   * opened a second thread for a conversation that already had one — krang did
+   * exactly that to rocksteady on 2026-07-29, having already reached him
+   * correctly in the shared thread minutes earlier.
+   */
+  it('posts nothing into their channel across a whole turn', async () => {
     const { session } = makeTeammateSession([]);
     const ctx = makeCtx(spies, true, [session]);
 
     noteTeammateRequest(session, 'krang');
     noteEvent(session, toolUse);
-    onTurnComplete(session, ctx);
-    await Bun.sleep(QUIET_MS + 40);
-
-    expect(spies.delivered).toHaveLength(1);
-    expect(spies.delivered[0].target).toEqual({ channelId: 'chan-krang', rootId: '' });
-    expect(spies.delivered[0].message).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
-    // "выше в треде" would be a lie in someone else's channel.
-    expect(spies.delivered[0].message).toContain('ответ в моём треде');
-  });
-
-  /**
-   * The channel route had no damping at all: pendingMention only exists for the
-   * in-thread route. krang→rocksteady goes by channel, and overnight on
-   * 2026-07-29 it reposted the same hand-back every three minutes for half an
-   * hour while the arbiter kept demanding a delivery it could not see.
-   */
-  it('stays silent on the channel route too when nothing was done', async () => {
-    const { session } = makeTeammateSession([]);
-    const ctx = makeCtx(spies, true, [session]);
-
-    noteTeammateRequest(session, 'krang');
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
 
@@ -566,22 +557,22 @@ describe('teammate hand-back', () => {
     expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
   });
 
-  /** One ping per request: the next turn must earn its own. */
+  /** One ping per request: a following turn that did nothing earns none. */
   it('does not repeat the ping on a following turn that did nothing', async () => {
-    const { session } = makeTeammateSession([]);
+    const { session } = makeTeammateSession(['krang']);
     const ctx = makeCtx(spies, true, [session]);
 
     noteTeammateRequest(session, 'krang');
     noteEvent(session, toolUse);
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
-    expect(spies.delivered).toHaveLength(1);
+    const afterFirst = spies.delivered.length;
 
     // A bare arbiter nudge: the obligation is re-armed, but no tool runs.
     noteTeammateRequest(session, 'krang');
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
 
-    expect(spies.delivered).toHaveLength(1);
+    expect(spies.delivered).toHaveLength(afterFirst);
   });
 });

@@ -251,11 +251,7 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
 
   state.workSinceHandback = false;
 
-  const body = buildHandoffMessage(
-    route,
-    route.kind === 'thread' ? 'готово — мой ответ выше в треде.' : 'готово — ответ в моём треде.',
-    platform.getThreadLink(session.threadId),
-  );
+  const body = buildHandoffMessage(route, 'готово — мой ответ выше в треде.');
   try {
     await platform.deliverToThread(route.target, body);
     sessionLog(session).info(`📬 Handed back to @${requester} (${route.kind})`);

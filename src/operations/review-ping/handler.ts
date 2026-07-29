@@ -137,16 +137,22 @@ async function deliver(
     currentChannelId: mcp?.channelId ?? '',
     currentThreadId: session.threadId,
   });
-  const target = route?.target ?? { channelId: cfg.channelId, rootId: '' };
+  // No channel fallback: cross-bot work stays in threads. If they hold no
+  // session in this channel there is nowhere to reach them from here, and
+  // opening a thread in their channel is what we stopped doing.
+  if (!route) {
+    sessionLog(session).info(`@${cfg.botName} holds no session in this channel — skipping the review ping`);
+    state.pinged.add(mrUrl);
+    return;
+  }
+  const target = route.target;
 
   // Marked before the await: a failed ping must not retry forever. The next MR
   // in this session arms a fresh one.
   state.pinged.add(mrUrl);
   persistIfActive(session, ctx);
 
-  const body = route
-    ? buildHandoffMessage(route, reviewBody(mrUrl), platform.getThreadLink(session.threadId))
-    : `@${cfg.botName} ${reviewBody(mrUrl)}`;
+  const body = buildHandoffMessage(route, reviewBody(mrUrl));
 
   try {
     await platform.deliverToThread(target, body);

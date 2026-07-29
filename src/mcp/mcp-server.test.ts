@@ -2014,7 +2014,6 @@ describe('handleSendToTeammateWith', () => {
         presentHere: ['rocksteady'],
         currentChannelId: 'chan-shared',
         currentThreadId: 'thread-1',
-        ownThreadLink: 'https://chat/pl/thread-1',
         maxMessageChars: 50,
         ...overrides,
       } as Parameters<typeof handleSendToTeammateWith>[1],
@@ -2036,24 +2035,28 @@ describe('handleSendToTeammateWith', () => {
    * and only the first carries the @mention, leaving the recipient's bot blind
    * to the rest while the tool still reports ok.
    */
-  it('threads continuation chunks under the first post', async () => {
+  it('puts every chunk of a long message into the same thread', async () => {
     const { posted, config } = cfg({ chunkChars: 40, maxMessageChars: 4000 });
     const long = ['первый абзац ревью', 'второй абзац ревью', 'третий абзац ревью'].join('\n\n');
-    const r = await handleSendToTeammateWith({ teammate: 'krang', message: long }, config);
+    const r = await handleSendToTeammateWith({ teammate: 'rocksteady', message: long }, config);
 
-    expect(r).toMatchObject({ ok: true, routed: 'channel' });
+    expect(r).toMatchObject({ ok: true, routed: 'thread' });
     expect(posted.length).toBeGreaterThan(1);
-    expect(posted[0].rootId).toBeFalsy();
-    for (const p of posted.slice(1)) expect(p.rootId).toBe('p-1');
+    for (const p of posted) expect(p.rootId).toBe('thread-1');
   });
 
-  it('routes everyone else to their own channel, with a backlink', async () => {
+  /**
+   * No channel route: posting into a teammate's channel opened a second thread
+   * for a conversation that already had one. Nothing is sent, and the reason says
+   * what to do instead — a silent failure would read as a delivered handoff.
+   */
+  it('refuses, and sends nothing, for a teammate who holds no session here', async () => {
     const { posted, config } = cfg();
     const r = await handleSendToTeammateWith({ teammate: '@KRANG', message: 'глянь поды' }, config);
 
-    expect(r).toMatchObject({ ok: true, routed: 'channel' });
-    expect(posted[0].channelId).toBe('chan-krang');
-    expect(posted[0].message).toContain('https://chat/pl/thread-1');
+    expect(r.ok).toBe(false);
+    expect(r.reason).toContain('no session in this channel');
+    expect(posted).toHaveLength(0);
   });
 
   it('names the known teammates when asked for a stranger', async () => {

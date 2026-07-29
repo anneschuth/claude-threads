@@ -57,12 +57,18 @@ describe('handoff logging', () => {
     expect(lines.some((l) => l.includes('Handed off to @rocksteady via thread'))).toBe(true);
   });
 
-  it('reports channel routing for a teammate who is not in this channel', () => {
+  /**
+   * A teammate who holds no session here is unreachable from here — there is no
+   * channel route to fall back to. The log has to show that, or a handoff that
+   * went nowhere looks like one that landed.
+   */
+  it('says so when the teammate holds no session in this channel', () => {
     const session = makeSession(['rocksteady']);
 
     noteEvent(session, toolUse('t1', 'krang'));
 
-    expect(lines.some((l) => l.includes('@krang via channel'))).toBe(true);
+    expect(lines.some((l) => l.includes('krang') && !l.includes('via thread'))).toBe(true);
+    expect(lines.some((l) => l.includes('via channel'))).toBe(false);
   });
 
   it('says so when the name is not in the registry', () => {

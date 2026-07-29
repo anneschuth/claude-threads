@@ -43,7 +43,9 @@ function makeSession(
       platformId: 'mm',
       getBotName: () => botName,
       getThreadLink: (id: string) => `https://chat.corp/_redirect/pl/${id}`,
-      getMcpConfig: () => ({ channelId: 'chan-bebop', ...mcp }),
+      // The reviewer holds a session here by default: cross-bot work only ever
+      // lands in a thread now, so without presence there is no route at all.
+      getMcpConfig: () => ({ channelId: 'chan-bebop', teammatesPresent: ['rocksteady'], ...mcp }),
       createPost: mock(async (message: string) => {
         spies.ownThreadPosts.push(message);
         return { id: 'p1', message };
@@ -91,8 +93,8 @@ describe('review-ping', () => {
     // the MR so they don't have to go hunting for it.
     expect(spies.delivered[0].message).toContain('@rocksteady');
     expect(spies.delivered[0].message).toContain(MR);
-    // Routed to the reviewer's channel: they don't hold a session here.
-    expect(spies.delivered[0].target.channelId).toBe('chan-rocksteady');
+    // Into THIS thread, never their channel: cross-bot work stays in one thread.
+    expect(spies.delivered[0].target).toEqual({ channelId: 'chan-bebop', rootId: 'thread-1' });
   });
 
   it('does not ask twice for the same MR', async () => {
@@ -226,5 +228,23 @@ describe('review-ping — guard survives a restart', () => {
     expect([...createReviewPingState().pinged]).toEqual([]);
     expect([...createReviewPingState(undefined).pinged]).toEqual([]);
     expect([...createReviewPingState({ pinged: undefined as unknown as string[] }).pinged]).toEqual([]);
+  });
+});
+
+/**
+ * No channel fallback any more: asking in the reviewer's own channel opened a
+ * second thread for work that already had one. If they hold no session here, the
+ * ask is skipped and the MR marked so it isn't retried every turn.
+ */
+describe('review-ping — nobody to ask here', () => {
+  it('skips the ask when the reviewer holds no session in this channel', async () => {
+    const spies = makeSpies();
+    const session = makeSession(spies, {}, { teammatesPresent: [] });
+    const ctx = makeCtx(session);
+
+    onTurnComplete(session, ctx);
+    await settle();
+
+    expect(spies.delivered).toHaveLength(0);
   });
 });

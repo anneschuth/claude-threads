@@ -36,6 +36,7 @@ import { createMcpPlatformApi } from '../platform/mcp-platform-api-factory.js';
 import {
   parseTeammateRegistry,
   resolveTeammateRoute,
+  unreachableReason,
   buildHandoffMessage,
   type Teammate,
 } from '../teammates/registry.js';
@@ -481,12 +482,6 @@ export const searchMessagesInputSchema = {
  * teammate's own thread — acceptable because the whole fleet is Mattermost;
  * revisit if that changes.
  */
-function ownThreadLink(): string {
-  if (PLATFORM_TYPE === 'mattermost' && PLATFORM_URL && PLATFORM_THREAD_ID) {
-    return `${PLATFORM_URL.replace(/\/+$/, '')}/_redirect/pl/${PLATFORM_THREAD_ID}`;
-  }
-  return '';
-}
 
 export interface SendToTeammateResult {
   ok: boolean;
@@ -517,7 +512,6 @@ export interface SendToTeammateHandlerConfig {
   presentHere: string[];
   currentChannelId: string;
   currentThreadId: string;
-  ownThreadLink: string;
   maxMessageChars: number;
   /** Per-post size; injectable so the chunking path is testable. */
   chunkChars?: number;
@@ -547,24 +541,29 @@ export async function handleSendToTeammateWith(
     currentThreadId: cfg.currentThreadId,
   });
   if (!route) {
+    if (unreachableReason(args.teammate, cfg) === 'not-here') {
+      // Deliberately nothing is sent. Posting into their channel would open a
+      // second thread for a conversation that already has one.
+      return {
+        ok: false,
+        reason: `@${args.teammate} holds no session in this channel, and cross-bot work stays in threads — `
+          + `nothing was sent. Answer here; if they genuinely need to be in this channel, a human has to add them.`,
+      };
+    }
     const known = cfg.registry.map((t) => t.name).join(', ') || '(none configured)';
     return { ok: false, reason: `unknown teammate "${args.teammate}". Known: ${known}` };
   }
 
   try {
     const chunks = splitMessageForPosts(
-      buildHandoffMessage(route, message, cfg.ownThreadLink),
+      buildHandoffMessage(route, message),
       cfg.chunkChars ?? SEND_TO_TEAMMATE_CHUNK_CHARS,
     );
-    // Chunks 2..N go UNDER chunk 1. For a channel route rootId is empty, so
-    // without this each chunk would be its own root post — and only the first
-    // carries the @mention, so the recipient's bot would never see the rest
-    // while the tool still reported ok.
+    // Every chunk goes into the same thread; rootId is always set now that the
+    // only route is a thread route.
     let postId = '';
-    let rootId = route.target.rootId;
     for (const chunk of chunks) {
-      ({ postId } = await cfg.api.postTo(route.target.channelId, chunk, rootId));
-      if (!rootId) rootId = postId;
+      ({ postId } = await cfg.api.postTo(route.target.channelId, chunk, route.target.rootId));
     }
     mcpLogger.info(
       `Handed off to @${route.teammate.name} via ${route.kind} (post ${postId.substring(0, 8)})`,
@@ -587,7 +586,6 @@ async function handleSendToTeammate(
     presentHere: TEAMMATES_PRESENT,
     currentChannelId: PLATFORM_CHANNEL_ID,
     currentThreadId: PLATFORM_THREAD_ID,
-    ownThreadLink: ownThreadLink(),
     maxMessageChars: SEND_TO_TEAMMATE_MAX_MESSAGE_CHARS,
   });
 }

@@ -30,7 +30,6 @@ const {
   resolveDocsPing,
   pingPending,
   parseDocsVerdict,
-  buildDocsMessage,
 } = await import('./handler.js');
 const { createDocsPingState } = await import('./types.js');
 
@@ -61,7 +60,7 @@ function makeSession(spies: Spies, overrides: Partial<Session> = {}): Session {
     platform: {
       platformId: 'mm',
       getBotName: () => 'bebop',
-      getMcpConfig: () => ({ channelId: 'chan-bebop' }),
+      getMcpConfig: () => ({ channelId: 'chan-bebop', teammatesPresent: ['april'] }),
       getThreadLink: (id: string) => `https://chat.corp/_redirect/pl/${id}`,
       createPost: mock(async (message: string) => {
         spies.ownThreadPosts.push(message);
@@ -253,14 +252,16 @@ describe('onTurnComplete → ping', () => {
     await Bun.sleep(QUIET_MS + 40);
 
     expect(spies.delivered).toHaveLength(1);
-    // Channel-level post: no thread root.
-    expect(spies.delivered[0].target).toEqual({ channelId: DOCS_CHANNEL, rootId: '' });
+    // Into THIS thread, not her channel: one task, one thread.
+    expect(spies.delivered[0].target).toEqual({ channelId: 'chan-bebop', rootId: 'thread-1' });
     const msg = spies.delivered[0].message;
     expect(msg).toContain('@april');
     expect(msg).toContain('починили сохранение Icon color');
     expect(msg).toContain(MR);
     expect(msg).toContain('раздел Account Defaults');
-    expect(msg).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
+    // No backlink: the ping lands in the very thread it links to, so a link
+    // there reads as somebody else's thread and sends her reply nowhere.
+    expect(msg).not.toContain('reply-to:');
     expect(getDocsPingState(session).settled).toBe(true);
   });
 
@@ -351,17 +352,6 @@ describe('onTurnComplete → ping', () => {
   });
 });
 
-describe('buildDocsMessage', () => {
-  it('omits the what-to-check line when empty', () => {
-    const session = makeSession(spies);
-    const cfg = resolveDocsPing(session, makeCtx(spies, session))!;
-    const msg = buildDocsMessage(session, cfg, { needsDocs: true, summary: 's', whatToCheck: '' }, MR);
-
-    expect(msg).toContain('@april s');
-    expect(msg).toContain(`MR: ${MR}`);
-    expect(msg).not.toContain('Что проверить');
-  });
-});
 
 // ===========================================================================
 // Routing parity with send_to_teammate: the docs bot is told wherever she
@@ -394,14 +384,19 @@ describe('docs ping routing', () => {
     expect(spies.delivered[0].message).toContain('@april');
   });
 
-  it('falls back to her own channel, with a backlink, when she is not here', async () => {
+  /**
+   * No channel fallback: pinging her own channel opened a second thread for work
+   * that already had one. If she holds no session here she cannot be reached from
+   * here, and the ping is skipped rather than sent somewhere plausible.
+   */
+  it('skips the ping when she holds no session in this channel', async () => {
     const session = sessionWithRegistry(spies, []);
     const ctx = makeCtx(spies, session);
 
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
 
-    expect(spies.delivered[0].target).toEqual({ channelId: DOCS_CHANNEL, rootId: '' });
-    expect(spies.delivered[0].message).toContain('reply-to:');
+    expect(spies.delivered).toHaveLength(0);
+    expect(getDocsPingState(session).settled).toBe(true);
   });
 });

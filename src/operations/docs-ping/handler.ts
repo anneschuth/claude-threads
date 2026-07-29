@@ -24,7 +24,6 @@ import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeEvent } from '../../claude/cli.js';
 import { createDocsPingState, type DocsPingState, type DocsVerdict } from './types.js';
 import { resolveTeammateRoute, buildHandoffMessage } from '../../teammates/registry.js';
-import { buildReturnAddressMarker } from '../return-address/parser.js';
 
 const log = createLogger('docs-ping');
 const sessionLog = createSessionLog(log);
@@ -238,20 +237,6 @@ export function docsBody(verdict: DocsVerdict, mrUrl: string): string {
   return lines.join('\n');
 }
 
-/** Legacy shape, kept for the no-registry fallback. Exported for tests. */
-export function buildDocsMessage(
-  session: Session,
-  cfg: DocsPingConfig,
-  verdict: DocsVerdict,
-  mrUrl: string
-): string {
-  const backLink = session.platform.getThreadLink(session.threadId);
-  const lines = [`@${cfg.botName} ${verdict.summary}`, '', `MR: ${mrUrl}`];
-  if (verdict.whatToCheck) lines.push(`Что проверить в доке: ${verdict.whatToCheck}`);
-  lines.push('', buildReturnAddressMarker(backLink));
-  return lines.join('\n');
-}
-
 async function sendDocsPing(session: Session, ctx: SessionContext): Promise<void> {
   const cfg = resolveDocsPing(session, ctx);
   if (!cfg) return;
@@ -301,10 +286,16 @@ async function sendDocsPing(session: Session, ctx: SessionContext): Promise<void
     currentChannelId: mcp?.channelId ?? '',
     currentThreadId: session.threadId,
   });
-  const target = route?.target ?? { channelId: cfg.channelId, rootId: '' };
-  const body = route
-    ? buildHandoffMessage(route, docsBody(verdict, mrUrl), platform.getThreadLink(session.threadId))
-    : buildDocsMessage(session, cfg, verdict, mrUrl);
+  // No channel fallback: cross-bot work stays in threads. If they hold no
+  // session in this channel there is nowhere to reach them from here, and
+  // opening a thread in their channel is what we stopped doing.
+  if (!route) {
+    sessionLog(session).info(`@${cfg.botName} holds no session in this channel — skipping the docs ping`);
+    state.settled = true;
+    return;
+  }
+  const target = route.target;
+  const body = buildHandoffMessage(route, docsBody(verdict, mrUrl));
 
   try {
     await platform.deliverToThread(target, body);

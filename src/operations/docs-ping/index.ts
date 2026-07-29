@@ -12,7 +12,6 @@ export {
   pingPending,
   buildDocsJudgePrompt,
   parseDocsVerdict,
-  buildDocsMessage,
   DOCS_PING_QUIESCENCE_MS,
 } from './handler.js';
 
