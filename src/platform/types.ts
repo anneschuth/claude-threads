@@ -1,8 +1,8 @@
 /**
  * Platform-agnostic types for multi-platform support
  *
- * These types normalize the differences between Mattermost, Slack, etc.
- * into a common interface that SessionManager can work with.
+ * These types normalize platform-specific payloads into a common
+ * interface that SessionManager can work with.
  */
 
 /**
@@ -40,7 +40,7 @@ export interface PlatformPost {
 export interface DeliveryTarget {
   /** Channel/conversation containing the thread. */
   channelId: string;
-  /** Thread root: Mattermost root post id, Slack thread parent ts. */
+  /** Thread root: the Mattermost root post id. */
   rootId: string;
 }
 

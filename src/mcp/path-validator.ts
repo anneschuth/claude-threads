@@ -87,7 +87,7 @@ function isDangerouslyWide(root: string): boolean {
  *   - non-regular file (FIFO, socket, device, directory)
  *   - SUID/SGID bit set
  *   - size > maxBytes
- *   - size === 0 (Slack rejects zero-length uploads)
+ *   - size === 0 (zero-length uploads are rejected)
  *
  * Returns a tagged result; callers pass `reason` verbatim back to Claude.
  */

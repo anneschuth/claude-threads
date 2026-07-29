@@ -463,7 +463,7 @@ export class SessionManager extends EventEmitter {
       sessionNumber: session.sessionNumber,
       worktreeBranch: session.worktreeInfo?.branch,
       // Platform information
-      platformType: session.platform.platformType as 'mattermost' | 'slack',
+      platformType: session.platform.platformType as 'mattermost',
       platformDisplayName: session.platform.displayName,
       // Rich metadata
       title: session.sessionTitle,

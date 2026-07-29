@@ -7,7 +7,7 @@
  * ├─────────────────────────────┬───────────────────────────────────┤
  * │ Platforms                   │ Logs                              │
  * │ 1. 𝓜 ● @bot on Main         │ [lifecycle] Session started       │
- * │ 2. 🆂 ● @slack on Work       │ [error] Connection timeout        │
+ * │ 2. 𝓜 ● @bot on Work         │ [error] Connection timeout        │
  * ├─────────────────────────────┴───────────────────────────────────┤
  * │ [1 ● Fix auth] [2 ● Feature] [3 ○ Review]     ← tab bar         │
  * ├─────────────────────────────────────────────────────────────────┤

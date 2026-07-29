@@ -33,16 +33,13 @@ export interface PostedMessage {
 export interface McpPost {
   /**
    * Platform-native post identifier. For Mattermost this is the 26-char
-   * post id; for Slack it's the message timestamp string (`ts`,
-   * "seconds.microseconds"). Use this when re-fetching, never compute
-   * from `createAt`.
+   * post id. Use this when re-fetching, never compute from `createAt`.
    */
   id: string;
   /**
    * Channel the post lives in. Used by the resolver to scope read_post
    * to the bot's own channel and surface "wrong channel" as a distinct
-   * error. Mattermost: the 26-char channel id. Slack: the channel id
-   * (`C…`/`G…`/`D…`).
+   * error. Mattermost: the 26-char channel id.
    */
   channelId: string;
   userId: string;
@@ -51,11 +48,8 @@ export interface McpPost {
   /**
    * Creation time in milliseconds since the Unix epoch.
    *
-   * Best-effort across platforms: Mattermost stores ms natively, Slack
-   * stores `seconds.microseconds` and we floor to ms (microsecond
-   * precision is lost). Safe for sorting *within* a single platform's
-   * results, but do not assume round-trippable: re-fetching by
-   * `id` is the only stable reference.
+   * Safe for sorting results, but do not assume round-trippable:
+   * re-fetching by `id` is the only stable reference.
    */
   createAt: number;
   /** Empty / undefined for top-level posts. */
@@ -65,10 +59,7 @@ export interface McpPost {
    * uses this to allow cross-channel reads when the target channel is a
    * public channel on the same instance — anyone in the thread could
    * already navigate there themselves, so the channel-scope guard adds no
-   * privacy value. Slack does not currently set this field: its
-   * MCP-side `readPost` is hard-scoped to the bot's configured channel
-   * via `conversations.history`, so cross-channel reads aren't possible
-   * on Slack regardless of channel visibility.
+   * privacy value.
    *
    * Optional: implementations that don't classify channels (or older
    * sessions persisted before this field existed) leave it undefined,
@@ -132,7 +123,7 @@ export interface McpPlatformApi {
    * validation must be done by the caller (see src/mcp/path-validator.ts).
    *
    * @param filePath - Absolute path of the file to upload
-   * @param threadId - Thread parent id (root_id on MM, thread_ts on Slack)
+   * @param threadId - Thread parent id (`root_id` on Mattermost)
    * @param options.caption - Optional message body / initial comment
    * @param options.filename - Display filename
    */
@@ -178,10 +169,8 @@ export interface McpPlatformApi {
    * caller is responsible for scope checks: this method just hits the
    * platform API for the given channel.
    *
-   * On Slack the bot must be a member of the channel; otherwise the
-   * implementation returns null so the caller can map that to a clean
-   * error. Mattermost returns null when the bot's token can't see the
-   * channel for any reason.
+   * Mattermost returns null when the bot's token can't see the channel
+   * for any reason, so the caller can map that to a clean error.
    *
    * Optional — implementations that don't support channel reads omit it.
    */
@@ -221,11 +210,8 @@ export interface McpPlatformApi {
 
   /**
    * Resolve a recipient identifier to a user ID. The shape of `recipient`
-   * is platform-specific:
-   *   - Mattermost: a username (`@anne` or `anne`)
-   *   - Slack: a user id (`U…`) — Slack's bot tokens can't reverse-look up
-   *     usernames cheaply, so this method takes the id as-is and
-   *     verifies it exists.
+   * is platform-specific; on Mattermost it is a username (`@anne` or
+   * `anne`).
    *
    * Returns null when the recipient can't be found.
    *
@@ -267,9 +253,8 @@ export interface McpPlatformApi {
    * disabled, the platform threw). Empty array means "search ran, no
    * matches" — the handler MUST distinguish these.
    *
-   * Optional — Slack does not currently support this from a bot token
-   * (search.messages requires a user token), so the Slack implementation
-   * omits the method.
+   * Optional — implementations whose bot credentials can't reach the
+   * platform's search API omit the method.
    */
   searchMessages?(
     query: string,
@@ -286,19 +271,6 @@ export interface MattermostMcpApiConfig {
   token: string;
   channelId: string;
   threadId?: string;
-  allowedUsers: string[];
-  debug?: boolean;
-}
-
-/**
- * Configuration for the Slack MCP platform API
- */
-export interface SlackMcpApiConfig {
-  platformType: 'slack';
-  botToken: string;    // xoxb-... for Web API
-  appToken: string;    // xapp-... for Socket Mode
-  channelId: string;
-  threadTs?: string;   // Thread timestamp
   allowedUsers: string[];
   debug?: boolean;
 }

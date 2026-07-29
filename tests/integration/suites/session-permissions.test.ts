@@ -8,7 +8,7 @@
  * properly displayed to users, but don't test the actual approval/denial flow.
  * The approval/denial flow is tested in unit tests for the MCP permission server.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -89,11 +89,7 @@ describe.skipIf(SKIP)('Session Permissions', () => {
 
     // Get the bot username based on platform
     const getBotUsername = () => {
-      if (platformType === 'mattermost') {
-        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
-      }
-      // Slack uses a different format
-      return config.slack?.botUsername || 'claude-test-bot';
+      return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
     };
 
     describe('Tool Use Display', () => {

@@ -5,7 +5,7 @@
  * - Resume via reaction emoji
  * - Resume after bot restart (simulated by stopping and starting bot)
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -67,7 +67,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
     afterAll(async () => {
       await bot.stop();
 
-      // Clean up test threads (Mattermost only - Slack mock handles its own cleanup)
+      // Clean up test threads
       if (adminApi) {
         for (const threadId of testThreadIds) {
           try {
@@ -93,21 +93,14 @@ describe.skipIf(SKIP)('Session Resume', () => {
      * Get the bot username for the current platform
      */
     function getBotUsername(): string {
-      if (platformType === 'mattermost') {
-        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
-      }
-      // Slack - use default or config
-      return config.slack?.botUsername || 'claude-test-bot';
+      return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
     }
 
     /**
      * Get the test user's username for the current platform
      */
     function getTestUsername(): string {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0].username;
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0].username;
     }
 
     describe('Resume via Emoji Reaction', () => {

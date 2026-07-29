@@ -2,8 +2,9 @@
  * Platform abstraction layer
  *
  * This module provides platform-agnostic interfaces and types that allow
- * claude-threads to work with multiple chat platforms (Mattermost, Slack, etc.)
- * without coupling the core logic to any specific platform.
+ * claude-threads to work with a chat platform without coupling the core
+ * logic to any specific implementation. Mattermost is the only platform
+ * currently implemented; see IMPLEMENTATION_GUIDE.md to add another.
  */
 
 // Core interfaces
@@ -12,7 +13,6 @@ export type { PlatformFormatter } from './formatter.js';
 export type {
   McpPlatformApi,
   MattermostMcpApiConfig,
-  SlackMcpApiConfig,
   ReactionEvent,
   PostedMessage,
   McpPost,
@@ -31,7 +31,6 @@ export type {
 // Platform implementations
 export { BasePlatformClient } from './base-client.js';
 export { MattermostClient } from './mattermost/client.js';
-export { SlackClient } from './slack/client.js';
 
 // MCP platform API factory
 export { createMcpPlatformApi } from './mcp-platform-api-factory.js';

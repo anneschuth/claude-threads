@@ -326,7 +326,7 @@ export interface PlatformSessionDefaults {
 
 export interface PlatformInstanceConfig {
   id: string;
-  type: 'mattermost' | 'slack';
+  type: 'mattermost';
   displayName: string;
   /**
    * Per-thread session header visibility. Default `'full'`.
@@ -528,26 +528,6 @@ export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   skipPermissions?: boolean;
   /** Preferred way to configure permissions. See `PermissionMode`. */
   permissionMode?: PermissionMode;
-  /** Outbound `send_file` settings. */
-  outboundFiles?: OutboundFilesConfig;
-}
-
-export interface SlackPlatformConfig extends PlatformInstanceConfig {
-  type: 'slack';
-  botToken: string;
-  appToken: string;
-  channelId: string;
-  botName: string;
-  allowedUsers: string[];
-  /**
-   * @deprecated Use `permissionMode` instead. Kept for backward compatibility
-   * with existing config.yaml files. When both are set, `permissionMode` wins.
-   */
-  skipPermissions?: boolean;
-  /** Preferred way to configure permissions. See `PermissionMode`. */
-  permissionMode?: PermissionMode;
-  /** Optional API URL override for testing (defaults to https://slack.com/api) */
-  apiUrl?: string;
   /** Outbound `send_file` settings. */
   outboundFiles?: OutboundFilesConfig;
 }

@@ -195,7 +195,7 @@ describe('ReactionRouter.handleReaction', () => {
     test('ignores a reaction from a different platform than the session', async () => {
       const session = makeSession({ platformId: 'mattermost' });
       const deps = makeDeps(session);
-      await handleReaction(deps, 'slack', 'any', 'x', 'alice', 'added');
+      await handleReaction(deps, 'mattermost-other', 'any', 'x', 'alice', 'added');
       // Even though alice is allowed, the platform mismatch drops it before
       // dispatch.
       expect(session.messageManager!.handleReaction).not.toHaveBeenCalled();

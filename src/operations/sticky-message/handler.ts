@@ -200,9 +200,6 @@ const lastCleanupTime: Map<string, number> = new Map();
 // Cleanup throttle: only run cleanup once per 5 minutes per platform
 const CLEANUP_THROTTLE_MS = 5 * 60 * 1000;
 
-// Only clean up posts from the last hour (older orphans are rare and not worth the API calls)
-const CLEANUP_MAX_AGE_MS = 60 * 60 * 1000;
-
 /**
  * Initialize the sticky message module with the session store for persistence.
  */
@@ -284,7 +281,7 @@ function getActiveTask(session: Session): string | null {
   if (!content) return null;
 
   // Parse in-progress task from format: "🔄 **Task name** (12s)" or "🔄 *Task name*"
-  // The activeForm is wrapped in ** (Mattermost) or * (Slack) and may have elapsed time
+  // The activeForm is wrapped in ** and may have elapsed time
   // Regex matches both: \*{1,2} matches 1 or 2 asterisks
   const match = content.match(/🔄 \*{1,2}([^*]+)\*{1,2}/);
   if (match) {
@@ -655,9 +652,9 @@ export async function buildStickyMessage(
     const topic = getSessionTopic(session, formatter);
 
     // Only create clickable link for sessions on this platform
-    // Use lastMessageId/lastMessageTs to jump to bottom of thread if available
+    // Use lastMessageId to jump to bottom of thread if available
     const topicDisplay = isThisPlatform
-      ? formatter.formatLink(topic, session.platform.getThreadLink(session.threadId, session.lastMessageId, session.lastMessageTs))
+      ? formatter.formatLink(topic, session.platform.getThreadLink(session.threadId, session.lastMessageId))
       : topic;
 
     const displayName = session.startedByDisplayName || session.startedBy;
@@ -800,13 +797,11 @@ async function validateLastMessageIds(
         // Message was deleted, clear the lastMessageId so we link to root post instead
         log.debug(`lastMessageId ${lastMessageId.substring(0, 8)} for session ${session.sessionId} was deleted, clearing`);
         session.lastMessageId = undefined;
-        session.lastMessageTs = undefined;
       }
     } catch (err) {
       // Error fetching the post - assume it's deleted and clear
       log.debug(`Failed to validate lastMessageId for session ${session.sessionId}, clearing: ${err}`);
       session.lastMessageId = undefined;
-      session.lastMessageTs = undefined;
     }
   });
 
@@ -1009,29 +1004,11 @@ export function markNeedsBump(platformId: string): void {
 }
 
 /**
- * Check if a post ID represents a recent post (within CLEANUP_MAX_AGE_MS).
- * Works for both Slack (timestamp like "1767720773.723249") and Mattermost (alphanumeric IDs).
- * For Mattermost, we can't determine age from ID, so we always return true to check it.
- */
-function isRecentPost(postId: string): boolean {
-  // Try to parse as Slack timestamp (seconds.microseconds)
-  const match = postId.match(/^(\d+)\.\d+$/);
-  if (match) {
-    const postTimestamp = parseInt(match[1], 10) * 1000; // Convert to milliseconds
-    const age = Date.now() - postTimestamp;
-    return age < CLEANUP_MAX_AGE_MS;
-  }
-  // For non-Slack IDs, we can't determine age, so assume recent
-  return true;
-}
-
-/**
  * Clean up old pinned sticky messages from the bot.
  * Unpins and deletes any pinned posts from the bot except the current sticky.
  *
  * Optimizations:
  * - Throttled: only runs once per CLEANUP_THROTTLE_MS per platform
- * - Filters by age: only checks posts from the last CLEANUP_MAX_AGE_MS
  * - Skips known current sticky
  *
  * @param forceRun - If true, bypasses throttle (used at startup)
@@ -1063,22 +1040,20 @@ export async function cleanupOldStickyMessages(
     // Get all pinned posts in the channel
     const pinnedPostIds = await platform.getPinnedPosts();
 
-    // Filter to only recent posts (reduces API calls significantly)
-    // Also exclude the current sticky and any explicitly excluded posts (e.g., session headers, task lists)
-    const recentPinnedIds = pinnedPostIds.filter(id =>
+    // Exclude the current sticky and any explicitly excluded posts (e.g., session headers, task lists)
+    const candidatePinnedIds = pinnedPostIds.filter(id =>
       id !== currentStickyId &&
-      !excludePostIds?.has(id) &&
-      isRecentPost(id)
+      !excludePostIds?.has(id)
     );
 
-    if (recentPinnedIds.length === 0) {
-      log.debug(`No recent pinned posts to check (${pinnedPostIds.length} total, current: ${currentStickyId?.substring(0, 8) || '(none)'})`);
+    if (candidatePinnedIds.length === 0) {
+      log.debug(`No pinned posts to check (${pinnedPostIds.length} total, current: ${currentStickyId?.substring(0, 8) || '(none)'})`);
       return;
     }
 
-    log.debug(`Checking ${recentPinnedIds.length} recent pinned posts (of ${pinnedPostIds.length} total)`);
+    log.debug(`Checking ${candidatePinnedIds.length} pinned posts (of ${pinnedPostIds.length} total)`);
 
-    for (const postId of recentPinnedIds) {
+    for (const postId of candidatePinnedIds) {
       // Get post details to check if it's from the bot
       try {
         const post = await platform.getPost(postId);

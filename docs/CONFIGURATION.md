@@ -22,17 +22,6 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
-
-  # Slack
-  - id: slack-eng
-    type: slack
-    displayName: Engineering
-    botToken: xoxb-your-bot-token
-    appToken: xapp-your-app-token
-    channelId: C0123456789
-    botName: claude
-    allowedUsers: [alice, bob]
-    skipPermissions: false
 ```
 
 ## Global Settings
@@ -124,24 +113,6 @@ channel — because a human asked it to — the bot stays out of the way.
 | `teammatesPresent` | No | Names of teammates that also hold sessions in THIS channel. A handoff to one of them stays in the current thread; anyone else goes to their own channel. Property of the channel, hence per-platform. |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
-### Slack
-
-| Setting | Required | Description |
-|---------|----------|-------------|
-| `id` | Yes | Unique identifier for this platform |
-| `type` | Yes | Must be `slack` |
-| `displayName` | No | Human-readable name |
-| `botToken` | Yes | Bot User OAuth Token (`xoxb-...`) |
-| `appToken` | Yes | App-Level Token for Socket Mode (`xapp-...`) |
-| `channelId` | Yes | Channel ID (e.g., `C0123456789`) |
-| `botName` | No | Mention name (default: `claude`) |
-| `allowedUsers` | No | List of Slack usernames |
-| `skipPermissions` | No | Auto-approve actions (default: `false`) |
-| `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
-| `respondOnlyWhenMentioned` | No | Seed new sessions on THIS platform with quiet mode, overriding the bot-wide default. Required for a shared channel where several bots hold sessions in one thread — without it each bot reads the others' output as a reply to itself and they answer each other indefinitely. |
-| `autoIncludeThreadContext` | No | Silently fold up to N previous thread messages into the first prompt when a session starts mid-thread, instead of asking. The other half of a shared channel: a joining bot always starts mid-thread, so the prompt would fire on every handoff and its timeout defaults to *no* context, leaving it blind to the task it was called about. Capped (e.g. `20`) so a long thread isn't dragged in whole. |
-| `teammatesPresent` | No | Names of teammates that also hold sessions in THIS channel. A handoff to one of them stays in the current thread; anyone else goes to their own channel. Property of the channel, hence per-platform. |
-| `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 
 ### Quieting the bot's overhead messages
 

@@ -29,9 +29,9 @@ export interface PlatformClientEvents {
 /**
  * Platform-agnostic client interface
  *
- * All platform implementations (Mattermost, Slack) must implement this interface.
- * This allows SessionManager and other code to work with any platform without
- * knowing the specific implementation details.
+ * Every platform implementation must implement this interface. This allows
+ * SessionManager and other code to work with any platform without knowing
+ * the specific implementation details.
  */
 export interface PlatformClient extends EventEmitter {
   // ============================================================================
@@ -40,19 +40,19 @@ export interface PlatformClient extends EventEmitter {
 
   /**
    * Unique identifier for this platform instance
-   * e.g., 'mattermost-internal', 'slack-eng'
+   * e.g., 'mattermost-internal', 'mattermost-eng'
    */
   readonly platformId: string;
 
   /**
    * Platform type
-   * e.g., 'mattermost', 'slack'
+   * e.g., 'mattermost'
    */
   readonly platformType: string;
 
   /**
    * Human-readable display name
-   * e.g., 'Internal Team', 'Engineering Slack'
+   * e.g., 'Internal Team', 'Engineering'
    */
   readonly displayName: string;
 
@@ -120,7 +120,6 @@ export interface PlatformClient extends EventEmitter {
     token: string;
     channelId: string;
     allowedUsers: string[];
-    appToken?: string;
     outboundFiles?: { enabled?: boolean; maxBytes?: number };
     /**
      * Teammate registry and who else holds sessions in this channel. Rides on
@@ -141,10 +140,9 @@ export interface PlatformClient extends EventEmitter {
    * Get a clickable link to a thread
    * @param threadId - Thread/root post ID
    * @param lastMessageId - Optional: ID of the last message to jump to bottom
-   * @param lastMessageTs - Optional: Timestamp of last message (needed for Slack permalinks)
    * @returns URL that links to the thread (platform-specific format)
    */
-  getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;
+  getThreadLink(threadId: string, lastMessageId?: string): string;
 
   // ============================================================================
   // Messaging
@@ -320,15 +318,14 @@ export interface PlatformClient extends EventEmitter {
    * responsibility (see src/mcp/path-validator.ts).
    *
    * Returns just the ids, not a full `PlatformPost`. The narrow shape is
-   * deliberate: Slack's `files.completeUploadExternal` doesn't always return
-   * a message `ts`, so a synthesized `PlatformPost.id` would sometimes be a
-   * file id pretending to be a post id — a footgun for any caller that
-   * later passes it to `updatePost` or `addReaction`. Callers that genuinely
-   * need a `PlatformPost` should synthesize it deliberately and accept the
-   * Slack ambiguity at the synthesis site.
+   * deliberate: an upload API need not return a usable post id, so a
+   * synthesized `PlatformPost.id` could be a file id pretending to be a
+   * post id — a footgun for any caller that later passes it to
+   * `updatePost` or `addReaction`. Callers that genuinely need a
+   * `PlatformPost` should synthesize it deliberately at the call site.
    *
    * @param filePath - Absolute path of the file to upload
-   * @param threadId - Thread parent id (root_id on Mattermost, thread_ts on Slack)
+   * @param threadId - Thread parent id (`root_id` on Mattermost)
    * @param options.caption - Optional message body / initial comment
    * @param options.filename - Display filename (defaults to basename of filePath)
    */

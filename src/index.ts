@@ -9,14 +9,13 @@ import {
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
-  type SlackPlatformConfig,
   type PlatformInstanceConfig,
   type PermissionMode,
   type OverheadVisibility,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
-import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
+import { MattermostClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
 import { SessionStore } from './persistence/session-store.js';
 import { checkForUpdates } from './update-notifier.js';
@@ -49,8 +48,6 @@ function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
   switch (config.type) {
     case 'mattermost':
       return new MattermostClient(config as MattermostPlatformConfig);
-    case 'slack':
-      return new SlackClient(config as SlackPlatformConfig);
     default:
       throw new Error(`Unsupported platform type: ${(config as PlatformInstanceConfig).type}`);
   }
@@ -355,7 +352,7 @@ async function startWithoutDaemon() {
   // --permission-mode CLI flag > --skip-permissions / --no-skip-permissions
   // (legacy) > platform config's `permissionMode` > platform config's legacy
   // `skipPermissions` > 'default' (safe fallback).
-  const firstPlatformConfig = config.platforms[0] as MattermostPlatformConfig | SlackPlatformConfig;
+  const firstPlatformConfig = config.platforms[0] as MattermostPlatformConfig;
   const initialPermissionMode: PermissionMode = resolvePermissionMode({
     permissionMode:
       cliArgs.permissionMode
@@ -402,7 +399,7 @@ async function startWithoutDaemon() {
   // from Claude and their sessions won't behave as configured.
   if (process.env.CLAUDE_CODE_SUBPROCESS_ENV_SCRUB === '1') {
     const hasSkipPermissionPlatform = config.platforms.some(
-      (p) => (p as MattermostPlatformConfig | SlackPlatformConfig).skipPermissions === true
+      (p) => (p as MattermostPlatformConfig).skipPermissions === true
     );
     if (hasSkipPermissionPlatform) {
       console.error(
@@ -500,7 +497,7 @@ async function startWithoutDaemon() {
         });
         // Update ALL platform configs so new sessions use this setting.
         for (const platformConfig of config.platforms) {
-          const pc = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
+          const pc = platformConfig as MattermostPlatformConfig;
           pc.permissionMode = mode;
           pc.skipPermissions = mode === 'bypass';
         }
@@ -636,7 +633,7 @@ async function startWithoutDaemon() {
   // Initialize all configured platforms
   ui.addLog({ level: 'debug', component: 'init', message: `Initializing ${config.platforms.length} platform(s)` });
   for (const platformConfig of config.platforms) {
-    const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
+    const typedConfig = platformConfig as MattermostPlatformConfig;
     const isEnabled = platformEnabledState.get(platformConfig.id) ?? true; // Default to enabled
     ui.addLog({ level: 'info', component: 'init', message: `Creating ${platformConfig.type} platform: ${platformConfig.id}${isEnabled ? '' : ' (disabled)'}` });
 
@@ -644,8 +641,8 @@ async function startWithoutDaemon() {
     ui.setPlatformStatus(platformConfig.id, {
       displayName: platformConfig.displayName || platformConfig.id,
       botName: typedConfig.botName,
-      url: typedConfig.type === 'mattermost' ? (typedConfig as MattermostPlatformConfig).url : 'slack.com',
-      platformType: typedConfig.type as 'mattermost' | 'slack',
+      url: typedConfig.url,
+      platformType: typedConfig.type,
       enabled: isEnabled,
     });
 

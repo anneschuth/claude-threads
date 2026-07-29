@@ -411,7 +411,6 @@ export interface Session {
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;
-  lastMessageTs?: string;  // For Slack: timestamp of last message (needed for permalink)
 
   // Bug reporting support
   recentEvents: RecentEvent[];            // Circular buffer of recent events (max 10)

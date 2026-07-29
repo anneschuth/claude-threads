@@ -2,7 +2,7 @@
 
 ```
  ✴ ▄█▀ ███ ✴   claude-threads
-✴  █▀   █   ✴  Mattermost & Slack × Claude Code
+✴  █▀   █   ✴  Mattermost × Claude Code
  ✴ ▀█▄  █  ✴
 ```
 
@@ -18,7 +18,7 @@
 [![Node](https://img.shields.io/node/v/claude-threads.svg)](https://nodejs.org/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/anneschuth/claude-threads/pulls)
 
-**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost or Slack. Colleagues can watch, collaborate, and run their own sessions—all from chat.
+**Bring Claude Code to your team.** Run Claude Code on your machine, share it live in Mattermost. Colleagues can watch, collaborate, and run their own sessions—all from chat.
 
 > _Think of it as screen-sharing for AI pair programming, but everyone can type._
 
@@ -26,11 +26,11 @@
 
 - **Real-time streaming** - Claude's responses stream live to chat
 - **Multiple agents** - Run Claude Code or OpenAI Codex per session (`!agent codex`)
-- **Multi-platform** - Connect to multiple Mattermost and Slack workspaces simultaneously
+- **Multi-instance** - Connect to multiple Mattermost servers simultaneously
 - **Concurrent sessions** - Each thread gets its own Claude session, persisted across bot restarts
 - **Collaboration** - `!invite` teammates to participate; they get added as `Co-Authored-By:` trailers on Claude's commits
 - **Permission modes** - Three-way control over Claude's tool-use: `default` (every action prompts for 👍/✅/👎 approval via emoji), `auto` (Claude's classifier auto-approves low-risk; high-risk still prompts — recommended), or `bypass` (no prompts, all tools allowed). Set via config, `--permission-mode` CLI flag, or in-session with `!permissions default|auto|bypass`.
-- **Claude posts back to chat** - Claude can call `send_file` to drop screenshots, generated PDFs, plots, or audio directly into the thread, and `read_post` to follow a Mattermost or Slack permalink the user shares
+- **Claude posts back to chat** - Claude can call `send_file` to drop screenshots, generated PDFs, plots, or audio directly into the thread, and `read_post` to follow a Mattermost permalink the user shares
 - **Git worktrees** - Isolate Claude's changes in a branch with `!worktree feature/foo`; supports `list`, `switch`, `remove`, `cleanup`, `off`
 - **File attachments** - Drop images, PDFs, archives, or any file into the chat; Claude reads them from disk via its own `Read`/Bash tools (100 MB cap)
 - **Chrome automation** - Optional integration with Claude in Chrome for web tasks
@@ -54,11 +54,11 @@ claude-threads
 The **interactive setup wizard** will guide you through everything:
 
 - Configure Claude Code CLI (if needed)
-- Set up your Mattermost or Slack bot
+- Set up your Mattermost bot
 - Test credentials and permissions
 - Get you up and running in minutes
 
-**Need help with platform setup?** See the [Setup Guide](SETUP_GUIDE.md) for Mattermost or Slack bot creation.
+**Need help with platform setup?** See the [Setup Guide](SETUP_GUIDE.md) for Mattermost bot creation.
 
 ### Prerequisites
 
@@ -156,7 +156,7 @@ Invited collaborators are added as `Co-Authored-By:` trailers on any commits Cla
 
 ## Sharing Links With Claude
 
-Paste a Mattermost or Slack permalink in the thread and Claude can resolve it to the post body (and optional thread context) via the `read_post` MCP tool, instead of asking you to copy-paste. Auto-approved; scoped to channels the bot can already see.
+Paste a Mattermost permalink in the thread and Claude can resolve it to the post body (and optional thread context) via the `read_post` MCP tool, instead of asking you to copy-paste. Auto-approved; scoped to channels the bot can already see.
 
 ## Git Worktrees
 
@@ -176,7 +176,7 @@ Leave the allowed users list empty to let anyone in the channel use the bot (be 
 
 ## Documentation
 
-- **[Setup Guide](SETUP_GUIDE.md)** - Step-by-step setup for Mattermost and Slack
+- **[Setup Guide](SETUP_GUIDE.md)** - Step-by-step setup for Mattermost
 - **[Configuration Reference](CLAUDE.md)** - Technical details and architecture
 
 ## Updates

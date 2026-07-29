@@ -3,7 +3,7 @@
  *
  * Tests the task list display functionality when Claude uses TodoWrite.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';

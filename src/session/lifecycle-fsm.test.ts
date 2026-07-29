@@ -73,7 +73,7 @@ describe('lifecycle FSM', () => {
     });
 
     test('illegal transition log includes the sessionId', () => {
-      checkTransition('ending', 'active', 'slack:thread-xyz');
+      checkTransition('ending', 'active', 'mm-other:thread-xyz');
       const warn = captured.find(e => e.msg.includes('illegal'));
       // sessionId lands in the structured payload (rendered as JSON in the log).
       // The message itself pins the from → to pair; the payload is separate.

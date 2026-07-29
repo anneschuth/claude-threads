@@ -331,11 +331,6 @@ export function resetSessionActivity(session: Session): void {
  */
 export function updateLastMessage(session: Session, post: PlatformPost): void {
   session.lastMessageId = post.id;
-  // For Slack, we need the timestamp as well (format: "1234567890.123456")
-  // The post ID in Slack is the timestamp, so we can use it directly
-  if (session.platform.platformType === 'slack') {
-    session.lastMessageTs = post.id;
-  }
 }
 
 // =============================================================================
@@ -348,7 +343,6 @@ export function updateLastMessage(session: Session, post: PlatformPost): void {
  * @param label - The label to make bold
  * @param rest - Optional rest of the message (not bolded)
  * @example formatBold(formatter, 'Session cancelled', 'by @user') => '**Session cancelled** by @user' (Mattermost)
- * @example formatBold(formatter, 'Session cancelled', 'by @user') => '*Session cancelled* by @user' (Slack)
  */
 export function formatBold(formatter: PlatformFormatter, label: string, rest?: string): string {
   return rest ? `${formatter.formatBold(label)} ${rest}` : formatter.formatBold(label);

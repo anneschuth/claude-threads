@@ -1,14 +1,13 @@
 # claude-threads Setup Guide
 
 > **💡 Quick Start:** Run `claude-threads` and the interactive wizard will guide you through setup.
-> Use this guide when you need help creating bot accounts on Mattermost or Slack.
+> Use this guide when you need help creating a bot account on Mattermost.
 
 ## Table of Contents
 
 1. [Mattermost Setup](#mattermost-setup) - Create bot account and get credentials
-2. [Slack Setup](#slack-setup) - Create Slack app with Socket Mode
-3. [Running the Onboarding](#running-the-onboarding) - Interactive wizard walkthrough
-4. [Troubleshooting](#troubleshooting) - Common issues and solutions
+2. [Running the Onboarding](#running-the-onboarding) - Interactive wizard walkthrough
+3. [Troubleshooting](#troubleshooting) - Common issues and solutions
 
 ---
 
@@ -75,129 +74,6 @@ If you want to restrict who can use the bot, prepare a comma-separated list of M
 
 ---
 
-## Slack Setup
-
-### Quick Setup with App Manifest (Recommended)
-
-**Fastest way**: Use the pre-configured app manifest to set up everything automatically.
-
-1. **Go to** https://api.slack.com/apps
-2. Click **Create New App**
-3. Select **From an app manifest**
-4. Choose your workspace
-5. **Paste the manifest** from `docs/slack-app-manifest.yaml`:
-   - View it here: https://github.com/anneschuth/claude-threads/blob/main/docs/slack-app-manifest.yaml
-   - Or copy from your local installation: `~/.bun/install/global/node_modules/claude-threads/docs/slack-app-manifest.yaml`
-6. Click **Create**
-7. **Skip to Step 2** below (Socket Mode will already be configured)
-
-### Manual Setup (Alternative)
-
-If you prefer to configure manually, follow these steps:
-
-#### Step 1: Create a Slack App
-
-1. **Go to** https://api.slack.com/apps
-2. Click **Create New App**
-3. Select **From scratch**
-4. **App Name**: Choose a name (e.g., "Claude Code Bot")
-5. **Workspace**: Select your workspace
-6. Click **Create App**
-
-#### Step 2: Enable Socket Mode
-
-Socket Mode allows real-time communication without exposing a public URL.
-
-1. In your app settings, go to **Settings** → **Socket Mode** (left sidebar)
-2. Toggle **Enable Socket Mode** to ON
-3. Click **Generate an app-level token**:
-   - **Token Name**: `websocket-token` (or any name you prefer)
-   - **Scopes**: Select `connections:write`
-   - Click **Generate**
-4. **⚠️ Copy the App-Level Token** (starts with `xapp-`)
-   - You won't see this again!
-
-#### Step 3: Configure OAuth Scopes
-
-1. Go to **Features** → **OAuth & Permissions** (left sidebar)
-2. Scroll to **Scopes** → **Bot Token Scopes**
-3. Click **Add an OAuth Scope** and add these scopes:
-
-   **Required scopes:**
-   - `channels:history` - Read messages from public channels
-   - `channels:read` - View basic channel information
-   - `chat:write` - Send messages
-   - `files:read` - Access file content
-   - `reactions:read` - View emoji reactions
-   - `reactions:write` - Add/remove emoji reactions
-   - `users:read` - View users in the workspace
-
-#### Step 4: Install App to Workspace
-
-1. Scroll to the top of **OAuth & Permissions** page
-2. Click **Install to Workspace**
-3. Review permissions and click **Allow**
-4. **⚠️ Copy the Bot User OAuth Token** (starts with `xoxb-`)
-   - This will be shown after installation
-   - You can also find it later under **OAuth & Permissions** → **Bot User OAuth Token**
-
-#### Step 5: Subscribe to Events
-
-1. Go to **Features** → **Event Subscriptions** (left sidebar)
-2. Toggle **Enable Events** to ON
-3. Scroll to **Subscribe to bot events**
-4. Click **Add Bot User Event** and add:
-   - `message.channels` - Listen to messages in public channels
-   - `reaction_added` - Listen to emoji reactions being added
-   - `reaction_removed` - Listen to emoji reactions being removed
-5. Click **Save Changes**
-
-### Finishing Steps (All Setup Methods)
-
-#### Get Channel ID
-
-1. **Open Slack** in your browser or desktop app
-2. **Right-click** the channel where you want the bot to operate
-3. Select **View channel details**
-4. Scroll to the bottom
-5. **Copy the Channel ID** (starts with `C`, e.g., `C0123456789`)
-
-   **Alternative method:**
-   - In the channel, click the **channel name** at the top
-   - The URL will show the channel ID:
-     ```
-     https://app.slack.com/client/T123ABC/C0123456789
-                                          ^^^^^^^^^^^
-                                          Channel ID
-     ```
-
-#### Invite Bot to Channel
-
-1. In Slack, go to the channel where you want the bot
-2. Type `/invite @your-bot-name` (use the display name you chose)
-3. Press Enter
-4. The bot should join the channel
-
-### Required Information Summary
-
-You'll need these during onboarding:
-
-| Field | Example | Where to Find |
-|-------|---------|---------------|
-| **Bot User OAuth Token** | `xoxb-123-456-...` | Step 4 (OAuth & Permissions) |
-| **App-Level Token** | `xapp-1-A0123-...` | Step 2 (Socket Mode) |
-| **Channel ID** | `C0123456789` | Step 6 |
-| **Bot Name** | `claude` | Your app's display name |
-
-### Optional: User Allowlist
-
-If you want to restrict who can use the bot, prepare a comma-separated list of Slack **usernames** (not display names):
-- Example: `alice.smith,bob.jones,charlie.brown`
-- To find a username: Click a user's profile → More → Copy member ID → Username is shown
-- Leave empty to allow everyone in the channel
-
----
-
 ## Running the Onboarding
 
 ### First Time Setup
@@ -216,18 +92,18 @@ claude-threads
 **The wizard will:**
 - ✅ Walk you through global settings (working directory, Chrome, git)
 - ✅ Show you platform checklists (what you need before adding a platform)
-- ✅ Guide you through adding Mattermost and/or Slack platforms
+- ✅ Guide you through adding Mattermost platforms
 - ✅ Validate credentials in real-time and test permissions
 - ✅ Show a configuration summary before saving
 
 **When prompted for platform credentials:**
-- Use the [Mattermost Setup](#mattermost-setup) or [Slack Setup](#slack-setup) sections above to create your bot
+- Use the [Mattermost Setup](#mattermost-setup) section above to create your bot
 - The wizard will wait while you gather the required information
 - Come back and enter the credentials when ready
 
 **Multiple platforms:**
-- You can connect to multiple Mattermost/Slack instances
-- Each platform gets a unique ID (e.g., `mattermost-main`, `slack-eng`)
+- You can connect to multiple Mattermost instances
+- Each platform gets a unique ID (e.g., `mattermost-main`, `mattermost-eng`)
 - Add platforms one at a time, or add more later with `--setup`
 
 ### Reconfiguring
@@ -286,17 +162,6 @@ platforms:
     botName: claude-code
     allowedUsers: []  # empty = allow everyone
     skipPermissions: false
-
-  # Slack
-  - id: slack-eng
-    type: slack
-    displayName: Engineering Team
-    botToken: xoxb-your-bot-token
-    appToken: xapp-your-app-token
-    channelId: C0123456789
-    botName: claude
-    allowedUsers: []  # empty = allow everyone
-    skipPermissions: false
 ```
 
 ---
@@ -319,29 +184,6 @@ platforms:
 - **Check** the bot name matches what you're @mentioning
 - **Verify** the bot is a member of the channel
 - **Look at** claude-threads logs for errors (`DEBUG=1 claude-threads`)
-
-### Slack Issues
-
-#### "invalid_auth" or "token_revoked"
-- **Regenerate tokens**: Go to your app settings and reinstall the app
-- **Check** you're using the Bot User OAuth Token (not User OAuth Token)
-- **Verify** Socket Mode is enabled with a valid App-Level Token
-
-#### "channel_not_found"
-- **Invite the bot** to the channel: `/invite @your-bot-name`
-- **Check** the Channel ID is correct (should start with `C`)
-- **Verify** the bot has `channels:read` and `channels:history` scopes
-
-#### Bot doesn't respond to messages
-- **Check** Event Subscriptions are enabled with `message.channels`
-- **Verify** Socket Mode is enabled (required for receiving events)
-- **Invite the bot** to the channel if not already a member
-- **Look at** claude-threads logs (`DEBUG=1 claude-threads`)
-
-#### "missing_scope" errors
-- **Review** OAuth scopes in Step 3 above
-- **Reinstall** the app after adding missing scopes
-- **Required scopes**: `channels:history`, `channels:read`, `chat:write`, `files:read`, `reactions:read`, `reactions:write`, `users:read`
 
 ### General Issues
 
@@ -373,7 +215,7 @@ If you're still stuck:
 2. **Review the README**: See `CLAUDE.md` for architecture details
 3. **Check the issues**: https://github.com/anneschuth/claude-threads/issues
 4. **Open an issue**: Include:
-   - Platform (Mattermost/Slack)
+   - Platform (Mattermost)
    - Error messages from logs
    - Steps to reproduce
    - Your config (with tokens redacted!)

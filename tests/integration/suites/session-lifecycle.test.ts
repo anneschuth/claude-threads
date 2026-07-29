@@ -4,7 +4,7 @@
  * Tests the complete session lifecycle: @mention -> session start -> response -> end
  * Uses the mock Claude CLI for deterministic testing.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -52,25 +52,17 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
       if (platformType === 'mattermost') {
         return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
       }
-      // Slack mock server uses 'claude-test-bot' by default
       return 'claude-test-bot';
     };
 
     // Helper to get test user token for platform
     const getUser2Token = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[1]?.token;
-      }
-      // Slack uses bot token for all operations in tests
-      return config.slack?.botToken;
+      return config.mattermost.testUsers[1]?.token;
     };
 
     // Helper to get test user username
     const getUser1Username = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0]?.username;
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0]?.username;
     };
 
     // Helper to create a second user API for unauthorized user tests (Mattermost only)
@@ -83,7 +75,6 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
           token: user2Token,
         });
       }
-      // Slack doesn't support multiple user tokens in the same way
       return null;
     };
 
@@ -220,7 +211,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         const rootPost = await ctx.api.createPost({
           channelId: ctx.channelId,
           message: `@${getBotUsername()}`,
-          userId: ctx.testUserId, // Pass user ID for Slack mock server
+          userId: ctx.testUserId, // Attribute the post to the test user
         });
         testThreadIds.push(rootPost.id);
 

@@ -1,7 +1,7 @@
 /**
  * Shared `fetch` harness for platform-API unit tests.
  *
- * Mattermost and Slack MCP-API tests both want the same shape: replace
+ * Platform MCP-API tests all want the same shape: replace
  * `global.fetch` with a recorder + a per-test responder, then assert on
  * (url, method, headers, body). This module exposes a small object you
  * install/uninstall around each test.

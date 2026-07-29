@@ -2,7 +2,7 @@
  * Messaging tests for platform REST APIs
  *
  * Tests post creation, updates, threading, and channel operations.
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
@@ -76,7 +76,6 @@ describe.skipIf(SKIP)('Messaging', () => {
       // Cleanup test posts
       for (const postId of testPostIds) {
         try {
-          // Use admin API for Mattermost, regular API for Slack
           if (adminApi) {
             await adminApi.deletePost(postId);
           } else {
@@ -104,11 +103,6 @@ describe.skipIf(SKIP)('Messaging', () => {
       });
 
       it('should create a post as bot', async () => {
-        // Skip for Slack as we don't have separate bot context in mock
-        if (platformType === 'slack') {
-          return;
-        }
-
         if (!botCtx) {
           throw new Error('Bot context not available');
         }
@@ -181,11 +175,6 @@ describe.skipIf(SKIP)('Messaging', () => {
       });
 
       it('should allow bot to reply in user-started thread', async () => {
-        // Skip for Slack as we don't have separate bot context in mock
-        if (platformType === 'slack') {
-          return;
-        }
-
         if (!botCtx) {
           throw new Error('Bot context not available');
         }
@@ -230,11 +219,6 @@ describe.skipIf(SKIP)('Messaging', () => {
       });
 
       it('bot should update its own posts', async () => {
-        // Skip for Slack as we don't have separate bot context in mock
-        if (platformType === 'slack') {
-          return;
-        }
-
         if (!botCtx) {
           throw new Error('Bot context not available');
         }

@@ -14,7 +14,6 @@ export type {
   Config,
   PlatformInstanceConfig,
   MattermostPlatformConfig,
-  SlackPlatformConfig,
   AutoUpdateConfig,
   AutoRestartMode,
   ScheduledWindow,

@@ -4,7 +4,7 @@
  * Tests emoji reactions, which are critical for the permission system
  * and interactive features like plan approval and question answering.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'bun:test';
@@ -14,7 +14,7 @@ import {
   type PlatformType,
   type PlatformTestReaction,
 } from '../fixtures/platform-test-api.js';
-import { loadConfig, DEFAULT_SLACK_CONFIG } from '../setup/config.js';
+import { loadConfig } from '../setup/config.js';
 
 // Determine which platforms to test based on environment
 const TEST_PLATFORMS = (process.env.TEST_PLATFORMS || 'mattermost').split(',') as PlatformType[];
@@ -79,39 +79,6 @@ describe.skipIf(SKIP)('Reactions', () => {
             channelId: config.mattermost.channel.id,
           });
           testUser2Id = config.mattermost.testUsers[1].userId || null;
-        }
-      } else if (platformType === 'slack') {
-        const slackConfig = config.slack || DEFAULT_SLACK_CONFIG;
-        const baseUrl = process.env.SLACK_MOCK_URL || `http://localhost:${slackConfig.mockServerPort}/api`;
-
-        // For Slack, all APIs use the bot token (mock server handles user context)
-        adminApi = createPlatformTestApi('slack', {
-          baseUrl,
-          token: slackConfig.botToken,
-          channelId: slackConfig.channelId,
-        });
-        botApi = createPlatformTestApi('slack', {
-          baseUrl,
-          token: slackConfig.botToken,
-          channelId: slackConfig.channelId,
-        });
-        userApi = createPlatformTestApi('slack', {
-          baseUrl,
-          token: slackConfig.botToken,
-          channelId: slackConfig.channelId,
-        });
-
-        channelId = slackConfig.channelId;
-        botUserId = 'U_BOT_USER';
-        testUserId = slackConfig.testUsers[0]?.userId || 'U_TEST_USER1';
-
-        if (slackConfig.testUsers[1]) {
-          user2Api = createPlatformTestApi('slack', {
-            baseUrl,
-            token: slackConfig.botToken,
-            channelId: slackConfig.channelId,
-          });
-          testUser2Id = slackConfig.testUsers[1].userId || 'U_TEST_USER2';
         }
       } else {
         throw new Error(`Unknown platform: ${platformType}`);

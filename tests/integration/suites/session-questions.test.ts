@@ -3,7 +3,7 @@
  *
  * Tests the question/answer flow when Claude asks the user multiple-choice questions.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -76,11 +76,7 @@ describe.skipIf(SKIP)('Session Questions', () => {
 
     // Get the bot username based on platform
     const getBotUsername = () => {
-      if (platformType === 'mattermost') {
-        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
-      }
-      // Slack uses a different format
-      return config.slack?.botUsername || 'claude-test-bot';
+      return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
     };
 
     describe('Multiple Choice Questions', () => {

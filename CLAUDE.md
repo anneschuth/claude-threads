@@ -6,7 +6,6 @@ This is a multi-platform bot that lets users interact with coding agents (Claude
 
 **Currently Supported Platforms:**
 - Mattermost (full support)
-- Slack (full support)
 
 **Supported Agent Backends:**
 - Claude Code CLI (default)
@@ -15,7 +14,7 @@ This is a multi-platform bot that lets users interact with coding agents (Claude
 **Key Features:**
 - Real-time streaming of Claude responses to chat platforms
 - **Multiple agent backends** - Claude Code (default) or OpenAI Codex per session
-- **Multi-platform support** - connect to multiple Mattermost/Slack instances simultaneously
+- **Multi-platform support** - connect to multiple Mattermost instances simultaneously
 - **Multiple concurrent sessions** - one per thread, across all platforms
 - **Session persistence** - sessions resume automatically after bot restart
 - **Session collaboration** - `!invite @user` to temporarily allow users in a session
@@ -27,7 +26,7 @@ This is a multi-platform bot that lets users interact with coding agents (Claude
 - Code diffs and file previews
 - Multi-user access control
 - Automatic idle session cleanup
-- **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost or Slack permalink to its content (and optional thread context) inside the bot's own channel
+- **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost permalink to its content (and optional thread context) inside the bot's own channel
 
 ## Contribution Conventions
 
@@ -40,7 +39,7 @@ This is a multi-platform bot that lets users interact with coding agents (Claude
 │                      Chat Platform                               │
 │  ┌──────────────┐                    ┌──────────────────────┐   │
 │  │ User message │ ───WebSocket───▶  │   PlatformClient     │   │
-│  │ + reactions  │ ◀───────────────  │   (Mattermost/Slack) │   │
+│  │ + reactions  │ ◀───────────────  │   (Mattermost)       │   │
 │  └──────────────┘                    └──────────┬───────────┘   │
 └─────────────────────────────────────────────────┼───────────────┘
                                                   │
@@ -89,7 +88,7 @@ This is a multi-platform bot that lets users interact with coding agents (Claude
 - Exposes three tools to Claude:
   - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
-  - `read_post` — fetches a Mattermost/Slack post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)
+  - `read_post` — fetches a Mattermost post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)
 
 ## Agent Backends
 
@@ -111,7 +110,6 @@ Sessions can run either Claude Code CLI (default) or OpenAI Codex CLI. The abstr
 
 **Currently Supported**:
 - ✅ Mattermost (fully implemented)
-- ✅ Slack (fully implemented)
 
 **Key Concepts**:
 
@@ -155,25 +153,7 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
-
-  # Slack configuration
-  - id: slack-workspace
-    type: slack
-    displayName: Slack Team
-    botToken: xoxb-your-bot-token    # Bot User OAuth Token
-    appToken: xapp-your-app-token    # App-Level Token (for Socket Mode)
-    channelId: C0123456789
-    botName: claude-bot
-    allowedUsers: [alice, bob]       # Slack usernames
-    skipPermissions: false
 ```
-
-**Slack-specific notes:**
-- Requires both a Bot Token (`xoxb-`) and App Token (`xapp-`) for Socket Mode
-- `allowedUsers` uses Slack usernames (not user IDs) for consistency with Mattermost
-- User mentions in messages use Slack user IDs (e.g., `<@U0123ALICE>`) - the bot handles this automatically
-- Bot Token scopes required: `channels:history`, `channels:read`, `chat:write`, `files:read`, `reactions:read`, `reactions:write`, `users:read`
-- App Token scope: `connections:write` (Socket Mode must be enabled in the Slack app)
 
 Configuration is stored in YAML only - no `.env` file support.
 
@@ -343,13 +323,7 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/mattermost/types.ts` | Mattermost-specific types |
 | `src/platform/mattermost/formatter.ts` | Mattermost markdown formatter |
 | `src/platform/mattermost/permalink.ts` | Mattermost permalink parser + resolver + formatter for `read_post` |
-| `src/platform/slack/client.ts` | Slack implementation of PlatformClient (Socket Mode + Web API) |
-| `src/platform/slack/types.ts` | Slack-specific types |
-| `src/platform/slack/formatter.ts` | Slack mrkdwn formatter |
-| `src/platform/slack/mcp-platform-api.ts` | Slack MCP platform API (used by MCP child) |
-| `src/platform/slack/permalink.ts` | Slack permalink parser + resolver + formatter for `read_post` |
-| `src/platform/slack/index.ts` | Slack module exports |
-| `src/platform/permalink-shared.ts` | Cross-platform permalink utilities (caps, truncation, quote-block) shared by both permalink modules |
+| `src/platform/permalink-shared.ts` | Cross-platform permalink utilities (caps, truncation, quote-block) shared by permalink modules |
 | `src/platform/test-helpers/fetch-harness.ts` | Shared `fetch` recorder + responder for platform-API unit tests |
 
 ### Utilities
@@ -411,7 +385,7 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `SESSION_TIMEOUT_MS` | Idle session timeout in ms (default: `1800000` = 30 min) |
 | `DEBUG` | Set `1` for debug logging |
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
-| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `GOOGLE_APPLICATION_CREDENTIALS`) from Bash, hook, and stdio-MCP subprocesses it spawns. Bot env vars like `PLATFORM_TOKEN` / `MATTERMOST_TOKEN` / `SLACK_BOT_TOKEN` pass through untouched — verified empirically against CLI 2.1.116. **Side effect:** setting this also forces permission mode to `default` — Claude will refuse `--dangerously-skip-permissions` and log a warning. Only enable if all your sessions run with interactive permissions. Requires Claude CLI 2.1.83+. |
+| `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `GOOGLE_APPLICATION_CREDENTIALS`) from Bash, hook, and stdio-MCP subprocesses it spawns. Bot env vars like `PLATFORM_TOKEN` / `MATTERMOST_TOKEN` pass through untouched — verified empirically against CLI 2.1.116. **Side effect:** setting this also forces permission mode to `default` — Claude will refuse `--dangerously-skip-permissions` and log a warning. Only enable if all your sessions run with interactive permissions. Requires Claude CLI 2.1.83+. |
 
 The bot also sets two Claude CLI tuning flags by default on the child process,
 and only if you haven't already set them in the parent env:
@@ -831,7 +805,6 @@ bun test
 
 ## Future Improvements to Consider
 
-- [x] Implement Slack platform support - **Done**
 - [ ] Add rate limiting for API calls
 - [x] Support file uploads via chat attachments - **Done**
 - [x] Support multiple concurrent sessions (different threads) - **Done in v0.3.0**

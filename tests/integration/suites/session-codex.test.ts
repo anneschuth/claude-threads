@@ -69,18 +69,12 @@ describe.skipIf(SKIP)('Codex Agent Backend', () => {
     });
 
     function getBotUsername(): string {
-      if (platformType === 'mattermost') {
-        // Each startTestBot leases a bot from the pool - mention THAT bot
-        return bot?.botUsername ?? config.mattermost.bot.username;
-      }
-      return config.slack?.botUsername || 'claude-test-bot';
+      // Each startTestBot leases a bot from the pool - mention THAT bot
+      return bot?.botUsername ?? config.mattermost.bot.username;
     }
 
     function getTestUsername(): string {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0].username;
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0].username;
     }
 
     /**

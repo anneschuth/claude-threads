@@ -3,7 +3,7 @@
  *
  * Tests multi-user scenarios: !invite, !kick, message approval flow.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  * Note: Many multi-user tests require platform-specific user management
  * and will only run on Mattermost.
  */
@@ -63,18 +63,12 @@ describe.skipIf(SKIP)('Session Multi-User', () => {
 
     // Helper to get user1 username
     const getUser1Username = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0]?.username || 'testuser1';
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0]?.username || 'testuser1';
     };
 
     // Helper to get user2 username
     const getUser2Username = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[1]?.username || 'testuser2';
-      }
-      return config.slack?.testUsers[1]?.username || 'testuser2';
+      return config.mattermost.testUsers[1]?.username || 'testuser2';
     };
 
     // Helper to check if multi-user tests can run

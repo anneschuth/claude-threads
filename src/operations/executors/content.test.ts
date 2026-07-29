@@ -596,7 +596,7 @@ describe('ContentExecutor', () => {
           };
         }),
         updatePost: mock(async (_postId: string, content: string): Promise<void> => {
-          // Simulate Slack's msg_too_long error when content exceeds limit
+          // Simulate a platform rejecting an over-long message
           if (content.length > 1000) {
             throw new Error('msg_too_long');
           }

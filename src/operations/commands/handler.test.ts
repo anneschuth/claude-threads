@@ -588,7 +588,7 @@ describe('setGitHubEmail', () => {
     // independently. Verifies the call passes the session's platformId, not
     // (e.g.) a hard-coded 'default' or the username alone.
     const { session, ctx } = makeCtx();
-    session.platformId = 'slack-workspace';
+    session.platformId = 'mattermost-other';
 
     await commands.setGitHubEmail(
       session,
@@ -598,7 +598,7 @@ describe('setGitHubEmail', () => {
     );
 
     expect(ctx.state.githubEmailsStore.set).toHaveBeenCalledWith(
-      'slack-workspace',
+      'mattermost-other',
       'testuser',
       '12345+testuser@users.noreply.github.com',
     );

@@ -88,8 +88,6 @@ export interface PlatformMcpConfig {
   token: string;
   channelId: string;
   allowedUsers: string[];
-  /** App-level token for Slack Socket Mode (only needed for Slack) */
-  appToken?: string;
   /**
    * Outbound `send_file` settings, surfaced from the platform-instance
    * config. When omitted the bot defaults to enabled with 100MB cap.
@@ -324,9 +322,6 @@ export function buildPermissionArgs(opts: {
     TEAMMATES: JSON.stringify(opts.platformConfig.teammates ?? []),
     TEAMMATES_PRESENT: (opts.platformConfig.teammatesPresent ?? []).join(','),
   };
-  if (opts.platformConfig.appToken) {
-    mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
-  }
   // Outbound-file env: only emit when at least one root is known. The MCP
   // child enforces the same invariant on the read side. Names are defined
   // in src/mcp/outbound-env.ts so a rename can't desync the two sides.

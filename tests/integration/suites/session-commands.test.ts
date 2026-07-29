@@ -3,7 +3,7 @@
  *
  * Tests the session control commands: !stop, !escape, !help, etc.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -61,18 +61,12 @@ describe.skipIf(SKIP)('Session Commands', () => {
 
     // Helper to get test user username for reaction processing
     const getTestUsername = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0].username;
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0].username;
     };
 
     // Helper to get user1 username
     const getUser1Username = () => {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0]?.username || 'testuser1';
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0]?.username || 'testuser1';
     };
 
     // Helper to get user2 token (Mattermost only)
@@ -226,7 +220,7 @@ describe.skipIf(SKIP)('Session Commands', () => {
         // Send !help
         await sendCommand(ctx, rootPost.id, '!help');
 
-        // Wait for help message - use pattern that matches both Mattermost (**Commands:**) and Slack (*Commands:*)
+        // Wait for help message
         // This avoids matching the user's message
         const helpPost = await waitForPostMatching(ctx, rootPost.id, /\*{1,2}Commands:\*{1,2}|!stop.*!escape/i, { timeout: 10000 });
 

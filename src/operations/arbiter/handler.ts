@@ -56,7 +56,7 @@ const MAX_MESSAGE_LENGTH = 2000;
  * Tool-name patterns that count as an external delivery, matched against the
  * SHORT tool name of any MCP server (mcp__<server>__<tool>) or a bare tool
  * name. Deployments wire different chat MCPs (claude-threads send_dm,
- * a Mattermost/Slack server's post_message, ...) — a delivery through ANY of
+ * a Mattermost server's post_message, ...) — a delivery through ANY of
  * them must count, otherwise the arbiter nags about work that is already done.
  */
 /**
@@ -241,13 +241,12 @@ function persistIfActive(session: Session, ctx: SessionContext): void {
 }
 
 /**
- * Pull the bare post id out of a chat permalink (Mattermost .../pl/<id>,
- * Slack .../p<ts>). Sync and allocation-cheap — used on the hot path before
- * deciding whether an extraction is worth an LLM call.
+ * Pull the bare post id out of a chat permalink (Mattermost .../pl/<id>).
+ * Sync and allocation-cheap — used on the hot path before deciding whether
+ * an extraction is worth an LLM call.
  */
 function permalinkPostId(url: string): string | undefined {
-  return /\/pl\/([A-Za-z0-9]+)/.exec(url)?.[1]
-    ?? /\/p(\d{6,})/.exec(url)?.[1];
+  return /\/pl\/([A-Za-z0-9]+)/.exec(url)?.[1];
 }
 
 /**
@@ -289,7 +288,7 @@ export function asksOnlyForSelfThreadReply(message: string, ownThreadId: string)
 export function mightContainDeliveryRequest(message: string): boolean {
   // NB: `отвеч` — NOT `ответ`: the most common cross-agent phrasing is
   // "отвечай мне в тред", which the `ответ` stem does not match.
-  // `/pl/` catches Mattermost/Slack permalinks even when the wording is odd.
+  // `/pl/` catches Mattermost permalinks even when the wording is odd.
   return /(send|dm|message|post|reply|thread|notify|ping|forward|отправ|напиш|сообщи|ответ|отвеч|отпиш|перешли|скинь|пингани|тред|канал|channel|\/pl\/|@[\w.-]+|~[\w-]+)/i.test(message);
 }
 

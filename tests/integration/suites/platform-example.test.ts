@@ -2,12 +2,10 @@
  * Example parameterized test that can run against multiple platforms
  *
  * This demonstrates how to write platform-agnostic integration tests
- * that work with both Mattermost and Slack.
+ * that work across platforms.
  *
  * Usage:
  *   TEST_PLATFORMS=mattermost bun test platform-example.test.ts
- *   TEST_PLATFORMS=slack bun test platform-example.test.ts
- *   TEST_PLATFORMS=mattermost,slack bun test platform-example.test.ts
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
@@ -47,17 +45,6 @@ describe.skipIf(SKIP)('Platform API', () => {
         });
         channelId = config.mattermost.channel.id || '';
         testUserId = config.mattermost.testUsers[0].userId || '';
-      } else if (platformType === 'slack') {
-        if (!config.slack?.botToken) {
-          throw new Error('Slack bot token not found');
-        }
-        api = createPlatformTestApi('slack', {
-          baseUrl: process.env.SLACK_MOCK_URL || 'http://localhost:3457/api',
-          token: config.slack.botToken,
-          channelId: config.slack.channelId,
-        });
-        channelId = config.slack.channelId;
-        testUserId = config.slack.testUsers[0]?.userId || 'U_TEST_USER';
       } else {
         throw new Error(`Unknown platform: ${platformType}`);
       }

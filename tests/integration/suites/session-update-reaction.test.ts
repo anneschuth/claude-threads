@@ -5,7 +5,7 @@
  * This specifically tests the fix for the bug where postUpdateAskMessage()
  * wasn't setting pendingUpdatePrompt, causing reactions to be ignored.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';

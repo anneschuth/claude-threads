@@ -716,108 +716,6 @@ describe('handleReadPostWith', () => {
 });
 
 // =============================================================================
-// handleReadPostWith — Slack
-// =============================================================================
-
-const SLACK_CHANNEL = 'C0123456789';
-const SLACK_TS = '1234567890.123456';
-const SLACK_PERMALINK = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123456`;
-
-describe('handleReadPostWith — Slack', () => {
-  function makeSlackCfg(api: FakeApi, overrides: Partial<ReadPostHandlerConfig> = {}): ReadPostHandlerConfig {
-    return {
-      api,
-      platformUrl: '',
-      platformType: 'slack',
-      channelId: SLACK_CHANNEL,
-      ...overrides,
-    };
-  }
-
-  function fakeSlackPost(overrides: Partial<McpPost> = {}): McpPost {
-    return {
-      id: SLACK_TS,
-      channelId: SLACK_CHANNEL,
-      userId: 'U-1',
-      username: 'alice',
-      message: 'hello slack',
-      createAt: 1_234_567_890_123,
-      threadRootId: undefined,
-      ...overrides,
-    };
-  }
-
-  it('returns formatted markdown for a valid Slack permalink', async () => {
-    const api = new FakeApi();
-    api.readPostImpl = async () => fakeSlackPost();
-    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
-    expect(result.ok).toBe(true);
-    expect(result.content).toContain('Slack message by @alice');
-    expect(result.content).toContain('> hello slack');
-    // Slack handler doesn't pass expectedChannelId — the resolver gates on
-    // channel before the API call, and conversations.history is already
-    // channel-scoped via the `channel` param. See McpPlatformApi.readPost.
-    expect(api.readPostCalls).toEqual([SLACK_TS]);
-  });
-
-  it('errors when the URL is for a different channel', async () => {
-    const api = new FakeApi();
-    api.readPostImpl = async () => fakeSlackPost();
-    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: 'C-OTHER' }));
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/different channel/);
-    expect(api.readPostCalls).toEqual([]);
-  });
-
-  it('errors when the URL is not a Slack permalink', async () => {
-    const api = new FakeApi();
-    const result = await handleReadPostWith(
-      { url: 'https://acme.slack.com/messages/abc/123' },
-      makeSlackCfg(api),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/not a Slack permalink/);
-  });
-
-  it('errors when the URL is for a non-Slack host', async () => {
-    const api = new FakeApi();
-    const result = await handleReadPostWith(
-      { url: `https://other.example.test/archives/${SLACK_CHANNEL}/p1234567890123456` },
-      makeSlackCfg(api),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/not a Slack permalink/);
-  });
-
-  it('returns not-found when the post is missing', async () => {
-    const api = new FakeApi();
-    api.readPostImpl = async () => null;
-    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api));
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/message not found/);
-  });
-
-  it('errors when channelId is unconfigured', async () => {
-    const api = new FakeApi();
-    const result = await handleReadPostWith({ url: SLACK_PERMALINK }, makeSlackCfg(api, { channelId: '' }));
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/platform channel not configured/);
-  });
-
-  it('passes the URL thread_ts as the thread root when include_thread is true', async () => {
-    const api = new FakeApi();
-    // URL: a reply (p1234567890123457) with thread_ts pointing at the parent.
-    const replyTs = '1234567890.123457';
-    const post = fakeSlackPost({ id: replyTs, threadRootId: SLACK_TS });
-    api.readPostImpl = async () => post;
-    api.readThreadImpl = async () => [post];
-    const url = `https://acme.slack.com/archives/${SLACK_CHANNEL}/p1234567890123457?thread_ts=${SLACK_TS}&cid=${SLACK_CHANNEL}`;
-    await handleReadPostWith({ url, include_thread: true }, makeSlackCfg(api));
-    expect(api.readThreadCalls[0].rootId).toBe(SLACK_TS);
-  });
-});
-
-// =============================================================================
 // read_post auto-approval
 // =============================================================================
 
@@ -951,48 +849,6 @@ describe('handleReactToPostWith', () => {
       makeReactCfg(api),
     );
     expect(result.ok).toBe(false);
-    expect(api.readPostCalls).toHaveLength(0);
-    expect(api.addReactionCalls).toHaveLength(0);
-  });
-});
-
-describe('handleReactToPostWith — Slack', () => {
-  function makeSlackReactCfg(api: FakeApi, overrides: Partial<ReactToPostHandlerConfig> = {}): ReactToPostHandlerConfig {
-    return {
-      api,
-      platformUrl: '',
-      platformType: 'slack',
-      channelId: SLACK_CHANNEL,
-      ...overrides,
-    };
-  }
-
-  it('reacts to a Slack post in the bot channel', async () => {
-    const api = new FakeApi();
-    api.readPostImpl = async () => ({
-      id: SLACK_TS,
-      channelId: SLACK_CHANNEL,
-      userId: 'U-1',
-      username: 'alice',
-      message: 'hello',
-      createAt: 1_234_567_890_123,
-    });
-    const result = await handleReactToPostWith(
-      { url: SLACK_PERMALINK, emoji: 'eyes' },
-      makeSlackReactCfg(api),
-    );
-    expect(result.ok).toBe(true);
-    expect(api.addReactionCalls).toEqual([{ postId: SLACK_TS, emojiName: 'eyes' }]);
-  });
-
-  it('refuses Slack permalinks for a different channel', async () => {
-    const api = new FakeApi();
-    const result = await handleReactToPostWith(
-      { url: SLACK_PERMALINK, emoji: '+1' },
-      makeSlackReactCfg(api, { channelId: 'C-OTHER' }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/different channel/);
     expect(api.readPostCalls).toHaveLength(0);
     expect(api.addReactionCalls).toHaveLength(0);
   });
@@ -1312,31 +1168,6 @@ describe('handleReadChannelHistoryWith — Mattermost', () => {
   });
 });
 
-describe('handleReadChannelHistoryWith — Slack', () => {
-  it('rejects non-membership with a Slack-flavored error', async () => {
-    // Slack-only path: when readChannelHistory returns null we infer the
-    // bot isn't a member, and the error tells the user how to fix it.
-    const api = new FakeApi();
-    api.readChannelHistoryImpl = async () => null;
-    const result = await handleReadChannelHistoryWith(
-      { channel_id: SLACK_CHANNEL },
-      makeReadChannelHistoryCfg(api, { platformType: 'slack', botChannelId: SLACK_CHANNEL }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/not a member/);
-  });
-
-  it('refuses an invalid Slack channel id', async () => {
-    const api = new FakeApi();
-    const result = await handleReadChannelHistoryWith(
-      { channel_id: 'lowercase-not-slack' },
-      makeReadChannelHistoryCfg(api, { platformType: 'slack', botChannelId: SLACK_CHANNEL }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/invalid channel id/);
-  });
-});
-
 // =============================================================================
 // handleSearchMessagesWith — search_messages MCP tool
 // =============================================================================
@@ -1388,18 +1219,6 @@ describe('handleSearchMessagesWith', () => {
     );
     expect(result.ok).toBe(true);
     expect(result.content).toMatch(/No in-scope matches/);
-  });
-
-  it('refuses on Slack with an explicit user-token note', async () => {
-    const api = new FakeApi();
-    const result = await handleSearchMessagesWith(
-      { query: 'anything' },
-      makeSearchCfg(api, { platformType: 'slack' }),
-    );
-    expect(result.ok).toBe(false);
-    expect(result.reason).toMatch(/Slack/);
-    expect(result.reason).toMatch(/user token/);
-    expect(api.searchMessagesCalls).toEqual([]);
   });
 
   it('refuses an empty query', async () => {

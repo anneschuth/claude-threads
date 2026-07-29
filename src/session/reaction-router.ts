@@ -77,9 +77,9 @@ export async function handleReaction(
   username: string,
   action: ReactionAction,
 ): Promise<void> {
-  // Normalize emoji name to handle platform differences (e.g. Slack's
-  // "thumbsup" vs Mattermost's "+1"). Every downstream check assumes the
-  // normalized shape.
+  // Normalize emoji name to handle platform differences (e.g. "thumbsup"
+  // vs Mattermost's "+1"). Every downstream check assumes the normalized
+  // shape.
   const normalizedEmoji = normalizeEmojiName(emojiName);
 
   // Resume-emoji on a timed-out session's header or timeout post is special:
@@ -95,8 +95,8 @@ export async function handleReaction(
   if (!session) return;
 
   // Verify this reaction is from the same platform (composite session IDs
-  // make this cheap — a Slack post ID can't collide with a Mattermost one,
-  // but the guard protects against a future platform that reuses ID shapes).
+  // make this cheap, and the guard protects against a future platform that
+  // reuses ID shapes).
   if (session.platformId !== platformId) return;
 
   // SECURITY: Only process reactions from allowed users.

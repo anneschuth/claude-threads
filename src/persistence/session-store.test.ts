@@ -137,7 +137,7 @@ describe('SessionStore', () => {
       });
       store.save('mattermost-main:thread-abc', session);
 
-      const found = store.findByThread('slack-main', 'thread-abc');
+      const found = store.findByThread('mm-other', 'thread-abc');
       expect(found).toBeUndefined();
     });
   });
@@ -187,7 +187,7 @@ describe('SessionStore', () => {
       });
       store.save('mattermost-main:thread-abc', session);
 
-      const found = store.findByPostId('slack-main', 'timeout-post-123');
+      const found = store.findByPostId('mm-other', 'timeout-post-123');
       expect(found).toBeUndefined();
     });
 

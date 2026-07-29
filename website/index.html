@@ -6,7 +6,7 @@
     <title>claude-threads</title>
     <meta
       name="description"
-      content="Run Claude Code on your machine. Team members watch and collaborate through Slack or Mattermost."
+      content="Run Claude Code on your machine. Team members watch and collaborate through Mattermost."
     />
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -28,7 +28,7 @@
  <span class="star">✴</span> ▀█▄  █  <span class="star">✴</span></pre>
           <p class="hero-text">
             Run Claude Code on your machine.<br />
-            Team members watch and collaborate through Slack or Mattermost.
+            Team members watch and collaborate through Mattermost.
           </p>
           <div class="install-buttons">
             <div class="copyable" onclick="copyText(this)">
@@ -68,8 +68,8 @@
         <div class="container">
           <div class="screenshot-scroll">
             <img
-              src="assets/screenshots/slack-long.png"
-              alt="Claude Code session in Slack"
+              src="assets/screenshots/mattermost-thread.png"
+              alt="Claude Code session in Mattermost"
             />
           </div>
         </div>
@@ -82,9 +82,7 @@
           <ul>
             <li>Output streams live to chat as Claude works</li>
             <li>Sticky to-do lists at the bottom of each thread</li>
-            <li>
-              Works with Slack and Mattermost, multiple workspaces at once
-            </li>
+            <li>Works with Mattermost, multiple servers at once</li>
             <li>
               Multiple concurrent sessions (one per thread), persisted across
               bot restarts
@@ -106,10 +104,7 @@
               Claude posts files back into chat (screenshots, generated PDFs,
               plots, audio)
             </li>
-            <li>
-              Share a Slack or Mattermost permalink and Claude follows the
-              thread
-            </li>
+            <li>Share a Mattermost permalink and Claude follows the thread</li>
             <li>Git worktrees to isolate changes in branches</li>
             <li>
               Round-robin across multiple Claude subscriptions or API keys with
@@ -126,8 +121,8 @@
           <p>
             I wanted my team to use Claude Code without everyone needing their
             own setup. Screen sharing works but only one person can type. With
-            claude-threads, colleagues watch Claude work in Slack and can jump
-            in to help, approve actions, or ask questions. All from chat.
+            claude-threads, colleagues watch Claude work in chat and can jump in
+            to help, approve actions, or ask questions. All from chat.
           </p>
           <p>
             After the first minimal version, I built claude-threads using
@@ -334,10 +329,7 @@ claude-threads</pre
             >
             <span class="copy-hint">click to copy</span>
           </div>
-          <p>
-            The setup wizard will guide you through connecting Slack or
-            Mattermost.
-          </p>
+          <p>The setup wizard will guide you through connecting Mattermost.</p>
         </div>
       </section>
 
@@ -346,15 +338,6 @@ claude-threads</pre
         <div class="container">
           <h2>Platforms</h2>
           <div class="platform-links">
-            <a
-              href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#slack-setup"
-              class="platform-link"
-              target="_blank"
-              rel="noopener"
-            >
-              <img src="assets/slack.svg" alt="" />
-              Slack setup guide
-            </a>
             <a
               href="https://github.com/anneschuth/claude-threads/blob/main/SETUP_GUIDE.md#mattermost-setup"
               class="platform-link"

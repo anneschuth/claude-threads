@@ -1099,7 +1099,7 @@ describe('updateStickyMessage with bump', () => {
   it('triggers throttled cleanup after creating new sticky post during bump', async () => {
     // Cleanup runs on bump but is throttled (max once per 5 min) and only checks recent posts
     const sessions = new Map<string, Session>();
-    // Use a recent Slack-style timestamp for the created post
+    // Timestamp-shaped post ids, so orphan vs current is easy to read
     const now = Math.floor(Date.now() / 1000);
     const createdPostId = `${now}.123456`;
     const orphanedPostId = `${now - 100}.789012`; // Recent orphaned post
@@ -1177,7 +1177,6 @@ describe('updateStickyMessage validates lastMessageId', () => {
     // Create a session with a lastMessageId that points to a deleted message
     const session = createMockSession({
       lastMessageId: 'deleted-message-123',
-      lastMessageTs: 'deleted-message-123',
     });
     const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
 
@@ -1232,14 +1231,12 @@ describe('updateStickyMessage validates lastMessageId', () => {
 
     // Verify lastMessageId was cleared because the message was deleted
     expect(session.lastMessageId).toBeUndefined();
-    expect(session.lastMessageTs).toBeUndefined();
   });
 
   it('keeps lastMessageId when the message still exists', async () => {
     // Create a session with a lastMessageId that points to an existing message
     const session = createMockSession({
       lastMessageId: 'existing-message-456',
-      lastMessageTs: 'existing-message-456',
     });
     const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
 
@@ -1297,14 +1294,12 @@ describe('updateStickyMessage validates lastMessageId', () => {
 
     // Verify lastMessageId was NOT cleared because the message still exists
     expect(session.lastMessageId).toBe('existing-message-456');
-    expect(session.lastMessageTs).toBe('existing-message-456');
   });
 
   it('clears lastMessageId when getPost throws an error', async () => {
     // Create a session with a lastMessageId
     const session = createMockSession({
       lastMessageId: 'error-message-789',
-      lastMessageTs: 'error-message-789',
     });
     const sessions = new Map<string, Session>([['test-platform:thread123', session]]);
 
@@ -1353,7 +1348,6 @@ describe('updateStickyMessage validates lastMessageId', () => {
 
     // Verify lastMessageId was cleared on error (defensive behavior)
     expect(session.lastMessageId).toBeUndefined();
-    expect(session.lastMessageTs).toBeUndefined();
   });
 
 });

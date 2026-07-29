@@ -481,8 +481,8 @@ function normalizeUser(slack: SlackUser): PlatformUser {
 
 ## Testing Your Implementation
 
-1. **Unit tests**: Create `src/platform/slack/__tests__/` directory
-2. **Integration tests**: Test with a real Slack workspace (sandbox)
+1. **Unit tests**: Add `*.test.ts` files next to the platform's modules
+2. **Integration tests**: Test against a real workspace (sandbox)
 3. **Manual testing**:
    - Start a session: `@bot help me with X`
    - Test reactions: 👍 👎 on approval prompts
@@ -494,14 +494,14 @@ function normalizeUser(slack: SlackUser): PlatformUser {
 
 1. **Rate limiting**: Implement exponential backoff for API calls
 2. **Emoji names**: Different platforms use different emoji names (`:+1:` vs `+1`)
-3. **Message length**: Check platform limits (Slack: 40k, Mattermost: 16k)
+3. **Message length**: Check platform limits (Mattermost: 16k)
 4. **Thread IDs**: Some platforms use different IDs for threads vs messages
 5. **WebSocket reconnection**: Handle disconnects gracefully
 6. **Bot user filtering**: Filter out bot's own messages to avoid loops
 
 ## Platform-Specific Considerations
 
-### Slack (Implemented)
+### Slack (previously implemented, since removed)
 - Uses timestamp (`ts`) as message ID - these are unique per channel
 - Threads are based on `thread_ts` (the timestamp of the parent message)
 - Bot tokens start with `xoxb-` (Bot User OAuth Token)
@@ -532,9 +532,11 @@ function normalizeUser(slack: SlackUser): PlatformUser {
 - Activity IDs for messages
 - Requires Bot Framework
 
-## Lessons Learned from Slack Implementation
+## Lessons Learned from a Second Platform
 
-When implementing Slack support, several patterns emerged that may help future platform implementations:
+claude-threads carried a full Slack implementation before narrowing to
+Mattermost. These patterns emerged from it and are worth knowing before
+adding a platform:
 
 ### 1. Two-Token Architecture
 Slack's Socket Mode requires both a Bot Token (for API calls) and an App Token (for WebSocket connection). Other platforms may have similar multi-credential patterns. Design your config schema to accommodate multiple tokens.
@@ -559,7 +561,8 @@ setImmediate(() => this.processEvent(envelope.payload));
 ```
 
 ### 5. Integration Test Parameterization
-All integration tests use `describe.each(TEST_PLATFORMS)` to run against both platforms:
+All integration tests use `describe.each(TEST_PLATFORMS)` so a second platform
+can be added without touching each suite:
 ```typescript
 const TEST_PLATFORMS = (process.env.TEST_PLATFORMS || 'mattermost').split(',');
 
@@ -571,15 +574,13 @@ describe.each(TEST_PLATFORMS)('%s platform', (platformType) => {
 ```
 
 ### 6. Mock Server Design
-The Slack mock server (`tests/integration/fixtures/slack/mock-server.ts`) simulates:
-- Socket Mode WebSocket endpoint
-- Web API endpoints with proper authentication
-- Realistic data structures (users, channels, messages)
-
-This pattern can be reused for other platforms.
+The Slack suites ran against an in-repo mock server rather than a live
+workspace. It simulated the WebSocket event endpoint, the HTTP API with
+authentication, and realistic users/channels/messages. Worth repeating for
+any platform whose sandbox is awkward to drive from CI.
 
 ## Need Help?
 
-- Check existing implementations in `src/platform/mattermost/` and `src/platform/slack/`
+- Check the existing implementation in `src/platform/mattermost/`
 - Open an issue with questions
 - See the main `CLAUDE.md` for architecture overview

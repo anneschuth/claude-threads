@@ -89,10 +89,12 @@ describe('buildSessionContext', () => {
     getThreadLink: (threadId: string) => `https://chat.example.com/_redirect/pl/${threadId}`,
   };
 
-  const slackPlatform = {
-    platformType: 'slack',
+  // A hypothetical second platform — buildSessionContext is duck-typed, so
+  // this exercises the capitalization path without needing a real one.
+  const otherPlatform = {
+    platformType: 'discord',
     displayName: 'Workspace',
-    getThreadLink: (threadId: string) => `https://slack.example.com/archives/C123/p${threadId}`,
+    getThreadLink: (threadId: string) => `https://discord.example.com/channels/C123/${threadId}`,
   };
 
   it('formats platform and working directory', () => {
@@ -106,15 +108,15 @@ describe('buildSessionContext', () => {
   });
 
   it('capitalizes platform type', () => {
-    const context = buildSessionContext(slackPlatform, '/path', 'thread-1');
+    const context = buildSessionContext(otherPlatform, '/path', 'thread-1');
 
-    expect(context).toContain('Slack');
-    // The full string still contains lowercase 'slack' inside the URL —
+    expect(context).toContain('Discord');
+    // The full string still contains lowercase 'discord' inside the URL —
     // assert that the *capitalized* form precedes the URL segment so the
     // intent of the assertion (label, not URL) is preserved.
     const labelSegment = context.split('|')[0];
-    expect(labelSegment).toContain('Slack');
-    expect(labelSegment).not.toMatch(/\bslack\b/);
+    expect(labelSegment).toContain('Discord');
+    expect(labelSegment).not.toMatch(/\bdiscord\b/);
   });
 
   it('includes the Thread permalink so Claude can reference the conversation', () => {

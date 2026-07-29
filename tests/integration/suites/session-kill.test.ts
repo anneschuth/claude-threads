@@ -3,7 +3,7 @@
  *
  * Tests the emergency shutdown command that kills all sessions and exits.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -53,7 +53,7 @@ describe.skipIf(SKIP)('!kill Command', () => {
     });
 
     afterAll(async () => {
-      // Clean up test threads (Mattermost only - Slack mock handles its own cleanup)
+      // Clean up test threads
       if (adminApi) {
         for (const threadId of testThreadIds) {
           try {
@@ -73,20 +73,14 @@ describe.skipIf(SKIP)('!kill Command', () => {
      * test bot a unique username); falls back to the default config.
      */
     function getBotUsername(testBot?: { botUsername?: string }): string {
-      if (platformType === 'mattermost') {
-        return testBot?.botUsername ?? config.mattermost.bot.username;
-      }
-      return config.slack?.botUsername || 'claude-test-bot';
+      return testBot?.botUsername ?? config.mattermost.bot.username;
     }
 
     /**
      * Get the first test user's username for the current platform
      */
     function getTestUser1Username(): string {
-      if (platformType === 'mattermost') {
-        return config.mattermost.testUsers[0]?.username || 'testuser1';
-      }
-      return config.slack?.testUsers[0]?.username || 'testuser1';
+      return config.mattermost.testUsers[0]?.username || 'testuser1';
     }
 
     /**
@@ -97,7 +91,6 @@ describe.skipIf(SKIP)('!kill Command', () => {
       if (platformType === 'mattermost') {
         return config.mattermost.testUsers[1]?.token || null;
       }
-      // Slack doesn't support per-user tokens in test mode
       return null;
     }
 

@@ -4,7 +4,7 @@
  * Tests the plan approval feature where Claude presents a plan
  * and waits for user approval before executing.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';
@@ -84,11 +84,7 @@ describe.skipIf(SKIP)('Plan Approval', () => {
 
     // Get the bot username based on platform
     const getBotUsername = () => {
-      if (platformType === 'mattermost') {
-        return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
-      }
-      // Slack uses a different format
-      return config.slack?.botUsername || 'claude-test-bot';
+      return bot?.botUsername ?? (bot?.botUsername ?? config.mattermost.bot.username);
     };
 
     describe('Plan Presentation', () => {
@@ -137,7 +133,6 @@ describe.skipIf(SKIP)('Plan Approval', () => {
         }
 
         // Should have thumbs up/down reaction options
-        // Mattermost uses +1/-1, Slack uses thumbsup/thumbsdown
         const hasApprovalReaction = reactions.some((r) =>
           ['+1', 'thumbsup', '-1', 'thumbsdown'].includes(r.emojiName)
         );

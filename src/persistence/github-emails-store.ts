@@ -12,7 +12,7 @@
  * Shape: `{ <platformId>: { <username>: <noreplyEmail> } }`.
  *
  * Per-platform scope: a username on `mattermost-main` and the same string on
- * `slack-workspace` may be different humans, so they keep separate entries.
+ * `mattermost-other` may be different humans, so they keep separate entries.
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSync } from 'fs';

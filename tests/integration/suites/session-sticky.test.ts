@@ -3,8 +3,7 @@
  *
  * Tests the sticky/pinned channel message that shows bot status and active sessions.
  *
- * Note: Pinned posts are currently a Mattermost-specific feature. Slack tests will
- * be skipped for pinned post functionality until Slack support is added.
+ * Note: Pinned posts are a Mattermost-specific feature.
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach } from 'bun:test';

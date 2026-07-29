@@ -1,10 +1,10 @@
 /**
  * Shared utilities for platform-specific permalink followers.
  *
- * The Mattermost and Slack permalink modules render to the same shape
- * (a header line, a quoted post body, optional thread context). Anything
- * that is genuinely platform-agnostic lives here so the two modules
- * can't drift on caps, truncation rules, or rendering style.
+ * Permalink modules render to a common shape (a header line, a quoted
+ * post body, optional thread context). Anything that is genuinely
+ * platform-agnostic lives here so per-platform modules can't drift on
+ * caps, truncation rules, or rendering style.
  */
 
 /**

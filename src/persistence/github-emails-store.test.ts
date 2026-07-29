@@ -61,13 +61,13 @@ describe('GitHubEmailsStore', () => {
   });
 
   it('keeps platforms isolated (same username on different platforms)', () => {
-    // Per CLAUDE.md decision: scope is per platform — `bob` on Mattermost may
-    // be a different human than `bob` on Slack.
+    // Per CLAUDE.md decision: scope is per platform — `bob` on one instance
+    // may be a different human than `bob` on another.
     const store = new GitHubEmailsStore(path);
     store.set('mm', 'bob', '111+bob@users.noreply.github.com');
-    store.set('slack', 'bob', '222+bob@users.noreply.github.com');
+    store.set('mm-other', 'bob', '222+bob@users.noreply.github.com');
     expect(store.get('mm', 'bob')).toBe('111+bob@users.noreply.github.com');
-    expect(store.get('slack', 'bob')).toBe('222+bob@users.noreply.github.com');
+    expect(store.get('mm-other', 'bob')).toBe('222+bob@users.noreply.github.com');
   });
 
   it('overwrites on second set for the same (platform, user)', () => {

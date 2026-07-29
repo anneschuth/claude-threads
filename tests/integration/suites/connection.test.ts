@@ -4,7 +4,7 @@
  * Tests basic connectivity without requiring the full claude-threads bot.
  * Uses direct API access to verify platforms are properly configured.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll } from 'bun:test';
@@ -64,18 +64,6 @@ describe.skipIf(SKIP)('Platform Connection', () => {
         }
 
         channelId = config.mattermost.channel.id || '';
-      } else if (platformType === 'slack') {
-        if (!config.slack?.botToken) {
-          throw new Error('Slack bot token not found');
-        }
-
-        api = createPlatformTestApi('slack', {
-          baseUrl: process.env.SLACK_MOCK_URL || `http://localhost:${config.slack.mockServerPort}/api`,
-          token: config.slack.botToken,
-          channelId: config.slack.channelId,
-        });
-        channelId = config.slack.channelId;
-        testUserId = config.slack.testUsers[0]?.userId || 'U_TEST_USER1';
       } else {
         throw new Error(`Unknown platform: ${platformType}`);
       }
@@ -89,15 +77,6 @@ describe.skipIf(SKIP)('Platform Connection', () => {
       it('should respond to health endpoint', async () => {
         if (platformType === 'mattermost') {
           const response = await fetch(`${config.mattermost.url}/api/v4/system/ping`);
-          expect(response.ok).toBe(true);
-        } else if (platformType === 'slack') {
-          // For Slack mock server, just verify we can make an API call
-          // The api.test endpoint is a standard Slack API test endpoint
-          const baseUrl = process.env.SLACK_MOCK_URL || `http://localhost:${config.slack?.mockServerPort}/api`;
-          const response = await fetch(`${baseUrl}/api.test`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-          });
           expect(response.ok).toBe(true);
         }
       });
@@ -302,28 +281,5 @@ describe.skipIf(SKIP)('Platform Connection', () => {
       });
     }
 
-    // =========================================================================
-    // Slack-Specific Tests
-    // =========================================================================
-
-    if (platformType === 'slack') {
-      describe('Slack Configuration', () => {
-        it('should have bot token configured', () => {
-          expect(config.slack?.botToken).toBeDefined();
-          expect(config.slack?.botToken.length).toBeGreaterThan(5);
-        });
-
-        it('should have channel ID configured', () => {
-          expect(config.slack?.channelId).toBeDefined();
-          expect(config.slack?.channelId.length).toBeGreaterThan(0);
-        });
-
-        it('should have test users configured', () => {
-          expect(config.slack?.testUsers).toBeDefined();
-          expect(config.slack?.testUsers.length).toBeGreaterThan(0);
-          expect(config.slack?.testUsers[0].userId).toBeDefined();
-        });
-      });
-    }
   });
 });

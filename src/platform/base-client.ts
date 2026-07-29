@@ -2,8 +2,8 @@
  * Base Platform Client
  *
  * Abstract base class that provides shared functionality for all platform
- * client implementations. This eliminates ~400-500 lines of duplicated code
- * between Mattermost and Slack clients.
+ * client implementations, so each platform only has to supply what is
+ * genuinely platform-specific.
  *
  * Shared functionality:
  * - Connection state management (isConnected, isIntentionalDisconnect, isReconnecting)
@@ -185,7 +185,7 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   /**
    * Get a clickable link to a thread.
    */
-  abstract getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;
+  abstract getThreadLink(threadId: string, lastMessageId?: string): string;
 
   /**
    * Get MCP config for permission server.

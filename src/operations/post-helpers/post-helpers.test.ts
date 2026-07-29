@@ -15,7 +15,6 @@ import {
 } from './index.js';
 import {
   mockFormatter as mattermostFormatter,
-  slackMockFormatter as slackFormatter,
   createMockFormatter,
 } from '../../test-utils/mock-formatter.js';
 import type { Session } from '../../session/types.js';
@@ -213,12 +212,10 @@ describe('formatBold', () => {
     expect(formatBold(mattermostFormatter, 'Label', '')).toBe('**Label**');
   });
 
-  it('formats label only (Slack)', () => {
-    expect(formatBold(slackFormatter, 'Session cancelled')).toBe('*Session cancelled*');
-  });
-
-  it('formats label with rest (Slack)', () => {
-    expect(formatBold(slackFormatter, 'Session cancelled', 'by @user')).toBe('*Session cancelled* by @user');
+  it('delegates bolding to the formatter it is given', () => {
+    const formatter = { ...createMockFormatter(), formatBold: (t: string) => `<b>${t}</b>` };
+    expect(formatBold(formatter, 'Session cancelled')).toBe('<b>Session cancelled</b>');
+    expect(formatBold(formatter, 'Session cancelled', 'by @user')).toBe('<b>Session cancelled</b> by @user');
   });
 });
 
@@ -304,19 +301,6 @@ describe('updateLastMessage', () => {
     updateLastMessage(session, post);
 
     expect(session.lastMessageId).toBe('post-456');
-    expect(session.lastMessageTs).toBeUndefined();
-  });
-
-  it('updates lastMessageId and lastMessageTs for Slack', () => {
-    const session = createMockSession({
-      platformOverrides: { platformType: 'slack' as const },
-    });
-    const post: PlatformPost = { id: '1234567890.123456', message: '', userId: 'bot', platformId: 'test', channelId: 'ch1' };
-
-    updateLastMessage(session, post);
-
-    expect(session.lastMessageId).toBe('1234567890.123456');
-    expect(session.lastMessageTs).toBe('1234567890.123456');
   });
 });
 

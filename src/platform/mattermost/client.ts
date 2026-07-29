@@ -804,7 +804,7 @@ export class MattermostClient extends BasePlatformClient {
 
   // Get a clickable link to a thread (full URL for cross-platform compatibility)
   // If lastMessageId is provided, links to that specific message (jump to bottom)
-  getThreadLink(threadId: string, lastMessageId?: string, _lastMessageTs?: string): string {
+  getThreadLink(threadId: string, lastMessageId?: string): string {
     const targetId = lastMessageId || threadId;
     return `${this.url}/_redirect/pl/${targetId}`;
   }

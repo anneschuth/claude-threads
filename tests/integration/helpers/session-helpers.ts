@@ -1,10 +1,10 @@
 /**
  * Session lifecycle helpers for integration tests
  *
- * Platform-agnostic: Works with both Mattermost and Slack
+ * Platform-agnostic: goes through PlatformTestApi rather than a platform SDK
  */
 
-import { loadConfig, DEFAULT_SLACK_CONFIG } from '../setup/config.js';
+import { loadConfig } from '../setup/config.js';
 import type { StartBotOptions } from './bot-starter.js';
 import {
   createPlatformTestApi,
@@ -40,35 +40,26 @@ export interface TestSessionContext {
 }
 
 /**
+ * Suites read the platform from `process.env.TEST_PLATFORMS` through an
+ * unchecked `as PlatformType[]`, so a typo there reaches us as a plain string.
+ * Fail loudly instead of silently handing back a Mattermost context.
+ */
+function assertSupportedPlatform(platformType: PlatformType): void {
+  if ((platformType as string) !== 'mattermost') {
+    throw new Error(`Unsupported TEST_PLATFORMS entry: ${platformType}`);
+  }
+}
+
+/**
  * Initialize test session context from config
  *
- * @param platformType - Which platform to use ('mattermost' or 'slack')
+ * @param platformType - Which platform to use ('mattermost')
  */
 export function initTestContext(platformType: PlatformType = 'mattermost'): TestSessionContext {
+  assertSupportedPlatform(platformType);
+
   const config = loadConfig();
 
-  if (platformType === 'slack') {
-    // Use Slack config (defaults from mock server if not configured)
-    const slackConfig = config.slack || DEFAULT_SLACK_CONFIG;
-
-    const api = createPlatformTestApi('slack', {
-      baseUrl: process.env.SLACK_MOCK_URL || `http://localhost:${slackConfig.mockServerPort}/api`,
-      token: slackConfig.botToken,
-      channelId: slackConfig.channelId,
-    });
-
-    return {
-      api,
-      platformType: 'slack',
-      botUserId: 'U_BOT_USER',
-      botUserIds: ['U_BOT_USER'],
-      channelId: slackConfig.channelId,
-      testUserId: slackConfig.testUsers[0]?.userId || 'U_TEST_USER1',
-      testUserToken: slackConfig.botToken,
-    };
-  }
-
-  // Mattermost (default)
   if (!config.mattermost.bot.token || !config.mattermost.bot.userId) {
     throw new Error('Bot credentials not found. Run setup-mattermost.ts first.');
   }
@@ -101,26 +92,19 @@ export function initTestContext(platformType: PlatformType = 'mattermost'): Test
 }
 
 /**
- * Like {@link initTestContext}, but for Mattermost it provisions a fresh,
- * isolated channel so concurrent suites don't cross-talk (sticky storms and
- * thread write races) in the one shared config channel. Returns the context
- * plus a `cleanup()` that removes the channel; call it in `afterAll`.
+ * Like {@link initTestContext}, but provisions a fresh, isolated channel so
+ * concurrent suites don't cross-talk (sticky storms and thread write races) in
+ * the one shared config channel. Returns the context plus a `cleanup()` that
+ * removes the channel; call it in `afterAll`.
  *
  * Pass `ctx.channelId` through to the bot via
  * `getPlatformBotOptions(platformType, { ... }, ctx)` so the bot operates in
  * the same isolated channel.
- *
- * For Slack this is a no-op wrapper over {@link initTestContext}: the Slack
- * mock server is per-job and deterministic, so there's nothing to isolate.
  */
 export async function initIsolatedTestContext(
   platformType: PlatformType = 'mattermost',
 ): Promise<{ ctx: TestSessionContext; cleanup: () => Promise<void> }> {
   const base = initTestContext(platformType);
-
-  if (platformType !== 'mattermost') {
-    return { ctx: base, cleanup: async () => {} };
-  }
 
   const config = loadConfig();
   const adminApi = initAdminApi();
@@ -171,7 +155,7 @@ export async function startSession(
   const post = await ctx.api.createPost({
     channelId: ctx.channelId,
     message: fullMessage,
-    userId: ctx.testUserId, // Pass user ID for Slack mock server
+    userId: ctx.testUserId, // Attribute the post to the test user
   });
 
   return post;
@@ -189,7 +173,7 @@ export async function sendFollowUp(
     channelId: ctx.channelId,
     message,
     rootId: threadId,
-    userId: ctx.testUserId, // Pass user ID for Slack mock server
+    userId: ctx.testUserId, // Attribute the post to the test user
   });
 }
 
@@ -658,7 +642,7 @@ export async function createThreadWithMessages(
   const rootPost = await ctx.api.createPost({
     channelId: ctx.channelId,
     message: messages[0],
-    userId: ctx.testUserId, // Pass user ID for Slack mock server
+    userId: ctx.testUserId, // Attribute the post to the test user
   });
 
   const messageIds = [rootPost.id];
@@ -669,7 +653,7 @@ export async function createThreadWithMessages(
       channelId: ctx.channelId,
       message: messages[i],
       rootId: rootPost.id,
-      userId: ctx.testUserId, // Pass user ID for Slack mock server
+      userId: ctx.testUserId, // Attribute the post to the test user
     });
     messageIds.push(reply.id);
     // Small delay to ensure ordering
@@ -694,7 +678,7 @@ export async function startSessionMidThread(
     channelId: ctx.channelId,
     message: fullMessage,
     rootId: threadId,
-    userId: ctx.testUserId, // Pass user ID for Slack mock server
+    userId: ctx.testUserId, // Attribute the post to the test user
   });
 }
 
@@ -733,9 +717,8 @@ export async function waitForSessionPersisted(
  * Get platform-specific bot options for startTestBot
  *
  * This helper creates the correct options for starting a test bot based on platform type.
- * For Slack, it automatically adds the required mock server configuration from environment.
  *
- * @param platformType - The platform to configure for ('mattermost' or 'slack')
+ * @param platformType - The platform to configure for ('mattermost')
  * @param baseOptions - Base options to merge with platform-specific options
  * @returns Complete options for startTestBot
  *
@@ -749,28 +732,14 @@ export async function waitForSessionPersisted(
  */
 export function getPlatformBotOptions(
   platformType: PlatformType,
-  baseOptions: Omit<StartBotOptions, 'platform' | 'slackMockPort' | 'slackBotToken' | 'slackAppToken' | 'slackChannelId' | 'slackBotName'> = {},
+  baseOptions: Omit<StartBotOptions, 'platform'> = {},
   ctx?: TestSessionContext,
 ): StartBotOptions {
-  if (platformType === 'slack') {
-    const config = loadConfig();
-    const slackConfig = config.slack || DEFAULT_SLACK_CONFIG;
-    const mockPort = parseInt(process.env.SLACK_MOCK_PORT || String(slackConfig.mockServerPort), 10);
+  assertSupportedPlatform(platformType);
 
-    return {
-      ...baseOptions,
-      platform: 'slack',
-      slackMockPort: mockPort,
-      slackBotToken: slackConfig.botToken,
-      slackAppToken: slackConfig.appToken,
-      slackChannelId: slackConfig.channelId,
-      slackBotName: slackConfig.botUsername,
-    };
-  }
-
-  // Mattermost - pass through base options, and route the bot to the context's
-  // channel when one is given (per-suite isolated channel). Falls back to the
-  // shared config channel when ctx is omitted.
+  // Pass through base options, and route the bot to the context's channel when
+  // one is given (per-suite isolated channel). Falls back to the shared config
+  // channel when ctx is omitted.
   return {
     ...baseOptions,
     platform: 'mattermost',

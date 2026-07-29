@@ -84,9 +84,9 @@ describe('saveConfig', () => {
       worktreeMode: 'require',
       platforms: [
         {
-          id: 'slack',
-          type: 'slack',
-          displayName: 'Test Slack',
+          id: 'mattermost',
+          type: 'mattermost',
+          displayName: 'Test Mattermost',
         },
       ],
     };
@@ -101,7 +101,7 @@ describe('saveConfig', () => {
     expect(parsed.chrome).toBe(true);
     expect(parsed.worktreeMode).toBe('require');
     expect(parsed.platforms).toHaveLength(1);
-    expect(parsed.platforms[0].id).toBe('slack');
+    expect(parsed.platforms[0].id).toBe('mattermost');
   });
 
   test('round-trips respondOnlyWhenMentioned through YAML (#402)', () => {
@@ -111,7 +111,7 @@ describe('saveConfig', () => {
       chrome: false,
       worktreeMode: 'prompt',
       respondOnlyWhenMentioned: true,
-      platforms: [{ id: 'slack', type: 'slack', displayName: 'Test Slack' }],
+      platforms: [{ id: 'mattermost', type: 'mattermost', displayName: 'Test Mattermost' }],
     };
 
     saveConfig(config, testConfigPath);

@@ -56,13 +56,11 @@ export function formatWebSocketError(err: unknown): string {
 /**
  * Get the display icon for a platform type.
  *
- * @param platformType - The platform type (slack, mattermost, etc.)
+ * @param platformType - The platform type (mattermost, etc.)
  * @returns Emoji icon for the platform
  */
 export function getPlatformIcon(platformType: string): string {
   switch (platformType) {
-    case 'slack':
-      return '🆂 ';
     case 'mattermost':
       return '𝓜 ';
     default:
@@ -119,7 +117,7 @@ export function truncateMessageSafely(
  * @returns Normalized emoji name
  */
 export function normalizeEmojiName(emojiName: string): string {
-  // Remove colons if present (Slack-style)
+  // Platforms may wrap the name in colons (`:thumbsup:`) — strip them
   const name = emojiName.replace(/^:|:$/g, '');
 
   // Common aliases
@@ -213,130 +211,6 @@ export function getEmojiName(emoji: string): string {
   }
   // Otherwise assume it's already a name (or unknown emoji)
   return emoji;
-}
-
-// =============================================================================
-// Slack Markdown Conversion
-// =============================================================================
-
-/**
- * Convert standard markdown to Slack mrkdwn format.
- *
- * Handles the following conversions:
- * - **bold** → *bold* (double asterisks to single)
- * - ## Heading → *Heading* (headers to bold, Slack has no native headers)
- * - [text](url) → <url|text> (standard links to Slack format)
- * - --- → ━━━━━━━━━━━━ (horizontal rules to unicode)
- * - Tables → list format (via convertMarkdownTablesToSlack)
- *
- * Note: Preserves code blocks (``` ```) without modification inside them.
- *
- * @param content - Content in standard markdown
- * @returns Content converted to Slack mrkdwn format
- */
-export function convertMarkdownToSlack(content: string): string {
-  // First, extract and preserve code blocks to avoid modifying their content
-  const codeBlocks: string[] = [];
-  const CODE_BLOCK_PLACEHOLDER = '\x00CODE_BLOCK_';
-
-  // Preserve fenced code blocks (```...```)
-  let preserved = content.replace(/```[\s\S]*?```/g, match => {
-    const index = codeBlocks.length;
-    codeBlocks.push(match);
-    return `${CODE_BLOCK_PLACEHOLDER}${index}\x00`;
-  });
-
-  // Preserve inline code (`...`)
-  preserved = preserved.replace(/`[^`\n]+`/g, match => {
-    const index = codeBlocks.length;
-    codeBlocks.push(match);
-    return `${CODE_BLOCK_PLACEHOLDER}${index}\x00`;
-  });
-
-  // Convert markdown tables to Slack format
-  preserved = convertMarkdownTablesToSlack(preserved);
-
-  // Convert headers (## Heading) to bold (*Heading*)
-  // Match 1-6 # characters at start of line, followed by space and text
-  preserved = preserved.replace(/^#{1,6}\s+(.+)$/gm, '*$1*');
-
-  // Convert bold (**text**) to Slack bold (*text*)
-  // Must be careful not to break already-correct single asterisks
-  preserved = preserved.replace(/\*\*([^*]+)\*\*/g, '*$1*');
-
-  // Convert standard markdown links [text](url) to Slack format <url|text>
-  preserved = preserved.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<$2|$1>');
-
-  // Convert horizontal rules (---, ***, ___) to unicode line
-  preserved = preserved.replace(/^[-*_]{3,}\s*$/gm, '━━━━━━━━━━━━━━━━━━━━');
-
-  // Restore code blocks
-  for (let i = 0; i < codeBlocks.length; i++) {
-    preserved = preserved.replace(`${CODE_BLOCK_PLACEHOLDER}${i}\x00`, codeBlocks[i]);
-  }
-
-  // Fix code blocks that have text immediately after the closing ```
-  // This happens when Claude outputs code blocks without proper newlines
-  //
-  // The pattern distinguishes opening vs closing ```:
-  // - Opening: at line start, followed by optional language identifier, then newline
-  // - Closing: at line start (after code content), followed by newline or end of string
-  //
-  // We match ``` preceded by newline (closing marker), followed by a non-whitespace character
-  // that isn't part of a language identifier pattern (which would indicate opening ```)
-  // The (?=\S) ensures there IS something after ``` (not end of string or whitespace)
-  preserved = preserved.replace(/(?<=\n)```(?=\S)(?![a-zA-Z]*\n)/g, '```\n');
-
-  return preserved;
-}
-
-/**
- * Convert markdown tables to a Slack-friendly list format.
- *
- * Markdown tables like:
- * | Header1 | Header2 |
- * |---------|---------|
- * | Cell1   | Cell2   |
- *
- * Become:
- * *Header1:* Cell1 · *Header2:* Cell2
- *
- * @param content - Content potentially containing markdown tables
- * @returns Content with tables converted to list format
- */
-export function convertMarkdownTablesToSlack(content: string): string {
-  // Match markdown tables: | Header | Header | \n |---| \n | Cell | Cell |
-  const tableRegex = /^\|(.+)\|\s*\n\|[-:\s|]+\|\s*\n((?:\|.+\|\s*\n?)+)/gm;
-
-  return content.replace(tableRegex, (_match, headerLine, bodyLines) => {
-    // Parse headers
-    const headers = headerLine
-      .split('|')
-      .map((h: string) => h.trim())
-      .filter((h: string) => h);
-
-    // Parse body rows
-    const rows = bodyLines
-      .trim()
-      .split('\n')
-      .map((row: string) =>
-        row
-          .split('|')
-          .map((c: string) => c.trim())
-          .filter((c: string) => c !== '')
-      );
-
-    // Convert to Slack format: *Header:* Value · *Header:* Value
-    const formattedRows = rows.map((row: string[]) => {
-      const cells = row.map((cell: string, i: number) => {
-        const header = headers[i];
-        return header ? `*${header}:* ${cell}` : cell;
-      });
-      return cells.join(' · ');
-    });
-
-    return formattedRows.join('\n');
-  });
 }
 
 /**

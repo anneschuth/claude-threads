@@ -1031,8 +1031,7 @@ export async function updateSessionHeader(
   items.push(['👤', 'Started by', formatter.formatUserMention(session.startedBy)]);
 
   // Platform indicator (useful when running multi-platform)
-  const platformIcon = session.platform.platformType === 'slack' ? '💬' : '📢';
-  items.push([platformIcon, 'Platform', session.platform.displayName]);
+  items.push(['📢', 'Platform', session.platform.displayName]);
 
   // Show worktree info if active, otherwise show git branch if in a git repo
   if (session.worktreeInfo) {

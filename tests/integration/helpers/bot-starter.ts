@@ -14,7 +14,6 @@ import { mkdirSync, existsSync } from 'fs';
 import { tmpdir } from 'os';
 import { randomBytes } from 'crypto';
 import { MattermostClient } from '../../../src/platform/mattermost/client.js';
-import { SlackClient } from '../../../src/platform/slack/client.js';
 import { SessionManager } from '../../../src/session/index.js';
 import { SessionStore } from '../../../src/persistence/session-store.js';
 import * as stickyMessage from '../../../src/operations/sticky-message/index.js';
@@ -61,16 +60,15 @@ export interface TestBot {
   sessionManager: SessionManager;
   /** @deprecated Use `platformClient` instead for platform-agnostic access */
   mattermostClient: MattermostClient;
-  /** The platform client (MattermostClient or SlackClient) */
+  /** The platform client */
   platformClient: PlatformClient;
   platformId: string;
   /** The isolated sessions file path for this test bot */
   sessionsPath: string;
   /**
-   * The bot's mention name. For Mattermost this is the unique pool bot
-   * username (e.g. "claude-test-bot-3"); for Slack it's the configured
-   * mock bot name. Use this to construct `@mention` strings — the config
-   * default may belong to a different test's bot.
+   * The bot's mention name — the unique pool bot username (e.g.
+   * "claude-test-bot-3"). Use this to construct `@mention` strings; the
+   * config default may belong to a different test's bot.
    */
   botUsername: string;
   /** The bot's user ID — match this when filtering bot posts. */
@@ -101,17 +99,7 @@ export interface StartBotOptions {
   /** Git worktree mode: 'off' (default for tests), 'prompt', or 'require' */
   worktreeMode?: 'off' | 'prompt' | 'require';
   /** Platform type to use (default: 'mattermost') */
-  platform?: 'mattermost' | 'slack';
-  /** Port for Slack mock server (required when platform is 'slack') */
-  slackMockPort?: number;
-  /** Slack bot token for testing (required when platform is 'slack') */
-  slackBotToken?: string;
-  /** Slack app token for testing (required when platform is 'slack') */
-  slackAppToken?: string;
-  /** Slack channel ID for testing (required when platform is 'slack') */
-  slackChannelId?: string;
-  /** Slack bot name for testing (default: 'claude-test-bot') */
-  slackBotName?: string;
+  platform?: 'mattermost';
   /**
    * Mattermost channel id the bot should operate in. Defaults to the shared
    * config channel. Pass a per-suite isolated channel to keep concurrent
@@ -138,12 +126,6 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     allowedUsersOverride,
     sessionsPath: explicitSessionsPath,
     worktreeMode = 'off',
-    platform = 'mattermost',
-    slackMockPort,
-    slackBotToken,
-    slackAppToken,
-    slackChannelId,
-    slackBotName = 'claude-test-bot',
     mattermostChannelId,
   } = options;
 
@@ -193,80 +175,38 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     process.env.DEBUG = '1';
   }
 
-  // Create platform client based on platform type
-  let platformClient: PlatformClient;
-  let platformId: string;
-  let botUsername: string;
-  let botUserId: string;
+  // Pick the next bot from the pool so each test has its own user token (no
+  // cross-test event interference). The platformId must be unique PER BOT
+  // START, not just per pool slot: module-level state in
+  // src/operations/sticky-message/handler.ts is keyed by platformId and
+  // persists across the whole test process. With only `test-mattermost-N`
+  // (N = pool index, which recurs as the cursor wraps), a later suite reusing
+  // slot N would inherit the previous suite's sticky post ID and keep
+  // updating that stale post in its OLD (now isolated) channel — so the new
+  // channel never gets a sticky. The monotonic seq makes each start a fresh
+  // namespace.
+  const { bot: poolBot, index: poolIndex, seq } = nextMattermostBot(testConfig);
+  const platformId = `test-mattermost-${poolIndex}-${seq}`;
+  const allowedUsers = allowedUsersOverride ?? [
+    ...testConfig.mattermost.testUsers.map(u => u.username),
+    ...extraAllowedUsers,
+  ];
 
-  if (platform === 'slack') {
-    // Validate required Slack options
-    if (!slackMockPort) {
-      throw new Error('slackMockPort is required when platform is "slack"');
-    }
-    if (!slackBotToken) {
-      throw new Error('slackBotToken is required when platform is "slack"');
-    }
-    if (!slackAppToken) {
-      throw new Error('slackAppToken is required when platform is "slack"');
-    }
-    if (!slackChannelId) {
-      throw new Error('slackChannelId is required when platform is "slack"');
-    }
+  const platformConfig = {
+    id: platformId,
+    type: 'mattermost' as const,
+    displayName: 'Test Mattermost',
+    url: testConfig.mattermost.url,
+    token: poolBot.token!,
+    channelId: mattermostChannelId ?? testConfig.mattermost.channel.id!,
+    botName: poolBot.username,
+    allowedUsers,
+    skipPermissions,
+  };
 
-    platformId = 'test-slack';
-    const allowedUsers = allowedUsersOverride ?? extraAllowedUsers;
-
-    const slackConfig = {
-      id: platformId,
-      type: 'slack' as const,
-      displayName: 'Test Slack',
-      botToken: slackBotToken,
-      appToken: slackAppToken,
-      channelId: slackChannelId,
-      botName: slackBotName,
-      allowedUsers,
-      skipPermissions,
-      apiUrl: `http://localhost:${slackMockPort}/api`,
-    };
-
-    platformClient = new SlackClient(slackConfig);
-    botUsername = slackBotName;
-    botUserId = 'U_BOT_USER';
-  } else {
-    // Default: Mattermost — pick the next bot from the pool so each test has
-    // its own user token (no cross-test event interference). The platformId
-    // must be unique PER BOT START, not just per pool slot: module-level state
-    // in src/operations/sticky-message/handler.ts is keyed by platformId and
-    // persists across the whole test process. With only `test-mattermost-N`
-    // (N = pool index, which recurs as the cursor wraps), a later suite reusing
-    // slot N would inherit the previous suite's sticky post ID and keep
-    // updating that stale post in its OLD (now isolated) channel — so the new
-    // channel never gets a sticky. The monotonic seq makes each start a fresh
-    // namespace.
-    const { bot: poolBot, index: poolIndex, seq } = nextMattermostBot(testConfig);
-    platformId = `test-mattermost-${poolIndex}-${seq}`;
-    const allowedUsers = allowedUsersOverride ?? [
-      ...testConfig.mattermost.testUsers.map(u => u.username),
-      ...extraAllowedUsers,
-    ];
-
-    const platformConfig = {
-      id: platformId,
-      type: 'mattermost' as const,
-      displayName: 'Test Mattermost',
-      url: testConfig.mattermost.url,
-      token: poolBot.token!,
-      channelId: mattermostChannelId ?? testConfig.mattermost.channel.id!,
-      botName: poolBot.username,
-      allowedUsers,
-      skipPermissions,
-    };
-
-    platformClient = new MattermostClient(platformConfig);
-    botUsername = poolBot.username;
-    botUserId = poolBot.userId!;
-  }
+  const platformClient: PlatformClient = new MattermostClient(platformConfig);
+  const botUsername = poolBot.username;
+  const botUserId = poolBot.userId!;
 
   // Reset the sticky-message module's global shutdown flag. It's module-level
   // state shared across every test file in the bun process; a previous test's
@@ -323,13 +263,11 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   await sessionManager.initialize();
 
   if (debug) {
-    console.log('[test-bot] Started with scenario:', scenario, 'platform:', platform);
+    console.log('[test-bot] Started with scenario:', scenario);
   }
 
-  // For backward compatibility, cast to MattermostClient when platform is mattermost
-  const mattermostClient = platform === 'mattermost'
-    ? platformClient as MattermostClient
-    : platformClient as unknown as MattermostClient; // Type assertion for deprecated field
+  // Kept for the deprecated `mattermostClient` field on TestBot
+  const mattermostClient = platformClient as MattermostClient;
 
   return {
     sessionManager,

@@ -4,7 +4,7 @@
  * Tests git worktree prompts and handling by creating a real
  * temporary git repository for testing.
  *
- * Parameterized to run against both Mattermost and Slack platforms.
+ * Parameterized over TEST_PLATFORMS (Mattermost only today).
  */
 
 import { describe, it, expect, beforeAll, afterAll, afterEach, beforeEach } from 'bun:test';
