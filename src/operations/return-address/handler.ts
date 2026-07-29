@@ -171,6 +171,7 @@ export function noteTeammateRequest(session: Session, requester: string | undefi
 
   const state = getReturnDeliveryState(session);
   state.pendingHandback = requester;
+  state.workSinceHandback = false;
   if (route.kind === 'thread') {
     state.pendingMention = `@${route.teammate.name}`;
   }
@@ -214,29 +215,26 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
     return;
   }
 
-  if (route.kind === 'thread') {
-    // The turn never called a tool, so the mention was never armed: there is
-    // nothing for them to act on, and pinging anyway is how the two idle-bot
-    // loops of 2026-07-28 sustained themselves. Stay silent.
-    if (state.pendingMention) {
-      sessionLog(session).info(
-        `📬 Turn did no work — not waking @${requester}`
-      );
-      // Both, or the unused mention survives into an unrelated later turn and
-      // gets armed by its first tool call — waking a teammate who has nothing to
-      // do with that conversation. noteTeammateRequest only overwrites
-      // pendingMention when the NEXT message also comes from an in-thread
-      // teammate, so a human message in between would not clear it.
-      state.pendingMention = undefined;
-      state.pendingHandback = undefined;
-      persistIfActive(session, ctx);
-      return;
-    }
+  // Nothing ran since they asked, so there is nothing to tell them. Applies to
+  // BOTH routes: waking a teammate to read "готово" about work that did not
+  // happen is what sustained every loop we have seen, and on the channel route
+  // an arbiter reminding the agent about a delivery it cannot see turns that
+  // into one post every escalation interval, indefinitely.
+  if (!state.workSinceHandback) {
+    sessionLog(session).info(`📬 Nothing done since @${requester} asked — not pinging`);
+    // Clear the mention too, or it survives into an unrelated later turn and is
+    // armed by its first tool call, naming a teammate with nothing to do with it.
+    state.pendingMention = undefined;
+    state.pendingHandback = undefined;
+    persistIfActive(session, ctx);
+    return;
+  }
 
-    // Armed and consumed: the answer above already called them by name.
-    // Armed and unused means a turn that worked but said nothing — then fall
-    // through and ping, or they wait forever.
-    // No message manager (a session torn down mid-flight) counts as unused.
+  if (route.kind === 'thread') {
+    // The mention was armed and then consumed by the answer, which already
+    // called them by name — nothing more to send. Armed and still unused means
+    // the turn worked but said nothing; then fall through and ping, or they wait
+    // forever. No message manager (session torn down mid-flight) counts as unused.
     const mm = session.messageManager;
     const unused = mm ? mm.takeAnswerMention() : `@${route.teammate.name}`;
     if (!unused) {
@@ -251,9 +249,11 @@ async function deliverHandback(session: Session, ctx: SessionContext): Promise<v
   state.pendingHandback = undefined;
   persistIfActive(session, ctx);
 
+  state.workSinceHandback = false;
+
   const body = buildHandoffMessage(
     route,
-    'готово — мой ответ выше в треде.',
+    route.kind === 'thread' ? 'готово — мой ответ выше в треде.' : 'готово — ответ в моём треде.',
     platform.getThreadLink(session.threadId),
   );
   try {
@@ -315,9 +315,12 @@ export function noteEvent(session: Session, event: ClaudeEvent): void {
 
   // The turn just did something, so it has an answer worth waking a teammate
   // for. Any tool counts — reading one file is work; saying "ждём" is not.
-  if (event.type === 'tool_use' && state.pendingMention) {
-    session.messageManager?.armAnswerMention(state.pendingMention);
-    state.pendingMention = undefined;
+  if (event.type === 'tool_use') {
+    state.workSinceHandback = true;
+    if (state.pendingMention) {
+      session.messageManager?.armAnswerMention(state.pendingMention);
+      state.pendingMention = undefined;
+    }
   }
 
   const targetRoot = state.address?.target.rootId;

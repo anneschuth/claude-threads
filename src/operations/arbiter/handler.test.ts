@@ -856,3 +856,27 @@ describe('canIntervene', () => {
     } as Partial<Session>))).toBe(false);
   });
 });
+
+/**
+ * The prompts sanction exactly one cross-bot delivery tool, and the arbiter did
+ * not count it. krang delivered to rocksteady through `send_to_teammate`, the
+ * ledger stayed open, the arbiter reminded him, he delivered again — the same
+ * post every three minutes for half an hour, agent obeying both the prompt and
+ * the arbiter while they disagreed.
+ */
+describe('classifyDeliveryTool — the sanctioned teammate tool counts', () => {
+  it('recognises send_to_teammate as a message delivery', () => {
+    expect(classifyDeliveryTool('mcp__claude-threads-mcp__send_to_teammate')).toBe('message');
+    expect(classifyDeliveryTool('send_to_teammate')).toBe('message');
+  });
+
+  it('still recognises the raw platform tools', () => {
+    expect(classifyDeliveryTool('mcp__mattermost__post_in_thread')).toBe('message');
+    expect(classifyDeliveryTool('mcp__mattermost__post_message')).toBe('message');
+  });
+
+  it('does not count unrelated tools', () => {
+    expect(classifyDeliveryTool('Bash')).toBeUndefined();
+    expect(classifyDeliveryTool('mcp__mattermost__find_channel_by_name')).toBeUndefined();
+  });
+});

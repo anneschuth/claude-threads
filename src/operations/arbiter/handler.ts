@@ -59,7 +59,15 @@ const MAX_MESSAGE_LENGTH = 2000;
  * a Mattermost/Slack server's post_message, ...) — a delivery through ANY of
  * them must count, otherwise the arbiter nags about work that is already done.
  */
-const MESSAGE_DELIVERY_PATTERN = /^(send_dm|send_message|post_message|post_in_thread|reply_in_thread|post_reply|create_post|post_to_channel|send_channel_message|send_direct_message)$/;
+/**
+ * `send_to_teammate` is first on purpose: it is the ONLY cross-bot delivery the
+ * prompts sanction, and leaving it out meant the arbiter could not see the very
+ * deliveries it demands. Observed overnight on 2026-07-29: krang delivered to
+ * rocksteady through it, the ledger stayed open, the arbiter reminded him, he
+ * delivered again — the same post every three minutes for half an hour. The
+ * agent was obeying both the prompt and the arbiter, and they disagreed.
+ */
+const MESSAGE_DELIVERY_PATTERN = /^(send_to_teammate|send_dm|send_message|post_message|post_in_thread|reply_in_thread|post_reply|create_post|post_to_channel|send_channel_message|send_direct_message)$/;
 const FILE_DELIVERY_PATTERN = /^(send_file|upload_file|attach_file|share_file)$/;
 
 /** Classify a tool_use name as a delivery kind. Exported for tests. */

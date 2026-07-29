@@ -537,11 +537,51 @@ describe('teammate hand-back', () => {
     const ctx = makeCtx(spies, true, [session]);
 
     noteTeammateRequest(session, 'krang');
+    noteEvent(session, toolUse);
     onTurnComplete(session, ctx);
     await Bun.sleep(QUIET_MS + 40);
 
     expect(spies.delivered).toHaveLength(1);
     expect(spies.delivered[0].target).toEqual({ channelId: 'chan-krang', rootId: '' });
     expect(spies.delivered[0].message).toContain('reply-to: https://chat.corp/_redirect/pl/thread-1');
+    // "выше в треде" would be a lie in someone else's channel.
+    expect(spies.delivered[0].message).toContain('ответ в моём треде');
+  });
+
+  /**
+   * The channel route had no damping at all: pendingMention only exists for the
+   * in-thread route. krang→rocksteady goes by channel, and overnight on
+   * 2026-07-29 it reposted the same hand-back every three minutes for half an
+   * hour while the arbiter kept demanding a delivery it could not see.
+   */
+  it('stays silent on the channel route too when nothing was done', async () => {
+    const { session } = makeTeammateSession([]);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(0);
+    expect(getReturnDeliveryState(session).pendingHandback).toBeUndefined();
+  });
+
+  /** One ping per request: the next turn must earn its own. */
+  it('does not repeat the ping on a following turn that did nothing', async () => {
+    const { session } = makeTeammateSession([]);
+    const ctx = makeCtx(spies, true, [session]);
+
+    noteTeammateRequest(session, 'krang');
+    noteEvent(session, toolUse);
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+    expect(spies.delivered).toHaveLength(1);
+
+    // A bare arbiter nudge: the obligation is re-armed, but no tool runs.
+    noteTeammateRequest(session, 'krang');
+    onTurnComplete(session, ctx);
+    await Bun.sleep(QUIET_MS + 40);
+
+    expect(spies.delivered).toHaveLength(1);
   });
 });

@@ -62,6 +62,17 @@ export interface ReturnDeliveryState {
    * has no business waking them. A turn that did work announces itself.
    */
   pendingMention?: string;
+  /**
+   * Whether any tool ran since the teammate's request was recorded.
+   *
+   * The same "a mention must be earned" rule as pendingMention, but route
+   * independent — pendingMention only exists for the in-thread route, so the
+   * CHANNEL route had no damping at all. That is the route krang→rocksteady
+   * takes, and it reposted the same hand-back every three minutes overnight on
+   * 2026-07-29 while the arbiter kept demanding a delivery it could not see.
+   * Reset when the request is recorded and after a hand-back goes out.
+   */
+  workSinceHandback?: boolean;
 
   /**
    * Assistant messages since the last tool call, in order. A long answer (a
