@@ -34,7 +34,9 @@ export function Header({ version, workingDir, claudeVersion }: HeaderProps) {
         <Text color="blue">┃   ┃</Text>
         <Text>    </Text>
         <Text dimColor>Chat × Claude Code</Text>
-        <Text dimColor> · ♥ github.com/sponsors/anneschuth</Text>
+        <Text dimColor> · </Text>
+        <Text color="red">♥</Text>
+        <Text dimColor> github.com/sponsors/anneschuth</Text>
       </Text>
       {/* Line 3: Logo + workdir + Claude version */}
       <Text>
