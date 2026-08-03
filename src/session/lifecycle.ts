@@ -1082,6 +1082,7 @@ export async function startSession(
     ctx.ops.registerPost(startPost.id, actualThreadId);
   }
   ctx.ops.emitSessionAdd(session);
+  ctx.ops.recordSessionStarted();
   sessionLog(session).info(`▶ Session started by @${username}`);
 
   // Fire out-of-band title/tag suggestions (don't block session startup)
@@ -1690,6 +1691,9 @@ export async function handleExit(
     }
     removeFromRegistry(session, ctx);
     sessionLog(session).info(`⏸ Session paused`);
+    if (session.lifecycle.hasClaudeResponded) {
+      ctx.ops.maybeShowFirstSessionNote();
+    }
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
     return;
@@ -1778,6 +1782,9 @@ export async function handleExit(
 
   // Normal exit cleanup
   sessionLog(session).debug(`Normal exit, cleaning up`);
+  if (session.lifecycle.hasClaudeResponded) {
+    ctx.ops.maybeShowFirstSessionNote();
+  }
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);

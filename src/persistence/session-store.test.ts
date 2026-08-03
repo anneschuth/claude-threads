@@ -628,4 +628,47 @@ describe('SessionStore', () => {
     });
   });
 
+  describe('sponsor stats', () => {
+    it('defaults to zero-state when no stats exist', () => {
+      const stats = store.getStats();
+      expect(stats.totalSessionsStarted).toBe(0);
+      expect(stats.milestone).toBeUndefined();
+      expect(stats.firstSessionNoteShown).toBeFalsy();
+    });
+
+    it('increments the counter and persists it', () => {
+      expect(store.recordSessionStarted()).toBe(1);
+      expect(store.recordSessionStarted()).toBe(2);
+      expect(store.getStats().totalSessionsStarted).toBe(2);
+    });
+
+    it('stamps a milestone exactly at a milestone count', () => {
+      for (let i = 0; i < 99; i++) store.recordSessionStarted();
+      expect(store.getStats().milestone).toBeUndefined();
+
+      store.recordSessionStarted(); // #100
+      const stats = store.getStats();
+      expect(stats.milestone?.n).toBe(100);
+      expect(Date.parse(stats.milestone!.reachedAt)).not.toBeNaN();
+
+      store.recordSessionStarted(); // #101 keeps the last milestone
+      expect(store.getStats().milestone?.n).toBe(100);
+    });
+
+    it('marks the first-session note as shown persistently', () => {
+      store.recordSessionStarted();
+      expect(store.getStats().firstSessionNoteShown).toBeFalsy();
+      store.markFirstSessionNoteShown();
+      expect(store.getStats().firstSessionNoteShown).toBe(true);
+    });
+
+    it('pre-marks the note as shown for instances with pre-stats session history', () => {
+      // Simulate an upgrade: sessions exist on disk but stats do not
+      store.save('test-platform:thread-veteran', createTestSession({ threadId: 'thread-veteran' }));
+      expect(store.getStats().firstSessionNoteShown).toBe(true);
+      expect(store.recordSessionStarted()).toBe(1);
+      expect(store.getStats().firstSessionNoteShown).toBe(true);
+    });
+  });
+
 });

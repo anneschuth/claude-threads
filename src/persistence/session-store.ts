@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSy
 import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
+import { milestoneReached } from '../sponsor.js';
 import type { PlatformFile } from '../platform/types.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { OverheadVisibility } from '../config/types.js';
@@ -104,11 +105,23 @@ type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
   platformId?: string;
 }
 
+/**
+ * Instance-wide counters backing the sponsor touchpoints (milestone
+ * celebrations, first-session note). Absent on data written by older
+ * versions — all readers must default missing fields.
+ */
+export interface SponsorStats {
+  totalSessionsStarted: number;
+  milestone?: { n: number; reachedAt: string };  // Last milestone hit (ISO date)
+  firstSessionNoteShown?: boolean;
+}
+
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
   stickyPostIds?: Record<string, string>;  // platformId -> postId
   platformEnabledState?: Record<string, boolean>;  // platformId -> enabled (defaults to true if not set)
+  stats?: SponsorStats;
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
@@ -481,6 +494,57 @@ export class SessionStore {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Resolve stats from raw data, initializing on first touch. An instance
+   * that already has session history when stats first appear is not new —
+   * it upgraded from a pre-stats version — so the first-session note is
+   * pre-marked as shown to avoid greeting a veteran as a newcomer.
+   */
+  private statsFrom(data: SessionStoreData): SponsorStats {
+    if (data.stats) return data.stats;
+    const hasHistory = Object.keys(data.sessions).length > 0;
+    return {
+      totalSessionsStarted: 0,
+      ...(hasHistory ? { firstSessionNoteShown: true } : {}),
+    };
+  }
+
+  /**
+   * Get instance-wide sponsor stats (missing fields default to zero-state).
+   */
+  getStats(): SponsorStats {
+    const data = this.loadRaw();
+    return this.statsFrom(data);
+  }
+
+  /**
+   * Record a session start: increments the cumulative counter and stamps a
+   * milestone when the new total hits one exactly. Returns the new total.
+   */
+  recordSessionStarted(): number {
+    const data = this.loadRaw();
+    const stats = this.statsFrom(data);
+    stats.totalSessionsStarted = (stats.totalSessionsStarted ?? 0) + 1;
+    const milestone = milestoneReached(stats.totalSessionsStarted);
+    if (milestone) {
+      stats.milestone = { n: milestone, reachedAt: new Date().toISOString() };
+    }
+    data.stats = stats;
+    this.writeAtomic(data);
+    return stats.totalSessionsStarted;
+  }
+
+  /**
+   * Mark the one-time first-session note as shown so it never repeats.
+   */
+  markFirstSessionNoteShown(): void {
+    const data = this.loadRaw();
+    const stats = this.statsFrom(data);
+    stats.firstSessionNoteShown = true;
+    data.stats = stats;
+    this.writeAtomic(data);
   }
 
   /**
