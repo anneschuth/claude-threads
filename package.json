@@ -57,6 +57,7 @@
     "url": "https://github.com/anneschuth/claude-threads/issues"
   },
   "homepage": "https://claude-threads.run",
+  "funding": "https://github.com/sponsors/anneschuth",
   "files": [
     "dist",
     "bin",

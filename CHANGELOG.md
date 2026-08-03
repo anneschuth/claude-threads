@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Sponsorship links.** The project now accepts voluntary support via GitHub Sponsors: a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations.
+
 ## [1.19.1] - 2026-07-28
 
 ### Changed
