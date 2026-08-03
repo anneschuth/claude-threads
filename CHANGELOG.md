@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **Sponsorship links.** The project now accepts voluntary support via GitHub Sponsors: a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations.
+- **Sponsorship links.** The project now accepts voluntary support via GitHub Sponsors: a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations. The CLI mentions the sponsor link twice, unobtrusively: a dim note in the startup header's tagline line and a one-line farewell after interactive shutdown. `release.yml` appends a sponsor footer to each release's generated notes.
 
 ## [1.19.1] - 2026-07-28
 
