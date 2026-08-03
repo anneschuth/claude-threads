@@ -1,6 +1,6 @@
 {
   "name": "claude-threads",
-  "version": "1.19.1",
+  "version": "1.19.2",
   "description": "Run Claude Code from Slack or Mattermost. Sessions stream live into threads where your whole team can watch and steer.",
   "main": "dist/index.js",
   "type": "module",
@@ -121,8 +121,9 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.4",
-    "brace-expansion": ">=5.0.7",
+    "fast-uri": ">=4.1.2",
+    "brace-expansion": ">=5.0.9",
+    "ip-address": ">=10.3.1",
     "ws": "$ws",
     "shell-quote": ">=1.10.0"
   },
@@ -133,8 +134,9 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=3.1.4",
-    "brace-expansion": ">=5.0.7",
+    "fast-uri": ">=4.1.2",
+    "brace-expansion": ">=5.0.9",
+    "ip-address": ">=10.3.1",
     "ws": "$ws",
     "shell-quote": ">=1.10.0"
   }

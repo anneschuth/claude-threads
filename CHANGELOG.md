@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.2] - 2026-08-03
+
+### Fixed
+- **The T in the logo now reaches the baseline.** The C in the CT mark is drawn with its bottom stroke centered on the baseline, so its visible edge extends half a stroke-width below it — while the T's stem (butt cap) stopped exactly on the centerline, making the T look too short. The stem now extends to the C's outer bottom edge in both `logo.svg` and `favicon.svg`. (#452)
+
+### Security
+- **Cleared three new high advisories flagged by `bun audit`**, all in transitive dependencies, by raising version overrides: `fast-uri` to `>=4.1.2` (GHSA-7p8r-x3mc-p8w7, host confusion via backslash authority introducer), `brace-expansion` to `>=5.0.9` (GHSA-rgw5-rvv9-x895, DoS via unbounded intermediate arrays), and a new `ip-address` `>=10.3.1` override (GHSA-mwp4-54f8-5fhr, SSRF via leading-zero octet confusion). (#452)
+
 ## [1.19.1] - 2026-07-28
 
 ### Changed
