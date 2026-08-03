@@ -1691,9 +1691,6 @@ export async function handleExit(
     }
     removeFromRegistry(session, ctx);
     sessionLog(session).info(`⏸ Session paused`);
-    if (session.lifecycle.hasClaudeResponded) {
-      ctx.ops.maybeShowFirstSessionNote();
-    }
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
     return;
@@ -1782,9 +1779,6 @@ export async function handleExit(
 
   // Normal exit cleanup
   sessionLog(session).debug(`Normal exit, cleaning up`);
-  if (session.lifecycle.hasClaudeResponded) {
-    ctx.ops.maybeShowFirstSessionNote();
-  }
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);

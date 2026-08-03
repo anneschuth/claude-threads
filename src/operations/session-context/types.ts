@@ -156,9 +156,6 @@ export interface SessionOperations {
   /** Increment the instance-wide session counter (milestones stamp themselves) */
   recordSessionStarted(): void;
 
-  /** Show the one-time first-session sponsor note in the TUI log, if due */
-  maybeShowFirstSessionNote(): void;
-
   // ---------------------------------------------------------------------------
   // UI Updates
   // ---------------------------------------------------------------------------

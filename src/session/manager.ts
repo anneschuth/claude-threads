@@ -16,7 +16,6 @@ import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
-import { SPONSOR_URL } from '../sponsor.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
@@ -349,7 +348,6 @@ export class SessionManager extends EventEmitter {
       persistSession: (s) => this.persistSession(s),
       unpersistSession: (sid) => this.unpersistSession(sid),
       recordSessionStarted: () => this.sessionStore.recordSessionStarted(),
-      maybeShowFirstSessionNote: () => this.maybeShowFirstSessionNote(),
 
       // UI updates
       updateSessionHeader: (s) => this.updateSessionHeader(s),
@@ -628,17 +626,6 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
   // Persistence
   // ---------------------------------------------------------------------------
-
-  /**
-   * One-time TUI note after the instance's very first session delivers value.
-   * The flag in the store guarantees it never repeats, even across restarts.
-   */
-  private maybeShowFirstSessionNote(): void {
-    const stats = this.sessionStore.getStats();
-    if (stats.firstSessionNoteShown || stats.totalSessionsStarted < 1) return;
-    this.sessionStore.markFirstSessionNoteShown();
-    log.info(`♥ First session complete! If claude-threads earns a place in your workflow, you can support it: ${SPONSOR_URL}`);
-  }
 
   private persistSession(session: Session): void {
     // Aggregate every executor's persistable state in one call. Byte-parity

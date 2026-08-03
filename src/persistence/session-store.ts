@@ -106,14 +106,13 @@ type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
 }
 
 /**
- * Instance-wide counters backing the sponsor touchpoints (milestone
- * celebrations, first-session note). Absent on data written by older
- * versions — all readers must default missing fields.
+ * Instance-wide counters backing the sponsor milestone celebrations.
+ * Absent on data written by older versions — all readers must default
+ * missing fields.
  */
 export interface SponsorStats {
   totalSessionsStarted: number;
   milestone?: { n: number; reachedAt: string };  // Last milestone hit (ISO date)
-  firstSessionNoteShown?: boolean;
 }
 
 interface SessionStoreData {
@@ -497,26 +496,11 @@ export class SessionStore {
   }
 
   /**
-   * Resolve stats from raw data, initializing on first touch. An instance
-   * that already has session history when stats first appear is not new —
-   * it upgraded from a pre-stats version — so the first-session note is
-   * pre-marked as shown to avoid greeting a veteran as a newcomer.
-   */
-  private statsFrom(data: SessionStoreData): SponsorStats {
-    if (data.stats) return data.stats;
-    const hasHistory = Object.keys(data.sessions).length > 0;
-    return {
-      totalSessionsStarted: 0,
-      ...(hasHistory ? { firstSessionNoteShown: true } : {}),
-    };
-  }
-
-  /**
    * Get instance-wide sponsor stats (missing fields default to zero-state).
    */
   getStats(): SponsorStats {
     const data = this.loadRaw();
-    return this.statsFrom(data);
+    return data.stats ?? { totalSessionsStarted: 0 };
   }
 
   /**
@@ -525,7 +509,7 @@ export class SessionStore {
    */
   recordSessionStarted(): number {
     const data = this.loadRaw();
-    const stats = this.statsFrom(data);
+    const stats = data.stats ?? { totalSessionsStarted: 0 };
     stats.totalSessionsStarted = (stats.totalSessionsStarted ?? 0) + 1;
     const milestone = milestoneReached(stats.totalSessionsStarted);
     if (milestone) {
@@ -534,17 +518,6 @@ export class SessionStore {
     data.stats = stats;
     this.writeAtomic(data);
     return stats.totalSessionsStarted;
-  }
-
-  /**
-   * Mark the one-time first-session note as shown so it never repeats.
-   */
-  markFirstSessionNoteShown(): void {
-    const data = this.loadRaw();
-    const stats = this.statsFrom(data);
-    stats.firstSessionNoteShown = true;
-    data.stats = stats;
-    this.writeAtomic(data);
   }
 
   /**
