@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.3] - 2026-08-04
+
+### Changed
+- **Dependency update: `hono` 4.12.32 → 4.13.0.** Performance-focused release (up to 1.25x faster on common routes), first-class HTTP QUERY method support, and a new Method Not Allowed middleware. Supersedes Dependabot PR #454, whose CI runs could not be approved from this environment; landing the same bump here lets Dependabot auto-close it. Both lockfiles regenerated. (#455)
+
 ## [1.19.2] - 2026-08-03
 
 ### Fixed
