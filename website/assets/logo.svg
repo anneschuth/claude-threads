@@ -16,5 +16,5 @@
 
   <!-- T in heavy strokes -->
   <path d="M112 21 H182" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
-  <path d="M147 21 V79" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
+  <path d="M147 21 V84" stroke="#4a8fe7" stroke-width="10" stroke-linecap="butt"/>
 </svg>
