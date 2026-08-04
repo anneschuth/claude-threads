@@ -561,6 +561,37 @@ when the version bump reached `main` before the workflow existed.
 > never publish. The alternative is a long-lived PAT; publishing in-job avoids
 > that credential entirely.
 
+### Automated Dependabot Merge & Release (Claude-driven, daily)
+
+`.github/workflows/dependabot-auto-merge-release.yml` runs every morning (07:30
+UTC, after the scheduled CI run) and turns open Dependabot PRs into a shipped
+patch release without human involvement:
+
+1. A cheap **gate job** counts open Dependabot PRs with plain `gh`; the Claude
+   agent (which costs API tokens) only starts when there is at least one.
+2. A **Claude Code agent** (`anthropics/claude-code-action@v1`) merges the
+   Dependabot PRs that are mergeable with all checks green, skipping any whose
+   `bun.lock` was not synced by `dependabot-sync-lockfile.yml` (an unsynced PR
+   was never actually tested by CI — see the lockfile trap above).
+3. If anything merged, the agent writes the CHANGELOG entry (folding in any
+   pending `## [Unreleased]` content), runs `npm version patch`, runs
+   `bun install`, pushes the `X.Y.Z` commit to `main`, and dispatches
+   `release.yml` — which independently re-verifies the tree before tagging and
+   publishing, so the agent cannot ship a broken release.
+
+The explicit `gh workflow run release.yml` dispatch is load-bearing: the bump
+is pushed with `GITHUB_TOKEN`, and GitHub suppresses workflow `push` triggers
+for `GITHUB_TOKEN` pushes (`workflow_dispatch`/`repository_dispatch` are the
+two exceptions). Without the dispatch the bump would land and nothing would
+release.
+
+Requires the `ANTHROPIC_API_KEY` repository secret (or
+`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token` for Pro/Max
+subscriptions). Double-publish safety is layered: `release.yml`'s tag-exists
+check, its `release` concurrency group, and npm's refusal to republish a
+version. PRs with pending or failing checks are simply left for the next
+daily run — the agent never waits on or re-runs CI.
+
 ### Quick Release Flow (with open PRs)
 
 When there are open PRs to merge before releasing:

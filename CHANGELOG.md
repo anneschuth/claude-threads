@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Daily Claude-driven Dependabot merge & release pipeline.** A new scheduled workflow (`.github/workflows/dependabot-auto-merge-release.yml`) runs every morning: a token-free gate job checks for open Dependabot PRs, and only when there are any does a Claude Code agent (`anthropics/claude-code-action`) take over — merging the PRs that are fully green (skipping any whose `bun.lock` was not synced, since those were never actually tested by CI), writing the CHANGELOG entry, bumping the patch version, pushing to `main`, and dispatching `release.yml`, which independently re-verifies the tree before tagging and publishing. The explicit dispatch is required because `GITHUB_TOKEN` pushes never fire other workflows' push triggers. Requires the `ANTHROPIC_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN`) repository secret.
+
 ## [1.19.3] - 2026-08-04
 
 ### Changed
