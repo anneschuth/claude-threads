@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.4] - 2026-08-05
+
+### Changed
+- **Dependency updates.** Production: `js-yaml` 4.3.0 → 4.3.1 (#457). Dev: `@types/react` 19.2.17 → 19.2.18, `knip` 6.29.0 → 6.31.0, `lint-staged` 17.2.0 → 17.3.0 (#456). The js-yaml bump additionally needed a manual `bun.lock` sync: the lockfile-sync workflow's `bun install` no-ops when the locked version still satisfies the manifest range (`^4.3.0` covers 4.3.0), so `bun.lock` — the lockfile CI actually installs from — had kept 4.3.0. Both manifests now pin `^4.3.1` and both lockfiles lock 4.3.1.
+
 ## [1.19.3] - 2026-08-04
 
 ### Changed
