@@ -105,3 +105,7 @@ Sends a direct message to a member of the bot's channel. Use it when the user as
 | `message` | string | Message body. The bot prepends an attribution prefix. |
 
 **Guardrail:** The recipient must be a current member of the bot channel. The first DM to each recipient in a session triggers a permission prompt in the bot channel; a ✅ allow-all promotes that specific recipient to no-prompt for the rest of the session. A hard limit of 3 DMs per recipient per session applies.
+
+---
+
+_claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._

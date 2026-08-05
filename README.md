@@ -195,3 +195,7 @@ claude-threads is free and open source, and will stay that way. It is developed 
 ## License
 
 Apache-2.0
+
+---
+
+_claude-threads is an [Axolotl Systems](https://axolotl.systems) project._

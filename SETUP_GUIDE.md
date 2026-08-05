@@ -403,3 +403,7 @@ Once configured, test your bot:
    - `!stop` - End the session
 
 Happy coding with Claude! 🚀
+
+---
+
+_claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._
