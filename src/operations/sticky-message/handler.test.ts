@@ -1385,14 +1385,14 @@ describe('buildStickyMessage (milestone celebration)', () => {
     initializeWithMilestone(new Date().toISOString());
     const result = await buildStickyMessage(new Map(), 'test-platform', testConfig, mockFormatter, (t) => `/pl/${t}`);
     expect(result).toContain('Session #100');
-    expect(result).toContain('github.com/sponsors/anneschuth');
+    expect(result).toContain('github.com/sponsors/axolotl-systems');
   });
 
   it('hides a milestone older than the visibility window', async () => {
     initializeWithMilestone(new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString());
     const result = await buildStickyMessage(new Map(), 'test-platform', testConfig, mockFormatter, (t) => `/pl/${t}`);
     expect(result).not.toContain('Session #100');
-    expect(result).not.toContain('github.com/sponsors/anneschuth');
+    expect(result).not.toContain('github.com/sponsors/axolotl-systems');
   });
 });
 

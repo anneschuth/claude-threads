@@ -8,7 +8,7 @@
  */
 import type { PlatformFormatter } from './platform/formatter.js';
 
-export const SPONSOR_URL = 'https://github.com/sponsors/anneschuth';
+export const SPONSOR_URL = 'https://github.com/sponsors/axolotl-systems';
 
 /**
  * Cumulative per-instance session counts that trigger a short-lived
@@ -42,7 +42,7 @@ export function milestoneStillFresh(reachedAtIso: string, nowMs: number): boolea
 /** One-line footer for on-demand replies (!help, !release-notes). */
 export function formatSponsorFooter(formatter: PlatformFormatter): string {
   return formatter.formatItalic(
-    `♥ Support claude-threads: ${formatter.formatLink('github.com/sponsors/anneschuth', SPONSOR_URL)}`
+    `♥ Support claude-threads: ${formatter.formatLink('github.com/sponsors/axolotl-systems', SPONSOR_URL)}`
   );
 }
 

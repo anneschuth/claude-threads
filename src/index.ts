@@ -824,7 +824,7 @@ async function startWithoutDaemon() {
     if (!isHeadless) {
       process.stdout.write('\x1b[2J\x1b[H');  // Clear screen, cursor to home
       process.stdout.write('\x1b[?25h');       // Restore cursor visibility
-      process.stdout.write(`\nThanks for using claude-threads! ${dim('♥ Support the project: https://github.com/sponsors/anneschuth')}\n\n`);
+      process.stdout.write(`\nThanks for using claude-threads! ${dim('♥ Support the project: https://github.com/sponsors/axolotl-systems')}\n\n`);
     }
     // Don't call process.exit() here - let the signal handler do it after we resolve
   };

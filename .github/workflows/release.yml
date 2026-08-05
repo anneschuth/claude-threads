@@ -119,7 +119,7 @@ jobs:
           # flag to combine --generate-notes with extra body text in the right
           # order, so fetch the generated body and edit the release once.
           body="$(gh release view "$tag" --json body --jq .body)"
-          printf '%s\n\n---\n\n💛 *Enjoying claude-threads? Consider [sponsoring the project](https://github.com/sponsors/anneschuth).*\n' "$body" > "$RUNNER_TEMP/release-notes.md"
+          printf '%s\n\n---\n\n💛 *Enjoying claude-threads? Consider [sponsoring the project](https://github.com/sponsors/axolotl-systems).*\n' "$body" > "$RUNNER_TEMP/release-notes.md"
           gh release edit "$tag" --notes-file "$RUNNER_TEMP/release-notes.md"
 
       - name: Publish to npm
