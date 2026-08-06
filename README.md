@@ -186,6 +186,16 @@ npm install -g claude-threads
 
 The bot checks npm for new versions on its own and offers the update in chat.
 
+## Support the Project
+
+claude-threads is free and open source, and will stay that way. It is developed and maintained by [Axolotl Systems](https://axolotl.systems). If the bot is useful to you, consider [sponsoring on GitHub](https://github.com/sponsors/axolotl-systems) — even a small amount helps keep development going.
+
+**Using claude-threads at work?** If your team relies on this bot day-to-day, ask whether your organization can sponsor it. Many organizations (especially in the public sector) have policies that encourage supporting the open source they depend on, and a single organizational sponsorship goes a long way. Need an invoice or a different payment route? [Open an issue](https://github.com/anneschuth/claude-threads/issues) or reach out.
+
 ## License
 
 Apache-2.0
+
+---
+
+_claude-threads is an [Axolotl Systems](https://axolotl.systems) project._

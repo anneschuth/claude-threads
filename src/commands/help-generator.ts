@@ -11,6 +11,7 @@ import {
   REACTION_REGISTRY,
   type CommandDefinition,
 } from './registry.js';
+import { formatSponsorFooter } from '../sponsor.js';
 
 /**
  * Format a single command for the help table.
@@ -75,6 +76,7 @@ export function generateHelpMessage(formatter: PlatformFormatter): string {
     commandTable +
     `\n\n${formatter.formatBold('Reactions:')}\n` +
     `${formatter.formatListItem(approvalReactions)}\n` +
-    `${formatter.formatListItem(sessionReactions)}`
+    `${formatter.formatListItem(sessionReactions)}\n\n` +
+    formatSponsorFooter(formatter)
   );
 }

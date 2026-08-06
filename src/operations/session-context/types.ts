@@ -153,6 +153,9 @@ export interface SessionOperations {
   /** Remove session from persistence */
   unpersistSession(sessionId: string): void;
 
+  /** Increment the instance-wide session counter (milestones stamp themselves) */
+  recordSessionStarted(): void;
+
   // ---------------------------------------------------------------------------
   // UI Updates
   // ---------------------------------------------------------------------------

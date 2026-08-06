@@ -22,6 +22,7 @@ import { getReleaseNotes, getWhatsNewSummary } from '../../changelog.js';
 import { createLogger } from '../../utils/logger.js';
 import { formatPullRequestLink } from '../../utils/pr-detector.js';
 import { keepAlive } from '../../utils/keep-alive.js';
+import { milestoneStillFresh, formatMilestoneLine } from '../../sponsor.js';
 
 const log = createLogger('sticky');
 
@@ -536,6 +537,20 @@ function appendFooter(lines: string[], config: StickyMessageConfig): void {
 }
 
 /**
+ * Celebrate a freshly reached session-count milestone (#100, #500, ...) with
+ * a sponsor link. Shown for 24h after the milestone, then disappears — the
+ * only sponsor mention that ever reaches the channel, and only at moments of
+ * demonstrated heavy use.
+ */
+function appendMilestoneCelebration(lines: string[], formatter: PlatformFormatter): void {
+  const milestone = sessionStore?.getStats().milestone;
+  if (milestone && milestoneStillFresh(milestone.reachedAt, Date.now())) {
+    lines.push('');
+    lines.push(formatMilestoneLine(formatter, milestone.n));
+  }
+}
+
+/**
  * Build the sticky message content showing all active sessions
  */
 export async function buildStickyMessage(
@@ -625,6 +640,8 @@ export async function buildStickyMessage(
       lines.push('');
       lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
     }
+
+    appendMilestoneCelebration(lines, formatter);
 
     appendFooter(lines, config);
 
@@ -730,6 +747,8 @@ export async function buildStickyMessage(
     lines.push('');
     lines.push(`✨ ${formatter.formatBold("What's new:")} ${whatsNew}`);
   }
+
+  appendMilestoneCelebration(lines, formatter);
 
   appendFooter(lines, config);
 

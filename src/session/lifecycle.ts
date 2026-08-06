@@ -1082,6 +1082,7 @@ export async function startSession(
     ctx.ops.registerPost(startPost.id, actualThreadId);
   }
   ctx.ops.emitSessionAdd(session);
+  ctx.ops.recordSessionStarted();
   sessionLog(session).info(`▶ Session started by @${username}`);
 
   // Fire out-of-band title/tag suggestions (don't block session startup)

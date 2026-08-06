@@ -898,6 +898,7 @@ describe('cleanupOldStickyMessages', () => {
       getStickyPostIds: mock(() => new Map([['cleanup-test-1', 'current-sticky']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
     };
     initialize(mockSessionStore as any);
 
@@ -938,6 +939,7 @@ describe('cleanupOldStickyMessages', () => {
       getStickyPostIds: mock(() => new Map([['cleanup-test-2', 'some-other-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
     };
     initialize(mockSessionStore as any);
 
@@ -976,6 +978,7 @@ describe('cleanupOldStickyMessages', () => {
       getStickyPostIds: mock(() => new Map([['cleanup-test-3', 'different-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
     };
     initialize(mockSessionStore as any);
 
@@ -1032,6 +1035,7 @@ describe('cleanupOldStickyMessages', () => {
       getStickyPostIds: mock(() => new Map([['cleanup-test-5', 'current-sticky']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
     };
     initialize(mockSessionStore as any);
 
@@ -1080,6 +1084,7 @@ describe('cleanupOldStickyMessages', () => {
       getStickyPostIds: mock(() => new Map([['cleanup-test-6', 'current-sticky']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
     };
     initialize(mockSessionStore as any);
 
@@ -1144,6 +1149,7 @@ describe('updateStickyMessage with bump', () => {
       getStickyPostIds: mock(() => new Map([['test-platform-bump', 'old-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),  // Return empty map (no sessions to exclude)
     };
     initialize(mockSessionStore as any);
@@ -1218,6 +1224,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),
     };
     initialize(mockSessionStore as any);
@@ -1286,6 +1293,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),
     };
     initialize(mockSessionStore as any);
@@ -1345,6 +1353,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getStickyPostIds: mock(() => new Map([['test-platform', 'existing-sticky-post']])),
       saveStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),
     };
     initialize(mockSessionStore as any);
@@ -1356,6 +1365,35 @@ describe('updateStickyMessage validates lastMessageId', () => {
     expect(session.lastMessageTs).toBeUndefined();
   });
 
+});
+
+describe('buildStickyMessage (milestone celebration)', () => {
+  function initializeWithMilestone(reachedAt: string) {
+    initialize({
+      getStickyPostIds: mock(() => new Map()),
+      saveStickyPostId: mock(() => {}),
+      getHistory: mock(() => []),
+      getStats: mock(() => ({
+        totalSessionsStarted: 100,
+        milestone: { n: 100, reachedAt },
+      })),
+      load: mock(() => new Map()),
+    } as any);
+  }
+
+  it('shows a fresh milestone with the sponsor link', async () => {
+    initializeWithMilestone(new Date().toISOString());
+    const result = await buildStickyMessage(new Map(), 'test-platform', testConfig, mockFormatter, (t) => `/pl/${t}`);
+    expect(result).toContain('Session #100');
+    expect(result).toContain('github.com/sponsors/axolotl-systems');
+  });
+
+  it('hides a milestone older than the visibility window', async () => {
+    initializeWithMilestone(new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString());
+    const result = await buildStickyMessage(new Map(), 'test-platform', testConfig, mockFormatter, (t) => `/pl/${t}`);
+    expect(result).not.toContain('Session #100');
+    expect(result).not.toContain('github.com/sponsors/axolotl-systems');
+  });
 });
 
 // ===========================================================================
@@ -1433,6 +1471,7 @@ describe('updateStickyMessage (overhead: hidden)', () => {
       saveStickyPostId: mock(() => {}),
       removeStickyPostId: mock(() => {}),
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),
     } as any);
 
@@ -1475,6 +1514,7 @@ describe('updateStickyMessage (overhead: hidden)', () => {
       saveStickyPostId,
       removeStickyPostId,
       getHistory: mock(() => []),
+      getStats: mock(() => ({ totalSessionsStarted: 0 })),
       load: mock(() => new Map()),
     } as any);
 

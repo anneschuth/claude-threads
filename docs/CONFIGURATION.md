@@ -262,3 +262,7 @@ Active sessions are saved to `~/.config/claude-threads/sessions.json` and automa
 ## Keep-Alive
 
 The bot prevents system sleep while sessions are active (uses `caffeinate` on macOS, `systemd-inhibit` on Linux). Disable with `--no-keep-alive` or `keepAlive: false` in config.
+
+---
+
+_claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._

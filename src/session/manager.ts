@@ -347,6 +347,7 @@ export class SessionManager extends EventEmitter {
       // Persistence
       persistSession: (s) => this.persistSession(s),
       unpersistSession: (sid) => this.unpersistSession(sid),
+      recordSessionStarted: () => this.sessionStore.recordSessionStarted(),
 
       // UI updates
       updateSessionHeader: (s) => this.updateSessionHeader(s),

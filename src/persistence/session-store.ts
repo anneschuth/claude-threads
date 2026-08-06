@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSy
 import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
+import { milestoneReached } from '../sponsor.js';
 import type { PlatformFile } from '../platform/types.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { OverheadVisibility } from '../config/types.js';
@@ -104,11 +105,22 @@ type PersistedSessionV1 = Omit<PersistedSession, 'platformId'> & {
   platformId?: string;
 }
 
+/**
+ * Instance-wide counters backing the sponsor milestone celebrations.
+ * Absent on data written by older versions — all readers must default
+ * missing fields.
+ */
+export interface SponsorStats {
+  totalSessionsStarted: number;
+  milestone?: { n: number; reachedAt: string };  // Last milestone hit (ISO date)
+}
+
 interface SessionStoreData {
   version: number;
   sessions: Record<string, PersistedSession>;
   stickyPostIds?: Record<string, string>;  // platformId -> postId
   platformEnabledState?: Record<string, boolean>;  // platformId -> enabled (defaults to true if not set)
+  stats?: SponsorStats;
 }
 
 const STORE_VERSION = 2; // v2: Added platformId for multi-platform support
@@ -481,6 +493,31 @@ export class SessionStore {
       }
     }
     return undefined;
+  }
+
+  /**
+   * Get instance-wide sponsor stats (missing fields default to zero-state).
+   */
+  getStats(): SponsorStats {
+    const data = this.loadRaw();
+    return data.stats ?? { totalSessionsStarted: 0 };
+  }
+
+  /**
+   * Record a session start: increments the cumulative counter and stamps a
+   * milestone when the new total hits one exactly. Returns the new total.
+   */
+  recordSessionStarted(): number {
+    const data = this.loadRaw();
+    const stats = data.stats ?? { totalSessionsStarted: 0 };
+    stats.totalSessionsStarted = (stats.totalSessionsStarted ?? 0) + 1;
+    const milestone = milestoneReached(stats.totalSessionsStarted);
+    if (milestone) {
+      stats.milestone = { n: milestone, reachedAt: new Date().toISOString() };
+    }
+    data.stats = stats;
+    this.writeAtomic(data);
+    return stats.totalSessionsStarted;
   }
 
   /**

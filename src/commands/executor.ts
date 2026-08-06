@@ -15,6 +15,7 @@ import type {
 } from './types.js';
 import { generateHelpMessage } from './help-generator.js';
 import { getReleaseNotes, formatReleaseNotes } from '../changelog.js';
+import { formatSponsorFooter } from '../sponsor.js';
 import { VERSION } from '../version.js';
 
 // =============================================================================
@@ -61,7 +62,10 @@ const handleHelp: CommandHandler = async (ctx) => {
 const handleReleaseNotes: CommandHandler = async (ctx) => {
   const notes = getReleaseNotes(VERSION);
   if (notes) {
-    await ctx.client.createPost(formatReleaseNotes(notes, ctx.formatter), ctx.threadId);
+    await ctx.client.createPost(
+      `${formatReleaseNotes(notes, ctx.formatter)}\n\n${formatSponsorFooter(ctx.formatter)}`,
+      ctx.threadId
+    );
   } else {
     await ctx.client.createPost(
       `📋 ${ctx.formatter.formatBold(`claude-threads v${VERSION}`)}\n\nRelease notes not available. See ${ctx.formatter.formatLink('GitHub releases', 'https://github.com/anneschuth/claude-threads/releases')}.`,

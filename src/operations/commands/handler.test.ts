@@ -158,6 +158,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       updateSessionHeader: mock(() => Promise.resolve()),
       persistSession: mock(() => {}),
       unpersistSession: mock(() => {}),
+      recordSessionStarted: mock(() => {}),
       shouldPromptForWorktree: mock(() => Promise.resolve(null)),
       postWorktreePrompt: mock(() => Promise.resolve()),
       buildMessageContent: mock((prompt: string) => Promise.resolve({ content: prompt, skipped: [] })),
