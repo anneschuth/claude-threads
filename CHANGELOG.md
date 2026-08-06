@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.20.0] - 2026-08-06
 
 ### Added
 - **GitHub Sponsors support ♥** - The project now accepts voluntary support via [GitHub Sponsors](https://github.com/sponsors/axolotl-systems): a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations. The sponsor link appears only at moments of delivered value or explicit pull: a dim note in the CLI startup header, a one-line farewell after interactive shutdown, a footer on the on-demand `!help` and `!release-notes` replies, and a 24-hour celebration line in the sticky message when an instance crosses a session-count milestone (#100, #250, #500, ...). The milestone counter persists in `sessions.json` (`stats` block, backward compatible). `release.yml` appends a sponsor footer to each release's generated notes, and the GitHub new-issue chooser links to the sponsor page. Sponsorship is branded under [Axolotl Systems](https://axolotl.systems), credited on the website, README, and docs.
