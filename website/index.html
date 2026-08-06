@@ -503,9 +503,107 @@
               same AI session actually works.
             </p>
             <p>
-              There is now an official way to put Claude in Slack, built by
-              Anthropic and gated to Enterprise plans. claude-threads remains
+              There are now official ways to put Claude in Slack, built by
+              Anthropic and running in Anthropic's cloud. claude-threads remains
               the local one: your machine, your chat server, any subscription.
+            </p>
+          </div>
+        </section>
+
+        <!-- How it compares -->
+        <section class="compare" id="compare">
+          <div class="container">
+            <h2>How it compares</h2>
+            <p class="section-intro">
+              There are official ways to drive a coding agent from chat, and
+              they are good. The main difference is where the session runs.
+            </p>
+            <table>
+              <tr>
+                <th>Product</th>
+                <th>Sessions run on</th>
+                <th>Chat platforms</th>
+                <th>Account</th>
+              </tr>
+              <tr>
+                <td><strong>claude-threads</strong></td>
+                <td>
+                  Your machine: local checkout, your MCP servers and plugins
+                </td>
+                <td>Slack + Mattermost, multiple workspaces at once</td>
+                <td>Any Claude subscription or API key</td>
+              </tr>
+              <tr>
+                <td>
+                  <a
+                    href="https://code.claude.com/docs/en/slack"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Code in Slack</a
+                  >
+                  /
+                  <a
+                    href="https://claude.com/docs/claude-tag/overview"
+                    target="_blank"
+                    rel="noopener"
+                    >Claude Tag</a
+                  >
+                  (Anthropic)
+                </td>
+                <td>Anthropic's cloud, against GitHub repos</td>
+                <td>Slack</td>
+                <td>Claude Pro/Max; Claude Tag on Team/Enterprise</td>
+              </tr>
+              <tr>
+                <td>
+                  <a
+                    href="https://slack.com/marketplace/A09F5C369E3-openai-codex"
+                    target="_blank"
+                    rel="noopener"
+                    >Codex in Slack</a
+                  >
+                  (OpenAI)
+                </td>
+                <td>OpenAI's Codex cloud</td>
+                <td>Slack</td>
+                <td>ChatGPT plan</td>
+              </tr>
+              <tr>
+                <td>
+                  <a
+                    href="https://cursor.com/docs/integrations/slack"
+                    target="_blank"
+                    rel="noopener"
+                    >Cursor in Slack</a
+                  >
+                </td>
+                <td>Cursor's cloud agents</td>
+                <td>Slack</td>
+                <td>Cursor plan</td>
+              </tr>
+              <tr>
+                <td>
+                  Community bots like
+                  <a
+                    href="https://github.com/mpociot/claude-code-slack-bot"
+                    target="_blank"
+                    rel="noopener"
+                    >claude-code-slack-bot</a
+                  >
+                </td>
+                <td>Your machine</td>
+                <td>Slack</td>
+                <td>Claude subscription or API key</td>
+              </tr>
+            </table>
+            <p class="compare-note">
+              The cloud products delegate: a task leaves the thread, a
+              vendor-hosted sandbox does the work, a pull request comes back.
+              claude-threads keeps the whole session in the thread and on your
+              hardware — streamed output, emoji permission prompts, teammates
+              typing into the same session — which matters when chat is
+              self-hosted Mattermost or the code cannot leave the building. The
+              trade-off: you run the bot yourself.
             </p>
           </div>
         </section>
@@ -541,7 +639,8 @@ claude-threads"
               <pre>
 bun install -g claude-threads    # or: npm install -g claude-threads
 cd /your/project
-claude-threads</pre>
+claude-threads</pre
+              >
               <span class="copy-hint">click to copy</span>
             </button>
             <p>

@@ -467,6 +467,19 @@ td code {
   color: var(--ink);
 }
 
+/* ---------- Compare ---------- */
+
+.compare td:first-child {
+  white-space: normal;
+  min-width: 11rem;
+}
+
+.compare-note {
+  color: var(--muted);
+  max-width: 620px;
+  margin-top: 1.25rem;
+}
+
 /* ---------- Quickstart ---------- */
 
 .quickstart .copyable.block {
