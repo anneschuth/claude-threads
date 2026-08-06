@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Task list display works again on modern Claude CLIs.** Claude Code moved task tracking from `TodoWrite` (whole list per call) to the incremental `TaskCreate`/`TaskUpdate` tools; verified against CLI 2.1.223, `TodoWrite` is never emitted anymore, so the bot's live task list in the thread had silently gone dark. A new per-session `TaskTracker` accumulates the incremental calls (a task's real id is only revealed by its tool result, which arrives later inside a `user` event) and feeds the existing task-list pipeline. `TaskUpdate` on an unknown id (tasks created before a resume, or by a subagent) shows a placeholder rather than nothing; `status: "deleted"` removes the task. `TodoWrite` still works for older CLIs. `TaskGet`/`TaskList` (read-only queries) are hidden from chat.
+- **Tool completion indicators (`↳ ✓` / `↳ ❌ Error`) fire again.** The real CLI delivers tool results as `tool_result` blocks inside `user` events; the bot only handled a legacy top-level `tool_result` event shape that modern CLIs never emit — so per-tool completion/error indicators, elapsed times, and the tool-completion flush never triggered. The transformer now processes `user` events. Indicators are only emitted for tools that were actually displayed (hidden tools like `TaskCreate` no longer risk orphaned indicators), and elapsed time works on the real event flow (start times were previously only recorded on the legacy shape). Bug-report context tracking (tool uses/errors) was moved off the dead legacy shapes as well.
+- **Questions no longer trigger a duplicate permission prompt.** On modern CLIs `AskUserQuestion` routes through the `--permission-prompt-tool`, so next to the bot's proper question UI a generic "Permission requested: AskUserQuestion 👍✅👎" post appeared — and approving it just resolved the tool as unanswered. The MCP permission server now auto-allows `AskUserQuestion`; the question UI and reaction-answer flow are unchanged. Known limitation, verified on 2.1.223: with `--dangerously-skip-permissions` (bypass mode) the CLI does not expose `AskUserQuestion` at all, so bypass sessions cannot receive interactive questions — that is CLI behavior, not a bot regression. Also relevant: since CLI 2.1.200 an unanswered question no longer auto-continues after an idle timeout, which suits chat (users react late) — the previous auto-continue could race a slow reaction.
+
+### Added
+- **Structured rate-limit detection.** Modern CLIs emit a `rate_limit_event` with `rate_limit_info: {status, resetsAt, rateLimitType}` on every turn. The bot now feeds non-`allowed` statuses into the existing account-cooldown path (`resetsAt` epoch-seconds, sanity-bounded to at most 8 days out), complementing the stderr phrase-scraping which remains for older CLIs.
+
+### Changed
+- **Verified against Claude CLI 2.1.223** (previously 2.1.116); suggested install version in error messages and onboarding updated. The compatible range is unchanged (`>=2.0.74 <2.2.0`).
+
 ## [1.20.1] - 2026-08-06
 
 ### Added

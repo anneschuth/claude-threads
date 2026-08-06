@@ -9,7 +9,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
-import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import { detectRateLimit, cooldownDeadline, parseRateLimitEvent, type RateLimitHit } from './rate-limit-detector.js';
 import type { PermissionMode } from '../config/types.js';
 
 const log = createLogger('claude');
@@ -679,6 +679,11 @@ export class ClaudeCli extends EventEmitter {
         if (event.type === 'result' && isErrorResultEvent(event)) {
           this.maybeEmitRateLimit(trimmed);
         }
+        // Structured rate-limit signal (2.1.2xx+): emitted every turn with
+        // status "allowed" when healthy; any other status is a real limit.
+        if (event.type === 'rate_limit_event') {
+          this.maybeEmitRateLimitHit(parseRateLimitEvent(event));
+        }
       } catch {
         // Ignore unparseable lines (usually partial JSON from streaming)
       }
@@ -704,7 +709,11 @@ export class ClaudeCli extends EventEmitter {
    *    would have dropped it anyway.
    */
   private maybeEmitRateLimit(text: string): void {
-    const hit = detectRateLimit(text);
+    this.maybeEmitRateLimitHit(detectRateLimit(text));
+  }
+
+  /** Shared emit path for text-scanned and structured rate-limit hits. */
+  private maybeEmitRateLimitHit(hit: RateLimitHit): void {
     if (!hit.detected) return;
     const newDeadline = cooldownDeadline(hit);
     const MIN_ADVANCE_MS = 60_000;  // 1 minute: coarser than clock drift, finer than any real rate-limit reset step

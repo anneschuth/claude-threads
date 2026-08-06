@@ -125,3 +125,38 @@ function extractResetAt(text: string, now: number): number | undefined {
 
   return undefined;
 }
+
+/**
+ * Parse a structured `rate_limit_event` from the CLI's stream-json output
+ * (present since the 2.1.2xx line). Shape:
+ *
+ *   { "type": "rate_limit_event",
+ *     "rate_limit_info": { "status": "allowed", "resetsAt": 1786072200,
+ *                          "rateLimitType": "five_hour", ... } }
+ *
+ * `status: "allowed"` is emitted on perfectly healthy turns, so only a
+ * non-"allowed" status counts as a hit. `resetsAt` is epoch seconds.
+ * Returns a detected:false hit for anything that doesn't clearly signal a
+ * limit, so a schema drift can never poison the account cooldown.
+ */
+export function parseRateLimitEvent(event: unknown): RateLimitHit {
+  const info = (event as { rate_limit_info?: unknown })?.rate_limit_info;
+  if (!info || typeof info !== 'object') return { detected: false };
+
+  const { status, resetsAt } = info as { status?: unknown; resetsAt?: unknown };
+  if (typeof status !== 'string' || status === 'allowed') return { detected: false };
+
+  // Plausibility window keeps a bogus resetsAt (wrong unit, clock skew) from
+  // cooling an account for years: accept only epoch seconds in the future,
+  // at most 8 days out (the longest real window is weekly).
+  let resetAtEpochMs: number | undefined;
+  if (typeof resetsAt === 'number') {
+    const ms = resetsAt * 1000;
+    const now = Date.now();
+    if (ms > now && ms - now < 8 * 86_400_000) {
+      resetAtEpochMs = ms;
+    }
+  }
+
+  return { detected: true, matched: `rate_limit_event status=${status}`, resetAtEpochMs };
+}

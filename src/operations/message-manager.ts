@@ -14,6 +14,7 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
+import { TaskTracker } from './task-tracker.js';
 import {
   ContentExecutor,
   TaskListExecutor,
@@ -166,6 +167,9 @@ export class MessageManager {
   // Tool start times for elapsed time calculation
   private toolStartTimes: Map<string, number> = new Map();
 
+  // Accumulated TaskCreate/TaskUpdate state (modern CLIs' incremental task tools)
+  private taskTracker = new TaskTracker();
+
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly DEFAULT_FLUSH_DELAY_MS = 500;
@@ -293,6 +297,7 @@ export class MessageManager {
       sessionId: this.sessionId,
       formatter: this.platform.getFormatter(),
       toolStartTimes: this.toolStartTimes,
+      taskTracker: this.taskTracker,
       detailed: true,
       worktreeInfo: this.worktreePath && this.worktreeBranch
         ? { path: this.worktreePath, branch: this.worktreeBranch }
@@ -1186,6 +1191,7 @@ export class MessageManager {
   reset(): void {
     this.cancelScheduledFlush();
     this.toolStartTimes.clear();
+    this.taskTracker.clear();
     this.contentExecutor.reset();
     this.taskListExecutor.reset();
     this.questionApprovalExecutor.reset();

@@ -335,7 +335,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       console.log(dim(`  ⚠️  Claude Code CLI ${claudeCheck.version} is not compatible`));
       console.log('');
       console.log(dim(`  Install a compatible version:`));
-      console.log(dim('    npm install -g @anthropic-ai/claude-code@2.1.1'));
+      console.log(dim('    npm install -g @anthropic-ai/claude-code@2.1.223'));
     } else {
       // Version unknown - Claude is installed but we couldn't parse the version
       console.log(dim('  ⚠️  Claude Code CLI found but version could not be determined'));

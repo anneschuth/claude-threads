@@ -27,6 +27,7 @@ import {
 } from './types.js';
 import { toolFormatterRegistry } from './tool-formatters/index.js';
 import type { WorktreeContext } from './tool-formatters/index.js';
+import type { TaskTracker } from './task-tracker.js';
 
 // ---------------------------------------------------------------------------
 // Transform Context
@@ -45,6 +46,11 @@ export interface TransformContext {
   worktreeInfo?: WorktreeContext;
   /** Active tool start times (for elapsed time calculation) */
   toolStartTimes: Map<string, number>;
+  /**
+   * Accumulated TaskCreate/TaskUpdate state (persists across events).
+   * Modern CLIs track tasks incrementally instead of TodoWrite's full list.
+   */
+  taskTracker: TaskTracker;
   /** Whether to include detailed previews */
   detailed?: boolean;
 }
@@ -68,6 +74,12 @@ export function transformEvent(
     case 'assistant':
       return transformAssistant(event, ctx);
 
+    case 'user':
+      return transformUser(event, ctx);
+
+    // Legacy top-level tool_use/tool_result events. The real CLI wraps tool
+    // results in `user` events (handled above) and tool uses in `assistant`
+    // events; these cases are kept for old captures and test fixtures.
     case 'tool_use':
       return transformToolUse(event, ctx);
 
@@ -147,6 +159,13 @@ function transformAssistant(
           flushTextBuffer();
           // Create separate operation for tool with isToolOutput=true
           operations.push(createAppendContentOp(ctx.sessionId, result.display, true));
+          // Record the start time so the tool_result (arriving later in a
+          // `user` event) can render a completion indicator with elapsed
+          // time. Only displayed tools get one — hidden/special tools would
+          // otherwise produce orphaned "↳ ✓" lines.
+          if (block.id) {
+            ctx.toolStartTimes.set(block.id, Date.now());
+          }
         }
       }
     } else if (block.type === 'thinking' && block.thinking) {
@@ -171,6 +190,101 @@ function transformAssistant(
   flushTextBuffer();
 
   return operations;
+}
+
+// ---------------------------------------------------------------------------
+// User Event Transformation
+// ---------------------------------------------------------------------------
+
+/**
+ * Transform a `user` event. The real CLI delivers tool results as
+ * `tool_result` blocks inside `user` events (there are no top-level
+ * tool_result events). Plain user text (echoed input) is ignored — the bot
+ * already displays what the user typed in the chat thread itself.
+ */
+function transformUser(
+  event: ClaudeEvent,
+  ctx: TransformContext
+): MessageOperation[] {
+  const msg = event.message as {
+    content?: Array<{
+      type: string;
+      tool_use_id?: string;
+      is_error?: boolean;
+      content?: unknown;
+    }> | string;
+  };
+
+  if (!Array.isArray(msg?.content)) {
+    return [];
+  }
+
+  const operations: MessageOperation[] = [];
+
+  for (const block of msg.content) {
+    if (block?.type !== 'tool_result' || !block.tool_use_id) continue;
+
+    // Late-resolve task ids: a TaskCreate's id is only revealed by its tool
+    // result ("Task #3 created successfully: ..."). No display change needed.
+    ctx.taskTracker.resolveCreatedId(block.tool_use_id, toolResultContentText(block.content));
+
+    // Completion indicator — only for tools we actually displayed (their
+    // start time was recorded when the tool_use block was rendered).
+    // Hidden/special tools (TaskCreate, AskUserQuestion, ...) would
+    // otherwise produce orphaned "↳ ✓" lines.
+    if (ctx.toolStartTimes.has(block.tool_use_id)) {
+      operations.push(
+        createResultIndicatorOp(block.tool_use_id, block.is_error === true, ctx)
+      );
+    }
+  }
+
+  if (operations.length > 0) {
+    // Tool results are a natural break point - suggest flush
+    operations.push(createFlushOp(ctx.sessionId, 'tool_complete'));
+  }
+
+  return operations;
+}
+
+/**
+ * Extract the text of a tool_result block's content, which may be a plain
+ * string or an array of content blocks.
+ */
+function toolResultContentText(content: unknown): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content
+      .map(b => (b && typeof b === 'object' && typeof (b as { text?: unknown }).text === 'string'
+        ? (b as { text: string }).text
+        : ''))
+      .join('\n');
+  }
+  return '';
+}
+
+/**
+ * Build the "↳ ✓ (5s)" / "↳ ❌ Error" completion indicator for a finished
+ * tool, consuming its recorded start time.
+ */
+function createResultIndicatorOp(
+  toolUseId: string,
+  isError: boolean,
+  ctx: TransformContext
+): MessageOperation {
+  let elapsed = '';
+  const startTime = ctx.toolStartTimes.get(toolUseId);
+  if (startTime) {
+    const secs = Math.round((Date.now() - startTime) / 1000);
+    if (secs >= 3) {
+      elapsed = ` (${secs}s)`;
+    }
+    ctx.toolStartTimes.delete(toolUseId);
+  }
+
+  const icon = isError ? '❌' : '✓';
+  const errorNote = isError ? ' Error' : '';
+  return createAppendContentOp(ctx.sessionId, `  ↳ ${icon}${errorNote}${elapsed}`, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,32 +350,11 @@ function transformToolResult(
     is_error?: boolean;
   };
 
-  const operations: MessageOperation[] = [];
-
-  // Calculate elapsed time
-  let elapsed = '';
-  if (result.tool_use_id) {
-    const startTime = ctx.toolStartTimes.get(result.tool_use_id);
-    if (startTime) {
-      const secs = Math.round((Date.now() - startTime) / 1000);
-      if (secs >= 3) {
-        elapsed = ` (${secs}s)`;
-      }
-      ctx.toolStartTimes.delete(result.tool_use_id);
-    }
-  }
-
-  // Format result indicator
-  const icon = result.is_error ? '❌' : '✓';
-  const errorNote = result.is_error ? ' Error' : '';
-  operations.push(
-    createAppendContentOp(ctx.sessionId, `  ↳ ${icon}${errorNote}${elapsed}`, true)
-  );
-
-  // Tool results are a natural break point - suggest flush
-  operations.push(createFlushOp(ctx.sessionId, 'tool_complete'));
-
-  return operations;
+  return [
+    createResultIndicatorOp(result.tool_use_id || '', result.is_error === true, ctx),
+    // Tool results are a natural break point - suggest flush
+    createFlushOp(ctx.sessionId, 'tool_complete'),
+  ];
 }
 
 // ---------------------------------------------------------------------------
@@ -326,6 +419,12 @@ function handleSpecialTool(
     case 'TodoWrite':
       return handleTodoWrite(input, ctx);
 
+    case 'TaskCreate':
+      return handleTaskCreate(toolUseId, input, ctx);
+
+    case 'TaskUpdate':
+      return handleTaskUpdate(input, ctx);
+
     case 'Task':
       return handleTaskStart(toolUseId, input, ctx);
 
@@ -364,6 +463,33 @@ function handleTodoWrite(
   const action = allCompleted ? 'complete' : 'update';
 
   return [createTaskListOp(ctx.sessionId, action, tasks)];
+}
+
+/**
+ * Handle TaskCreate tool - add a task to the tracked list. Modern CLIs use
+ * TaskCreate/TaskUpdate instead of TodoWrite; state accumulates in
+ * ctx.taskTracker because each call is incremental.
+ */
+function handleTaskCreate(
+  toolUseId: string,
+  input: Record<string, unknown>,
+  ctx: TransformContext
+): MessageOperation[] {
+  ctx.taskTracker.create(toolUseId, input);
+  return [createTaskListOp(ctx.sessionId, 'update', ctx.taskTracker.toTaskItems(), toolUseId)];
+}
+
+/**
+ * Handle TaskUpdate tool - update/delete a tracked task by id.
+ */
+function handleTaskUpdate(
+  input: Record<string, unknown>,
+  ctx: TransformContext
+): MessageOperation[] {
+  const changed = ctx.taskTracker.update(input);
+  if (!changed) return [];
+  const action = ctx.taskTracker.allCompleted ? 'complete' : 'update';
+  return [createTaskListOp(ctx.sessionId, action, ctx.taskTracker.toTaskItems())];
 }
 
 /**

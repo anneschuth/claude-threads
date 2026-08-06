@@ -4,6 +4,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { transformEvent, type TransformContext } from './transformer.js';
+import { TaskTracker } from './task-tracker.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import type { PlatformFormatter } from '../platform/formatter.js';
 
@@ -36,6 +37,7 @@ describe('Event Transformer', () => {
       sessionId: 'test-session',
       formatter: mockFormatter,
       toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
       detailed: true,
     };
   });
@@ -540,6 +542,207 @@ describe('Event Transformer', () => {
       const ops = transformEvent(event, ctx);
 
       expect(ops.length).toBe(0);
+    });
+  });
+});
+
+// =============================================================================
+// Modern CLI event shapes (verified against Claude CLI 2.1.223)
+//
+// The real CLI wraps tool uses in `assistant` events and tool results in
+// `user` events; it tracks tasks with incremental TaskCreate/TaskUpdate calls
+// instead of TodoWrite. These tests replay captured real shapes.
+// =============================================================================
+
+describe('Event Transformer - modern CLI shapes', () => {
+  let ctx: TransformContext;
+
+  beforeEach(() => {
+    ctx = {
+      sessionId: 'test-session',
+      formatter: mockFormatter,
+      toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
+      detailed: true,
+    };
+  });
+
+  const assistantToolUse = (
+    name: string,
+    id: string,
+    input: Record<string, unknown>
+  ): ClaudeEvent => ({
+    type: 'assistant',
+    message: { content: [{ type: 'tool_use', name, id, input }] },
+  });
+
+  const userToolResult = (
+    toolUseId: string,
+    content: string,
+    isError = false
+  ): ClaudeEvent => ({
+    type: 'user',
+    message: {
+      content: [
+        { type: 'tool_result', tool_use_id: toolUseId, content, ...(isError ? { is_error: true } : {}) },
+      ],
+    },
+  });
+
+  describe('TaskCreate/TaskUpdate task tracking', () => {
+    it('TaskCreate produces a task list update with the new task', () => {
+      const ops = transformEvent(
+        assistantToolUse('TaskCreate', 'tu-1', { subject: 'task one', description: 'First task' }),
+        ctx
+      );
+
+      expect(ops.length).toBe(1);
+      expect(ops[0].type).toBe('task_list');
+      const op = ops[0] as { action: string; tasks: Array<{ content: string; status: string; activeForm: string }> };
+      expect(op.action).toBe('update');
+      expect(op.tasks).toEqual([
+        { content: 'task one', status: 'pending', activeForm: 'task one' },
+      ]);
+    });
+
+    it('accumulates tasks across TaskCreate calls and applies TaskUpdate by resolved id', () => {
+      transformEvent(assistantToolUse('TaskCreate', 'tu-1', { subject: 'task one', description: 'd' }), ctx);
+      transformEvent(assistantToolUse('TaskCreate', 'tu-2', { subject: 'task two', description: 'd' }), ctx);
+      // Real tool results reveal the task ids
+      transformEvent(userToolResult('tu-1', 'Task #1 created successfully: task one'), ctx);
+      transformEvent(userToolResult('tu-2', 'Task #2 created successfully: task two'), ctx);
+
+      const ops = transformEvent(
+        assistantToolUse('TaskUpdate', 'tu-3', { taskId: '1', status: 'in_progress' }),
+        ctx
+      );
+
+      expect(ops.length).toBe(1);
+      const op = ops[0] as { action: string; tasks: Array<{ content: string; status: string; activeForm: string }> };
+      expect(op.action).toBe('update');
+      expect(op.tasks).toEqual([
+        { content: 'task one', status: 'in_progress', activeForm: 'task one' },
+        { content: 'task two', status: 'pending', activeForm: 'task two' },
+      ]);
+    });
+
+    it('emits complete action when the last task completes', () => {
+      transformEvent(assistantToolUse('TaskCreate', 'tu-1', { subject: 'only task', description: 'd' }), ctx);
+      transformEvent(userToolResult('tu-1', 'Task #1 created successfully: only task'), ctx);
+
+      const ops = transformEvent(
+        assistantToolUse('TaskUpdate', 'tu-2', { taskId: '1', status: 'completed' }),
+        ctx
+      );
+
+      const op = ops[0] as { action: string };
+      expect(op.action).toBe('complete');
+    });
+
+    it('removes a task on status deleted', () => {
+      transformEvent(assistantToolUse('TaskCreate', 'tu-1', { subject: 'doomed', description: 'd' }), ctx);
+      transformEvent(userToolResult('tu-1', 'Task #1 created successfully: doomed'), ctx);
+
+      const ops = transformEvent(
+        assistantToolUse('TaskUpdate', 'tu-2', { taskId: '1', status: 'deleted' }),
+        ctx
+      );
+
+      const op = ops[0] as { tasks: unknown[] };
+      expect(op.tasks).toEqual([]);
+    });
+
+    it('shows a placeholder for TaskUpdate on an unknown task id', () => {
+      const ops = transformEvent(
+        assistantToolUse('TaskUpdate', 'tu-1', { taskId: '7', status: 'in_progress' }),
+        ctx
+      );
+
+      const op = ops[0] as { tasks: Array<{ content: string; status: string; activeForm: string }> };
+      expect(op.tasks).toEqual([
+        { content: 'Task #7', status: 'in_progress', activeForm: 'Task #7' },
+      ]);
+    });
+
+    it('uses activeForm from TaskCreate input when provided', () => {
+      const ops = transformEvent(
+        assistantToolUse('TaskCreate', 'tu-1', {
+          subject: 'Run tests',
+          description: 'd',
+          activeForm: 'Running tests',
+        }),
+        ctx
+      );
+
+      const op = ops[0] as { tasks: Array<{ activeForm: string }> };
+      expect(op.tasks[0].activeForm).toBe('Running tests');
+    });
+  });
+
+  describe('user events with tool_result blocks', () => {
+    it('emits a completion indicator and flush for a displayed tool', () => {
+      // Bash is displayed, so its start time is recorded
+      transformEvent(assistantToolUse('Bash', 'tu-1', { command: 'ls' }), ctx);
+      expect(ctx.toolStartTimes.has('tu-1')).toBe(true);
+
+      const ops = transformEvent(userToolResult('tu-1', 'file.txt'), ctx);
+
+      expect(ops.length).toBe(2);
+      expect((ops[0] as { content: string }).content).toContain('↳ ✓');
+      expect(ops[1].type).toBe('flush');
+      expect(ctx.toolStartTimes.has('tu-1')).toBe(false);
+    });
+
+    it('marks errored tool results', () => {
+      transformEvent(assistantToolUse('Bash', 'tu-1', { command: 'false' }), ctx);
+
+      const ops = transformEvent(userToolResult('tu-1', 'boom', true), ctx);
+
+      expect((ops[0] as { content: string }).content).toContain('❌ Error');
+    });
+
+    it('does not emit indicators for hidden tools', () => {
+      // TaskCreate is hidden - no start time is recorded, so its result
+      // must not produce an orphaned indicator (but still resolves the id)
+      transformEvent(assistantToolUse('TaskCreate', 'tu-1', { subject: 't', description: 'd' }), ctx);
+      expect(ctx.toolStartTimes.has('tu-1')).toBe(false);
+
+      const ops = transformEvent(userToolResult('tu-1', 'Task #1 created successfully: t'), ctx);
+
+      expect(ops).toEqual([]);
+    });
+
+    it('ignores plain-string user message content', () => {
+      const event: ClaudeEvent = {
+        type: 'user',
+        message: { content: 'just some text the user typed' },
+      };
+
+      expect(transformEvent(event, ctx)).toEqual([]);
+    });
+
+    it('handles tool_result content given as content-block arrays', () => {
+      transformEvent(assistantToolUse('TaskCreate', 'tu-1', { subject: 't', description: 'd' }), ctx);
+      const event: ClaudeEvent = {
+        type: 'user',
+        message: {
+          content: [
+            {
+              type: 'tool_result',
+              tool_use_id: 'tu-1',
+              content: [{ type: 'text', text: 'Task #4 created successfully: t' }],
+            },
+          ],
+        },
+      };
+      transformEvent(event, ctx);
+
+      const ops = transformEvent(
+        assistantToolUse('TaskUpdate', 'tu-2', { taskId: '4', status: 'completed' }),
+        ctx
+      );
+      const op = ops[0] as { action: string };
+      expect(op.action).toBe('complete');
     });
   });
 });

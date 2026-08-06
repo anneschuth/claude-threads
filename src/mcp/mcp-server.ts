@@ -231,6 +231,19 @@ export async function handlePermissionWith(
     return { behavior: 'allow', updatedInput: toolInput };
   }
 
+  // AskUserQuestion routes through the permission prompt on modern CLIs
+  // (verified on 2.1.223), but the main bot already renders the full question
+  // UI with answer reactions from the tool_use event — a generic "Permission
+  // requested: AskUserQuestion 👍✅👎" post here would just duplicate it.
+  // Auto-allow: the tool then resolves as unanswered, Claude notes it's
+  // waiting, and the user's reaction-answer arrives as a regular message.
+  // (The proper fix — blocking here and returning the answers via
+  // updatedInput — needs the question UI to move into this process.)
+  if (toolName === 'AskUserQuestion') {
+    mcpLogger.debug('Auto-allowing AskUserQuestion (question UI is handled by the main bot)');
+    return { behavior: 'allow', updatedInput: toolInput };
+  }
+
   // Auto-approve if "allow all" was selected earlier
   if (cfg.getAllowAll()) {
     mcpLogger.debug(`Auto-allowing ${toolName} (allow all active)`);

@@ -447,7 +447,7 @@ CHANGELOG.
 
 claude-threads requires a compatible version of the Claude CLI (`@anthropic-ai/claude-code`).
 
-**Compatible versions:** `>=2.0.74 <2.2.0` (covers the full 2.1.x line; latest verified: 2.1.116)
+**Compatible versions:** `>=2.0.74 <2.2.0` (covers the full 2.1.x line; latest verified: 2.1.223)
 
 The version is checked at startup. If an incompatible version is detected:
 - The bot will display an error message and exit
@@ -455,7 +455,7 @@ The version is checked at startup. If an incompatible version is detected:
 
 To install the latest verified compatible version:
 ```bash
-npm install -g @anthropic-ai/claude-code@2.1.116
+npm install -g @anthropic-ai/claude-code@2.1.223
 ```
 
 The Claude CLI version is displayed:

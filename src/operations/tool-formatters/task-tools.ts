@@ -3,6 +3,9 @@
  *
  * Handles tools that affect task/workflow state:
  * - TodoWrite: Task list management (hidden, handled specially)
+ * - TaskCreate/TaskUpdate: Incremental task tracking on modern CLIs (hidden,
+ *   handled specially via the task tracker)
+ * - TaskGet/TaskList: Read-only task queries (hidden, pure noise in chat)
  * - Task: Subagent spawning (hidden, handled specially)
  * - EnterPlanMode: Plan mode entry
  * - ExitPlanMode: Plan approval (hidden, handled specially)
@@ -19,14 +22,31 @@ import type { ToolFormatter, ToolFormatResult, ToolInput, ToolFormatOptions } fr
  * Formatter for task-related tools.
  */
 export const taskToolsFormatter: ToolFormatter = {
-  toolNames: ['TodoWrite', 'Task', 'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion'],
+  toolNames: [
+    'TodoWrite',
+    'TaskCreate',
+    'TaskUpdate',
+    'TaskGet',
+    'TaskList',
+    'Task',
+    'EnterPlanMode',
+    'ExitPlanMode',
+    'AskUserQuestion',
+  ],
 
   format(toolName: string, _input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
     const { formatter } = options;
 
     switch (toolName) {
       case 'TodoWrite':
+      case 'TaskCreate':
+      case 'TaskUpdate':
         // Hidden - handled specially with task list display
+        return { display: null, hidden: true };
+
+      case 'TaskGet':
+      case 'TaskList':
+        // Hidden - read-only task queries, nothing worth showing
         return { display: null, hidden: true };
 
       case 'Task':

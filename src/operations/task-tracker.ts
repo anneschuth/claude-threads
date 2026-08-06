@@ -1,0 +1,121 @@
+/**
+ * Task tracker for the TaskCreate/TaskUpdate tool family.
+ *
+ * Modern Claude CLI versions (verified against 2.1.223) track tasks with
+ * incremental TaskCreate/TaskUpdate calls instead of TodoWrite's
+ * whole-list-per-call shape. TaskCreate carries no task id in its input —
+ * the id is only revealed by the tool result ("Task #3 created successfully:
+ * ..."), which arrives later inside a `user` event. TaskUpdate then refers to
+ * tasks by that id.
+ *
+ * This tracker accumulates the incremental calls into a full task list so the
+ * existing TaskListOp / task-list executor pipeline (built for TodoWrite's
+ * full-list semantics) keeps working unchanged. One instance lives per
+ * session (owned by MessageManager, like `toolStartTimes`), because task
+ * state spans many events.
+ */
+
+import type { TaskItem } from './types.js';
+
+/** A single tracked task. */
+export interface TrackedTask {
+  /**
+   * Real task id (e.g. "3") once known. Unset between the TaskCreate call
+   * and its tool result.
+   */
+  taskId?: string;
+  subject: string;
+  activeForm?: string;
+  status: TaskItem['status'];
+}
+
+/** Matches TaskCreate tool results like "Task #3 created successfully: ...". */
+const CREATED_RESULT_RE = /Task #(\S+) created/;
+
+export class TaskTracker {
+  private tasks: TrackedTask[] = [];
+  /** TaskCreate tool_use_id → task awaiting its id from the tool result. */
+  private pendingCreates = new Map<string, TrackedTask>();
+
+  /** Record a TaskCreate call. The task id arrives later via the tool result. */
+  create(toolUseId: string, input: Record<string, unknown>): void {
+    const task: TrackedTask = {
+      subject: typeof input.subject === 'string' ? input.subject : 'Task',
+      activeForm: typeof input.activeForm === 'string' ? input.activeForm : undefined,
+      status: 'pending',
+    };
+    this.tasks.push(task);
+    if (toolUseId) {
+      this.pendingCreates.set(toolUseId, task);
+    }
+  }
+
+  /**
+   * Resolve a pending TaskCreate's real id from its tool result content.
+   * Safe to call with any tool result — non-TaskCreate ids are ignored.
+   * Returns true when a pending task was resolved.
+   */
+  resolveCreatedId(toolUseId: string, resultContent: string): boolean {
+    const task = this.pendingCreates.get(toolUseId);
+    if (!task) return false;
+    // The create either resolved or failed; stop waiting on it either way.
+    this.pendingCreates.delete(toolUseId);
+    const match = CREATED_RESULT_RE.exec(resultContent);
+    if (!match) return false;
+    task.taskId = match[1];
+    return true;
+  }
+
+  /**
+   * Apply a TaskUpdate call. Unknown task ids (e.g. tasks created before a
+   * resume, or by a subagent) get a placeholder entry so status is still
+   * visible. Returns true when the update changed anything.
+   */
+  update(input: Record<string, unknown>): boolean {
+    const taskId = typeof input.taskId === 'string' ? input.taskId : undefined;
+    if (!taskId) return false;
+
+    let task = this.tasks.find(t => t.taskId === taskId);
+    const status = typeof input.status === 'string' ? input.status : undefined;
+
+    if (status === 'deleted') {
+      if (!task) return false;
+      this.tasks = this.tasks.filter(t => t !== task);
+      return true;
+    }
+
+    if (!task) {
+      task = { taskId, subject: `Task #${taskId}`, status: 'pending' };
+      this.tasks.push(task);
+    }
+
+    if (typeof input.subject === 'string') task.subject = input.subject;
+    if (typeof input.activeForm === 'string') task.activeForm = input.activeForm;
+    if (status === 'pending' || status === 'in_progress' || status === 'completed') {
+      task.status = status;
+    }
+    return true;
+  }
+
+  /** Current tasks in TaskItem shape for TaskListOp. */
+  toTaskItems(): TaskItem[] {
+    return this.tasks.map(t => ({
+      content: t.subject,
+      status: t.status,
+      activeForm: t.activeForm ?? t.subject,
+    }));
+  }
+
+  get isEmpty(): boolean {
+    return this.tasks.length === 0;
+  }
+
+  get allCompleted(): boolean {
+    return this.tasks.length > 0 && this.tasks.every(t => t.status === 'completed');
+  }
+
+  clear(): void {
+    this.tasks = [];
+    this.pendingCreates.clear();
+  }
+}

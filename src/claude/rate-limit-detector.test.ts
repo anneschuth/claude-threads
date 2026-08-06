@@ -2,7 +2,7 @@
  * Tests for rate-limit detection.
  */
 import { describe, it, expect } from 'bun:test';
-import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import { detectRateLimit, cooldownDeadline, parseRateLimitEvent } from './rate-limit-detector.js';
 
 const NOW = 1_700_000_000_000; // fixed reference timestamp
 
@@ -152,5 +152,42 @@ describe('cooldownDeadline', () => {
 
   it('returns now when not detected', () => {
     expect(cooldownDeadline({ detected: false }, NOW)).toBe(NOW);
+  });
+});
+
+describe('parseRateLimitEvent', () => {
+  it('ignores healthy allowed events', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', resetsAt: 1786072200, rateLimitType: 'five_hour' },
+    });
+    expect(hit.detected).toBe(false);
+  });
+
+  it('detects non-allowed statuses and converts resetsAt seconds to ms', () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt, rateLimitType: 'five_hour' },
+    });
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBe(resetsAt * 1000);
+    expect(hit.matched).toContain('rejected');
+  });
+
+  it('drops implausible resetsAt values but still detects', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 123 },
+    });
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+
+  it('returns not-detected for malformed events', () => {
+    expect(parseRateLimitEvent({ type: 'rate_limit_event' }).detected).toBe(false);
+    expect(parseRateLimitEvent(null).detected).toBe(false);
+    expect(parseRateLimitEvent({ rate_limit_info: 'weird' }).detected).toBe(false);
+    expect(parseRateLimitEvent({ rate_limit_info: {} }).detected).toBe(false);
   });
 });
