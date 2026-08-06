@@ -172,7 +172,7 @@ Who may do what (start sessions, react to permission prompts, approve guest mess
 
 ## How it compares
 
-Driving a coding agent from chat is a busy space, with official products from Anthropic, OpenAI, and Cursor alongside community projects — several of them excellent. The main difference is where the session actually runs.
+Driving a coding agent from chat is a busy space: Anthropic, OpenAI, and Cursor each ship their own integration, and other open-source projects exist too — several of them excellent. The main difference is where the session actually runs.
 
 | Product                                                                                                                              | Sessions run on                                             | Chat platforms                                  | Account                                       |
 | :----------------------------------------------------------------------------------------------------------------------------------- | :---------------------------------------------------------- | :---------------------------------------------- | :-------------------------------------------- |
@@ -182,7 +182,7 @@ Driving a coding agent from chat is a busy space, with official products from An
 | [Cursor in Slack](https://cursor.com/docs/integrations/slack)                                                                         | Cursor's cloud agents                                       | Slack                                           | Cursor plan                                   |
 | Community bots such as [claude-code-slack-bot](https://github.com/mpociot/claude-code-slack-bot)                                      | Your machine                                                | Slack                                           | Claude subscription or API key                |
 
-The cloud products share a working style: you delegate a task from a thread, an agent works in a vendor-hosted sandbox, and progress updates and a pull request come back. If your repositories live on GitHub and you want nothing to host, they are a good choice — the official integration in particular runs the same Claude Code this bot does.
+The cloud products share a working style: you delegate a task from a thread, an agent works in a vendor-hosted sandbox, and progress updates and a pull request come back. If your repositories live on GitHub and you want nothing to host, they are a good choice — Anthropic's own integration in particular runs the same Claude Code this bot does.
 
 claude-threads makes the opposite choice: the whole session stays in the thread and on your hardware. Output streams live, permission prompts land as emoji reactions, invited teammates type into the same session, and Claude works against a local checkout with whatever MCP servers and plugins you already configured. That fit matters when chat is self-hosted Mattermost, when code cannot leave the building, or when you want a session in chat to behave exactly like the one at your desk. The trade-off: you run the bot yourself, on a machine that has the repository.
 

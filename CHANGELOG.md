@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **"How it compares" section on the website and README** - A short, respectful comparison with the other ways to drive a coding agent from chat: Anthropic's official Claude Code in Slack / Claude Tag, OpenAI's Codex in Slack, Cursor in Slack, and community Slack bots. The framing is a single axis — where the session runs (vendor cloud vs. your machine) — with claude-threads positioned as the local, self-hosted option that also speaks Mattermost. The website's "Why I built this" note about the official integration was updated to match (it is no longer Enterprise-gated: Pro/Max plans have Claude Code in Slack, Team/Enterprise have Claude Tag).
+- **"How it compares" section on the website and README** - A short, respectful comparison with the other ways to drive a coding agent from chat: Anthropic's own Claude Code in Slack / Claude Tag, OpenAI's Codex in Slack, Cursor in Slack, and community Slack bots. The framing is a single axis — where the session runs (vendor cloud vs. your machine) — with claude-threads positioned as the local, self-hosted option that also speaks Mattermost. The website's "Why I built this" note about Anthropic's integration was updated to match (it is no longer Enterprise-gated: Pro/Max plans have Claude Code in Slack, Team/Enterprise have Claude Tag).
 
 ## [1.20.0] - 2026-08-06
 
