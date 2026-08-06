@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.1] - 2026-08-06
+
+### Added
+- **"How it compares" section on the website and README** - A short, respectful comparison with the other ways to drive a coding agent from chat: Anthropic's own Claude Code in Slack / Claude Tag, OpenAI's Codex in Slack, Cursor in Slack, Cognition's Devin, and community Slack bots. The framing is a single axis — where the session runs (vendor cloud vs. your machine) — with claude-threads positioned as the local, self-hosted option that also speaks Mattermost. A closing note names the strongest differentiators beyond that: in-thread permission approvals, multiplayer sessions, the multi-account pool, and no GitHub assumption. The website's "Why I built this" note about Anthropic's integration was updated to match (it is no longer Enterprise-gated: Pro/Max plans have Claude Code in Slack, Team/Enterprise have Claude Tag).
+
 ## [1.20.0] - 2026-08-06
 
 ### Added
