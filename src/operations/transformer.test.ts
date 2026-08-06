@@ -746,3 +746,101 @@ describe('Event Transformer - modern CLI shapes', () => {
     });
   });
 });
+
+describe('Event Transformer - review fixes', () => {
+  let ctx: TransformContext;
+
+  beforeEach(() => {
+    ctx = {
+      sessionId: 'test-session',
+      formatter: mockFormatter,
+      toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
+      detailed: true,
+    };
+  });
+
+  it('skips sidechain events carrying parent_tool_use_id', () => {
+    const assistantEvent: ClaudeEvent = {
+      type: 'assistant',
+      parent_tool_use_id: 'parent-1',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'TaskCreate', id: 'sub-1', input: { subject: 'subagent task', description: 'd' } },
+        ],
+      },
+    };
+    const userEvent: ClaudeEvent = {
+      type: 'user',
+      parent_tool_use_id: 'parent-1',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: 'sub-1', content: 'Task #1 created successfully: subagent task' }],
+      },
+    };
+
+    expect(transformEvent(assistantEvent, ctx)).toEqual([]);
+    expect(transformEvent(userEvent, ctx)).toEqual([]);
+    // The subagent's task never entered the main thread's tracker
+    expect(ctx.taskTracker.isEmpty).toBe(true);
+  });
+
+  it('drops the ghost row and refreshes the display when a TaskCreate fails', () => {
+    transformEvent(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'TaskCreate', id: 'tu-1', input: { subject: 'doomed', description: 'd' } }] },
+      },
+      ctx
+    );
+
+    const ops = transformEvent(
+      {
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'Error: task store unavailable', is_error: true }],
+        },
+      },
+      ctx
+    );
+
+    // A task-list refresh with the ghost removed (no orphaned indicator:
+    // TaskCreate is hidden so no flush/indicator ops either)
+    expect(ops.length).toBe(1);
+    expect(ops[0].type).toBe('task_list');
+    expect((ops[0] as { tasks: unknown[] }).tasks).toEqual([]);
+    expect(ctx.taskTracker.allCompleted).toBe(false);
+    expect(ctx.taskTracker.isEmpty).toBe(true);
+  });
+
+  it('TodoWrite supersedes accumulated TaskCreate state', () => {
+    transformEvent(
+      {
+        type: 'assistant',
+        message: { content: [{ type: 'tool_use', name: 'TaskCreate', id: 'tu-1', input: { subject: 'incremental', description: 'd' } }] },
+      },
+      ctx
+    );
+    expect(ctx.taskTracker.isEmpty).toBe(false);
+
+    const ops = transformEvent(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            {
+              type: 'tool_use',
+              name: 'TodoWrite',
+              id: 'tu-2',
+              input: { todos: [{ content: 'full list', status: 'pending', activeForm: 'doing' }] },
+            },
+          ],
+        },
+      },
+      ctx
+    );
+
+    expect(ops[0].type).toBe('task_list');
+    // Tracker cleared: a later TaskUpdate can't resurrect the old incremental set
+    expect(ctx.taskTracker.isEmpty).toBe(true);
+  });
+});

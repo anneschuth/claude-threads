@@ -1186,6 +1186,20 @@ export class MessageManager {
   }
 
   /**
+   * Clear per-CLI-session state (tool timings, accumulated task tracking)
+   * without touching posted-message state. Must be called whenever Claude is
+   * respawned as a FRESH session (`resume: false` — !cd, worktree switch):
+   * the new CLI session numbers its tasks from #1 again, so stale tracker
+   * entries would collide with the new ids and corrupt task updates. Resume
+   * restarts (e.g. !permissions) must NOT call this — the resumed session
+   * keeps its task numbering.
+   */
+  clearClaudeSessionState(): void {
+    this.toolStartTimes.clear();
+    this.taskTracker.clear();
+  }
+
+  /**
    * Reset all state (for session restart)
    */
   reset(): void {

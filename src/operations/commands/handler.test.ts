@@ -54,6 +54,7 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
   let pendingApproval = initialApproval ?? null;
   let pendingQuestionSet = initialQuestionSet ?? null;
   return {
+    clearClaudeSessionState: () => {},
     getPendingApproval: () => pendingApproval,
     clearPendingApproval: () => { pendingApproval = null; },
     getPendingQuestionSet: () => pendingQuestionSet,

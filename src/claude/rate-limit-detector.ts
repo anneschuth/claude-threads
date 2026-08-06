@@ -134,27 +134,37 @@ function extractResetAt(text: string, now: number): number | undefined {
  *     "rate_limit_info": { "status": "allowed", "resetsAt": 1786072200,
  *                          "rateLimitType": "five_hour", ... } }
  *
- * `status: "allowed"` is emitted on perfectly healthy turns, so only a
- * non-"allowed" status counts as a hit. `resetsAt` is epoch seconds.
- * Returns a detected:false hit for anything that doesn't clearly signal a
- * limit, so a schema drift can never poison the account cooldown.
+ * The SDK type for `status` is `'allowed' | 'allowed_warning' | 'rejected'`
+ * (SDKRateLimitInfo). Only `'rejected'` means a request was actually blocked:
+ * `'allowed'` is emitted on perfectly healthy turns and `'allowed_warning'`
+ * merely means the account is approaching a limit (~70%+ utilization) — the
+ * request went through. Treating a warning as a hit would bench a healthy
+ * account for up to a week (cooldowns only ever extend), so the predicate is
+ * strict equality on 'rejected', not "anything non-allowed". That is also
+ * forward-safe against new statuses. `resetsAt` is epoch seconds (from the
+ * anthropic-ratelimit-unified-reset header).
  */
-export function parseRateLimitEvent(event: unknown): RateLimitHit {
+export function parseRateLimitEvent(event: unknown, now: number = Date.now()): RateLimitHit {
   const info = (event as { rate_limit_info?: unknown })?.rate_limit_info;
   if (!info || typeof info !== 'object') return { detected: false };
 
   const { status, resetsAt } = info as { status?: unknown; resetsAt?: unknown };
-  if (typeof status !== 'string' || status === 'allowed') return { detected: false };
+  if (status !== 'rejected') return { detected: false };
 
-  // Plausibility window keeps a bogus resetsAt (wrong unit, clock skew) from
-  // cooling an account for years: accept only epoch seconds in the future,
-  // at most 8 days out (the longest real window is weekly).
+  // Plausibility window keeps a bogus resetsAt (wrong unit, far-future) from
+  // cooling an account for years: accept only timestamps at most 8 days out
+  // (the longest real window is weekly). A resetsAt slightly in the past
+  // (clock skew, window rolling over mid-turn) is clamped to a brief cooldown
+  // instead of being dropped — dropping it would fall back to the 1h default,
+  // cooling an account whose limit just reset.
+  const PAST_SKEW_TOLERANCE_MS = 2 * 60_000;
   let resetAtEpochMs: number | undefined;
   if (typeof resetsAt === 'number') {
     const ms = resetsAt * 1000;
-    const now = Date.now();
     if (ms > now && ms - now < 8 * 86_400_000) {
       resetAtEpochMs = ms;
+    } else if (ms <= now && now - ms < PAST_SKEW_TOLERANCE_MS) {
+      resetAtEpochMs = now + 60_000;
     }
   }
 

@@ -34,7 +34,7 @@ export const taskToolsFormatter: ToolFormatter = {
     'AskUserQuestion',
   ],
 
-  format(toolName: string, _input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
+  format(toolName: string, input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
     const { formatter } = options;
 
     switch (toolName) {
@@ -59,9 +59,24 @@ export const taskToolsFormatter: ToolFormatter = {
           permissionText: `📋 ${formatter.formatBold('Planning...')}`,
         };
 
-      case 'ExitPlanMode':
-        // Hidden - handled specially with approval buttons
-        return { display: null, hidden: true };
+      case 'ExitPlanMode': {
+        // Hidden in the content stream — the plan-approval UI renders the
+        // plan. But on modern CLIs the tool ALSO routes through the MCP
+        // permission prompt (verified on 2.1.223), and without permissionText
+        // that prompt showed only the bare tool name, asking users to approve
+        // a plan they couldn't see. Give it the plan text. (The duplicate
+        // prompt itself — MCP prompt vs. the bot's approval UI — is a known
+        // conflict tracked as follow-up work.)
+        const plan = typeof input.plan === 'string' ? input.plan : '';
+        const preview = plan.length > 1500 ? `${plan.slice(0, 1500)}\n…` : plan;
+        return {
+          display: null,
+          hidden: true,
+          permissionText: preview
+            ? `📋 ${formatter.formatBold('Plan approval requested')}\n\n${preview}`
+            : `📋 ${formatter.formatBold('Plan approval requested')}`,
+        };
+      }
 
       case 'AskUserQuestion':
         // Hidden - the question text follows separately

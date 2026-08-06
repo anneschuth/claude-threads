@@ -522,6 +522,9 @@ export async function createAndSwitchToWorktree(
             { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
           ),
         };
+        // Fresh CLI session (resume: false) — clear accumulated task/tool
+        // state so the new session's task ids can't collide with stale ones.
+        session.messageManager?.clearClaudeSessionState();
         session.claude = new ClaudeCli(cliOptions);
 
         // Rebind event handlers
@@ -682,6 +685,9 @@ export async function createAndSwitchToWorktree(
           { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
         ),
       };
+      // Fresh CLI session (resume: false) — clear accumulated task/tool
+      // state so the new session's task ids can't collide with stale ones.
+      session.messageManager?.clearClaudeSessionState();
       session.claude = new ClaudeCli(cliOptions);
 
       // Rebind event handlers (use sessionId which is the composite key)

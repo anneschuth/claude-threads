@@ -53,6 +53,7 @@ function createMockMessageManager(overrides: Partial<{
   getTaskListState: ReturnType<typeof mock>;
 }> = {}) {
   return {
+    clearClaudeSessionState: mock(() => {}),
     closeCurrentPost: mock(() => Promise.resolve()),
     handleEvent: mock(() => Promise.resolve()),
     flush: mock(() => Promise.resolve()),

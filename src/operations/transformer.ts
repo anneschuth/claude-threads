@@ -70,6 +70,17 @@ export function transformEvent(
   event: ClaudeEvent,
   ctx: TransformContext
 ): MessageOperation[] {
+  // Sidechain events: some CLI versions forward subagent activity as
+  // assistant/user events carrying parent_tool_use_id. That activity is
+  // already represented by the SubagentExecutor; letting it through here
+  // would render subagent tools into the main content stream and — worse —
+  // let a subagent's TaskCreate/TaskUpdate calls permanently pollute the
+  // main thread's task list (task ids are small integers in both
+  // namespaces, so collisions corrupt updates).
+  if ((event as { parent_tool_use_id?: unknown }).parent_tool_use_id) {
+    return [];
+  }
+
   switch (event.type) {
     case 'assistant':
       return transformAssistant(event, ctx);
@@ -220,13 +231,24 @@ function transformUser(
   }
 
   const operations: MessageOperation[] = [];
+  let indicatorCount = 0;
 
   for (const block of msg.content) {
     if (block?.type !== 'tool_result' || !block.tool_use_id) continue;
 
     // Late-resolve task ids: a TaskCreate's id is only revealed by its tool
-    // result ("Task #3 created successfully: ..."). No display change needed.
-    ctx.taskTracker.resolveCreatedId(block.tool_use_id, toolResultContentText(block.content));
+    // result ("Task #3 created successfully: ..."). A failed create removes
+    // the task again — refresh the display so the ghost row disappears.
+    const resolution = ctx.taskTracker.resolveCreatedId(
+      block.tool_use_id,
+      toolResultContentText(block.content),
+      block.is_error === true
+    );
+    if (resolution === 'removed') {
+      operations.push(
+        createTaskListOp(ctx.sessionId, 'update', ctx.taskTracker.toTaskItems())
+      );
+    }
 
     // Completion indicator — only for tools we actually displayed (their
     // start time was recorded when the tool_use block was rendered).
@@ -236,10 +258,11 @@ function transformUser(
       operations.push(
         createResultIndicatorOp(block.tool_use_id, block.is_error === true, ctx)
       );
+      indicatorCount++;
     }
   }
 
-  if (operations.length > 0) {
+  if (indicatorCount > 0) {
     // Tool results are a natural break point - suggest flush
     operations.push(createFlushOp(ctx.sessionId, 'tool_complete'));
   }
@@ -457,6 +480,11 @@ function handleTodoWrite(
     status: t.status as TaskItem['status'],
     activeForm: t.activeForm,
   }));
+
+  // TodoWrite carries the FULL list, so it supersedes any state accumulated
+  // from incremental TaskCreate/TaskUpdate calls. Without this, a session
+  // mixing both dialects would flip-flop between two unrelated task sets.
+  ctx.taskTracker.clear();
 
   // Determine if all tasks are completed
   const allCompleted = tasks.every(t => t.status === 'completed');

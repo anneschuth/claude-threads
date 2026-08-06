@@ -191,3 +191,44 @@ describe('parseRateLimitEvent', () => {
     expect(parseRateLimitEvent({ rate_limit_info: {} }).detected).toBe(false);
   });
 });
+
+describe('parseRateLimitEvent - status semantics (SDK: allowed | allowed_warning | rejected)', () => {
+  it('does NOT treat allowed_warning as a hit (request went through, account merely near a limit)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        resetsAt: Math.floor(NOW / 1000) + 6 * 86_400, // weekly reset, well inside plausibility window
+        rateLimitType: 'seven_day',
+        utilization: 0.8,
+      },
+    }, NOW);
+    expect(hit.detected).toBe(false);
+  });
+
+  it('ignores unknown future statuses instead of treating them as hits', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'some_new_status', resetsAt: Math.floor(NOW / 1000) + 60 },
+    }, NOW);
+    expect(hit.detected).toBe(false);
+  });
+
+  it('clamps a slightly-past resetsAt to a brief cooldown instead of the 1h default', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) - 30 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBe(NOW + 60_000);
+  });
+
+  it('drops a resetsAt far in the past (falls back to default cooldown)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) - 3600 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+});

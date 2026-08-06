@@ -100,6 +100,7 @@ function createMockMessageManager() {
   let pendingExistingWorktreePrompt: { postId: string; branch: string; worktreePath: string } | null = null;
 
   return {
+    clearClaudeSessionState: mock(() => {}),
     setPendingExistingWorktreePrompt: mock((prompt: { postId: string; branch: string; worktreePath: string } | null) => {
       pendingExistingWorktreePrompt = prompt;
     }),

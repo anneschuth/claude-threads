@@ -715,6 +715,12 @@ export class ClaudeCli extends EventEmitter {
   /** Shared emit path for text-scanned and structured rate-limit hits. */
   private maybeEmitRateLimitHit(hit: RateLimitHit): void {
     if (!hit.detected) return;
+    // A hit WITHOUT an explicit reset falls back to the 1h default cooldown.
+    // While a previous hit's cooldown is still running, that guess adds no
+    // information — but it could *extend* a precise (shorter) deadline from a
+    // structured rate_limit_event past the real reset, since the account pool
+    // only ever lengthens cooldowns. Ignore reset-less hits while cooling.
+    if (!hit.resetAtEpochMs && this.lastEmittedRateLimitDeadline > Date.now()) return;
     const newDeadline = cooldownDeadline(hit);
     const MIN_ADVANCE_MS = 60_000;  // 1 minute: coarser than clock drift, finer than any real rate-limit reset step
     if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) return;

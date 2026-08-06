@@ -53,17 +53,41 @@ export class TaskTracker {
   /**
    * Resolve a pending TaskCreate's real id from its tool result content.
    * Safe to call with any tool result — non-TaskCreate ids are ignored.
-   * Returns true when a pending task was resolved.
+   *
+   * A create whose result is an error or doesn't carry the expected
+   * "Task #N created" text is REMOVED from the list: keeping it would leave a
+   * permanent ghost row that can never be updated or completed (updates go by
+   * taskId), which would also pin `allCompleted` at false forever. Removal is
+   * also the safe response to the CLI rewording the result text.
+   *
+   * Returns 'resolved' when the id was attached, 'removed' when the task was
+   * dropped (caller should refresh the display), 'ignored' otherwise.
    */
-  resolveCreatedId(toolUseId: string, resultContent: string): boolean {
+  resolveCreatedId(
+    toolUseId: string,
+    resultContent: string,
+    isError = false
+  ): 'resolved' | 'removed' | 'ignored' {
     const task = this.pendingCreates.get(toolUseId);
-    if (!task) return false;
+    if (!task) return 'ignored';
     // The create either resolved or failed; stop waiting on it either way.
     this.pendingCreates.delete(toolUseId);
-    const match = CREATED_RESULT_RE.exec(resultContent);
-    if (!match) return false;
+    const match = isError ? null : CREATED_RESULT_RE.exec(resultContent);
+    if (!match) {
+      this.tasks = this.tasks.filter(t => t !== task);
+      return 'removed';
+    }
+    // If an update already created a placeholder for this id, merge: keep the
+    // real subject from the create, adopt the placeholder's status, and drop
+    // the placeholder — two rows sharing one id would make one unreachable.
+    const placeholder = this.tasks.find(t => t !== task && t.taskId === match[1]);
+    if (placeholder) {
+      task.status = placeholder.status;
+      if (placeholder.activeForm && !task.activeForm) task.activeForm = placeholder.activeForm;
+      this.tasks = this.tasks.filter(t => t !== placeholder);
+    }
     task.taskId = match[1];
-    return true;
+    return 'resolved';
   }
 
   /**

@@ -27,21 +27,47 @@ describe('TaskTracker', () => {
 
   it('resolves the real id from the tool result and applies updates by it', () => {
     tracker.create('tu-1', { subject: 'do things', description: 'd' });
-    expect(tracker.resolveCreatedId('tu-1', 'Task #12 created successfully: do things')).toBe(true);
+    expect(tracker.resolveCreatedId('tu-1', 'Task #12 created successfully: do things')).toBe('resolved');
 
     expect(tracker.update({ taskId: '12', status: 'in_progress' })).toBe(true);
     expect(tracker.toTaskItems()[0].status).toBe('in_progress');
   });
 
   it('ignores results for unknown tool_use ids', () => {
-    expect(tracker.resolveCreatedId('nope', 'Task #1 created successfully: x')).toBe(false);
+    expect(tracker.resolveCreatedId('nope', 'Task #1 created successfully: x')).toBe('ignored');
   });
 
-  it('stops waiting on a create whose result does not match', () => {
+  it('removes the task when the create result does not match', () => {
     tracker.create('tu-1', { subject: 'x', description: 'd' });
-    expect(tracker.resolveCreatedId('tu-1', 'Error: could not create task')).toBe(false);
+    expect(tracker.resolveCreatedId('tu-1', 'Some unexpected wording')).toBe('removed');
+    // No ghost row left behind, and allCompleted is not poisoned
+    expect(tracker.isEmpty).toBe(true);
     // A later (unrelated) result with a matching text must not attach to it
-    expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: x')).toBe(false);
+    expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: x')).toBe('ignored');
+  });
+
+  it('removes the task when the create result is an error', () => {
+    tracker.create('tu-1', { subject: 'x', description: 'd' });
+    // Error content could even contain a matching-looking string; is_error wins
+    expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: x', true)).toBe('removed');
+    expect(tracker.isEmpty).toBe(true);
+  });
+
+  it('merges a placeholder created by an early update into the resolved task', () => {
+    tracker.create('tu-1', { subject: 'real subject', description: 'd' });
+    // An update for id 3 arrives before the create's result resolves it
+    tracker.update({ taskId: '3', status: 'in_progress' });
+    expect(tracker.toTaskItems()).toHaveLength(2);
+
+    expect(tracker.resolveCreatedId('tu-1', 'Task #3 created successfully: real subject')).toBe('resolved');
+
+    // One row: real subject, placeholder's status adopted
+    expect(tracker.toTaskItems()).toEqual([
+      { content: 'real subject', status: 'in_progress', activeForm: 'real subject' },
+    ]);
+    // And it stays reachable by id
+    tracker.update({ taskId: '3', status: 'completed' });
+    expect(tracker.allCompleted).toBe(true);
   });
 
   it('creates a placeholder for updates to unknown task ids', () => {
@@ -88,6 +114,6 @@ describe('TaskTracker', () => {
     tracker.create('tu-1', { subject: 'a', description: 'd' });
     tracker.clear();
     expect(tracker.isEmpty).toBe(true);
-    expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: a')).toBe(false);
+    expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: a')).toBe('ignored');
   });
 });
