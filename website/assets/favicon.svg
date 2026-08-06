@@ -10,5 +10,5 @@
   <!-- CT in heavy strokes (blue) -->
   <path d="M20.5 9.5 H14.5 V22.5 H20.5" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter"/>
   <path d="M23 9.5 H30.5" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt"/>
-  <path d="M26.75 9.5 V22.5" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt"/>
+  <path d="M26.75 9.5 V24" stroke="#4a8fe7" stroke-width="3" stroke-linecap="butt"/>
 </svg>

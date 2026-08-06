@@ -8,7 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **GitHub Sponsors support ♥** - The project now accepts voluntary support via [GitHub Sponsors](https://github.com/sponsors/axolotl-systems): a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations. The sponsor link appears only at moments of delivered value or explicit pull: a dim note in the CLI startup header, a one-line farewell after interactive shutdown, a footer on the on-demand `!help` and `!release-notes` replies, and a 24-hour celebration line in the sticky message when an instance crosses a session-count milestone (#100, #250, #500, ...). The milestone counter persists in `sessions.json` (`stats` block, backward compatible). `release.yml` appends a sponsor footer to each release's generated notes, and the GitHub new-issue chooser links to the sponsor page.
+- **GitHub Sponsors support ♥** - The project now accepts voluntary support via [GitHub Sponsors](https://github.com/sponsors/axolotl-systems): a `.github/FUNDING.yml` enables the Sponsor button on the repository, the `funding` field in `package.json` surfaces the link in npm's post-install funding notice, and the README gained a "Support the Project" section aimed at both individual users and organizations. The sponsor link appears only at moments of delivered value or explicit pull: a dim note in the CLI startup header, a one-line farewell after interactive shutdown, a footer on the on-demand `!help` and `!release-notes` replies, and a 24-hour celebration line in the sticky message when an instance crosses a session-count milestone (#100, #250, #500, ...). The milestone counter persists in `sessions.json` (`stats` block, backward compatible). `release.yml` appends a sponsor footer to each release's generated notes, and the GitHub new-issue chooser links to the sponsor page. Sponsorship is branded under [Axolotl Systems](https://axolotl.systems), credited on the website, README, and docs.
+
+## [1.19.4] - 2026-08-05
+
+### Changed
+- **Dependency updates.** Production: `js-yaml` 4.3.0 → 4.3.1 (#457). Dev: `@types/react` 19.2.17 → 19.2.18, `knip` 6.29.0 → 6.31.0, `lint-staged` 17.2.0 → 17.3.0 (#456). The js-yaml bump additionally needed a manual `bun.lock` sync: the lockfile-sync workflow's `bun install` no-ops when the locked version still satisfies the manifest range (`^4.3.0` covers 4.3.0), so `bun.lock` — the lockfile CI actually installs from — had kept 4.3.0. Both manifests now pin `^4.3.1` and both lockfiles lock 4.3.1.
+
+## [1.19.3] - 2026-08-04
+
+### Changed
+- **Dependency update: `hono` 4.12.32 → 4.13.0.** Performance-focused release (up to 1.25x faster on common routes), first-class HTTP QUERY method support, and a new Method Not Allowed middleware. Supersedes Dependabot PR #454, whose CI runs could not be approved from this environment; landing the same bump here lets Dependabot auto-close it. Both lockfiles regenerated. (#455)
+
+## [1.19.2] - 2026-08-03
+
+### Fixed
+- **The T in the logo now reaches the baseline.** The C in the CT mark is drawn with its bottom stroke centered on the baseline, so its visible edge extends half a stroke-width below it — while the T's stem (butt cap) stopped exactly on the centerline, making the T look too short. The stem now extends to the C's outer bottom edge in both `logo.svg` and `favicon.svg`. (#452)
+
+### Security
+- **Cleared three new high advisories flagged by `bun audit`**, all in transitive dependencies, by raising version overrides: `fast-uri` to `>=4.1.2` (GHSA-7p8r-x3mc-p8w7, host confusion via backslash authority introducer), `brace-expansion` to `>=5.0.9` (GHSA-rgw5-rvv9-x895, DoS via unbounded intermediate arrays), and a new `ip-address` `>=10.3.1` override (GHSA-mwp4-54f8-5fhr, SSRF via leading-zero octet confusion). (#452)
 
 ## [1.19.1] - 2026-07-28
 
