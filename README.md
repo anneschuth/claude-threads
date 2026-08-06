@@ -187,6 +187,8 @@ The cloud products share a working style: you delegate from a thread, the work r
 
 claude-threads makes the opposite choice: the whole session stays in the thread and on your hardware. Output streams live, permission prompts land as emoji reactions, invited teammates type into the same session, and Claude works against a local checkout with whatever MCP servers and plugins you already configured. That fit matters when chat is self-hosted Mattermost, when code cannot leave the building, or when you want a session in chat to behave exactly like the one at your desk. The trade-off: you run the bot yourself, on a machine that has the repository.
 
+A few more things set it apart. The full Claude Code permission model lives in the thread: every tool use can prompt for 👍/✅/👎 approval, with three modes switchable mid-session. Sessions are multiplayer: `!invite` teammates while Claude works, messages from uninvited users are gated behind approval, and commits credit everyone involved as co-author. An optional [account pool](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#claude-accounts-optional-multi-account-mode) routes each new session to the Claude subscription with the most headroom and cools down rate-limited ones. And nothing assumes GitHub — the session works against any local checkout, whatever its host.
+
 This table is current as of August 2026. All of these products move quickly — if it has gone stale, [open an issue](https://github.com/anneschuth/claude-threads/issues).
 
 ## Documentation

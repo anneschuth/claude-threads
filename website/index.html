@@ -618,7 +618,18 @@
               and on your hardware — streamed output, emoji permission prompts,
               teammates typing into the same session — which matters when chat
               is self-hosted Mattermost or the code cannot leave the building.
-              The trade-off: you run the bot yourself. Current as of August
+              The trade-off: you run the bot yourself.
+            </p>
+            <p class="compare-note">
+              A few more things set it apart: the full Claude Code permission
+              model lives in the thread (👍/✅/👎 per tool use, three modes
+              switchable mid-session), sessions are multiplayer (<code
+                >!invite</code
+              >
+              teammates, guest messages gated behind approval, shared co-author
+              credit on commits), an optional account pool routes each session
+              to the Claude subscription with the most headroom, and nothing
+              assumes GitHub — any local checkout works. Current as of August
               2026.
             </p>
           </div>
@@ -655,8 +666,7 @@ claude-threads"
               <pre>
 bun install -g claude-threads    # or: npm install -g claude-threads
 cd /your/project
-claude-threads</pre
-              >
+claude-threads</pre>
               <span class="copy-hint">click to copy</span>
             </button>
             <p>
