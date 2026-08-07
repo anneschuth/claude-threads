@@ -165,10 +165,15 @@ describe('DecisionBridge - client disconnect aborts the handler', () => {
     }
   });
 
-  it('keeps the socket path under the unix sun_path limit', () => {
+  it('keeps the socket path under the unix sun_path limit', async () => {
     // macOS caps sun_path at 104 bytes and silently truncates over-long
     // paths on bind/connect — cleanup then misses the real file.
     const path = bridgeSocketPath();
     expect(path.length).toBeLessThan(104);
+    if (process.platform !== 'win32') {
+      const { rm } = await import('node:fs/promises');
+      const { join } = await import('node:path');
+      await rm(join(path, '..'), { recursive: true, force: true });
+    }
   });
 });

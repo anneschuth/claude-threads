@@ -81,6 +81,8 @@ export function bridgeSocketPath(): string {
  * the DECISION_BRIDGE_PATH env var.
  */
 export class DecisionBridgeServer {
+  private liveSockets: Set<Socket> = new Set();
+
   private constructor(
     private readonly server: Server,
     public readonly path: string
@@ -88,7 +90,10 @@ export class DecisionBridgeServer {
 
   static async create(handler: BridgeDecisionHandler): Promise<DecisionBridgeServer> {
     const path = bridgeSocketPath();
+    const liveSockets = new Set<Socket>();
     const server = createServer((socket: Socket) => {
+      liveSockets.add(socket);
+      socket.once('close', () => liveSockets.delete(socket));
       let buffer = '';
       const aborter = new AbortController();
       let responded = false;
@@ -136,18 +141,32 @@ export class DecisionBridgeServer {
       socket.on('error', () => {});
     });
 
-    await new Promise<void>((resolve, reject) => {
-      server.once('error', reject);
-      server.listen(path, () => {
-        server.removeListener('error', reject);
-        resolve();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(path, () => {
+          server.removeListener('error', reject);
+          resolve();
+        });
       });
-    });
+    } catch (err) {
+      // Don't leak the mkdtemp'd directory when listen fails
+      if (process.platform !== 'win32') {
+        await rm(join(path, '..'), { recursive: true, force: true }).catch(() => {});
+      }
+      throw err;
+    }
 
-    return new DecisionBridgeServer(server, path);
+    const bridge = new DecisionBridgeServer(server, path);
+    bridge.liveSockets = liveSockets;
+    return bridge;
   }
 
   async close(): Promise<void> {
+    // Destroy live client connections first: server.close() waits for them,
+    // and a connected-but-undecided MCP client would otherwise delay the
+    // directory cleanup until its own timeout (or past process exit).
+    for (const socket of this.liveSockets) socket.destroy();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
     // Remove the socket's private directory (unix only; pipes leave nothing).
     if (process.platform !== 'win32') {

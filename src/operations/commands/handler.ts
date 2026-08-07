@@ -294,6 +294,15 @@ export async function approvePendingPlan(
   const { postId } = pendingApproval;
   sessionLog(session).info(`✅ Plan approved by @${username} via command`);
 
+  // On modern CLIs ExitPlanMode is BLOCKED on the MCP permission prompt with
+  // a decision-bridge request pending — a stdin message would just queue
+  // while the bridge waits out its timeout, converting this approval into a
+  // long hang. Resolve the bridge SYNCHRONOUSLY, before any await: a 👍
+  // reaction landing during an awaited platform call would otherwise consume
+  // the pending first and this command would fall through to a stray stdin
+  // message.
+  const viaBridge = session.messageManager?.resolveBridgePlan(true) ?? false;
+
   // Update the post to show the decision
   const formatter = session.platform.getFormatter();
   const statusMessage = `${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`;
@@ -305,12 +314,7 @@ export async function approvePendingPlan(
   session.messageManager?.clearPendingQuestionSet();
   session.planApproved = true;
 
-  // On modern CLIs ExitPlanMode is BLOCKED on the MCP permission prompt with
-  // a decision-bridge request pending — a stdin message would just queue
-  // while the bridge waits out its timeout, converting this approval into a
-  // long hang. Resolve the bridge first; only fall back to the stdin message
-  // when nothing was pending (older CLIs).
-  if (session.messageManager?.resolveBridgePlan(true)) {
+  if (viaBridge) {
     sessionLog(session).info('Plan approved via decision bridge (!approve)');
     ctx.ops.startTyping(session);
     return;

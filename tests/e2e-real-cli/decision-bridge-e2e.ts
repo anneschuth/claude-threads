@@ -23,7 +23,8 @@ mkdirSync(`${dir}/e2e-wd`, { recursive: true });
 
 // Optional: DECISION_DELAY_MS holds the decision to verify the CLI tolerates
 // a long-pending bridge request (users answer plans on their own schedule).
-const decisionDelayMs = parseInt(process.env.DECISION_DELAY_MS || '0', 10);
+const parsedDelay = parseInt(process.env.DECISION_DELAY_MS || '0', 10);
+const decisionDelayMs = Number.isFinite(parsedDelay) ? parsedDelay : 0;
 
 const seen: BridgeRequest[] = [];
 const bridge = await DecisionBridgeServer.create(async (req) => {

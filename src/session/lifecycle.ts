@@ -1083,7 +1083,14 @@ export async function startSession(
     sessionOwnerUsername: username,
     decisionBridgePath: decisionBridge?.path,
   };
-  const claude = new ClaudeCli(cliOptions);
+  let claude: ClaudeCli;
+  try {
+    claude = new ClaudeCli(cliOptions);
+  } catch (err) {
+    // The bridge has no owner yet — close it here or it leaks its socket dir
+    void decisionBridge?.close();
+    throw err;
+  }
 
   // Create the session object
   const session: Session = {
@@ -1372,7 +1379,14 @@ export async function resumeSession(
     sessionOwnerUsername: state.startedBy,
     decisionBridgePath: resumeBridge?.path,
   };
-  const claude = new ClaudeCli(cliOptions);
+  let claude: ClaudeCli;
+  try {
+    claude = new ClaudeCli(cliOptions);
+  } catch (err) {
+    // The bridge has no owner yet — close it here or it leaks its socket dir
+    void resumeBridge?.close();
+    throw err;
+  }
 
   // Rebuild Session object from persisted state
   const session: Session = {
@@ -1426,6 +1440,10 @@ export async function resumeSession(
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+  // Assign the bridge to the session IMMEDIATELY: the awaits below
+  // (worktree detection, task-list restore) can throw, and the failure
+  // catch closes session.decisionBridge — which must be set by then.
+  session.decisionBridge = resumeBridge ?? undefined;
 
   // Auto-detect worktree info if workingDir is a worktree but worktreeInfo is not set
   // This handles sessions that were created before worktreeInfo tracking was added,
@@ -1443,7 +1461,6 @@ export async function resumeSession(
   }
 
   // Create MessageManager for this session
-  session.decisionBridge = resumeBridge ?? undefined;
   session.messageManager = createMessageManager(session, ctx);
   // The bridge handler can now reach the MessageManager
   resumeBridgeRef.current = session;
