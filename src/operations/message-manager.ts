@@ -15,6 +15,7 @@ import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
 import { TaskTracker } from './task-tracker.js';
+import type { BridgeRequest, BridgeResponse } from '../mcp/decision-bridge.js';
 import {
   ContentExecutor,
   TaskListExecutor,
@@ -169,6 +170,19 @@ export class MessageManager {
 
   // Accumulated TaskCreate/TaskUpdate state (modern CLIs' incremental task tools)
   private taskTracker = new TaskTracker();
+
+  // Pending decision-bridge requests (modern CLIs block ExitPlanMode /
+  // AskUserQuestion on the MCP permission prompt; the MCP server forwards
+  // those here and the reaction UI resolves them). At most one of each can be
+  // pending — Claude can't have two plans or two question sets in flight.
+  private pendingBridgePlan: {
+    resolve: (r: BridgeResponse) => void;
+    input: Record<string, unknown>;
+  } | null = null;
+  private pendingBridgeQuestion: {
+    resolve: (r: BridgeResponse) => void;
+    input: Record<string, unknown>;
+  } | null = null;
 
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1197,6 +1211,94 @@ export class MessageManager {
     return false;
   }
 
+  // ---------------------------------------------------------------------------
+  // Decision bridge (see src/mcp/decision-bridge.ts)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Handle a decision request forwarded by the MCP permission server. The
+   * promise resolves when the user reacts on the corresponding UI (the plan
+   * post's 👍/👎 or the question posts' option reactions) — via
+   * `resolveBridgePlan` / `resolveBridgeQuestion` called from the lifecycle
+   * completion listeners. The MCP client enforces the timeout; a session that
+   * ends first denies any pending request via `denyPendingBridgeRequests`.
+   */
+  handleBridgeRequest(request: BridgeRequest): Promise<BridgeResponse> {
+    if (request.kind === 'plan_approval') {
+      // A second plan request while one is pending means the first was
+      // abandoned (interrupted turn); deny it so the MCP child isn't stranded.
+      this.pendingBridgePlan?.resolve({ behavior: 'deny', message: 'Superseded by a newer plan' });
+      return new Promise<BridgeResponse>((resolve) => {
+        this.pendingBridgePlan = { resolve, input: request.input };
+      });
+    }
+    if (request.kind === 'question') {
+      this.pendingBridgeQuestion?.resolve({ behavior: 'deny', message: 'Superseded by newer questions' });
+      return new Promise<BridgeResponse>((resolve) => {
+        this.pendingBridgeQuestion = { resolve, input: request.input };
+      });
+    }
+    return Promise.resolve({ behavior: 'deny', message: `Unknown bridge request kind` });
+  }
+
+  /**
+   * Feed a plan approval decision to a waiting bridge request. Returns true
+   * when a bridge request consumed it — the caller must then NOT also send
+   * 'approved'/'denied' over stdin (the CLI already delivers the outcome to
+   * Claude through the tool result; a stdin echo would arrive as a stray
+   * user message).
+   */
+  resolveBridgePlan(approved: boolean): boolean {
+    const pending = this.pendingBridgePlan;
+    if (!pending) return false;
+    this.pendingBridgePlan = null;
+    pending.resolve(
+      approved
+        ? { behavior: 'allow', updatedInput: pending.input }
+        : { behavior: 'deny', message: 'The user rejected the plan.' }
+    );
+    return true;
+  }
+
+  /**
+   * Feed collected question answers to a waiting bridge request. Answers are
+   * keyed by question header in the bot's UI; the CLI expects
+   * `updatedInput.answers` keyed by question TEXT (verified empirically on
+   * 2.1.223: the tool then resolves as "Your questions have been answered").
+   * Returns true when a bridge request consumed the answers.
+   */
+  resolveBridgeQuestion(answers: Array<{ header: string; answer: string }>): boolean {
+    const pending = this.pendingBridgeQuestion;
+    if (!pending) return false;
+    this.pendingBridgeQuestion = null;
+
+    const questions = Array.isArray(pending.input.questions)
+      ? (pending.input.questions as Array<{ question?: string; header?: string }>)
+      : [];
+    const record: Record<string, string> = {};
+    for (const a of answers) {
+      const match = questions.find(q => q.header === a.header);
+      record[match?.question ?? a.header] = a.answer;
+    }
+    pending.resolve({
+      behavior: 'allow',
+      updatedInput: { ...pending.input, answers: record },
+    });
+    return true;
+  }
+
+  /**
+   * Deny any in-flight bridge requests. Called when the session ends or all
+   * state is reset so the MCP child never waits on a decision that can no
+   * longer arrive.
+   */
+  denyPendingBridgeRequests(reason: string): void {
+    this.pendingBridgePlan?.resolve({ behavior: 'deny', message: reason });
+    this.pendingBridgePlan = null;
+    this.pendingBridgeQuestion?.resolve({ behavior: 'deny', message: reason });
+    this.pendingBridgeQuestion = null;
+  }
+
   /**
    * Clear per-CLI-session state (tool timings, accumulated task tracking)
    * without touching posted-message state. Must be called whenever Claude is
@@ -1209,6 +1311,9 @@ export class MessageManager {
   clearClaudeSessionState(): void {
     this.toolStartTimes.clear();
     this.taskTracker.clear();
+    // A fresh CLI session also means a fresh MCP child — any decision request
+    // still pending from the old one can never be answered usefully.
+    this.denyPendingBridgeRequests('Claude was restarted before a decision was made');
   }
 
   /**
@@ -1232,6 +1337,7 @@ export class MessageManager {
    * Clean up resources
    */
   dispose(): void {
+    this.denyPendingBridgeRequests('Session ended before a decision was made');
     this.cancelScheduledFlush();
     this.postTracker.clearSession(this.sessionId);
     // Remove all listeners attached to this session's per-instance emitter.

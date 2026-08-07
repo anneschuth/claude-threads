@@ -43,5 +43,8 @@ export function buildRestartCliOptions(
     uploadDir: getSessionUploadDir(session.platformId, session.threadId),
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: session.startedBy,
+    // The bridge is session-scoped and survives respawns: the new MCP child
+    // must reconnect to the same socket.
+    decisionBridgePath: session.decisionBridge?.path,
   };
 }

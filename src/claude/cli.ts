@@ -140,6 +140,15 @@ export interface ClaudeCliOptions {
   uploadDir?: string;
   /** Outbound file (`send_file`) settings — undefined uses defaults. */
   outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  /**
+   * Path of the session's decision-bridge socket (see
+   * src/mcp/decision-bridge.ts). Passed to the MCP child as
+   * DECISION_BRIDGE_PATH so ExitPlanMode approvals and AskUserQuestion
+   * answers route through the bot's reaction UI instead of a generic
+   * permission prompt. Optional: without it the MCP server uses its legacy
+   * prompts.
+   */
+  decisionBridgePath?: string;
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -263,6 +272,8 @@ export function buildPermissionArgs(opts: {
   /** Username of the session starter; surfaced to the MCP child as
    *  SESSION_OWNER_USERNAME for `send_dm` attribution. */
   sessionOwnerUsername?: string;
+  /** Decision-bridge socket path; surfaced as DECISION_BRIDGE_PATH. */
+  decisionBridgePath?: string;
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
@@ -300,6 +311,9 @@ export function buildPermissionArgs(opts: {
     PERMISSION_TIMEOUT_MS: String(opts.permissionTimeoutMs),
     SESSION_OWNER_USERNAME: opts.sessionOwnerUsername || '',
   };
+  if (opts.decisionBridgePath) {
+    mcpEnv.DECISION_BRIDGE_PATH = opts.decisionBridgePath;
+  }
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
   }
@@ -525,6 +539,7 @@ export class ClaudeCli extends EventEmitter {
       uploadDir: this.options.uploadDir,
       outboundFiles: this.options.outboundFiles,
       sessionOwnerUsername: this.options.sessionOwnerUsername,
+      decisionBridgePath: this.options.decisionBridgePath,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;

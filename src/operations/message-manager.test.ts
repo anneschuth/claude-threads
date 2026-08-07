@@ -1033,3 +1033,125 @@ describe('clearClaudeSessionState', () => {
     expect(internals.toolStartTimes.size).toBe(0);
   });
 });
+
+describe('decision bridge integration', () => {
+  let manager: MessageManager;
+
+  beforeEach(() => {
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    manager = new MessageManager({
+      session,
+      platform,
+      postTracker: new PostTracker(),
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      registerPost: () => {},
+      updateLastMessage: () => {},
+    });
+  });
+
+  it('resolves a pending plan request on approval and reports consumption', async () => {
+    const pending = manager.handleBridgeRequest({
+      kind: 'plan_approval',
+      toolName: 'ExitPlanMode',
+      input: { plan: 'p' },
+    });
+
+    expect(manager.resolveBridgePlan(true)).toBe(true);
+    const decision = await pending;
+    expect(decision.behavior).toBe('allow');
+    expect(decision.updatedInput).toEqual({ plan: 'p' });
+
+    // Consumed: a second resolution finds nothing pending → stdin fallback
+    expect(manager.resolveBridgePlan(true)).toBe(false);
+  });
+
+  it('denies a rejected plan', async () => {
+    const pending = manager.handleBridgeRequest({
+      kind: 'plan_approval',
+      toolName: 'ExitPlanMode',
+      input: { plan: 'p' },
+    });
+    expect(manager.resolveBridgePlan(false)).toBe(true);
+    const decision = await pending;
+    expect(decision.behavior).toBe('deny');
+  });
+
+  it('maps question answers from header keys to question-text keys', async () => {
+    const input = {
+      questions: [
+        { question: 'Do you prefer red or blue?', header: 'Color', options: [] },
+        { question: 'Tabs or spaces?', header: 'Style', options: [], multiSelect: false },
+      ],
+    };
+    const pending = manager.handleBridgeRequest({
+      kind: 'question',
+      toolName: 'AskUserQuestion',
+      input,
+    });
+
+    expect(
+      manager.resolveBridgeQuestion([
+        { header: 'Color', answer: 'Blue' },
+        { header: 'Style', answer: 'Spaces' },
+      ])
+    ).toBe(true);
+
+    const decision = await pending;
+    expect(decision.behavior).toBe('allow');
+    expect((decision.updatedInput as { answers: unknown }).answers).toEqual({
+      'Do you prefer red or blue?': 'Blue',
+      'Tabs or spaces?': 'Spaces',
+    });
+  });
+
+  it('returns false with no pending bridge request (stdin path keeps working)', () => {
+    expect(manager.resolveBridgePlan(true)).toBe(false);
+    expect(manager.resolveBridgeQuestion([{ header: 'X', answer: 'y' }])).toBe(false);
+  });
+
+  it('a newer plan request supersedes (denies) an abandoned one', async () => {
+    const first = manager.handleBridgeRequest({
+      kind: 'plan_approval',
+      toolName: 'ExitPlanMode',
+      input: { plan: 'old' },
+    });
+    const second = manager.handleBridgeRequest({
+      kind: 'plan_approval',
+      toolName: 'ExitPlanMode',
+      input: { plan: 'new' },
+    });
+
+    const firstDecision = await first;
+    expect(firstDecision.behavior).toBe('deny');
+    expect(firstDecision.message).toContain('Superseded');
+
+    manager.resolveBridgePlan(true);
+    expect((await second).behavior).toBe('allow');
+  });
+
+  it('dispose() denies pending bridge requests so the MCP child is not stranded', async () => {
+    const pending = manager.handleBridgeRequest({
+      kind: 'question',
+      toolName: 'AskUserQuestion',
+      input: { questions: [] },
+    });
+    manager.dispose();
+    const decision = await pending;
+    expect(decision.behavior).toBe('deny');
+    expect(decision.message).toContain('Session ended');
+  });
+
+  it('clearClaudeSessionState() denies pending bridge requests (fresh CLI, fresh MCP child)', async () => {
+    const pending = manager.handleBridgeRequest({
+      kind: 'plan_approval',
+      toolName: 'ExitPlanMode',
+      input: { plan: 'p' },
+    });
+    manager.clearClaudeSessionState();
+    const decision = await pending;
+    expect(decision.behavior).toBe('deny');
+    expect(decision.message).toContain('restarted');
+  });
+});

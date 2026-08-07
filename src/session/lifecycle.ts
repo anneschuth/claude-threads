@@ -19,6 +19,7 @@ import { clearAllTimers } from './timer-manager.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
+import { DecisionBridgeServer } from '../mcp/decision-bridge.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
 import type { PersistedSession } from '../persistence/session-store.js';
@@ -216,6 +217,8 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
  */
 function removeFromRegistry(session: Session, ctx: SessionContext): void {
   session.messageManager?.dispose();
+  void session.decisionBridge?.close();
+  session.decisionBridge = undefined;
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   cleanupPostIndex(ctx, session.threadId);
@@ -277,6 +280,34 @@ function findPersistedByThreadId(
  * Uses event subscriptions to handle callbacks from MessageManager.
  * This replaces the old callback-based approach for cleaner code.
  */
+/**
+ * Create the per-session decision bridge (plan approvals and question answers
+ * flowing back through the MCP permission server — see
+ * src/mcp/decision-bridge.ts). Returns null when the socket can't be created;
+ * the MCP server then falls back to its legacy prompts, so a bridge failure
+ * degrades rather than breaks.
+ *
+ * The handler dereferences the session through a ref box because the bridge
+ * must exist BEFORE the ClaudeCli options are built (its path travels in the
+ * MCP child's env) while the Session/MessageManager are created after.
+ */
+async function createSessionDecisionBridge(
+  ref: { current?: Session }
+): Promise<DecisionBridgeServer | null> {
+  try {
+    return await DecisionBridgeServer.create(async (request) => {
+      const messageManager = ref.current?.messageManager;
+      if (!messageManager) {
+        return { behavior: 'deny', message: 'Session is not ready for decisions yet' };
+      }
+      return messageManager.handleBridgeRequest(request);
+    });
+  } catch (err) {
+    log.warn(`Decision bridge unavailable — falling back to legacy MCP prompts: ${err}`);
+    return null;
+  }
+}
+
 function createMessageManager(
   session: Session,
   ctx: SessionContext
@@ -321,13 +352,28 @@ function createMessageManager(
   // These replace the callback-based approach for cleaner separation of concerns
 
   messageManager.events.on('question:complete', ({ toolUseId: _toolUseId, answers }) => {
-    // Send answers back to Claude
+    // On modern CLIs AskUserQuestion blocks on the MCP permission prompt; the
+    // decision bridge delivers the answers through the permission response's
+    // updatedInput, and a stdin send would arrive as a stray extra user
+    // message. Older CLIs (no bridge request pending) keep the stdin path.
+    if (messageManager.resolveBridgeQuestion(answers)) {
+      sessionLog(session).info('Question answered via decision bridge');
+      ctx.ops.startTyping(session);
+      return;
+    }
     const answerJson = JSON.stringify(answers);
     session.claude.sendMessage(answerJson);
   });
 
   messageManager.events.on('approval:complete', ({ toolUseId: _toolUseId, approved }) => {
-    // Send approval/denial back to Claude
+    // Same split as questions: on modern CLIs the plan approval resolves the
+    // blocked ExitPlanMode permission request via the bridge — the CLI then
+    // tells Claude "User has approved your plan" itself.
+    if (messageManager.resolveBridgePlan(approved)) {
+      sessionLog(session).info(`Plan ${approved ? 'approved' : 'denied'} via decision bridge`);
+      ctx.ops.startTyping(session);
+      return;
+    }
     const response = approved ? 'approved' : 'denied';
     session.claude.sendMessage(response);
   });
@@ -1005,6 +1051,13 @@ export async function startSession(
     log.info(`Session ${sessionId.substring(0, 20)} reserved Claude account "${claudeAccount.id}"`);
   }
 
+  // Decision bridge: created before the CLI so its socket path can travel to
+  // the MCP child's env. Requests only arrive once Claude runs, by which time
+  // the session's MessageManager exists — the handler dereferences it lazily
+  // through the ref box (the Session object itself is created further down).
+  const bridgeSessionRef: { current?: Session } = {};
+  const decisionBridge = await createSessionDecisionBridge(bridgeSessionRef);
+
   const cliOptions: ClaudeCliOptions = {
     workingDir,
     threadId: actualThreadId,
@@ -1022,6 +1075,7 @@ export async function startSession(
     uploadDir: getSessionUploadDir(platformId, actualThreadId),
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: username,
+    decisionBridgePath: decisionBridge?.path,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -1064,9 +1118,12 @@ export async function startSession(
       enabled: ctx.config.threadLogsEnabled ?? true,
     }),
   };
+  session.decisionBridge = decisionBridge ?? undefined;
 
   // Create MessageManager for this session
   session.messageManager = createMessageManager(session, ctx);
+  // The bridge handler can now reach the MessageManager
+  bridgeSessionRef.current = session;
 
   // Log session start
   session.threadLogger?.logLifecycle('start', {
@@ -1284,6 +1341,10 @@ export async function resumeSession(
     );
   }
 
+  // Decision bridge for the resumed session (see startSession for rationale)
+  const resumeBridgeRef: { current?: Session } = {};
+  const resumeBridge = await createSessionDecisionBridge(resumeBridgeRef);
+
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
     threadId: state.threadId,
@@ -1301,6 +1362,7 @@ export async function resumeSession(
     uploadDir: getSessionUploadDir(platformId, state.threadId),
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: state.startedBy,
+    decisionBridgePath: resumeBridge?.path,
   };
   const claude = new ClaudeCli(cliOptions);
 
@@ -1373,7 +1435,10 @@ export async function resumeSession(
   }
 
   // Create MessageManager for this session
+  session.decisionBridge = resumeBridge ?? undefined;
   session.messageManager = createMessageManager(session, ctx);
+  // The bridge handler can now reach the MessageManager
+  resumeBridgeRef.current = session;
 
   // Restore task list from persisted state (hydrates + bumps to bottom)
   await session.messageManager.restoreTaskListFromPersistence({

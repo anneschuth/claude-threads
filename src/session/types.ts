@@ -10,6 +10,7 @@ import type { SessionInfo } from '../ui/types.js';
 import type { RecentEvent, ErrorContext } from '../operations/bug-report/index.js';
 import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
+import type { DecisionBridgeServer } from '../mcp/decision-bridge.js';
 import type { QuestionOption } from '../operations/types.js';
 import type { SessionTimers } from './timer-manager.js';
 import { checkTransition } from './lifecycle-fsm.js';
@@ -415,6 +416,15 @@ export interface Session {
    * Always present in running sessions.
    */
   messageManager?: MessageManager;
+
+  /**
+   * Per-session decision bridge: the local socket the MCP permission server
+   * uses to route ExitPlanMode approvals and AskUserQuestion answers through
+   * the bot's reaction UI. Survives Claude respawns (!cd, !permissions) —
+   * closed when the session is removed from the registry. Optional: a bridge
+   * creation failure degrades to the MCP server's legacy prompts.
+   */
+  decisionBridge?: DecisionBridgeServer;
 }
 
 // =============================================================================

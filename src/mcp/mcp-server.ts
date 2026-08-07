@@ -34,6 +34,7 @@ import { mcpLogger } from '../utils/logger.js';
 import type { McpPlatformApi, MattermostMcpApiConfig, SlackMcpApiConfig, McpPost } from '../platform/mcp-platform-api.js';
 import { createMcpPlatformApi } from '../platform/mcp-platform-api-factory.js';
 import { validateOutboundPath } from './path-validator.js';
+import { requestBridgeDecision } from './decision-bridge.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
 import {
   parseMattermostPermalink,
@@ -64,6 +65,11 @@ const ALLOWED_USERS = (process.env.ALLOWED_USERS || '')
   .filter(u => u.length > 0);
 
 const PERMISSION_TIMEOUT_MS = parseInt(process.env.PERMISSION_TIMEOUT_MS || '120000', 10);
+// Decision bridge back to the bot process (plan approvals / question answers).
+// Its timeout is deliberately much longer than the generic permission timeout:
+// chat users answer plans and questions on their own schedule.
+const DECISION_BRIDGE_PATH = process.env.DECISION_BRIDGE_PATH || '';
+const DECISION_BRIDGE_TIMEOUT_MS = parseInt(process.env.DECISION_BRIDGE_TIMEOUT_MS || '3600000', 10);
 
 // Session owner — surfaced in the send_dm attribution prefix so
 // recipients can trace a bot DM back to "the person who started this
@@ -192,6 +198,17 @@ export interface PermissionHandlerConfig {
   getAllowAll: () => boolean;
   setAllowAll: (value: boolean) => void;
   now?: () => number;
+  /**
+   * Decision bridge back to the bot process (see src/mcp/decision-bridge.ts).
+   * When set, ExitPlanMode and AskUserQuestion permission requests are
+   * forwarded to the bot and decided by its reaction UI. `request` is
+   * injectable for tests; it defaults to the real socket client.
+   */
+  decisionBridge?: {
+    path: string;
+    timeoutMs: number;
+    request?: typeof requestBridgeDecision;
+  };
 }
 
 /**
@@ -229,6 +246,38 @@ export async function handlePermissionWith(
   if (SKIP_STANDARD_PERMISSION_PROMPT.has(toolName)) {
     mcpLogger.debug(`Skipping standard prompt for ${toolName} (handler enforces its own gate)`);
     return { behavior: 'allow', updatedInput: toolInput };
+  }
+
+  // ExitPlanMode and AskUserQuestion are DECISIONS, not tool permissions:
+  // on modern CLIs (verified 2.1.223) both block on this permission prompt,
+  // making it the authoritative approval gate — while the rich UI (plan post
+  // with 👍/👎, question posts with option reactions) lives in the main bot.
+  // When the session has a decision bridge, forward the request there and
+  // wait: the user's reaction on the bot's UI resolves it. Plans come back
+  // as allow/deny; question answers ride in updatedInput.answers (the CLI
+  // then tells Claude "Your questions have been answered", verified
+  // empirically). On any bridge failure, fall through to the legacy paths
+  // below so the bridge is never a hard dependency.
+  if (
+    (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') &&
+    cfg.decisionBridge
+  ) {
+    const kind = toolName === 'ExitPlanMode' ? ('plan_approval' as const) : ('question' as const);
+    try {
+      const decision = await (cfg.decisionBridge.request ?? requestBridgeDecision)(
+        cfg.decisionBridge.path,
+        { kind, toolName, input: toolInput },
+        cfg.decisionBridge.timeoutMs
+      );
+      mcpLogger.info(`${toolName} decided via bridge: ${decision.behavior}`);
+      return {
+        behavior: decision.behavior,
+        updatedInput: decision.updatedInput ?? toolInput,
+        message: decision.message,
+      };
+    } catch (err) {
+      mcpLogger.warn(`Decision bridge unavailable for ${toolName} (${err}) — legacy fallback`);
+    }
   }
 
   // AskUserQuestion routes through the permission prompt on modern CLIs
@@ -339,6 +388,9 @@ async function handlePermission(
     platformConfigured: Boolean(PLATFORM_URL && PLATFORM_TOKEN && PLATFORM_CHANNEL_ID),
     getAllowAll: () => allowAllSession,
     setAllowAll: (v) => { allowAllSession = v; },
+    decisionBridge: DECISION_BRIDGE_PATH
+      ? { path: DECISION_BRIDGE_PATH, timeoutMs: DECISION_BRIDGE_TIMEOUT_MS }
+      : undefined,
   });
 }
 
