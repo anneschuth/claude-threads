@@ -5,11 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-> Slated to become **1.21.0**. The version bump is deliberately NOT in this
-> change: it lands in a separate two-line PR after the fixes have been tested
-> against a live instance, so merging this cannot publish an untested release.
+## [1.21.0] - 2026-08-07
 
 ### Fixed
 - **Task list display works again on modern Claude CLIs.** Claude Code moved task tracking from `TodoWrite` (whole list per call) to the incremental `TaskCreate`/`TaskUpdate` tools; verified against CLI 2.1.223, `TodoWrite` is never emitted anymore, so the bot's live task list in the thread had silently gone dark. A new per-session `TaskTracker` accumulates the incremental calls (a task's real id is only revealed by its tool result, which arrives later inside a `user` event) and feeds the existing task-list pipeline. `TaskUpdate` on an unknown id (tasks created before a resume, or by a subagent) shows a placeholder rather than nothing; `status: "deleted"` removes the task. `TodoWrite` still works for older CLIs. `TaskGet`/`TaskList` (read-only queries) are hidden from chat.
