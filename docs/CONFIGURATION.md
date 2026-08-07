@@ -211,6 +211,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `SESSION_TIMEOUT_MS` | Idle timeout in milliseconds. Legacy fallback for `limits.sessionTimeoutMinutes`. | `1800000` (30 min) |
 | `DEBUG` | Enable verbose logging | - |
 | `CLAUDE_PATH` | Path to the `claude` binary. Overrides the PATH lookup and the common install locations. | `claude` (from PATH) |
+| `DECISION_BRIDGE_TIMEOUT_MS` | How long the MCP permission server waits for a plan approval or question answer routed through the decision bridge (the bot's reaction UI) before falling back to the legacy behavior (generic prompt for plans, auto-allow for questions). | `3600000` (1 h) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
 | `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
 | `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
@@ -218,15 +219,16 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 
 ### Forwarded to Claude CLI automatically
 
-The bot sets two tuning flags on the Claude child process when they aren't
+The bot sets these tuning flags on the Claude child process when they aren't
 already present in the bot's environment:
 
 | Variable | Effect | Requires |
 |----------|--------|----------|
 | `MCP_CONNECTION_NONBLOCKING=true` | Caps `--mcp-config` connects at 5s so a slow MCP server never delays startup | Claude CLI 2.1.89+ |
 | `ENABLE_PROMPT_CACHING_1H=true` | Opts into 1-hour prompt cache TTL, cutting re-caching cost on long-lived threads | Claude CLI 2.1.108+ |
+| `MCP_TOOL_TIMEOUT=3600000` | Only set when the session has a decision bridge. Without it the CLI abandons a pending MCP permission call after ~2 minutes — far too short for plan approvals and question answers that wait on a human reaction. One hour matches the bridge's own `DECISION_BRIDGE_TIMEOUT_MS` default. Verified against CLI 2.1.223. | — |
 
-Export either with a different value in the bot's own env to disable.
+Export any of them with a different value in the bot's own env to override.
 
 ## CLI Options
 

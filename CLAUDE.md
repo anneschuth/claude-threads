@@ -80,8 +80,8 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 **MCP Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
-- Each has its own WebSocket/connection to the platform
-- Exposes three tools to Claude:
+- Each has its own WebSocket/connection to the platform, plus a decision-bridge socket back to the bot (plan approvals / question answers)
+- Exposes tools to Claude, including:
   - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
   - `read_post` — fetches a Mattermost/Slack post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)
@@ -336,6 +336,7 @@ Each executor owns a specific piece of interactive state:
 | `src/utils/uptime.ts` | Session uptime tracking |
 | `src/utils/pr-detector.ts` | Detect PR URLs in Claude output |
 | `src/mcp/mcp-server.ts` | MCP server: permission prompts, send_file, read_post (platform-agnostic) |
+| `src/mcp/decision-bridge.ts` | Per-session local socket between bot and MCP permission server; routes ExitPlanMode approvals and AskUserQuestion answers through the bot's reaction UI |
 | `src/platform/mcp-platform-api-factory.ts` | Factory for platform-specific MCP platform APIs |
 | `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
@@ -368,6 +369,18 @@ Each executor owns a specific piece of interactive state:
 
 6. **Claude CLI** proceeds or aborts based on the response
 
+**Decisions vs. permissions (modern CLIs):** `ExitPlanMode` and `AskUserQuestion`
+also arrive at `permission_prompt` — but they are user *decisions*, not tool
+permissions. Instead of posting a generic prompt, the MCP server forwards them
+over the session's **decision bridge** (a per-session local socket, path in
+`DECISION_BRIDGE_PATH`, timeout `DECISION_BRIDGE_TIMEOUT_MS`, default 1h) to
+the bot, where the plan post's 👍/👎 or the question posts' option reactions
+resolve them. Question answers ride back in the permission response's
+`updatedInput.answers`. On any bridge failure the MCP server falls back to its
+legacy behavior (generic prompt for plans, auto-allow for questions), and the
+bot's stdin sends (`'approved'` / answer JSON) remain the fallback for older
+CLIs that don't route these tools through the permission prompt.
+
 ## Configuration
 
 Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
@@ -384,16 +397,22 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `GOOGLE_APPLICATION_CREDENTIALS`) from Bash, hook, and stdio-MCP subprocesses it spawns. Bot env vars like `PLATFORM_TOKEN` / `MATTERMOST_TOKEN` / `SLACK_BOT_TOKEN` pass through untouched — verified empirically against CLI 2.1.116. **Side effect:** setting this also forces permission mode to `default` — Claude will refuse `--dangerously-skip-permissions` and log a warning. Only enable if all your sessions run with interactive permissions. Requires Claude CLI 2.1.83+. |
 
-The bot also sets two Claude CLI tuning flags by default on the child process,
+The bot also sets these Claude CLI tuning flags by default on the child process,
 and only if you haven't already set them in the parent env:
 
 - `MCP_CONNECTION_NONBLOCKING=true` — caps `--mcp-config` server connects at 5s
   so a slow MCP server never blocks session start (Claude CLI 2.1.89+).
 - `ENABLE_PROMPT_CACHING_1H=true` — opts into the 1-hour prompt cache TTL,
   reducing re-caching cost on long-lived threads (Claude CLI 2.1.108+).
+- `MCP_TOOL_TIMEOUT=3600000` — only when the session has a decision bridge.
+  Without it the CLI abandons a pending MCP permission call after ~2 minutes
+  (one retry, then it errors out), which is far too short for plan approvals
+  and question answers that wait on a human reaction; 1 hour matches the
+  bridge's `DECISION_BRIDGE_TIMEOUT_MS` default. Verified against CLI 2.1.223
+  with decisions held for 150 s.
 
-Export either with a non-default value (e.g. `MCP_CONNECTION_NONBLOCKING=false`)
-to disable.
+Export any of them with a non-default value (e.g.
+`MCP_CONNECTION_NONBLOCKING=false`) to override.
 
 ### Lockfiles: why there are two, and the trap
 

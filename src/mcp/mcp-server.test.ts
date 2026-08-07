@@ -2040,3 +2040,145 @@ describe('handlePermissionWith - AskUserQuestion', () => {
     expect(api.waitForReactionCalls).toHaveLength(0);
   });
 });
+
+describe('handlePermissionWith - decision bridge routing', () => {
+  const bridgeCfg = (
+    api: FakeApi,
+    request: (path: string, req: unknown, timeout: number) => Promise<unknown>
+  ) => ({
+    ...makeCfg(api),
+    decisionBridge: { path: '/tmp/fake-bridge.sock', timeoutMs: 5000, request: request as never },
+  });
+
+  it('routes ExitPlanMode through the bridge and returns its decision', async () => {
+    const api = new FakeApi();
+    const requests: unknown[] = [];
+    const cfg = bridgeCfg(api, async (_path, req) => {
+      requests.push(req);
+      return { behavior: 'allow', updatedInput: { plan: 'p' } };
+    });
+
+    const result = await handlePermissionWith('ExitPlanMode', { plan: 'p' }, cfg);
+
+    expect(result.behavior).toBe('allow');
+    expect(requests).toEqual([
+      { kind: 'plan_approval', toolName: 'ExitPlanMode', input: { plan: 'p' } },
+    ]);
+    // No generic prompt was posted
+    expect(api.createdPosts).toHaveLength(0);
+  });
+
+  it('returns a bridge deny for a rejected plan', async () => {
+    const api = new FakeApi();
+    const cfg = bridgeCfg(api, async () => ({ behavior: 'deny', message: 'The user rejected the plan.' }));
+
+    const result = await handlePermissionWith('ExitPlanMode', { plan: 'p' }, cfg);
+
+    expect(result.behavior).toBe('deny');
+    expect(result.message).toContain('rejected');
+    expect(api.createdPosts).toHaveLength(0);
+  });
+
+  it('routes AskUserQuestion through the bridge, answers riding in updatedInput', async () => {
+    const api = new FakeApi();
+    const input = { questions: [{ question: 'Red or blue?', header: 'Color', options: [] }] };
+    const cfg = bridgeCfg(api, async () => ({
+      behavior: 'allow',
+      updatedInput: { ...input, answers: { 'Red or blue?': 'Blue' } },
+    }));
+
+    const result = await handlePermissionWith('AskUserQuestion', input, cfg);
+
+    expect(result.behavior).toBe('allow');
+    expect((result.updatedInput as { answers: unknown }).answers).toEqual({ 'Red or blue?': 'Blue' });
+    expect(api.createdPosts).toHaveLength(0);
+  });
+
+  it('falls back to the legacy auto-allow when the bridge fails for AskUserQuestion', async () => {
+    const api = new FakeApi();
+    const input = { questions: [] };
+    const cfg = bridgeCfg(api, async () => {
+      throw new Error('bridge down');
+    });
+
+    const result = await handlePermissionWith('AskUserQuestion', input, cfg);
+
+    // Legacy behavior: auto-allow with unchanged input, no prompt posted
+    expect(result).toEqual({ behavior: 'allow', updatedInput: input });
+    expect(api.createdPosts).toHaveLength(0);
+  });
+
+  it('falls back to the generic prompt when the bridge fails for ExitPlanMode', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    const cfg = bridgeCfg(api, async () => {
+      throw new Error('bridge down');
+    });
+
+    const result = await handlePermissionWith('ExitPlanMode', { plan: 'p' }, cfg);
+
+    // Legacy behavior: a prompt was posted and the reaction allowed it
+    expect(result.behavior).toBe('allow');
+    expect(api.createdPosts).toHaveLength(1);
+  });
+
+  it('does not touch the bridge for ordinary tools', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    let called = 0;
+    const cfg = bridgeCfg(api, async () => {
+      called++;
+      return { behavior: 'deny' };
+    });
+
+    const result = await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+
+    expect(called).toBe(0);
+    expect(result.behavior).toBe('allow'); // via the normal prompt flow
+  });
+});
+
+describe('handlePermissionWith - bridge edge cases', () => {
+  it('echoes toolInput when a bridge allow carries no updatedInput', async () => {
+    const api = new FakeApi();
+    const cfg = {
+      ...makeCfg(api),
+      decisionBridge: {
+        path: '/tmp/fake.sock',
+        timeoutMs: 5000,
+        request: (async () => ({ behavior: 'allow' })) as never,
+      },
+    };
+
+    const result = await handlePermissionWith('ExitPlanMode', { plan: 'p' }, cfg);
+
+    expect(result.behavior).toBe('allow');
+    expect(result.updatedInput).toEqual({ plan: 'p' });
+  });
+
+  it('skips the bridge for multiSelect questions (answer format unverified) and auto-allows', async () => {
+    const api = new FakeApi();
+    let called = 0;
+    const input = {
+      questions: [
+        { question: 'Pick several', header: 'Multi', options: [], multiSelect: true },
+      ],
+    };
+    const cfg = {
+      ...makeCfg(api),
+      decisionBridge: {
+        path: '/tmp/fake.sock',
+        timeoutMs: 5000,
+        request: (async () => { called++; return { behavior: 'deny' }; }) as never,
+      },
+    };
+
+    const result = await handlePermissionWith('AskUserQuestion', input, cfg);
+
+    expect(called).toBe(0);
+    // Legacy fallback: auto-allow with unchanged input
+    expect(result).toEqual({ behavior: 'allow', updatedInput: input });
+  });
+});

@@ -55,6 +55,8 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
   let pendingQuestionSet = initialQuestionSet ?? null;
   return {
     clearClaudeSessionState: () => {},
+    denyPendingBridgeRequests: () => {},
+    resolveBridgePlan: () => false,
     getPendingApproval: () => pendingApproval,
     clearPendingApproval: () => { pendingApproval = null; },
     getPendingQuestionSet: () => pendingQuestionSet,
@@ -987,6 +989,73 @@ describe('restartClaudeSession session-state clearing', () => {
       );
 
       expect(clearSpy).not.toHaveBeenCalled();
+    });
+  });
+});
+
+describe('approvePendingPlan with a pending decision-bridge request', () => {
+  it('resolves the bridge and does NOT send the stdin message', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+    });
+    // Modern CLI: ExitPlanMode is blocked on the MCP permission call with a
+    // bridge request pending — a stdin message would just queue while the
+    // bridge waits out its timeout.
+    const resolveSpy = mock(() => true);
+    (session.messageManager as unknown as { resolveBridgePlan: unknown }).resolveBridgePlan = resolveSpy;
+    const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    expect(resolveSpy).toHaveBeenCalledWith(true);
+    expect(session.claude.sendMessage).not.toHaveBeenCalled();
+    expect(session.planApproved).toBe(true);
+  });
+
+  it('falls back to the stdin message when nothing is pending on the bridge', async () => {
+    const mockPlatform = createMockPlatform();
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+    });
+    const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    expect(session.claude.sendMessage).toHaveBeenCalledWith(
+      'Plan approved! Please proceed with the implementation.'
+    );
+  });
+});
+
+describe('restartClaudeSession pending-bridge handling', () => {
+  const withFakeClaude = async (fn: () => Promise<void>) => {
+    const prev = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = '/nonexistent/claude-binary-for-tests';
+    try { await fn(); } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
+    }
+  };
+
+  it('denies pending bridge requests even on RESUME restarts (the MCP child always dies)', async () => {
+    await withFakeClaude(async () => {
+      const session = createMockSession();
+      (session.claude as unknown as { kill: unknown }).kill = mock(() => Promise.resolve());
+      const denySpy = mock(() => {});
+      (session.messageManager as unknown as { denyPendingBridgeRequests: unknown }).denyPendingBridgeRequests = denySpy;
+      const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+      await commands.restartClaudeSession(
+        session,
+        { workingDir: '/tmp', resume: true } as never,
+        ctx,
+        'test restart'
+      );
+
+      expect(denySpy).toHaveBeenCalled();
     });
   });
 });

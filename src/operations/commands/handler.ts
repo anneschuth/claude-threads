@@ -124,6 +124,14 @@ export async function restartClaudeSession(
   // Flush any pending content
   await ctx.ops.flush(session);
 
+  // The MCP child ALWAYS dies on a respawn — resume or not — so any pending
+  // bridge decision can never be answered usefully; deny it now so a later
+  // reaction falls back to the stdin path instead of being swallowed by a
+  // stale pending.
+  session.messageManager?.denyPendingBridgeRequests(
+    'Claude was restarted before a decision was made'
+  );
+
   // A fresh CLI session (no resume) restarts task numbering at #1 — drop
   // the old session's accumulated task/tool state so ids can't collide.
   if (!cliOptions.resume) {
@@ -286,6 +294,15 @@ export async function approvePendingPlan(
   const { postId } = pendingApproval;
   sessionLog(session).info(`✅ Plan approved by @${username} via command`);
 
+  // On modern CLIs ExitPlanMode is BLOCKED on the MCP permission prompt with
+  // a decision-bridge request pending — a stdin message would just queue
+  // while the bridge waits out its timeout, converting this approval into a
+  // long hang. Resolve the bridge SYNCHRONOUSLY, before any await: a 👍
+  // reaction landing during an awaited platform call would otherwise consume
+  // the pending first and this command would fall through to a stray stdin
+  // message.
+  const viaBridge = session.messageManager?.resolveBridgePlan(true) ?? false;
+
   // Update the post to show the decision
   const formatter = session.platform.getFormatter();
   const statusMessage = `${formatter.formatBold('Plan approved')} by ${formatter.formatUserMention(username)} - starting implementation...`;
@@ -296,6 +313,12 @@ export async function approvePendingPlan(
   // Also clear any stale questions from plan mode - they're no longer relevant
   session.messageManager?.clearPendingQuestionSet();
   session.planApproved = true;
+
+  if (viaBridge) {
+    sessionLog(session).info('Plan approved via decision bridge (!approve)');
+    ctx.ops.startTyping(session);
+    return;
+  }
 
   // Send user message to Claude - NOT a tool_result
   // Claude Code CLI handles ExitPlanMode internally (generating its own tool_result),

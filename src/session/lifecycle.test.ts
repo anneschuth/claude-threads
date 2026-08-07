@@ -1,4 +1,5 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
+import { existsSync } from 'node:fs';
 
 import * as lifecycle from './lifecycle.js';
 import type { SessionContext } from '../operations/session-context/index.js';
@@ -1508,3 +1509,137 @@ describe('resumePausedSession sender attribution (regression)', () => {
   });
 });
 
+
+// =============================================================================
+// Decision-bridge listener wiring (createMessageManager)
+// =============================================================================
+
+describe('decision-bridge listener wiring', () => {
+  // startSession reaches a real ClaudeCli.start() in this harness; point it
+  // at a harmless long-running binary so the spawn succeeds without the real
+  // CLI (killed in teardown).
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    // Any real executable works — it exits quickly on the CLI's args, which
+    // is fine: the listeners under test don't need a live child.
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
+  async function startSmokeSession() {
+    const platform = createMockPlatform({
+      isUserAllowed: mock((u: string) => u === 'alice') as any,
+      getMcpConfig: mock(() => ({
+        type: 'mattermost',
+        url: 'https://chat.example.com',
+        token: 't',
+        channelId: 'c',
+        allowedUsers: ['alice'],
+      })) as any,
+    });
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+    // The mock config's '/test' does not exist — spawn would fail with
+    // ENOENT on the cwd before the child even runs.
+    (ctx.config as { workingDir: string }).workingDir = '/tmp';
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+    await lifecycle.startSession(
+      { prompt: 'do something' },
+      'alice',
+      'Alice',
+      'thread-bridge',
+      'test-platform',
+      ctx,
+    );
+    const session = sessions.get('test-platform:thread-bridge');
+    expect(session).toBeDefined();
+    return { session: session!, ctx };
+  }
+
+  async function teardown(session: Session) {
+    await session.claude.kill().catch(() => {});
+    session.messageManager?.dispose();
+    await session.decisionBridge?.close().catch(() => {});
+  }
+
+  it('a pending bridge plan request suppresses the stdin send; without one stdin falls back', async () => {
+    const { session } = await startSmokeSession();
+    try {
+      const sendSpy = mock(() => {});
+      (session.claude as unknown as { sendMessage: unknown }).sendMessage = sendSpy;
+
+      // Modern-CLI path: a bridge request is pending → the approval resolves
+      // it and MUST NOT also send 'approved' over stdin (stray user message).
+      const pending = session.messageManager!.handleBridgeRequest({
+        kind: 'plan_approval',
+        toolName: 'ExitPlanMode',
+        input: { plan: 'p' },
+      });
+      session.messageManager!.events.emit('approval:complete', { toolUseId: 't1', approved: true });
+      expect((await pending).behavior).toBe('allow');
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Legacy path: nothing pending → the stdin fallback must still fire.
+      session.messageManager!.events.emit('approval:complete', { toolUseId: 't2', approved: true });
+      expect(sendSpy).toHaveBeenCalledWith('approved');
+    } finally {
+      await teardown(session);
+    }
+  });
+
+  it('a denied plan resolves the bridge with deny (no stdin send)', async () => {
+    const { session } = await startSmokeSession();
+    try {
+      const sendSpy = mock(() => {});
+      (session.claude as unknown as { sendMessage: unknown }).sendMessage = sendSpy;
+
+      const pending = session.messageManager!.handleBridgeRequest({
+        kind: 'plan_approval',
+        toolName: 'ExitPlanMode',
+        input: { plan: 'p' },
+      });
+      session.messageManager!.events.emit('approval:complete', { toolUseId: 't1', approved: false });
+      expect((await pending).behavior).toBe('deny');
+      expect(sendSpy).not.toHaveBeenCalled();
+    } finally {
+      await teardown(session);
+    }
+  });
+
+  it('question answers resolve a pending bridge request instead of stdin, with fallback', async () => {
+    const { session } = await startSmokeSession();
+    try {
+      const sendSpy = mock(() => {});
+      (session.claude as unknown as { sendMessage: unknown }).sendMessage = sendSpy;
+
+      const pending = session.messageManager!.handleBridgeRequest({
+        kind: 'question',
+        toolName: 'AskUserQuestion',
+        input: { questions: [{ question: 'Red or blue?', header: 'Color', options: [] }] },
+      });
+      session.messageManager!.events.emit('question:complete', {
+        toolUseId: 't1',
+        answers: [{ header: 'Color', answer: 'Blue' }],
+      });
+      const decision = await pending;
+      expect(decision.behavior).toBe('allow');
+      expect((decision.updatedInput as { answers: unknown }).answers).toEqual({ 'Red or blue?': 'Blue' });
+      expect(sendSpy).not.toHaveBeenCalled();
+
+      // Legacy path: no pending request → answers go over stdin as JSON.
+      session.messageManager!.events.emit('question:complete', {
+        toolUseId: 't2',
+        answers: [{ header: 'Color', answer: 'Red' }],
+      });
+      expect(sendSpy).toHaveBeenCalledWith(JSON.stringify([{ header: 'Color', answer: 'Red' }]));
+    } finally {
+      await teardown(session);
+    }
+  });
+});

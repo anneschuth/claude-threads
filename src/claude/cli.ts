@@ -140,6 +140,15 @@ export interface ClaudeCliOptions {
   uploadDir?: string;
   /** Outbound file (`send_file`) settings — undefined uses defaults. */
   outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  /**
+   * Path of the session's decision-bridge socket (see
+   * src/mcp/decision-bridge.ts). Passed to the MCP child as
+   * DECISION_BRIDGE_PATH so ExitPlanMode approvals and AskUserQuestion
+   * answers route through the bot's reaction UI instead of a generic
+   * permission prompt. Optional: without it the MCP server uses its legacy
+   * prompts.
+   */
+  decisionBridgePath?: string;
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -156,7 +165,8 @@ export interface ClaudeCliAccount {
  */
 export function buildClaudeChildEnv(
   parentEnv: NodeJS.ProcessEnv,
-  account?: ClaudeCliAccount
+  account?: ClaudeCliAccount,
+  opts?: { decisionBridge?: boolean }
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parentEnv };
 
@@ -166,6 +176,16 @@ export function buildClaudeChildEnv(
   }
   if (env.ENABLE_PROMPT_CACHING_1H === undefined) {
     env.ENABLE_PROMPT_CACHING_1H = 'true';
+  }
+
+  // With a decision bridge, plan approvals and question answers block the
+  // MCP permission tool call until a human reacts — but the CLI abandons a
+  // pending MCP tool call after ~2 minutes by default (one retry, then it
+  // errors out). MCP_TOOL_TIMEOUT (ms) extends that window; 1 hour matches
+  // the bridge's own DECISION_BRIDGE_TIMEOUT_MS default. Verified against
+  // CLI 2.1.223: decisions held for 150s complete only with this set.
+  if (opts?.decisionBridge && env.MCP_TOOL_TIMEOUT === undefined) {
+    env.MCP_TOOL_TIMEOUT = '3600000';
   }
 
   if (account?.home) {
@@ -263,6 +283,8 @@ export function buildPermissionArgs(opts: {
   /** Username of the session starter; surfaced to the MCP child as
    *  SESSION_OWNER_USERNAME for `send_dm` attribution. */
   sessionOwnerUsername?: string;
+  /** Decision-bridge socket path; surfaced as DECISION_BRIDGE_PATH. */
+  decisionBridgePath?: string;
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
@@ -300,6 +322,14 @@ export function buildPermissionArgs(opts: {
     PERMISSION_TIMEOUT_MS: String(opts.permissionTimeoutMs),
     SESSION_OWNER_USERNAME: opts.sessionOwnerUsername || '',
   };
+  if (opts.decisionBridgePath) {
+    mcpEnv.DECISION_BRIDGE_PATH = opts.decisionBridgePath;
+    // Stdio MCP children get an explicit env, not the bot's full environment —
+    // forward the operator's timeout override or the knob is unreachable.
+    if (process.env.DECISION_BRIDGE_TIMEOUT_MS) {
+      mcpEnv.DECISION_BRIDGE_TIMEOUT_MS = process.env.DECISION_BRIDGE_TIMEOUT_MS;
+    }
+  }
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
   }
@@ -525,6 +555,7 @@ export class ClaudeCli extends EventEmitter {
       uploadDir: this.options.uploadDir,
       outboundFiles: this.options.outboundFiles,
       sessionOwnerUsername: this.options.sessionOwnerUsername,
+      decisionBridgePath: this.options.decisionBridgePath,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;
@@ -921,7 +952,11 @@ export class ClaudeCli extends EventEmitter {
    * - `ENABLE_PROMPT_CACHING_1H=true` opts into the 1-hour prompt cache TTL
    *   (Claude CLI 2.1.108+), which meaningfully reduces re-caching cost on
    *   long-lived threads that idle past the default 5-minute window.
-   * Both only take effect when not already set, so users can still override.
+   * - `MCP_TOOL_TIMEOUT=3600000` (only when a decision bridge is configured)
+   *   keeps the CLI from abandoning a pending plan-approval/question
+   *   permission call after its default ~2 minutes — users react on their
+   *   own schedule.
+   * All only take effect when not already set, so users can still override.
    *
    * Account overrides (when `options.account` is set):
    * - `home` set → override `HOME` (and `USERPROFILE` on Windows). Claude
@@ -937,7 +972,9 @@ export class ClaudeCli extends EventEmitter {
    * env-assembly logic straightforward to audit.
    */
   private buildChildEnv(): NodeJS.ProcessEnv {
-    return buildClaudeChildEnv(process.env, this.options.account);
+    return buildClaudeChildEnv(process.env, this.options.account, {
+      decisionBridge: this.options.decisionBridgePath !== undefined,
+    });
   }
 
   private getMcpServerPath(): string {

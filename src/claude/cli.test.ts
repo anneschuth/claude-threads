@@ -265,6 +265,42 @@ describe('ClaudeCli', () => {
       expect(parent.MCP_CONNECTION_NONBLOCKING).toBeUndefined();
       expect(parent.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
     });
+
+    test('sets MCP_TOOL_TIMEOUT when a decision bridge is in play', () => {
+      const env = buildClaudeChildEnv({ PATH: '/usr/bin' }, undefined, { decisionBridge: true });
+      expect(env.MCP_TOOL_TIMEOUT).toBe('3600000');
+    });
+
+    test('leaves MCP_TOOL_TIMEOUT unset without a decision bridge', () => {
+      expect(buildClaudeChildEnv({ PATH: '/usr/bin' }).MCP_TOOL_TIMEOUT).toBeUndefined();
+      expect(
+        buildClaudeChildEnv({ PATH: '/usr/bin' }, undefined, { decisionBridge: false }).MCP_TOOL_TIMEOUT
+      ).toBeUndefined();
+    });
+
+    test('respects a parent-env MCP_TOOL_TIMEOUT override', () => {
+      const env = buildClaudeChildEnv({ MCP_TOOL_TIMEOUT: '120000' }, undefined, {
+        decisionBridge: true,
+      });
+      expect(env.MCP_TOOL_TIMEOUT).toBe('120000');
+    });
+
+    test('ClaudeCli wires decisionBridgePath through to MCP_TOOL_TIMEOUT', () => {
+      // Pin the private buildChildEnv() wiring, not just the pure function:
+      // deleting the opts pass-through must fail this test.
+      const withBridge = new ClaudeCli({ workingDir: '/test', decisionBridgePath: '/tmp/b.sock' });
+      const without = new ClaudeCli({ workingDir: '/test' });
+      const call = (cli: ClaudeCli) =>
+        (cli as unknown as { buildChildEnv(): NodeJS.ProcessEnv }).buildChildEnv();
+      const hadParent = process.env.MCP_TOOL_TIMEOUT;
+      delete process.env.MCP_TOOL_TIMEOUT;
+      try {
+        expect(call(withBridge).MCP_TOOL_TIMEOUT).toBe('3600000');
+        expect(call(without).MCP_TOOL_TIMEOUT).toBeUndefined();
+      } finally {
+        if (hadParent !== undefined) process.env.MCP_TOOL_TIMEOUT = hadParent;
+      }
+    });
   });
 });
 
@@ -515,6 +551,33 @@ describe('buildPermissionArgs', () => {
     const env = getMcpEnv(args);
     expect(env.SESSION_WORKING_DIR).toBe('/srv/work');
     expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
+  });
+
+  it('forwards DECISION_BRIDGE_PATH (and the timeout override) to the MCP child', () => {
+    const prev = process.env.DECISION_BRIDGE_TIMEOUT_MS;
+    process.env.DECISION_BRIDGE_TIMEOUT_MS = '120000';
+    try {
+      const { args } = buildPermissionArgs({
+        ...baseOpts,
+        permissionMode: 'default',
+        decisionBridgePath: '/tmp/bridge-X.sock',
+      });
+      const env = getMcpEnv(args);
+      expect(env.DECISION_BRIDGE_PATH).toBe('/tmp/bridge-X.sock');
+      // Stdio MCP children get an explicit env — without forwarding, the
+      // operator's timeout knob would be unreachable.
+      expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBe('120000');
+    } finally {
+      if (prev === undefined) delete process.env.DECISION_BRIDGE_TIMEOUT_MS;
+      else process.env.DECISION_BRIDGE_TIMEOUT_MS = prev;
+    }
+  });
+
+  it('omits DECISION_BRIDGE_PATH when no bridge exists', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    const env = getMcpEnv(args);
+    expect(env.DECISION_BRIDGE_PATH).toBeUndefined();
+    expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBeUndefined();
   });
 
   it("omits the upload-related env vars entirely when no roots provided", () => {
