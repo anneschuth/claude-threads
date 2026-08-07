@@ -390,20 +390,31 @@ describe('formatBugPreview', () => {
 // =============================================================================
 
 describe('checkGitHubCli', () => {
-  test('returns result object with expected properties', () => {
-    const result = checkGitHubCli();
-    expect(result).toHaveProperty('installed');
-    expect(result).toHaveProperty('authenticated');
-    expect(typeof result.installed).toBe('boolean');
-    expect(typeof result.authenticated).toBe('boolean');
+  // Exec fakes are injected so tests never spawn real `gh` processes — the
+  // real calls carry 5s subprocess timeouts that overrun bun's per-test
+  // timeout on slow CI runners.
+  test('reports installed and authenticated when both gh calls succeed', () => {
+    const result = checkGitHubCli(() => '');
+    expect(result).toEqual({ installed: true, authenticated: true });
   });
 
-  test('provides error message when not installed', () => {
-    const result = checkGitHubCli();
-    if (!result.installed) {
-      expect(result.error).toBeDefined();
-      expect(result.error).toContain('GitHub CLI');
-    }
+  test('reports not installed when gh --version fails', () => {
+    const result = checkGitHubCli(() => {
+      throw new Error('command not found: gh');
+    });
+    expect(result.installed).toBe(false);
+    expect(result.authenticated).toBe(false);
+    expect(result.error).toContain('GitHub CLI');
+  });
+
+  test('reports not authenticated when gh auth status fails', () => {
+    const result = checkGitHubCli((command) => {
+      if (command === 'gh auth status') throw new Error('not logged in');
+      return '';
+    });
+    expect(result.installed).toBe(true);
+    expect(result.authenticated).toBe(false);
+    expect(result.error).toContain('gh auth login');
   });
 });
 

@@ -312,8 +312,17 @@ export function resetSessionActivity(session: Session): void {
   session.lastActivityAt = new Date();
   session.timeoutWarningPosted = false;
   session.lifecyclePostId = undefined;
-  // Reset lifecycle state to active (clearing paused/interrupted states)
-  transitionTo(session, 'active');
+  // Reset lifecycle state to active (clearing paused/interrupted states) —
+  // but never clobber an in-progress restart or cancel. This runs on every
+  // Claude event, and the dying process of a `!cd`/`!permissions`/worktree
+  // respawn can emit one last event during kill(); flipping 'restarting'
+  // back to 'active' here made handleExit treat the old process's exit as a
+  // real session end and tear down the freshly restarted session (flaky
+  // "!cd should restart Claude CLI" integration test).
+  const state = session.lifecycle.state;
+  if (state !== 'restarting' && state !== 'cancelling') {
+    transitionTo(session, 'active');
+  }
 
   // Update worktree metadata to prevent aggressive cleanup of active worktrees.
   // This is fire-and-forget - we don't want to block session activity on disk I/O.

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **A respawning session can no longer be torn down by its own dying Claude process.** Two stacked races made `!cd` / `!permissions` / worktree respawns flaky (seen as the recurring `!cd should restart Claude CLI` failure on main's Integration Tests): a last event flushed by the dying process ran `resetSessionActivity`, which unconditionally flipped the session's `restarting` state back to `active` — so when the old process's exit landed, `handleExit` mistook it for the current process dying and did a full session teardown mid-restart. `resetSessionActivity` now leaves `restarting`/`cancelling` states alone, `handleExit` ignores exits from a CLI instance that is no longer the session's current one (the exit event can be delivered after the respawn already swapped in the new instance), and a successful respawn transitions to `active` explicitly instead of relying on the old exit's side effect. `ClaudeCli.kill()` gained an integration-test caller trace, mirroring the existing `sendMessage` one — attributing kills is the key question when debugging these races in CI logs.
+- **`checkGitHubCli` unit tests no longer spawn the real `gh` CLI.** The two subprocess probes each carry a 5s timeout, overrunning bun's 5s per-test budget on a slow runner (the flaky `checkGitHubCli` timeout on main's CI). The exec call is now injectable and the tests cover all three outcomes (installed+authenticated, not installed, not authenticated) deterministically.
+- **Integration: the `!cd` confirmation wait no longer matches the user's own message.** The loose `/changed|directory|\/tmp/i` pattern matched the `!cd /tmp` command itself, ending the test while the respawn was still in flight — `afterEach`'s `killAllSessions` then raced the restart and leaked an orphaned mock CLI into the next test.
+
 ## [1.21.0] - 2026-08-07
 
 ### Fixed

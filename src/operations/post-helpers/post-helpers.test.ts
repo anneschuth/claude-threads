@@ -263,6 +263,29 @@ describe('resetSessionActivity', () => {
     expect(session.lifecycle.state as string).toBe('active');
   });
 
+  it('does not clobber an in-progress restart', () => {
+    // Regression: a late event from the dying Claude process during a
+    // !cd/!permissions/worktree respawn runs resetSessionActivity via
+    // handleEventPreProcessing. Flipping 'restarting' back to 'active' made
+    // handleExit tear down the freshly restarted session (flaky "!cd should
+    // restart Claude CLI" integration test).
+    const session = createMockSession();
+    session.lifecycle.state = 'restarting';
+
+    resetSessionActivity(session);
+
+    expect(session.lifecycle.state as string).toBe('restarting');
+  });
+
+  it('does not clobber an in-progress cancel', () => {
+    const session = createMockSession();
+    session.lifecycle.state = 'cancelling';
+
+    resetSessionActivity(session);
+
+    expect(session.lifecycle.state as string).toBe('cancelling');
+  });
+
   it('calls updateWorktreeActivity when session has worktreeInfo', () => {
     const session = createMockSession({
       sessionOverrides: {

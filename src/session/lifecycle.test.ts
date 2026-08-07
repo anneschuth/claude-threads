@@ -1112,6 +1112,34 @@ describe('handleExit', () => {
     expect(ctx.ops.unregisterWorktreeUser).toHaveBeenCalledWith('/tmp/wt/abc', session.sessionId);
   });
 
+  it('ignores a stale exit from a replaced Claude process', async () => {
+    // Race seen in CI (slack integration, "!cd should restart Claude CLI"):
+    // the old process's 'exit' event can arrive after restartClaudeSession
+    // already swapped session.claude to the new instance and the session is
+    // back in 'active'. That exit must not tear down the restarted session.
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    const replacedCli = { isPermanentFailure: () => false } as any;
+    await lifecycle.handleExit(session.sessionId, 0, ctx, replacedCli);
+
+    expect(sessions.has(session.sessionId)).toBe(true);
+    expect(ctx.ops.unpersistSession).not.toHaveBeenCalled();
+    expect(ctx.ops.updateStickyMessage).not.toHaveBeenCalled();
+  });
+
+  it('handles the exit normally when source is the current Claude process', async () => {
+    const session = createExitTestSession({ hasClaudeResponded: true });
+    const sessions = new Map([[session.sessionId, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit(session.sessionId, 0, ctx, session.claude);
+
+    expect(sessions.has(session.sessionId)).toBe(false);
+    expect(ctx.ops.unpersistSession).toHaveBeenCalledWith(session.sessionId);
+  });
+
   it('posts [Exited: code] notification on non-zero exit', async () => {
     const session = createExitTestSession({ hasClaudeResponded: true });
     const mockCreatePost = mock(() => Promise.resolve({

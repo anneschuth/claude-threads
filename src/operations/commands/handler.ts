@@ -131,19 +131,26 @@ export async function restartClaudeSession(
   }
 
   // Create new Claude CLI
-  session.claude = new ClaudeCli(cliOptions);
+  const newClaude = new ClaudeCli(cliOptions);
+  session.claude = newClaude;
 
   // Rebind event handlers (use sessionId which is the composite key).
   // The rate-limit listener MUST be rebound here too — without it, a !cd or
   // !permissions interactive restart would silently drop rate-limit signals
   // from the new Claude process and the account would never enter cooldown.
-  session.claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
-  session.claude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code));
-  session.claude.on('rate-limit', (hit: RateLimitHit) => handleRateLimit(session, hit, ctx));
+  newClaude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(session.sessionId, e));
+  newClaude.on('exit', (code: number) => ctx.ops.handleExit(session.sessionId, code, newClaude));
+  newClaude.on('rate-limit', (hit: RateLimitHit) => handleRateLimit(session, hit, ctx));
 
   // Start the new Claude CLI
   try {
-    session.claude.start();
+    newClaude.start();
+    // Respawn succeeded. The old process's exit usually resets 'restarting'
+    // to 'active' via handleExit's restarting guard, but that exit can also
+    // arrive after the swap above (where the stale-source check in
+    // handleExit drops it) — transition explicitly so the session never
+    // sticks in 'restarting'.
+    transitionTo(session, 'active');
     return true;
   } catch (err) {
     transitionTo(session, 'active');

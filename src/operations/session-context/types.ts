@@ -12,7 +12,7 @@
  */
 
 import type { Session } from '../../session/types.js';
-import type { ClaudeEvent } from '../../claude/cli.js';
+import type { ClaudeCli, ClaudeEvent } from '../../claude/cli.js';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
@@ -173,8 +173,16 @@ export interface SessionOperations {
   /** Handle a Claude CLI event */
   handleEvent(sessionId: string, event: ClaudeEvent): void;
 
-  /** Handle Claude CLI process exit */
-  handleExit(sessionId: string, code: number): Promise<void>;
+  /**
+   * Handle Claude CLI process exit.
+   *
+   * `source` is the ClaudeCli instance that emitted the exit. Pass it so a
+   * late exit from a process that was already replaced (`!cd` /
+   * `!permissions` / worktree respawn) can be told apart from the current
+   * process dying — without it, a stale exit tears down the restarted
+   * session.
+   */
+  handleExit(sessionId: string, code: number, source?: ClaudeCli): Promise<void>;
 
   // ---------------------------------------------------------------------------
   // Session Lifecycle
