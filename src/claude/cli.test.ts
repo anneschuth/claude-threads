@@ -265,6 +265,42 @@ describe('ClaudeCli', () => {
       expect(parent.MCP_CONNECTION_NONBLOCKING).toBeUndefined();
       expect(parent.ENABLE_PROMPT_CACHING_1H).toBeUndefined();
     });
+
+    test('sets MCP_TOOL_TIMEOUT when a decision bridge is in play', () => {
+      const env = buildClaudeChildEnv({ PATH: '/usr/bin' }, undefined, { decisionBridge: true });
+      expect(env.MCP_TOOL_TIMEOUT).toBe('3600000');
+    });
+
+    test('leaves MCP_TOOL_TIMEOUT unset without a decision bridge', () => {
+      expect(buildClaudeChildEnv({ PATH: '/usr/bin' }).MCP_TOOL_TIMEOUT).toBeUndefined();
+      expect(
+        buildClaudeChildEnv({ PATH: '/usr/bin' }, undefined, { decisionBridge: false }).MCP_TOOL_TIMEOUT
+      ).toBeUndefined();
+    });
+
+    test('respects a parent-env MCP_TOOL_TIMEOUT override', () => {
+      const env = buildClaudeChildEnv({ MCP_TOOL_TIMEOUT: '120000' }, undefined, {
+        decisionBridge: true,
+      });
+      expect(env.MCP_TOOL_TIMEOUT).toBe('120000');
+    });
+
+    test('ClaudeCli wires decisionBridgePath through to MCP_TOOL_TIMEOUT', () => {
+      // Pin the private buildChildEnv() wiring, not just the pure function:
+      // deleting the opts pass-through must fail this test.
+      const withBridge = new ClaudeCli({ workingDir: '/test', decisionBridgePath: '/tmp/b.sock' });
+      const without = new ClaudeCli({ workingDir: '/test' });
+      const call = (cli: ClaudeCli) =>
+        (cli as unknown as { buildChildEnv(): NodeJS.ProcessEnv }).buildChildEnv();
+      const hadParent = process.env.MCP_TOOL_TIMEOUT;
+      delete process.env.MCP_TOOL_TIMEOUT;
+      try {
+        expect(call(withBridge).MCP_TOOL_TIMEOUT).toBe('3600000');
+        expect(call(without).MCP_TOOL_TIMEOUT).toBeUndefined();
+      } finally {
+        if (hadParent !== undefined) process.env.MCP_TOOL_TIMEOUT = hadParent;
+      }
+    });
   });
 });
 

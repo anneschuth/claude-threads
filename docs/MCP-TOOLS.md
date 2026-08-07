@@ -15,7 +15,7 @@ The permission handler the Claude CLI calls before running a tool that needs app
 | `tool_name` | string | Name of the tool requesting permission. |
 | `input` | object | The tool's input parameters, shown to the user in the prompt. |
 
-**Guardrail:** Only reactions from users on the session allowlist count. The bot's own reactions (the option emoji it adds) are ignored. If no reaction arrives within `limits.permissionTimeoutSeconds` (default 120), the request is denied. Exception: on modern CLIs, `ExitPlanMode` and `AskUserQuestion` don't post a generic prompt at all — they are forwarded over the session's decision bridge to the bot's plan/question reaction UI and wait up to `DECISION_BRIDGE_TIMEOUT_MS` (default 1 hour) for a decision there. Multi-select questions and any bridge failure fall back to the legacy behavior: generic prompt for plans, auto-allow for questions.
+**Guardrail:** Only reactions from users on the session allowlist count. The bot's own reactions (the option emoji it adds) are ignored. If no reaction arrives within `limits.permissionTimeoutSeconds` (default 120), the request is denied. Exception: on modern CLIs, `ExitPlanMode` and `AskUserQuestion` don't post a generic prompt at all — they are forwarded over the session's decision bridge to the bot's plan/question reaction UI and wait up to `DECISION_BRIDGE_TIMEOUT_MS` (default 1 hour) for a decision there. To make that hour real, the bot spawns the CLI with `MCP_TOOL_TIMEOUT=3600000` whenever a bridge is configured — without it the CLI abandons a pending permission call after ~2 minutes (verified against CLI 2.1.223). Multi-select questions and any bridge failure fall back to the legacy behavior: generic prompt for plans, auto-allow for questions.
 
 ## send_file
 

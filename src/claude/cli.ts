@@ -165,7 +165,8 @@ export interface ClaudeCliAccount {
  */
 export function buildClaudeChildEnv(
   parentEnv: NodeJS.ProcessEnv,
-  account?: ClaudeCliAccount
+  account?: ClaudeCliAccount,
+  opts?: { decisionBridge?: boolean }
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parentEnv };
 
@@ -175,6 +176,16 @@ export function buildClaudeChildEnv(
   }
   if (env.ENABLE_PROMPT_CACHING_1H === undefined) {
     env.ENABLE_PROMPT_CACHING_1H = 'true';
+  }
+
+  // With a decision bridge, plan approvals and question answers block the
+  // MCP permission tool call until a human reacts — but the CLI abandons a
+  // pending MCP tool call after ~2 minutes by default (one retry, then it
+  // errors out). MCP_TOOL_TIMEOUT (ms) extends that window; 1 hour matches
+  // the bridge's own DECISION_BRIDGE_TIMEOUT_MS default. Verified against
+  // CLI 2.1.223: decisions held for 150s complete only with this set.
+  if (opts?.decisionBridge && env.MCP_TOOL_TIMEOUT === undefined) {
+    env.MCP_TOOL_TIMEOUT = '3600000';
   }
 
   if (account?.home) {
@@ -941,7 +952,11 @@ export class ClaudeCli extends EventEmitter {
    * - `ENABLE_PROMPT_CACHING_1H=true` opts into the 1-hour prompt cache TTL
    *   (Claude CLI 2.1.108+), which meaningfully reduces re-caching cost on
    *   long-lived threads that idle past the default 5-minute window.
-   * Both only take effect when not already set, so users can still override.
+   * - `MCP_TOOL_TIMEOUT=3600000` (only when a decision bridge is configured)
+   *   keeps the CLI from abandoning a pending plan-approval/question
+   *   permission call after its default ~2 minutes — users react on their
+   *   own schedule.
+   * All only take effect when not already set, so users can still override.
    *
    * Account overrides (when `options.account` is set):
    * - `home` set → override `HOME` (and `USERPROFILE` on Windows). Claude
@@ -957,7 +972,9 @@ export class ClaudeCli extends EventEmitter {
    * env-assembly logic straightforward to audit.
    */
   private buildChildEnv(): NodeJS.ProcessEnv {
-    return buildClaudeChildEnv(process.env, this.options.account);
+    return buildClaudeChildEnv(process.env, this.options.account, {
+      decisionBridge: this.options.decisionBridgePath !== undefined,
+    });
   }
 
   private getMcpServerPath(): string {

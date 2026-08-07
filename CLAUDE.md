@@ -397,16 +397,22 @@ Configuration is stored in YAML at `~/.config/claude-threads/config.yaml`.
 | `CLAUDE_PATH` | Custom path to claude binary (default: `claude`) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Set `1` to have Claude strip Anthropic/cloud credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_BEARER_TOKEN_BEDROCK`, `GOOGLE_APPLICATION_CREDENTIALS`) from Bash, hook, and stdio-MCP subprocesses it spawns. Bot env vars like `PLATFORM_TOKEN` / `MATTERMOST_TOKEN` / `SLACK_BOT_TOKEN` pass through untouched — verified empirically against CLI 2.1.116. **Side effect:** setting this also forces permission mode to `default` — Claude will refuse `--dangerously-skip-permissions` and log a warning. Only enable if all your sessions run with interactive permissions. Requires Claude CLI 2.1.83+. |
 
-The bot also sets two Claude CLI tuning flags by default on the child process,
+The bot also sets these Claude CLI tuning flags by default on the child process,
 and only if you haven't already set them in the parent env:
 
 - `MCP_CONNECTION_NONBLOCKING=true` — caps `--mcp-config` server connects at 5s
   so a slow MCP server never blocks session start (Claude CLI 2.1.89+).
 - `ENABLE_PROMPT_CACHING_1H=true` — opts into the 1-hour prompt cache TTL,
   reducing re-caching cost on long-lived threads (Claude CLI 2.1.108+).
+- `MCP_TOOL_TIMEOUT=3600000` — only when the session has a decision bridge.
+  Without it the CLI abandons a pending MCP permission call after ~2 minutes
+  (one retry, then it errors out), which is far too short for plan approvals
+  and question answers that wait on a human reaction; 1 hour matches the
+  bridge's `DECISION_BRIDGE_TIMEOUT_MS` default. Verified against CLI 2.1.223
+  with decisions held for 150 s.
 
-Export either with a non-default value (e.g. `MCP_CONNECTION_NONBLOCKING=false`)
-to disable.
+Export any of them with a non-default value (e.g.
+`MCP_CONNECTION_NONBLOCKING=false`) to override.
 
 ### Lockfiles: why there are two, and the trap
 
