@@ -482,7 +482,9 @@ export async function createAndSwitchToWorktree(
       if (session.claude.isRunning()) {
         options.stopTyping(session);
         transitionTo(session, 'restarting');
-        session.claude.kill();
+        // Await the exit: late events from the dying process would otherwise
+        // land after clearClaudeSessionState() below and repopulate stale state.
+        await session.claude.kill();
 
         // Flush any pending content
         await options.flush(session);
@@ -522,6 +524,9 @@ export async function createAndSwitchToWorktree(
             { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
           ),
         };
+        // Fresh CLI session (resume: false) — clear accumulated task/tool
+        // state so the new session's task ids can't collide with stale ones.
+        session.messageManager?.clearClaudeSessionState();
         session.claude = new ClaudeCli(cliOptions);
 
         // Rebind event handlers
@@ -641,7 +646,9 @@ export async function createAndSwitchToWorktree(
     if (session.claude.isRunning()) {
       options.stopTyping(session);
       transitionTo(session, 'restarting');
-      session.claude.kill();
+      // Await the exit: late events from the dying process would otherwise
+      // land after clearClaudeSessionState() below and repopulate stale state.
+      await session.claude.kill();
 
       // Flush any pending content
       await options.flush(session);
@@ -682,6 +689,9 @@ export async function createAndSwitchToWorktree(
           { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
         ),
       };
+      // Fresh CLI session (resume: false) — clear accumulated task/tool
+      // state so the new session's task ids can't collide with stale ones.
+      session.messageManager?.clearClaudeSessionState();
       session.claude = new ClaudeCli(cliOptions);
 
       // Rebind event handlers (use sessionId which is the composite key)

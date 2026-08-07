@@ -113,13 +113,22 @@ export async function restartClaudeSession(
   ctx: SessionContext,
   actionName: string
 ): Promise<boolean> {
-  // Stop the current Claude CLI
+  // Stop the current Claude CLI. Await the exit: the dying process keeps
+  // flushing buffered stream-json for up to ~2s, and a late event landing
+  // AFTER the state clear below would repopulate the very stale task/tool
+  // state the clear exists to remove.
   ctx.ops.stopTyping(session);
   transitionTo(session, 'restarting');
-  session.claude.kill();
+  await session.claude.kill();
 
   // Flush any pending content
   await ctx.ops.flush(session);
+
+  // A fresh CLI session (no resume) restarts task numbering at #1 — drop
+  // the old session's accumulated task/tool state so ids can't collide.
+  if (!cliOptions.resume) {
+    session.messageManager?.clearClaudeSessionState();
+  }
 
   // Create new Claude CLI
   session.claude = new ClaudeCli(cliOptions);

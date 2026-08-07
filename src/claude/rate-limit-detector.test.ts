@@ -2,7 +2,7 @@
  * Tests for rate-limit detection.
  */
 import { describe, it, expect } from 'bun:test';
-import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import { detectRateLimit, cooldownDeadline, parseRateLimitEvent } from './rate-limit-detector.js';
 
 const NOW = 1_700_000_000_000; // fixed reference timestamp
 
@@ -152,5 +152,103 @@ describe('cooldownDeadline', () => {
 
   it('returns now when not detected', () => {
     expect(cooldownDeadline({ detected: false }, NOW)).toBe(NOW);
+  });
+});
+
+describe('parseRateLimitEvent', () => {
+  it('ignores healthy allowed events', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', resetsAt: 1786072200, rateLimitType: 'five_hour' },
+    });
+    expect(hit.detected).toBe(false);
+  });
+
+  it('detects rejected status and converts resetsAt seconds to ms', () => {
+    const resetsAt = Math.floor(Date.now() / 1000) + 3600;
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt, rateLimitType: 'five_hour' },
+    });
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBe(resetsAt * 1000);
+    expect(hit.matched).toContain('rejected');
+  });
+
+  it('drops implausible resetsAt values but still detects', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: 123 },
+    });
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+
+  it('returns not-detected for malformed events', () => {
+    expect(parseRateLimitEvent({ type: 'rate_limit_event' }).detected).toBe(false);
+    expect(parseRateLimitEvent(null).detected).toBe(false);
+    expect(parseRateLimitEvent({ rate_limit_info: 'weird' }).detected).toBe(false);
+    expect(parseRateLimitEvent({ rate_limit_info: {} }).detected).toBe(false);
+  });
+});
+
+describe('parseRateLimitEvent - status semantics (SDK: allowed | allowed_warning | rejected)', () => {
+  it('does NOT treat allowed_warning as a hit (request went through, account merely near a limit)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        resetsAt: Math.floor(NOW / 1000) + 6 * 86_400, // weekly reset, well inside plausibility window
+        rateLimitType: 'seven_day',
+        utilization: 0.8,
+      },
+    }, NOW);
+    expect(hit.detected).toBe(false);
+  });
+
+  it('ignores unknown future statuses instead of treating them as hits', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'some_new_status', resetsAt: Math.floor(NOW / 1000) + 60 },
+    }, NOW);
+    expect(hit.detected).toBe(false);
+  });
+
+  it('clamps a slightly-past resetsAt to a brief cooldown instead of the 1h default', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) - 30 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBe(NOW + 60_000);
+  });
+
+  it('drops a resetsAt far in the past (falls back to default cooldown)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) - 3600 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+});
+
+describe('parseRateLimitEvent - plausibility window (far future)', () => {
+  it('drops a resetsAt more than 8 days out (wrong unit / bogus value)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) + 30 * 86_400 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+
+  it('accepts a weekly reset just inside the window', () => {
+    const resetsAt = Math.floor(NOW / 1000) + 7 * 86_400;
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt },
+    }, NOW);
+    expect(hit.resetAtEpochMs).toBe(resetsAt * 1000);
   });
 });

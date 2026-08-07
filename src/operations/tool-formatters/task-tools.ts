@@ -3,6 +3,9 @@
  *
  * Handles tools that affect task/workflow state:
  * - TodoWrite: Task list management (hidden, handled specially)
+ * - TaskCreate/TaskUpdate: Incremental task tracking on modern CLIs (hidden,
+ *   handled specially via the task tracker)
+ * - TaskGet/TaskList: Read-only task queries (hidden, pure noise in chat)
  * - Task: Subagent spawning (hidden, handled specially)
  * - EnterPlanMode: Plan mode entry
  * - ExitPlanMode: Plan approval (hidden, handled specially)
@@ -19,14 +22,31 @@ import type { ToolFormatter, ToolFormatResult, ToolInput, ToolFormatOptions } fr
  * Formatter for task-related tools.
  */
 export const taskToolsFormatter: ToolFormatter = {
-  toolNames: ['TodoWrite', 'Task', 'EnterPlanMode', 'ExitPlanMode', 'AskUserQuestion'],
+  toolNames: [
+    'TodoWrite',
+    'TaskCreate',
+    'TaskUpdate',
+    'TaskGet',
+    'TaskList',
+    'Task',
+    'EnterPlanMode',
+    'ExitPlanMode',
+    'AskUserQuestion',
+  ],
 
-  format(toolName: string, _input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
+  format(toolName: string, input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
     const { formatter } = options;
 
     switch (toolName) {
       case 'TodoWrite':
+      case 'TaskCreate':
+      case 'TaskUpdate':
         // Hidden - handled specially with task list display
+        return { display: null, hidden: true };
+
+      case 'TaskGet':
+      case 'TaskList':
+        // Hidden - read-only task queries, nothing worth showing
         return { display: null, hidden: true };
 
       case 'Task':
@@ -39,9 +59,40 @@ export const taskToolsFormatter: ToolFormatter = {
           permissionText: `📋 ${formatter.formatBold('Planning...')}`,
         };
 
-      case 'ExitPlanMode':
-        // Hidden - handled specially with approval buttons
-        return { display: null, hidden: true };
+      case 'ExitPlanMode': {
+        // Hidden in the content stream — the plan-approval UI renders the
+        // plan. But on modern CLIs the tool ALSO routes through the MCP
+        // permission prompt (verified on 2.1.223), and without permissionText
+        // that prompt showed only the bare tool name, asking users to approve
+        // a plan they couldn't see. Give it the plan text. (The duplicate
+        // prompt itself — MCP prompt vs. the bot's approval UI — is a known
+        // conflict tracked as follow-up work.)
+        const plan = typeof input.plan === 'string' ? input.plan : '';
+        // Truncate on a code-point boundary (Array.from) so the cut can't
+        // split a surrogate pair. Truncation is decided in code points too —
+        // an emoji-heavy plan with a large UTF-16 length but few code points
+        // is not actually cut and must not get an ellipsis.
+        const points = Array.from(plan);
+        const truncated = points.length > 1500;
+        let preview = truncated ? `${points.slice(0, 1500).join('')}\n…` : plan;
+        // Balance code fences ONLY when we actually cut: an untruncated plan
+        // renders as authored, and "balancing" it on a naive substring count
+        // (inline ``` mentions, ```` nested-fence demos) would OPEN a block
+        // that swallows the reaction legend the MCP server appends after
+        // this text. For a cut plan, count fence *delimiters* (lines starting
+        // with ```): an odd count means the cut landed inside a block.
+        if (truncated) {
+          const fenceCount = (preview.match(/^```/gm) || []).length;
+          if (fenceCount % 2 === 1) preview += '\n```';
+        }
+        return {
+          display: null,
+          hidden: true,
+          permissionText: preview
+            ? `📋 ${formatter.formatBold('Plan approval requested')}\n\n${preview}`
+            : `📋 ${formatter.formatBold('Plan approval requested')}`,
+        };
+      }
 
       case 'AskUserQuestion':
         // Hidden - the question text follows separately

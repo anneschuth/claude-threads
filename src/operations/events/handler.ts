@@ -153,6 +153,17 @@ function extractAndUpdatePullRequest(
 // ---------------------------------------------------------------------------
 
 /**
+ * True for events forwarded from a subagent's sidechain: some CLI versions
+ * relay subagent activity as assistant/user events carrying
+ * `parent_tool_use_id`. The transformer skips them entirely; the handlers
+ * here exclude them from command execution and bug-report tracking (thread
+ * logging and PR-URL extraction intentionally still see them).
+ */
+function isSidechainEvent(event: ClaudeEvent): boolean {
+  return Boolean((event as { parent_tool_use_id?: unknown }).parent_tool_use_id);
+}
+
+/**
  * Pre-processing for events when using MessageManager.
  * Handles session-specific side effects that should run BEFORE the main event handling.
  */
@@ -204,7 +215,23 @@ export function handleEventPreProcessing(
     }
   }
 
-  // Track tool use events for bug reporting context
+  // Track tool use events for bug reporting context. The real CLI delivers
+  // tool uses as blocks inside assistant events; top-level tool_use events
+  // are a legacy shape kept for old captures and test fixtures. Sidechain
+  // (subagent) events are excluded, matching the transformer: a bug report
+  // listing 40 subagent Reads the thread never displayed is misleading.
+  if (event.type === 'assistant' && !isSidechainEvent(event)) {
+    const msg = event.message as {
+      content?: Array<{ type: string; name?: string }>;
+    };
+    if (Array.isArray(msg?.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'tool_use' && block.name) {
+          trackEvent(session, 'tool_use', block.name);
+        }
+      }
+    }
+  }
   if (event.type === 'tool_use') {
     const tool = event.tool_use as { name: string };
     trackEvent(session, 'tool_use', tool.name);
@@ -227,10 +254,17 @@ export function handleEventPostProcessing(
     };
     for (const block of msg?.content || []) {
       if (block.type === 'text' && block.text) {
-        // Detect and store pull request URLs
+        // Detect and store pull request URLs. Sidechain (subagent) text is
+        // included on purpose — a PR opened by a subagent is still this
+        // session's PR.
         extractAndUpdatePullRequest(block.text, session, ctx);
-        // Detect and execute Claude commands (e.g., !cd)
-        detectAndExecuteClaudeCommands(block.text, session, ctx);
+        // Detect and execute Claude commands (e.g., !cd) — but never from
+        // sidechain text: the transformer doesn't display subagent output,
+        // and invisible output must not drive visible side effects like a
+        // directory change that respawns Claude.
+        if (!isSidechainEvent(event)) {
+          detectAndExecuteClaudeCommands(block.text, session, ctx);
+        }
       }
     }
   }
@@ -243,7 +277,22 @@ export function handleEventPostProcessing(
     updateUsageStats(session, event, ctx);
   }
 
-  // Track tool errors for bug reporting context
+  // Track tool errors for bug reporting context. The real CLI delivers tool
+  // results as blocks inside user events; top-level tool_result events are a
+  // legacy shape kept for old captures and test fixtures. Sidechain events
+  // are excluded, matching the tool_use tracking above.
+  if (event.type === 'user' && !isSidechainEvent(event)) {
+    const msg = event.message as {
+      content?: Array<{ type: string; is_error?: boolean }> | string;
+    };
+    if (Array.isArray(msg?.content)) {
+      for (const block of msg.content) {
+        if (block.type === 'tool_result' && block.is_error) {
+          trackEvent(session, 'tool_error', 'Tool execution failed');
+        }
+      }
+    }
+  }
   if (event.type === 'tool_result') {
     const result = event.tool_result as { is_error?: boolean };
     if (result.is_error) {

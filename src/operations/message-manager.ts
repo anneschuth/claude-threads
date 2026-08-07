@@ -14,6 +14,7 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
+import { TaskTracker } from './task-tracker.js';
 import {
   ContentExecutor,
   TaskListExecutor,
@@ -166,6 +167,9 @@ export class MessageManager {
   // Tool start times for elapsed time calculation
   private toolStartTimes: Map<string, number> = new Map();
 
+  // Accumulated TaskCreate/TaskUpdate state (modern CLIs' incremental task tools)
+  private taskTracker = new TaskTracker();
+
   // Flush scheduling
   private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private static readonly DEFAULT_FLUSH_DELAY_MS = 500;
@@ -293,6 +297,7 @@ export class MessageManager {
       sessionId: this.sessionId,
       formatter: this.platform.getFormatter(),
       toolStartTimes: this.toolStartTimes,
+      taskTracker: this.taskTracker,
       detailed: true,
       worktreeInfo: this.worktreePath && this.worktreeBranch
         ? { path: this.worktreePath, branch: this.worktreeBranch }
@@ -301,6 +306,18 @@ export class MessageManager {
 
     // Transform event to operations
     const ops = transformEvent(event, transformCtx);
+
+    // A non-error TaskCreate result that didn't carry the expected
+    // "Task #N created" wording means the CLI's result text drifted — the
+    // task tracker silently drops such tasks, so surface it loudly: this is
+    // exactly how the task display would go dark again on a future CLI.
+    if (this.taskTracker.consumeUnmatchedCreateResultFlag()) {
+      logger.warn(
+        'TaskCreate result did not match the expected "Task #N created" wording — ' +
+        'task dropped from the displayed list. If this repeats, the Claude CLI ' +
+        'likely changed its result text and the task display will be incomplete.'
+      );
+    }
 
     if (ops.length === 0) {
       // System events are expected to produce no operations (handled separately for compaction/errors)
@@ -1181,11 +1198,26 @@ export class MessageManager {
   }
 
   /**
+   * Clear per-CLI-session state (tool timings, accumulated task tracking)
+   * without touching posted-message state. Must be called whenever Claude is
+   * respawned as a FRESH session (`resume: false` — !cd, worktree switch):
+   * the new CLI session numbers its tasks from #1 again, so stale tracker
+   * entries would collide with the new ids and corrupt task updates. Resume
+   * restarts (e.g. !permissions) must NOT call this — the resumed session
+   * keeps its task numbering.
+   */
+  clearClaudeSessionState(): void {
+    this.toolStartTimes.clear();
+    this.taskTracker.clear();
+  }
+
+  /**
    * Reset all state (for session restart)
    */
   reset(): void {
     this.cancelScheduledFlush();
     this.toolStartTimes.clear();
+    this.taskTracker.clear();
     this.contentExecutor.reset();
     this.taskListExecutor.reset();
     this.questionApprovalExecutor.reset();

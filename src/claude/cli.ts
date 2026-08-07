@@ -9,7 +9,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
-import { detectRateLimit, cooldownDeadline } from './rate-limit-detector.js';
+import { detectRateLimit, cooldownDeadline, parseRateLimitEvent, type RateLimitHit } from './rate-limit-detector.js';
 import type { PermissionMode } from '../config/types.js';
 
 const log = createLogger('claude');
@@ -391,6 +391,10 @@ export class ClaudeCli extends EventEmitter {
   // emitted one yet. Used to dedupe repeated hits at the same severity while
   // still letting a LATER deadline through — see maybeEmitRateLimit().
   private lastEmittedRateLimitDeadline = 0;
+  // Whether the last emitted hit carried an explicit reset time (vs. the 1h
+  // default guess). Governs the reset-less-hit suppression — see
+  // maybeEmitRateLimitHit().
+  private lastEmittedHitHadExplicitReset = false;
   private log: ReturnType<typeof createLogger>;  // Session-scoped logger
 
   constructor(options: ClaudeCliOptions) {
@@ -477,6 +481,7 @@ export class ClaudeCli extends EventEmitter {
     totalStderrBytes -= this.stderrBuffer.length;
     this.stderrBuffer = '';
     this.lastEmittedRateLimitDeadline = 0;
+    this.lastEmittedHitHadExplicitReset = false;
 
     // Clean up stale browser bridge sockets (workaround for Claude CLI bug)
     cleanupBrowserBridgeSockets();
@@ -679,6 +684,13 @@ export class ClaudeCli extends EventEmitter {
         if (event.type === 'result' && isErrorResultEvent(event)) {
           this.maybeEmitRateLimit(trimmed);
         }
+        // Structured rate-limit signal (2.1.2xx+): emitted every turn with
+        // status "allowed" when healthy; only "rejected" means a request was
+        // actually blocked (see parseRateLimitEvent — "allowed_warning" is a
+        // routine approaching-limit notice, not a limit).
+        if (event.type === 'rate_limit_event') {
+          this.maybeEmitRateLimitHit(parseRateLimitEvent(event));
+        }
       } catch {
         // Ignore unparseable lines (usually partial JSON from streaming)
       }
@@ -702,14 +714,50 @@ export class ClaudeCli extends EventEmitter {
    *    the deadline.
    *  - A second hit with the same or earlier deadline is skipped: the pool
    *    would have dropped it anyway.
+   *  - A reset-LESS hit (1h default guess) arriving while a cooldown from a
+   *    hit WITH an explicit reset is still running is ignored: the guess adds
+   *    no information and would stretch a precise shorter deadline past the
+   *    real reset (the pool only ever lengthens cooldowns). Reset-less
+   *    repeats during a cooldown that itself came from a reset-less hit DO
+   *    still re-emit and extend — for those, "the account is still limited"
+   *    is exactly the information the guess carries.
    */
   private maybeEmitRateLimit(text: string): void {
-    const hit = detectRateLimit(text);
+    this.maybeEmitRateLimitHit(detectRateLimit(text));
+  }
+
+  /** Shared emit path for text-scanned and structured rate-limit hits. */
+  private maybeEmitRateLimitHit(hit: RateLimitHit): void {
     if (!hit.detected) return;
+    // A hit WITHOUT an explicit reset falls back to the 1h default cooldown.
+    // While a cooldown from a hit WITH a precise reset is still running, that
+    // guess adds no information — it would only stretch the known deadline
+    // past the real reset (the pool only ever lengthens cooldowns). Applies
+    // to both reset-less text-scanner hits and structured hits whose
+    // implausible resetsAt was dropped. Reset-less repeats during a
+    // reset-less cooldown still re-emit (see dedupe semantics above).
+    if (
+      !hit.resetAtEpochMs &&
+      this.lastEmittedHitHadExplicitReset &&
+      this.lastEmittedRateLimitDeadline > Date.now()
+    ) {
+      return;
+    }
     const newDeadline = cooldownDeadline(hit);
     const MIN_ADVANCE_MS = 60_000;  // 1 minute: coarser than clock drift, finer than any real rate-limit reset step
-    if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) return;
+    if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) {
+      // Suppressed as not-newer — but an explicit reset is still information:
+      // if a 1h text-guess emitted first and the same turn's structured event
+      // carries the real (shorter) reset, later reset-less repeats must not
+      // stretch the cooldown past that known reset. Record the explicitness
+      // even though nothing is emitted.
+      if (hit.resetAtEpochMs !== undefined) {
+        this.lastEmittedHitHadExplicitReset = true;
+      }
+      return;
+    }
     this.lastEmittedRateLimitDeadline = newDeadline;
+    this.lastEmittedHitHadExplicitReset = hit.resetAtEpochMs !== undefined;
     this.log.warn(`Rate limit detected: ${hit.matched ?? '(no match text)'}`);
     this.emit('rate-limit', hit);
   }
@@ -809,13 +857,36 @@ export class ClaudeCli extends EventEmitter {
         }
       }, 2000); // 2 second grace period for Claude to save conversation
 
-      // Resolve when process exits
-      proc.once('exit', (code) => {
-        this.log.debug(`Claude process exited (code=${code})`);
+      const settle = (reason: string) => {
+        this.log.debug(`Claude process gone (${reason})`);
         clearTimeout(secondSigint);
         clearTimeout(forceKillTimeout);
+        clearTimeout(lastResort);
         resolve();
-      });
+      };
+
+      // Last resort: a SIGTERM-immune process (stuck I/O) or a child that
+      // never spawned must not leave callers awaiting forever — a hung kill()
+      // would freeze the session in 'restarting'.
+      const lastResort = setTimeout(() => {
+        try {
+          this.log.warn('Claude process did not exit after SIGTERM — sending SIGKILL');
+          proc.kill('SIGKILL');
+        } catch {
+          // Process may have already exited
+        }
+        settle('kill timeout');
+      }, 5000);
+
+      // Resolve on 'close', not 'exit': stdout data still buffered when
+      // 'exit' fires is delivered afterwards, and callers that clear
+      // per-session state after awaiting kill() must not see those late
+      // events. 'close' fires once all stdio has drained — including for
+      // failed spawns, which emit 'error' + 'close' but never 'exit'.
+      proc.once('close', (code) => settle(`closed, code=${code}`));
+      // A spawn error without a process also yields no 'exit'; 'close'
+      // still follows it, but resolve here too in case it doesn't.
+      proc.once('error', () => settle('spawn error'));
     });
   }
 
