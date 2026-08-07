@@ -34,15 +34,27 @@ function makeFakeProc(opts: FakeSubprocessOpts) {
   const proc = new EventEmitter() as EventEmitter & {
     stdout: EventEmitter;
     stderr: EventEmitter;
+    stdin: { end: () => void };
+    kill: (signal?: string) => boolean;
   };
   proc.stdout = new EventEmitter();
   proc.stderr = new EventEmitter();
+  // The crossSpawn mock is process-global while this file runs, so ANY
+  // crossSpawn caller can receive this fake — including fire-and-forget
+  // work leaked from other test files (e.g. quickQuery via session-start
+  // metadata suggestions, which listens for 'exit' and calls proc.kill()
+  // on timeout). Be faithful to ChildProcess: provide stdin/kill and emit
+  // 'exit' before 'close', or an unlucky interleaving turns into an
+  // unhandled TypeError minutes later in an unrelated test file.
+  proc.stdin = { end: () => {} };
+  proc.kill = () => true;
   setImmediate(() => {
     if (opts.stdout) proc.stdout.emit('data', Buffer.from(opts.stdout));
     if (opts.stderr) proc.stderr.emit('data', Buffer.from(opts.stderr));
     if (opts.emitError) {
       proc.emit('error', new Error('spawn boom'));
     }
+    proc.emit('exit', opts.exitCode ?? 0);
     proc.emit('close', opts.exitCode ?? 0);
   });
   return proc;
