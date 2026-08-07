@@ -307,6 +307,18 @@ export class MessageManager {
     // Transform event to operations
     const ops = transformEvent(event, transformCtx);
 
+    // A non-error TaskCreate result that didn't carry the expected
+    // "Task #N created" wording means the CLI's result text drifted — the
+    // task tracker silently drops such tasks, so surface it loudly: this is
+    // exactly how the task display would go dark again on a future CLI.
+    if (this.taskTracker.sawUnmatchedCreateResult()) {
+      logger.warn(
+        'TaskCreate result did not match the expected "Task #N created" wording — ' +
+        'task dropped from the displayed list. If this repeats, the Claude CLI ' +
+        'likely changed its result text and the task display will be incomplete.'
+      );
+    }
+
     if (ops.length === 0) {
       // System events are expected to produce no operations (handled separately for compaction/errors)
       if (event.type !== 'system') {

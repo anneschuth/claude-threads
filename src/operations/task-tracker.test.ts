@@ -59,7 +59,7 @@ describe('TaskTracker', () => {
     tracker.update({ taskId: '3', status: 'in_progress' });
     expect(tracker.toTaskItems()).toHaveLength(2);
 
-    expect(tracker.resolveCreatedId('tu-1', 'Task #3 created successfully: real subject')).toBe('resolved');
+    expect(tracker.resolveCreatedId('tu-1', 'Task #3 created successfully: real subject')).toBe('merged');
 
     // One row: real subject, placeholder's status adopted
     expect(tracker.toTaskItems()).toEqual([
@@ -115,5 +115,73 @@ describe('TaskTracker', () => {
     tracker.clear();
     expect(tracker.isEmpty).toBe(true);
     expect(tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: a')).toBe('ignored');
+  });
+});
+
+describe('TaskTracker - round-2 review fixes', () => {
+  let tracker: TaskTracker;
+
+  beforeEach(() => {
+    tracker = new TaskTracker();
+  });
+
+  it('placeholder-only sets never report allCompleted (post-restart safety)', () => {
+    // After a bot restart the tracker is empty while the resumed CLI session
+    // still holds open tasks. One completed placeholder must NOT signal full
+    // completion (that would delete the restored task-list display).
+    tracker.update({ taskId: '5', status: 'completed' });
+    expect(tracker.isEmpty).toBe(false);
+    expect(tracker.allCompleted).toBe(false);
+  });
+
+  it('allCompleted still fires when at least one real task is present', () => {
+    tracker.create('tu-1', { subject: 'real', description: 'd' });
+    tracker.resolveCreatedId('tu-1', 'Task #7 created successfully: real');
+    tracker.update({ taskId: '5', status: 'completed' }); // placeholder
+    tracker.update({ taskId: '7', status: 'completed' }); // real
+    expect(tracker.allCompleted).toBe(true);
+  });
+
+  it('a merged task is a real task for allCompleted purposes', () => {
+    tracker.update({ taskId: '3', status: 'completed' }); // placeholder first
+    tracker.create('tu-1', { subject: 'real', description: 'd' });
+    expect(tracker.resolveCreatedId('tu-1', 'Task #3 created successfully: real')).toBe('merged');
+    expect(tracker.allCompleted).toBe(true);
+  });
+
+  it('adopts a placeholder subject rename during merge', () => {
+    tracker.create('tu-1', { subject: 'original name', description: 'd' });
+    // The early update carried a rename — newer information than the create
+    tracker.update({ taskId: '3', subject: 'renamed by update', status: 'in_progress' });
+    tracker.resolveCreatedId('tu-1', 'Task #3 created successfully: original name');
+    expect(tracker.toTaskItems()).toEqual([
+      { content: 'renamed by update', status: 'in_progress', activeForm: 'renamed by update' },
+    ]);
+  });
+
+  it('accepts a numeric taskId (coerced to string)', () => {
+    tracker.create('tu-1', { subject: 'x', description: 'd' });
+    tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: x');
+    expect(tracker.update({ taskId: 1, status: 'completed' })).toBe(true);
+    expect(tracker.toTaskItems()[0].status).toBe('completed');
+  });
+
+  it('hasPendingCreate reflects the pending window', () => {
+    expect(tracker.hasPendingCreate('tu-1')).toBe(false);
+    tracker.create('tu-1', { subject: 'x', description: 'd' });
+    expect(tracker.hasPendingCreate('tu-1')).toBe(true);
+    tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: x');
+    expect(tracker.hasPendingCreate('tu-1')).toBe(false);
+  });
+
+  it('flags unmatched non-error create results once, resetting on read', () => {
+    tracker.create('tu-1', { subject: 'x', description: 'd' });
+    tracker.resolveCreatedId('tu-1', 'Reworded: task recorded');
+    expect(tracker.sawUnmatchedCreateResult()).toBe(true);
+    expect(tracker.sawUnmatchedCreateResult()).toBe(false);
+    // Error results are NOT wording drift — no flag
+    tracker.create('tu-2', { subject: 'y', description: 'd' });
+    tracker.resolveCreatedId('tu-2', 'boom', true);
+    expect(tracker.sawUnmatchedCreateResult()).toBe(false);
   });
 });

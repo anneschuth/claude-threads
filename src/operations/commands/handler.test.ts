@@ -933,3 +933,60 @@ describe('setRespondOnlyWhenMentioned (#402)', () => {
     expect(ctx.ops.persistSession).not.toHaveBeenCalled();
   });
 });
+
+describe('restartClaudeSession session-state clearing', () => {
+  const withFakeClaudePath = async (fn: () => Promise<void>) => {
+    const prev = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = '/nonexistent/claude-binary-for-tests';
+    try {
+      await fn();
+    } finally {
+      if (prev === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prev;
+    }
+  };
+
+  it('awaits the old CLI exit, then clears task/tool state for a fresh session (resume: false)', async () => {
+    await withFakeClaudePath(async () => {
+      const order: string[] = [];
+      const session = createMockSession();
+      // kill resolves asynchronously — the clear must happen strictly after,
+      // or late events from the dying process would repopulate the state
+      (session.claude as unknown as { kill: unknown }).kill = mock(
+        () => new Promise<void>(resolve => setTimeout(() => { order.push('kill-done'); resolve(); }, 5))
+      );
+      (session.messageManager as unknown as { clearClaudeSessionState: unknown }).clearClaudeSessionState =
+        mock(() => order.push('clear'));
+      const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+      await commands.restartClaudeSession(
+        session,
+        { workingDir: '/tmp', resume: false } as never,
+        ctx,
+        'test restart'
+      );
+
+      expect(order).toEqual(['kill-done', 'clear']);
+    });
+  });
+
+  it('keeps task/tool state on resume restarts (e.g. !permissions)', async () => {
+    await withFakeClaudePath(async () => {
+      const session = createMockSession();
+      (session.claude as unknown as { kill: unknown }).kill = mock(() => Promise.resolve());
+      const clearSpy = mock(() => {});
+      (session.messageManager as unknown as { clearClaudeSessionState: unknown }).clearClaudeSessionState =
+        clearSpy;
+      const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+      await commands.restartClaudeSession(
+        session,
+        { workingDir: '/tmp', resume: true } as never,
+        ctx,
+        'test restart'
+      );
+
+      expect(clearSpy).not.toHaveBeenCalled();
+    });
+  });
+});

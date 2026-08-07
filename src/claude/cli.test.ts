@@ -577,3 +577,90 @@ describe('buildPermissionArgs', () => {
     expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
   });
 });
+
+describe('rate-limit emit guard - structured/reset-less interplay', () => {
+  const callGuard = (cli: ClaudeCli, text: string) =>
+    (cli as unknown as { maybeEmitRateLimit: (t: string) => void }).maybeEmitRateLimit(text);
+  const callHit = (cli: ClaudeCli, hit: unknown) =>
+    (cli as unknown as { maybeEmitRateLimitHit: (h: unknown) => void }).maybeEmitRateLimitHit(hit);
+
+  test('a reset-less hit is suppressed while a precise structured deadline is cooling', () => {
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: unknown[] = [];
+    cli.on('rate-limit', (h) => hits.push(h));
+
+    // Structured rejected event with an exact reset 30 min out
+    callHit(cli, {
+      detected: true,
+      resetAtEpochMs: Date.now() + 30 * 60_000,
+      matched: 'rate_limit_event status=rejected',
+    });
+    // Same turn's error body: phrase matches but carries no reset time —
+    // without suppression the 1h default would stretch the cooldown past
+    // the real reset (the pool only ever extends).
+    callGuard(cli, 'Usage limit reached.');
+
+    expect(hits).toHaveLength(1);
+  });
+
+  test('reset-less repeats during a reset-less cooldown still re-emit and extend', () => {
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: unknown[] = [];
+    cli.on('rate-limit', (h) => hits.push(h));
+
+    callGuard(cli, 'Usage limit reached.'); // reset-less → 1h default
+    // Simulate 50 minutes passing: rewind the recorded deadline
+    (cli as unknown as { lastEmittedRateLimitDeadline: number }).lastEmittedRateLimitDeadline =
+      Date.now() + 10 * 60_000;
+    callGuard(cli, 'Usage limit reached.'); // still limited → must extend
+
+    expect(hits).toHaveLength(2);
+  });
+
+  test('a reset-less hit after the structured deadline expired emits normally', () => {
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: unknown[] = [];
+    cli.on('rate-limit', (h) => hits.push(h));
+
+    callHit(cli, {
+      detected: true,
+      resetAtEpochMs: Date.now() + 30 * 60_000,
+      matched: 'rate_limit_event status=rejected',
+    });
+    // Simulate the deadline having passed
+    (cli as unknown as { lastEmittedRateLimitDeadline: number }).lastEmittedRateLimitDeadline =
+      Date.now() - 1000;
+    callGuard(cli, 'Usage limit reached.');
+
+    expect(hits).toHaveLength(2);
+  });
+
+  test('parseOutput wires structured rate_limit_event rejections to the rate-limit emitter', () => {
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: Array<{ resetAtEpochMs?: number }> = [];
+    cli.on('rate-limit', (h) => hits.push(h as { resetAtEpochMs?: number }));
+    const parse = (line: string) =>
+      (cli as unknown as { parseOutput: (d: string) => void }).parseOutput(line + '\n');
+
+    const resetsAt = Math.floor(Date.now() / 1000) + 1800;
+    // Healthy every-turn event: must NOT emit
+    parse(JSON.stringify({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed', resetsAt, rateLimitType: 'five_hour' },
+    }));
+    expect(hits).toHaveLength(0);
+    // Warning: must NOT emit either
+    parse(JSON.stringify({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'allowed_warning', resetsAt, utilization: 0.8 },
+    }));
+    expect(hits).toHaveLength(0);
+    // Rejection: emits with the converted deadline
+    parse(JSON.stringify({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt, rateLimitType: 'five_hour' },
+    }));
+    expect(hits).toHaveLength(1);
+    expect(hits[0].resetAtEpochMs).toBe(resetsAt * 1000);
+  });
+});

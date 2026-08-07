@@ -200,6 +200,17 @@ function transformAssistant(
   // Flush any remaining text content
   flushTextBuffer();
 
+  // Coalesce task-list ops: each one renders the tracker's FULL state, so
+  // when a single assistant event carries several TaskCreate/TaskUpdate
+  // blocks (a parallel burst) only the last snapshot matters. Emitting all
+  // of them would update the pinned task post N times back-to-back — enough
+  // to trip platform rate limits.
+  const taskListOps = operations.filter(op => op.type === 'task_list');
+  if (taskListOps.length > 1) {
+    const last = taskListOps[taskListOps.length - 1];
+    return operations.filter(op => op.type !== 'task_list' || op === last);
+  }
+
   return operations;
 }
 
@@ -238,16 +249,26 @@ function transformUser(
 
     // Late-resolve task ids: a TaskCreate's id is only revealed by its tool
     // result ("Task #3 created successfully: ..."). A failed create removes
-    // the task again — refresh the display so the ghost row disappears.
-    const resolution = ctx.taskTracker.resolveCreatedId(
-      block.tool_use_id,
-      toolResultContentText(block.content),
-      block.is_error === true
-    );
-    if (resolution === 'removed') {
-      operations.push(
-        createTaskListOp(ctx.sessionId, 'update', ctx.taskTracker.toTaskItems())
+    // the task again, and resolving may absorb a placeholder row — both
+    // change the visible list, so refresh the display. Content extraction is
+    // gated on a pending create: without one there is nothing to resolve, and
+    // copying a multi-MB Read/Bash result into a string would be pure waste.
+    if (ctx.taskTracker.hasPendingCreate(block.tool_use_id)) {
+      const resolution = ctx.taskTracker.resolveCreatedId(
+        block.tool_use_id,
+        toolResultContentText(block.content),
+        block.is_error === true
       );
+      if (resolution === 'removed' || resolution === 'merged') {
+        // Mirror handleTaskUpdate's action choice: an empty or fully-completed
+        // remainder must complete (deleting the pinned post), not linger as an
+        // empty/stale "0/0" task post.
+        const action =
+          ctx.taskTracker.isEmpty || ctx.taskTracker.allCompleted ? 'complete' : 'update';
+        operations.push(
+          createTaskListOp(ctx.sessionId, action, ctx.taskTracker.toTaskItems())
+        );
+      }
     }
 
     // Completion indicator — only for tools we actually displayed (their

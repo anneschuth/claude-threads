@@ -391,6 +391,10 @@ export class ClaudeCli extends EventEmitter {
   // emitted one yet. Used to dedupe repeated hits at the same severity while
   // still letting a LATER deadline through — see maybeEmitRateLimit().
   private lastEmittedRateLimitDeadline = 0;
+  // Whether the last emitted hit carried an explicit reset time (vs. the 1h
+  // default guess). Governs the reset-less-hit suppression — see
+  // maybeEmitRateLimitHit().
+  private lastEmittedHitHadExplicitReset = false;
   private log: ReturnType<typeof createLogger>;  // Session-scoped logger
 
   constructor(options: ClaudeCliOptions) {
@@ -477,6 +481,7 @@ export class ClaudeCli extends EventEmitter {
     totalStderrBytes -= this.stderrBuffer.length;
     this.stderrBuffer = '';
     this.lastEmittedRateLimitDeadline = 0;
+    this.lastEmittedHitHadExplicitReset = false;
 
     // Clean up stale browser bridge sockets (workaround for Claude CLI bug)
     cleanupBrowserBridgeSockets();
@@ -707,6 +712,13 @@ export class ClaudeCli extends EventEmitter {
    *    the deadline.
    *  - A second hit with the same or earlier deadline is skipped: the pool
    *    would have dropped it anyway.
+   *  - A reset-LESS hit (1h default guess) arriving while a cooldown from a
+   *    hit WITH an explicit reset is still running is ignored: the guess adds
+   *    no information and would stretch a precise shorter deadline past the
+   *    real reset (the pool only ever lengthens cooldowns). Reset-less
+   *    repeats during a cooldown that itself came from a reset-less hit DO
+   *    still re-emit and extend — for those, "the account is still limited"
+   *    is exactly the information the guess carries.
    */
   private maybeEmitRateLimit(text: string): void {
     this.maybeEmitRateLimitHit(detectRateLimit(text));
@@ -716,15 +728,24 @@ export class ClaudeCli extends EventEmitter {
   private maybeEmitRateLimitHit(hit: RateLimitHit): void {
     if (!hit.detected) return;
     // A hit WITHOUT an explicit reset falls back to the 1h default cooldown.
-    // While a previous hit's cooldown is still running, that guess adds no
-    // information — but it could *extend* a precise (shorter) deadline from a
-    // structured rate_limit_event past the real reset, since the account pool
-    // only ever lengthens cooldowns. Ignore reset-less hits while cooling.
-    if (!hit.resetAtEpochMs && this.lastEmittedRateLimitDeadline > Date.now()) return;
+    // While a cooldown from a hit WITH a precise reset is still running, that
+    // guess adds no information — it would only stretch the known deadline
+    // past the real reset (the pool only ever lengthens cooldowns). Applies
+    // to both reset-less text-scanner hits and structured hits whose
+    // implausible resetsAt was dropped. Reset-less repeats during a
+    // reset-less cooldown still re-emit (see dedupe semantics above).
+    if (
+      !hit.resetAtEpochMs &&
+      this.lastEmittedHitHadExplicitReset &&
+      this.lastEmittedRateLimitDeadline > Date.now()
+    ) {
+      return;
+    }
     const newDeadline = cooldownDeadline(hit);
     const MIN_ADVANCE_MS = 60_000;  // 1 minute: coarser than clock drift, finer than any real rate-limit reset step
     if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) return;
     this.lastEmittedRateLimitDeadline = newDeadline;
+    this.lastEmittedHitHadExplicitReset = hit.resetAtEpochMs !== undefined;
     this.log.warn(`Rate limit detected: ${hit.matched ?? '(no match text)'}`);
     this.emit('rate-limit', hit);
   }

@@ -232,3 +232,23 @@ describe('parseRateLimitEvent - status semantics (SDK: allowed | allowed_warning
     expect(hit.resetAtEpochMs).toBeUndefined();
   });
 });
+
+describe('parseRateLimitEvent - plausibility window (far future)', () => {
+  it('drops a resetsAt more than 8 days out (wrong unit / bogus value)', () => {
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt: Math.floor(NOW / 1000) + 30 * 86_400 },
+    }, NOW);
+    expect(hit.detected).toBe(true);
+    expect(hit.resetAtEpochMs).toBeUndefined();
+  });
+
+  it('accepts a weekly reset just inside the window', () => {
+    const resetsAt = Math.floor(NOW / 1000) + 7 * 86_400;
+    const hit = parseRateLimitEvent({
+      type: 'rate_limit_event',
+      rate_limit_info: { status: 'rejected', resetsAt },
+    }, NOW);
+    expect(hit.resetAtEpochMs).toBe(resetsAt * 1000);
+  });
+});

@@ -27,6 +27,15 @@ export interface TrackedTask {
   subject: string;
   activeForm?: string;
   status: TaskItem['status'];
+  /**
+   * True for tasks the tracker never saw created — synthesized from a
+   * TaskUpdate for an unknown id (task created before a resume, etc.).
+   * Placeholder-only sets must not count as "all completed": after a bot
+   * restart the CLI session may hold many open tasks the fresh tracker
+   * doesn't know about, and one completed placeholder would otherwise
+   * delete the restored task-list display and signal full completion.
+   */
+  isPlaceholder?: boolean;
 }
 
 /** Matches TaskCreate tool results like "Task #3 created successfully: ...". */
@@ -36,6 +45,13 @@ export class TaskTracker {
   private tasks: TrackedTask[] = [];
   /** TaskCreate tool_use_id → task awaiting its id from the tool result. */
   private pendingCreates = new Map<string, TrackedTask>();
+  /**
+   * Count of non-error TaskCreate results that did NOT carry the expected
+   * "Task #N created" text. A steady stream of these means the CLI reworded
+   * the result — the tracker is then silently blind, and the owner (see
+   * MessageManager) should log a warning.
+   */
+  private unmatchedCreateResults = 0;
 
   /** Record a TaskCreate call. The task id arrives later via the tool result. */
   create(toolUseId: string, input: Record<string, unknown>): void {
@@ -50,6 +66,11 @@ export class TaskTracker {
     }
   }
 
+  /** Whether this tool_use_id belongs to a TaskCreate still awaiting its result. */
+  hasPendingCreate(toolUseId: string): boolean {
+    return this.pendingCreates.has(toolUseId);
+  }
+
   /**
    * Resolve a pending TaskCreate's real id from its tool result content.
    * Safe to call with any tool result — non-TaskCreate ids are ignored.
@@ -58,36 +79,52 @@ export class TaskTracker {
    * "Task #N created" text is REMOVED from the list: keeping it would leave a
    * permanent ghost row that can never be updated or completed (updates go by
    * taskId), which would also pin `allCompleted` at false forever. Removal is
-   * also the safe response to the CLI rewording the result text.
+   * also the safe response to the CLI rewording the result text (tracked via
+   * `sawUnmatchedCreateResult` so the owner can log it).
    *
-   * Returns 'resolved' when the id was attached, 'removed' when the task was
-   * dropped (caller should refresh the display), 'ignored' otherwise.
+   * Returns 'resolved' when the id was attached, 'merged' when resolving also
+   * absorbed a placeholder row (display should refresh), 'removed' when the
+   * task was dropped (display should refresh), 'ignored' otherwise.
    */
   resolveCreatedId(
     toolUseId: string,
     resultContent: string,
     isError = false
-  ): 'resolved' | 'removed' | 'ignored' {
+  ): 'resolved' | 'merged' | 'removed' | 'ignored' {
     const task = this.pendingCreates.get(toolUseId);
     if (!task) return 'ignored';
     // The create either resolved or failed; stop waiting on it either way.
     this.pendingCreates.delete(toolUseId);
     const match = isError ? null : CREATED_RESULT_RE.exec(resultContent);
     if (!match) {
+      if (!isError) this.unmatchedCreateResults++;
       this.tasks = this.tasks.filter(t => t !== task);
       return 'removed';
     }
-    // If an update already created a placeholder for this id, merge: keep the
-    // real subject from the create, adopt the placeholder's status, and drop
-    // the placeholder — two rows sharing one id would make one unreachable.
+    // If an update already created a placeholder for this id, merge: adopt
+    // the placeholder's status (and any rename it carried — an update's
+    // subject is newer information than the create's), then drop it — two
+    // rows sharing one id would make one unreachable.
     const placeholder = this.tasks.find(t => t !== task && t.taskId === match[1]);
     if (placeholder) {
       task.status = placeholder.status;
+      if (placeholder.subject !== `Task #${match[1]}`) task.subject = placeholder.subject;
       if (placeholder.activeForm && !task.activeForm) task.activeForm = placeholder.activeForm;
       this.tasks = this.tasks.filter(t => t !== placeholder);
     }
     task.taskId = match[1];
-    return 'resolved';
+    return placeholder ? 'merged' : 'resolved';
+  }
+
+  /**
+   * True once a non-error TaskCreate result failed to match the expected
+   * wording — a signal the CLI's result text drifted. Reading resets the flag
+   * so the owner can warn once per occurrence batch.
+   */
+  sawUnmatchedCreateResult(): boolean {
+    if (this.unmatchedCreateResults === 0) return false;
+    this.unmatchedCreateResults = 0;
+    return true;
   }
 
   /**
@@ -96,7 +133,14 @@ export class TaskTracker {
    * visible. Returns true when the update changed anything.
    */
   update(input: Record<string, unknown>): boolean {
-    const taskId = typeof input.taskId === 'string' ? input.taskId : undefined;
+    // The SDK schema types taskId as a string, but tolerate a numeric id —
+    // silently no-oping on `taskId: 1` would freeze the displayed list.
+    const taskId =
+      typeof input.taskId === 'string'
+        ? input.taskId
+        : typeof input.taskId === 'number'
+          ? String(input.taskId)
+          : undefined;
     if (!taskId) return false;
 
     let task = this.tasks.find(t => t.taskId === taskId);
@@ -109,7 +153,7 @@ export class TaskTracker {
     }
 
     if (!task) {
-      task = { taskId, subject: `Task #${taskId}`, status: 'pending' };
+      task = { taskId, subject: `Task #${taskId}`, status: 'pending', isPlaceholder: true };
       this.tasks.push(task);
     }
 
@@ -134,12 +178,24 @@ export class TaskTracker {
     return this.tasks.length === 0;
   }
 
+  /**
+   * All tasks completed — and at least one of them is a task this tracker
+   * actually saw created. A set consisting only of placeholders (updates to
+   * ids from before a bot restart) must not signal completion: the CLI
+   * session may hold open tasks the tracker has never seen, and a 'complete'
+   * action would delete the restored task-list display.
+   */
   get allCompleted(): boolean {
-    return this.tasks.length > 0 && this.tasks.every(t => t.status === 'completed');
+    return (
+      this.tasks.length > 0 &&
+      this.tasks.every(t => t.status === 'completed') &&
+      this.tasks.some(t => !t.isPlaceholder)
+    );
   }
 
   clear(): void {
     this.tasks = [];
     this.pendingCreates.clear();
+    this.unmatchedCreateResults = 0;
   }
 }

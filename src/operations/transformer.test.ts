@@ -804,9 +804,12 @@ describe('Event Transformer - review fixes', () => {
     );
 
     // A task-list refresh with the ghost removed (no orphaned indicator:
-    // TaskCreate is hidden so no flush/indicator ops either)
+    // TaskCreate is hidden so no flush/indicator ops either). The tracker is
+    // now empty, so the action is 'complete' — an 'update' would render a
+    // lingering empty "0/0" task post.
     expect(ops.length).toBe(1);
     expect(ops[0].type).toBe('task_list');
+    expect((ops[0] as { action: string }).action).toBe('complete');
     expect((ops[0] as { tasks: unknown[] }).tasks).toEqual([]);
     expect(ctx.taskTracker.allCompleted).toBe(false);
     expect(ctx.taskTracker.isEmpty).toBe(true);
@@ -842,5 +845,131 @@ describe('Event Transformer - review fixes', () => {
     expect(ops[0].type).toBe('task_list');
     // Tracker cleared: a later TaskUpdate can't resurrect the old incremental set
     expect(ctx.taskTracker.isEmpty).toBe(true);
+  });
+});
+
+describe('Event Transformer - round-2 review fixes', () => {
+  let ctx: TransformContext;
+
+  beforeEach(() => {
+    ctx = {
+      sessionId: 'test-session',
+      formatter: mockFormatter,
+      toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
+      detailed: true,
+    };
+  });
+
+  const toolUseBlock = (name: string, id: string, input: Record<string, unknown>) => ({
+    type: 'tool_use',
+    name,
+    id,
+    input,
+  });
+
+  it('processes every tool_result block in one user event (real CLIs batch parallel results)', () => {
+    // Two displayed tools + one pending TaskCreate, all resolving in ONE user
+    // event, mixed with a text block.
+    transformEvent(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            toolUseBlock('Bash', 'tu-bash', { command: 'ls' }),
+            toolUseBlock('Read', 'tu-read', { file_path: '/x' }),
+            toolUseBlock('TaskCreate', 'tu-task', { subject: 'doomed', description: 'd' }),
+          ],
+        },
+      },
+      ctx
+    );
+
+    const ops = transformEvent(
+      {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu-bash', content: 'ok' },
+            { type: 'text', text: 'interleaved text block' },
+            { type: 'tool_result', tool_use_id: 'tu-task', content: 'nope', is_error: true },
+            { type: 'tool_result', tool_use_id: 'tu-read', content: 'file contents', is_error: true },
+          ],
+        },
+      },
+      ctx
+    );
+
+    const types = ops.map(o => o.type);
+    // Both indicators present (one success, one error), the failed-create
+    // task refresh present, and EXACTLY one trailing flush.
+    expect(types.filter(t => t === 'flush')).toHaveLength(1);
+    expect(types[types.length - 1]).toBe('flush');
+    expect(types.filter(t => t === 'task_list')).toHaveLength(1);
+    const indicators = ops.filter(
+      o => o.type === 'append_content'
+    ) as Array<{ content: string }>;
+    expect(indicators).toHaveLength(2);
+    expect(indicators[0].content).toContain('↳ ✓');
+    expect(indicators[1].content).toContain('↳ ❌ Error');
+    // All start times consumed
+    expect(ctx.toolStartTimes.size).toBe(0);
+  });
+
+  it('coalesces a burst of TaskCreate blocks in one assistant event into a single task_list op', () => {
+    const ops = transformEvent(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            toolUseBlock('TaskCreate', 'tu-1', { subject: 'one', description: 'd' }),
+            toolUseBlock('TaskCreate', 'tu-2', { subject: 'two', description: 'd' }),
+            toolUseBlock('TaskCreate', 'tu-3', { subject: 'three', description: 'd' }),
+          ],
+        },
+      },
+      ctx
+    );
+
+    const taskOps = ops.filter(o => o.type === 'task_list') as Array<{ tasks: unknown[] }>;
+    expect(taskOps).toHaveLength(1);
+    // The surviving op carries the final snapshot (all three tasks)
+    expect(taskOps[0].tasks).toHaveLength(3);
+  });
+
+  it('refreshes the display when resolving a create absorbs a placeholder row', () => {
+    transformEvent(
+      {
+        type: 'assistant',
+        message: { content: [toolUseBlock('TaskCreate', 'tu-1', { subject: 'real', description: 'd' })] },
+      },
+      ctx
+    );
+    // Early update creates a placeholder row for id 3 (2 rows displayed)
+    transformEvent(
+      {
+        type: 'assistant',
+        message: { content: [toolUseBlock('TaskUpdate', 'tu-2', { taskId: '3', status: 'in_progress' })] },
+      },
+      ctx
+    );
+
+    const ops = transformEvent(
+      {
+        type: 'user',
+        message: {
+          content: [{ type: 'tool_result', tool_use_id: 'tu-1', content: 'Task #3 created successfully: real' }],
+        },
+      },
+      ctx
+    );
+
+    // The merge collapsed two rows into one — the stale 2-row display must
+    // be refreshed immediately, not at the next task op.
+    expect(ops).toHaveLength(1);
+    expect(ops[0].type).toBe('task_list');
+    expect((ops[0] as { tasks: Array<{ content: string; status: string; activeForm: string }> }).tasks).toEqual([
+      { content: 'real', status: 'in_progress', activeForm: 'real' },
+    ]);
   });
 });

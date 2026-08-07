@@ -991,3 +991,45 @@ describe('MessageManager', () => {
     });
   });
 });
+
+describe('clearClaudeSessionState', () => {
+  let manager: MessageManager;
+
+  beforeEach(() => {
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    manager = new MessageManager({
+      session,
+      platform,
+      postTracker: new PostTracker(),
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      registerPost: () => {},
+      updateLastMessage: () => {},
+    });
+  });
+
+  it('drops accumulated task and tool-timing state', async () => {
+    // Accumulate state through the real event path
+    await manager.handleEvent({
+      type: 'assistant',
+      message: {
+        content: [
+          { type: 'tool_use', name: 'TaskCreate', id: 'tu-1', input: { subject: 'a task', description: 'd' } },
+          { type: 'tool_use', name: 'Bash', id: 'tu-2', input: { command: 'ls' } },
+        ],
+      },
+    });
+    const internals = manager as unknown as {
+      taskTracker: { isEmpty: boolean };
+      toolStartTimes: Map<string, number>;
+    };
+    expect(internals.taskTracker.isEmpty).toBe(false);
+    expect(internals.toolStartTimes.size).toBe(1);
+
+    manager.clearClaudeSessionState();
+
+    expect(internals.taskTracker.isEmpty).toBe(true);
+    expect(internals.toolStartTimes.size).toBe(0);
+  });
+});

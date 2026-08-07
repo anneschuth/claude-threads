@@ -482,7 +482,9 @@ export async function createAndSwitchToWorktree(
       if (session.claude.isRunning()) {
         options.stopTyping(session);
         transitionTo(session, 'restarting');
-        session.claude.kill();
+        // Await the exit: late events from the dying process would otherwise
+        // land after clearClaudeSessionState() below and repopulate stale state.
+        await session.claude.kill();
 
         // Flush any pending content
         await options.flush(session);
@@ -644,7 +646,9 @@ export async function createAndSwitchToWorktree(
     if (session.claude.isRunning()) {
       options.stopTyping(session);
       transitionTo(session, 'restarting');
-      session.claude.kill();
+      // Await the exit: late events from the dying process would otherwise
+      // land after clearClaudeSessionState() below and repopulate stale state.
+      await session.claude.kill();
 
       // Flush any pending content
       await options.flush(session);

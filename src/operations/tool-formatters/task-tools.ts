@@ -68,7 +68,15 @@ export const taskToolsFormatter: ToolFormatter = {
         // prompt itself — MCP prompt vs. the bot's approval UI — is a known
         // conflict tracked as follow-up work.)
         const plan = typeof input.plan === 'string' ? input.plan : '';
-        const preview = plan.length > 1500 ? `${plan.slice(0, 1500)}\n…` : plan;
+        // Truncate on a code-point boundary (Array.from) so the cut can't
+        // split a surrogate pair.
+        let preview =
+          plan.length > 1500 ? `${Array.from(plan).slice(0, 1500).join('')}\n…` : plan;
+        // Balance code fences: a cut inside a ``` block would otherwise
+        // swallow the reaction legend and decision lines the MCP server
+        // appends after this text into the code block.
+        const fenceCount = (preview.match(/```/g) || []).length;
+        if (fenceCount % 2 === 1) preview += '\n```';
         return {
           display: null,
           hidden: true,
