@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
-import { transitionTo } from '../../session/types.js';
+import { transitionTo, isSessionRestarting } from '../../session/types.js';
 import type { WorktreeMode, PermissionMode } from '../../config/index.js';
 import { effectivePermissionMode } from '../../config/index.js';
 import type { PlatformFile } from '../../platform/index.js';
@@ -402,7 +402,7 @@ export async function createAndSwitchToWorktree(
     worktreeMode: WorktreeMode;
     permissionTimeoutMs?: number;
     handleEvent: (sessionId: string, event: ClaudeEvent) => void;
-    handleExit: (sessionId: string, code: number) => Promise<void>;
+    handleExit: (sessionId: string, code: number, source?: ClaudeCli) => Promise<void>;
     updateSessionHeader: (session: Session) => Promise<void>;
     flush: (session: Session) => Promise<void>;
     persistSession: (session: Session) => void;
@@ -527,14 +527,22 @@ export async function createAndSwitchToWorktree(
         // Fresh CLI session (resume: false) — clear accumulated task/tool
         // state so the new session's task ids can't collide with stale ones.
         session.messageManager?.clearClaudeSessionState();
-        session.claude = new ClaudeCli(cliOptions);
+        const newClaude = new ClaudeCli(cliOptions);
+        session.claude = newClaude;
 
         // Rebind event handlers
-        session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
-        session.claude.on('exit', (code: number) => options.handleExit(session.sessionId, code));
+        newClaude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
+        newClaude.on('exit', (code: number) => options.handleExit(session.sessionId, code, newClaude));
 
         // Start the new CLI
-        session.claude.start();
+        newClaude.start();
+        // Respawn succeeded — leave 'restarting' explicitly. A late exit
+        // from the old process is dropped by handleExit's stale-source
+        // check, so nothing else is guaranteed to reset the state. Guarded
+        // so a cancel issued mid-respawn is not clobbered back to 'active'.
+        if (isSessionRestarting(session)) {
+          transitionTo(session, 'active');
+        }
       }
 
       // Update session header
@@ -692,14 +700,22 @@ export async function createAndSwitchToWorktree(
       // Fresh CLI session (resume: false) — clear accumulated task/tool
       // state so the new session's task ids can't collide with stale ones.
       session.messageManager?.clearClaudeSessionState();
-      session.claude = new ClaudeCli(cliOptions);
+      const newClaude = new ClaudeCli(cliOptions);
+      session.claude = newClaude;
 
       // Rebind event handlers (use sessionId which is the composite key)
-      session.claude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
-      session.claude.on('exit', (code: number) => options.handleExit(session.sessionId, code));
+      newClaude.on('event', (e: ClaudeEvent) => options.handleEvent(session.sessionId, e));
+      newClaude.on('exit', (code: number) => options.handleExit(session.sessionId, code, newClaude));
 
       // Start the new CLI
-      session.claude.start();
+      newClaude.start();
+      // Respawn succeeded — leave 'restarting' explicitly. A late exit
+      // from the old process is dropped by handleExit's stale-source
+      // check, so nothing else is guaranteed to reset the state. Guarded
+      // so a cancel issued mid-respawn is not clobbered back to 'active'.
+      if (isSessionRestarting(session)) {
+        transitionTo(session, 'active');
+      }
     }
 
     // Update session header

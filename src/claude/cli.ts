@@ -831,6 +831,13 @@ export class ClaudeCli extends EventEmitter {
     this.process = null;
 
     this.log.debug(`Killing Claude process (pid=${pid})`);
+    // Diagnostic for integration tests: trace every kill call with caller,
+    // mirroring the sendMessage trace above. Which code path killed a CLI is
+    // the key question when debugging session-teardown races in CI logs.
+    if (process.env.INTEGRATION_TEST === '1') {
+      const stack = new Error().stack?.split('\n').slice(2, 7).join(' > ').replace(/\s+at\s+/g, ' < ') ?? '?';
+      process.stderr.write(`[claude-cli kill pid=${pid}] | ${stack}\n`);
+    }
 
     return new Promise<void>((resolve) => {
       // Send first SIGINT (interrupts current operation)

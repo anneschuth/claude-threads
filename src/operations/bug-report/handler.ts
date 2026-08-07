@@ -659,12 +659,18 @@ function escapeShell(str: string): string {
 }
 
 /**
- * Check if GitHub CLI is installed and authenticated
+ * Check if GitHub CLI is installed and authenticated.
+ *
+ * `exec` is injectable so tests don't spawn real `gh` processes — the two
+ * subprocess calls each carry a 5s timeout, which overruns bun's 5s per-test
+ * budget on a slow CI runner (seen as a flaky timeout on main).
  */
-export function checkGitHubCli(): { installed: boolean; authenticated: boolean; error?: string } {
+export function checkGitHubCli(
+  exec: (command: string, options: { encoding: 'utf-8'; timeout: number; stdio: ['pipe', 'pipe', 'pipe'] }) => unknown = execSync
+): { installed: boolean; authenticated: boolean; error?: string } {
   try {
     // Check if gh is installed
-    execSync('gh --version', {
+    exec('gh --version', {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],
@@ -679,7 +685,7 @@ export function checkGitHubCli(): { installed: boolean; authenticated: boolean; 
 
   try {
     // Check if authenticated
-    execSync('gh auth status', {
+    exec('gh auth status', {
       encoding: 'utf-8',
       timeout: 5000,
       stdio: ['pipe', 'pipe', 'pipe'],

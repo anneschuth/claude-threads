@@ -403,12 +403,15 @@ describe.skipIf(SKIP)('Session Commands', () => {
         // Change to /tmp directory
         await sendCommand(ctx, rootPost.id, '!cd /tmp');
 
-        // Wait for cd confirmation
-        await waitForPostMatching(ctx, rootPost.id, /changed|directory|\/tmp/i, { timeout: 10000 });
+        // Wait for cd confirmation. The pattern must only match the bot's
+        // confirmation post — a loose pattern like /\/tmp/ also matches the
+        // user's own "!cd /tmp" message, ending the test while the !cd flow
+        // is still running so afterEach's killAllSessions races the restart.
+        await waitForPostMatching(ctx, rootPost.id, /Working directory changed/i, { timeout: 10000 });
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
         const cdPost = allPosts.find((p) =>
-          ctx.botUserIds.includes(p.userId) && /changed|directory|\/tmp/i.test(p.message)
+          ctx.botUserIds.includes(p.userId) && /Working directory changed/i.test(p.message)
         );
 
         expect(cdPost).toBeDefined();

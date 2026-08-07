@@ -1102,7 +1102,7 @@ export async function startSession(
 
   // Bind event handlers (use sessionId which is the composite key)
   claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(sessionId, e));
-  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code));
+  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code, claude));
   claude.on('rate-limit', (hit: RateLimitHit) => handleRateLimit(session, hit, ctx));
 
   try {
@@ -1437,7 +1437,7 @@ export async function resumeSession(
 
   // Bind event handlers (use sessionId which is the composite key)
   claude.on('event', (e: ClaudeEvent) => ctx.ops.handleEvent(sessionId, e));
-  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code));
+  claude.on('exit', (code: number) => ctx.ops.handleExit(sessionId, code, claude));
   claude.on('rate-limit', (hit: RateLimitHit) => handleRateLimit(session, hit, ctx));
 
   try {
@@ -1625,7 +1625,8 @@ export async function resumePausedSession(
 export async function handleExit(
   sessionId: string,
   code: number,
-  ctx: SessionContext
+  ctx: SessionContext,
+  source?: ClaudeCli
 ): Promise<void> {
   const session = mutableSessions(ctx).get(sessionId);
   const shortId = sessionId.substring(0, 8);
@@ -1634,6 +1635,18 @@ export async function handleExit(
 
   if (!session) {
     log.debug(`Session ${shortId}... not found (already cleaned up)`);
+    return;
+  }
+
+  // A respawn (!cd, !permissions, worktree switch) replaces session.claude
+  // and kills the old process. kill() can resolve before the old process's
+  // 'exit' event is delivered, so that exit may arrive after the restart
+  // already completed — by which point the 'restarting' state guard below
+  // has been reset to 'active' by the confirmation post. Treating the stale
+  // exit as the current process dying would tear down the freshly restarted
+  // session. Only the session's current CLI may drive exit handling.
+  if (source && session.claude !== source) {
+    sessionLog(session).debug(`Ignoring exit from replaced Claude process`);
     return;
   }
 

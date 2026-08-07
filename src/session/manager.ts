@@ -14,6 +14,7 @@
 
 import { EventEmitter } from 'events';
 import { ClaudeEvent } from '../claude/cli.js';
+import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
@@ -355,7 +356,7 @@ export class SessionManager extends EventEmitter {
 
       // Event handling
       handleEvent: (sid, e) => this.handleEvent(sid, e),
-      handleExit: (sid, code) => this.handleExit(sid, code),
+      handleExit: (sid, code, source) => this.handleExit(sid, code, source),
 
       // Session lifecycle
       killSession: (tid) => this.killSession(tid),
@@ -567,8 +568,8 @@ export class SessionManager extends EventEmitter {
   // Exit Handling (delegates to lifecycle module)
   // ---------------------------------------------------------------------------
 
-  private async handleExit(sessionId: string, code: number): Promise<void> {
-    await lifecycle.handleExit(sessionId, code, this.getContext());
+  private async handleExit(sessionId: string, code: number, source?: ClaudeCli): Promise<void> {
+    await lifecycle.handleExit(sessionId, code, this.getContext(), source);
   }
 
   // ---------------------------------------------------------------------------
@@ -1365,7 +1366,7 @@ export class SessionManager extends EventEmitter {
       worktreeMode: this.worktreeMode,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       handleEvent: (tid, e) => this.handleEvent(tid, e),
-      handleExit: (tid, code) => this.handleExit(tid, code),
+      handleExit: (tid, code, source) => this.handleExit(tid, code, source),
       updateSessionHeader: (s) => this.updateSessionHeader(s),
       flush: async (s) => {
         if (s.messageManager) {
