@@ -1,6 +1,6 @@
 {
   "name": "claude-threads",
-  "version": "1.21.0",
+  "version": "1.20.1",
   "description": "Run Claude Code from Slack or Mattermost. Sessions stream live into threads where your whole team can watch and steer.",
   "main": "dist/index.js",
   "type": "module",
