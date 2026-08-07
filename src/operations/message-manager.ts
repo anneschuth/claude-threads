@@ -311,7 +311,7 @@ export class MessageManager {
     // "Task #N created" wording means the CLI's result text drifted — the
     // task tracker silently drops such tasks, so surface it loudly: this is
     // exactly how the task display would go dark again on a future CLI.
-    if (this.taskTracker.sawUnmatchedCreateResult()) {
+    if (this.taskTracker.consumeUnmatchedCreateResultFlag()) {
       logger.warn(
         'TaskCreate result did not match the expected "Task #N created" wording — ' +
         'task dropped from the displayed list. If this repeats, the Claude CLI ' +

@@ -2033,7 +2033,8 @@ describe('handlePermissionWith - AskUserQuestion', () => {
     const result = await handlePermissionWith('AskUserQuestion', input, cfg);
 
     expect(result).toEqual({ behavior: 'allow', updatedInput: input });
-    // The main bot renders the question UI from the tool_use event; the MCP
+    // The main bot renders the question UI from the AskUserQuestion tool_use
+    // block in the assistant event; the MCP
     // server must not post its own generic prompt for it.
     expect(api.createdPosts).toHaveLength(0);
     expect(api.waitForReactionCalls).toHaveLength(0);

@@ -185,7 +185,8 @@ How it works:
    history in `~/.claude/projects/*` lives under that HOME.
 3. **Rate-limit handling.** Claude's stderr and result events are scanned for
    phrases like `usage limit reached`, `rate_limit_error`, `429 ... rate limit`,
-   `quota exceeded`. On a hit the offending account is cooled down until the
+   `quota exceeded`; on modern CLIs, structured `rate_limit_event`s with
+   `status: "rejected"` feed the same path. On a hit the offending account is cooled down until the
    extracted reset time (fallback: 1 hour). Future `acquireClaudeAccount()` calls
    skip cooling accounts; resumed sessions bypass cooldown because their history
    can't move.
@@ -263,6 +264,7 @@ Most business logic lives in `src/operations/`:
 |------|---------|
 | `src/operations/message-manager.ts` | **The Brain** - orchestrates all operations via executors |
 | `src/operations/transformer.ts` | Transforms Claude events → MessageOperations |
+| `src/operations/task-tracker.ts` | Accumulates incremental TaskCreate/TaskUpdate state for the task-list pipeline |
 | `src/operations/types.ts` | Operation types (MessageOperation, TaskItem, etc.) |
 | `src/operations/post-helpers/` | DRY utilities for posting messages (postInfo, postError, etc.) |
 | `src/operations/events/handler.ts` | Claude CLI event handling |
@@ -773,10 +775,12 @@ cat ~/.claude/projects/-Users-anneschuth-mattermost-claude-code/SESSION_ID.jsonl
 
 ### Event Flow (src/operations/transformer.ts → MessageManager)
 Claude CLI emits JSON events. The transformer converts them to MessageOperations:
-- `assistant` → `AppendContentOp` (text response)
-- `tool_use` → `AppendContentOp` (tool display) or special ops (TaskListOp, QuestionOp, etc.)
-- `tool_result` → `AppendContentOp` (result indicator) + `FlushOp`
+- `assistant` → `AppendContentOp` (text response); its `tool_use` blocks → `AppendContentOp` (tool display) or special ops (`TaskCreate`/`TaskUpdate` → `TaskListOp` via the per-session `TaskTracker`, `AskUserQuestion` → QuestionOp, `ExitPlanMode` → ApprovalOp, `Task` → SubagentOp, `TodoWrite` → TaskListOp)
+- `user` → `AppendContentOp` result indicators (`↳ ✓`/`↳ ❌`) for its `tool_result` blocks + `FlushOp`; also resolves pending `TaskCreate` ids from result text
 - `result` → `FlushOp` + `StatusUpdateOp` (cost info)
+- `rate_limit_event` → consumed in `cli.ts` (`status: "rejected"` feeds account cooldown)
+- Events with `parent_tool_use_id` (subagent sidechains) are skipped
+- Top-level `tool_use`/`tool_result` events are a legacy shape (kept for old captures and the integration mock CLI)
 
 ### Message Streaming (src/operations/streaming/handler.ts)
 - Messages are batched and flushed periodically via `FlushOp`

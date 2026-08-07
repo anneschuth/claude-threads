@@ -69,14 +69,22 @@ export const taskToolsFormatter: ToolFormatter = {
         // conflict tracked as follow-up work.)
         const plan = typeof input.plan === 'string' ? input.plan : '';
         // Truncate on a code-point boundary (Array.from) so the cut can't
-        // split a surrogate pair.
-        let preview =
-          plan.length > 1500 ? `${Array.from(plan).slice(0, 1500).join('')}\n…` : plan;
-        // Balance code fences: a cut inside a ``` block would otherwise
-        // swallow the reaction legend and decision lines the MCP server
-        // appends after this text into the code block.
-        const fenceCount = (preview.match(/```/g) || []).length;
-        if (fenceCount % 2 === 1) preview += '\n```';
+        // split a surrogate pair. Truncation is decided in code points too —
+        // an emoji-heavy plan with a large UTF-16 length but few code points
+        // is not actually cut and must not get an ellipsis.
+        const points = Array.from(plan);
+        const truncated = points.length > 1500;
+        let preview = truncated ? `${points.slice(0, 1500).join('')}\n…` : plan;
+        // Balance code fences ONLY when we actually cut: an untruncated plan
+        // renders as authored, and "balancing" it on a naive substring count
+        // (inline ``` mentions, ```` nested-fence demos) would OPEN a block
+        // that swallows the reaction legend the MCP server appends after
+        // this text. For a cut plan, count fence *delimiters* (lines starting
+        // with ```): an odd count means the cut landed inside a block.
+        if (truncated) {
+          const fenceCount = (preview.match(/^```/gm) || []).length;
+          if (fenceCount % 2 === 1) preview += '\n```';
+        }
         return {
           display: null,
           hidden: true,

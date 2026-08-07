@@ -804,12 +804,13 @@ describe('Event Transformer - review fixes', () => {
     );
 
     // A task-list refresh with the ghost removed (no orphaned indicator:
-    // TaskCreate is hidden so no flush/indicator ops either). The tracker is
-    // now empty, so the action is 'complete' — an 'update' would render a
-    // lingering empty "0/0" task post.
+    // TaskCreate is hidden so no flush/indicator ops either). The action is
+    // 'update', NOT 'complete': after a bot restart an empty tracker coexists
+    // with a restored task post holding real tasks — 'complete' would delete
+    // it. The transient empty post is cleaned by turn-end finalize().
     expect(ops.length).toBe(1);
     expect(ops[0].type).toBe('task_list');
-    expect((ops[0] as { action: string }).action).toBe('complete');
+    expect((ops[0] as { action: string }).action).toBe('update');
     expect((ops[0] as { tasks: unknown[] }).tasks).toEqual([]);
     expect(ctx.taskTracker.allCompleted).toBe(false);
     expect(ctx.taskTracker.isEmpty).toBe(true);
@@ -971,5 +972,54 @@ describe('Event Transformer - round-2 review fixes', () => {
     expect((ops[0] as { tasks: Array<{ content: string; status: string; activeForm: string }> }).tasks).toEqual([
       { content: 'real', status: 'in_progress', activeForm: 'real' },
     ]);
+  });
+});
+
+describe('Event Transformer - round-3 review fixes', () => {
+  let ctx: TransformContext;
+
+  beforeEach(() => {
+    ctx = {
+      sessionId: 'test-session',
+      formatter: mockFormatter,
+      toolStartTimes: new Map(),
+      taskTracker: new TaskTracker(),
+      detailed: true,
+    };
+  });
+
+  it('coalesces multiple failed-create refreshes in one user event into a single op', () => {
+    // Three parallel TaskCreates...
+    transformEvent(
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', name: 'TaskCreate', id: 'tu-1', input: { subject: 'a', description: 'd' } },
+            { type: 'tool_use', name: 'TaskCreate', id: 'tu-2', input: { subject: 'b', description: 'd' } },
+            { type: 'tool_use', name: 'TaskCreate', id: 'tu-3', input: { subject: 'c', description: 'd' } },
+          ],
+        },
+      },
+      ctx
+    );
+    // ...all failing in ONE user event must not emit three task-post updates
+    const ops = transformEvent(
+      {
+        type: 'user',
+        message: {
+          content: [
+            { type: 'tool_result', tool_use_id: 'tu-1', content: 'boom', is_error: true },
+            { type: 'tool_result', tool_use_id: 'tu-2', content: 'boom', is_error: true },
+            { type: 'tool_result', tool_use_id: 'tu-3', content: 'boom', is_error: true },
+          ],
+        },
+      },
+      ctx
+    );
+
+    const taskOps = ops.filter(o => o.type === 'task_list') as Array<{ tasks: unknown[] }>;
+    expect(taskOps).toHaveLength(1);
+    expect(taskOps[0].tasks).toEqual([]);
   });
 });

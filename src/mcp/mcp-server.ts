@@ -233,7 +233,8 @@ export async function handlePermissionWith(
 
   // AskUserQuestion routes through the permission prompt on modern CLIs
   // (verified on 2.1.223), but the main bot already renders the full question
-  // UI with answer reactions from the tool_use event — a generic "Permission
+  // UI with answer reactions from the AskUserQuestion tool_use block in the
+  // assistant event — a generic "Permission
   // requested: AskUserQuestion 👍✅👎" post here would just duplicate it.
   // Auto-allow: the tool then resolves as unanswered, Claude notes it's
   // waiting, and the user's reaction-answer arrives as a regular message.

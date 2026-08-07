@@ -664,3 +664,36 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
     expect(hits[0].resetAtEpochMs).toBe(resetsAt * 1000);
   });
 });
+
+describe('rate-limit emit guard - suppressed explicit hit keeps its explicitness', () => {
+  const callGuard = (cli: ClaudeCli, text: string) =>
+    (cli as unknown as { maybeEmitRateLimit: (t: string) => void }).maybeEmitRateLimit(text);
+  const callHit = (cli: ClaudeCli, hit: unknown) =>
+    (cli as unknown as { maybeEmitRateLimitHit: (h: unknown) => void }).maybeEmitRateLimitHit(hit);
+
+  test('opposite arrival order: text guess first, precise reset second, reset-less repeat third', () => {
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: unknown[] = [];
+    cli.on('rate-limit', (h) => hits.push(h));
+
+    // (1) reset-less stderr hit arrives first: emit, 1h default guess
+    callGuard(cli, 'Usage limit reached.');
+    // (2) the same turn's structured event carries the REAL reset, 30 min out
+    //     — suppressed by MIN_ADVANCE (shorter deadline), but its explicitness
+    //     must be recorded
+    callHit(cli, {
+      detected: true,
+      resetAtEpochMs: Date.now() + 30 * 60_000,
+      matched: 'rate_limit_event status=rejected',
+    });
+    expect(hits).toHaveLength(1);
+    // (3) a reset-less repeat must now be suppressed — extending the guess
+    //     past the known real reset is exactly what this prevents. Simulate
+    //     time passing so MIN_ADVANCE alone would NOT suppress it.
+    (cli as unknown as { lastEmittedRateLimitDeadline: number }).lastEmittedRateLimitDeadline =
+      Date.now() + 10 * 60_000;
+    callGuard(cli, 'Usage limit reached.');
+
+    expect(hits).toHaveLength(1);
+  });
+});

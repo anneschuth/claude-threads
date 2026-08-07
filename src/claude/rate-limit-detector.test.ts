@@ -164,7 +164,7 @@ describe('parseRateLimitEvent', () => {
     expect(hit.detected).toBe(false);
   });
 
-  it('detects non-allowed statuses and converts resetsAt seconds to ms', () => {
+  it('detects rejected status and converts resetsAt seconds to ms', () => {
     const resetsAt = Math.floor(Date.now() / 1000) + 3600;
     const hit = parseRateLimitEvent({
       type: 'rate_limit_event',

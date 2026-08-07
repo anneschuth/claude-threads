@@ -80,7 +80,7 @@ export class TaskTracker {
    * permanent ghost row that can never be updated or completed (updates go by
    * taskId), which would also pin `allCompleted` at false forever. Removal is
    * also the safe response to the CLI rewording the result text (tracked via
-   * `sawUnmatchedCreateResult` so the owner can log it).
+   * `consumeUnmatchedCreateResultFlag` so the owner can log it).
    *
    * Returns 'resolved' when the id was attached, 'merged' when resolving also
    * absorbed a placeholder row (display should refresh), 'removed' when the
@@ -121,7 +121,7 @@ export class TaskTracker {
    * wording — a signal the CLI's result text drifted. Reading resets the flag
    * so the owner can warn once per occurrence batch.
    */
-  sawUnmatchedCreateResult(): boolean {
+  consumeUnmatchedCreateResultFlag(): boolean {
     if (this.unmatchedCreateResults === 0) return false;
     this.unmatchedCreateResults = 0;
     return true;

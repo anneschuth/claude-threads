@@ -260,11 +260,13 @@ function transformUser(
         block.is_error === true
       );
       if (resolution === 'removed' || resolution === 'merged') {
-        // Mirror handleTaskUpdate's action choice: an empty or fully-completed
-        // remainder must complete (deleting the pinned post), not linger as an
-        // empty/stale "0/0" task post.
-        const action =
-          ctx.taskTracker.isEmpty || ctx.taskTracker.allCompleted ? 'complete' : 'update';
+        // Mirror handleTaskUpdate's action choice exactly: 'complete' only on
+        // a genuinely completed set. An EMPTY remainder emits 'update' — a
+        // 'complete' would delete the task post, which after a bot restart is
+        // the RESTORED post for tasks this tracker never saw (the same resume
+        // hazard the placeholder guard in allCompleted exists for). The
+        // transient empty post is cleaned up by turn-end finalize().
+        const action = ctx.taskTracker.allCompleted ? 'complete' : 'update';
         operations.push(
           createTaskListOp(ctx.sessionId, action, ctx.taskTracker.toTaskItems())
         );
@@ -281,6 +283,17 @@ function transformUser(
       );
       indicatorCount++;
     }
+  }
+
+  // Coalesce task-list ops, same as transformAssistant: N parallel creates'
+  // results arrive in ONE user event, and each removed/merged resolution
+  // would otherwise emit its own full-snapshot op (N platform calls).
+  const taskListOps = operations.filter(op => op.type === 'task_list');
+  if (taskListOps.length > 1) {
+    const last = taskListOps[taskListOps.length - 1];
+    const coalesced = operations.filter(op => op.type !== 'task_list' || op === last);
+    operations.length = 0;
+    operations.push(...coalesced);
   }
 
   if (indicatorCount > 0) {
@@ -525,7 +538,7 @@ function handleTaskCreate(
   ctx: TransformContext
 ): MessageOperation[] {
   ctx.taskTracker.create(toolUseId, input);
-  return [createTaskListOp(ctx.sessionId, 'update', ctx.taskTracker.toTaskItems(), toolUseId)];
+  return [createTaskListOp(ctx.sessionId, 'update', ctx.taskTracker.toTaskItems())];
 }
 
 /**

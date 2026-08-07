@@ -177,11 +177,11 @@ describe('TaskTracker - round-2 review fixes', () => {
   it('flags unmatched non-error create results once, resetting on read', () => {
     tracker.create('tu-1', { subject: 'x', description: 'd' });
     tracker.resolveCreatedId('tu-1', 'Reworded: task recorded');
-    expect(tracker.sawUnmatchedCreateResult()).toBe(true);
-    expect(tracker.sawUnmatchedCreateResult()).toBe(false);
+    expect(tracker.consumeUnmatchedCreateResultFlag()).toBe(true);
+    expect(tracker.consumeUnmatchedCreateResultFlag()).toBe(false);
     // Error results are NOT wording drift — no flag
     tracker.create('tu-2', { subject: 'y', description: 'd' });
     tracker.resolveCreatedId('tu-2', 'boom', true);
-    expect(tracker.sawUnmatchedCreateResult()).toBe(false);
+    expect(tracker.consumeUnmatchedCreateResultFlag()).toBe(false);
   });
 });

@@ -685,7 +685,9 @@ export class ClaudeCli extends EventEmitter {
           this.maybeEmitRateLimit(trimmed);
         }
         // Structured rate-limit signal (2.1.2xx+): emitted every turn with
-        // status "allowed" when healthy; any other status is a real limit.
+        // status "allowed" when healthy; only "rejected" means a request was
+        // actually blocked (see parseRateLimitEvent — "allowed_warning" is a
+        // routine approaching-limit notice, not a limit).
         if (event.type === 'rate_limit_event') {
           this.maybeEmitRateLimitHit(parseRateLimitEvent(event));
         }
@@ -743,7 +745,17 @@ export class ClaudeCli extends EventEmitter {
     }
     const newDeadline = cooldownDeadline(hit);
     const MIN_ADVANCE_MS = 60_000;  // 1 minute: coarser than clock drift, finer than any real rate-limit reset step
-    if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) return;
+    if (newDeadline - this.lastEmittedRateLimitDeadline < MIN_ADVANCE_MS) {
+      // Suppressed as not-newer — but an explicit reset is still information:
+      // if a 1h text-guess emitted first and the same turn's structured event
+      // carries the real (shorter) reset, later reset-less repeats must not
+      // stretch the cooldown past that known reset. Record the explicitness
+      // even though nothing is emitted.
+      if (hit.resetAtEpochMs !== undefined) {
+        this.lastEmittedHitHadExplicitReset = true;
+      }
+      return;
+    }
     this.lastEmittedRateLimitDeadline = newDeadline;
     this.lastEmittedHitHadExplicitReset = hit.resetAtEpochMs !== undefined;
     this.log.warn(`Rate limit detected: ${hit.matched ?? '(no match text)'}`);
@@ -845,13 +857,36 @@ export class ClaudeCli extends EventEmitter {
         }
       }, 2000); // 2 second grace period for Claude to save conversation
 
-      // Resolve when process exits
-      proc.once('exit', (code) => {
-        this.log.debug(`Claude process exited (code=${code})`);
+      const settle = (reason: string) => {
+        this.log.debug(`Claude process gone (${reason})`);
         clearTimeout(secondSigint);
         clearTimeout(forceKillTimeout);
+        clearTimeout(lastResort);
         resolve();
-      });
+      };
+
+      // Last resort: a SIGTERM-immune process (stuck I/O) or a child that
+      // never spawned must not leave callers awaiting forever — a hung kill()
+      // would freeze the session in 'restarting'.
+      const lastResort = setTimeout(() => {
+        try {
+          this.log.warn('Claude process did not exit after SIGTERM — sending SIGKILL');
+          proc.kill('SIGKILL');
+        } catch {
+          // Process may have already exited
+        }
+        settle('kill timeout');
+      }, 5000);
+
+      // Resolve on 'close', not 'exit': stdout data still buffered when
+      // 'exit' fires is delivered afterwards, and callers that clear
+      // per-session state after awaiting kill() must not see those late
+      // events. 'close' fires once all stdio has drained — including for
+      // failed spawns, which emit 'error' + 'close' but never 'exit'.
+      proc.once('close', (code) => settle(`closed, code=${code}`));
+      // A spawn error without a process also yields no 'exit'; 'close'
+      // still follows it, but resolve here too in case it doesn't.
+      proc.once('error', () => settle('spawn error'));
     });
   }
 

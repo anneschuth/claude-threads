@@ -333,8 +333,31 @@ describe('Task Tools Formatter', () => {
     const text = result!.permissionText!;
     expect(text).toContain('…');
     expect(text.length).toBeLessThan(1700);
-    // Even number of fences → anything appended after renders outside code
-    expect((text.match(/```/g) || []).length % 2).toBe(0);
+    // Even number of fence delimiters → anything appended after renders
+    // outside code
+    expect((text.match(/^```/gm) || []).length % 2).toBe(0);
+  });
+
+  it('never rewrites an untruncated plan (inline ``` mentions are not fences)', () => {
+    // Short plan with an odd count of inline triple-backtick mentions —
+    // rendered fine as authored; "balancing" it would OPEN a code block
+    // that swallows the reaction legend.
+    const plan = 'Users can escape fences by typing ``` in their message.';
+    const result = taskToolsFormatter.format('ExitPlanMode', { plan }, options);
+
+    expect(result!.permissionText).toContain(plan);
+    expect(result!.permissionText).not.toContain('…');
+    expect(result!.permissionText!.endsWith('```')).toBe(false);
+  });
+
+  it('does not add an ellipsis to an emoji-heavy plan that is not actually cut', () => {
+    // 800 emoji: UTF-16 length 1600 (> 1500) but only 800 code points —
+    // nothing is removed, so no ellipsis and no fence rewriting.
+    const plan = '🎉'.repeat(800);
+    const result = taskToolsFormatter.format('ExitPlanMode', { plan }, options);
+
+    expect(result!.permissionText).toContain(plan);
+    expect(result!.permissionText).not.toContain('…');
   });
 
   it('hides AskUserQuestion', () => {
