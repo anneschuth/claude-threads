@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.21.1] - 2026-08-07
 
 ### Fixed
 - **A respawning session can no longer be torn down by its own dying Claude process.** Two stacked races made `!cd` / `!permissions` / worktree respawns flaky (seen as the recurring `!cd should restart Claude CLI` failure on main's Integration Tests): a last event flushed by the dying process ran `resetSessionActivity`, which unconditionally flipped the session's `restarting` state back to `active` — so when the old process's exit landed, `handleExit` mistook it for the current process dying and did a full session teardown mid-restart. `resetSessionActivity` now leaves `restarting`/`cancelling` states alone, `handleExit` ignores exits from a CLI instance that is no longer the session's current one (the exit event can be delivered after the respawn already swapped in the new instance), and a successful respawn transitions to `active` explicitly instead of relying on the old exit's side effect. `ClaudeCli.kill()` gained an integration-test caller trace, mirroring the existing `sendMessage` one — attributing kills is the key question when debugging these races in CI logs.
