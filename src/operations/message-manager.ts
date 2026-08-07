@@ -1223,19 +1223,31 @@ export class MessageManager {
    * completion listeners. The MCP client enforces the timeout; a session that
    * ends first denies any pending request via `denyPendingBridgeRequests`.
    */
-  handleBridgeRequest(request: BridgeRequest): Promise<BridgeResponse> {
+  handleBridgeRequest(request: BridgeRequest, signal?: AbortSignal): Promise<BridgeResponse> {
     if (request.kind === 'plan_approval') {
       // A second plan request while one is pending means the first was
       // abandoned (interrupted turn); deny it so the MCP child isn't stranded.
       this.pendingBridgePlan?.resolve({ behavior: 'deny', message: 'Superseded by a newer plan' });
       return new Promise<BridgeResponse>((resolve) => {
-        this.pendingBridgePlan = { resolve, input: request.input };
+        const pending = { resolve, input: request.input };
+        this.pendingBridgePlan = pending;
+        // The requesting side died (timeout, cancelled tool call, dead MCP
+        // child): clear the pending WITHOUT consuming a future decision — a
+        // stale pending would swallow the user's eventual reaction and
+        // suppress the stdin fallback that should carry it instead.
+        signal?.addEventListener('abort', () => {
+          if (this.pendingBridgePlan === pending) this.pendingBridgePlan = null;
+        });
       });
     }
     if (request.kind === 'question') {
       this.pendingBridgeQuestion?.resolve({ behavior: 'deny', message: 'Superseded by newer questions' });
       return new Promise<BridgeResponse>((resolve) => {
-        this.pendingBridgeQuestion = { resolve, input: request.input };
+        const pending = { resolve, input: request.input };
+        this.pendingBridgeQuestion = pending;
+        signal?.addEventListener('abort', () => {
+          if (this.pendingBridgeQuestion === pending) this.pendingBridgeQuestion = null;
+        });
       });
     }
     return Promise.resolve({ behavior: 'deny', message: `Unknown bridge request kind` });

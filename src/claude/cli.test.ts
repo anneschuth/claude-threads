@@ -517,6 +517,33 @@ describe('buildPermissionArgs', () => {
     expect(env.SESSION_UPLOAD_DIR).toBe('/tmp/uploads/X');
   });
 
+  it('forwards DECISION_BRIDGE_PATH (and the timeout override) to the MCP child', () => {
+    const prev = process.env.DECISION_BRIDGE_TIMEOUT_MS;
+    process.env.DECISION_BRIDGE_TIMEOUT_MS = '120000';
+    try {
+      const { args } = buildPermissionArgs({
+        ...baseOpts,
+        permissionMode: 'default',
+        decisionBridgePath: '/tmp/bridge-X.sock',
+      });
+      const env = getMcpEnv(args);
+      expect(env.DECISION_BRIDGE_PATH).toBe('/tmp/bridge-X.sock');
+      // Stdio MCP children get an explicit env — without forwarding, the
+      // operator's timeout knob would be unreachable.
+      expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBe('120000');
+    } finally {
+      if (prev === undefined) delete process.env.DECISION_BRIDGE_TIMEOUT_MS;
+      else process.env.DECISION_BRIDGE_TIMEOUT_MS = prev;
+    }
+  });
+
+  it('omits DECISION_BRIDGE_PATH when no bridge exists', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    const env = getMcpEnv(args);
+    expect(env.DECISION_BRIDGE_PATH).toBeUndefined();
+    expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBeUndefined();
+  });
+
   it("omits the upload-related env vars entirely when no roots provided", () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
     const env = getMcpEnv(args);

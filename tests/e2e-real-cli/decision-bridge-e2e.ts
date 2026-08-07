@@ -21,10 +21,15 @@ import { DecisionBridgeServer, type BridgeRequest } from '../../src/mcp/decision
 const dir = '/tmp/claude-threads-bridge-e2e';
 mkdirSync(`${dir}/e2e-wd`, { recursive: true });
 
+// Optional: DECISION_DELAY_MS holds the decision to verify the CLI tolerates
+// a long-pending bridge request (users answer plans on their own schedule).
+const decisionDelayMs = parseInt(process.env.DECISION_DELAY_MS || '0', 10);
+
 const seen: BridgeRequest[] = [];
 const bridge = await DecisionBridgeServer.create(async (req) => {
   seen.push(req);
-  console.log(`[bridge] request: ${req.kind} (${req.toolName})`);
+  console.log(`[bridge] request: ${req.kind} (${req.toolName})${decisionDelayMs ? `, deciding in ${decisionDelayMs}ms` : ''}`);
+  if (decisionDelayMs) await new Promise(r => setTimeout(r, decisionDelayMs));
   if (req.kind === 'plan_approval') {
     return { behavior: 'allow', updatedInput: req.input };
   }
@@ -69,11 +74,11 @@ function runClaude(extraArgs: string[], prompt: string): Promise<string> {
     let out = '';
     proc.stdout.on('data', (c) => { out += c.toString(); });
     proc.stderr.on('data', () => {});
-    const timer = setTimeout(() => proc.kill('SIGKILL'), 120_000);
+    const timer = setTimeout(() => proc.kill('SIGKILL'), 120_000 + decisionDelayMs);
     proc.on('close', () => { clearTimeout(timer); resolve(out); });
     proc.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n');
     // Leave stdin open briefly so the turn completes, then end it
-    setTimeout(() => proc.stdin.end(), 100_000);
+    setTimeout(() => proc.stdin.end(), 100_000 + decisionDelayMs);
   });
 }
 

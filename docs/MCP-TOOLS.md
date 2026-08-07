@@ -15,7 +15,7 @@ The permission handler the Claude CLI calls before running a tool that needs app
 | `tool_name` | string | Name of the tool requesting permission. |
 | `input` | object | The tool's input parameters, shown to the user in the prompt. |
 
-**Guardrail:** Only reactions from users on the session allowlist count. The bot's own reactions (the option emoji it adds) are ignored. If no reaction arrives within `limits.permissionTimeoutSeconds` (default 120), the request is denied.
+**Guardrail:** Only reactions from users on the session allowlist count. The bot's own reactions (the option emoji it adds) are ignored. If no reaction arrives within `limits.permissionTimeoutSeconds` (default 120), the request is denied. Exception: on modern CLIs, `ExitPlanMode` and `AskUserQuestion` don't post a generic prompt at all — they are forwarded over the session's decision bridge to the bot's plan/question reaction UI and wait up to `DECISION_BRIDGE_TIMEOUT_MS` (default 1 hour) for a decision there.
 
 ## send_file
 

@@ -2139,3 +2139,46 @@ describe('handlePermissionWith - decision bridge routing', () => {
     expect(result.behavior).toBe('allow'); // via the normal prompt flow
   });
 });
+
+describe('handlePermissionWith - bridge edge cases', () => {
+  it('echoes toolInput when a bridge allow carries no updatedInput', async () => {
+    const api = new FakeApi();
+    const cfg = {
+      ...makeCfg(api),
+      decisionBridge: {
+        path: '/tmp/fake.sock',
+        timeoutMs: 5000,
+        request: (async () => ({ behavior: 'allow' })) as never,
+      },
+    };
+
+    const result = await handlePermissionWith('ExitPlanMode', { plan: 'p' }, cfg);
+
+    expect(result.behavior).toBe('allow');
+    expect(result.updatedInput).toEqual({ plan: 'p' });
+  });
+
+  it('skips the bridge for multiSelect questions (answer format unverified) and auto-allows', async () => {
+    const api = new FakeApi();
+    let called = 0;
+    const input = {
+      questions: [
+        { question: 'Pick several', header: 'Multi', options: [], multiSelect: true },
+      ],
+    };
+    const cfg = {
+      ...makeCfg(api),
+      decisionBridge: {
+        path: '/tmp/fake.sock',
+        timeoutMs: 5000,
+        request: (async () => { called++; return { behavior: 'deny' }; }) as never,
+      },
+    };
+
+    const result = await handlePermissionWith('AskUserQuestion', input, cfg);
+
+    expect(called).toBe(0);
+    // Legacy fallback: auto-allow with unchanged input
+    expect(result).toEqual({ behavior: 'allow', updatedInput: input });
+  });
+});

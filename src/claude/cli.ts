@@ -313,6 +313,11 @@ export function buildPermissionArgs(opts: {
   };
   if (opts.decisionBridgePath) {
     mcpEnv.DECISION_BRIDGE_PATH = opts.decisionBridgePath;
+    // Stdio MCP children get an explicit env, not the bot's full environment —
+    // forward the operator's timeout override or the knob is unreachable.
+    if (process.env.DECISION_BRIDGE_TIMEOUT_MS) {
+      mcpEnv.DECISION_BRIDGE_TIMEOUT_MS = process.env.DECISION_BRIDGE_TIMEOUT_MS;
+    }
   }
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;

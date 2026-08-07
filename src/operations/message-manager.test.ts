@@ -1155,3 +1155,63 @@ describe('decision bridge integration', () => {
     expect(decision.message).toContain('restarted');
   });
 });
+
+describe('decision bridge abort handling', () => {
+  let manager: MessageManager;
+
+  beforeEach(() => {
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    manager = new MessageManager({
+      session,
+      platform,
+      postTracker: new PostTracker(),
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      registerPost: () => {},
+      updateLastMessage: () => {},
+    });
+  });
+
+  it('an aborted request clears the pending so the next decision falls back to stdin', () => {
+    const aborter = new AbortController();
+    void manager.handleBridgeRequest(
+      { kind: 'plan_approval', toolName: 'ExitPlanMode', input: { plan: 'p' } },
+      aborter.signal
+    );
+
+    // The MCP-side request died (its timeout, a cancelled tool call, a dead
+    // MCP child). A stale pending must NOT swallow the user's later reaction.
+    aborter.abort();
+
+    expect(manager.resolveBridgePlan(true)).toBe(false);
+  });
+
+  it('an abort of a superseded request does not clear the live one', async () => {
+    const firstAborter = new AbortController();
+    const first = manager.handleBridgeRequest(
+      { kind: 'plan_approval', toolName: 'ExitPlanMode', input: { plan: 'old' } },
+      firstAborter.signal
+    );
+    const second = manager.handleBridgeRequest(
+      { kind: 'plan_approval', toolName: 'ExitPlanMode', input: { plan: 'new' } },
+      new AbortController().signal
+    );
+    expect((await first).behavior).toBe('deny');
+
+    // The dead first request's socket closing must not disarm the live one
+    firstAborter.abort();
+    expect(manager.resolveBridgePlan(true)).toBe(true);
+    expect((await second).behavior).toBe('allow');
+  });
+
+  it('question aborts behave the same', () => {
+    const aborter = new AbortController();
+    void manager.handleBridgeRequest(
+      { kind: 'question', toolName: 'AskUserQuestion', input: { questions: [] } },
+      aborter.signal
+    );
+    aborter.abort();
+    expect(manager.resolveBridgeQuestion([{ header: 'X', answer: 'y' }])).toBe(false);
+  });
+});

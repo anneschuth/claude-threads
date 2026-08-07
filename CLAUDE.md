@@ -80,7 +80,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 **MCP Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
-- Each has its own WebSocket/connection to the platform
+- Each has its own WebSocket/connection to the platform, plus a decision-bridge socket back to the bot (plan approvals / question answers)
 - Exposes three tools to Claude:
   - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
@@ -336,6 +336,7 @@ Each executor owns a specific piece of interactive state:
 | `src/utils/uptime.ts` | Session uptime tracking |
 | `src/utils/pr-detector.ts` | Detect PR URLs in Claude output |
 | `src/mcp/mcp-server.ts` | MCP server: permission prompts, send_file, read_post (platform-agnostic) |
+| `src/mcp/decision-bridge.ts` | Per-session local socket between bot and MCP permission server; routes ExitPlanMode approvals and AskUserQuestion answers through the bot's reaction UI |
 | `src/platform/mcp-platform-api-factory.ts` | Factory for platform-specific MCP platform APIs |
 | `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
 | `src/mattermost/api.ts` | Standalone Mattermost API helpers |
@@ -367,6 +368,18 @@ Each executor owns a specific piece of interactive state:
    - Returns `{behavior: "allow"}` or `{behavior: "deny"}` to Claude CLI
 
 6. **Claude CLI** proceeds or aborts based on the response
+
+**Decisions vs. permissions (modern CLIs):** `ExitPlanMode` and `AskUserQuestion`
+also arrive at `permission_prompt` — but they are user *decisions*, not tool
+permissions. Instead of posting a generic prompt, the MCP server forwards them
+over the session's **decision bridge** (a per-session local socket, path in
+`DECISION_BRIDGE_PATH`, timeout `DECISION_BRIDGE_TIMEOUT_MS`, default 1h) to
+the bot, where the plan post's 👍/👎 or the question posts' option reactions
+resolve them. Question answers ride back in the permission response's
+`updatedInput.answers`. On any bridge failure the MCP server falls back to its
+legacy behavior (generic prompt for plans, auto-allow for questions), and the
+bot's stdin sends (`'approved'` / answer JSON) remain the fallback for older
+CLIs that don't route these tools through the permission prompt.
 
 ## Configuration
 

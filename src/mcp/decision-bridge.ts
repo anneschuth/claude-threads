@@ -17,14 +17,18 @@
  * tells Claude "Your questions have been answered" (verified empirically).
  *
  * Transport: newline-delimited JSON over a unix domain socket (a named pipe
- * on Windows). One request per connection.
+ * on Windows). One request per connection. The socket lives in a fresh 0700
+ * directory so other local users can't connect regardless of umask, and the
+ * short name keeps the path well under the 104-byte `sun_path` limit on
+ * macOS (an over-long path binds truncated, and cleanup then misses it).
  */
 
 import { createServer, createConnection, type Server, type Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { unlink } from 'node:fs/promises';
+import { mkdtempSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 
 /** What the MCP server asks the bot to decide. */
 export interface BridgeRequest {
@@ -40,14 +44,36 @@ export interface BridgeResponse {
   message?: string;
 }
 
-export type BridgeDecisionHandler = (req: BridgeRequest) => Promise<BridgeResponse>;
+/**
+ * Thrown by a handler to signal "this bridge can't decide right now" WITHOUT
+ * producing a deny: the server then drops the connection with no response, the
+ * client rejects, and the MCP server falls back to its legacy prompts. A
+ * regular deny would be final — no fallback.
+ */
+export class BridgeUnavailableError extends Error {}
+
+/**
+ * Decision handler. `signal` aborts when the requesting client disconnected
+ * before a decision was made (its timeout fired, the CLI cancelled the tool
+ * call, or the MCP child died). Handlers that park state waiting for a user
+ * reaction MUST clear it on abort — a stale pending would otherwise swallow
+ * the next real decision instead of letting it fall back to stdin.
+ */
+export type BridgeDecisionHandler = (
+  req: BridgeRequest,
+  signal: AbortSignal
+) => Promise<BridgeResponse>;
 
 /** Build a platform-appropriate socket path for a new bridge. */
 export function bridgeSocketPath(): string {
-  const name = `claude-threads-bridge-${randomUUID()}`;
-  return process.platform === 'win32'
-    ? `\\\\.\\pipe\\${name}`
-    : join(tmpdir(), `${name}.sock`);
+  if (process.platform === 'win32') {
+    // Named pipes: no filesystem entry; default DACL already denies other
+    // users; no length concerns.
+    return `\\\\.\\pipe\\ctb-${randomUUID()}`;
+  }
+  // Fresh 0700 directory (mkdtemp guarantees the mode) + short socket name.
+  const dir = mkdtempSync(join(tmpdir(), 'ctb-'));
+  return join(dir, 'b.sock');
 }
 
 /**
@@ -64,6 +90,8 @@ export class DecisionBridgeServer {
     const path = bridgeSocketPath();
     const server = createServer((socket: Socket) => {
       let buffer = '';
+      const aborter = new AbortController();
+      let responded = false;
       socket.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
         const newline = buffer.indexOf('\n');
@@ -74,14 +102,23 @@ export class DecisionBridgeServer {
         try {
           request = JSON.parse(line) as BridgeRequest;
         } catch {
+          responded = true;
           socket.end(JSON.stringify({ behavior: 'deny', message: 'Malformed bridge request' }) + '\n');
           return;
         }
-        handler(request)
+        handler(request, aborter.signal)
           .then((response) => {
+            responded = true;
             socket.end(JSON.stringify(response) + '\n');
           })
           .catch((err) => {
+            responded = true;
+            if (err instanceof BridgeUnavailableError) {
+              // No response at all: the client rejects and the MCP server
+              // falls back to its legacy prompts.
+              socket.destroy();
+              return;
+            }
             socket.end(
               JSON.stringify({
                 behavior: 'deny',
@@ -90,8 +127,12 @@ export class DecisionBridgeServer {
             );
           });
       });
-      // A dying MCP child mid-request: nothing to do, the handler's eventual
-      // resolution writes into a closed socket, which is a no-op via 'error'.
+      // The requesting side died before a decision (its timeout, a cancelled
+      // tool call, a dead MCP child): tell the handler so it clears any
+      // parked pending state — see BridgeDecisionHandler.
+      socket.on('close', () => {
+        if (!responded) aborter.abort();
+      });
       socket.on('error', () => {});
     });
 
@@ -108,17 +149,18 @@ export class DecisionBridgeServer {
 
   async close(): Promise<void> {
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
-    // Unix sockets leave a filesystem entry behind; named pipes don't.
+    // Remove the socket's private directory (unix only; pipes leave nothing).
     if (process.platform !== 'win32') {
-      await unlink(this.path).catch(() => {});
+      await rm(join(this.path, '..'), { recursive: true, force: true }).catch(() => {});
     }
   }
 }
 
 /**
  * MCP-side client. Connects, sends one request, waits for the decision.
- * Throws on connect failure or timeout — the caller falls back to its legacy
- * behavior (the bridge is an enhancement, never a hard dependency).
+ * Throws on connect failure, connection loss, or timeout — the caller falls
+ * back to its legacy behavior (the bridge is an enhancement, never a hard
+ * dependency).
  */
 export function requestBridgeDecision(
   path: string,

@@ -127,3 +127,48 @@ describe('DecisionBridge', () => {
     await expect(requestBridgeDecision(path, PLAN_REQUEST, 500)).rejects.toThrow();
   });
 });
+
+describe('DecisionBridge - client disconnect aborts the handler', () => {
+  it('signals abort when the client times out before a decision', async () => {
+    let aborted = false;
+    let sawSignal: AbortSignal | null = null;
+    const server = await DecisionBridgeServer.create(
+      (_req, signal) =>
+        new Promise<BridgeResponse>(() => {
+          sawSignal = signal;
+          signal.addEventListener('abort', () => { aborted = true; });
+        })
+    );
+    try {
+      await expect(requestBridgeDecision(server.path, PLAN_REQUEST, 150)).rejects.toThrow(/timed out/);
+      // The client destroyed its socket; the server must abort the parked handler
+      await new Promise(r => setTimeout(r, 100));
+      expect(sawSignal).not.toBeNull();
+      expect(aborted).toBe(true);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('does not abort when the handler already responded', async () => {
+    let aborted = false;
+    const server = await DecisionBridgeServer.create(async (_req, signal) => {
+      signal.addEventListener('abort', () => { aborted = true; });
+      return { behavior: 'allow' };
+    });
+    try {
+      await requestBridgeDecision(server.path, PLAN_REQUEST, 5000);
+      await new Promise(r => setTimeout(r, 100));
+      expect(aborted).toBe(false);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps the socket path under the unix sun_path limit', () => {
+    // macOS caps sun_path at 104 bytes and silently truncates over-long
+    // paths on bind/connect — cleanup then misses the real file.
+    const path = bridgeSocketPath();
+    expect(path.length).toBeLessThan(104);
+  });
+});

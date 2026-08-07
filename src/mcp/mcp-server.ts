@@ -258,9 +258,20 @@ export async function handlePermissionWith(
   // then tells Claude "Your questions have been answered", verified
   // empirically). On any bridge failure, fall through to the legacy paths
   // below so the bridge is never a hard dependency.
+  // multiSelect questions are excluded for now: the bot's question UI is
+  // single-select, and the updatedInput.answers format for multi-select has
+  // not been verified against the real CLI — the legacy auto-allow below
+  // degrades those safely.
+  const hasMultiSelect =
+    toolName === 'AskUserQuestion' &&
+    Array.isArray((toolInput as { questions?: unknown }).questions) &&
+    ((toolInput as { questions: Array<{ multiSelect?: boolean }> }).questions).some(
+      q => q?.multiSelect === true
+    );
   if (
     (toolName === 'ExitPlanMode' || toolName === 'AskUserQuestion') &&
-    cfg.decisionBridge
+    cfg.decisionBridge &&
+    !hasMultiSelect
   ) {
     const kind = toolName === 'ExitPlanMode' ? ('plan_approval' as const) : ('question' as const);
     try {

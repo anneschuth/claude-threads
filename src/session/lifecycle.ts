@@ -19,7 +19,7 @@ import { clearAllTimers } from './timer-manager.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
-import { DecisionBridgeServer } from '../mcp/decision-bridge.js';
+import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
 import type { PersistedSession } from '../persistence/session-store.js';
@@ -180,6 +180,8 @@ async function cleanupSession(
     await closeThreadLogger(session, action, details);
   }
   session.messageManager?.dispose();
+  void session.decisionBridge?.close();
+  session.decisionBridge = undefined;
   ctx.ops.emitSessionRemove(session.sessionId);
   mutableSessions(ctx).delete(session.sessionId);
   if (doCleanupPostIndex) {
@@ -274,13 +276,6 @@ function findPersistedByThreadId(
 }
 
 /**
- * Create a MessageManager for a session.
- * Handles all content, task list, question, and subagent operations.
- *
- * Uses event subscriptions to handle callbacks from MessageManager.
- * This replaces the old callback-based approach for cleaner code.
- */
-/**
  * Create the per-session decision bridge (plan approvals and question answers
  * flowing back through the MCP permission server — see
  * src/mcp/decision-bridge.ts). Returns null when the socket can't be created;
@@ -295,12 +290,16 @@ async function createSessionDecisionBridge(
   ref: { current?: Session }
 ): Promise<DecisionBridgeServer | null> {
   try {
-    return await DecisionBridgeServer.create(async (request) => {
+    return await DecisionBridgeServer.create(async (request, signal) => {
       const messageManager = ref.current?.messageManager;
       if (!messageManager) {
-        return { behavior: 'deny', message: 'Session is not ready for decisions yet' };
+        // Drop the connection instead of denying: a deny would be final,
+        // while a dropped connection makes the MCP server fall back to its
+        // legacy prompts. (Unreachable in practice — the CLI only starts
+        // after the MessageManager exists — but degrade safely regardless.)
+        throw new BridgeUnavailableError('Session is not ready for decisions yet');
       }
-      return messageManager.handleBridgeRequest(request);
+      return messageManager.handleBridgeRequest(request, signal);
     });
   } catch (err) {
     log.warn(`Decision bridge unavailable — falling back to legacy MCP prompts: ${err}`);
@@ -308,6 +307,13 @@ async function createSessionDecisionBridge(
   }
 }
 
+/**
+ * Create a MessageManager for a session.
+ * Handles all content, task list, question, and subagent operations.
+ *
+ * Uses event subscriptions to handle callbacks from MessageManager.
+ * This replaces the old callback-based approach for cleaner code.
+ */
 function createMessageManager(
   session: Session,
   ctx: SessionContext
@@ -1168,6 +1174,8 @@ export async function startSession(
     await logAndNotify(err, { action: 'Start Claude', session });
     ctx.ops.stopTyping(session);
     session.messageManager?.dispose();
+    void session.decisionBridge?.close();
+    session.decisionBridge = undefined;
     ctx.ops.emitSessionRemove(session.sessionId);
     mutableSessions(ctx).delete(session.sessionId);
     releaseAccountIfHeld(session, ctx);
@@ -1546,6 +1554,8 @@ export async function resumeSession(
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
     session.messageManager?.dispose();
+    void session.decisionBridge?.close();
+    session.decisionBridge = undefined;
     ctx.ops.emitSessionRemove(sessionId);
     mutableSessions(ctx).delete(sessionId);
     ctx.state.sessionStore.remove(sessionId);
