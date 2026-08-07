@@ -81,7 +81,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 **MCP Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
 - Each has its own WebSocket/connection to the platform, plus a decision-bridge socket back to the bot (plan approvals / question answers)
-- Exposes three tools to Claude:
+- Exposes tools to Claude, including:
   - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
   - `read_post` — fetches a Mattermost/Slack post (and optional thread context) by permalink, scoped to the bot's own channel (auto-approved)

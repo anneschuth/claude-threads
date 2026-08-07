@@ -1220,7 +1220,7 @@ export class MessageManager {
    * promise resolves when the user reacts on the corresponding UI (the plan
    * post's 👍/👎 or the question posts' option reactions) — via
    * `resolveBridgePlan` / `resolveBridgeQuestion` called from the lifecycle
-   * completion listeners. The MCP client enforces the timeout; a session that
+   * completion listeners and the `!approve` command. The MCP client enforces the timeout; a session that
    * ends first denies any pending request via `denyPendingBridgeRequests`.
    */
   handleBridgeRequest(request: BridgeRequest, signal?: AbortSignal): Promise<BridgeResponse> {

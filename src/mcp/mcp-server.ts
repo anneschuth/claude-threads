@@ -298,8 +298,10 @@ export async function handlePermissionWith(
   // requested: AskUserQuestion 👍✅👎" post here would just duplicate it.
   // Auto-allow: the tool then resolves as unanswered, Claude notes it's
   // waiting, and the user's reaction-answer arrives as a regular message.
-  // (The proper fix — blocking here and returning the answers via
-  // updatedInput — needs the question UI to move into this process.)
+  // (This path is only the FALLBACK now — no bridge configured, a
+  // multiSelect question, or a bridge failure. The proper fix lives in the
+  // decision-bridge block above: it blocks here and returns the answers via
+  // updatedInput, resolved by the bot's question UI.)
   if (toolName === 'AskUserQuestion') {
     mcpLogger.debug('Auto-allowing AskUserQuestion (question UI is handled by the main bot)');
     return { behavior: 'allow', updatedInput: toolInput };
