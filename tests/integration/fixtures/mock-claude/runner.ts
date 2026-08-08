@@ -630,6 +630,9 @@ async function playTurn(state: SessionState): Promise<void> {
       ? fallbackTurn
       : scenario.turns[scenario.turns.length - 1] ?? fallbackTurn;
   }
+  // The real CLI re-emits system/init at the start of every turn after the
+  // first (see simple-text-multi-turn.jsonl). Startup already emitted one.
+  if (idx > 0) emitInit();
   state.turnIndex = idx + 1;
   saveState(state);
 

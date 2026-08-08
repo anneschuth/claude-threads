@@ -494,9 +494,11 @@ The Claude CLI version is displayed:
 - In each session's header table
 
 **Updating the verified range:** when a new CLI minor ships, run the manual
-e2e (`tests/e2e-real-cli/decision-bridge-e2e.ts`) plus a live smoke against
-it, then bump `CLAUDE_CLI_VERIFIED_RANGE` / `CLAUDE_CLI_LATEST_VERIFIED` in
-`src/claude/version-check.ts` (and `CLAUDE_CLI_MIN_VERSION` /
+e2e (`tests/e2e-real-cli/decision-bridge-e2e.ts`), re-capture the reference
+event streams (`tests/e2e-real-cli/capture-events.ts`) and diff them against
+`tests/integration/fixtures/real-cli-captures/` for dialect drift, do a live
+smoke, then bump `CLAUDE_CLI_VERIFIED_RANGE` / `CLAUDE_CLI_LATEST_VERIFIED`
+in `src/claude/version-check.ts` (and `CLAUDE_CLI_MIN_VERSION` /
 `CLAUDE_CLI_SUPPORTED_MAJOR` only when the floor or major actually moves) in
 a patch release. The untested warning is the prompt to do this, not a
 permanent state.
@@ -508,7 +510,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run unit tests (~2600 tests)
+bun test             # Run unit tests (~3000 tests)
 bun run lint         # Run ESLint
 ```
 
@@ -535,7 +537,7 @@ suites that assert session end.
 ```bash
 # Run locally (requires Docker)
 bun run test:integration:setup    # Start Mattermost in Docker + create users/channels
-bun run test:integration:run      # Run ~120 integration tests
+bun run test:integration:run      # Run ~150 integration tests
 bun run test:integration:teardown # Stop Mattermost
 
 # Or run all at once (CI style)

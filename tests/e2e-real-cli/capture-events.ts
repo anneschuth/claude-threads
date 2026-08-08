@@ -369,8 +369,11 @@ async function runResumeFlow(): Promise<void> {
 
 const wanted = process.argv.slice(2);
 const toRun = wanted.length ? FLOWS.filter(f => wanted.includes(f.name)) : FLOWS;
-if (toRun.length === 0) {
-  console.error(`No matching flows. Available: ${FLOWS.map(f => f.name).join(', ')}`);
+// The resume pair is a two-phase flow (seed + resume) driven by
+// runResumeFlow, not a FLOWS entry — selecting either name runs both.
+const wantResume = !wanted.length || wanted.includes('resume') || wanted.includes('resume-seed');
+if (toRun.length === 0 && !wantResume) {
+  console.error(`No matching flows. Available: ${[...FLOWS.map(f => f.name), 'resume-seed', 'resume'].join(', ')}`);
   process.exit(1);
 }
 
@@ -381,7 +384,7 @@ for (const flow of toRun) {
     console.error(`[capture] ✖ ${flow.name} failed:`, err);
   }
 }
-if (!wanted.length || wanted.includes('resume')) {
+if (wantResume) {
   try {
     await runResumeFlow();
   } catch (err) {
