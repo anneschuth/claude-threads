@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.23.0] - 2026-08-08
+
+### Fixed
+- **A failed compaction no longer leaves a stale "🗜️ Compacting context..." post forever.** Captured against the real CLI (2.1.226, `real-cli-captures/compact-failed.jsonl`): a failed compact emits **no** `compact_boundary` — only a `status` event with `compact_result: "failed"` and a `compact_error` — so the in-progress post was never resolved. It now updates to "⚠️ Compaction failed (reason)". Long-lived bot threads auto-compact in production, so this state was reachable by simply keeping a session busy.
+
+### Added
+- **Compaction completion shows real token counts.** The completion post now renders `pre → post` ("Context compacted (manual, 31k → 3k tokens)") using the `post_tokens` field verified in a new reference capture (`real-cli-captures/compact.jsonl`, recorded via a manual `/compact` driven through stream-json).
+- **`auth_status` events are handled.** An auth error from the CLI mid-session (expired OAuth, revoked key) now posts a warning to the thread instead of vanishing; progress-only auth updates are logged. Shape taken from the Agent SDK's published types (`SDKAuthStatusMessage`, `@anthropic-ai/claude-agent-sdk` 0.3.226) — deliberately not capture-backed, since provoking a real auth failure requires a broken environment.
+- **The mock's `persistent-session` scenario now carries the telemetry noise real streams have** (`thinking_tokens`, `post_turn_summary`, `active_goal`), pinning deliberately that the bot tolerates unconsumed event types — previously that tolerance was only proven incidentally. New `compaction`/`compaction-failed` scenarios and an integration suite cover the compaction lifecycle end to end on both platforms.
+
 ## [1.22.1] - 2026-08-08
 
 ### Fixed

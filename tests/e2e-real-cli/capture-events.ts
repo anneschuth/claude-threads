@@ -34,6 +34,8 @@ interface StdinStep {
   afterMs?: number;
   /** Wait until an emitted event satisfies this before sending. */
   afterEvent?: (ev: Record<string, unknown>) => boolean;
+  /** Wait until this many result events have been emitted before sending. */
+  afterResults?: number;
   /** The user message to send. */
   text: string;
 }
@@ -174,11 +176,13 @@ async function runFlow(flow: Flow): Promise<void> {
   // Drive stdin per the script
   (async () => {
     for (const step of flow.steps) {
-      if (step.afterEvent) {
-        const pred = step.afterEvent;
+      if (step.afterEvent || step.afterResults !== undefined) {
+        const satisfied = () =>
+          (step.afterEvent ? emitted.some(step.afterEvent) : true) &&
+          (step.afterResults !== undefined ? resultCount >= step.afterResults : true);
         await new Promise<void>((resolve) => {
           const check = () => {
-            if (finished || emitted.some(pred)) { clearInterval(t); resolve(); }
+            if (finished || satisfied()) { clearInterval(t); resolve(); }
           };
           const t = setInterval(check, 100);
           check();
@@ -339,6 +343,31 @@ const FLOWS: Flow[] = [
       { text: 'Use the AskUserQuestion tool to ask me whether I prefer red or blue. If the tool is not available to you, reply exactly: NO-QUESTION-TOOL' },
     ],
     timeoutMs: 120_000,
+  },
+  {
+    name: 'compact-failed',
+    description: 'Immediate /compact on a fresh session: status "compacting" → compact_result "failed" + compact_error, NO compact_boundary',
+    args: ['--dangerously-skip-permissions'],
+    steps: [
+      { text: 'Reply exactly: SEEDED' },
+      { afterResults: 1, text: '/compact' },
+    ],
+    doneWhen: (ev) => ev.type === 'system' && (ev as { compact_result?: string }).compact_result === 'failed',
+    timeoutMs: 180_000,
+  },
+  {
+    name: 'compact',
+    description: 'Manual /compact: status "compacting" → compact_result → system/compact_boundary with compact_metadata',
+    args: ['--dangerously-skip-permissions'],
+    steps: [
+      { text: 'Write a detailed 400-word explanation of TCP handshakes. End with SEEDED-0' },
+      { afterResults: 1, text: 'Write a detailed 400-word explanation of DNS resolution. End with SEEDED-1' },
+      { afterResults: 2, text: 'Write a detailed 400-word explanation of TLS certificates. End with SEEDED-2' },
+      { afterResults: 3, text: 'Write a detailed 400-word explanation of HTTP caching. End with SEEDED-3' },
+      { afterResults: 4, text: '/compact' },
+    ],
+    doneWhen: (ev) => ev.type === 'system' && ev.subtype === 'compact_boundary',
+    timeoutMs: 600_000,
   },
   {
     name: 'interrupt',

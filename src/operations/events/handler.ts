@@ -206,12 +206,49 @@ export function handleEventPreProcessing(
       );
     }
 
-    // Handle compaction events
+    // Handle compaction events. Captured sequence (real CLI 2.1.226, see
+    // tests/integration/fixtures/real-cli-captures/compact.jsonl):
+    //   status "compacting" → status {compact_result: "success"} →
+    //   system/compact_boundary {compact_metadata}
+    // On failure there is NO boundary — just status {compact_result:
+    // "failed", compact_error}, which must resolve the start post too.
     if (e.subtype === 'status' && e.status === 'compacting') {
       handleCompactionStart(session, ctx);
     }
+    if (e.subtype === 'status' && (e as { compact_result?: string }).compact_result === 'failed') {
+      handleCompactionFailed(session, (e as { compact_error?: string }).compact_error, ctx);
+    }
     if (e.subtype === 'compact_boundary') {
       handleCompactionComplete(session, e.compact_metadata, ctx);
+    }
+  }
+
+  // Auth status (SDKAuthStatusMessage: shape from @anthropic-ai/claude-agent-sdk
+  // 0.3.226 — not provocable in a healthy environment, so no capture). An
+  // error here means the session's CLI can't authenticate (expired OAuth,
+  // revoked key) — surface it in the thread; progress-only updates just log.
+  if (event.type === 'auth_status') {
+    const e = event as ClaudeEvent & {
+      isAuthenticating?: boolean;
+      output?: string[];
+      error?: string;
+    };
+    if (e.error) {
+      sessionLog(session).warn(`🔐 Claude CLI auth error: ${e.error}`);
+      // auth_status is progress-style (output[] accumulates lines), so a
+      // persistently-broken credential may emit the same error repeatedly —
+      // post each distinct error once.
+      if (session.lastAuthErrorPosted !== e.error) {
+        session.lastAuthErrorPosted = e.error;
+        void withErrorHandling(
+          () => post(session, 'warning', `🔐 Claude CLI authentication problem: ${e.error}`),
+          { action: 'Post auth status warning', session }
+        );
+      }
+    } else {
+      sessionLog(session).info(
+        `🔐 Claude CLI auth status: authenticating=${e.isAuthenticating ?? false}${e.output?.length ? ` (${e.output[e.output.length - 1]})` : ''}`
+      );
     }
   }
 
@@ -317,24 +354,69 @@ export function handleEventPostProcessing(
 /**
  * Handle compaction start - create a dedicated post that we can update later.
  */
-async function handleCompactionStart(
+function handleCompactionStart(
   session: Session,
   _ctx: SessionContext
+): void {
+  // The promise is assigned SYNCHRONOUSLY so a failure/boundary event
+  // dispatched in the same stdout chunk can await the start post before
+  // deciding update-vs-new-post (see compactionPostPromise in types.ts).
+  session.compactionPostPromise = (async () => {
+    // Close current post (flushes pending content) to avoid mixing with compaction message
+    await session.messageManager?.closeCurrentPost();
+
+    const formatter = session.platform.getFormatter();
+    const message = `🗜️ ${formatter.formatBold('Compacting context...')} ${formatter.formatItalic('(freeing up memory)')}`;
+    const compactionPost = await withErrorHandling(
+      () => post(session, 'info', message),
+      { action: 'Post compaction start', session }
+    );
+
+    if (compactionPost) {
+      session.compactionPostId = compactionPost.id;
+      // Note: post() already calls updateLastMessage internally
+    }
+  })();
+}
+
+/** Wait for an in-flight start post so resolution targets it, never races it. */
+async function awaitCompactionStartPost(session: Session): Promise<void> {
+  if (session.compactionPostPromise) {
+    await session.compactionPostPromise.catch(() => {});
+    session.compactionPostPromise = undefined;
+  }
+}
+
+/**
+ * Handle compaction failure - resolve the compaction post so it doesn't sit
+ * at "Compacting context..." forever. A failed compact emits NO
+ * compact_boundary (verified against CLI 2.1.226, compact-failed.jsonl):
+ * only a status event with
+ * compact_result: "failed" and a compact_error.
+ */
+async function handleCompactionFailed(
+  session: Session,
+  compactError: string | undefined,
+  _ctx: SessionContext
 ): Promise<void> {
-  // Close current post (flushes pending content) to avoid mixing with compaction message
-  await session.messageManager?.closeCurrentPost();
+  await awaitCompactionStartPost(session);
 
-  // Create the compaction status post
   const formatter = session.platform.getFormatter();
-  const message = `🗜️ ${formatter.formatBold('Compacting context...')} ${formatter.formatItalic('(freeing up memory)')}`;
-  const compactionPost = await withErrorHandling(
-    () => post(session, 'info', message),
-    { action: 'Post compaction start', session }
-  );
+  const reason = compactError || 'unknown error';
+  const message = `⚠️ ${formatter.formatBold('Compaction failed')} ${formatter.formatItalic(`(${reason})`)}`;
 
-  if (compactionPost) {
-    session.compactionPostId = compactionPost.id;
-    // Note: post() already calls updateLastMessage internally
+  const startPostId = session.compactionPostId;
+  if (startPostId) {
+    await withErrorHandling(
+      () => updatePost(session, startPostId, message),
+      { action: 'Update compaction post (failed)', session }
+    );
+    session.compactionPostId = undefined;
+  } else {
+    await withErrorHandling(
+      () => post(session, 'info', message),
+      { action: 'Post compaction failure', session }
+    );
   }
 }
 
@@ -346,12 +428,18 @@ async function handleCompactionComplete(
   compactMetadata: unknown,
   _ctx: SessionContext
 ): Promise<void> {
+  await awaitCompactionStartPost(session);
+
   // Build the completion message with metadata
-  const metadata = compactMetadata as { trigger?: string; pre_tokens?: number } | undefined;
+  const metadata = compactMetadata as { trigger?: string; pre_tokens?: number; post_tokens?: number } | undefined;
   const trigger = metadata?.trigger || 'auto';
   const preTokens = metadata?.pre_tokens;
+  const postTokens = metadata?.post_tokens;
   let info = trigger === 'manual' ? 'manual' : 'auto';
-  if (preTokens && preTokens > 0) {
+  if (preTokens && preTokens > 0 && postTokens && postTokens > 0) {
+    // e.g. "31k → 3k tokens" (real capture: 31103 → 2777)
+    info += `, ${Math.round(preTokens / 1000)}k → ${Math.max(1, Math.round(postTokens / 1000))}k tokens`;
+  } else if (preTokens && preTokens > 0) {
     info += `, ${Math.round(preTokens / 1000)}k tokens`;
   }
   const formatter = session.platform.getFormatter();

@@ -1,0 +1,16 @@
+{
+  "name": "compaction",
+  "description": "Successful manual compaction mid-turn: status compacting → compact_result success → compact_boundary (sequence and shapes from real-cli-captures/compact.jsonl)",
+  "turns": [
+    {
+      "steps": [
+        { "kind": "text", "text": "Working on it — context is getting long." },
+        { "kind": "raw", "event": { "type": "system", "subtype": "status", "status": "compacting" } },
+        { "kind": "raw", "delay": 400, "event": { "type": "system", "subtype": "status", "status": null, "compact_result": "success" } },
+        { "kind": "raw", "event": { "type": "system", "subtype": "compact_boundary", "compact_metadata": { "trigger": "manual", "pre_tokens": 31103, "post_tokens": 2777, "duration_ms": 17772 } } },
+        { "kind": "text", "text": "Compaction done, continuing." },
+        { "kind": "result", "resultText": "Compaction flow complete." }
+      ]
+    }
+  ]
+}

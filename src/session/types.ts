@@ -372,6 +372,16 @@ export interface Session {
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)
+  /**
+   * In-flight "Compacting context..." post creation. The failure/completion
+   * handlers await this before deciding update-vs-new-post: a fast failure
+   * (both status lines in one stdout chunk) would otherwise read
+   * compactionPostId before the start post landed, post a second message,
+   * and leave the late-arriving start post stale forever. In-memory only.
+   */
+  compactionPostPromise?: Promise<void>;
+  /** Last auth_status error posted to the thread — dedupes repeated warnings. */
+  lastAuthErrorPosted?: string;
 
   // Session title and description (auto-generated via quickQuery)
   sessionTitle?: string;       // Short title describing the session topic (3-6 words)

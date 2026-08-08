@@ -1,0 +1,15 @@
+{
+  "name": "compaction-failed",
+  "description": "Failed compaction: status compacting → compact_result failed with compact_error, NO compact_boundary (shape from real-cli-captures/compact-failed.jsonl, CLI 2.1.226)",
+  "turns": [
+    {
+      "steps": [
+        { "kind": "text", "text": "Let me compact the context." },
+        { "kind": "raw", "event": { "type": "system", "subtype": "status", "status": "compacting" } },
+        { "kind": "raw", "delay": 400, "event": { "type": "system", "subtype": "status", "status": null, "compact_result": "failed", "compact_error": "Not enough messages to compact." } },
+        { "kind": "text", "text": "Compaction did not go through." },
+        { "kind": "result", "resultText": "Compaction failure flow complete." }
+      ]
+    }
+  ]
+}
