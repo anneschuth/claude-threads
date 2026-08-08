@@ -23,6 +23,7 @@ the mock.
 | `permission-write-denied` | The **deny** shape of an ordinary Write gated through the MCP permission prompt (ordinary tools don't ride the bridge; without a platform the server denies). The approve path's tool_result shape is covered by `tool-use-write` and exercised end-to-end by the integration suite |
 | `plan-bypass` / `question-bypass` | Under `--dangerously-skip-permissions` the CLI does not expose ExitPlanMode or AskUserQuestion **at all** |
 | `subagent` | Task-tool sidechain events carry `parent_tool_use_id` |
+| `compact` | Manual `/compact`: `system/status` `"compacting"` → `compact_result: "success"` → `system/compact_boundary` with `compact_metadata` (pre/post tokens). A **failed** compact emits no boundary — only `compact_result: "failed"` + `compact_error` |
 | `error-max-turns` | `subtype: error_max_turns`, `terminal_reason: max_turns` result shape |
 | `interrupt` | SIGINT mid-turn: in-flight tools get rejected tool_results, then an `error_during_execution` result with `terminal_reason: aborted_streaming`, then the process **exits** |
 | `resume-seed` / `resume` | `--session-id` / `--resume` round trip: the resumed process recalls prior context |

@@ -1,11 +1,14 @@
 {
   "name": "persistent-session",
-  "description": "Long-lived session like the real CLI: emits a result per turn and stays alive for follow-ups",
+  "description": "Long-lived session like the real CLI: emits a result per turn and stays alive for follow-ups. Includes the telemetry noise events real streams carry (thinking_tokens, post_turn_summary, active_goal) to pin that the bot tolerates them.",
   "repeatLastTurn": true,
   "turns": [
     {
       "steps": [
+        { "kind": "raw", "delay": 0, "event": { "type": "active_goal", "value": null } },
+        { "kind": "raw", "delay": 0, "event": { "type": "system", "subtype": "thinking_tokens", "estimated_tokens": 4, "estimated_tokens_delta": 4 } },
         { "kind": "text", "text": "I'm ready to help! This session will stay active for testing commands." },
+        { "kind": "raw", "delay": 0, "event": { "type": "system", "subtype": "post_turn_summary", "status_category": "review_ready", "status_detail": "ready", "needs_action": "" } },
         { "kind": "result", "resultText": "Ready." }
       ]
     }

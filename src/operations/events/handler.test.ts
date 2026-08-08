@@ -253,6 +253,67 @@ describe('handleEventPreProcessing', () => {
     expect(session.availableSlashCommands?.has('/compact')).toBe(false);
   });
 
+  test('compact failure updates the compaction post instead of leaving it stale', async () => {
+    // Real sequence captured from CLI 2.1.225 (compact.jsonl + a failed
+    // /compact probe): status "compacting" → status {compact_result:
+    // "failed", compact_error} with NO compact_boundary. The start post
+    // must not stay at "Compacting context..." forever.
+    handleEventPreProcessing(session, { type: 'system', subtype: 'status', status: 'compacting' }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(session.compactionPostId).toBeDefined();
+    const postId = session.compactionPostId!;
+
+    handleEventPreProcessing(session, {
+      type: 'system', subtype: 'status', status: null,
+      compact_result: 'failed', compact_error: 'Not enough messages to compact.',
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    expect(posts.get(postId)).toMatch(/failed/i);
+    expect(posts.get(postId)).toContain('Not enough messages to compact.');
+    expect(session.compactionPostId).toBeUndefined();
+  });
+
+  test('compact completion shows pre → post token counts', async () => {
+    handleEventPreProcessing(session, { type: 'system', subtype: 'status', status: 'compacting' }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+    const postId = session.compactionPostId!;
+
+    handleEventPreProcessing(session, {
+      type: 'system', subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'manual', pre_tokens: 31103, post_tokens: 2777 },
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    expect(posts.get(postId)).toMatch(/31k.*→.*3k/);
+    expect(session.compactionPostId).toBeUndefined();
+  });
+
+  test('auth_status with an error posts a warning to the thread', async () => {
+    handleEventPreProcessing(session, {
+      type: 'auth_status', isAuthenticating: false,
+      output: [], error: 'OAuth token expired',
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    const warning = [...posts.values()].find((m) => /OAuth token expired/.test(m));
+    expect(warning).toBeDefined();
+    expect(warning).toMatch(/auth/i);
+  });
+
+  test('auth_status without an error is log-only (no thread post)', async () => {
+    handleEventPreProcessing(session, {
+      type: 'auth_status', isAuthenticating: true, output: ['Refreshing credentials...'],
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    expect(posts.size).toBe(0);
+  });
+
   test('ignores init event without slash_commands', () => {
     const initEvent = {
       type: 'system',

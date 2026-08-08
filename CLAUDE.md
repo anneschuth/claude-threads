@@ -834,6 +834,8 @@ Claude CLI emits JSON events. The transformer converts them to MessageOperations
 - `user` → `AppendContentOp` result indicators (`↳ ✓`/`↳ ❌`) for its `tool_result` blocks + `FlushOp`; also resolves pending `TaskCreate` ids from result text
 - `result` → `FlushOp` + `StatusUpdateOp` (cost info)
 - `rate_limit_event` → consumed in `cli.ts` (`status: "rejected"` feeds account cooldown)
+- `system/status` + `system/compact_boundary` → compaction lifecycle post in the thread (in-progress → success with pre→post token counts, or failure via `compact_result: "failed"` — which emits **no** boundary)
+- `auth_status` → warning post when it carries an `error`; log-only otherwise (shape from the Agent SDK types — not provocable in a healthy environment)
 - Events with `parent_tool_use_id` (subagent sidechains) are skipped
 - Top-level `tool_use`/`tool_result` events are a legacy shape (kept for old captures and the integration mock CLI)
 

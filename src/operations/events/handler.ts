@@ -206,12 +206,43 @@ export function handleEventPreProcessing(
       );
     }
 
-    // Handle compaction events
+    // Handle compaction events. Captured sequence (real CLI 2.1.225, see
+    // tests/integration/fixtures/real-cli-captures/compact.jsonl):
+    //   status "compacting" → status {compact_result: "success"} →
+    //   system/compact_boundary {compact_metadata}
+    // On failure there is NO boundary — just status {compact_result:
+    // "failed", compact_error}, which must resolve the start post too.
     if (e.subtype === 'status' && e.status === 'compacting') {
       handleCompactionStart(session, ctx);
     }
+    if (e.subtype === 'status' && (e as { compact_result?: string }).compact_result === 'failed') {
+      handleCompactionFailed(session, (e as { compact_error?: string }).compact_error, ctx);
+    }
     if (e.subtype === 'compact_boundary') {
       handleCompactionComplete(session, e.compact_metadata, ctx);
+    }
+  }
+
+  // Auth status (SDKAuthStatusMessage: shape from @anthropic-ai/claude-agent-sdk
+  // 0.3.226 — not provocable in a healthy environment, so no capture). An
+  // error here means the session's CLI can't authenticate (expired OAuth,
+  // revoked key) — surface it in the thread; progress-only updates just log.
+  if (event.type === 'auth_status') {
+    const e = event as ClaudeEvent & {
+      isAuthenticating?: boolean;
+      output?: string[];
+      error?: string;
+    };
+    if (e.error) {
+      sessionLog(session).warn(`🔐 Claude CLI auth error: ${e.error}`);
+      void withErrorHandling(
+        () => post(session, 'warning', `🔐 Claude CLI authentication problem: ${e.error}`),
+        { action: 'Post auth status warning', session }
+      );
+    } else {
+      sessionLog(session).info(
+        `🔐 Claude CLI auth status: authenticating=${e.isAuthenticating ?? false}${e.output?.length ? ` (${e.output[e.output.length - 1]})` : ''}`
+      );
     }
   }
 
@@ -339,6 +370,35 @@ async function handleCompactionStart(
 }
 
 /**
+ * Handle compaction failure - resolve the compaction post so it doesn't sit
+ * at "Compacting context..." forever. A failed compact emits NO
+ * compact_boundary (verified against CLI 2.1.225): only a status event with
+ * compact_result: "failed" and a compact_error.
+ */
+async function handleCompactionFailed(
+  session: Session,
+  compactError: string | undefined,
+  _ctx: SessionContext
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+  const reason = compactError || 'unknown error';
+  const message = `⚠️ ${formatter.formatBold('Compaction failed')} ${formatter.formatItalic(`(${reason})`)}`;
+
+  if (session.compactionPostId) {
+    await withErrorHandling(
+      () => updatePost(session, session.compactionPostId!, message),
+      { action: 'Update compaction post (failed)', session }
+    );
+    session.compactionPostId = undefined;
+  } else {
+    await withErrorHandling(
+      () => post(session, 'info', message),
+      { action: 'Post compaction failure', session }
+    );
+  }
+}
+
+/**
  * Handle compaction complete - update the existing compaction post.
  */
 async function handleCompactionComplete(
@@ -347,11 +407,15 @@ async function handleCompactionComplete(
   _ctx: SessionContext
 ): Promise<void> {
   // Build the completion message with metadata
-  const metadata = compactMetadata as { trigger?: string; pre_tokens?: number } | undefined;
+  const metadata = compactMetadata as { trigger?: string; pre_tokens?: number; post_tokens?: number } | undefined;
   const trigger = metadata?.trigger || 'auto';
   const preTokens = metadata?.pre_tokens;
+  const postTokens = metadata?.post_tokens;
   let info = trigger === 'manual' ? 'manual' : 'auto';
-  if (preTokens && preTokens > 0) {
+  if (preTokens && preTokens > 0 && postTokens && postTokens > 0) {
+    // e.g. "31k → 3k tokens" (real capture: 31103 → 2777)
+    info += `, ${Math.round(preTokens / 1000)}k → ${Math.max(1, Math.round(postTokens / 1000))}k tokens`;
+  } else if (preTokens && preTokens > 0) {
     info += `, ${Math.round(preTokens / 1000)}k tokens`;
   }
   const formatter = session.platform.getFormatter();
