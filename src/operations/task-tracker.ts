@@ -239,13 +239,23 @@ export class TaskTracker {
 
   /**
    * Rebuild state from a persisted snapshot (session resume). Replaces the
-   * current task set. Defensive against malformed persisted data — rows
-   * without a usable id are dropped, unknown statuses normalize to pending —
-   * per the repo's backward-compatibility rules for persisted state.
+   * current task set. Defensive against malformed persisted data — a
+   * non-array value resets to empty, null/primitive rows and rows without a
+   * usable id are dropped, unknown statuses normalize to pending — per the
+   * repo's backward-compatibility rules for persisted state. A throw here
+   * would abort the entire session resume, so nothing in this method may
+   * throw on corrupt input.
    */
   restore(state: PersistedTrackedTask[]): void {
+    if (!Array.isArray(state)) {
+      this.tasks = [];
+      this.pendingCreates.clear();
+      return;
+    }
     this.tasks = state
-      .filter(t => typeof t.taskId === 'string' && t.taskId.length > 0 && typeof t.subject === 'string')
+      .filter((t): t is PersistedTrackedTask =>
+        t !== null && typeof t === 'object' &&
+        typeof t.taskId === 'string' && t.taskId.length > 0 && typeof t.subject === 'string')
       .map(t => ({
         taskId: t.taskId,
         subject: t.subject || `Task #${t.taskId}`,

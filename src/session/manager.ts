@@ -559,10 +559,12 @@ export class SessionManager extends EventEmitter {
     events.handleEventPreProcessing(session, event, this.getContext());
 
     // Main event handling via MessageManager
-    void session.messageManager.handleEvent(event);
+    const mainHandling = session.messageManager.handleEvent(event);
 
-    // Post-processing: session-specific side effects
-    events.handleEventPostProcessing(session, event, this.getContext());
+    // Post-processing: session-specific side effects. Receives the main
+    // handling promise so turn-end persistence can wait for the operation
+    // chain (incl. task-list finalize) to settle before snapshotting.
+    events.handleEventPostProcessing(session, event, this.getContext(), mainHandling);
   }
 
   // ---------------------------------------------------------------------------
@@ -630,6 +632,18 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private persistSession(session: Session): void {
+    try {
+      this.persistSessionUnsafe(session);
+    } catch (err) {
+      // Persistence runs on hot paths (every turn end, synchronously inside
+      // the CLI 'event' listener chain) — an fs error (ENOSPC, EACCES) must
+      // be logged, never thrown: a throw would propagate into callers that
+      // treat listener errors as stream noise.
+      log.error(`Failed to persist session ${session.sessionId}: ${err}`);
+    }
+  }
+
+  private persistSessionUnsafe(session: Session): void {
     // Aggregate every executor's persistable state in one call. Byte-parity
     // with the pre-PR-3 writer is guarded by the snapshot tests in
     // `manager.test.ts` — adding a field here without updating the snapshot

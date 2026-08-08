@@ -756,6 +756,30 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
     expect(hits).toHaveLength(1);
     expect(hits[0].resetAtEpochMs).toBe(resetsAt * 1000);
   });
+
+  test("a throwing 'event' listener neither skips the rate-limit scan nor masquerades as parse noise", () => {
+    // Session persistence (and other side effects) run synchronously inside
+    // the 'event' listener chain. If a listener throws (e.g. disk full during
+    // a turn-end persist), the error must not abort the rate-limit scan for
+    // that same event — error-flavored results are exactly the events that
+    // carry rate-limit signals — nor be silently eaten by the JSON-parse
+    // catch for partial lines.
+    const cli = new ClaudeCli({ workingDir: '/test' });
+    const hits: unknown[] = [];
+    cli.on('rate-limit', (h) => hits.push(h));
+    cli.on('event', () => { throw new Error('listener boom (persist failed)'); });
+    const parse = (line: string) =>
+      (cli as unknown as { parseOutput: (d: string) => void }).parseOutput(line + '\n');
+
+    parse(JSON.stringify({
+      type: 'result',
+      subtype: 'error_during_execution',
+      is_error: true,
+      result: 'Claude AI usage limit reached|' + Math.floor(Date.now() / 1000 + 1800),
+    }));
+
+    expect(hits).toHaveLength(1);
+  });
 });
 
 describe('rate-limit emit guard - suppressed explicit hit keeps its explicitness', () => {

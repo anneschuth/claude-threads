@@ -289,7 +289,8 @@ export function handleEventPreProcessing(
 export function handleEventPostProcessing(
   session: Session,
   event: ClaudeEvent,
-  ctx: SessionContext
+  ctx: SessionContext,
+  mainHandling?: Promise<void>
 ): void {
   // Handle assistant events - extract PR URLs, detect commands
   if (event.type === 'assistant') {
@@ -321,8 +322,23 @@ export function handleEventPostProcessing(
     updateUsageStats(session, event, ctx);
     // Persist at every turn end so the incremental task-tracker snapshot
     // (and usage/cost state) survives a bot restart. The CLI only runs while
-    // the bot runs, so turn-end persistence can't go stale.
-    ctx.ops.persistSession(session);
+    // the bot runs, so turn-end persistence can't go stale. Cost note: each
+    // persist is a synchronous read-modify-write of the whole sessions.json
+    // (atomic temp+rename) — small in practice, but O(total persisted
+    // history) per turn end.
+    //
+    // The persist MUST wait for the main event handling to settle: the
+    // result event's StatusUpdateOp runs taskListExecutor.finalize() inside
+    // that promise (deleting an incomplete task post and nulling its state),
+    // and persisting before it would snapshot exactly the state finalize is
+    // about to invalidate — a tasksPostId pointing at a deleted post.
+    if (mainHandling) {
+      void mainHandling
+        .catch(() => { /* op-chain errors are logged in MessageManager; still persist */ })
+        .then(() => ctx.ops.persistSession(session));
+    } else {
+      ctx.ops.persistSession(session);
+    }
   }
 
   // Track tool errors for bug reporting context. The real CLI delivers tool

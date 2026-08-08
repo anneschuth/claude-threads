@@ -257,4 +257,25 @@ describe('TaskTracker persistence (serialize/restore)', () => {
     // Malformed rows are dropped or normalized, never crash
     expect(items.length).toBeLessThanOrEqual(2);
   });
+
+  it('restore tolerates null/primitive entries in the array (corrupt row must not abort resume)', () => {
+    // A throw here is fatal to the whole session resume (lifecycle catch),
+    // so a single corrupt row in sessions.json must be skipped, not thrown on.
+    tracker.restore([
+      null,
+      'junk',
+      42,
+      { taskId: '1', subject: 'Real task', status: 'in_progress' },
+    ] as never);
+    expect(tracker.toTaskItems()).toEqual([
+      { content: 'Real task', status: 'in_progress', activeForm: 'Real task' },
+    ]);
+  });
+
+  it('restore tolerates a non-array value entirely (resets to empty, never throws)', () => {
+    tracker.create('tu-1', { subject: 'Old' });
+    tracker.resolveCreatedId('tu-1', 'Task #1 created successfully: Old');
+    tracker.restore('garbage-not-an-array' as never);
+    expect(tracker.isEmpty).toBe(true);
+  });
 });

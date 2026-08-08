@@ -8,14 +8,14 @@
         { "kind": "task-create", "subject": "Analyze requirements" },
         { "kind": "task-create", "subject": "Write the report" },
         { "kind": "task-update", "subject": "Analyze requirements", "status": "in_progress" },
-        { "kind": "result", "resultText": "Tasks set up.", "delay": 5000 }
+        { "kind": "result", "resultText": "Tasks set up.", "delay": 8000 }
       ]
     },
     {
       "steps": [
         { "kind": "task-update", "subject": "Analyze requirements", "status": "completed" },
         { "kind": "text", "text": "First task wrapped up." },
-        { "kind": "result", "resultText": "Task one done.", "delay": 5000 }
+        { "kind": "result", "resultText": "Task one done.", "delay": 8000 }
       ]
     }
   ]

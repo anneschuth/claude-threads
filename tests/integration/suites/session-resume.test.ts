@@ -29,6 +29,7 @@ import {
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
+import { readFileSync } from 'node:fs';
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;
@@ -318,6 +319,31 @@ describe.skipIf(SKIP)('Session Resume', () => {
           timeout: 30000,
         });
 
+        // Pin the TURN-END persist path end-to-end: once turn 1's result has
+        // been processed, the tracker snapshot must be on disk — BEFORE any
+        // graceful-shutdown persist gets a chance to write it. (Persistence
+        // is chained after the op chain settles, so poll briefly.)
+        const persistDeadline = Date.now() + 20000;
+        let persistedTracker: Array<{ subject?: string }> | undefined;
+        while (Date.now() < persistDeadline) {
+          try {
+            const raw = JSON.parse(readFileSync(bot.sessionsPath, 'utf-8')) as {
+              sessions?: Record<string, { taskTrackerState?: Array<{ subject?: string }> }>;
+            };
+            persistedTracker = Object.values(raw.sessions ?? {})
+              .map((s) => s.taskTrackerState)
+              .find((t) => Array.isArray(t) && t.length > 0);
+            if (persistedTracker) break;
+          } catch {
+            // File mid-write or not yet created — keep polling
+          }
+          await new Promise((r) => setTimeout(r, 250));
+        }
+        expect(persistedTracker?.map((t) => t.subject)).toEqual([
+          'Analyze requirements',
+          'Write the report',
+        ]);
+
         // Restart the bot, preserving persisted sessions. The platform id
         // must survive the restart too (persisted sessions are keyed by
         // platformId:threadId) — in production it comes from config.yaml and
@@ -337,15 +363,22 @@ describe.skipIf(SKIP)('Session Resume', () => {
           platformIdOverride: savedPlatformId,
         }, ctx));
 
-        // Wait until the session is back (auto-resumed or paused-for-resume).
+        // Wait until the session is back (auto-resumed or paused-for-resume),
+        // and fail HERE with a clear message if it never comes back — a
+        // fall-through would surface later as an unhelpful post-wait timeout.
         const resumeDeadline = Date.now() + 15000;
+        let sessionCameBack = false;
         while (Date.now() < resumeDeadline) {
           if (
             bot.sessionManager.isInSessionThread(rootPost.id) ||
             bot.sessionManager.hasPausedSession(rootPost.id)
-          ) break;
+          ) {
+            sessionCameBack = true;
+            break;
+          }
           await new Promise((r) => setTimeout(r, 250));
         }
+        expect(sessionCameBack).toBe(true);
 
         // Drive turn 2: the mock CLI resumes its persisted scenario state and
         // emits TaskUpdate(taskId: "1", status: completed).
