@@ -713,28 +713,37 @@ export class ClaudeCli extends EventEmitter {
       const trimmed = line.trim();
       if (!trimmed) continue;
 
+      let event: ClaudeEvent;
       try {
-        const event = JSON.parse(trimmed) as ClaudeEvent;
-        // Note: Event details are logged in events.ts handleEvent with session context
-        this.emit('event', event);
-        // Scan for rate-limit only on error-flavored result events. `success`
-        // results contain the assistant's final answer text, which could easily
-        // include phrases like "rate_limit_error" if the user asked about them
-        // — scanning those would cool the account down on a normal reply.
-        // Error subtypes (e.g. "error_during_execution", "error_max_turns") and
-        // any event carrying `is_error: true` are the narrow set we trust.
-        if (event.type === 'result' && isErrorResultEvent(event)) {
-          this.maybeEmitRateLimit(trimmed);
-        }
-        // Structured rate-limit signal (2.1.2xx+): emitted every turn with
-        // status "allowed" when healthy; only "rejected" means a request was
-        // actually blocked (see parseRateLimitEvent — "allowed_warning" is a
-        // routine approaching-limit notice, not a limit).
-        if (event.type === 'rate_limit_event') {
-          this.maybeEmitRateLimitHit(parseRateLimitEvent(event));
-        }
+        event = JSON.parse(trimmed) as ClaudeEvent;
       } catch {
         // Ignore unparseable lines (usually partial JSON from streaming)
+        continue;
+      }
+      // Note: Event details are logged in events.ts handleEvent with session context.
+      // Listener errors are logged, not rethrown — and deliberately kept out of
+      // the JSON-parse catch above, where they would masquerade as parse noise
+      // and abort the rate-limit scans below for this event.
+      try {
+        this.emit('event', event);
+      } catch (err) {
+        this.log.error(`'event' listener threw while handling a ${event.type} event: ${err}`);
+      }
+      // Scan for rate-limit only on error-flavored result events. `success`
+      // results contain the assistant's final answer text, which could easily
+      // include phrases like "rate_limit_error" if the user asked about them
+      // — scanning those would cool the account down on a normal reply.
+      // Error subtypes (e.g. "error_during_execution", "error_max_turns") and
+      // any event carrying `is_error: true` are the narrow set we trust.
+      if (event.type === 'result' && isErrorResultEvent(event)) {
+        this.maybeEmitRateLimit(trimmed);
+      }
+      // Structured rate-limit signal (2.1.2xx+): emitted every turn with
+      // status "allowed" when healthy; only "rejected" means a request was
+      // actually blocked (see parseRateLimitEvent — "allowed_warning" is a
+      // routine approaching-limit notice, not a limit).
+      if (event.type === 'rate_limit_event') {
+        this.maybeEmitRateLimitHit(parseRateLimitEvent(event));
       }
     }
   }

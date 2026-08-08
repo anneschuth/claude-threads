@@ -120,6 +120,17 @@ export interface StartBotOptions {
    * channel.
    */
   mattermostChannelId?: string;
+  /**
+   * Reuse a specific platform id instead of minting a fresh per-start one
+   * (Mattermost mints `test-mattermost-<pool>-<seq>` per start). Needed for
+   * restart-resume tests: persisted sessions are keyed by
+   * `platformId:threadId`, so a restarted bot can only resume them under the
+   * SAME platform id — exactly like production, where the id comes from
+   * config.yaml and survives restarts. Pass the previous bot's `platformId`.
+   * Only reuse an id within one suite/channel: it also re-adopts that id's
+   * module-level sticky state.
+   */
+  platformIdOverride?: string;
 }
 
 /**
@@ -147,6 +158,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     slackChannelId,
     slackBotName = 'claude-test-bot',
     mattermostChannelId,
+    platformIdOverride,
   } = options;
 
   // Load test config
@@ -238,7 +250,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     // channel never gets a sticky. The monotonic seq makes each start a fresh
     // namespace.
     const { bot: poolBot, index: poolIndex, seq } = nextMattermostBot(testConfig);
-    platformId = `test-mattermost-${poolIndex}-${seq}`;
+    platformId = platformIdOverride ?? `test-mattermost-${poolIndex}-${seq}`;
     const allowedUsers = allowedUsersOverride ?? [
       ...testConfig.mattermost.testUsers.map(u => u.username),
       ...extraAllowedUsers,

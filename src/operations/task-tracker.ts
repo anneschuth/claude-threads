@@ -38,6 +38,22 @@ export interface TrackedTask {
   isPlaceholder?: boolean;
 }
 
+/**
+ * Serialized task shape stored in PersistedSession.taskTrackerState. Only
+ * tasks with a resolved id are restorable — an in-flight TaskCreate's tool
+ * result will never arrive after a restart, and without an id the task could
+ * never be updated again anyway.
+ */
+export interface PersistedTrackedTask {
+  taskId: string;
+  subject: string;
+  activeForm?: string;
+  status: TaskItem['status'];
+  isPlaceholder?: boolean;
+}
+
+const VALID_STATUSES: ReadonlySet<string> = new Set(['pending', 'in_progress', 'completed']);
+
 /** Matches TaskCreate tool results like "Task #3 created successfully: ...". */
 const CREATED_RESULT_RE = /Task #(\S+) created/;
 
@@ -197,5 +213,56 @@ export class TaskTracker {
     this.tasks = [];
     this.pendingCreates.clear();
     this.unmatchedCreateResults = 0;
+  }
+
+  /**
+   * Snapshot for persistence: every task with a resolved id (placeholders
+   * keep their flag so a restored set can't fake completion). Returns
+   * undefined when nothing is restorable, keeping the persisted record lean.
+   */
+  serialize(): PersistedTrackedTask[] | undefined {
+    const restorable = this.tasks.filter(
+      (t): t is TrackedTask & { taskId: string } => Boolean(t.taskId)
+    );
+    if (restorable.length === 0) return undefined;
+    return restorable.map(t => {
+      const out: PersistedTrackedTask = {
+        taskId: t.taskId,
+        subject: t.subject,
+        status: t.status,
+      };
+      if (t.activeForm) out.activeForm = t.activeForm;
+      if (t.isPlaceholder) out.isPlaceholder = true;
+      return out;
+    });
+  }
+
+  /**
+   * Rebuild state from a persisted snapshot (session resume). Replaces the
+   * current task set. Defensive against malformed persisted data — a
+   * non-array value resets to empty, null/primitive rows and rows without a
+   * usable id are dropped, unknown statuses normalize to pending — per the
+   * repo's backward-compatibility rules for persisted state. A throw here
+   * would abort the entire session resume, so nothing in this method may
+   * throw on corrupt input.
+   */
+  restore(state: PersistedTrackedTask[]): void {
+    if (!Array.isArray(state)) {
+      this.tasks = [];
+      this.pendingCreates.clear();
+      return;
+    }
+    this.tasks = state
+      .filter((t): t is PersistedTrackedTask =>
+        t !== null && typeof t === 'object' &&
+        typeof t.taskId === 'string' && t.taskId.length > 0 && typeof t.subject === 'string')
+      .map(t => ({
+        taskId: t.taskId,
+        subject: t.subject || `Task #${t.taskId}`,
+        activeForm: typeof t.activeForm === 'string' ? t.activeForm : undefined,
+        status: (VALID_STATUSES.has(t.status) ? t.status : 'pending') as TaskItem['status'],
+        isPlaceholder: t.isPlaceholder === true ? true : undefined,
+      }));
+    this.pendingCreates.clear();
   }
 }

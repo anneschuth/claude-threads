@@ -434,6 +434,47 @@ describe('handleEventPostProcessing', () => {
   // NOTE: postCurrentQuestion tests have been removed - question posting now
   // goes through QuestionApprovalExecutor via MessageManager
 
+  test('result events persist the session (task tracker state reaches disk each turn)', () => {
+    handleEventPostProcessing(session, {
+      type: 'result', total_cost_usd: 0.1,
+      modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: 0.1 } },
+    }, ctx);
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+  });
+
+  test('result events persist AFTER the main event handling settles (post-finalize snapshot)', async () => {
+    // The StatusUpdateOp from a result event runs taskListExecutor.finalize()
+    // inside MessageManager.handleEvent's promise — deleting an incomplete
+    // task post and nulling its state. Persisting before that promise settles
+    // snapshots exactly the state finalize is about to invalidate: a
+    // tasksPostId pointing at a deleted post. So the persist must wait for
+    // the main handling to settle.
+    let resolveMain!: () => void;
+    const mainHandling = new Promise<void>((r) => { resolveMain = r; });
+
+    handleEventPostProcessing(session, {
+      type: 'result', total_cost_usd: 0.1,
+      modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: 0.1 } },
+    }, ctx, mainHandling);
+
+    // Not yet: the op chain (incl. finalize) hasn't settled
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
+
+    resolveMain();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.ops.persistSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('result events still persist when the main handling rejects', async () => {
+    const mainHandling = Promise.reject(new Error('op chain blew up'));
+    handleEventPostProcessing(session, {
+      type: 'result', total_cost_usd: 0.1,
+      modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: 0.1 } },
+    }, ctx, mainHandling);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.ops.persistSession).toHaveBeenCalledTimes(1);
+  });
+
   describe('current model tracking (/model switches)', () => {
     const resultWith = (modelUsage: Record<string, object>) => ({
       type: 'result' as const,
