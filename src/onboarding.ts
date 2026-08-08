@@ -356,9 +356,17 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
     // bot itself (startup warning, sticky/header marker) — warn, don't block.
     console.log('');
     console.log(dim(`  ⚠️  ${claudeCheck.message}`));
+  } else if (!claudeCheck.version) {
+    // Installed but the version couldn't be parsed — usually a non-standard
+    // install. Probably fine, but keep the raw output as a debug hint rather
+    // than blessing it with a bare checkmark.
+    console.log(dim('  ⚠️  Claude Code CLI found but version could not be determined'));
+    if (claudeCheck.rawOutput) {
+      console.log(dim(`  Output from "claude --version": ${claudeCheck.rawOutput}`));
+    }
+    console.log(dim('  This may work fine - Claude was installed in a non-standard way.'));
   } else {
-    const versionInfo = claudeCheck.version ?? 'version unknown';
-    console.log(dim(`  ✓ Claude Code CLI ${versionInfo}`));
+    console.log(dim(`  ✓ Claude Code CLI ${claudeCheck.version}`));
   }
 
   console.log('');

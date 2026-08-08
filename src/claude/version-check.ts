@@ -310,7 +310,9 @@ export function validateClaudeCli(): ClaudeValidationResult {
       version: result.version,
       compatible: false,
       status,
-      message: `Claude CLI version ${result.version} ${reason}.\n` +
+      // Single line: callers wrap the whole message in one color/indent, so
+      // an embedded newline would print its second line unindented.
+      message: `Claude CLI version ${result.version} ${reason}. ` +
         `Install a verified version: npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_LATEST_VERIFIED}`,
       rawOutput: result.rawOutput ?? undefined,
     };

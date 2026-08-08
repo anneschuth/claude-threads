@@ -384,7 +384,10 @@ async function startWithoutDaemon() {
   // The bypassed hard exit must not be silent — an unsupported CLI is more
   // dangerous than an untested one, so it gets at least the same visibility.
   if (!claudeValidation.compatible && opts.skipVersionCheck) {
-    console.error(yellow(`  ⚠️  --skip-version-check: running with an unsupported Claude CLI. ${claudeValidation.message}`));
+    const prefix = claudeValidation.installed
+      ? 'running with an unsupported Claude CLI. '
+      : '';
+    console.error(yellow(`  ⚠️  --skip-version-check: ${prefix}${claudeValidation.message}`));
     console.error('');
   }
 
