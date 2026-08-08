@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.23.0] - 2026-08-08
 
 ### Fixed
-- **A failed compaction no longer leaves a stale "🗜️ Compacting context..." post forever.** Captured against the real CLI (2.1.225): a failed compact emits **no** `compact_boundary` — only a `status` event with `compact_result: "failed"` and a `compact_error` — so the in-progress post was never resolved. It now updates to "⚠️ Compaction failed (reason)". Long-lived bot threads auto-compact in production, so this state was reachable by simply keeping a session busy.
+- **A failed compaction no longer leaves a stale "🗜️ Compacting context..." post forever.** Captured against the real CLI (2.1.226, `real-cli-captures/compact-failed.jsonl`): a failed compact emits **no** `compact_boundary` — only a `status` event with `compact_result: "failed"` and a `compact_error` — so the in-progress post was never resolved. It now updates to "⚠️ Compaction failed (reason)". Long-lived bot threads auto-compact in production, so this state was reachable by simply keeping a session busy.
 
 ### Added
 - **Compaction completion shows real token counts.** The completion post now renders `pre → post` ("Context compacted (manual, 31k → 3k tokens)") using the `post_tokens` field verified in a new reference capture (`real-cli-captures/compact.jsonl`, recorded via a manual `/compact` driven through stream-json).

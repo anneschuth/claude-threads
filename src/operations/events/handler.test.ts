@@ -253,8 +253,37 @@ describe('handleEventPreProcessing', () => {
     expect(session.availableSlashCommands?.has('/compact')).toBe(false);
   });
 
+  test('a fast failure still resolves the start post (status events in one chunk, slow platform)', async () => {
+    // Repro from review: both status lines can arrive in ONE stdout chunk
+    // (dispatched back-to-back synchronously) while the platform post takes
+    // 50-300ms. The failure handler must await the in-flight start post and
+    // update IT — not post a second message while the first lands late and
+    // stays stale forever.
+    const rawCreate = platform.createPost;
+    (platform as unknown as { createPost: unknown }).createPost = mock(async (message: string, threadId?: string) => {
+      await new Promise((r) => setTimeout(r, 25));
+      return (rawCreate as (m: string, t?: string) => Promise<PlatformPost>)(message, threadId);
+    });
+
+    // Back-to-back synchronous dispatch, like one stdout chunk
+    handleEventPreProcessing(session, { type: 'system', subtype: 'status', status: 'compacting' }, ctx);
+    handleEventPreProcessing(session, {
+      type: 'system', subtype: 'status', status: null,
+      compact_result: 'failed', compact_error: 'Not enough messages to compact.',
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 150));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    const values = [...posts.values()];
+    // Exactly one compaction-related post, resolved to the failure state
+    const compactionPosts = values.filter((m) => /Compact/i.test(m));
+    expect(compactionPosts).toHaveLength(1);
+    expect(compactionPosts[0]).toMatch(/failed/i);
+    expect(session.compactionPostId).toBeUndefined();
+  });
+
   test('compact failure updates the compaction post instead of leaving it stale', async () => {
-    // Real sequence captured from CLI 2.1.225 (compact.jsonl + a failed
+    // Real sequence captured from CLI 2.1.226 (compact.jsonl + a failed
     // /compact probe): status "compacting" → status {compact_result:
     // "failed", compact_error} with NO compact_boundary. The start post
     // must not stay at "Compacting context..." forever.
@@ -302,6 +331,25 @@ describe('handleEventPreProcessing', () => {
     const warning = [...posts.values()].find((m) => /OAuth token expired/.test(m));
     expect(warning).toBeDefined();
     expect(warning).toMatch(/auth/i);
+  });
+
+  test('auth_status warnings dedupe repeated identical errors', async () => {
+    const ev = {
+      type: 'auth_status', isAuthenticating: false,
+      output: [], error: 'OAuth token expired',
+    };
+    handleEventPreProcessing(session, ev, ctx);
+    handleEventPreProcessing(session, ev, ctx);
+    handleEventPreProcessing(session, ev, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+
+    const posts = (platform as unknown as { posts: Map<string, string> }).posts;
+    expect([...posts.values()].filter((m) => /OAuth token expired/.test(m))).toHaveLength(1);
+
+    // A DIFFERENT error posts again
+    handleEventPreProcessing(session, { ...ev, error: 'API key revoked' }, ctx);
+    await new Promise((r) => setTimeout(r, 10));
+    expect([...posts.values()].filter((m) => /API key revoked/.test(m))).toHaveLength(1);
   });
 
   test('auth_status without an error is log-only (no thread post)', async () => {

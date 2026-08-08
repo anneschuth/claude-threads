@@ -345,6 +345,17 @@ const FLOWS: Flow[] = [
     timeoutMs: 120_000,
   },
   {
+    name: 'compact-failed',
+    description: 'Immediate /compact on a fresh session: status "compacting" → compact_result "failed" + compact_error, NO compact_boundary',
+    args: ['--dangerously-skip-permissions'],
+    steps: [
+      { text: 'Reply exactly: SEEDED' },
+      { afterResults: 1, text: '/compact' },
+    ],
+    doneWhen: (ev) => ev.type === 'system' && (ev as { compact_result?: string }).compact_result === 'failed',
+    timeoutMs: 180_000,
+  },
+  {
     name: 'compact',
     description: 'Manual /compact: status "compacting" → compact_result → system/compact_boundary with compact_metadata',
     args: ['--dangerously-skip-permissions'],

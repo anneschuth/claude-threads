@@ -7,7 +7,8 @@
  * compact emits NO compact_boundary, which previously left the
  * "Compacting context..." post stale forever.
  *
- * Event shapes come from real-cli-captures/compact.jsonl (CLI 2.1.225).
+ * Event shapes come from real-cli-captures/compact.jsonl and
+ * compact-failed.jsonl (CLI 2.1.226).
  * Parameterized to run against both Mattermost and Slack platforms.
  */
 
