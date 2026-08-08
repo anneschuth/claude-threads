@@ -318,8 +318,13 @@ describe.skipIf(SKIP)('Session Resume', () => {
           timeout: 30000,
         });
 
-        // Restart the bot, preserving persisted sessions.
+        // Restart the bot, preserving persisted sessions. The platform id
+        // must survive the restart too (persisted sessions are keyed by
+        // platformId:threadId) — in production it comes from config.yaml and
+        // is stable; the test harness mints a fresh one per start unless
+        // overridden.
         const savedSessionsPath = bot.sessionsPath;
+        const savedPlatformId = bot.platformId;
         await bot.stopAndPreserveSessions();
         await new Promise((r) => setTimeout(r, 200));
 
@@ -329,6 +334,7 @@ describe.skipIf(SKIP)('Session Resume', () => {
           debug: process.env.DEBUG === '1',
           clearPersistedSessions: false,
           sessionsPath: savedSessionsPath,
+          platformIdOverride: savedPlatformId,
         }, ctx));
 
         // Wait until the session is back (auto-resumed or paused-for-resume).
