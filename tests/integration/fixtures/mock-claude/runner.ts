@@ -653,6 +653,7 @@ async function playStep(step: Step, state: SessionState): Promise<'continue' | '
 
 const scenario = loadScenario(process.env.CLAUDE_SCENARIO || 'default');
 let playing = false;
+let turnsPlayedThisProcess = 0;
 
 async function playTurn(state: SessionState): Promise<void> {
   const idx = state.turnIndex;
@@ -663,8 +664,11 @@ async function playTurn(state: SessionState): Promise<void> {
       : scenario.turns[scenario.turns.length - 1] ?? fallbackTurn;
   }
   // The real CLI re-emits system/init at the start of every turn after the
-  // first (see simple-text-multi-turn.jsonl). Startup already emitted one.
-  if (idx > 0) emitInit();
+  // first IN THIS PROCESS (see simple-text-multi-turn.jsonl; a resumed CLI's
+  // first turn emits exactly one init — resume.jsonl). Startup already
+  // emitted one, so gate on process-local turns, not the persisted index.
+  if (turnsPlayedThisProcess > 0) emitInit();
+  turnsPlayedThisProcess++;
   state.turnIndex = idx + 1;
   saveState(state);
 
