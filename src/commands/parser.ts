@@ -78,6 +78,8 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   ['context', /^!context\s*$/i],
   ['cost', /^!cost\s*$/i],
   ['compact', /^!compact\s*$/i],
+  ['model', /^!model(?:\s+(\S+))?\s*$/i],
+  ['effort', /^!effort(?:\s+(\S+))?\s*$/i],
 
   // Plugin management
   ['plugin', /^!plugin(?:\s+(.+))?$/i],

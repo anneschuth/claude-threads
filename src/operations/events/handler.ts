@@ -504,7 +504,10 @@ function getModelDisplayName(modelId: string): string {
   // e.g. claude-sonnet-5 → "Sonnet 5", claude-haiku-4-5-20251001 → "Haiku 4.5".
   // Generic parse instead of a hardcoded family list so a new family
   // (fable, ...) renders correctly without a code change.
-  const modern = modelId.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?$/);
+  // Minor is capped at 2 digits so the optional group can't swallow an
+  // 8-digit date suffix (claude-sonnet-4-20250514 must be "Sonnet 4",
+  // never "Sonnet 4.20250514").
+  const modern = modelId.match(/^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/);
   if (modern) {
     const family = modern[1].charAt(0).toUpperCase() + modern[1].slice(1);
     return modern[3] ? `${family} ${modern[2]}.${modern[3]}` : `${family} ${modern[2]}`;

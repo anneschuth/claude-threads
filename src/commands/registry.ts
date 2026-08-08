@@ -280,7 +280,10 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Claude Code Passthrough (hidden from help, used in system prompt)
+  // Claude Code Passthrough — hidden from the !help table (mentioned in its
+  // slash-command footer hint instead); each has an unconditional forwarding
+  // handler in executor.ts, so these work even before the CLI's init event
+  // populated availableSlashCommands.
   // ---------------------------------------------------------------------------
   {
     command: 'context',

@@ -171,6 +171,15 @@ describe('parseCommand', () => {
       const result = parseCommand('!compact');
       expect(result).toEqual({ command: 'compact', args: undefined, match: '!compact' });
     });
+
+    test('parses !model with and without an argument', () => {
+      expect(parseCommand('!model sonnet')).toEqual({ command: 'model', args: 'sonnet', match: '!model sonnet' });
+      expect(parseCommand('!model')).toEqual({ command: 'model', args: undefined, match: '!model' });
+    });
+
+    test('parses !effort with a level', () => {
+      expect(parseCommand('!effort high')).toEqual({ command: 'effort', args: 'high', match: '!effort high' });
+    });
   });
 
   describe('bug reporting commands', () => {

@@ -484,6 +484,12 @@ describe('handleEventPostProcessing', () => {
         ['claude-opus-5', 'Opus 5'],
         ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
         ['claude-opus-4-5-20251101', 'Opus 4.5'],
+        // Dated ids WITHOUT a minor: the optional minor group must not
+        // swallow the date (review round caught "Sonnet 4.20250514")
+        ['claude-sonnet-4-20250514', 'Sonnet 4'],
+        ['claude-opus-4-20250514', 'Opus 4'],
+        // Legacy version-first ids keep their family-only rendering
+        ['claude-3-7-sonnet-20250219', 'Sonnet'],
       ];
       for (const [id, expected] of cases) {
         const fresh = createTestSession(platform);

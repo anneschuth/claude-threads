@@ -443,18 +443,20 @@ const handlePlugin: CommandHandler = async (ctx, args) => {
 };
 
 /**
- * Create a passthrough handler for Claude Code slash commands.
+ * Create a passthrough handler for Claude Code slash commands. Args (if any)
+ * are appended: `!model sonnet` → `/model sonnet`.
  */
 function createPassthroughHandler(slashCommand: string): CommandHandler {
-  return async (ctx) => {
+  return async (ctx, args) => {
     if (ctx.commandContext === 'first-message') {
       return { handled: false }; // Passthrough commands don't work in first message
     }
     if (ctx.isAllowed) {
+      const full = args ? `/${slashCommand} ${args}` : `/${slashCommand}`;
       // Authorization was already verified upstream (ctx.isAllowed). Mark this
       // as a system follow-up so the sink's identity gate (#388) does not
       // reject it for lacking a username.
-      await ctx.sessionManager.sendFollowUp(ctx.threadId, `/${slashCommand}`, undefined, undefined, undefined, { system: true });
+      await ctx.sessionManager.sendFollowUp(ctx.threadId, full, undefined, undefined, undefined, { system: true });
     }
     return { handled: true };
   };
@@ -480,10 +482,14 @@ handlers.set('worktree', handleWorktree);
 handlers.set('bug', handleBug);
 handlers.set('plugin', handlePlugin);
 
-// Passthrough commands
+// Passthrough commands — unconditional handlers, so these work even before
+// the CLI's init event populated availableSlashCommands (unlike the dynamic
+// !<slash-command> passthrough, which is gated on that list).
 handlers.set('context', createPassthroughHandler('context'));
 handlers.set('cost', createPassthroughHandler('cost'));
 handlers.set('compact', createPassthroughHandler('compact'));
+handlers.set('model', createPassthroughHandler('model'));
+handlers.set('effort', createPassthroughHandler('effort'));
 
 // =============================================================================
 // Main Execution Function
