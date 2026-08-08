@@ -245,6 +245,7 @@ function emitResult(opts: {
   subtype?: string;
   resultText?: string;
   terminalReason?: string;
+  stopReason?: string;
   numTurns?: number;
 } = {}): void {
   emit({
@@ -254,7 +255,9 @@ function emitResult(opts: {
     duration_ms: 1500,
     duration_api_ms: 1200,
     num_turns: opts.numTurns ?? 1,
-    stop_reason: 'end_turn',
+    // Error results in the real captures never carry end_turn/completed —
+    // scenario steps override these (see error-response.json).
+    stop_reason: opts.stopReason ?? 'end_turn',
     result: opts.resultText ?? '',
     session_id: sid(),
     total_cost_usd: 0.0015,
@@ -333,17 +336,42 @@ class McpPermissionClient {
     return this.initialized;
   }
 
+  private rejecters = new Map<number, (err: Error) => void>();
+
   private request(method: string, params: unknown, timeoutMs = 3_600_000): Promise<Record<string, unknown>> {
     const id = this.nextId++;
     const payload = JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n';
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
+        this.rejecters.delete(id);
         reject(new Error(`MCP ${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, (msg) => { clearTimeout(timer); resolve(msg); });
+      this.pending.set(id, (msg) => {
+        clearTimeout(timer);
+        this.rejecters.delete(id);
+        resolve(msg);
+      });
+      this.rejecters.set(id, (err) => {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        this.rejecters.delete(id);
+        reject(err);
+      });
       this.proc!.stdin!.write(payload);
     });
+  }
+
+  /**
+   * Reject every pending request immediately. SIGINT must be able to abort
+   * a permission wait that would otherwise park for MCP_TOOL_TIMEOUT (an
+   * hour under the bot) — the real CLI aborts and exits on SIGINT even with
+   * a permission prompt outstanding.
+   */
+  abortAll(reason: string): void {
+    for (const reject of [...this.rejecters.values()]) {
+      reject(new Error(reason));
+    }
   }
 
   private notify(method: string, params: unknown): void {
@@ -411,7 +439,7 @@ type Step =
   | { kind: 'task-update'; subject: string; status: 'in_progress' | 'completed' | 'deleted'; delay?: number }
   | { kind: 'plan'; plan: string; delay?: number }
   | { kind: 'question'; questions: Array<{ question: string; header: string; options: Array<{ label: string; description?: string }>; multiSelect?: boolean }>; delay?: number }
-  | { kind: 'result'; isError?: boolean; subtype?: string; resultText?: string; delay?: number }
+  | { kind: 'result'; isError?: boolean; subtype?: string; resultText?: string; terminalReason?: string; stopReason?: string; delay?: number }
   | { kind: 'raw'; event: Record<string, unknown>; delay?: number };
 
 interface Turn {
@@ -571,9 +599,11 @@ async function playStep(step: Step, state: SessionState): Promise<'continue' | '
       await gatedToolFlow('ExitPlanMode', { plan: step.plan }, async () => {
         await sleep(BASE_DELAY);
         emitToolResult(id, 'User has approved your plan. You can now start coding. Start with updating your todo list if applicable');
-      }, async () => {
+      }, async (message) => {
         await sleep(BASE_DELAY);
-        emitToolResult(id, 'The user doesn\'t want to proceed with this tool use. The plan was rejected.', true);
+        // The real CLI surfaces the deny message verbatim as the tool
+        // result content (see plan-denied-bridge.jsonl).
+        emitToolResult(id, message ?? "The user doesn't want to proceed with this tool use. The plan was rejected.", true);
       });
       return 'continue';
     }
@@ -604,6 +634,8 @@ async function playStep(step: Step, state: SessionState): Promise<'continue' | '
         isError: step.isError,
         subtype: step.subtype,
         resultText: step.resultText,
+        terminalReason: step.terminalReason,
+        stopReason: step.stopReason,
       });
       return 'continue';
     }
@@ -731,7 +763,11 @@ async function main(): Promise<void> {
     log('Received SIGINT');
     if (playing) {
       // Abort the in-flight turn: playTurn emits the abort shape and exits.
+      // A step may be parked inside an MCP permission wait (up to
+      // MCP_TOOL_TIMEOUT — an hour under the bot), so reject those pending
+      // calls too; the deny path runs, then the turn loop sees `interrupted`.
       interrupted = true;
+      mcpClient?.abortAll('Interrupted by SIGINT');
     } else {
       // Idle: the real CLI exits promptly.
       mcpClient?.close();

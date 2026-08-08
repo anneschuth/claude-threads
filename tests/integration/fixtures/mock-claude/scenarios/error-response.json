@@ -6,7 +6,7 @@
     {
       "steps": [
         { "kind": "text", "text": "Let me try to help with that..." },
-        { "kind": "result", "isError": true, "subtype": "error_during_execution" }
+        { "kind": "result", "isError": true, "subtype": "error_during_execution", "terminalReason": "aborted_streaming", "stopReason": "tool_use" }
       ]
     }
   ]

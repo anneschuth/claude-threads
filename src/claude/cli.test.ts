@@ -487,6 +487,12 @@ describe('buildPermissionArgs', () => {
     expect(blob.mcpServers['claude-threads-mcp'].args).toEqual(['/path/to/mcp-server.js']);
   });
 
+  it('runtimeForScriptPath: node for built .js, current runtime for source .ts', async () => {
+    const { runtimeForScriptPath } = await import('./cli.js');
+    expect(runtimeForScriptPath('/opt/app/dist/statusline/writer.js')).toBe('node');
+    expect(runtimeForScriptPath('/repo/src/statusline/writer.ts')).toBe(process.execPath);
+  });
+
   it('runs a source-mode .ts MCP server under the current runtime (dev mode)', () => {
     // Source/dev runs have no dist build: getMcpServerPath resolves the .ts,
     // which node cannot execute — the config must use the current runtime.

@@ -20,7 +20,7 @@ the mock.
 | `plan-approval-bridge` | ExitPlanMode blocks on the MCP permission prompt; approval arrives as the "User has approved your plan" tool result plus a `system/status` mode-transition event |
 | `plan-denied-bridge` | The denial shape for a rejected plan |
 | `question-bridge` | AskUserQuestion blocks on the permission prompt; answers ride back via `updatedInput` and surface as "Your questions have been answered: …" |
-| `permission-write-approved` | An ordinary Write gated through the MCP permission prompt |
+| `permission-write-denied` | The **deny** shape of an ordinary Write gated through the MCP permission prompt (ordinary tools don't ride the bridge; without a platform the server denies). The approve path's tool_result shape is covered by `tool-use-write` and exercised end-to-end by the integration suite |
 | `plan-bypass` / `question-bypass` | Under `--dangerously-skip-permissions` the CLI does not expose ExitPlanMode or AskUserQuestion **at all** |
 | `subagent` | Task-tool sidechain events carry `parent_tool_use_id` |
 | `error-max-turns` | `subtype: error_max_turns`, `terminal_reason: max_turns` result shape |

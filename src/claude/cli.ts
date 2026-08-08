@@ -207,6 +207,16 @@ export function buildClaudeChildEnv(
 }
 
 /**
+ * Which runtime executes a helper script the bot spawns (MCP server,
+ * statusline writer). A .ts path means source/dev mode — no dist build
+ * exists and node can't execute TypeScript, so use the current runtime
+ * (bun). Built installs always resolve a .js and keep using node.
+ */
+export function runtimeForScriptPath(scriptPath: string): string {
+  return scriptPath.endsWith('.ts') ? process.execPath : 'node';
+}
+
+/**
  * True when a Claude `result` event carries an error payload. Gates the
  * rate-limit scanner so assistant text in successful turns (which can legally
  * contain phrases like "rate_limit_error" when the user asks about them) can't
@@ -362,10 +372,7 @@ export function buildPermissionArgs(opts: {
     mcpServers: {
       'claude-threads-mcp': {
         type: 'stdio',
-        // A .ts server path means source/dev mode — node can't execute it,
-        // so run it under the current runtime (bun). Built installs always
-        // resolve a .js and keep using node.
-        command: opts.mcpServerPath.endsWith('.ts') ? process.execPath : 'node',
+        command: runtimeForScriptPath(opts.mcpServerPath),
         args: [opts.mcpServerPath],
         env: mcpEnv,
       },
@@ -578,10 +585,11 @@ export class ClaudeCli extends EventEmitter {
     if (this.options.sessionId) {
       this.statusFilePath = join(tmpdir(), `claude-threads-status-${this.options.sessionId}.json`);
       const statusLineWriterPath = this.getStatusLineWriterPath();
+      const runtime = runtimeForScriptPath(statusLineWriterPath);
       const statusLineSettings = {
         statusLine: {
           type: 'command',
-          command: `node ${statusLineWriterPath} ${this.options.sessionId}`,
+          command: `${runtime} ${statusLineWriterPath} ${this.options.sessionId}`,
           padding: 0,
         },
       };
@@ -1012,6 +1020,17 @@ export class ClaudeCli extends EventEmitter {
     if (existsSync(bundledPath)) {
       return bundledPath;
     }
-    return resolve(__dirname, '..', 'statusline', 'writer.js');
+    const sourceLayoutPath = resolve(__dirname, '..', 'statusline', 'writer.js');
+    if (existsSync(sourceLayoutPath)) {
+      return sourceLayoutPath;
+    }
+    // Source/dev mode: only the TypeScript source exists (same dev-mode gap
+    // as getMcpServerPath — statusline context tracking silently did
+    // nothing under `bun run dev`).
+    const tsPath = resolve(__dirname, '..', 'statusline', 'writer.ts');
+    if (existsSync(tsPath)) {
+      return tsPath;
+    }
+    return sourceLayoutPath;
   }
 }

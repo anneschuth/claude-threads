@@ -285,13 +285,22 @@ const FLOWS: Flow[] = [
     ],
   },
   {
-    name: 'permission-write-approved',
-    description: 'Ordinary Write permission through the MCP prompt (auto-approved by server fallback)',
+    // NOTE: ordinary tools do NOT ride the decision bridge — the MCP server
+    // posts a permission prompt to the chat platform and waits for a
+    // reaction. This harness has no platform, so the server denies with
+    // "Permission service not configured": what this flow captures is the
+    // DENY shape of a gated ordinary tool. The approve path's post-approval
+    // tool_result shape is covered by tool-use-write.jsonl (bypass) and by
+    // the integration suite end-to-end (real platform + reactions).
+    name: 'permission-write-denied',
+    description: 'Ordinary Write gated through the MCP prompt with no platform configured — captures the deny shape',
     args: [],
     withBridge: true,
     bridgeDecide: 'approve',
     steps: [
-      { text: 'Write the single word hello to approved.txt using the Write tool, then reply exactly: WROTE-APPROVED' },
+      // Pin an absolute path outside any auto-allowed sandbox dir, or the
+      // Write may never hit the permission gate at all.
+      { text: 'Use the Write tool to write the single word hello to exactly this absolute path: /etc/claude-capture-test.txt — do not choose a different path. If the permission is denied, stop and reply exactly: WRITE-WAS-DENIED' },
     ],
     timeoutMs: 240_000,
   },
