@@ -253,6 +253,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       version={config.version}
       workingDir={config.workingDir}
       claudeVersion={config.claudeVersion}
+      claudeStatus={config.claudeStatus}
     />
   );
 

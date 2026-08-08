@@ -6,14 +6,16 @@
  * - 2 lines for top/bottom border (handled by Box)
  */
 import { Box, Text } from 'ink';
+import type { ClaudeVersionStatus } from '../../claude/version-check.js';
 
 interface HeaderProps {
   version: string;
   workingDir: string;
   claudeVersion: string;
+  claudeStatus?: ClaudeVersionStatus;
 }
 
-export function Header({ version, workingDir, claudeVersion }: HeaderProps) {
+export function Header({ version, workingDir, claudeVersion, claudeStatus }: HeaderProps) {
   return (
     <Box
       borderStyle="round"
@@ -45,6 +47,8 @@ export function Header({ version, workingDir, claudeVersion }: HeaderProps) {
         <Text>    </Text>
         <Text color="cyan">{workingDir}</Text>
         <Text dimColor> | Claude {claudeVersion}</Text>
+        {claudeStatus === 'untested' && <Text color="yellow"> ⚠ untested</Text>}
+        {claudeStatus === 'incompatible' && <Text color="yellow"> ⚠ unsupported</Text>}
       </Text>
     </Box>
   );

@@ -1,7 +1,7 @@
 import { execSync } from 'child_process';
 import { existsSync } from 'fs';
 import { join } from 'path';
-import { satisfies, coerce } from 'semver';
+import { satisfies, coerce, lt } from 'semver';
 
 /**
  * Common paths where Claude CLI might be installed.
@@ -28,13 +28,26 @@ const COMMON_CLAUDE_PATHS: string[] = process.platform === 'win32'
   ];
 
 /**
- * Known compatible Claude CLI version range.
+ * Claude CLI version policy — three tiers, enforced by classifyClaudeVersion:
  *
- * Update this when testing with new Claude CLI versions.
- * - MIN: Oldest version known to work
- * - MAX: Newest version known to work
+ * - Below CLAUDE_CLI_MIN_VERSION → **incompatible, hard exit.** The bot
+ *   genuinely can't work (no --permission-prompt-tool, wrong stream-json).
+ * - Inside CLAUDE_CLI_VERIFIED_RANGE → **ok.** Tested against the real CLI.
+ * - Same major, above the verified range → **untested, warn-and-run.** A new
+ *   CLI minor must not take every bot down until a claude-threads release
+ *   ships; the bot starts with a visible warning (startup, sticky message,
+ *   session header) instead. When a new minor ships: run the e2e script +
+ *   a live smoke, then bump the verified range's upper bound.
+ * - A major above CLAUDE_CLI_SUPPORTED_MAJOR → **incompatible, hard exit.**
+ *   A new major is a different contract; warn-and-run would be reckless.
+ *
+ * `--skip-version-check` bypasses the hard exits (not the warning).
  */
-export const CLAUDE_CLI_VERSION_RANGE = '>=2.0.74 <2.2.0';
+export const CLAUDE_CLI_MIN_VERSION = '2.0.74';
+export const CLAUDE_CLI_VERIFIED_RANGE = '>=2.0.74 <2.2.0';
+export const CLAUDE_CLI_SUPPORTED_MAJOR = 2;
+/** Newest CLI version actually verified against; used in messages. */
+export const CLAUDE_CLI_LATEST_VERIFIED = '2.1.223';
 
 /**
  * Result of checking Claude CLI version.
@@ -118,7 +131,7 @@ function findClaudeInPath(): string | null {
  * 4. Common installation locations
  *
  * Note: No logging here - this runs before UI starts.
- * Version info is displayed in the UI's ConfigSummary component.
+ * Version info is displayed in the terminal Header component.
  */
 export function getClaudeCliVersion(): ClaudeVersionResult {
   // First, try explicit CLAUDE_PATH if set
@@ -167,13 +180,31 @@ export function getClaudeCliVersion(): ClaudeVersionResult {
 }
 
 /**
- * Check if a version is compatible with claude-threads.
+ * Where a CLI version falls in the policy (see the constants above).
+ */
+export type ClaudeVersionStatus = 'ok' | 'untested' | 'incompatible';
+
+/**
+ * Classify a CLI version against the version policy.
+ * Pure function — the single source of truth for the three tiers.
+ */
+export function classifyClaudeVersion(version: string): ClaudeVersionStatus {
+  const semverVersion = coerce(version);
+  if (!semverVersion) return 'incompatible';
+  if (lt(semverVersion, CLAUDE_CLI_MIN_VERSION)) return 'incompatible';
+  if (semverVersion.major > CLAUDE_CLI_SUPPORTED_MAJOR) return 'incompatible';
+  if (satisfies(semverVersion, CLAUDE_CLI_VERIFIED_RANGE)) return 'ok';
+  // Same major, newer than anything verified: runs with a warning.
+  return 'untested';
+}
+
+/**
+ * Check if a version can run at all (verified or untested-but-same-major).
+ * Untested versions are compatible in this sense — they start with a warning
+ * rather than refusing to run; see the version policy above.
  */
 export function isVersionCompatible(version: string): boolean {
-  const semverVersion = coerce(version);
-  if (!semverVersion) return false;
-
-  return satisfies(semverVersion, CLAUDE_CLI_VERSION_RANGE);
+  return classifyClaudeVersion(version) !== 'incompatible';
 }
 
 /**
@@ -219,7 +250,10 @@ export function getClaudePath(): string {
 export interface ClaudeValidationResult {
   installed: boolean;
   version: string | null;
+  /** False only for the hard-exit tiers (below floor, new major, not found). */
   compatible: boolean;
+  /** Policy tier; 'untested' means compatible-but-warn (see version policy). */
+  status: ClaudeVersionStatus;
   message: string;
   /** Raw output from claude --version (for debugging) */
   rawOutput?: string;
@@ -244,46 +278,54 @@ export function validateClaudeCli(): ClaudeValidationResult {
       installed: false,
       version: null,
       compatible: false,
+      status: 'incompatible',
       message: `Claude CLI not found at '${claudePath}'. Install it with: npm install -g @anthropic-ai/claude-code`,
       error: result.error,
     };
   }
 
-  // Case 2: Command succeeded but couldn't parse version
-  if (!result.version && result.rawOutput) {
+  // Case 2: Command succeeded but couldn't parse version.
+  // (Also the TypeScript-required fallback below case 3's guard.)
+  if (!result.version) {
     return {
       installed: true,
       version: null,
       compatible: true, // Assume compatible - user can skip check if needed
+      status: 'ok',
       message: `Claude CLI found (version unknown)`,
-      rawOutput: result.rawOutput,
-    };
-  }
-
-  // Case 3: Got a version, check compatibility
-  // At this point, result.version must be defined:
-  // - Case 1 returned if result.error was truthy
-  // - Case 2 returned if result.version was falsy (with rawOutput)
-  // So if we reach here, result.version is defined
-  if (!result.version) {
-    // This should never happen, but satisfies TypeScript
-    return {
-      installed: true,
-      version: null,
-      compatible: true,
-      message: 'Claude CLI found (version unknown)',
       rawOutput: result.rawOutput ?? undefined,
     };
   }
-  const compatible = isVersionCompatible(result.version);
 
-  if (!compatible) {
+  // Case 3: Got a version — classify it against the policy.
+  const status = classifyClaudeVersion(result.version);
+
+  if (status === 'incompatible') {
+    const semverVersion = coerce(result.version);
+    const reason = semverVersion && semverVersion.major > CLAUDE_CLI_SUPPORTED_MAJOR
+      ? `is a new major version (only ${CLAUDE_CLI_SUPPORTED_MAJOR}.x is supported)`
+      : `is too old (minimum: ${CLAUDE_CLI_MIN_VERSION})`;
     return {
       installed: true,
       version: result.version,
       compatible: false,
-      message: `Claude CLI version ${result.version} is not compatible. Required: ${CLAUDE_CLI_VERSION_RANGE}\n` +
-        `Install a compatible version: npm install -g @anthropic-ai/claude-code@2.1.223`,
+      status,
+      // Single line: callers wrap the whole message in one color/indent, so
+      // an embedded newline would print its second line unindented.
+      message: `Claude CLI version ${result.version} ${reason}. ` +
+        `Install a verified version: npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_LATEST_VERIFIED}`,
+      rawOutput: result.rawOutput ?? undefined,
+    };
+  }
+
+  if (status === 'untested') {
+    return {
+      installed: true,
+      version: result.version,
+      compatible: true,
+      status,
+      message: `Claude CLI ${result.version} is newer than the latest verified version (${CLAUDE_CLI_LATEST_VERIFIED}) — untested, continuing anyway. ` +
+        `Features may misbehave; pin a verified version with: npm install -g @anthropic-ai/claude-code@${CLAUDE_CLI_LATEST_VERIFIED}`,
       rawOutput: result.rawOutput ?? undefined,
     };
   }
@@ -292,6 +334,7 @@ export function validateClaudeCli(): ClaudeValidationResult {
     installed: true,
     version: result.version,
     compatible: true,
+    status,
     message: `Claude CLI ${result.version} ✓`,
     rawOutput: result.rawOutput ?? undefined,
   };

@@ -130,3 +130,41 @@ describe('formatShortId with composite IDs', () => {
     expect(formatShortId('platform:thread123456789')).toBe('thread12…');
   });
 });
+
+describe('formatVersionString', () => {
+  // spyOn execSync so getClaudeCliVersion sees a controlled CLI version
+  it('marks untested CLI versions, not verified ones', async () => {
+    const { spyOn } = await import('bun:test');
+    const childProcess = await import('child_process');
+    const { formatVersionString } = await import('./format.js');
+
+    const spy = spyOn(childProcess, 'execSync').mockReturnValue('2.2.0 (Claude Code)\n');
+    try {
+      expect(formatVersionString()).toContain('⚠️ untested');
+    } finally {
+      spy.mockRestore();
+    }
+
+    const spy2 = spyOn(childProcess, 'execSync').mockReturnValue('2.1.223 (Claude Code)\n');
+    try {
+      const s = formatVersionString();
+      expect(s).toContain('CC v2.1.223');
+      expect(s).not.toContain('untested');
+    } finally {
+      spy2.mockRestore();
+    }
+  });
+
+  it('marks an incompatible CLI as unsupported (visible when the hard exit was bypassed)', async () => {
+    const { spyOn } = await import('bun:test');
+    const childProcess = await import('child_process');
+    const { formatVersionString } = await import('./format.js');
+
+    const spy = spyOn(childProcess, 'execSync').mockReturnValue('3.0.0 (Claude Code)\n');
+    try {
+      expect(formatVersionString()).toContain('⚠️ unsupported');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
