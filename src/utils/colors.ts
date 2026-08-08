@@ -23,3 +23,4 @@ export const dim = (s: string): string => `${colors.dim}${s}${colors.reset}`;
 export const bold = (s: string): string => `${colors.bold}${s}${colors.reset}`;
 export const green = (s: string): string => `${colors.green}${s}${colors.reset}`;
 export const red = (s: string): string => `${colors.red}${s}${colors.reset}`;
+export const yellow = (s: string): string => `${colors.yellow}${s}${colors.reset}`;

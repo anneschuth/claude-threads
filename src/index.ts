@@ -23,7 +23,7 @@ import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
 import { startReactMeasureCleanup } from './utils/perf-cleanup.js';
-import { dim, red } from './utils/colors.js';
+import { dim, red, yellow } from './utils/colors.js';
 import { validateClaudeCli } from './claude/version-check.js';
 import { startUI, type UIProvider } from './ui/index.js';
 import { setLogHandler } from './utils/logger.js';
@@ -366,13 +366,20 @@ async function startWithoutDaemon() {
   // Check Claude CLI version
   const claudeValidation = validateClaudeCli();
 
-  // Fail on incompatible version unless --skip-version-check is set
+  // Fail on incompatible version unless --skip-version-check is set.
+  // Incompatible = below the hard floor or a new major; an untested newer
+  // minor of the supported major runs with a warning instead (see the
+  // version policy in src/claude/version-check.ts).
   if (!claudeValidation.compatible && !opts.skipVersionCheck) {
     console.error(red(`  ❌ ${claudeValidation.message}`));
     console.error('');
     console.error(dim(`  Use --skip-version-check to bypass this check (not recommended)`));
     console.error('');
     process.exit(1);
+  }
+  if (claudeValidation.status === 'untested') {
+    console.error(yellow(`  ⚠️  ${claudeValidation.message}`));
+    console.error('');
   }
 
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1

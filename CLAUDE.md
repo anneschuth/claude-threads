@@ -468,13 +468,20 @@ CHANGELOG.
 
 claude-threads requires a compatible version of the Claude CLI (`@anthropic-ai/claude-code`).
 
-**Compatible versions:** `>=2.0.74 <2.2.0` (covers the full 2.1.x line; latest verified: 2.1.223)
+The version is checked at startup against a three-tier policy
+(`src/claude/version-check.ts`):
 
-The version is checked at startup. If an incompatible version is detected:
-- The bot will display an error message and exit
-- Use `--skip-version-check` to bypass (not recommended)
+| CLI version | Behavior |
+|-------------|----------|
+| Below `2.0.74` (hard floor) | Error message and **exit** — the bot can't work at all |
+| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.223) | Runs normally |
+| Newer 2.x above the verified range | **Warn-and-run**: startup warning + "⚠️ untested" marker in the sticky message and session headers. A new CLI minor must not take every bot down until a claude-threads release ships |
+| A new major (3.x+) | Error message and **exit** — different contract, warn-and-run would be reckless |
 
-To install the latest verified compatible version:
+`--skip-version-check` bypasses the hard exits (not recommended; the untested
+warning is not bypassable and costs nothing).
+
+To install the latest verified version:
 ```bash
 npm install -g @anthropic-ai/claude-code@2.1.223
 ```
@@ -484,7 +491,13 @@ The Claude CLI version is displayed:
 - In the sticky channel message status bar
 - In each session's header table
 
-**Updating the version range:** Edit `CLAUDE_CLI_VERSION_RANGE` in `src/claude/version-check.ts` when testing with new Claude CLI versions.
+**Updating the verified range:** when a new CLI minor ships, run the manual
+e2e (`tests/e2e-real-cli/decision-bridge-e2e.ts`) plus a live smoke against
+it, then bump `CLAUDE_CLI_VERIFIED_RANGE` / `CLAUDE_CLI_LATEST_VERIFIED` in
+`src/claude/version-check.ts` (and `CLAUDE_CLI_MIN_VERSION` /
+`CLAUDE_CLI_SUPPORTED_MAJOR` only when the floor or major actually moves) in
+a patch release. The untested warning is the prompt to do this, not a
+permanent state.
 
 ## Development Commands
 

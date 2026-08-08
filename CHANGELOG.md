@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.0] - 2026-08-08
+
+### Changed
+- **A newer Claude CLI no longer takes the bot down — the version check is now a three-tier policy.** Previously the single hard range `>=2.0.74 <2.2.0` meant that the day Anthropic ships CLI 2.2.0, every bot whose CLI auto-updates would refuse to start until a claude-threads release widened the range — the worst failure mode for a bot people depend on. Now: below the floor (`2.0.74`) or on a new major (3.x+) the bot still exits with an error (those genuinely can't work / are a different contract); but a **newer 2.x above the verified range starts normally with a visible warning** — at startup, and as an "⚠️ untested" marker next to the CLI version in the sticky channel message and session headers. `--skip-version-check` still bypasses the hard exits. The verified range (latest verified: 2.1.223) is unchanged; when a new CLI minor ships, it gets verified and the range bumped in a patch release — the warning is the prompt to do that, not a permanent state.
+
 ## [1.21.2] - 2026-08-07
 
 ### Added
