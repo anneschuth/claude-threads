@@ -399,6 +399,13 @@ export interface Session {
 
   // Usage stats from Claude CLI (updated on each result event)
   usageStats?: SessionUsageStats;
+  /**
+   * Model the session currently runs on, from the per-turn system/init
+   * event. Authoritative over usage-cost heuristics after a /model switch:
+   * the OLD model keeps the larger cumulative spend for a while, but this
+   * field always names what the next turn actually uses. In-memory only.
+   */
+  currentModel?: string;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;

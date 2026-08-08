@@ -77,6 +77,7 @@ export function generateHelpMessage(formatter: PlatformFormatter): string {
     `\n\n${formatter.formatBold('Reactions:')}\n` +
     `${formatter.formatListItem(approvalReactions)}\n` +
     `${formatter.formatListItem(sessionReactions)}\n\n` +
+    `Claude Code slash commands work with ${code('!')} too — e.g. ${code('!model sonnet')}, ${code('!effort high')}, ${code('!compact')}, ${code('!context')}.\n\n` +
     formatSponsorFooter(formatter)
   );
 }

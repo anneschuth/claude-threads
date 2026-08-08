@@ -32,6 +32,7 @@ import {
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
+import { waitFor } from '../helpers/wait-for.js';
 
 // Skip if not running integration tests
 const SKIP = !process.env.INTEGRATION_TEST;
@@ -233,6 +234,38 @@ describe.skipIf(SKIP)('Session Commands', () => {
         expect(helpPost).toBeDefined();
         expect(helpPost.message).toContain('!stop');
         expect(helpPost.message).toContain('!escape');
+      });
+
+      it('forwards !model and !effort to the CLI as slash commands', async () => {
+        // Verified against the real CLI (2.1.226): /model and /effort work
+        // over stream-json and are listed in init.slash_commands, so the
+        // dynamic passthrough forwards them. The mock echoes received stdin
+        // to stderr — assert the forward actually reached the CLI.
+        const rootPost = await startSession(ctx, 'Test model switching', getBotUsername());
+        testThreadIds.push(rootPost.id);
+
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+        await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+        await sendCommand(ctx, rootPost.id, '!model sonnet');
+        await waitFor(
+          () => {
+            const session = bot.sessionManager.registry.findByThreadId(rootPost.id);
+            const s = session?.claude.getLastStderr() ?? '';
+            return s.includes('/model sonnet') ? s : null;
+          },
+          { timeout: 5000, interval: 200, description: 'mock Claude stderr to show forwarded /model' },
+        );
+
+        await sendCommand(ctx, rootPost.id, '!effort high');
+        await waitFor(
+          () => {
+            const session = bot.sessionManager.registry.findByThreadId(rootPost.id);
+            const s = session?.claude.getLastStderr() ?? '';
+            return s.includes('/effort high') ? s : null;
+          },
+          { timeout: 5000, interval: 200, description: 'mock Claude stderr to show forwarded /effort' },
+        );
       });
     });
 

@@ -280,7 +280,10 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   },
 
   // ---------------------------------------------------------------------------
-  // Claude Code Passthrough (hidden from help, used in system prompt)
+  // Claude Code Passthrough — hidden from the !help table (mentioned in its
+  // slash-command footer hint instead); each has an unconditional forwarding
+  // handler in executor.ts, so these work even before the CLI's init event
+  // populated availableSlashCommands.
   // ---------------------------------------------------------------------------
   {
     command: 'context',
@@ -297,6 +300,18 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   {
     command: 'compact',
     description: 'Compact conversation',
+    category: 'passthrough',
+    audience: 'both',
+  },
+  {
+    command: 'model',
+    description: 'Show or switch the model for this session (e.g. !model sonnet)',
+    category: 'passthrough',
+    audience: 'both',
+  },
+  {
+    command: 'effort',
+    description: 'Set reasoning effort: low|medium|high|xhigh|max|auto (e.g. !effort high)',
     category: 'passthrough',
     audience: 'both',
   },

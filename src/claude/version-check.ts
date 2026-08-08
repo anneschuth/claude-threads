@@ -47,7 +47,7 @@ export const CLAUDE_CLI_MIN_VERSION = '2.0.74';
 export const CLAUDE_CLI_VERIFIED_RANGE = '>=2.0.74 <2.2.0';
 export const CLAUDE_CLI_SUPPORTED_MAJOR = 2;
 /** Newest CLI version actually verified against; used in messages. */
-export const CLAUDE_CLI_LATEST_VERIFIED = '2.1.223';
+export const CLAUDE_CLI_LATEST_VERIFIED = '2.1.226';
 
 /**
  * Result of checking Claude CLI version.

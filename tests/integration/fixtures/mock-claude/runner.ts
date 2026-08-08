@@ -48,7 +48,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCENARIOS_DIR = join(__dirname, 'scenarios');
 
 /** Version reported for --version; inside the verified range. */
-const MOCK_CLI_VERSION = '2.1.225';
+const MOCK_CLI_VERSION = '2.1.226';
 
 // ============================================================================
 // Argv — the bot passes these; parse what shapes the event stream
@@ -173,7 +173,10 @@ function emitInit(): void {
     permissionMode: ARGS.bypassPermissions
       ? 'bypassPermissions'
       : (ARGS.permissionMode ?? 'default'),
-    slash_commands: ['compact', 'context', 'cost', 'init', 'pr-comments', 'release-notes', 'todos', 'review'],
+    // Subset of the real init list (54 entries on 2.1.226) — must include
+    // model/effort: the bot's dynamic passthrough gates !model/!effort on
+    // their presence here.
+    slash_commands: ['compact', 'context', 'cost', 'effort', 'init', 'model', 'pr-comments', 'release-notes', 'todos', 'review'],
     apiKeySource: 'none',
     claude_code_version: MOCK_CLI_VERSION,
     output_style: 'default',
