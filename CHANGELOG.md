@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.22.1] - 2026-08-08
+
+### Fixed
+- **Permission prompts work in source/dev mode (`bun run dev`).** The per-session MCP config pointed at `mcp/mcp-server.js`, which only exists in a dist build — running the bot from source gave every session an MCP server path that could never spawn, silently breaking interactive permissions, `send_file`, and the decision bridge in dev mode. The path resolution now falls back to the TypeScript source and runs it under the current runtime (bun) instead of node. Built installs are unaffected.
+
+### Changed
+- **The integration-test mock Claude CLI now speaks the modern CLI dialect, verified against verbatim real-CLI captures.** The old mock emitted an event protocol modern CLIs no longer use (top-level `tool_result` events, `TodoWrite` task lists, plan/question tools that never touched the permission system, a process that died after every turn) — so ~120 integration tests were exercising a dialect the real CLI abandoned, and the last three releases' bugs lived exactly in that blind spot. The mock was rewritten against 15 captured reference flows from the real CLI (2.1.225), committed under `tests/integration/fixtures/real-cli-captures/` with a re-capture harness (`tests/e2e-real-cli/capture-events.ts`): `system/init` and `rate_limit_event` at startup, tool results as `tool_result` blocks in `user` events, TaskCreate/TaskUpdate task tracking with result-text id resolution, one `result` per turn with the process staying alive, and SIGINT aborting in-flight tools before exiting — all shapes taken from the captures. **Interactive scenarios now spawn the real MCP permission server and block ExitPlanMode/AskUserQuestion on `permission_prompt`, so the integration suite exercises the production permission-prompt → decision-bridge → reaction-UI path end to end** — including new regression tests pinning that no duplicate generic permission prompt appears next to the plan/question UI (the 1.21.2 bug class). Captures also documented that bypass mode exposes neither ExitPlanMode nor AskUserQuestion on modern CLIs, so the plan/question suites now run with interactive permissions like production. All 21 integration suites pass against the new mock.
+
 ## [1.22.0] - 2026-08-08
 
 ### Changed

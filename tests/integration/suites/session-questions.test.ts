@@ -13,6 +13,7 @@ import {
   initAdminApi,
   startSession,
   waitForBotResponse,
+  waitForPostMatching,
   getThreadPosts,
   addReaction,
   getPlatformBotOptions,
@@ -84,85 +85,74 @@ describe.skipIf(SKIP)('Session Questions', () => {
     };
 
     describe('Multiple Choice Questions', () => {
-      it('should display question with emoji options', async () => {
-        // Start bot with ask-question scenario
+      // Interactive permissions: on modern CLIs AskUserQuestion blocks on the
+      // MCP permission prompt (bypass mode doesn't even expose the tool), so
+      // the mock routes it through the real MCP server + decision bridge and
+      // the user's option reaction answers it via updatedInput — the same
+      // path production takes.
+      it('should display question with option labels', async () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'ask-question',
-          skipPermissions: true,
+          skipPermissions: false,
           debug: process.env.DEBUG === '1',
         }, ctx));
 
         const rootPost = await startSession(ctx, 'I need to make a choice', getBotUsername());
         testThreadIds.push(rootPost.id);
 
-        // Wait for question to appear
-        await new Promise((r) => setTimeout(r, 200));
-
-        const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
-
-        expect(botPosts.length).toBeGreaterThanOrEqual(1);
-
-        // Look for a question post with options
-        const questionPost = botPosts.find((p) =>
-          /\?|option|choice|select|which/i.test(p.message)
+        // The bot renders the question from the AskUserQuestion tool_use
+        const questionPost = await waitForPostMatching(
+          ctx, rootPost.id, /Which approach would you prefer/i, { timeout: 20000 }
         );
-
-        if (questionPost) {
-          // Question posts should have number emoji reactions
-          // Bot typically adds 1️⃣ 2️⃣ 3️⃣ etc. as options
-          // Note: Exact emoji names depend on implementation
-        }
+        expect(questionPost).toBeDefined();
+        expect(questionPost.message).toContain('Option A');
+        expect(questionPost.message).toContain('Option B');
       });
 
-      it('should accept answer via number emoji reaction', async () => {
+      it('should deliver the answer through the decision bridge on option reaction', async () => {
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'ask-question',
-          skipPermissions: true,
+          skipPermissions: false,
           debug: process.env.DEBUG === '1',
         }, ctx));
 
         const rootPost = await startSession(ctx, 'Help me choose', getBotUsername());
         testThreadIds.push(rootPost.id);
 
-        await new Promise((r) => setTimeout(r, 200));
-
-        const allPosts = await getThreadPosts(ctx, rootPost.id);
-        const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
-
-        // Find question post
-        const questionPost = botPosts.find((p) =>
-          /\?|option|choice/i.test(p.message)
+        const questionPost = await waitForPostMatching(
+          ctx, rootPost.id, /Which approach would you prefer/i, { timeout: 20000 }
         );
 
-        if (questionPost) {
-          // Answer with option 1 (number one emoji)
-          // Common emoji names: one, 1️⃣, etc.
-          await addReaction(ctx, questionPost.id, 'one');
+        // Answer with option 1: resolves the pending MCP permission call via
+        // the bridge; the mock only continues once updatedInput.answers
+        // arrives — so this post proves the full round trip.
+        await addReaction(ctx, questionPost.id, 'one');
 
-          await new Promise((r) => setTimeout(r, 200));
-
-          // Check for continuation after answer
-          const updatedPosts = await getThreadPosts(ctx, rootPost.id);
-          expect(updatedPosts.length).toBeGreaterThanOrEqual(allPosts.length);
-        }
+        const continuation = await waitForPostMatching(
+          ctx, rootPost.id, /proceeding with your choice/i, { timeout: 20000 }
+        );
+        expect(continuation).toBeDefined();
       });
 
-      it('should handle multiple questions in sequence', async () => {
-        // This would require a multi-question scenario
-        // For now, just verify we can handle one question
+      it('does not post a competing generic permission prompt for AskUserQuestion', async () => {
+        // Regression guard for the duplicate-prompt bug: no generic
+        // "Permission requested: AskUserQuestion" post next to the question UI.
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'ask-question',
-          skipPermissions: true,
+          skipPermissions: false,
         }, ctx));
 
         const rootPost = await startSession(ctx, 'Complex task with questions', getBotUsername());
         testThreadIds.push(rootPost.id);
 
-        await new Promise((r) => setTimeout(r, 200));
+        await waitForPostMatching(ctx, rootPost.id, /Which approach would you prefer/i, { timeout: 20000 });
+        await new Promise((r) => setTimeout(r, 1500));
 
         const allPosts = await getThreadPosts(ctx, rootPost.id);
-        expect(allPosts.length).toBeGreaterThanOrEqual(2); // At least user message + bot response
+        const genericPrompt = allPosts.find((p) =>
+          /Permission requested:.*AskUserQuestion/i.test(p.message)
+        );
+        expect(genericPrompt).toBeUndefined();
       });
     });
 

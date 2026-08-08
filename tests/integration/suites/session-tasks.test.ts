@@ -1,7 +1,8 @@
 /**
  * Task List Integration Tests
  *
- * Tests the task list display functionality when Claude uses TodoWrite.
+ * Tests the task list display functionality when Claude uses the modern
+ * TaskCreate/TaskUpdate tools (the incremental dialect real CLIs emit).
  *
  * Parameterized to run against both Mattermost and Slack platforms.
  */
@@ -74,7 +75,7 @@ describe.skipIf(SKIP)('Task List Display', () => {
         }
       });
 
-      it('should display task list when Claude uses TodoWrite', async () => {
+      it('should display task list when Claude uses TaskCreate/TaskUpdate', async () => {
                 bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'task-list',
           skipPermissions: true,

@@ -1,32 +1,14 @@
 {
   "name": "plan-approval",
-  "description": "Response that shows a plan requiring user approval before execution",
-  "responseEvents": [
+  "description": "ExitPlanMode routed through the real MCP permission server + decision bridge (run with skipPermissions: false). The user's 👍/👎 on the bot's plan post resolves the pending permission call, exactly like production on a modern CLI.",
+  "turns": [
     {
-      "type": "assistant",
-      "delay": 200,
-      "message": {
-        "content": [
-          {
-            "type": "text",
-            "text": "I'll help you with that. Here's my plan:\n\n## Plan\n\n1. First, I'll create a new file\n2. Then, I'll write the initial content\n3. Finally, I'll format the code\n\nDoes this plan look good? React with 👍 to approve or 👎 to request changes."
-          }
-        ]
-      }
-    },
-    {
-      "type": "assistant",
-      "delay": 100,
-      "message": {
-        "content": [
-          {
-            "type": "tool_use",
-            "id": "plan_001",
-            "name": "ExitPlanMode",
-            "input": {}
-          }
-        ]
-      }
+      "steps": [
+        { "kind": "text", "text": "I'll help you with that. Here's my plan:\n\n## Plan\n\n1. First, I'll create a new file\n2. Then, I'll write the initial content\n3. Finally, I'll format the code" },
+        { "kind": "plan", "plan": "# Plan\n\n1. First, I'll create a new file\n2. Then, I'll write the initial content\n3. Finally, I'll format the code" },
+        { "kind": "text", "text": "Proceeding based on your decision." },
+        { "kind": "result", "resultText": "Plan flow complete." }
+      ]
     }
   ]
 }

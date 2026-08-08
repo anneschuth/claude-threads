@@ -50,10 +50,14 @@ describe.skipIf(SKIP)('Plan Approval', () => {
         adminApi = initAdminApi();
       }
 
-      // Start the test bot with plan-approval scenario
+      // Start the test bot with plan-approval scenario. Interactive
+      // permissions: on modern CLIs ExitPlanMode blocks on the MCP
+      // permission prompt (bypass mode doesn't even expose the tool), so the
+      // mock routes it through the real MCP server + decision bridge and the
+      // user's reaction resolves it — the same path production takes.
       bot = await startTestBot(getPlatformBotOptions(platformType, {
         scenario: 'plan-approval',
-        skipPermissions: true,
+        skipPermissions: false,
         debug: process.env.DEBUG === '1',
       }, ctx));
     });
@@ -112,6 +116,26 @@ describe.skipIf(SKIP)('Plan Approval', () => {
 
         expect(approvalPost).toBeDefined();
         expect(approvalPost.message).toMatch(/👍|approve/i);
+      });
+
+      it('does not post a competing generic permission prompt for ExitPlanMode', async () => {
+        // Regression guard for the two-competing-prompts bug: with the
+        // decision bridge in place, the MCP server must NOT fall back to a
+        // generic "Permission requested: ExitPlanMode" post next to the
+        // bot's plan-approval UI.
+        const rootPost = await startSession(ctx, 'Plan my feature work', getBotUsername());
+        testThreadIds.push(rootPost.id);
+
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 10000 });
+        await waitForPostMatching(ctx, rootPost.id, /Plan ready for approval/i, { timeout: 10000 });
+
+        // Give a generic prompt time to appear if it were going to
+        await new Promise((r) => setTimeout(r, 1500));
+        const posts = await getThreadPosts(ctx, rootPost.id);
+        const genericPrompt = posts.find((p) =>
+          /Permission requested:.*ExitPlanMode/i.test(p.message)
+        );
+        expect(genericPrompt).toBeUndefined();
       });
 
       it('should include reaction options on plan approval post', async () => {

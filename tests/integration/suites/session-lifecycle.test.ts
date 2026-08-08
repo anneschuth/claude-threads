@@ -241,7 +241,7 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
 
     describe('Follow-up Messages', () => {
       it('should handle follow-up messages in a session', async () => {
-        // Restart bot with multi-turn scenario (persistent so we can send follow-ups)
+        // Restart bot with the persistent scenario so we can send follow-ups
         await bot.stop();
         bot = await startTestBot(getPlatformBotOptions(platformType, {
           scenario: 'persistent-session',
