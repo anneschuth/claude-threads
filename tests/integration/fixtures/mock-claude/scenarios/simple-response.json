@@ -1,32 +1,13 @@
 {
   "name": "simple-response",
-  "description": "Simple text response for basic testing",
-  "initialEvents": [],
-  "responseEvents": [
+  "description": "One text turn ending in a success result; process exits afterwards (suites assert the session ends)",
+  "exitAtEnd": true,
+  "turns": [
     {
-      "type": "assistant",
-      "delay": 100,
-      "message": {
-        "content": [
-          {
-            "type": "text",
-            "text": "Hello! I can help you with that. This is a simple response for integration testing."
-          }
-        ]
-      }
-    },
-    {
-      "type": "result",
-      "delay": 50,
-      "subtype": "success",
-      "cost_usd": 0.001,
-      "duration_ms": 150,
-      "duration_api_ms": 100,
-      "is_error": false,
-      "num_turns": 1,
-      "result": "",
-      "session_id": "mock-session-simple",
-      "total_cost_usd": 0.001
+      "steps": [
+        { "kind": "text", "text": "Hello! I received your message. This is a mock response for testing." },
+        { "kind": "result", "resultText": "Hello! I received your message. This is a mock response for testing." }
+      ]
     }
   ]
 }

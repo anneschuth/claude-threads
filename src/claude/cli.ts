@@ -362,7 +362,10 @@ export function buildPermissionArgs(opts: {
     mcpServers: {
       'claude-threads-mcp': {
         type: 'stdio',
-        command: 'node',
+        // A .ts server path means source/dev mode — node can't execute it,
+        // so run it under the current runtime (bun). Built installs always
+        // resolve a .js and keep using node.
+        command: opts.mcpServerPath.endsWith('.ts') ? process.execPath : 'node',
         args: [opts.mcpServerPath],
         env: mcpEnv,
       },
@@ -986,7 +989,20 @@ export class ClaudeCli extends EventEmitter {
     if (existsSync(bundledPath)) {
       return bundledPath;
     }
-    return resolve(__dirname, '..', 'mcp', 'mcp-server.js');
+    const sourceLayoutPath = resolve(__dirname, '..', 'mcp', 'mcp-server.js');
+    if (existsSync(sourceLayoutPath)) {
+      return sourceLayoutPath;
+    }
+    // Source/dev mode (`bun run dev`, tests): no build output exists — only
+    // the TypeScript source. Point at the .ts; buildPermissionArgs runs it
+    // under the current runtime (bun) instead of node. Without this the MCP
+    // config referenced a nonexistent .js and the permission server could
+    // never spawn in dev mode.
+    const tsPath = resolve(__dirname, '..', 'mcp', 'mcp-server.ts');
+    if (existsSync(tsPath)) {
+      return tsPath;
+    }
+    return sourceLayoutPath;
   }
 
   private getStatusLineWriterPath(): string {

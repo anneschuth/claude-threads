@@ -478,6 +478,30 @@ describe('buildPermissionArgs', () => {
     expect(args).not.toContain('--dangerously-skip-permissions');
   });
 
+  it('runs a built .js MCP server under node', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    const blob = JSON.parse(args[args.indexOf('--mcp-config') + 1]) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    expect(blob.mcpServers['claude-threads-mcp'].command).toBe('node');
+    expect(blob.mcpServers['claude-threads-mcp'].args).toEqual(['/path/to/mcp-server.js']);
+  });
+
+  it('runs a source-mode .ts MCP server under the current runtime (dev mode)', () => {
+    // Source/dev runs have no dist build: getMcpServerPath resolves the .ts,
+    // which node cannot execute — the config must use the current runtime.
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      mcpServerPath: '/repo/src/mcp/mcp-server.ts',
+      permissionMode: 'default',
+    });
+    const blob = JSON.parse(args[args.indexOf('--mcp-config') + 1]) as {
+      mcpServers: Record<string, { command: string; args: string[] }>;
+    };
+    expect(blob.mcpServers['claude-threads-mcp'].command).toBe(process.execPath);
+    expect(blob.mcpServers['claude-threads-mcp'].args).toEqual(['/repo/src/mcp/mcp-server.ts']);
+  });
+
   it("auto: emits --mcp-config AND --permission-mode auto", () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'auto' });
     expect(args).toContain('--mcp-config');

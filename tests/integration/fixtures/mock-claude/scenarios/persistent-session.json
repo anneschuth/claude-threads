@@ -1,19 +1,13 @@
 {
   "name": "persistent-session",
-  "description": "Response that keeps the session alive (no result event) for testing commands",
-  "initialEvents": [],
-  "responseEvents": [
+  "description": "Long-lived session like the real CLI: emits a result per turn and stays alive for follow-ups",
+  "repeatLastTurn": true,
+  "turns": [
     {
-      "type": "assistant",
-      "delay": 100,
-      "message": {
-        "content": [
-          {
-            "type": "text",
-            "text": "I'm ready to help! This session will stay active for testing commands."
-          }
-        ]
-      }
+      "steps": [
+        { "kind": "text", "text": "I'm ready to help! This session will stay active for testing commands." },
+        { "kind": "result", "resultText": "Ready." }
+      ]
     }
   ]
 }
