@@ -433,4 +433,63 @@ describe('handleEventPostProcessing', () => {
 
   // NOTE: postCurrentQuestion tests have been removed - question posting now
   // goes through QuestionApprovalExecutor via MessageManager
+
+  describe('current model tracking (/model switches)', () => {
+    const resultWith = (modelUsage: Record<string, object>) => ({
+      type: 'result' as const,
+      total_cost_usd: 1,
+      usage: { input_tokens: 10, cache_creation_input_tokens: 0, cache_read_input_tokens: 100, output_tokens: 5 },
+      modelUsage,
+    });
+    const usage = (costUSD: number, contextWindow = 200000) => ({
+      inputTokens: 100, outputTokens: 50, cacheReadInputTokens: 1000,
+      cacheCreationInputTokens: 0, contextWindow, costUSD,
+    });
+
+    test('init events capture the current model onto the session', () => {
+      handleEventPreProcessing(session, {
+        type: 'system', subtype: 'init', model: 'claude-sonnet-5', slash_commands: [],
+      }, ctx);
+      expect(session.currentModel).toBe('claude-sonnet-5');
+    });
+
+    test('usage stats prefer the current model over the highest-cost one', () => {
+      // After a /model switch the OLD model has the larger cumulative cost —
+      // the header must show what the session runs NOW, not what it spent
+      // the most on. init.model (re-emitted per turn, see captures) is the
+      // authoritative current model.
+      session.currentModel = 'claude-sonnet-5';
+      handleEventPostProcessing(session, resultWith({
+        'claude-haiku-4-5-20251001': usage(5.0),
+        'claude-sonnet-5': usage(0.01, 200000),
+      }), ctx);
+
+      expect(session.usageStats?.primaryModel).toBe('claude-sonnet-5');
+      expect(session.usageStats?.modelDisplayName).toBe('Sonnet 5');
+    });
+
+    test('falls back to highest cost when no current model is known', () => {
+      handleEventPostProcessing(session, resultWith({
+        'claude-haiku-4-5-20251001': usage(5.0),
+        'claude-sonnet-5': usage(0.01),
+      }), ctx);
+      expect(session.usageStats?.primaryModel).toBe('claude-haiku-4-5-20251001');
+      expect(session.usageStats?.modelDisplayName).toBe('Haiku 4.5');
+    });
+
+    test('display names cover the Claude 5 family and dated ids', () => {
+      const cases: Array<[string, string]> = [
+        ['claude-fable-5', 'Fable 5'],
+        ['claude-sonnet-5', 'Sonnet 5'],
+        ['claude-opus-5', 'Opus 5'],
+        ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
+        ['claude-opus-4-5-20251101', 'Opus 4.5'],
+      ];
+      for (const [id, expected] of cases) {
+        const fresh = createTestSession(platform);
+        handleEventPostProcessing(fresh, resultWith({ [id]: usage(1.0) }), ctx);
+        expect(fresh.usageStats?.modelDisplayName).toBe(expected);
+      }
+    });
+  });
 });

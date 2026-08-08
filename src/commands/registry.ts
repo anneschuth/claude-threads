@@ -300,6 +300,18 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     category: 'passthrough',
     audience: 'both',
   },
+  {
+    command: 'model',
+    description: 'Show or switch the model for this session (e.g. !model sonnet)',
+    category: 'passthrough',
+    audience: 'both',
+  },
+  {
+    command: 'effort',
+    description: 'Set reasoning effort: low|medium|high|xhigh|max|auto (e.g. !effort high)',
+    category: 'passthrough',
+    audience: 'both',
+  },
 ];
 
 // =============================================================================

@@ -474,7 +474,7 @@ The version is checked at startup against a three-tier policy
 | CLI version | Behavior |
 |-------------|----------|
 | Below `2.0.74` (hard floor) | Error message and **exit** — the bot can't work at all |
-| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.223) | Runs normally |
+| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.226) | Runs normally |
 | Newer 2.x above the verified range | **Warn-and-run**: startup warning + "⚠️ untested" marker in the sticky message and session headers. A new CLI minor must not take every bot down until a claude-threads release ships |
 | A new major (3.x+) | Error message and **exit** — different contract, warn-and-run would be reckless |
 
@@ -485,7 +485,7 @@ next to the CLI version in the sticky message and session headers.
 
 To install the latest verified version:
 ```bash
-npm install -g @anthropic-ai/claude-code@2.1.223
+npm install -g @anthropic-ai/claude-code@2.1.226
 ```
 
 The Claude CLI version is displayed:
@@ -731,7 +731,8 @@ https://digilab.overheid.nl/chat/digilab/channels/annes-claude-code-sessies
 
 ### Testing Other Features
 - **Session collaboration**: `!invite @username` / `!kick @username`
-- **Directory change**: `!cd /some/path` (restarts Claude CLI)
+- **Directory change**: `!cd /some/path` (restarts Claude CLI — native `/cd` is not available over stream-json as of CLI 2.1.226, verified empirically)
+- **Model / effort switch**: `!model sonnet`, `!effort high` (forwarded as slash commands; session header shows the current model on the next turn)
 - **Interrupt**: `!escape` or ⏸️ reaction (interrupts without killing)
 - **Cancel**: `!stop` or ❌/🛑 reaction (kills the session)
 - **Plan approval**: When Claude presents a plan, react with 👍/👎

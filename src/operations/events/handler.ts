@@ -192,7 +192,14 @@ export function handleEventPreProcessing(
       status?: string;
       compact_metadata?: unknown;
       slash_commands?: string[];
+      model?: string;
     };
+
+    // Capture the current model from init events (re-emitted per turn, so a
+    // /model switch is reflected on the very next turn — see captures).
+    if (e.subtype === 'init' && typeof e.model === 'string') {
+      session.currentModel = e.model;
+    }
 
     // Capture available slash commands from init event
     if (e.subtype === 'init' && e.slash_commands && Array.isArray(e.slash_commands)) {
@@ -493,16 +500,19 @@ interface ResultEvent {
  * e.g., "claude-opus-4-5-20251101" -> "Opus 4.5"
  */
 function getModelDisplayName(modelId: string): string {
-  // Common model name patterns
-  if (modelId.includes('opus-4-5') || modelId.includes('opus-4.5')) return 'Opus 4.5';
-  if (modelId.includes('opus-4')) return 'Opus 4';
-  if (modelId.includes('opus')) return 'Opus';
-  if (modelId.includes('sonnet-4')) return 'Sonnet 4';
-  if (modelId.includes('sonnet-3-5') || modelId.includes('sonnet-3.5')) return 'Sonnet 3.5';
+  // Modern ids: claude-<family>-<major>[-<minor>][-<yyyymmdd>]
+  // e.g. claude-sonnet-5 → "Sonnet 5", claude-haiku-4-5-20251001 → "Haiku 4.5".
+  // Generic parse instead of a hardcoded family list so a new family
+  // (fable, ...) renders correctly without a code change.
+  const modern = modelId.match(/^claude-([a-z]+)-(\d+)(?:-(\d+))?(?:-\d{8})?$/);
+  if (modern) {
+    const family = modern[1].charAt(0).toUpperCase() + modern[1].slice(1);
+    return modern[3] ? `${family} ${modern[2]}.${modern[3]}` : `${family} ${modern[2]}`;
+  }
+  // Legacy ids (version-first, e.g. claude-3-5-sonnet-20241022)
   if (modelId.includes('sonnet')) return 'Sonnet';
-  if (modelId.includes('haiku-4-5') || modelId.includes('haiku-4.5')) return 'Haiku 4.5';
+  if (modelId.includes('opus')) return 'Opus';
   if (modelId.includes('haiku')) return 'Haiku';
-  // Fallback: extract the model family name
   const match = modelId.match(/claude-(\w+)/);
   return match ? match[1].charAt(0).toUpperCase() + match[1].slice(1) : modelId;
 }
@@ -547,6 +557,14 @@ function updateUsageStats(
       primaryModel = modelId;
       contextWindowSize = usage.contextWindow;
     }
+  }
+
+  // The current model (from the per-turn init event) beats the cost
+  // heuristic: after a /model switch the old model keeps the larger
+  // cumulative spend, but the header must show what the session runs NOW.
+  if (session.currentModel && result.modelUsage[session.currentModel]) {
+    primaryModel = session.currentModel;
+    contextWindowSize = result.modelUsage[session.currentModel].contextWindow;
   }
 
   // Calculate context tokens from per-request usage (accurate)

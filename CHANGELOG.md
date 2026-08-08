@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.0] - 2026-08-08
+
+### Added
+- **`!model` and `!effort` — switch model or reasoning effort mid-session.** Verified against the real CLI (2.1.226): `/model` and `/effort` work over stream-json (`/model` with no args lists the options; `/model sonnet` switches "for this session only"; `/effort low|medium|high|xhigh|max|auto`), and both are listed in the CLI's `init.slash_commands` — so the bot's dynamic slash-command passthrough forwards `!model sonnet` / `!effort high` as-is and the CLI's confirmation posts to the thread. Both are now registered commands (Claude's system prompt knows them) and `!help` gained a line pointing out that Claude Code slash commands work with `!`.
+- **The session header now shows the model the session actually runs on.** Previously the header picked the "primary model" by highest cumulative cost — after a `!model` switch the old model keeps the larger spend, so the header kept naming the old model indefinitely. The per-turn `init.model` (re-emitted every turn, per the reference captures) is now authoritative. Model display names also cover the Claude 5 family via generic id parsing (`claude-sonnet-5` → "Sonnet 5", `claude-fable-5` → "Fable 5", dated ids still render as before).
+
+### Changed
+- **Latest verified Claude CLI: 2.1.226** (from 2.1.223). The full verification battery ran against it this cycle: the decision-bridge e2e (4/4), all 17 reference captures re-recorded on 2.1.225/2.1.226, and both integration matrices. Install hints updated. Also verified while probing: `/cd` and `/add-dir` report "isn't available in this environment" over stream-json on 2.1.226 — a native in-session directory switch isn't possible, so `!cd` keeps its restart-based implementation.
+
 ## [1.23.0] - 2026-08-08
 
 ### Fixed

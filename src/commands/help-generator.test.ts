@@ -98,12 +98,24 @@ describe('generateHelpMessage', () => {
     expect(message).toContain('`!cd <path>`');
   });
 
-  it('excludes passthrough commands', () => {
+  it('excludes passthrough commands from the command table', () => {
     const message = generateHelpMessage(mockFormatter);
 
-    // Passthrough commands should not appear in help
-    expect(message).not.toContain('!context');
-    expect(message).not.toContain('!cost');
-    expect(message).not.toContain('!compact');
+    // Passthrough commands get no table rows of their own (they are
+    // mentioned collectively in the slash-command footer hint instead)
+    expect(message).not.toContain('| `!context`');
+    expect(message).not.toContain('| `!cost`');
+    expect(message).not.toContain('| `!compact`');
+    expect(message).not.toContain('| `!model`');
+  });
+});
+
+describe('slash-command passthrough hint', () => {
+  it('mentions !model and !effort in the help footer', async () => {
+    const { generateHelpMessage } = await import('./help-generator.js');
+    const { createMockFormatter } = await import('../test-utils/mock-formatter.js');
+    const message = generateHelpMessage(createMockFormatter());
+    expect(message).toContain('!model sonnet');
+    expect(message).toContain('!effort high');
   });
 });
