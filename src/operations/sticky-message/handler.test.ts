@@ -162,8 +162,12 @@ describe('buildStickyMessage', () => {
     const sessions = new Map<string, Session>();
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
-    // Should contain version (CT = claude-threads, CC = Claude Code)
-    expect(result).toMatch(/`CT v\d+\.\d+\.\d+( · CC v\d+\.\d+\.\d+)?`/);
+    // Should contain version (CT = claude-threads, CC = Claude Code).
+    // The CC part may carry a policy marker (" ⚠️ untested"/" ⚠️ unsupported")
+    // depending on the CLI installed on the machine running the tests — the
+    // regex must tolerate it or `bun test` goes red the day the local CLI
+    // outruns the verified range.
+    expect(result).toMatch(/`CT v\d+\.\d+\.\d+( · CC v\d+\.\d+\.\d+( ⚠️ (untested|unsupported))?)?`/);
     // Should contain session count
     expect(result).toContain('`0/5 sessions`');
     // Should contain uptime

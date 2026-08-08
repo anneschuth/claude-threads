@@ -107,16 +107,24 @@ export function formatRelativeTimeShort(date: Date): string {
  * major) gets an "untested" marker, so the sticky message and session
  * headers surface the warn-and-run state — operators shouldn't have to
  * read terminal logs to learn their CLI outran what claude-threads was
- * tested against.
+ * tested against. An incompatible version (only reachable while running
+ * when --skip-version-check bypassed the hard exit, or when the CLI was
+ * swapped under a running bot) is marked "unsupported" — the more
+ * dangerous state must not be the less visible one.
  *
  * @returns Formatted string like "CT v1.3.1 · CC v2.1.12" (or with
- *   " ⚠️ untested" appended), or "CT v1.3.1" if no CLI version
+ *   " ⚠️ untested"/" ⚠️ unsupported" appended), or "CT v1.3.1" if no
+ *   CLI version
  */
 export function formatVersionString(): string {
   const claudeVersion = getClaudeCliVersion().version;
   if (!claudeVersion) return `CT v${VERSION}`;
-  const untested = classifyClaudeVersion(claudeVersion) === 'untested';
-  return `CT v${VERSION} · CC v${claudeVersion}${untested ? ' ⚠️ untested' : ''}`;
+  const status = classifyClaudeVersion(claudeVersion);
+  const marker =
+    status === 'untested' ? ' ⚠️ untested'
+    : status === 'incompatible' ? ' ⚠️ unsupported'
+    : '';
+  return `CT v${VERSION} · CC v${claudeVersion}${marker}`;
 }
 
 // =============================================================================

@@ -60,7 +60,11 @@ export class HeadlessProvider implements UIProvider {
     const { config } = this.options;
     this.log('HeadlessProvider', `claude-threads v${config.version} starting in headless mode`);
     this.log('HeadlessProvider', `Working directory: ${config.workingDir}`);
-    this.log('HeadlessProvider', `Claude CLI: ${config.claudeVersion}`);
+    const cliMarker =
+      config.claudeStatus === 'untested' ? ' ⚠️ untested (newer than the verified range)'
+      : config.claudeStatus === 'incompatible' ? ' ⚠️ unsupported (version check bypassed)'
+      : '';
+    this.log('HeadlessProvider', `Claude CLI: ${config.claudeVersion}${cliMarker}`);
   }
 
   async stop(): Promise<void> {

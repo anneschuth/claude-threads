@@ -479,7 +479,9 @@ The version is checked at startup against a three-tier policy
 | A new major (3.x+) | Error message and **exit** — different contract, warn-and-run would be reckless |
 
 `--skip-version-check` bypasses the hard exits (not recommended; the untested
-warning is not bypassable and costs nothing).
+warning is not bypassable and costs nothing). A bypassed hard exit is not
+silent either: the bot warns at startup and shows an "⚠️ unsupported" marker
+next to the CLI version in the sticky message and session headers.
 
 To install the latest verified version:
 ```bash

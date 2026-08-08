@@ -154,4 +154,17 @@ describe('formatVersionString', () => {
       spy2.mockRestore();
     }
   });
+
+  it('marks an incompatible CLI as unsupported (visible when the hard exit was bypassed)', async () => {
+    const { spyOn } = await import('bun:test');
+    const childProcess = await import('child_process');
+    const { formatVersionString } = await import('./format.js');
+
+    const spy = spyOn(childProcess, 'execSync').mockReturnValue('3.0.0 (Claude Code)\n');
+    try {
+      expect(formatVersionString()).toContain('⚠️ unsupported');
+    } finally {
+      spy.mockRestore();
+    }
+  });
 });

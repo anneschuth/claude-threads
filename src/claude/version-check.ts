@@ -131,7 +131,7 @@ function findClaudeInPath(): string | null {
  * 4. Common installation locations
  *
  * Note: No logging here - this runs before UI starts.
- * Version info is displayed in the UI's ConfigSummary component.
+ * Version info is displayed in the terminal Header component.
  */
 export function getClaudeCliVersion(): ClaudeVersionResult {
   // First, try explicit CLAUDE_PATH if set

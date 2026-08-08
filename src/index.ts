@@ -381,6 +381,12 @@ async function startWithoutDaemon() {
     console.error(yellow(`  ⚠️  ${claudeValidation.message}`));
     console.error('');
   }
+  // The bypassed hard exit must not be silent — an unsupported CLI is more
+  // dangerous than an untested one, so it gets at least the same visibility.
+  if (!claudeValidation.compatible && opts.skipVersionCheck) {
+    console.error(yellow(`  ⚠️  --skip-version-check: running with an unsupported Claude CLI. ${claudeValidation.message}`));
+    console.error('');
+  }
 
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
   // forces Claude CLI into permissionMode: default and rejects
@@ -456,7 +462,7 @@ async function startWithoutDaemon() {
       version: VERSION,
       workingDir,
       claudeVersion: claudeValidation.version || 'unknown',
-      claudeCompatible: claudeValidation.compatible,
+      claudeStatus: claudeValidation.status,
       permissionMode: runtimeConfig.permissionMode,
       chromeEnabled: runtimeConfig.chromeEnabled,
       keepAliveEnabled: runtimeConfig.keepAliveEnabled,

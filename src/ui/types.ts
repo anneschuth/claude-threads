@@ -2,6 +2,7 @@
  * Types for the Ink-based CLI UI
  */
 import type { PermissionMode } from '../config/index.js';
+import type { ClaudeVersionStatus } from '../claude/version-check.js';
 
 export interface SessionInfo {
   id: string;
@@ -49,7 +50,13 @@ export interface AppConfig {
   version: string;
   workingDir: string;
   claudeVersion: string;
-  claudeCompatible: boolean;
+  /**
+   * Version-policy tier for the CLI (see src/claude/version-check.ts).
+   * 'untested' renders a warning marker next to the version in the terminal
+   * header and headless startup log; 'incompatible' never reaches the UI
+   * unless --skip-version-check bypassed the hard exit.
+   */
+  claudeStatus: ClaudeVersionStatus;
   permissionMode: PermissionMode;
   chromeEnabled: boolean;
   keepAliveEnabled: boolean;
