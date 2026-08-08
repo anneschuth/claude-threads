@@ -14,7 +14,7 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
-import { TaskTracker } from './task-tracker.js';
+import { TaskTracker, type PersistedTrackedTask } from './task-tracker.js';
 import type { BridgeRequest, BridgeResponse } from '../mcp/decision-bridge.js';
 import {
   ContentExecutor,
@@ -878,12 +878,25 @@ export class MessageManager {
    */
   serialize(): {
     taskList: ReturnType<TaskListExecutor['serialize']>;
+    taskTracker: ReturnType<TaskTracker['serialize']>;
     contextPrompt: PendingContextPrompt | null;
   } {
     return {
       taskList: this.taskListExecutor.serialize(),
+      taskTracker: this.taskTracker.serialize(),
       contextPrompt: this.promptExecutor.serialize(),
     };
+  }
+
+  /**
+   * Restore the incremental task tracker from persisted state (session
+   * resume). Without this, a resumed session's TaskUpdate calls hit an empty
+   * tracker and render "Task #N" placeholder rows instead of real subjects.
+   */
+  restoreTaskTracker(state: PersistedTrackedTask[] | undefined): void {
+    if (state && state.length > 0) {
+      this.taskTracker.restore(state);
+    }
   }
 
   /**

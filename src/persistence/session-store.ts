@@ -4,6 +4,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { milestoneReached } from '../sponsor.js';
 import type { PlatformFile } from '../platform/types.js';
+import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { OverheadVisibility } from '../config/types.js';
 
@@ -52,6 +53,13 @@ export interface PersistedSession {
   lastTasksContent: string | null;  // For re-posting tasks when bumping to bottom
   tasksCompleted?: boolean;      // True when all tasks done (stops sticky behavior)
   tasksMinimized?: boolean;      // True when task list is minimized (show only progress)
+  /**
+   * Incremental TaskTracker snapshot (id/subject/status per task). Restored
+   * on resume so post-restart TaskUpdate calls render real subjects instead
+   * of "Task #N" placeholders. Absent on pre-1.24.1 data → tracker starts
+   * empty, the previous behavior.
+   */
+  taskTrackerState?: PersistedTrackedTask[];
   lastActivityAt: string;        // For stale cleanup
   planApproved: boolean;
   // Worktree support

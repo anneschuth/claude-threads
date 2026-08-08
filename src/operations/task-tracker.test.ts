@@ -185,3 +185,76 @@ describe('TaskTracker - round-2 review fixes', () => {
     expect(tracker.consumeUnmatchedCreateResultFlag()).toBe(false);
   });
 });
+
+describe('TaskTracker persistence (serialize/restore)', () => {
+  let tracker: TaskTracker;
+  beforeEach(() => { tracker = new TaskTracker(); });
+
+  it('serializes resolved tasks and drops in-flight creates', () => {
+    tracker.create('tu-1', { subject: 'Migrate schema', activeForm: 'Migrating schema' });
+    tracker.resolveCreatedId('tu-1', 'Task #7 created successfully: Migrate schema');
+    tracker.update({ taskId: '7', status: 'in_progress' });
+    tracker.create('tu-2', { subject: 'Never resolved' }); // still pending — not restorable
+
+    const state = tracker.serialize();
+    expect(state).toEqual([
+      { taskId: '7', subject: 'Migrate schema', activeForm: 'Migrating schema', status: 'in_progress' },
+    ]);
+  });
+
+  it('serializes placeholders with their flag intact', () => {
+    tracker.update({ taskId: '3', status: 'in_progress' });
+    expect(tracker.serialize()).toEqual([
+      { taskId: '3', subject: 'Task #3', status: 'in_progress', isPlaceholder: true },
+    ]);
+  });
+
+  it('returns undefined when nothing is restorable', () => {
+    expect(tracker.serialize()).toBeUndefined();
+    tracker.create('tu-1', { subject: 'pending only' });
+    expect(tracker.serialize()).toBeUndefined();
+  });
+
+  it('restore brings tasks back so updates keep their real names', () => {
+    // The headline fix: after a bot restart, TaskUpdate for a known id must
+    // show the real subject, not a "Task #7" placeholder.
+    tracker.restore([
+      { taskId: '7', subject: 'Migrate schema', status: 'in_progress' },
+      { taskId: '8', subject: 'Write docs', status: 'pending' },
+    ]);
+    tracker.update({ taskId: '7', status: 'completed' });
+
+    const items = tracker.toTaskItems();
+    expect(items).toEqual([
+      { content: 'Migrate schema', status: 'completed', activeForm: 'Migrate schema' },
+      { content: 'Write docs', status: 'pending', activeForm: 'Write docs' },
+    ]);
+  });
+
+  it('restored real tasks count toward allCompleted', () => {
+    tracker.restore([
+      { taskId: '7', subject: 'Migrate schema', status: 'in_progress' },
+    ]);
+    tracker.update({ taskId: '7', status: 'completed' });
+    expect(tracker.allCompleted).toBe(true);
+  });
+
+  it('restored placeholders still do not signal completion alone', () => {
+    tracker.restore([
+      { taskId: '3', subject: 'Task #3', status: 'completed', isPlaceholder: true },
+    ]);
+    expect(tracker.allCompleted).toBe(false);
+  });
+
+  it('restore tolerates malformed entries', () => {
+    tracker.restore([
+      { taskId: '1', subject: 'Good', status: 'pending' },
+      { taskId: '', subject: 'no id', status: 'pending' },
+      { taskId: '2', subject: '', status: 'bogus-status' } as never,
+    ]);
+    const items = tracker.toTaskItems();
+    expect(items[0]).toEqual({ content: 'Good', status: 'pending', activeForm: 'Good' });
+    // Malformed rows are dropped or normalized, never crash
+    expect(items.length).toBeLessThanOrEqual(2);
+  });
+});

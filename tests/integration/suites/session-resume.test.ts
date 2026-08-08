@@ -17,7 +17,9 @@ import {
 import {
   initIsolatedTestContext,
   startSession,
+  sendFollowUp,
   waitForBotResponse,
+  waitForPostMatching,
   waitForSessionHeader,
   waitForSessionActive,
   waitForSessionEnded,
@@ -289,6 +291,73 @@ describe.skipIf(SKIP)('Session Resume', () => {
         const isActive = bot.sessionManager.isInSessionThread(rootPost.id);
         const isPaused = bot.sessionManager.hasPausedSession(rootPost.id);
         expect(isActive || isPaused).toBe(true);
+      });
+
+      it('should keep real task subjects after restart (TaskTracker restore)', async () => {
+        // Scenario: turn 1 creates two tasks ("Analyze requirements",
+        // "Write the report") and leaves them incomplete; turn 2 — played
+        // after the bot restarts — marks task #1 completed via TaskUpdate.
+        // Without TaskTracker persistence the restarted tracker is empty, so
+        // the turn-2 update renders a "Task #1" placeholder instead of the
+        // real subject.
+        await bot.stop();
+        bot = await startTestBot(getPlatformBotOptions(platformType, {
+          scenario: 'task-list-partial',
+          skipPermissions: true,
+          debug: process.env.DEBUG === '1',
+        }, ctx));
+
+        const rootPost = await startSession(ctx, 'Track this work with tasks', getBotUsername());
+        testThreadIds.push(rootPost.id);
+
+        await waitForSessionActive(bot.sessionManager, rootPost.id, { timeout: 15000 });
+        await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
+
+        // Turn 1 rendered: "Analyze requirements" in progress (real subject).
+        await waitForPostMatching(ctx, rootPost.id, /🔄 \*{1,2}Analyze requirements/, {
+          timeout: 30000,
+        });
+
+        // Restart the bot, preserving persisted sessions.
+        const savedSessionsPath = bot.sessionsPath;
+        await bot.stopAndPreserveSessions();
+        await new Promise((r) => setTimeout(r, 200));
+
+        bot = await startTestBot(getPlatformBotOptions(platformType, {
+          scenario: 'task-list-partial',
+          skipPermissions: true,
+          debug: process.env.DEBUG === '1',
+          clearPersistedSessions: false,
+          sessionsPath: savedSessionsPath,
+        }, ctx));
+
+        // Wait until the session is back (auto-resumed or paused-for-resume).
+        const resumeDeadline = Date.now() + 15000;
+        while (Date.now() < resumeDeadline) {
+          if (
+            bot.sessionManager.isInSessionThread(rootPost.id) ||
+            bot.sessionManager.hasPausedSession(rootPost.id)
+          ) break;
+          await new Promise((r) => setTimeout(r, 250));
+        }
+
+        // Drive turn 2: the mock CLI resumes its persisted scenario state and
+        // emits TaskUpdate(taskId: "1", status: completed).
+        await sendFollowUp(ctx, rootPost.id, 'Continue with the tasks');
+
+        // The re-rendered task list must show the REAL subject as completed
+        // (✅ + strikethrough). This can only happen if the restored tracker
+        // still maps task id 1 → "Analyze requirements".
+        const taskPost = await waitForPostMatching(
+          ctx,
+          rootPost.id,
+          /✅ ~{1,2}Analyze requirements~{1,2}/,
+          { timeout: 30000 },
+        );
+
+        // And the rendered list must not have degraded to placeholders.
+        expect(taskPost.message).not.toContain('Task #1');
+        expect(taskPost.message).toContain('Write the report');
       });
     });
   });

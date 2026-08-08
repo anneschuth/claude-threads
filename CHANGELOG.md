@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.1] - 2026-08-08
+
+### Fixed
+- **Task lists no longer degrade to "Task #N" placeholders after a bot restart.** Modern CLIs stream tasks incrementally (`TaskCreate`/`TaskUpdate` with ids), and the bot accumulates them in a per-session `TaskTracker` — but that tracker lived only in memory. After a restart + resume, the first `TaskUpdate` of the next turn hit an empty tracker and rendered a placeholder ("Task #1") instead of the real subject, losing every task name for the rest of the session. The tracker's resolved tasks (id → subject/status) are now persisted to `sessions.json` at each turn end and restored on resume. In-flight creates (id not yet resolved from result text) are deliberately dropped at serialize time; pre-1.24.1 persisted sessions simply start with an empty tracker as before. Covered by a red-green integration test that restarts the bot mid-task-list and asserts the post-resume re-render still shows real subjects on both platform paths.
+
 ## [1.24.0] - 2026-08-08
 
 ### Added

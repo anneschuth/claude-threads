@@ -17,6 +17,7 @@ import { ClaudeEvent } from '../claude/cli.js';
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
+import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { AccountPool } from '../claude/account-pool.js';
@@ -637,10 +638,12 @@ export class SessionManager extends EventEmitter {
       | { postId: string | null; content: string | null; isMinimized: boolean; isCompleted: boolean }
       | undefined;
     let contextPromptSnapshot: PersistedContextPrompt | undefined;
+    let taskTrackerSnapshot: PersistedTrackedTask[] | undefined;
 
     if (session.messageManager) {
       const serialized = session.messageManager.serialize();
       taskListSnapshot = serialized.taskList;
+      taskTrackerSnapshot = serialized.taskTracker;
       if (serialized.contextPrompt) {
         contextPromptSnapshot = serialized.contextPrompt;
       }
@@ -667,6 +670,7 @@ export class SessionManager extends EventEmitter {
       lastTasksContent: taskListSnapshot?.content ?? null,
       tasksCompleted: taskListSnapshot?.isCompleted ?? false,
       tasksMinimized: taskListSnapshot?.isMinimized ?? false,
+      taskTrackerState: taskTrackerSnapshot,
       worktreeInfo: session.worktreeInfo,
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,

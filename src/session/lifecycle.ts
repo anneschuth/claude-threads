@@ -1473,6 +1473,11 @@ export async function resumeSession(
     tasksMinimized: state.tasksMinimized,
   });
 
+  // Restore the incremental task tracker: without it, post-resume TaskUpdate
+  // calls hit an empty tracker and render "Task #N" placeholders instead of
+  // real subjects (absent on pre-1.24.1 persisted data → starts empty).
+  session.messageManager.restoreTaskTracker(state.taskTrackerState);
+
   // Hydrate MessageManager with persisted interactive state (if any)
   // Note: These fields may not exist in older persisted sessions
   const persistedWithInteractive = state as PersistedSession & {

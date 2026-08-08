@@ -434,6 +434,14 @@ describe('handleEventPostProcessing', () => {
   // NOTE: postCurrentQuestion tests have been removed - question posting now
   // goes through QuestionApprovalExecutor via MessageManager
 
+  test('result events persist the session (task tracker state reaches disk each turn)', () => {
+    handleEventPostProcessing(session, {
+      type: 'result', total_cost_usd: 0.1,
+      modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: 0.1 } },
+    }, ctx);
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+  });
+
   describe('current model tracking (/model switches)', () => {
     const resultWith = (modelUsage: Record<string, object>) => ({
       type: 'result' as const,

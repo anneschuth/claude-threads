@@ -319,6 +319,10 @@ export function handleEventPostProcessing(
     session.isProcessing = false;
     ctx.ops.emitSessionUpdate(session.sessionId, { status: getSessionStatus(session) });
     updateUsageStats(session, event, ctx);
+    // Persist at every turn end so the incremental task-tracker snapshot
+    // (and usage/cost state) survives a bot restart. The CLI only runs while
+    // the bot runs, so turn-end persistence can't go stale.
+    ctx.ops.persistSession(session);
   }
 
   // Track tool errors for bug reporting context. The real CLI delivers tool

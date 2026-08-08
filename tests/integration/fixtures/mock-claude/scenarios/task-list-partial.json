@@ -1,0 +1,22 @@
+{
+  "name": "task-list-partial",
+  "description": "Tasks created but NOT completed in turn 1; turn 2 (typically after a bot restart + resume) updates task #1 — the re-render must show real subjects from the restored tracker, not 'Task #1' placeholders. The result steps carry a delay because an incomplete task list post is deleted when the turn ends (finalize) — tests need a window to observe the rendered list.",
+  "turns": [
+    {
+      "steps": [
+        { "kind": "text", "text": "Starting the work — tracking it with tasks." },
+        { "kind": "task-create", "subject": "Analyze requirements" },
+        { "kind": "task-create", "subject": "Write the report" },
+        { "kind": "task-update", "subject": "Analyze requirements", "status": "in_progress" },
+        { "kind": "result", "resultText": "Tasks set up.", "delay": 5000 }
+      ]
+    },
+    {
+      "steps": [
+        { "kind": "task-update", "subject": "Analyze requirements", "status": "completed" },
+        { "kind": "text", "text": "First task wrapped up." },
+        { "kind": "result", "resultText": "Task one done.", "delay": 5000 }
+      ]
+    }
+  ]
+}
