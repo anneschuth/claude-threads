@@ -1,6 +1,6 @@
 {
   "name": "compaction-failed",
-  "description": "Failed compaction: status compacting → compact_result failed with compact_error, NO compact_boundary (shape verified against real CLI 2.1.225)",
+  "description": "Failed compaction: status compacting → compact_result failed with compact_error, NO compact_boundary (shape from real-cli-captures/compact-failed.jsonl, CLI 2.1.226)",
   "turns": [
     {
       "steps": [
