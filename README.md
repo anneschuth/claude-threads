@@ -1,3 +1,5 @@
+
+
 # Claude Threads
 
 <p align="center">
@@ -79,7 +81,7 @@ The full reference, including inputs and scoping rules, is in [docs/MCP-TOOLS.md
 ```bash
 # Install (pick one)
 bun install -g claude-threads   # with Bun (recommended)
-npm install -g claude-threads   # with Node
+npm install -g claude-threads   # with npm
 
 # Run the setup wizard
 cd /your/project
