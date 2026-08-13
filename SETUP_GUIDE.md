@@ -5,10 +5,25 @@
 
 ## Table of Contents
 
-1. [Mattermost Setup](#mattermost-setup) - Create bot account and get credentials
-2. [Slack Setup](#slack-setup) - Create Slack app with Socket Mode
-3. [Running the Onboarding](#running-the-onboarding) - Interactive wizard walkthrough
-4. [Troubleshooting](#troubleshooting) - Common issues and solutions
+1. [Quickstart](#quickstart) - The whole path at a glance
+2. [Mattermost Setup](#mattermost-setup) - Create bot account and get credentials
+3. [Slack Setup](#slack-setup) - Create Slack app with Socket Mode
+4. [Running the Onboarding](#running-the-onboarding) - Interactive wizard walkthrough
+5. [Troubleshooting](#troubleshooting) - Common issues and solutions
+
+---
+
+## Quickstart
+
+The whole path, for either platform:
+
+1. **Install**: `bun install -g claude-threads` (or `npm install -g claude-threads`)
+2. **Create a bot account** in your workspace: [Mattermost](#mattermost-setup) or [Slack](#slack-setup)
+3. **Run the wizard**: `cd /your/project && claude-threads` - it asks for the bot credentials and tests them
+4. **Mention the bot** in the configured channel: `@claude-code fix the failing test in ci.yml`
+5. **Follow the thread**: output streams in live, and permission prompts are approved with a 👍 reaction
+
+Prerequisites: **Bun 1.2.21+** or **Node 20+**, and the **Claude Code CLI** (check with `claude --version`).
 
 ---
 
