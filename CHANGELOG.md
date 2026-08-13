@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.2] - 2026-08-13
+
+### Changed
+- **Dependency updates** (#469, #470). Production: `@hono/node-server` 2.0.12 → 2.1.0, `hono` 4.13.0 → 4.13.1, `express-rate-limit` 8.6.1 → 8.6.2, `ws` 8.21.1 → 8.21.3. Dev: `knip` 6.31.0 → 6.32.0 plus lockfile-only bumps within existing ranges. Both lockfiles regenerated and verified in lockstep; full typecheck/lint/test/build battery green on the combined result.
+
 ## [1.24.1] - 2026-08-08
 
 ### Fixed
