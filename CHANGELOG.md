@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.25.0] - 2026-08-19
 
 ### Added
 - **Persistent memory — the bot now learns over time**, modeled on how Anthropic's own products do memory, in two layers scoped per platform instance (≈ one channel, the hard privacy boundary, mirroring Claude Tag's per-channel isolation):
