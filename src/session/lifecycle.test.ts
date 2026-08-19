@@ -1661,3 +1661,44 @@ describe('decision-bridge listener wiring', () => {
     }
   });
 });
+
+describe('resumeSession with direct channel mode', () => {
+  function dcmState(threadId: string) {
+    return {
+      threadId,
+      platformId: 'test-platform',
+      claudeSessionId: 'claude-session-dcm',
+      workingDir: process.cwd(),
+      startedBy: 'alice',
+      sessionAllowedUsers: ['alice'],
+    } as any;
+  }
+
+  it('skips the thread-existence check for a synthetic DCM session id', async () => {
+    // getPost resolves null (a real thread id would be treated as deleted).
+    const getPost = mock(() => Promise.resolve(null));
+    const platform = createMockPlatform({ getPost: getPost as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('dcm:test-platform'), ctx);
+
+    // The synthetic id must never be looked up as a post, and resume must
+    // get past the thread-existence gate to account acquisition. (Later
+    // steps may still fail in this mocked environment — the gate is what
+    // this test pins down.)
+    expect(getPost).not.toHaveBeenCalled();
+    expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+  });
+
+  it('still drops a regular session whose thread was deleted', async () => {
+    const platform = createMockPlatform({ getPost: mock(() => Promise.resolve(null)) as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('a1b2c3realthread'), ctx);
+
+    expect(ctx.state.sessionStore.remove).toHaveBeenCalledWith('test-platform:a1b2c3realthread');
+    expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+  });
+});

@@ -1334,12 +1334,15 @@ export async function resumeSession(
     return;
   }
 
-  // Verify thread still exists
-  const threadPost = await platform.getPost(state.threadId);
-  if (!threadPost) {
-    log.warn(`Thread ${shortId}... deleted, skipping resume`);
-    ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
-    return;
+  // Verify thread still exists. A synthetic DCM id is not a real post — the
+  // "thread" is the channel itself, which always exists — so skip the check.
+  if (!isDcmThreadId(state.threadId)) {
+    const threadPost = await platform.getPost(state.threadId);
+    if (!threadPost) {
+      log.warn(`Thread ${shortId}... deleted, skipping resume`);
+      ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+      return;
+    }
   }
 
   // Check max sessions limit
