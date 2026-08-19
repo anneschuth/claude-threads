@@ -95,17 +95,32 @@ const DM_TEARDOWN_GRACE_MS = 30_000;
 /** How long a discovered instance may exist without ever producing a session. */
 const DM_ORPHAN_TTL_MS = 10 * 60_000;
 
+/** Pending grace timers per derived platform id (cancelled on re-discovery). */
+const dmGraceTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function cancelDmGraceTimer(dmId: string): void {
+  const timer = dmGraceTimers.get(dmId);
+  if (timer) {
+    clearTimeout(timer);
+    dmGraceTimers.delete(dmId);
+  }
+}
+
 /**
  * Tear down one derived DM instance (shared by session-remove, orphan reaper,
- * and connect-failure paths). Guarded against the ABA case: only acts if the
- * registry still maps this channel to this exact instance.
+ * and connect-failure paths). ABA-guarded two ways: the channel must still map
+ * to this dmId, and — because re-discovery deterministically recreates the
+ * SAME dmId — callers pass the client instance they intend to remove, so a
+ * stale timer can never tear down a newer client under the same id.
  */
-function teardownDmInstance(channelId: string, dmId: string, reason: string): void {
+function teardownDmInstance(channelId: string, dmId: string, reason: string, expectedClient?: PlatformClient): void {
   if (!dmRuntime) return;
   if (dmInstanceByChannel.get(channelId) !== dmId) return;
+  const client = dmRuntime.platforms.get(dmId);
+  if (expectedClient && client !== expectedClient) return;
+  cancelDmGraceTimer(dmId);
   dmInstanceByChannel.delete(channelId);
   dmConnecting.delete(dmId);
-  const client = dmRuntime.platforms.get(dmId);
   dmRuntime.platforms.delete(dmId);
   dmRuntime.session.removePlatform(dmId);
   if (client) void Promise.resolve(client.disconnect()).catch(() => {});
@@ -126,11 +141,15 @@ function teardownDmInstanceForSession(sessionId: string): void {
     // instance. Re-check before acting — a new session on the same instance
     // (or a re-registered instance) cancels the teardown.
     const runtime = dmRuntime;
-    setTimeout(() => {
+    const expectedClient = runtime.platforms.get(dmId);
+    cancelDmGraceTimer(dmId); // stacked session:remove events collapse to one timer
+    const timer = setTimeout(() => {
+      dmGraceTimers.delete(dmId);
       const activeSession = runtime.session.registry.findByThreadId(`dcm:${dmId}`);
       if (activeSession) return; // a new session took over — keep the instance
-      teardownDmInstance(channelId, dmId, 'session ended');
+      teardownDmInstance(channelId, dmId, 'session ended', expectedClient);
     }, DM_TEARDOWN_GRACE_MS);
+    dmGraceTimers.set(dmId, timer);
     return;
   }
 }
@@ -762,6 +781,9 @@ async function startWithoutDaemon() {
     partnerUsernames: string[],
   ): PlatformClient => {
     const dmConfig = deriveDmPlatformConfig(parentCfg, channelId, partnerUsernames);
+    // Re-discovery under the same deterministic id: a pending grace timer for
+    // the previous incarnation must not fire against the new instance.
+    cancelDmGraceTimer(dmConfig.id);
     const dmClient = createPlatformClient(dmConfig);
     platforms.set(dmConfig.id, dmClient);
     dmInstanceByChannel.set(channelId, dmConfig.id);
@@ -842,8 +864,15 @@ async function startWithoutDaemon() {
         if (platforms.get(dmId) !== dmClient) return;
         const threadId = `dcm:${dmId}`;
         if (session.registry.findByThreadId(threadId)) return;
-        if (session.getPersistedSession(threadId)) return;
-        teardownDmInstance(post.channelId, dmId, 'no session within TTL');
+        // Resumable persistence only: sessionStore.load() hides soft-deleted
+        // records, unlike getPersistedSession — a paused-then-!stop'd DM must
+        // not suppress the reaper forever.
+        for (const [, p] of sessionStore.load()) {
+          if (p.threadId === threadId) return;
+        }
+        // A pending grace teardown owns the endgame — don't pre-empt it.
+        if (dmGraceTimers.has(dmId)) return;
+        teardownDmInstance(post.channelId, dmId, 'no session within TTL', dmClient);
       }, DM_ORPHAN_TTL_MS);
       rememberDmRoutedPost(post.id);
       await handleMessage(dmClient, session, post, user, {
