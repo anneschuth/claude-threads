@@ -20,6 +20,7 @@
  */
 
 import type { PlatformClient } from '../platform/index.js';
+import { isDcmThreadId } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ReactionAction } from '../operations/executors/types.js';
 import type { SessionRegistry } from './registry.js';
@@ -102,9 +103,16 @@ export async function handleReaction(
   // SECURITY: Only process reactions from allowed users.
   // This is the primary authorization gate for all reaction-based actions.
   // All reactions are validated here before reaching MessageManager/executors.
+  // In direct channel mode with `approvals: owner` (the default), only the
+  // session participants may act on reaction gates — bridged plan approvals
+  // and question answers are authoritative permission decisions, so the
+  // platform-wide allowlist must not bypass the scoping there.
+  const ownerScoped =
+    isDcmThreadId(session.threadId) &&
+    session.platform.directChannelMode?.approvals !== 'all_users';
   if (
     !session.sessionAllowedUsers.has(username) &&
-    !session.platform.isUserAllowed(username)
+    (ownerScoped || !session.platform.isUserAllowed(username))
   ) {
     // Audit trail: record unauthorized reaction attempts so operators can
     // detect probing. Structured fields stay searchable across platforms.

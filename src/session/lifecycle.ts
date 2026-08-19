@@ -916,15 +916,20 @@ export async function startSession(
 
   // A start for this exact session key is already in flight: wait for it and
   // deliver this message as a follow-up instead of spawning a second Claude.
-  const inFlight = _inFlightSessionStarts.get(sessionKey);
-  if (inFlight) {
+  // Loop: after a failed start, one waiter begins a retry and registers it
+  // synchronously — the other waiters must wait for THAT attempt too, not
+  // fan out into parallel retries of their own.
+  for (;;) {
+    const inFlight = _inFlightSessionStarts.get(sessionKey);
+    if (!inFlight) break;
     await inFlight.catch(() => {});
     const started = (ctx.state?.sessions as Map<string, Session> | undefined)?.get(sessionKey);
     if (started && started.claude.isRunning()) {
       await sendFollowUp(started, options.prompt, options.files, ctx, username, displayName);
       return;
     }
-    // The in-flight start failed — fall through to a fresh attempt.
+    // The awaited attempt failed — re-check the map: if another waiter
+    // already started a retry, wait for it; otherwise it is our turn.
   }
 
   const attempt = startSessionImpl(options, username, displayName, replyToPostId, platformId, ctx, triggeringPostId, initialOptions);
@@ -1790,7 +1795,19 @@ export async function sendFollowUp(
   displayName?: string,
   options?: { system?: boolean }
 ): Promise<void> {
-  if (!session.claude.isRunning()) return;
+  // The session is registered before its Claude process finishes starting.
+  // A message landing in that window must not be dropped — give the CLI a
+  // moment to come up before giving up.
+  if (!session.claude.isRunning()) {
+    const deadline = Date.now() + 10_000;
+    while (!session.claude.isRunning() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!session.claude.isRunning()) {
+      sessionLog(session).warn('sendFollowUp: Claude did not come up in time — message dropped');
+      return;
+    }
+  }
 
   // Fail-closed authorization gate (#388). Internal/system follow-ups (e.g.
   // passthrough slash commands like /context, already gated upstream by the

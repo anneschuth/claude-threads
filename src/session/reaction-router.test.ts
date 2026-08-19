@@ -229,3 +229,50 @@ describe('ReactionRouter.handleReaction', () => {
     });
   });
 });
+
+describe('DCM approvals scoping (reaction gate)', () => {
+  test('owner mode: a platform-allowed non-participant is rejected', async () => {
+    const session = makeSession({
+      threadId: 'dcm:test',
+      platform: {
+        isUserAllowed: mock(() => true), // bob IS on the platform allowlist
+        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'owner' },
+      } as unknown as PlatformClient,
+    });
+    const deps = makeDeps(session);
+
+    await handleReaction(deps, 'test', 'post-1', '+1', 'bob', 'added');
+
+    expect((session.messageManager as any).handleReaction).not.toHaveBeenCalled();
+  });
+
+  test('owner mode: a session participant passes the gate', async () => {
+    const session = makeSession({
+      threadId: 'dcm:test',
+      platform: {
+        isUserAllowed: mock(() => false),
+        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'owner' },
+      } as unknown as PlatformClient,
+    });
+    const deps = makeDeps(session);
+
+    await handleReaction(deps, 'test', 'post-1', '+1', 'alice', 'added');
+
+    expect((session.messageManager as any).handleReaction).toHaveBeenCalled();
+  });
+
+  test('all_users mode keeps the classic platform-allowlist fallback', async () => {
+    const session = makeSession({
+      threadId: 'dcm:test',
+      platform: {
+        isUserAllowed: mock(() => true),
+        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'all_users' },
+      } as unknown as PlatformClient,
+    });
+    const deps = makeDeps(session);
+
+    await handleReaction(deps, 'test', 'post-1', '+1', 'bob', 'added');
+
+    expect((session.messageManager as any).handleReaction).toHaveBeenCalled();
+  });
+});
