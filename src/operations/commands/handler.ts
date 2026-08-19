@@ -66,7 +66,7 @@ import {
   resolveCollaborators,
 } from '../../commands/system-prompt-generator.js';
 import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
-import { resolveSessionMemory, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
+import { resolveSessionMemory, activeWorktreeRepoRoot, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -1087,7 +1087,7 @@ export async function setSessionPermissionMode(
     appendSystemPrompt,
     memory: await resolveSessionMemory(
       ctx.state.memoryStore, memoryConfig, session.platformId, session.workingDir,
-      session.worktreeInfo?.repoRoot,
+      activeWorktreeRepoRoot(session.workingDir, session.worktreeInfo),
     ),
   };
 

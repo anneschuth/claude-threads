@@ -998,10 +998,14 @@ export class SlackClient extends BasePlatformClient {
     options?: { limit?: number; excludeBotMessages?: boolean }
   ): Promise<ThreadMessage[]> {
     try {
-      const limit = options?.limit || 100;
+      // conversations.replies paginates oldest-first, so passing the caller's
+      // limit straight to the API would return the OLDEST N messages of a long
+      // thread. Callers (context prompt, work summary, memory distillation)
+      // want the most RECENT N — fetch a full page (API max 1000) and apply
+      // the limit after sorting, matching the Mattermost client's behavior.
       const response = await this.api<ConversationsRepliesResponse>(
         'GET',
-        `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=${limit}`
+        `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000`
       );
 
       const messages: ThreadMessage[] = [];
@@ -1025,9 +1029,13 @@ export class SlackClient extends BasePlatformClient {
         });
       }
 
-      // Sort by timestamp (oldest first) - API returns newest first
+      // Sort by timestamp (oldest first)
       messages.sort((a, b) => a.createAt - b.createAt);
 
+      // Apply limit (most recent N), like the Mattermost client
+      if (options?.limit && messages.length > options.limit) {
+        return messages.slice(-options.limit);
+      }
       return messages;
     } catch (err) {
       log.warn(`Failed to get thread history for ${threadId}: ${err}`);

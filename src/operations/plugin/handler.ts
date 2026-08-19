@@ -10,7 +10,7 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
 import { effectivePermissionMode } from '../../config/index.js';
-import { resolveSessionMemory } from '../../memory/store.js';
+import { resolveSessionMemory, activeWorktreeRepoRoot } from '../../memory/store.js';
 import { buildRestartCliOptions } from '../../claude/restart-options.js';
 import { buildAppendSystemPrompt } from '../../commands/system-prompt-generator.js';
 import { CHAT_PLATFORM_PROMPT } from '../../session/lifecycle.js';
@@ -78,7 +78,7 @@ async function buildPluginRestartCliOptions(
       memoryConfig,
       session.platformId,
       session.workingDir,
-      session.worktreeInfo?.repoRoot,
+      activeWorktreeRepoRoot(session.workingDir, session.worktreeInfo),
     ),
   };
 }

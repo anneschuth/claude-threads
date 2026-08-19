@@ -46,7 +46,7 @@ import {
   writeFileSync,
 } from 'fs';
 import { homedir } from 'os';
-import { basename, dirname, join } from 'path';
+import { basename, dirname, join, sep } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getMainRepositoryRoot } from '../git/worktree.js';
 import type { ResolvedMemoryConfig } from '../config/types.js';
@@ -156,6 +156,31 @@ export async function resolveRepoKey(
     // Path may not exist yet (tests, races) — hash the literal path.
   }
   return `${safeIdSegment(basename(real)) || 'repo'}-${shortHash(real, 10)}`;
+}
+
+/**
+ * The session's recorded worktree repoRoot, but ONLY while the session still
+ * works inside that worktree. `session.worktreeInfo` is not cleared by `!cd`
+ * (it only changes on `!worktree` operations), so a session that started in a
+ * worktree of repo A and then `!cd`-ed into repo B still carries repo A's
+ * repoRoot — blindly passing it to `resolveRepoKey` would key repo B's memory
+ * to repo A. When the recorded worktree no longer contains the working
+ * directory this returns undefined and `resolveRepoKey` derives the key from
+ * the working directory itself (which is worktree-aware on its own via
+ * `getMainRepositoryRoot`). The fast path still matters for a deleted
+ * worktree on resume, where git derivation has nothing to inspect.
+ */
+export function activeWorktreeRepoRoot(
+  workingDir: string,
+  worktreeInfo: { worktreePath?: string; repoRoot?: string } | undefined,
+): string | undefined {
+  // Defensive optional fields: legacy persisted sessions may miss either one.
+  if (!worktreeInfo?.repoRoot || !worktreeInfo.worktreePath) return undefined;
+  const { worktreePath, repoRoot } = worktreeInfo;
+  if (workingDir === worktreePath || workingDir.startsWith(worktreePath + sep)) {
+    return repoRoot;
+  }
+  return undefined;
 }
 
 /** Normalize an entry text for dedupe comparison. */

@@ -14,6 +14,7 @@ import {
   MemoryStore,
   resolveRepoKey,
   resolveSessionMemory,
+  activeWorktreeRepoRoot,
   sanitizeEntryText,
   entryTextExceedsCap,
   platformSegment,
@@ -340,6 +341,30 @@ describe('resolveRepoKey', () => {
     mkdirSync(real);
     symlinkSync(real, link);
     expect(await resolveRepoKey(link)).toBe(await resolveRepoKey(real));
+  });
+});
+
+describe('activeWorktreeRepoRoot', () => {
+  const worktreeInfo = { repoRoot: '/repos/main', worktreePath: '/worktrees/feat-x', branch: 'feat-x' };
+
+  test('returns the recorded repoRoot while working inside the worktree', () => {
+    expect(activeWorktreeRepoRoot('/worktrees/feat-x', worktreeInfo)).toBe('/repos/main');
+    expect(activeWorktreeRepoRoot(join('/worktrees/feat-x', 'sub'), worktreeInfo)).toBe('/repos/main');
+  });
+
+  test('returns undefined after `!cd` away from the worktree (stale worktreeInfo)', () => {
+    // Regression-defender: `!cd` does not clear session.worktreeInfo, so a
+    // session that moved to another repo must NOT keep keying its repo
+    // memory to the old worktree's main repository.
+    expect(activeWorktreeRepoRoot('/somewhere/else', worktreeInfo)).toBeUndefined();
+    // Sibling directory whose name shares the worktree path as a prefix.
+    expect(activeWorktreeRepoRoot('/worktrees/feat-x-2', worktreeInfo)).toBeUndefined();
+  });
+
+  test('returns undefined without worktreeInfo or with legacy partial data', () => {
+    expect(activeWorktreeRepoRoot('/repos/main', undefined)).toBeUndefined();
+    expect(activeWorktreeRepoRoot('/repos/main', { repoRoot: '/repos/main' })).toBeUndefined();
+    expect(activeWorktreeRepoRoot('/repos/main', { worktreePath: '/repos/main' })).toBeUndefined();
   });
 });
 

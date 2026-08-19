@@ -52,7 +52,7 @@ import {
   postSkippedFilesFeedback,
 } from '../operations/streaming/handler.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
-import { resolveSessionMemory } from '../memory/store.js';
+import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
 import { scheduleDistillation } from '../memory/distiller.js';
 
 const log = createLogger('lifecycle');
@@ -1393,7 +1393,7 @@ export async function resumeSession(
     // so a moved/deleted repo can't strand the session.
     memory: await resolveSessionMemory(
       ctx.state.memoryStore, memoryConfig, state.platformId, state.workingDir,
-      state.worktreeInfo?.repoRoot,
+      activeWorktreeRepoRoot(state.workingDir, state.worktreeInfo),
     ),
   };
   let claude: ClaudeCli;

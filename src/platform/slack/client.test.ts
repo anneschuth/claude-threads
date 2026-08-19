@@ -333,6 +333,33 @@ describe('SlackClient API methods', () => {
     expect(history.every(m => m.username === 'alice')).toBe(true);
   });
 
+  it('getThreadHistory limit selects the most RECENT N messages (not the oldest)', async () => {
+    // Regression-defender: conversations.replies paginates oldest-first, so
+    // forwarding the caller's limit to the API returned the oldest N of a
+    // long thread. Callers (context prompt, work summary, distillation) want
+    // the newest N — the client must fetch a full page and slice from the end.
+    const c = makeClient();
+    fetchResponder = (url) => {
+      if (url.includes('conversations.replies')) {
+        // The request must not narrow the fetch to the caller's limit.
+        expect(url).not.toContain('limit=2');
+        return ok({
+          messages: [
+            { ts: '100.0', user: 'U-ALICE', text: 'oldest' },
+            { ts: '200.0', user: 'U-ALICE', text: 'middle' },
+            { ts: '300.0', user: 'U-ALICE', text: 'newest' },
+          ],
+        });
+      }
+      if (url.includes('users.info')) {
+        return ok({ user: { id: 'U-ALICE', name: 'alice', real_name: 'Alice', profile: {} } });
+      }
+      return ok();
+    };
+    const history = await c.getThreadHistory('thread-1', { limit: 2 });
+    expect(history.map(m => m.message)).toEqual(['middle', 'newest']);
+  });
+
   it('getThreadHistory returns [] on API error', async () => {
     fetchResponder = () => notOk('channel_not_found');
     const history = await makeClient().getThreadHistory('thread-1');
