@@ -16,6 +16,7 @@ import type { PlatformClient, PlatformPost, PlatformUser } from './index.js';
 import type { SessionManager } from '../session/index.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { dmPlatformId, DM_PLATFORM_SEP, deriveDmPlatformConfig } from './dm-discovery.js';
+import { _inFlightSessionStarts } from '../session/lifecycle.js';
 
 export interface DmDiscoveryDeps {
   /** The live platform registry (shared with the rest of the bot). */
@@ -37,6 +38,12 @@ export interface DmDiscoveryDeps {
   ) => Promise<void>;
   /** Resumable persisted sessions (soft-deleted records excluded). */
   loadPersistedSessions: () => Map<string, PersistedSession>;
+  /**
+   * Whether a (derived) platform id is enabled. Consulted by live discovery
+   * as well as boot reconstruction — a user-disabled DM instance must not be
+   * silently re-enabled by the next incoming DM. Default: everything enabled.
+   */
+  isEnabled?: (platformId: string) => boolean;
   /** Grace before tearing down an instance after its session leaves the registry. */
   graceMs?: number;
   /** How long a discovered instance may exist without ever producing a session. */
@@ -150,6 +157,12 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
       }
 
       const dmId = dmPlatformId(parentConfig.id, post.channelId);
+      // A user-disabled derived instance stays down — an incoming DM must not
+      // silently re-enable it (mirrors the boot-reconstruction check).
+      if (deps.isEnabled && !deps.isEnabled(dmId)) {
+        log('info', `Ignoring DM for disabled instance ${dmId}`);
+        return;
+      }
       log('info', `📩 New DM conversation with @${username} — spawning ${dmId}`);
       const dmClient = register(parentConfig, post.channelId, [username]);
       connecting.add(dmId);
@@ -167,11 +180,25 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
         log('error', `Failed to connect DM instance ${dmId}, discarding: ${err}`);
         void (async () => {
           const threadId = `dcm:${dmId}`;
+          // The first message's session start may still be in flight (the
+          // session registers only late in startSession) — wait for it, or
+          // the registry check below would miss a session that materializes
+          // a moment later and strand it.
+          const inFlight = _inFlightSessionStarts.get(`${dmId}:${threadId}`);
+          if (inFlight) await inFlight.catch(() => {});
           if (session.registry.findByThreadId(threadId)) {
+            // Awaited so the session is gone before the platform vanishes.
+            // One retry: the cancel path posts a notification first, and a
+            // transient post failure must not leave an active session
+            // registered on a removed platform.
             try {
               await session.cancelSession(threadId, dmClient.getBotName());
-            } catch (cancelErr) {
-              log('warn', `Failed to cancel stranded DM session ${threadId}: ${cancelErr}`);
+            } catch {
+              try {
+                await session.cancelSession(threadId, dmClient.getBotName());
+              } catch (cancelErr) {
+                log('warn', `Failed to cancel stranded DM session ${threadId} (will be reaped by idle cleanup): ${cancelErr}`);
+              }
             }
           }
           teardown(post.channelId, dmId, 'connect failed', dmClient);

@@ -717,6 +717,7 @@ async function startWithoutDaemon() {
         logger: { error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }) },
       }),
     loadPersistedSessions: () => sessionStore.load(),
+    isEnabled: (id) => platformEnabledState.get(id) ?? true,
   });
   activeDmRuntime = dmRuntime;
 

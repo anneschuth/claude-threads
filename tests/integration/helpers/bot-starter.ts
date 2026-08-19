@@ -347,6 +347,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
             directChannelMode: true,
           }),
         loadPersistedSessions: () => new SessionStore(sessionsPath).load(),
+        isEnabled: () => true,
         graceMs: dmGraceMs,
         orphanTtlMs: dmOrphanTtlMs,
       })
@@ -413,6 +414,12 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     botUsername,
     botUserId,
     async stop() {
+      // Disconnect derived DM clients so websockets/timers don't leak
+      // between test suites.
+      for (const [, dmClient] of dmPlatforms) {
+        await Promise.resolve(dmClient.disconnect()).catch(() => {});
+      }
+      dmPlatforms.clear();
       if (debug) {
         console.log('[test-bot] Stopping...');
       }

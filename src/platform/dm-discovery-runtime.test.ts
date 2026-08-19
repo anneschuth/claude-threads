@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'bun:test';
 import { createDmDiscoveryRuntime, type DmDiscoveryDeps } from './dm-discovery-runtime.js';
+import { _inFlightSessionStarts } from '../session/lifecycle.js';
 import type { MattermostPlatformConfig } from '../config/types.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './index.js';
 import type { SessionManager } from '../session/index.js';
@@ -51,7 +52,7 @@ interface Harness {
   lastRegisteredClient: () => (PlatformClient & { disconnected: () => boolean }) | undefined;
 }
 
-function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: () => Promise<void> } = {}): Harness {
+function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: () => Promise<void>; cancelBehavior?: (tid: string) => Promise<void>; isEnabled?: (id: string) => boolean } = {}): Harness {
   const platforms = new Map<string, PlatformClient>();
   const delivered: Harness['delivered'] = [];
   const removedPlatforms: string[] = [];
@@ -86,7 +87,11 @@ function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: (
   const session = {
     registry: { findByThreadId: (tid: string) => (activeSessions.has(tid) ? {} : undefined) },
     removePlatform: (id: string) => { removedPlatforms.push(id); },
-    cancelSession: async (tid: string) => { cancelled.push(tid); activeSessions.delete(tid); },
+    cancelSession: async (tid: string) => {
+      if (opts.cancelBehavior) await opts.cancelBehavior(tid);
+      cancelled.push(tid);
+      activeSessions.delete(tid);
+    },
     addPlatform: () => {},
   } as unknown as SessionManager;
 
@@ -104,6 +109,7 @@ function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: (
       delivered.push({ platformId, postId: post.id });
     },
     loadPersistedSessions: () => persisted as never,
+    isEnabled: opts.isEnabled,
     graceMs: opts.graceMs ?? 40,
     orphanTtlMs: opts.orphanTtlMs ?? 80,
   };
@@ -173,6 +179,90 @@ describe('dm-discovery-runtime: live discovery', () => {
     expect(h.platforms.has(DM_ID)).toBe(false);
     expect(h.removedPlatforms).toContain(DM_ID);
     expect(client.disconnected()).toBe(true);
+  });
+});
+
+describe('dm-discovery-runtime: connect-failure ordering', () => {
+  it('awaits a slow cancellation before removing the platform', async () => {
+    let rejectConnect!: (err: Error) => void;
+    let finishCancel!: () => void;
+    const h = makeHarness({
+      connect: () => new Promise<void>((_r, rej) => { rejectConnect = rej; }),
+      cancelBehavior: () => new Promise<void>((r) => { finishCancel = r; }),
+    });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+    h.activeSessions.add(THREAD_ID);
+
+    rejectConnect(new Error('boom'));
+    await sleep(20);
+    // Cancellation is still pending — the platform must NOT be gone yet
+    // (the old fire-and-forget ordering would already have removed it).
+    expect(h.platforms.has(DM_ID)).toBe(true);
+
+    finishCancel();
+    await sleep(20);
+    expect(h.cancelled).toEqual([THREAD_ID]);
+    expect(h.platforms.has(DM_ID)).toBe(false);
+  });
+
+  it('retries a rejected cancellation once and still tears down', async () => {
+    let rejectConnect!: (err: Error) => void;
+    let attempts = 0;
+    const h = makeHarness({
+      connect: () => new Promise<void>((_r, rej) => { rejectConnect = rej; }),
+      cancelBehavior: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error('post failed');
+      },
+    });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+    h.activeSessions.add(THREAD_ID);
+
+    rejectConnect(new Error('boom'));
+    await sleep(30);
+    expect(attempts).toBe(2);                          // retried
+    expect(h.cancelled).toEqual([THREAD_ID]);          // second attempt landed
+    expect(h.platforms.has(DM_ID)).toBe(false);
+  });
+
+  it('waits for an in-flight session start before the registry check', async () => {
+    let rejectConnect!: (err: Error) => void;
+    const h = makeHarness({ connect: () => new Promise<void>((_r, rej) => { rejectConnect = rej; }) });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+
+    // Simulate a session start still in flight when the connect fails: the
+    // session registers only after the start promise resolves.
+    let finishStart!: () => void;
+    const startPromise = new Promise<void>((r) => { finishStart = r; });
+    _inFlightSessionStarts.set(`${DM_ID}:${THREAD_ID}`, startPromise);
+
+    rejectConnect(new Error('boom'));
+    await sleep(20);
+    expect(h.cancelled.length).toBe(0);                // still waiting on the start
+
+    h.activeSessions.add(THREAD_ID);                   // start completed → session registered
+    finishStart();
+    _inFlightSessionStarts.delete(`${DM_ID}:${THREAD_ID}`);
+    await sleep(20);
+    expect(h.cancelled).toEqual([THREAD_ID]);          // late session was found and cancelled
+    expect(h.platforms.has(DM_ID)).toBe(false);
+  });
+
+  it('live discovery ignores a disabled derived instance id', async () => {
+    const h = makeHarness({ isEnabled: (id) => id !== DM_ID });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+
+    await h.parent.emitDm(makePost(), alice);
+
+    expect(h.platforms.size).toBe(0);
+    expect(h.delivered.length).toBe(0);
   });
 });
 
