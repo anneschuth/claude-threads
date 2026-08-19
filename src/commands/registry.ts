@@ -234,6 +234,25 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     audience: 'user',
     claudeNotes: 'User decisions, not yours',
   },
+  {
+    command: 'remember',
+    description: "Save a note to this channel's shared memory (visible to all future sessions here)",
+    args: '<text>',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+  },
+  {
+    command: 'memory',
+    description: 'Show channel memory; forget removes entries',
+    args: '[forget <n|text> | forget all]',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+    subcommands: [
+      { name: 'forget', description: 'Remove one entry (by number or matching text), or all', args: '<n|text> | all' },
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // System

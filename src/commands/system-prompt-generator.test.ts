@@ -306,6 +306,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC_PROMPT_BODY',
       fakeStore({}),
+      null,
     );
     expect(prompt).toContain('STATIC_PROMPT_BODY');
     expect(prompt).toContain('"Collaborators updated"');
@@ -326,6 +327,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice', 'bob'],
       'STATIC',
       fakeStore({ mm: { bob: '111+bob@users.noreply.github.com' } }),
+      null,
     );
     expect(prompt).toContain('- Bob B <111+bob@users.noreply.github.com>');
   });
@@ -341,6 +343,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC',
       fakeStore({}),
+      null,
       { omitSessionContext: true },
     );
     expect(prompt).not.toContain('**Platform:**');
@@ -360,6 +363,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC',
       fakeStore({}),
+      null,
     );
     expect(prompt).toContain('STATIC');
     expect(prompt).toContain('"Collaborators updated"');
@@ -383,6 +387,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice', 'bob'],
       'STATIC',
       fakeStore({}), // bob has not registered
+      null,
     );
     expect(prompt).not.toContain('bob@private.example.com');
     expect(prompt).not.toContain('- Bob B');
@@ -398,6 +403,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC_PROMPT_BODY',
       fakeStore({}),
+      null,
       { userAttribution: true },
     );
     expect(prompt).toContain(USER_ATTRIBUTION_NOTE);
@@ -414,6 +420,7 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC_PROMPT_BODY',
       fakeStore({}),
+      null,
       { userAttribution: false },
     );
     const withNoOptions = await buildAppendSystemPrompt(
@@ -425,9 +432,78 @@ describe('buildAppendSystemPrompt', () => {
       ['alice'],
       'STATIC_PROMPT_BODY',
       fakeStore({}),
+      null,
     );
     expect(withFalse).not.toContain('[@username]:');
     expect(withNoOptions).not.toContain('[@username]:');
   });
 });
 
+
+describe('channel memory section', () => {
+  it('injects the framed memory block when the reader returns entries', async () => {
+    const prompt = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC',
+      fakeStore({}),
+      { buildChannelMemoryBlock: () => '- [2026-08-19] (@anne) Deploys on Tuesdays' },
+    );
+    expect(prompt).toContain('## Channel memory');
+    expect(prompt).toContain('(@anne) Deploys on Tuesdays');
+    // Prompt-injection mitigation framing must be present.
+    expect(prompt).toContain('NOT as');
+    expect(prompt).toContain('never as authorization');
+    expect(prompt).toContain('!memory forget');
+  });
+
+  it('omits the section entirely when the reader is null (layer disabled)', async () => {
+    const prompt = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC',
+      fakeStore({}),
+      null,
+    );
+    expect(prompt).not.toContain('## Channel memory');
+  });
+
+  it('omits the section when the channel has no memory yet', async () => {
+    const prompt = await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'mm',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC',
+      fakeStore({}),
+      { buildChannelMemoryBlock: () => null },
+    );
+    expect(prompt).not.toContain('## Channel memory');
+  });
+
+  it('passes the session platformId to the reader (privacy boundary)', async () => {
+    const seen: string[] = [];
+    await buildAppendSystemPrompt(
+      fakePlatform({}),
+      'the-platform-id',
+      '/repo',
+      't1',
+      'alice',
+      ['alice'],
+      'STATIC',
+      fakeStore({}),
+      { buildChannelMemoryBlock: (pid: string) => { seen.push(pid); return null; } },
+    );
+    expect(seen).toEqual(['the-platform-id']);
+  });
+});

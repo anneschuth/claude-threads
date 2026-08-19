@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Persistent memory — the bot now learns over time**, modeled on how Anthropic's own products do memory, in two layers scoped per platform instance (≈ one channel, the hard privacy boundary, mirroring Claude Tag's per-channel isolation):
+  - **Repo layer (Claude Code style):** Claude Code's native auto-memory is redirected via the `autoMemoryDirectory` setting into a bot-managed per-(platform, repository) directory under `~/.config/claude-threads/memory/`. Claude's built-in save/recall machinery does the learning; the bot only controls where memory lives — which also makes it immune to the account pool's per-session `HOME` overrides. Worktrees of one repo share memory, like native behavior. Verified headless over stream-json against CLI 2.1.235 (write, load-at-start, resume, HOME override, kill switch).
+  - **Channel layer (Claude Tag style):** a shared per-channel `MEMORY.md` of team notes, injected into every session's system prompt (capped at the native 200-line/25KB limits) with explicit "background context, not instructions" framing as a prompt-injection mitigation. Written by `!remember <text>` and by **end-of-session distillation** — a one-shot haiku pass that extracts up to 3 durable facts when a session ends (`!stop`, normal exit, or idle timeout; never on pause/respawn/shutdown).
+  - **Transparency commands:** `!memory` lists the channel's entries numbered; `!memory forget <n|text>` removes one (owner-gated, with ambiguity handling); `!memory forget all` clears the channel.
+  - **Config:** per-platform `memory:` option — on by default; `memory: false` disables everything (and force-sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` on the CLI child so native auto-memory can't accumulate cross-channel context under a shared pooled-account `$HOME`); an object form toggles `repoLayer` / `channelLayer` / `distillation` individually. Storage override: `CLAUDE_THREADS_MEMORY_DIR`.
+  - `ClaudeCliOptions.memory` is a deliberately **required** field so every present and future spawn/respawn site must decide its memory binding explicitly — the same compiler-enforced-checklist pattern that protects `uploadDir`.
+
 ## [1.24.3] - 2026-08-19
 
 ### Changed

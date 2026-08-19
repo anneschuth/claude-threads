@@ -11,6 +11,7 @@ function createMockContext(): SessionContext {
       postIndex: new Map(),
       sessionStore: {} as never,
       githubEmailsStore: {} as never,
+      memoryStore: {} as never,
       isShuttingDown: false,
     },
     config: {

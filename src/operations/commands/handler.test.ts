@@ -1,10 +1,14 @@
-import { describe, it, expect, mock } from 'bun:test';
+import { describe, it, expect, mock, afterEach } from 'bun:test';
 import * as commands from './handler.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
+import { MemoryStore } from '../../memory/store.js';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // =============================================================================
 // Test Utilities
@@ -146,6 +150,14 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         set: mock(() => {}),
         delete: mock(() => false),
       } as any,
+      memoryStore: {
+        buildChannelMemoryBlock: mock(() => null),
+        listChannelEntries: mock(() => []),
+        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [] })),
+        forgetChannelEntry: mock(() => Promise.resolve({ ok: false, reason: 'empty', matches: [] })),
+        clearChannel: mock(() => Promise.resolve()),
+        repoMemoryDir: mock(() => '/tmp/test-memory'),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -184,6 +196,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
+      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
     },
   };
 }
@@ -1057,5 +1070,148 @@ describe('restartClaudeSession pending-bridge handling', () => {
 
       expect(denySpy).toHaveBeenCalled();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Channel memory commands (!remember / !memory / !memory forget)
+// ---------------------------------------------------------------------------
+
+describe('channel memory commands', () => {
+  let memRoot: string;
+
+  function createMemoryCtx(sessions: Map<string, Session>, enabled = true): SessionContext {
+    const ctx = createMockSessionContext(sessions);
+    memRoot = mkdtempSync(join(tmpdir(), 'ct-memcmd-test-'));
+    (ctx.state as { memoryStore: unknown }).memoryStore = new MemoryStore(memRoot);
+    (ctx.ops as { getPlatformMemoryConfig: unknown }).getPlatformMemoryConfig = mock(() => ({
+      enabled,
+      repoLayer: enabled,
+      channelLayer: enabled,
+      distillation: enabled,
+    }));
+    return ctx;
+  }
+
+  afterEach(() => {
+    if (memRoot) rmSync(memRoot, { recursive: true, force: true });
+  });
+
+  it('rememberEntry stores the note and confirms', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+
+    await commands.rememberEntry(session, 'Deploys happen on Tuesdays', 'testuser', ctx);
+
+    const entries = (ctx.state.memoryStore as MemoryStore).listChannelEntries('test-platform');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ text: 'Deploys happen on Tuesdays', source: 'user', addedBy: 'testuser' });
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('Remembered'))).toBe(true);
+  });
+
+  it('rememberEntry reports duplicates instead of double-storing', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+
+    await commands.rememberEntry(session, 'One true fact', 'testuser', ctx);
+    await commands.rememberEntry(session, 'one true fact', 'testuser', ctx);
+
+    const entries = (ctx.state.memoryStore as MemoryStore).listChannelEntries('test-platform');
+    expect(entries).toHaveLength(1);
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('Already known'))).toBe(true);
+  });
+
+  it('memory commands explain themselves when the channel layer is disabled', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]), false);
+
+    await commands.rememberEntry(session, 'a fact', 'testuser', ctx);
+
+    const entries = (ctx.state.memoryStore as MemoryStore).listChannelEntries('test-platform');
+    expect(entries).toHaveLength(0);
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('disabled'))).toBe(true);
+  });
+
+  it('showMemory lists entries numbered', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+    await (ctx.state.memoryStore as MemoryStore).addChannelEntries('test-platform', [
+      { text: 'first fact', source: 'user', addedBy: 'testuser' },
+      { text: 'second fact', source: 'distilled' },
+    ]);
+
+    await commands.showMemory(session, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const listing = calls.find((m: string) => m.includes('Channel memory'));
+    expect(listing).toBeDefined();
+    expect(listing).toContain('1. ');
+    expect(listing).toContain('first fact');
+    expect(listing).toContain('2. ');
+    expect(listing).toContain('second fact');
+  });
+
+  it('forgetMemory removes by number (owner)', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+    const store = ctx.state.memoryStore as MemoryStore;
+    await store.addChannelEntries('test-platform', [
+      { text: 'first fact', source: 'user', addedBy: 'testuser' },
+      { text: 'second fact', source: 'user', addedBy: 'testuser' },
+    ]);
+
+    await commands.forgetMemory(session, '1', 'testuser', ctx);
+
+    const entries = store.listChannelEntries('test-platform');
+    expect(entries).toHaveLength(1);
+    expect(entries[0].text).toBe('second fact');
+  });
+
+  it('forgetMemory is owner-gated: a non-owner cannot remove entries', async () => {
+    // Regression-defender: memory is shared channel state; removal follows
+    // the same authorization as other session-shaping settings.
+    const session = createMockSession(); // startedBy: testuser; isUserAllowed → false
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+    const store = ctx.state.memoryStore as MemoryStore;
+    await store.addChannelEntries('test-platform', [
+      { text: 'protected fact', source: 'user', addedBy: 'testuser' },
+    ]);
+
+    await commands.forgetMemory(session, '1', 'stranger', ctx);
+
+    expect(store.listChannelEntries('test-platform')).toHaveLength(1);
+  });
+
+  it('forgetMemory all clears the channel', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+    const store = ctx.state.memoryStore as MemoryStore;
+    await store.addChannelEntries('test-platform', [
+      { text: 'first fact', source: 'user', addedBy: 'testuser' },
+      { text: 'second fact', source: 'distilled' },
+    ]);
+
+    await commands.forgetMemory(session, 'all', 'testuser', ctx);
+
+    expect(store.listChannelEntries('test-platform')).toHaveLength(0);
+  });
+
+  it('forgetMemory reports ambiguous text matches without removing', async () => {
+    const session = createMockSession();
+    const ctx = createMemoryCtx(new Map([[session.sessionId, session]]));
+    const store = ctx.state.memoryStore as MemoryStore;
+    await store.addChannelEntries('test-platform', [
+      { text: 'deploys use blue-green strategy', source: 'user', addedBy: 'testuser' },
+      { text: 'deploys require an approval', source: 'user', addedBy: 'testuser' },
+    ]);
+
+    await commands.forgetMemory(session, 'deploys', 'testuser', ctx);
+
+    expect(store.listChannelEntries('test-platform')).toHaveLength(2);
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('matches 2'))).toBe(true);
   });
 });

@@ -19,7 +19,8 @@ import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '.
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, DEFAULT_OVERHEAD_VISIBILITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { MemoryStore } from '../memory/store.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -114,6 +115,8 @@ export class SessionManager extends EventEmitter {
   private sessionStore!: SessionStore;
   // Per-user GitHub noreply emails (registered via !github-email)
   private githubEmailsStore!: GitHubEmailsStore;
+  // Persistent memory (channel layer + repo-layer auto-memory directories)
+  private memoryStore!: MemoryStore;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -128,6 +131,9 @@ export class SessionManager extends EventEmitter {
 
   // Per-platform overhead visibility (sessionHeader / stickyMessage modes)
   private platformOverhead: Map<string, PlatformOverhead> = new Map();
+
+  // Per-platform resolved memory settings (default: fully enabled)
+  private platformMemory: Map<string, ResolvedMemoryConfig> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -174,6 +180,7 @@ export class SessionManager extends EventEmitter {
     this.limits = resolveLimits(limits);
     this.sessionStore = new SessionStore(sessionsPath);
     this.githubEmailsStore = new GitHubEmailsStore();
+    this.memoryStore = new MemoryStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
 
@@ -203,13 +210,15 @@ export class SessionManager extends EventEmitter {
   addPlatform(
     platformId: string,
     client: PlatformClient,
-    overhead?: Partial<PlatformOverhead>
+    overhead?: Partial<PlatformOverhead>,
+    memory?: ResolvedMemoryConfig
   ): void {
     this.platforms.set(platformId, client);
     this.platformOverhead.set(platformId, {
       sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
       stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
     });
+    this.platformMemory.set(platformId, memory ?? DEFAULT_MEMORY_CONFIG);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -238,6 +247,7 @@ export class SessionManager extends EventEmitter {
   removePlatform(platformId: string): void {
     this.platforms.delete(platformId);
     this.platformOverhead.delete(platformId);
+    this.platformMemory.delete(platformId);
     stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
@@ -324,6 +334,7 @@ export class SessionManager extends EventEmitter {
       platforms: this.platforms,
       sessionStore: this.sessionStore,
       githubEmailsStore: this.githubEmailsStore,
+      memoryStore: this.memoryStore,
       isShuttingDown: this.isShuttingDown,
     };
 
@@ -398,6 +409,8 @@ export class SessionManager extends EventEmitter {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
       },
+
+      getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,
     };
 
     return createSessionContext(config, state, ops);
@@ -1198,6 +1211,27 @@ export class SessionManager extends EventEmitter {
     await commands.setGitHubEmail(session, username, arg, this.getContext());
   }
 
+  /** `!remember <text>` — add a note to the channel's shared memory. */
+  async rememberEntry(threadId: string, text: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.rememberEntry(session, text, username, this.getContext());
+  }
+
+  /** `!memory` — show the channel's shared memory. */
+  async showMemory(threadId: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.showMemory(session, username, this.getContext());
+  }
+
+  /** `!memory forget <n|text>|all` — remove channel memory entries. */
+  async forgetMemory(threadId: string, selector: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.forgetMemory(session, selector, username, this.getContext());
+  }
+
   /**
    * Toggle "respond only when @mentioned" (quiet mode) for a session (#402).
    * `arg` accepts `on`/`off`; anything else toggles the current value.
@@ -1404,6 +1438,8 @@ export class SessionManager extends EventEmitter {
       formatContextForClaude: (messages, summary) => contextPrompt.formatContextForClaude(messages, summary),
       appendSystemPrompt: CHAT_PLATFORM_PROMPT,
       githubEmailsStore: this.githubEmailsStore,
+      memoryStore: this.memoryStore,
+      getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
       registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),

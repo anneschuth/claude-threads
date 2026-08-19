@@ -6,8 +6,9 @@
 
 import type { Session } from '../../session/types.js';
 import { transitionTo, isSessionRestarting } from '../../session/types.js';
-import type { WorktreeMode, PermissionMode } from '../../config/index.js';
+import type { WorktreeMode, PermissionMode, ResolvedMemoryConfig } from '../../config/index.js';
 import { effectivePermissionMode } from '../../config/index.js';
+import { resolveSessionMemory, type MemoryStore } from '../../memory/store.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
 import {
@@ -416,6 +417,8 @@ export async function createAndSwitchToWorktree(
     formatContextForClaude: (messages: ThreadMessage[], previousWorkSummary?: string) => string;
     appendSystemPrompt?: string;
     githubEmailsStore: { get(platformId: string, username: string): string | undefined };
+    memoryStore: MemoryStore;
+    getPlatformMemoryConfig: (platformId: string) => ResolvedMemoryConfig;
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
     registerWorktreeUser?: (worktreePath: string, sessionId: string) => void;
@@ -499,6 +502,7 @@ export async function createAndSwitchToWorktree(
         // The session-context line is only re-included when Claude still needs
         // to generate a title (preserves the existing optimization).
         const needsTitlePrompt = !session.sessionTitle;
+        const memoryConfig = options.getPlatformMemoryConfig(session.platformId);
         const cliOptions: ClaudeCliOptions = {
           ...buildRestartCliOptions(session, {
             chromeEnabled: options.chromeEnabled,
@@ -521,7 +525,12 @@ export async function createAndSwitchToWorktree(
             session.sessionAllowedUsers,
             options.appendSystemPrompt ?? '',
             options.githubEmailsStore,
+            memoryConfig.enabled && memoryConfig.channelLayer ? options.memoryStore : null,
             { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
+          ),
+          // repoRoot keys the repo memory so all worktrees of the repo share it.
+          memory: await resolveSessionMemory(
+            options.memoryStore, memoryConfig, session.platformId, existing.path, repoRoot,
           ),
         };
         // Fresh CLI session (resume: false) — clear accumulated task/tool
@@ -671,6 +680,7 @@ export async function createAndSwitchToWorktree(
       // attribution rules and other conventions don't drop on respawn.
       // Session-context preamble re-included only when Claude still owes a title.
       const needsTitlePrompt = !session.sessionTitle;
+      const memoryConfig = options.getPlatformMemoryConfig(session.platformId);
 
       const cliOptions: ClaudeCliOptions = {
         ...buildRestartCliOptions(session, {
@@ -694,7 +704,12 @@ export async function createAndSwitchToWorktree(
           session.sessionAllowedUsers,
           options.appendSystemPrompt ?? '',
           options.githubEmailsStore,
+          memoryConfig.enabled && memoryConfig.channelLayer ? options.memoryStore : null,
           { omitSessionContext: !needsTitlePrompt, userAttribution: session.userAttribution },
+        ),
+        // repoRoot keys the repo memory so all worktrees of the repo share it.
+        memory: await resolveSessionMemory(
+          options.memoryStore, memoryConfig, session.platformId, worktreePath, repoRoot,
         ),
       };
       // Fresh CLI session (resume: false) — clear accumulated task/tool

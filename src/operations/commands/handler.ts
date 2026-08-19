@@ -66,6 +66,7 @@ import {
   resolveCollaborators,
 } from '../../commands/system-prompt-generator.js';
 import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
+import { resolveSessionMemory, MAX_ENTRY_LENGTH, sanitizeEntryText } from '../../memory/store.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -443,6 +444,7 @@ export async function changeDirectory(
   // Build system prompt with platform context for the new directory.
   // Carry collaborator co-author tags across the respawn so attribution
   // doesn't silently drop on `!cd`.
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(session.platformId);
   const appendSystemPrompt = await buildAppendSystemPrompt(
     session.platform,
     session.platformId,
@@ -452,6 +454,7 @@ export async function changeDirectory(
     session.sessionAllowedUsers,
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
     { userAttribution: session.userAttribution },
   );
 
@@ -467,6 +470,10 @@ export async function changeDirectory(
     sessionId: newSessionId,
     resume: false, // Fresh start - can't resume across directories
     appendSystemPrompt,  // Include platform context and commands
+    // Rebind the repo memory layer to the new directory's repo.
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore, memoryConfig, session.platformId, absoluteDir,
+    ),
   };
 
   // Restart Claude with new options
@@ -808,6 +815,175 @@ export async function setGitHubEmail(
 }
 
 // ---------------------------------------------------------------------------
+// Channel memory commands (!remember, !memory)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard for the memory commands: posts an explanation and returns false when
+ * the platform's channel memory layer is disabled.
+ */
+async function requireChannelMemory(session: Session, ctx: SessionContext): Promise<boolean> {
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(session.platformId);
+  if (memoryConfig.enabled && memoryConfig.channelLayer) return true;
+  await post(
+    session,
+    'info',
+    `🧠 Channel memory is disabled for this platform (see the \`memory\` option in config.yaml).`,
+  );
+  return false;
+}
+
+/**
+ * `!remember <text>` — save a note to the channel's shared memory. Any
+ * session-authorized user may add entries (authorization is enforced
+ * upstream by the executor's `isAllowed` gate).
+ *
+ * New sessions see the entry immediately; running sessions pick it up on
+ * their next respawn/resume.
+ */
+export async function rememberEntry(
+  session: Session,
+  text: string,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireChannelMemory(session, ctx)) return;
+  const formatter = session.platform.getFormatter();
+
+  const sanitized = sanitizeEntryText(text);
+  if (!sanitized) {
+    await post(session, 'warning', `Usage: ${formatter.formatCode('!remember <text>')}`);
+    return;
+  }
+  if (text.trim().length > MAX_ENTRY_LENGTH) {
+    await post(
+      session,
+      'warning',
+      `🧠 Note truncated to ${MAX_ENTRY_LENGTH} characters. For longer content, link to a document instead.`,
+    );
+  }
+
+  const result = await ctx.state.memoryStore.addChannelEntries(session.platformId, [
+    { text: sanitized, source: 'user', addedBy: username },
+  ]);
+  if (result.added.length > 0) {
+    await post(
+      session,
+      'success',
+      `🧠 Remembered for this channel. ${formatter.formatItalic(`New sessions will see it; view with ${'`!memory`'}.`)}`,
+    );
+  } else {
+    await post(session, 'info', `🧠 Already known — an equivalent entry exists. See ${formatter.formatCode('!memory')}.`);
+  }
+  sessionLog(session).info(`🧠 @${username} added a channel memory entry`);
+  session.threadLogger?.logCommand('remember', sanitized.substring(0, 80), username);
+}
+
+/**
+ * `!memory` — show the channel's shared memory as a numbered list.
+ */
+export async function showMemory(
+  session: Session,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireChannelMemory(session, ctx)) return;
+  const formatter = session.platform.getFormatter();
+
+  const entries = ctx.state.memoryStore.listChannelEntries(session.platformId);
+  if (entries.length === 0) {
+    await post(
+      session,
+      'info',
+      `🧠 No channel memory yet. Add a note with ${formatter.formatCode('!remember <text>')} — it will be shared with every session in this channel.`,
+    );
+    return;
+  }
+
+  const lines = entries.map((e, i) => {
+    const source = e.source === 'user' ? formatter.formatUserMention(e.addedBy ?? 'unknown') : formatter.formatItalic('distilled');
+    return `${i + 1}. [${e.addedAt}] (${source}) ${e.text}`;
+  });
+  await post(
+    session,
+    'info',
+    `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:\n\n` +
+    `${lines.join('\n')}\n\n` +
+    `${formatter.formatItalic(`Remove with ${'`!memory forget <number>`'} or ${'`!memory forget <text>`'}; add with ${'`!remember <text>`'}.`)}`,
+  );
+  session.threadLogger?.logCommand('memory', 'show', username);
+}
+
+/**
+ * `!memory forget <n|text>` / `!memory forget all` — remove channel memory.
+ * Owner-gated like other session-shaping settings: memory is shared channel
+ * state, so removal is restricted to the session owner / allowed users.
+ *
+ * Removal is atomic and applies to all future sessions; sessions already
+ * running keep their injected copy until their next respawn.
+ */
+export async function forgetMemory(
+  session: Session,
+  selector: string,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireChannelMemory(session, ctx)) return;
+  if (!await requireSessionOwner(session, username, 'edit channel memory')) {
+    return;
+  }
+  const formatter = session.platform.getFormatter();
+  const trimmed = selector.trim();
+
+  if (trimmed.toLowerCase() === 'all') {
+    const count = ctx.state.memoryStore.listChannelEntries(session.platformId).length;
+    await ctx.state.memoryStore.clearChannel(session.platformId);
+    await post(
+      session,
+      'success',
+      `🧠 Channel memory cleared (${count} ${count === 1 ? 'entry' : 'entries'} removed). Running sessions keep their copy until their next restart.`,
+    );
+    sessionLog(session).info(`🧠 @${username} cleared channel memory (${count} entries)`);
+    session.threadLogger?.logCommand('memory', 'forget all', username);
+    return;
+  }
+
+  const asNumber = /^\d+$/.test(trimmed) ? parseInt(trimmed, 10) : undefined;
+  const result = await ctx.state.memoryStore.forgetChannelEntry(
+    session.platformId,
+    asNumber ?? trimmed,
+  );
+
+  if (result.ok) {
+    await post(session, 'success', `🧠 Forgot: ${formatter.formatItalic(result.removed.text)}`);
+    sessionLog(session).info(`🧠 @${username} removed a channel memory entry`);
+    session.threadLogger?.logCommand('memory', 'forget', username);
+    return;
+  }
+
+  switch (result.reason) {
+    case 'empty':
+      await post(session, 'info', `🧠 No channel memory to forget.`);
+      break;
+    case 'ambiguous': {
+      const list = result.matches.map((e) => `- ${e.text}`).join('\n');
+      await post(
+        session,
+        'warning',
+        `🧠 That matches ${result.matches.length} entries — use ${formatter.formatCode('!memory')} and forget by number instead:\n${list}`,
+      );
+      break;
+    }
+    default:
+      await post(
+        session,
+        'warning',
+        `🧠 No matching entry. Use ${formatter.formatCode('!memory')} to list entries, then ${formatter.formatCode('!memory forget <number>')}.`,
+      );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Permission management
 // ---------------------------------------------------------------------------
 
@@ -853,6 +1029,7 @@ export async function setSessionPermissionMode(
   // --resume does not re-apply — so omitting it here would strip the platform
   // context, command list, co-author rules, and the [@username]: attribution
   // note from the new process. Mirrors the !cd path (changeDirectory).
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(session.platformId);
   const appendSystemPrompt = await buildAppendSystemPrompt(
     session.platform,
     session.platformId,
@@ -862,6 +1039,7 @@ export async function setSessionPermissionMode(
     session.sessionAllowedUsers,
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
     { userAttribution: session.userAttribution },
   );
 
@@ -872,6 +1050,10 @@ export async function setSessionPermissionMode(
     sessionId: session.claudeSessionId,
     resume: canResume,
     appendSystemPrompt,
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore, memoryConfig, session.platformId, session.workingDir,
+      session.worktreeInfo?.repoRoot,
+    ),
   };
 
   const success = await restartClaudeSession(

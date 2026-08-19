@@ -140,13 +140,17 @@ function makePermSession(userAttribution: boolean): Session {
 function makePermCtx(): SessionContext {
   return {
     config: { chromeEnabled: false, permissionTimeoutMs: 30000, permissionMode: 'default' } as SessionContext['config'],
-    state: { githubEmailsStore: { get: () => undefined } } as unknown as SessionContext['state'],
+    state: {
+      githubEmailsStore: { get: () => undefined },
+      memoryStore: { buildChannelMemoryBlock: () => null },
+    } as unknown as SessionContext['state'],
     ops: {
       stopTyping: mock(() => {}),
       flush: mock(async () => {}),
       handleEvent: mock(() => {}),
       handleExit: mock(async () => {}),
       getClaudeAccount: mock(() => undefined),
+      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
     } as unknown as SessionContext['ops'],
   };
 }

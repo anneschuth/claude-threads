@@ -71,6 +71,10 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   // optional on/off makes it idempotent.
   ['mentions', /^!mentions(?:\s+(on|off))?\s*$/i],
 
+  // Channel memory — !remember <text> saves a note; !memory shows/forgets.
+  ['remember', /^!remember\s+([\s\S]+)$/i],
+  ['memory', /^!memory(?:\s+([\s\S]+))?$/i],
+
   // Updates
   ['update', /^!update(?:\s+(now|defer))?\s*$/i],
 

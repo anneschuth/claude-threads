@@ -181,6 +181,54 @@ const handleGitHubEmail: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Handle !remember command — save a note to the channel's shared memory.
+ */
+const handleRemember: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  if (!args?.trim()) {
+    await ctx.client.createPost(
+      `⚠️ Usage: ${ctx.formatter.formatCode('!remember <text>')}`,
+      ctx.threadId
+    );
+    return { handled: true };
+  }
+  await ctx.sessionManager.rememberEntry(ctx.threadId, args, ctx.username);
+  return { handled: true };
+};
+
+/**
+ * Handle !memory command — show channel memory, or `forget <n|text>|all`.
+ */
+const handleMemory: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  const trimmed = args?.trim();
+  if (!trimmed) {
+    await ctx.sessionManager.showMemory(ctx.threadId, ctx.username);
+    return { handled: true };
+  }
+  const forgetMatch = trimmed.match(/^forget\s+([\s\S]+)$/i);
+  if (forgetMatch) {
+    await ctx.sessionManager.forgetMemory(ctx.threadId, forgetMatch[1].trim(), ctx.username);
+    return { handled: true };
+  }
+  await ctx.client.createPost(
+    `⚠️ Usage: ${ctx.formatter.formatCode('!memory')} or ${ctx.formatter.formatCode('!memory forget <n|text>')} or ${ctx.formatter.formatCode('!memory forget all')}`,
+    ctx.threadId
+  );
+  return { handled: true };
+};
+
+/**
  * Handle !cd command.
  */
 const handleCd: CommandHandler = async (ctx, args) => {
@@ -475,6 +523,8 @@ handlers.set('approve', handleApprove);
 handlers.set('invite', handleInvite);
 handlers.set('kick', handleKick);
 handlers.set('github-email', handleGitHubEmail);
+handlers.set('remember', handleRemember);
+handlers.set('memory', handleMemory);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
 handlers.set('mentions', handleMentions);

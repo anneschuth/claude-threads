@@ -10,6 +10,7 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
 import { effectivePermissionMode } from '../../config/index.js';
+import { resolveSessionMemory } from '../../memory/store.js';
 import { post, postError } from '../post-helpers/index.js';
 import { restartClaudeSession } from '../commands/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -138,6 +139,13 @@ export async function handlePluginInstall(
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore,
+      ctx.ops.getPlatformMemoryConfig(session.platformId),
+      session.platformId,
+      session.workingDir,
+      session.worktreeInfo?.repoRoot,
+    ),
   };
 
   // Restart Claude CLI to pick up the new plugin
@@ -203,6 +211,13 @@ export async function handlePluginUninstall(
     platformConfig: session.platform.getMcpConfig(),
     logSessionId: session.sessionId,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore,
+      ctx.ops.getPlatformMemoryConfig(session.platformId),
+      session.platformId,
+      session.workingDir,
+      session.worktreeInfo?.repoRoot,
+    ),
   };
 
   // Restart Claude CLI to unload the plugin

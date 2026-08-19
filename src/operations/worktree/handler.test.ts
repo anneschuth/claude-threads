@@ -4,6 +4,10 @@ import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
+import { MemoryStore } from '../../memory/store.js';
+import { MEMORY_DISABLED } from '../../config/index.js';
+import { tmpdir } from 'os';
+import { join } from 'path';
 
 // Mock the git/worktree module
 const mockIsGitRepository = mock(() => Promise.resolve(true));
@@ -182,6 +186,10 @@ function createMockOptions() {
     registerPost: mock(() => {}),
     updateStickyMessage: mock(() => Promise.resolve()),
     githubEmailsStore: { get: mock(() => undefined) },
+    // Memory disabled in these tests: exercises the null path without
+    // touching the filesystem.
+    memoryStore: new MemoryStore(join(tmpdir(), 'claude-threads-test-memory')),
+    getPlatformMemoryConfig: mock(() => MEMORY_DISABLED),
   };
 }
 

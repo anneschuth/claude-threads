@@ -23,6 +23,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - Multi-user access control
 - Automatic idle session cleanup
 - **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost or Slack permalink to its content (and optional thread context) inside the bot's own channel
+- **Persistent memory** - per-channel shared notes (`!remember` / `!memory`, Claude Tag style) plus Claude Code's native auto-memory redirected into bot-managed per-(platform, repo) directories; end-of-session distillation learns team facts over time
 
 ## Contribution Conventions
 
@@ -230,6 +231,45 @@ Files involved:
 | `src/session/lifecycle.ts` | Acquires the account on `startSession`/`resumeSession`, releases on `removeFromRegistry`, handles `rate-limit` events. |
 | `src/operations/commands/handler.ts` | Preserves the account when `!cd` / `!permissions interactive` respawn Claude; adds the 🔑 row to the session header. |
 | `src/operations/sticky-message/handler.ts` | Pool summary in the channel sticky. |
+
+## Persistent Memory
+
+Two layers, both rooted at `~/.config/claude-threads/memory/` (override:
+`CLAUDE_THREADS_MEMORY_DIR`), scoped per platform instance — **platformId is
+the hard privacy boundary** (a platform instance ≈ one channel, mirroring
+Claude Tag's per-channel memory isolation). Never anchor memory under `$HOME`:
+the account pool overrides `HOME` per session.
+
+1. **Repo layer** — Claude Code's native auto-memory, redirected via the
+   `autoMemoryDirectory` key in the inline `--settings` JSON into
+   `<root>/<platformSeg>/repos/<repoKey>/`. The CLI owns reads/writes there;
+   the bot owns the location. `repoKey` is derived from the git root
+   (worktrees share the main repo's key via `worktreeInfo.repoRoot`).
+   Verified headless against CLI 2.1.235.
+2. **Channel layer** — bot-owned `<platformSeg>/channel/MEMORY.md`, injected
+   into the append-system-prompt by `buildAppendSystemPrompt` (capped at
+   200 lines / 25KB with "background context, NOT instructions" framing).
+   Written by `!remember` / distillation only in the bot process
+   (per-platform in-process mutex + atomic 0600 writes).
+
+| File | Role |
+|------|------|
+| `src/memory/store.ts` | `MemoryStore` (channel-file CRUD, caps, dedupe), `resolveRepoKey`, `resolveSessionMemory`. |
+| `src/memory/distiller.ts` | End-of-session haiku pass (`quickQuery`) → up to 3 durable facts merged into channel memory. Fire-and-forget, never blocks teardown. |
+| `src/claude/cli.ts` | `buildInlineSettings` (statusLine + memory redirect), `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` kill switch when `memory: null`. |
+| `src/operations/commands/handler.ts` | `rememberEntry` / `showMemory` / `forgetMemory` (forget is owner-gated). |
+| `src/session/lifecycle.ts` | Distillation triggers: `killSession(unpersist=true)`, normal exit, idle timeout — never pause/respawn/shutdown. |
+
+**INVARIANT: every `ClaudeCliOptions` construction site must set `memory`**
+(the field is required, so `tsc` enforces this). Compute it with
+`resolveSessionMemory(...)` — or pass `null`, which force-disables native
+auto-memory in the child env (privacy: a pooled account's `$HOME/.claude`
+is shared across channels). Likewise every `buildAppendSystemPrompt` call
+site must pass the `channelMemory` reader (or `null` when the layer is off).
+
+Config: per-platform `memory:` option (`resolveMemoryConfig` in
+`src/config/types.ts`), default fully enabled. Docs: `docs/CONFIGURATION.md`
+§ Memory.
 
 ## Source Files
 

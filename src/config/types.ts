@@ -59,6 +59,81 @@ export interface PlatformOverhead {
   stickyMessage: OverheadVisibility;
 }
 
+// =============================================================================
+// Memory (per-platform, default on)
+// =============================================================================
+
+/**
+ * Per-platform `memory` option as written in config.yaml.
+ *
+ * - omitted / `true` → fully enabled (the default)
+ * - `false` → fully disabled
+ * - object → per-layer toggles, all gated by `enabled`:
+ *   - `repoLayer`: Claude Code native auto-memory, redirected into a
+ *     bot-managed per-(platform, repo) directory
+ *   - `channelLayer`: shared per-channel notes injected into every session's
+ *     system prompt (Claude Tag style)
+ *   - `distillation`: end-of-session haiku pass that distills the thread into
+ *     channel-memory entries (only meaningful when `channelLayer` is on)
+ */
+export type MemoryOption =
+  | boolean
+  | {
+      enabled?: boolean;
+      repoLayer?: boolean;
+      channelLayer?: boolean;
+      distillation?: boolean;
+    };
+
+/** Fully-resolved memory settings for one platform instance. */
+export interface ResolvedMemoryConfig {
+  enabled: boolean;
+  repoLayer: boolean;
+  channelLayer: boolean;
+  distillation: boolean;
+}
+
+export const DEFAULT_MEMORY_CONFIG: ResolvedMemoryConfig = {
+  enabled: true,
+  repoLayer: true,
+  channelLayer: true,
+  distillation: true,
+};
+
+export const MEMORY_DISABLED: ResolvedMemoryConfig = {
+  enabled: false,
+  repoLayer: false,
+  channelLayer: false,
+  distillation: false,
+};
+
+/**
+ * Normalize a per-platform `memory` field. Undefined/`true` → all on (the
+ * chosen default), `false` → all off, object → per-field `??` defaults gated
+ * by `enabled`. Malformed values warn and fall back to the default rather
+ * than failing startup — memory is an enhancement, not a prerequisite.
+ */
+export function resolveMemoryConfig(value: unknown, fieldPath?: string): ResolvedMemoryConfig {
+  if (value === undefined || value === null || value === true) return DEFAULT_MEMORY_CONFIG;
+  if (value === false) return MEMORY_DISABLED;
+  if (typeof value === 'object' && !Array.isArray(value)) {
+    const obj = value as { enabled?: unknown; repoLayer?: unknown; channelLayer?: unknown; distillation?: unknown };
+    const bool = (v: unknown, dflt: boolean): boolean => (typeof v === 'boolean' ? v : dflt);
+    const enabled = bool(obj.enabled, true);
+    if (!enabled) return MEMORY_DISABLED;
+    return {
+      enabled: true,
+      repoLayer: bool(obj.repoLayer, true),
+      channelLayer: bool(obj.channelLayer, true),
+      distillation: bool(obj.distillation, true),
+    };
+  }
+  console.warn(
+    `Invalid ${fieldPath ?? 'memory'} config: expected boolean or {enabled, repoLayer, channelLayer, distillation}, got ${JSON.stringify(value)} — using defaults`,
+  );
+  return DEFAULT_MEMORY_CONFIG;
+}
+
 /**
  * Thread logging configuration
  */
@@ -239,6 +314,11 @@ export interface PlatformInstanceConfig {
    * the sticky's `description` / `footer` for platforms still rendering it.
    */
   stickyMessage?: OverheadVisibility;
+  /**
+   * Persistent memory for this platform instance (default: fully enabled).
+   * See `MemoryOption` for the accepted shapes and layer semantics.
+   */
+  memory?: MemoryOption;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }
