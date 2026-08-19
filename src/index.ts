@@ -856,11 +856,21 @@ async function startWithoutDaemon() {
         // the meantime would be stranded on the disconnected client — kill it
         // (it persists and resumes on the next DM).
         ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}, discarding: ${err}` });
-        const threadId = `dcm:${dmId}`;
-        if (session.registry.findByThreadId(threadId)) {
-          void session.cancelSession(threadId, 'system').catch(() => {});
-        }
-        teardownDmInstance(post.channelId, dmId, 'connect failed', dmClient);
+        void (async () => {
+          const threadId = `dcm:${dmId}`;
+          if (session.registry.findByThreadId(threadId)) {
+            // Await the cancellation so the session is actually gone before
+            // the platform is unregistered (the cancel notification still
+            // reaches the DM via REST — only the websocket is dead). The
+            // session is unpersisted by cancel, so the next DM starts fresh.
+            try {
+              await session.cancelSession(threadId, dmClient.getBotName());
+            } catch (cancelErr) {
+              ui.addLog({ level: 'warn', component: 'dm', message: `Failed to cancel stranded DM session ${threadId}: ${cancelErr}` });
+            }
+          }
+          teardownDmInstance(post.channelId, dmId, 'connect failed', dmClient);
+        })();
       });
       // Orphan reaper: an instance whose first message never produced a
       // session (empty prompt, immediate command, capacity rejection) emits
@@ -924,6 +934,13 @@ async function startWithoutDaemon() {
     const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
       ? persisted.sessionAllowedUsers
       : [persisted.startedBy].filter((u): u is string => !!u);
+    // A derived instance the user disabled stays down: registering it (or
+    // marking it as connecting) would let the parent forward messages into a
+    // deliberately disabled platform.
+    if (!(platformEnabledState.get(pid) ?? true)) {
+      ui.addLog({ level: 'info', component: 'dm', message: `Skipping disabled DM instance ${pid}` });
+      continue;
+    }
     ui.addLog({ level: 'info', component: 'dm', message: `♻️ Reconstructing DM instance ${pid}` });
     registerDmPlatform(parentCfg, channelId, partners);
     // Until its own socket is confirmed up (below, after the concurrent
@@ -945,12 +962,12 @@ async function startWithoutDaemon() {
       try {
         await client.connect();
         ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
-        return { id, success: true };
+        return { id, success: true, client };
       } catch (err) {
         ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
         // Mark the platform as disabled so we don't try to use it
         platformEnabledState.set(id, false);
-        return { id, success: false, error: err };
+        return { id, success: false, error: err, client };
       }
     })
   );
@@ -962,10 +979,13 @@ async function startWithoutDaemon() {
     if (result.status !== 'fulfilled') continue;
     const dmChannelId = reconstructedDmChannels.get(result.value.id);
     if (!dmChannelId) continue;
+    // Generation guard: only act on the client this result belongs to — a
+    // replacement registered in the meantime must be left alone.
+    if (platforms.get(result.value.id) !== result.value.client) continue;
     if (result.value.success) {
       dmConnecting.delete(result.value.id);
     } else {
-      teardownDmInstance(dmChannelId, result.value.id, 'boot connect failed', platforms.get(result.value.id));
+      teardownDmInstance(dmChannelId, result.value.id, 'boot connect failed', result.value.client);
     }
   }
 
