@@ -276,8 +276,28 @@ describe('Bash Formatter', () => {
     const command = 'y'.repeat(5000);
     const result = bashToolFormatter.format('Bash', { command }, options);
 
-    expect(result!.permissionText).toContain('...');
+    expect(result!.permissionText).toContain('[... truncated]');
     expect(result!.permissionText!.length).toBeLessThan(2000);
+  });
+
+  it('renders the permission command as a fenced block so backticks cannot break out', () => {
+    const command = 'echo `whoami` && printf "```"';
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    // Triple backticks inside the command are defused; single backticks are
+    // harmless inside a fenced block.
+    expect(result!.permissionText).toContain('```bash');
+    expect(result!.permissionText).not.toContain('printf "```"');
+    expect(result!.permissionText).toContain('echo `whoami`');
+  });
+
+  it('never cuts inside a surrogate pair when truncating the permission command', () => {
+    const command = '\u{1F600}'.repeat(1600); // astral emoji, 2 UTF-16 units each
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain('[... truncated]');
+    // A broken surrogate would surface as the replacement char when re-encoded.
+    expect(result!.permissionText!.includes('\uFFFD')).toBe(false);
   });
 
   it('shortens worktree paths in commands', () => {
