@@ -18,6 +18,7 @@ import {
 } from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
+import { dcmThreadId } from './platform/utils.js';
 
 /**
  * Logger interface for message handler
@@ -38,6 +39,13 @@ export interface MessageHandlerOptions {
    * In tests this can just disconnect without exiting.
    */
   onKill?: (username: string) => void | Promise<void>;
+  /**
+   * Direct channel mode (DCM): the whole channel is one session. All messages
+   * route to the synthetic `dcm:<platformId>` session key regardless of which
+   * thread they were posted in, and starting/continuing the session does not
+   * require an @mention. See `PlatformInstanceConfig.directChannelMode`.
+   */
+  directChannelMode?: boolean;
 }
 
 /**
@@ -53,10 +61,13 @@ export async function handleMessage(
   user: PlatformUser | null,
   options: MessageHandlerOptions
 ): Promise<void> {
-  const { platformId, logger, onKill } = options;
+  const { platformId, logger, onKill, directChannelMode } = options;
   const username = user?.username || 'unknown';
   const message = post.message;
-  const threadRoot = post.rootId || post.id;
+  // In DCM every message in the channel — top-level or inside any thread —
+  // belongs to the one channel session, so the session key is the synthetic
+  // per-platform id instead of the post's own thread root.
+  const threadRoot = directChannelMode ? dcmThreadId(platformId) : (post.rootId || post.id);
   const formatter = client.getFormatter();
 
   try {
@@ -274,15 +285,18 @@ export async function handleMessage(
       return;
     }
 
-    // New session requires @mention
-    if (!client.isBotMentioned(message)) return;
+    // New session requires @mention — except in DCM, where every channel
+    // message is implicitly addressed to the bot (the channel is the session).
+    if (!directChannelMode && !client.isBotMentioned(message)) return;
 
     if (!client.isUserAllowed(username)) {
       await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
       return;
     }
 
-    let prompt = client.extractPrompt(message);
+    let prompt = client.isBotMentioned(message)
+      ? client.extractPrompt(message)
+      : message.trim();
     const files = post.metadata?.files;
 
     if (!prompt && !files?.length) {

@@ -1,7 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileSlack } from './upload.js';
@@ -827,9 +827,13 @@ export class SlackClient extends BasePlatformClient {
     threadId?: string,
     options?: { unfurl?: boolean }
   ): Promise<PlatformPost> {
+    // A synthetic DCM thread id is not a real message ts — resolve it to a
+    // top-level channel post (direct channel mode).
+    const resolvedThreadId = resolvePostThreadId(threadId);
+
     // Disable unfurling for channel-level posts (sticky message) by default
     // Thread messages can have previews unless explicitly disabled
-    const shouldUnfurl = options?.unfurl ?? (threadId !== undefined);
+    const shouldUnfurl = options?.unfurl ?? (resolvedThreadId !== undefined);
 
     // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
     const truncatedMessage = this.truncateMessageIfNeeded(message);
@@ -841,8 +845,8 @@ export class SlackClient extends BasePlatformClient {
       unfurl_media: shouldUnfurl,
     };
 
-    if (threadId) {
-      body.thread_ts = threadId;
+    if (resolvedThreadId) {
+      body.thread_ts = resolvedThreadId;
     }
 
     const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', body);

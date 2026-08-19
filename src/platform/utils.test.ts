@@ -7,6 +7,9 @@ import {
   convertMarkdownTablesToSlack,
   convertMarkdownToSlack,
   formatWebSocketError,
+  dcmThreadId,
+  isDcmThreadId,
+  resolvePostThreadId,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -394,5 +397,21 @@ describe('formatWebSocketError', () => {
     for (const s of shapes) {
       expect(formatWebSocketError(s)).not.toContain('[object');
     }
+  });
+});
+
+describe('direct channel mode thread ids', () => {
+  it('builds and recognizes synthetic DCM ids', () => {
+    const id = dcmThreadId('mattermost-main');
+    expect(id).toBe('dcm:mattermost-main');
+    expect(isDcmThreadId(id)).toBe(true);
+    expect(isDcmThreadId('a1b2c3realpostid')).toBe(false);
+    expect(isDcmThreadId(undefined)).toBe(false);
+  });
+
+  it('resolves a DCM id to undefined for platform API calls, passes real ids through', () => {
+    expect(resolvePostThreadId(dcmThreadId('p1'))).toBeUndefined();
+    expect(resolvePostThreadId('a1b2c3realpostid')).toBe('a1b2c3realpostid');
+    expect(resolvePostThreadId(undefined)).toBeUndefined();
   });
 });

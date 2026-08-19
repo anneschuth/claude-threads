@@ -338,3 +338,38 @@ export function convertMarkdownTablesToSlack(content: string): string {
     return formattedRows.join('\n');
   });
 }
+
+// =============================================================================
+// Direct channel mode (DCM)
+// =============================================================================
+
+/**
+ * Prefix for the synthetic thread id used by direct channel mode (DCM).
+ *
+ * In DCM the whole configured channel behaves as one session: the bot replies
+ * with top-level channel posts instead of thread replies, and messages do not
+ * need an @mention. Internally every session is still keyed by a thread id, so
+ * DCM uses a synthetic, per-platform id (`dcm:<platformId>`) as that key. The
+ * platform clients recognize the prefix and post to the channel root instead
+ * of treating it as a real post id.
+ */
+export const DCM_THREAD_PREFIX = 'dcm:';
+
+/** Build the synthetic DCM thread id for a platform instance. */
+export function dcmThreadId(platformId: string): string {
+  return `${DCM_THREAD_PREFIX}${platformId}`;
+}
+
+/** True if the given thread id is a synthetic DCM id (not a real post id). */
+export function isDcmThreadId(threadId: string | undefined): boolean {
+  return !!threadId && threadId.startsWith(DCM_THREAD_PREFIX);
+}
+
+/**
+ * Resolve a thread id for use in a platform API call: a synthetic DCM id must
+ * never reach the platform as root_id/thread_ts (it is not a real post id), so
+ * it resolves to `undefined` (= post to the channel root).
+ */
+export function resolvePostThreadId(threadId: string | undefined): string | undefined {
+  return isDcmThreadId(threadId) ? undefined : threadId;
+}

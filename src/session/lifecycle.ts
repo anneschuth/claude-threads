@@ -16,6 +16,7 @@ import {
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
+import { isDcmThreadId } from '../platform/utils.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
@@ -1274,7 +1275,10 @@ export async function startSession(
   // please send", causing a duplicate send to Claude — visible in CI as
   // mock-claude receiving each user message twice and emitting all events
   // twice. Caught by stack-trace diagnostic in PR #340.
-  if (replyToPostId) {
+  // In direct channel mode the "thread root" is a synthetic id, not a real
+  // post — there is no thread history to offer, so skip the context prompt
+  // and take the plain send path below.
+  if (replyToPostId && !isDcmThreadId(replyToPostId)) {
     const excludePostId = triggeringPostId || replyToPostId;
     await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username);
     // Either path inside offerContextPrompt sends or queues. Surface any

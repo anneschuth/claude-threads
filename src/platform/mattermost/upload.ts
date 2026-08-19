@@ -1,6 +1,7 @@
 import { readFile } from 'fs/promises';
 import { createLogger } from '../../utils/logger.js';
 import type { MattermostFile, MattermostPost } from './types.js';
+import { resolvePostThreadId } from '../utils.js';
 
 const log = createLogger('mm-upload');
 
@@ -89,7 +90,9 @@ export async function uploadFileMattermost(
   const postBody = {
     channel_id: channelId,
     message: caption ?? '',
-    root_id: threadId,
+    // A synthetic DCM thread id is not a real post id — resolve to a
+    // top-level channel post in that case.
+    root_id: resolvePostThreadId(threadId),
     file_ids: [fileInfo.id],
   };
   log.debug(`POST /posts (file_ids=[${fileInfo.id}])`);

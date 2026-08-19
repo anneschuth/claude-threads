@@ -129,6 +129,7 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session. No @mention needed, and the bot replies with top-level channel posts instead of thread replies. One session per platform instance. See [Direct Channel Mode](#direct-channel-mode). |
 
 ### Slack
 
@@ -147,6 +148,20 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session. No @mention needed, and the bot replies with top-level channel posts instead of thread replies. One session per platform instance. See [Direct Channel Mode](#direct-channel-mode). |
+
+### Direct Channel Mode
+
+`directChannelMode: true` turns the configured channel into a single, always-on conversation with the bot:
+
+- Every message in the channel reaches the bot — no `@mention` required (messages starting with `@someone-else` are still treated as side conversations and ignored).
+- The bot replies with **top-level channel posts** instead of thread replies, so the channel reads like a plain chat.
+- Only **one session** exists per platform instance; internally it is keyed by the synthetic thread id `dcm:<platform id>`, so persistence, resume after bot restarts, emoji permission prompts, and `!commands` all work exactly as in thread sessions.
+- Messages posted inside any thread of the channel are routed to the same session.
+
+This is the mode to use for a dedicated 1:1 channel with the bot (see issue #315). For shared channels where multiple parallel sessions are wanted, keep the default thread-per-session behavior.
+
+Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 
 ### Permission Modes
 

@@ -19,7 +19,7 @@ import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
 import { createLogger, mcpLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
-import { formatWebSocketError } from '../utils.js';
+import { formatWebSocketError, resolvePostThreadId } from '../utils.js';
 import { uploadFileMattermost } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
@@ -123,7 +123,8 @@ async function createPost(
   return mattermostApi<MattermostApiPost>(config, 'POST', '/posts', {
     channel_id: channelId,
     message,
-    root_id: rootId,
+    // A synthetic DCM thread id resolves to a top-level channel post.
+    root_id: resolvePostThreadId(rootId),
   });
 }
 

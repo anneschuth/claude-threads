@@ -1924,3 +1924,77 @@ describe('handleMessage', () => {
     });
   });
 });
+
+describe('direct channel mode (DCM)', () => {
+  let client: PlatformClient & { posts: Map<string, string> };
+  let session: ReturnType<typeof createMockSessionManager>;
+  let options: MessageHandlerOptions;
+
+  const makePost = (overrides: Partial<PlatformPost> = {}): PlatformPost => ({
+    id: 'post1',
+    platformId: 'test',
+    channelId: 'channel1',
+    userId: 'user1',
+    message: 'fix the flaky test',
+    rootId: '',
+    createAt: Date.now(),
+    ...overrides,
+  });
+  const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+    options = { platformId: 'test-platform', directChannelMode: true };
+  });
+
+  test('starts a session without an @mention, keyed by the synthetic dcm id', async () => {
+    await handleMessage(client, session, makePost(), user, options);
+
+    expect(session.startSession).toHaveBeenCalled();
+    const call = (session.startSession as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toEqual({ prompt: 'fix the flaky test', files: undefined });
+    expect(call[2]).toBe('dcm:test-platform');
+  });
+
+  test('still extracts the prompt when the bot IS mentioned', async () => {
+    await handleMessage(client, session, makePost({ message: '@claude-bot do the thing' }), user, options);
+
+    const call = (session.startSession as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].prompt).toBe('do the thing');
+    expect(call[2]).toBe('dcm:test-platform');
+  });
+
+  test('routes a message posted inside any thread to the one channel session', async () => {
+    (session.registry.findByThreadId as ReturnType<typeof mock>).mockImplementation(
+      (threadId: string) => (threadId === 'dcm:test-platform' ? { respondOnlyWhenMentioned: false } : undefined)
+    );
+
+    await handleMessage(client, session, makePost({ rootId: 'some-real-thread', message: 'and also run the tests' }), user, options);
+
+    expect(session.sendFollowUp).toHaveBeenCalled();
+    const call = (session.sendFollowUp as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toBe('dcm:test-platform');
+    expect(call[1]).toBe('and also run the tests');
+    expect(session.startSession).not.toHaveBeenCalled();
+  });
+
+  test('unauthorized users are rejected as usual', async () => {
+    const badUser: PlatformUser = { id: 'u2', username: 'stranger', displayName: 'Stranger' };
+
+    await handleMessage(client, session, makePost(), badUser, options);
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    const posted = [...client.posts.values()].join('\n');
+    expect(posted).toContain('not authorized');
+  });
+
+  test('without the flag, a message without @mention still starts nothing', async () => {
+    options = { platformId: 'test-platform' };
+
+    await handleMessage(client, session, makePost(), user, options);
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+});

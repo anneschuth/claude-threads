@@ -333,6 +333,20 @@ export interface PlatformInstanceConfig {
   type: 'mattermost' | 'slack';
   displayName: string;
   /**
+   * Direct channel mode (DCM): treat the whole configured channel as one
+   * session. Messages do not need an @mention to reach the bot, and the bot
+   * replies with top-level channel posts instead of thread replies — the
+   * channel reads like a plain conversation. Only one session runs per
+   * platform instance in this mode (the channel *is* the session).
+   *
+   * Internally the session is keyed by a synthetic thread id
+   * (`dcm:<platformId>`), so persistence, resume, reactions, and permission
+   * prompts work exactly as they do for thread sessions.
+   *
+   * Default `false` (classic thread-per-session behavior).
+   */
+  directChannelMode?: boolean;
+  /**
    * Per-thread session header visibility. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the
    * header post entirely so Claude's own response is the first message in

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Direct channel mode (DCM)** - Opt-in per platform via `directChannelMode: true`: the whole configured channel behaves as one session. Messages reach the bot without an `@mention`, and the bot replies with top-level channel posts instead of thread replies, so the channel reads like a plain conversation (#315). Internally the session is keyed by a synthetic thread id (`dcm:<platform id>`) that the platform clients resolve to a channel-root post, which keeps persistence, resume, reaction-based permission prompts, and `!commands` working unchanged. Messages posted inside any thread of the channel route to the same session; the thread-context prompt is skipped (there is no thread history behind the synthetic id). Default off — thread-per-session behavior is unchanged.
+
 ### Fixed
 - **Permission prompts show the full Bash command.** The approval prompt used to hard-truncate commands at 100 characters, so anything past the first pipe or `&&` was invisible at the exact moment the user was asked to approve it — the gate could only be rubber-stamped. The prompt now shows the command up to a generous 1500-character cap (a pathological command is still cut so it cannot blow up the prompt post). The 50-character display truncation in the streaming view is unchanged; only the permission prompt is affected.
 

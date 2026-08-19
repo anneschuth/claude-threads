@@ -2,7 +2,7 @@ import { WebSocket } from '../../utils/websocket.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
-import { escapeRegExp, formatWebSocketError } from '../utils.js';
+import { escapeRegExp, formatWebSocketError, resolvePostThreadId } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileMattermost } from './upload.js';
@@ -300,8 +300,10 @@ export class MattermostClient extends BasePlatformClient {
     const request: CreatePostRequest = {
       channel_id: this.channelId,
       message,
-      // Only include root_id if it's a non-empty string (Mattermost rejects empty string)
-      root_id: threadId || undefined,
+      // Only include root_id if it's a non-empty string (Mattermost rejects
+      // empty string). A synthetic DCM thread id resolves to undefined — in
+      // direct channel mode replies are top-level channel posts.
+      root_id: resolvePostThreadId(threadId) || undefined,
     };
     const post = await this.api<MattermostPost>('POST', '/posts', request);
     return this.normalizePlatformPost(post);
