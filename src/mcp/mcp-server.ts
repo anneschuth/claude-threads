@@ -49,6 +49,7 @@ import {
   formatResolvedSlack,
 } from '../platform/slack/permalink.js';
 import { clampThreadLimit, truncateBody, quoteBlock } from '../platform/permalink-shared.js';
+import { isDcmThreadId } from '../platform/utils.js';
 
 // =============================================================================
 // Configuration
@@ -805,6 +806,12 @@ async function resolveLatestThreadPost(cfg: ReactToPostHandlerConfig): Promise<R
   if (!cfg.sessionThreadId) {
     return { ok: false, reason: 'no session thread to react in — pass a permalink URL instead' };
   }
+  if (isDcmThreadId(cfg.sessionThreadId)) {
+    return {
+      ok: false,
+      reason: 'this session runs in direct channel mode (no thread of its own) — pass a permalink URL to the target message instead',
+    };
+  }
   let thread: McpPost[];
   try {
     thread = await cfg.api.readThread(cfg.sessionThreadId);
@@ -960,6 +967,12 @@ export async function handleListThreadWith(
       return {
         ok: false,
         reason: 'no session thread to read — pass a permalink URL instead',
+      };
+    }
+    if (isDcmThreadId(cfg.sessionThreadId)) {
+      return {
+        ok: false,
+        reason: 'this session runs in direct channel mode (no thread of its own) — use read_channel_history, or pass a permalink URL',
       };
     }
     // The session's own thread is always in scope; no resolver needed.

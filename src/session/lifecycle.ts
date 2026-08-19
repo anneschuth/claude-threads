@@ -85,6 +85,16 @@ function releasePendingStart(): void {
 }
 
 /**
+ * In-flight session starts/resumes keyed by composite session id
+ * (`platformId:threadId`). Two messages arriving during an asynchronous start
+ * must not spawn two Claude processes for the same key — likely in direct
+ * channel mode, where every channel message maps to the same synthetic key,
+ * but the window also exists for two quick replies in a brand-new thread.
+ * Exported with an underscore for tests only.
+ */
+export const _inFlightSessionStarts = new Map<string, Promise<void>>();
+
+/**
  * Get postIndex map with correct mutable type.
  * Reduces type casting noise throughout the module.
  */
@@ -902,6 +912,40 @@ export async function startSession(
   triggeringPostId?: string,
   initialOptions?: InitialSessionOptions
 ): Promise<void> {
+  const sessionKey = `${platformId}:${replyToPostId || ''}`;
+
+  // A start for this exact session key is already in flight: wait for it and
+  // deliver this message as a follow-up instead of spawning a second Claude.
+  const inFlight = _inFlightSessionStarts.get(sessionKey);
+  if (inFlight) {
+    await inFlight.catch(() => {});
+    const started = (ctx.state?.sessions as Map<string, Session> | undefined)?.get(sessionKey);
+    if (started && started.claude.isRunning()) {
+      await sendFollowUp(started, options.prompt, options.files, ctx, username, displayName);
+      return;
+    }
+    // The in-flight start failed — fall through to a fresh attempt.
+  }
+
+  const attempt = startSessionImpl(options, username, displayName, replyToPostId, platformId, ctx, triggeringPostId, initialOptions);
+  _inFlightSessionStarts.set(sessionKey, attempt);
+  try {
+    await attempt;
+  } finally {
+    _inFlightSessionStarts.delete(sessionKey);
+  }
+}
+
+async function startSessionImpl(
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
+  username: string,
+  displayName: string | undefined,
+  replyToPostId: string | undefined,
+  platformId: string,
+  ctx: SessionContext,
+  triggeringPostId?: string,
+  initialOptions?: InitialSessionOptions
+): Promise<void> {
   const threadId = replyToPostId || '';
 
   // Check if session already exists for this thread
@@ -1086,6 +1130,15 @@ export async function startSession(
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
+  // DCM approvals scoping: with `approvals: owner` (the default) only the
+  // session participants may answer tool-permission prompts — in a shared
+  // channel the whole platform allowlist would otherwise be able to approve.
+  // `all_users` keeps the classic behavior. The list is fixed at spawn time;
+  // a later `!invite` extends message access but not the approval set until
+  // the CLI is respawned (e.g. via `!cd` or `!permissions`).
+  if (isDcmThreadId(threadId) && platform.directChannelMode?.approvals !== 'all_users') {
+    platformMcpConfig.allowedUsers = [username];
+  }
 
   // Reserve a Claude account from the pool (null = single-account mode). New
   // sessions balance by real subscription headroom (`/usage`), routing to
@@ -1163,7 +1216,13 @@ export async function startSession(
     forceInteractivePermissions,
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
-    respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
+    // In direct channel mode the global default is NOT inherited (it would
+    // silently disable DCM's whole point); instead the seed comes from the
+    // platform's `directChannelMode.respondTo` option, and `!mentions` still
+    // toggles it at runtime.
+    respondOnlyWhenMentioned: isDcmThreadId(threadId)
+      ? platform.directChannelMode?.respondTo === 'mention'
+      : (ctx.config.respondOnlyWhenMentioned ?? false),
     userAttribution,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
@@ -1312,6 +1371,41 @@ export async function resumeSession(
   state: PersistedSession,
   ctx: SessionContext
 ): Promise<void> {
+  // Idempotency guard: a resume can be triggered from two sides at once
+  // (startup resume-all and an incoming message via resumePausedSession).
+  // If this key is already registered or a start/resume is in flight, there
+  // is nothing to do — resumePausedSession delivers its message through the
+  // registered session afterwards.
+  if (state.threadId && state.platformId) {
+    const sessionKey = `${state.platformId}:${state.threadId}`;
+    // Defensive: some callers (and tests) construct minimal contexts — the
+    // guard is an optimization, resumeSessionImpl revalidates everything.
+    const sessions = ctx.state?.sessions as Map<string, Session> | undefined;
+    if (sessions?.has(sessionKey)) {
+      log.debug(`Session ${state.threadId.substring(0, 8)}... already active, skipping resume`);
+      return;
+    }
+    const inFlight = _inFlightSessionStarts.get(sessionKey);
+    if (inFlight) {
+      await inFlight.catch(() => {});
+      return;
+    }
+    const attempt = resumeSessionImpl(state, ctx);
+    _inFlightSessionStarts.set(sessionKey, attempt);
+    try {
+      await attempt;
+    } finally {
+      _inFlightSessionStarts.delete(sessionKey);
+    }
+    return;
+  }
+  await resumeSessionImpl(state, ctx);
+}
+
+async function resumeSessionImpl(
+  state: PersistedSession,
+  ctx: SessionContext
+): Promise<void> {
   // Validate required fields - skip gracefully if critical data is missing
   if (!state.threadId || !state.platformId || !state.claudeSessionId || !state.workingDir) {
     const missing = [
@@ -1331,6 +1425,15 @@ export async function resumeSession(
   const platform = platforms.get(state.platformId);
   if (!platform) {
     log.warn(`Platform ${state.platformId} not registered, skipping resume for ${shortId}...`);
+    return;
+  }
+
+  // A persisted DCM session must not resume when the platform no longer runs
+  // in direct channel mode — it would keep posting channel-root messages into
+  // a channel that has gone back to thread-per-session.
+  if (isDcmThreadId(state.threadId) && !platform.directChannelMode?.enabled) {
+    log.warn(`Direct channel mode disabled for ${state.platformId}, dropping persisted DCM session`);
+    ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
   }
 
@@ -1384,6 +1487,13 @@ export async function resumeSession(
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
   const userAttribution = state.userAttribution ?? false;
   const platformMcpConfig = platform.getMcpConfig();
+  // DCM approvals scoping on resume mirrors the fresh-start path: session
+  // participants (owner + invited) instead of the whole platform allowlist.
+  if (isDcmThreadId(state.threadId) && platform.directChannelMode?.approvals !== 'all_users') {
+    platformMcpConfig.allowedUsers = Array.from(
+      new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean))
+    ) as string[];
+  }
 
   // Include system prompt for resumed sessions (platform context, command info,
   // and collaborator co-author tags carried over from before the restart).

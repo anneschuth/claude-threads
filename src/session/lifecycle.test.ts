@@ -1674,10 +1674,12 @@ describe('resumeSession with direct channel mode', () => {
     } as any;
   }
 
+  const dcmEnabled = { enabled: true, respondTo: 'all_messages', approvals: 'owner' } as const;
+
   it('skips the thread-existence check for a synthetic DCM session id', async () => {
     // getPost resolves null (a real thread id would be treated as deleted).
     const getPost = mock(() => Promise.resolve(null));
-    const platform = createMockPlatform({ getPost: getPost as any });
+    const platform = createMockPlatform({ getPost: getPost as any, directChannelMode: dcmEnabled as any });
     const ctx = createMockSessionContext(new Map());
     (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
 
@@ -1689,6 +1691,17 @@ describe('resumeSession with direct channel mode', () => {
     // this test pins down.)
     expect(getPost).not.toHaveBeenCalled();
     expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+  });
+
+  it('drops a persisted DCM session when direct channel mode was turned off', async () => {
+    const platform = createMockPlatform({ getPost: mock(() => Promise.resolve(null)) as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('dcm:test-platform'), ctx);
+
+    expect(ctx.state.sessionStore.remove).toHaveBeenCalledWith('test-platform:dcm:test-platform');
+    expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
   });
 
   it('still drops a regular session whose thread was deleted', async () => {

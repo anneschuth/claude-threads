@@ -10,6 +10,7 @@ import {
   dcmThreadId,
   isDcmThreadId,
   resolvePostThreadId,
+  resolveDirectChannelMode,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -413,5 +414,22 @@ describe('direct channel mode thread ids', () => {
     expect(resolvePostThreadId(dcmThreadId('p1'))).toBeUndefined();
     expect(resolvePostThreadId('a1b2c3realpostid')).toBe('a1b2c3realpostid');
     expect(resolvePostThreadId(undefined)).toBeUndefined();
+  });
+});
+
+describe('resolveDirectChannelMode', () => {
+  it('shorthand true enables with defaults (all_messages, owner)', () => {
+    expect(resolveDirectChannelMode(true)).toEqual({ enabled: true, respondTo: 'all_messages', approvals: 'owner' });
+  });
+
+  it('false and undefined stay disabled', () => {
+    expect(resolveDirectChannelMode(false).enabled).toBe(false);
+    expect(resolveDirectChannelMode(undefined).enabled).toBe(false);
+  });
+
+  it('an options object is enabled by default and applies option defaults', () => {
+    expect(resolveDirectChannelMode({ respondTo: 'mention' })).toEqual({ enabled: true, respondTo: 'mention', approvals: 'owner' });
+    expect(resolveDirectChannelMode({ approvals: 'all_users' })).toEqual({ enabled: true, respondTo: 'all_messages', approvals: 'all_users' });
+    expect(resolveDirectChannelMode({ enabled: false, respondTo: 'mention' }).enabled).toBe(false);
   });
 });

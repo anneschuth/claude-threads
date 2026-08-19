@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import type { ResolvedDirectChannelMode } from './utils.js';
 import type {
   PlatformUser,
   PlatformPost,
@@ -54,6 +55,14 @@ export interface PlatformClient extends EventEmitter {
    * e.g., 'Internal Team', 'Engineering Slack'
    */
   readonly displayName: string;
+
+  /**
+   * Resolved direct-channel-mode settings for this platform instance (the
+   * whole channel is one session, keyed by a synthetic `dcm:` thread id).
+   * Used by session start/resume for quiet-mode seeding, approval scoping,
+   * and to drop persisted DCM sessions after the flag was turned off.
+   */
+  readonly directChannelMode?: ResolvedDirectChannelMode;
 
   // ============================================================================
   // Connection Management

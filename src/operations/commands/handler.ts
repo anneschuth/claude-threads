@@ -5,6 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { isDcmThreadId } from '../../platform/utils.js';
 import { transitionTo, isSessionRestarting } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../../claude/cli.js';
@@ -341,6 +342,12 @@ export async function approvePendingPlan(
  * Used to preserve context when changing directories or creating worktrees.
  */
 export async function generateWorkSummary(session: Session): Promise<string | undefined> {
+  // Direct channel mode: the synthetic session id is not a real thread root,
+  // so there is no thread history to summarize. Skip instead of letting the
+  // platform call 404 into an empty result.
+  if (isDcmThreadId(session.threadId)) {
+    return undefined;
+  }
   // Get recent thread history to summarize
   try {
     const messages = await session.platform.getThreadHistory(

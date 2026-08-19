@@ -373,3 +373,49 @@ export function isDcmThreadId(threadId: string | undefined): boolean {
 export function resolvePostThreadId(threadId: string | undefined): string | undefined {
   return isDcmThreadId(threadId) ? undefined : threadId;
 }
+
+/** Per-platform DCM options (long form of `directChannelMode`). */
+export interface DirectChannelModeOptions {
+  /** Turn DCM on/off. Providing the object at all defaults to enabled. */
+  enabled?: boolean;
+  /**
+   * Which channel messages the bot responds to. `all_messages` (default):
+   * every message from an allowed user reaches the bot. `mention`: only
+   * messages that @mention the bot (replies still arrive as channel posts).
+   * Backed by the per-session quiet-mode flag, so `!mentions` toggles it at
+   * runtime.
+   */
+  respondTo?: 'all_messages' | 'mention';
+  /**
+   * Who may answer tool-permission prompts (and other reaction gates) in the
+   * channel session. `owner` (default): the session participants — starter
+   * plus explicitly `!invite`d users. `all_users`: everyone on the platform's
+   * `allowedUsers` list (the classic thread-session behavior).
+   */
+  approvals?: 'owner' | 'all_users';
+}
+
+/** `directChannelMode` as written in config.yaml: shorthand boolean or options. */
+export type DirectChannelModeConfig = boolean | DirectChannelModeOptions;
+
+/** Fully-resolved DCM settings with defaults applied. */
+export interface ResolvedDirectChannelMode {
+  enabled: boolean;
+  respondTo: 'all_messages' | 'mention';
+  approvals: 'owner' | 'all_users';
+}
+
+/** Apply defaults: `true` → enabled with all_messages/owner; object → enabled unless `enabled: false`. */
+export function resolveDirectChannelMode(cfg: DirectChannelModeConfig | undefined): ResolvedDirectChannelMode {
+  if (cfg === undefined || cfg === false) {
+    return { enabled: false, respondTo: 'all_messages', approvals: 'owner' };
+  }
+  if (cfg === true) {
+    return { enabled: true, respondTo: 'all_messages', approvals: 'owner' };
+  }
+  return {
+    enabled: cfg.enabled ?? true,
+    respondTo: cfg.respondTo ?? 'all_messages',
+    approvals: cfg.approvals ?? 'owner',
+  };
+}

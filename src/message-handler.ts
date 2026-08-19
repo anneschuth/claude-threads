@@ -18,7 +18,7 @@ import {
 } from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
-import { dcmThreadId } from './platform/utils.js';
+import { dcmThreadId, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
 
 /**
  * Logger interface for message handler
@@ -42,10 +42,11 @@ export interface MessageHandlerOptions {
   /**
    * Direct channel mode (DCM): the whole channel is one session. All messages
    * route to the synthetic `dcm:<platformId>` session key regardless of which
-   * thread they were posted in, and starting/continuing the session does not
-   * require an @mention. See `PlatformInstanceConfig.directChannelMode`.
+   * thread they were posted in. Accepts the raw config value (shorthand
+   * boolean or options object); defaults are applied here. See
+   * `PlatformInstanceConfig.directChannelMode`.
    */
-  directChannelMode?: boolean;
+  directChannelMode?: DirectChannelModeConfig;
 }
 
 /**
@@ -61,13 +62,14 @@ export async function handleMessage(
   user: PlatformUser | null,
   options: MessageHandlerOptions
 ): Promise<void> {
-  const { platformId, logger, onKill, directChannelMode } = options;
+  const { platformId, logger, onKill } = options;
+  const dcm = resolveDirectChannelMode(options.directChannelMode);
   const username = user?.username || 'unknown';
   const message = post.message;
   // In DCM every message in the channel — top-level or inside any thread —
   // belongs to the one channel session, so the session key is the synthetic
   // per-platform id instead of the post's own thread root.
-  const threadRoot = directChannelMode ? dcmThreadId(platformId) : (post.rootId || post.id);
+  const threadRoot = dcm.enabled ? dcmThreadId(platformId) : (post.rootId || post.id);
   const formatter = client.getFormatter();
 
   try {
@@ -285,9 +287,12 @@ export async function handleMessage(
       return;
     }
 
-    // New session requires @mention — except in DCM, where every channel
-    // message is implicitly addressed to the bot (the channel is the session).
-    if (!directChannelMode && !client.isBotMentioned(message)) return;
+    // New session requires @mention — except in DCM with the default
+    // `respondTo: all_messages`, where every channel message is implicitly
+    // addressed to the bot (the channel is the session). With
+    // `respondTo: mention` the DCM session also starts only on a mention.
+    const mentionRequired = !dcm.enabled || dcm.respondTo === 'mention';
+    if (mentionRequired && !client.isBotMentioned(message)) return;
 
     if (!client.isUserAllowed(username)) {
       await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);

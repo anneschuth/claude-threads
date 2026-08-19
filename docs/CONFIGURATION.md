@@ -129,7 +129,7 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
-| `directChannelMode` | No | Direct channel mode: the whole channel is one session. No @mention needed, and the bot replies with top-level channel posts instead of thread replies. One session per platform instance. See [Direct Channel Mode](#direct-channel-mode). |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`, `approvals`). See [Direct Channel Mode](#direct-channel-mode). |
 
 ### Slack
 
@@ -148,7 +148,7 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
-| `directChannelMode` | No | Direct channel mode: the whole channel is one session. No @mention needed, and the bot replies with top-level channel posts instead of thread replies. One session per platform instance. See [Direct Channel Mode](#direct-channel-mode). |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`, `approvals`). See [Direct Channel Mode](#direct-channel-mode). |
 
 ### Direct Channel Mode
 
@@ -159,7 +159,20 @@ stickyMessage:
 - Only **one session** exists per platform instance; internally it is keyed by the synthetic thread id `dcm:<platform id>`, so persistence, resume after bot restarts, emoji permission prompts, and `!commands` all work exactly as in thread sessions.
 - Messages posted inside any thread of the channel are routed to the same session.
 
-This is the mode to use for a dedicated 1:1 channel with the bot (see issue #315). For shared channels where multiple parallel sessions are wanted, keep the default thread-per-session behavior.
+This is the mode to use for a dedicated channel with the bot (see issue #315). For shared channels where multiple parallel sessions are wanted, keep the default thread-per-session behavior.
+
+The long form configures how the shared channel behaves:
+
+```yaml
+directChannelMode:
+  respondTo: all_messages   # or: mention
+  approvals: owner          # or: all_users
+```
+
+| Option | Values | Default | Meaning |
+|--------|--------|---------|---------|
+| `respondTo` | `all_messages` / `mention` | `all_messages` | `all_messages`: every message from an allowed user reaches the bot. `mention`: the bot only reacts to messages that @mention it — useful when several people discuss in the channel and the bot should not join every exchange. Backed by the per-session quiet-mode flag, so `!mentions` toggles it at runtime. |
+| `approvals` | `owner` / `all_users` | `owner` | Who may answer tool-permission prompts (👍/✅/👎). `owner`: the session participants — the starter plus explicitly `!invite`d users. `all_users`: everyone on the platform's `allowedUsers` list (the classic thread-session behavior). The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access but not the approval set until the CLI respawns (e.g. via `!cd`). |
 
 Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 

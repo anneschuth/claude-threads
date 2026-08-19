@@ -2,7 +2,7 @@ import { WebSocket } from '../../utils/websocket.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
-import { escapeRegExp, formatWebSocketError, resolvePostThreadId } from '../utils.js';
+import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, resolveDirectChannelMode, type ResolvedDirectChannelMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileMattermost } from './upload.js';
@@ -34,6 +34,7 @@ export class MattermostClient extends BasePlatformClient {
   readonly platformId: string;
   readonly platformType = 'mattermost' as const;
   readonly displayName: string;
+  readonly directChannelMode: ResolvedDirectChannelMode;
 
   private ws: WebSocket | null = null;
   private url: string;
@@ -57,6 +58,7 @@ export class MattermostClient extends BasePlatformClient {
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
+    this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
   }
 
   // ============================================================================
@@ -765,6 +767,11 @@ export class MattermostClient extends BasePlatformClient {
   // Get a clickable link to a thread (full URL for cross-platform compatibility)
   // If lastMessageId is provided, links to that specific message (jump to bottom)
   getThreadLink(threadId: string, lastMessageId?: string, _lastMessageTs?: string): string {
+    // Direct channel mode: the synthetic id is not a post id — link to the
+    // last real message if known, otherwise to the channel.
+    if (isDcmThreadId(threadId) && !lastMessageId) {
+      return `${this.url}/channels/${this.channelId}`;
+    }
     const targetId = lastMessageId || threadId;
     return `${this.url}/_redirect/pl/${targetId}`;
   }
@@ -781,7 +788,9 @@ export class MattermostClient extends BasePlatformClient {
       seq: Date.now(),
       data: {
         channel_id: this.channelId,
-        parent_id: parentId || '',
+        // A synthetic DCM thread id must not leak into the protocol — typing
+        // in direct channel mode targets the channel root.
+        parent_id: resolvePostThreadId(parentId) || '',
       },
     }));
   }

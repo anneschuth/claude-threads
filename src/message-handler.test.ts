@@ -1989,6 +1989,25 @@ describe('direct channel mode (DCM)', () => {
     expect(posted).toContain('not authorized');
   });
 
+
+  test('respondTo: mention — a channel message without @mention starts nothing', async () => {
+    options = { platformId: 'test-platform', directChannelMode: { respondTo: 'mention' } };
+
+    await handleMessage(client, session, makePost(), user, options);
+
+    expect(session.startSession).not.toHaveBeenCalled();
+  });
+
+  test('respondTo: mention — a mentioned message starts the DCM session', async () => {
+    options = { platformId: 'test-platform', directChannelMode: { respondTo: 'mention' } };
+
+    await handleMessage(client, session, makePost({ message: '@claude-bot do it' }), user, options);
+
+    const call = (session.startSession as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0].prompt).toBe('do it');
+    expect(call[2]).toBe('dcm:test-platform');
+  });
+
   test('without the flag, a message without @mention still starts nothing', async () => {
     options = { platformId: 'test-platform' };
 

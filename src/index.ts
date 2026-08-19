@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
+import type { DirectChannelModeConfig } from './platform/utils.js';
 import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
@@ -64,7 +65,7 @@ function wirePlatformEvents(
   client: PlatformClient,
   session: SessionManager,
   ui: UIProvider,
-  directChannelMode?: boolean
+  directChannelMode?: DirectChannelModeConfig
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
