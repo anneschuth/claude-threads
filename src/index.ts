@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
+import { dmPlatformId, parseDmPlatformId, deriveDmPlatformConfig } from './platform/dm-discovery.js';
 import type { DirectChannelModeConfig } from './platform/utils.js';
 import {
   loadConfigWithMigration,
@@ -668,6 +669,79 @@ async function startWithoutDaemon() {
 
     // Wire up platform events
     wirePlatformEvents(platformConfig.id, client, session, ui, platformConfig.directChannelMode);
+  }
+
+  // ---------------------------------------------------------------------------
+  // DM auto-discovery (Mattermost only): derived platform instances for DM
+  // channels — spawned live on first contact, reconstructed at boot from
+  // persisted sessions so DM sessions survive restarts.
+  // ---------------------------------------------------------------------------
+  const registerDmPlatform = (
+    parentCfg: MattermostPlatformConfig,
+    channelId: string,
+    partnerUsernames: string[],
+  ): PlatformClient => {
+    const dmConfig = deriveDmPlatformConfig(parentCfg, channelId, partnerUsernames);
+    const dmClient = createPlatformClient(dmConfig);
+    platforms.set(dmConfig.id, dmClient);
+    ui.setPlatformStatus(dmConfig.id, {
+      displayName: dmConfig.displayName,
+      botName: dmConfig.botName,
+      url: dmConfig.url,
+      platformType: 'mattermost',
+      enabled: true,
+    });
+    session.addPlatform(dmConfig.id, dmClient, {
+      sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+      stickyMessage: 'hidden',
+    });
+    wirePlatformEvents(dmConfig.id, dmClient, session, ui, dmConfig.directChannelMode);
+    return dmClient;
+  };
+
+  // Live discovery: first DM from an allowed user spawns the instance and
+  // routes that first message manually (the instance's own socket only picks
+  // up subsequent traffic).
+  for (const platformConfig of config.platforms) {
+    if (platformConfig.type !== 'mattermost') continue;
+    const mmConfig = platformConfig as MattermostPlatformConfig;
+    if (!mmConfig.directMessages) continue;
+    const parentClient = platforms.get(platformConfig.id);
+    if (!parentClient) continue;
+    parentClient.on('direct_message', async (post: PlatformPost, user: PlatformUser | null) => {
+      const username = user?.username;
+      if (!username || !mmConfig.allowedUsers.includes(username)) return;
+      const dmId = dmPlatformId(mmConfig.id, post.channelId);
+      if (platforms.has(dmId)) return; // existing instance receives via its own socket
+      ui.addLog({ level: 'info', component: 'dm', message: `📩 New DM conversation with @${username} — spawning ${dmId}` });
+      const dmClient = registerDmPlatform(mmConfig, post.channelId, [username]);
+      dmClient.connect().catch((err: unknown) => {
+        ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}: ${err}` });
+      });
+      await handleMessage(dmClient, session, post, user, {
+        platformId: dmId,
+        directChannelMode: true,
+        logger: { error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }) },
+      });
+    });
+  }
+
+  // Boot reconstruction: persisted DM sessions reference derived platform ids
+  // that no longer exist after a restart — rebuild those instances before
+  // connecting, so session.initialize() can resume them.
+  for (const [, persisted] of sessionStore.load()) {
+    const parsed = parseDmPlatformId(persisted.platformId || '');
+    if (!parsed || platforms.has(persisted.platformId)) continue;
+    const parentCfg = config.platforms.find((p) => p.id === parsed.parentId);
+    if (!parentCfg || parentCfg.type !== 'mattermost' || !(parentCfg as MattermostPlatformConfig).directMessages) {
+      ui.addLog({ level: 'warn', component: 'dm', message: `Skipping persisted DM session for ${persisted.platformId} (parent missing or directMessages off)` });
+      continue;
+    }
+    const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
+      ? persisted.sessionAllowedUsers
+      : [persisted.startedBy].filter((u): u is string => !!u);
+    ui.addLog({ level: 'info', component: 'dm', message: `♻️ Reconstructing DM instance ${persisted.platformId}` });
+    registerDmPlatform(parentCfg as MattermostPlatformConfig, parsed.channelId, partners);
   }
 
   // Connect only enabled platforms

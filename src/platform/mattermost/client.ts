@@ -41,6 +41,7 @@ export class MattermostClient extends BasePlatformClient {
   private url: string;
   private token: string;
   private channelId: string;
+  private directMessages: boolean;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
@@ -56,6 +57,7 @@ export class MattermostClient extends BasePlatformClient {
     this.url = platformConfig.url;
     this.token = platformConfig.token;
     this.channelId = platformConfig.channelId;
+    this.directMessages = platformConfig.directMessages ?? false;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
@@ -169,6 +171,16 @@ export class MattermostClient extends BasePlatformClient {
     // Also emit channel_post for top-level posts (not thread replies)
     if (!post.root_id) {
       this.emit('channel_post', normalizedPost, user);
+    }
+  }
+
+  /** Resolve the sender and emit a 'direct_message' event (DM discovery). */
+  private async emitDirectMessage(post: MattermostPost): Promise<void> {
+    try {
+      const user = await this.getUser(post.user_id);
+      this.emit('direct_message', this.normalizePlatformPost(post), user);
+    } catch (err) {
+      log.warn(`Failed to emit direct message: ${err}`);
     }
   }
 
@@ -600,8 +612,15 @@ export class MattermostClient extends BasePlatformClient {
         // Ignore messages from ourselves
         if (post.user_id === this.botUserId) return;
 
-        // Only handle messages in our channel
-        if (post.channel_id !== this.channelId) return;
+        // Only handle messages in our channel — except direct messages when
+        // DM auto-discovery is on: those are surfaced as 'direct_message'
+        // events so the bot can spawn a derived instance for the DM channel.
+        if (post.channel_id !== this.channelId) {
+          if (this.directMessages && data.channel_type === 'D') {
+            void this.emitDirectMessage(post);
+          }
+          return;
+        }
 
         // Track last processed post for message recovery after disconnection
         this.lastProcessedPostId = post.id;
