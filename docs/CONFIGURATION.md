@@ -189,7 +189,7 @@ The approval set is fixed when the Claude CLI is spawned; a later `!invite` exte
 
 ### Direct messages (DM)
 
-A Mattermost or Slack DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id — no separate feature needed:
+**Mattermost only.** A Mattermost DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id — no separate feature needed. (This recipe does NOT work on Slack: Socket Mode distributes event envelopes across an app's active connections, so a second platform entry sharing the same app credentials can consume and discard events meant for the other entry. Slack DM support needs a single-connection, channel-aware implementation.)
 
 ```yaml
 platforms:
@@ -204,7 +204,7 @@ platforms:
     allowedUsers: [you]
 ```
 
-Get the DM channel id with one API call (Mattermost): `POST /api/v4/channels/direct` with `["<bot-user-id>", "<your-user-id>"]` — the returned `id` is stable. On Slack, use `conversations.open` with the user id and take the returned channel id (`D...`).
+Get the DM channel id with one API call: `POST /api/v4/channels/direct` with `["<bot-user-id>", "<your-user-id>"]` — the returned `id` is stable.
 
 Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 

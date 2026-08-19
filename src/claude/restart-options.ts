@@ -29,17 +29,26 @@ export interface RestartContext {
   account?: ClaudeCliAccount;
 }
 
+/**
+ * Platform MCP config with approvals scoping applied. Every CLI respawn path
+ * must use this instead of a raw `getMcpConfig()`: scoping must survive
+ * respawns (!cd, !permissions, worktrees, plugin install/uninstall) — and a
+ * respawn is also the moment a later `!invite` actually reaches the approval
+ * set.
+ */
+export function scopedMcpConfig(session: Session): ReturnType<Session['platform']['getMcpConfig']> {
+  const platformMcpConfig = session.platform.getMcpConfig();
+  if (resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner') {
+    platformMcpConfig.allowedUsers = Array.from(session.sessionAllowedUsers);
+  }
+  return platformMcpConfig;
+}
+
 export function buildRestartCliOptions(
   session: Session,
   ctx: RestartContext,
 ): Partial<ClaudeCliOptions> {
-  const platformMcpConfig = session.platform.getMcpConfig();
-  // Approvals scoping must survive CLI respawns (!cd, !permissions,
-  // worktree switches) — and a respawn is also the moment a later !invite
-  // actually reaches the approval set.
-  if (resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner') {
-    platformMcpConfig.allowedUsers = Array.from(session.sessionAllowedUsers);
-  }
+  const platformMcpConfig = scopedMcpConfig(session);
   return {
     threadId: session.threadId,
     chrome: ctx.chromeEnabled,

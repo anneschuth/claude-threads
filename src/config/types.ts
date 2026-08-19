@@ -344,8 +344,9 @@ export interface PlatformInstanceConfig {
    * ```yaml
    * directChannelMode:
    *   respondTo: all_messages   # or: mention
-   *   approvals: owner          # or: all_users
    * ```
+   *
+   * Who may approve tool use is the platform-level `approvals` option.
    *
    * Internally the session is keyed by a synthetic thread id
    * (`dcm:<platformId>`), so persistence, resume, reactions, and permission

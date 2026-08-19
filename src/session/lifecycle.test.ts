@@ -1674,7 +1674,7 @@ describe('resumeSession with direct channel mode', () => {
     } as any;
   }
 
-  const dcmEnabled = { enabled: true, respondTo: 'all_messages', approvals: 'owner' } as const;
+  const dcmEnabled = { enabled: true, respondTo: 'all_messages' } as const;
 
   it('skips the thread-existence check for a synthetic DCM session id', async () => {
     // getPost resolves null (a real thread id would be treated as deleted).
