@@ -48,10 +48,10 @@ describe('buildRestartCliOptions', () => {
 describe('buildRestartCliOptions — DCM approvals scoping', () => {
   const deps = { chromeEnabled: false, permissionTimeoutMs: 120000, account: undefined };
 
-  function dcmSession(approvals: 'owner' | 'all_users') {
+  function scopedSession(threadId: string, approvals?: 'owner' | 'all_users') {
     return makeSession({
-      threadId: 'dcm:test-platform',
-      sessionId: 'test-platform:dcm:test-platform',
+      threadId,
+      sessionId: `test-platform:${threadId}`,
       sessionAllowedUsers: new Set(['alice', 'invited']),
       platform: {
         getMcpConfig: () => ({
@@ -61,23 +61,29 @@ describe('buildRestartCliOptions — DCM approvals scoping', () => {
           channelId: 'c',
           allowedUsers: ['alice', 'bob', 'carol'],
         }),
-        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals },
+        directChannelMode: { enabled: threadId.startsWith('dcm:'), respondTo: 'all_messages' },
+        approvals,
       },
     } as Record<string, unknown>);
   }
 
-  it('owner mode scopes the MCP allowlist to session participants on respawn', () => {
-    const opts = buildRestartCliOptions(dcmSession('owner'), deps as never);
+  it('DCM default (unset) scopes the MCP allowlist to session participants on respawn', () => {
+    const opts = buildRestartCliOptions(scopedSession('dcm:test-platform'), deps as never);
     expect(opts.platformConfig!.allowedUsers!.sort()).toEqual(['alice', 'invited']);
   });
 
-  it('all_users mode keeps the platform allowlist', () => {
-    const opts = buildRestartCliOptions(dcmSession('all_users'), deps as never);
+  it('explicit all_users keeps the platform allowlist in DCM', () => {
+    const opts = buildRestartCliOptions(scopedSession('dcm:test-platform', 'all_users'), deps as never);
     expect(opts.platformConfig!.allowedUsers).toEqual(['alice', 'bob', 'carol']);
   });
 
-  it('classic thread sessions are untouched', () => {
-    const opts = buildRestartCliOptions(makeSession(), deps as never);
-    expect(opts.platformConfig!.allowedUsers).toBeDefined();
+  it('thread default (unset) keeps the platform allowlist — non-breaking', () => {
+    const opts = buildRestartCliOptions(scopedSession('thread-1'), deps as never);
+    expect(opts.platformConfig!.allowedUsers).toEqual(['alice', 'bob', 'carol']);
+  });
+
+  it('explicit owner scopes a classic thread session too', () => {
+    const opts = buildRestartCliOptions(scopedSession('thread-1', 'owner'), deps as never);
+    expect(opts.platformConfig!.allowedUsers!.sort()).toEqual(['alice', 'invited']);
   });
 });

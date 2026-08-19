@@ -16,7 +16,7 @@ import {
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
-import { isDcmThreadId } from '../platform/utils.js';
+import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
@@ -1135,13 +1135,13 @@ async function startSessionImpl(
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
-  // DCM approvals scoping: with `approvals: owner` (the default) only the
-  // session participants may answer tool-permission prompts — in a shared
-  // channel the whole platform allowlist would otherwise be able to approve.
-  // `all_users` keeps the classic behavior. The list is fixed at spawn time;
-  // a later `!invite` extends message access but not the approval set until
-  // the CLI is respawned (e.g. via `!cd` or `!permissions`).
-  if (isDcmThreadId(threadId) && platform.directChannelMode?.approvals !== 'all_users') {
+  // Approvals scoping: with the effective mode `owner` only the session
+  // participants may answer tool-permission prompts (`all_users` = platform
+  // allowlist; unset defaults to all_users for threads and owner for DCM —
+  // see resolveApprovals). The list is fixed at spawn time; a later `!invite`
+  // extends message access but not the approval set until the CLI is
+  // respawned (e.g. via `!cd` or `!permissions`).
+  if (resolveApprovals(platform.approvals, isDcmThreadId(threadId)) === 'owner') {
     platformMcpConfig.allowedUsers = [username];
   }
 
@@ -1492,9 +1492,9 @@ async function resumeSessionImpl(
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
   const userAttribution = state.userAttribution ?? false;
   const platformMcpConfig = platform.getMcpConfig();
-  // DCM approvals scoping on resume mirrors the fresh-start path: session
+  // Approvals scoping on resume mirrors the fresh-start path: session
   // participants (owner + invited) instead of the whole platform allowlist.
-  if (isDcmThreadId(state.threadId) && platform.directChannelMode?.approvals !== 'all_users') {
+  if (resolveApprovals(platform.approvals, isDcmThreadId(state.threadId)) === 'owner') {
     platformMcpConfig.allowedUsers = Array.from(
       new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean))
     ) as string[];

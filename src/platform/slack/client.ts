@@ -1,7 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, resolveDirectChannelMode, type ResolvedDirectChannelMode } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileSlack } from './upload.js';
@@ -49,6 +49,7 @@ export class SlackClient extends BasePlatformClient {
   readonly platformType = 'slack' as const;
   readonly displayName: string;
   readonly directChannelMode: ResolvedDirectChannelMode;
+  readonly approvals?: ApprovalsMode;
 
   private ws: WebSocket | null = null;
   private botToken: string;
@@ -95,6 +96,7 @@ export class SlackClient extends BasePlatformClient {
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
     this.outboundFiles = platformConfig.outboundFiles;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
+    this.approvals = platformConfig.approvals;
   }
 
   // ============================================================================

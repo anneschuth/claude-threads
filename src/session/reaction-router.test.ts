@@ -237,7 +237,7 @@ describe('DCM approvals scoping (reaction gate)', () => {
       isUserAllowed: mock(() => true), // bob is platform-allowed…
       createPost,
       getFormatter: mock(() => ({ formatBold: (t: string) => t })),
-      directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'owner' },
+      directChannelMode: { enabled: true, respondTo: 'all_messages' },
     } as unknown as PlatformClient;
     const deps = makeDeps(null, {
       sessionStore: {
@@ -265,7 +265,7 @@ describe('DCM approvals scoping (reaction gate)', () => {
       threadId: 'dcm:test',
       platform: {
         isUserAllowed: mock(() => true), // bob IS on the platform allowlist
-        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'owner' },
+        directChannelMode: { enabled: true, respondTo: 'all_messages' },
       } as unknown as PlatformClient,
     });
     const deps = makeDeps(session);
@@ -280,7 +280,7 @@ describe('DCM approvals scoping (reaction gate)', () => {
       threadId: 'dcm:test',
       platform: {
         isUserAllowed: mock(() => false),
-        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'owner' },
+        directChannelMode: { enabled: true, respondTo: 'all_messages' },
       } as unknown as PlatformClient,
     });
     const deps = makeDeps(session);
@@ -295,7 +295,8 @@ describe('DCM approvals scoping (reaction gate)', () => {
       threadId: 'dcm:test',
       platform: {
         isUserAllowed: mock(() => true),
-        directChannelMode: { enabled: true, respondTo: 'all_messages', approvals: 'all_users' },
+        directChannelMode: { enabled: true, respondTo: 'all_messages' },
+        approvals: 'all_users',
       } as unknown as PlatformClient,
     });
     const deps = makeDeps(session);

@@ -11,6 +11,7 @@ import {
   isDcmThreadId,
   resolvePostThreadId,
   resolveDirectChannelMode,
+  resolveApprovals,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -418,8 +419,8 @@ describe('direct channel mode thread ids', () => {
 });
 
 describe('resolveDirectChannelMode', () => {
-  it('shorthand true enables with defaults (all_messages, owner)', () => {
-    expect(resolveDirectChannelMode(true)).toEqual({ enabled: true, respondTo: 'all_messages', approvals: 'owner' });
+  it('shorthand true enables with the all_messages default', () => {
+    expect(resolveDirectChannelMode(true)).toEqual({ enabled: true, respondTo: 'all_messages' });
   });
 
   it('false and undefined stay disabled', () => {
@@ -428,8 +429,19 @@ describe('resolveDirectChannelMode', () => {
   });
 
   it('an options object is enabled by default and applies option defaults', () => {
-    expect(resolveDirectChannelMode({ respondTo: 'mention' })).toEqual({ enabled: true, respondTo: 'mention', approvals: 'owner' });
-    expect(resolveDirectChannelMode({ approvals: 'all_users' })).toEqual({ enabled: true, respondTo: 'all_messages', approvals: 'all_users' });
+    expect(resolveDirectChannelMode({ respondTo: 'mention' })).toEqual({ enabled: true, respondTo: 'mention' });
     expect(resolveDirectChannelMode({ enabled: false, respondTo: 'mention' }).enabled).toBe(false);
+  });
+});
+
+describe('resolveApprovals', () => {
+  it('unset keeps each mode\'s historical default', () => {
+    expect(resolveApprovals(undefined, false)).toBe('all_users'); // threads: upstream behavior
+    expect(resolveApprovals(undefined, true)).toBe('owner');      // DCM: safe default
+  });
+
+  it('an explicit setting wins in both modes', () => {
+    expect(resolveApprovals('owner', false)).toBe('owner');
+    expect(resolveApprovals('all_users', true)).toBe('all_users');
   });
 });

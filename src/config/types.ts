@@ -3,7 +3,7 @@
  */
 
 import type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow } from '../auto-update/types.js';
-import type { DirectChannelModeConfig } from '../platform/utils.js';
+import type { DirectChannelModeConfig, ApprovalsMode } from '../platform/utils.js';
 
 // Re-export auto-update types for convenience
 export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
@@ -354,6 +354,17 @@ export interface PlatformInstanceConfig {
    * Default `false` (classic thread-per-session behavior).
    */
   directChannelMode?: DirectChannelModeConfig;
+  /**
+   * Who may answer tool-permission prompts and other reaction gates (plan
+   * approvals, question answers, resume) for this platform's sessions:
+   * `owner` (session participants — starter plus `!invite`d users) or
+   * `all_users` (everyone on `allowedUsers`).
+   *
+   * Unset keeps the historical default per mode: `all_users` for thread
+   * sessions (unchanged upstream behavior), `owner` for direct channel mode.
+   * Setting it applies to both modes.
+   */
+  approvals?: ApprovalsMode;
   /**
    * Per-thread session header visibility. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the

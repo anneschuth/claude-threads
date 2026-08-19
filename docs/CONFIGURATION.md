@@ -129,7 +129,8 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
-| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`, `approvals`). See [Direct Channel Mode](#direct-channel-mode). |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
+| `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 
 ### Slack
 
@@ -148,7 +149,8 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
-| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`, `approvals`). See [Direct Channel Mode](#direct-channel-mode). |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
+| `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 
 ### Direct Channel Mode
 
@@ -166,13 +168,43 @@ The long form configures how the shared channel behaves:
 ```yaml
 directChannelMode:
   respondTo: all_messages   # or: mention
-  approvals: owner          # or: all_users
 ```
 
 | Option | Values | Default | Meaning |
 |--------|--------|---------|---------|
 | `respondTo` | `all_messages` / `mention` | `all_messages` | `all_messages`: every message from an allowed user reaches the bot. `mention`: the bot only reacts to messages that @mention it — useful when several people discuss in the channel and the bot should not join every exchange. Backed by the per-session quiet-mode flag, so `!mentions` toggles it at runtime. |
-| `approvals` | `owner` / `all_users` | `owner` | Who may answer tool-permission prompts (👍/✅/👎). `owner`: the session participants — the starter plus explicitly `!invite`d users. `all_users`: everyone on the platform's `allowedUsers` list (the classic thread-session behavior). The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access but not the approval set until the CLI respawns (e.g. via `!cd`). |
+
+Who may approve tool use in the channel is controlled by the platform-level [`approvals`](#approvals) option (DCM defaults to `owner`).
+
+### Approvals
+
+The platform-level `approvals` option controls who may answer tool-permission prompts (👍/✅/👎) and the other reaction gates — plan approvals, question answers, and session resume:
+
+- `owner` — the session participants: the starter plus explicitly `!invite`d users.
+- `all_users` — everyone on the platform's `allowedUsers` list.
+
+Unset keeps the historical default per mode, so existing setups are unaffected: thread sessions behave as before (`all_users`), direct channel mode defaults to the safer `owner`. Setting the option applies it to every session of that platform entry — including classic thread sessions, where `approvals: owner` is an opt-in hardening.
+
+The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access immediately but reaches the approval set on the next CLI respawn (e.g. via `!cd` or `!permissions`).
+
+### Direct messages (DM)
+
+A Mattermost or Slack DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id — no separate feature needed:
+
+```yaml
+platforms:
+  - id: mattermost-dm
+    type: mattermost
+    url: https://chat.example.com
+    token: your-bot-token       # same bot token as the main entry
+    channelId: <dm-channel-id>
+    botName: claude-code
+    directChannelMode: true
+    stickyMessage: hidden       # a sticky makes little sense in a DM
+    allowedUsers: [you]
+```
+
+Get the DM channel id with one API call (Mattermost): `POST /api/v4/channels/direct` with `["<bot-user-id>", "<your-user-id>"]` — the returned `id` is stable. On Slack, use `conversations.open` with the user id and take the returned channel id (`D...`).
 
 Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 

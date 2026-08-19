@@ -386,13 +386,6 @@ export interface DirectChannelModeOptions {
    * runtime.
    */
   respondTo?: 'all_messages' | 'mention';
-  /**
-   * Who may answer tool-permission prompts (and other reaction gates) in the
-   * channel session. `owner` (default): the session participants — starter
-   * plus explicitly `!invite`d users. `all_users`: everyone on the platform's
-   * `allowedUsers` list (the classic thread-session behavior).
-   */
-  approvals?: 'owner' | 'all_users';
 }
 
 /** `directChannelMode` as written in config.yaml: shorthand boolean or options. */
@@ -402,20 +395,37 @@ export type DirectChannelModeConfig = boolean | DirectChannelModeOptions;
 export interface ResolvedDirectChannelMode {
   enabled: boolean;
   respondTo: 'all_messages' | 'mention';
-  approvals: 'owner' | 'all_users';
 }
 
-/** Apply defaults: `true` → enabled with all_messages/owner; object → enabled unless `enabled: false`. */
+/** Apply defaults: `true` → enabled with all_messages; object → enabled unless `enabled: false`. */
 export function resolveDirectChannelMode(cfg: DirectChannelModeConfig | undefined): ResolvedDirectChannelMode {
   if (cfg === undefined || cfg === false) {
-    return { enabled: false, respondTo: 'all_messages', approvals: 'owner' };
+    return { enabled: false, respondTo: 'all_messages' };
   }
   if (cfg === true) {
-    return { enabled: true, respondTo: 'all_messages', approvals: 'owner' };
+    return { enabled: true, respondTo: 'all_messages' };
   }
   return {
     enabled: cfg.enabled ?? true,
     respondTo: cfg.respondTo ?? 'all_messages',
-    approvals: cfg.approvals ?? 'owner',
   };
+}
+
+/**
+ * Who may answer tool-permission prompts and other reaction gates (plan
+ * approvals, question answers, session resume) for a platform's sessions.
+ *
+ * - `owner`: the session participants — the starter plus explicitly
+ *   `!invite`d users.
+ * - `all_users`: everyone on the platform's `allowedUsers` list.
+ *
+ * Unset keeps each mode's historical default: `all_users` for classic thread
+ * sessions (upstream behavior, non-breaking), `owner` for direct channel mode
+ * (a shared channel should not let every allowed user approve by default).
+ */
+export type ApprovalsMode = 'owner' | 'all_users';
+
+/** Resolve the effective approvals mode: explicit setting wins, else per-mode default. */
+export function resolveApprovals(configured: ApprovalsMode | undefined, isDcmSession: boolean): ApprovalsMode {
+  return configured ?? (isDcmSession ? 'owner' : 'all_users');
 }

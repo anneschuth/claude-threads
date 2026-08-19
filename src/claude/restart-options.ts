@@ -18,7 +18,7 @@
  */
 
 import type { ClaudeCliOptions, ClaudeCliAccount } from './cli.js';
-import { isDcmThreadId } from '../platform/utils.js';
+import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import type { Session } from '../session/types.js';
 import { getSessionUploadDir } from '../operations/streaming/index.js';
 
@@ -34,10 +34,10 @@ export function buildRestartCliOptions(
   ctx: RestartContext,
 ): Partial<ClaudeCliOptions> {
   const platformMcpConfig = session.platform.getMcpConfig();
-  // DCM approvals scoping must survive CLI respawns (!cd, !permissions,
+  // Approvals scoping must survive CLI respawns (!cd, !permissions,
   // worktree switches) — and a respawn is also the moment a later !invite
   // actually reaches the approval set.
-  if (isDcmThreadId(session.threadId) && session.platform.directChannelMode?.approvals !== 'all_users') {
+  if (resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner') {
     platformMcpConfig.allowedUsers = Array.from(session.sessionAllowedUsers);
   }
   return {

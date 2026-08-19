@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import type { ResolvedDirectChannelMode } from './utils.js';
+import type { ResolvedDirectChannelMode, ApprovalsMode } from './utils.js';
 import type {
   PlatformUser,
   PlatformPost,
@@ -63,6 +63,12 @@ export interface PlatformClient extends EventEmitter {
    * and to drop persisted DCM sessions after the flag was turned off.
    */
   readonly directChannelMode?: ResolvedDirectChannelMode;
+
+  /**
+   * Configured approvals mode for this platform (unset → per-mode default;
+   * see `resolveApprovals`).
+   */
+  readonly approvals?: ApprovalsMode;
 
   // ============================================================================
   // Connection Management

@@ -20,7 +20,7 @@
  */
 
 import type { PlatformClient } from '../platform/index.js';
-import { isDcmThreadId } from '../platform/utils.js';
+import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ReactionAction } from '../operations/executors/types.js';
 import type { SessionRegistry } from './registry.js';
@@ -103,13 +103,13 @@ export async function handleReaction(
   // SECURITY: Only process reactions from allowed users.
   // This is the primary authorization gate for all reaction-based actions.
   // All reactions are validated here before reaching MessageManager/executors.
-  // In direct channel mode with `approvals: owner` (the default), only the
-  // session participants may act on reaction gates — bridged plan approvals
-  // and question answers are authoritative permission decisions, so the
-  // platform-wide allowlist must not bypass the scoping there.
+  // With effective approvals mode `owner` only the session participants may
+  // act on reaction gates — bridged plan approvals and question answers are
+  // authoritative permission decisions, so the platform-wide allowlist must
+  // not bypass the scoping there. Unset keeps the historical default per
+  // mode (threads: all_users, DCM: owner) — see resolveApprovals.
   const ownerScoped =
-    isDcmThreadId(session.threadId) &&
-    session.platform.directChannelMode?.approvals !== 'all_users';
+    resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner';
   if (
     !session.sessionAllowedUsers.has(username) &&
     (ownerScoped || !session.platform.isUserAllowed(username))
@@ -156,13 +156,12 @@ async function tryResumeFromReaction(
   const sessionAllowedUsers = new Set(
     persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean),
   );
-  // DCM `approvals: owner`: resume is participant-only, the platform-wide
-  // allowlist must not bypass the scoping (consistent with the active-session
-  // reaction gate above).
+  // Effective approvals mode `owner`: resume is participant-only, the
+  // platform-wide allowlist must not bypass the scoping (consistent with the
+  // active-session reaction gate above).
   const resumeOwnerScoped =
     !!platform &&
-    isDcmThreadId(persistedSession.threadId) &&
-    platform.directChannelMode?.approvals !== 'all_users';
+    resolveApprovals(platform.approvals, isDcmThreadId(persistedSession.threadId)) === 'owner';
   const resumeAuthorized =
     !!platform &&
     (resumeOwnerScoped
