@@ -156,7 +156,19 @@ async function tryResumeFromReaction(
   const sessionAllowedUsers = new Set(
     persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean),
   );
-  if (!platform || !isAuthorizedForSession({ username, platform, sessionAllowedUsers })) {
+  // DCM `approvals: owner`: resume is participant-only, the platform-wide
+  // allowlist must not bypass the scoping (consistent with the active-session
+  // reaction gate above).
+  const resumeOwnerScoped =
+    !!platform &&
+    isDcmThreadId(persistedSession.threadId) &&
+    platform.directChannelMode?.approvals !== 'all_users';
+  const resumeAuthorized =
+    !!platform &&
+    (resumeOwnerScoped
+      ? sessionAllowedUsers.has(username)
+      : isAuthorizedForSession({ username, platform, sessionAllowedUsers }));
+  if (!platform || !resumeAuthorized) {
     if (platform) {
       await platform.createPost(
         `⚠️ @${username} is not authorized to resume this session`,
