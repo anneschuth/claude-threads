@@ -291,6 +291,15 @@ describe('Bash Formatter', () => {
     expect(result!.permissionText).toContain('echo `whoami`');
   });
 
+  it('defuses arbitrarily long backtick runs (a single pass would recreate a fence)', () => {
+    const command = 'printf "`````" && echo ````';
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    // No triple-backtick run may survive inside the fenced block.
+    const inner = result!.permissionText!.split('```bash')[1] ?? '';
+    expect(inner.replace(/```$/, '')).not.toContain('```');
+  });
+
   it('never cuts inside a surrogate pair when truncating the permission command', () => {
     const command = '\u{1F600}'.repeat(1600); // astral emoji, 2 UTF-16 units each
     const result = bashToolFormatter.format('Bash', { command }, options);
