@@ -5,7 +5,7 @@
     "": {
       "name": "claude-threads",
       "dependencies": {
-        "@hono/node-server": "2.1.0",
+        "@hono/node-server": "2.1.1",
         "@inkjs/ui": "^2.0.0",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@redactpii/node": "^1.0.16",
@@ -13,7 +13,7 @@
         "commander": "^14.0.2",
         "diff": "^8.0.3",
         "express-rate-limit": "^8.3.0",
-        "hono": "4.13.1",
+        "hono": "4.13.2",
         "ink": "^6.6.0",
         "ink-scroll-view": "^0.3.5",
         "js-yaml": "^4.3.1",
@@ -45,12 +45,12 @@
     },
   },
   "overrides": {
-    "@hono/node-server": "2.1.0",
+    "@hono/node-server": "2.1.1",
     "brace-expansion": ">=5.0.9",
     "express-rate-limit": "^8.3.0",
     "fast-uri": ">=4.1.2",
     "flatted": ">=3.4.0",
-    "hono": "4.13.1",
+    "hono": "4.13.2",
     "ip-address": ">=10.3.1",
     "path-to-regexp": ">=8.4.0",
     "picomatch": ">=2.3.2",
@@ -82,7 +82,7 @@
 
     "@eslint/plugin-kit": ["@eslint/plugin-kit@0.7.2", "", { "dependencies": { "@eslint/core": "^1.2.1", "levn": "^0.4.1" } }, "sha512-+CNAzxglkrpNf/kKywqQfk74QjtceuOE7Qm+AF8miRvPF/wmmK5+OJOgVh3AVTT3RP2mH3+FOaxlE5v72owk0A=="],
 
-    "@hono/node-server": ["@hono/node-server@2.1.0", "", { "peerDependencies": { "hono": "^4" } }, "sha512-XovyyCCnBzW+zKu+z/zq8hwNs4KOR5rEMAOxo2f40Q5xoOI37IMm6MIg2COOUtUApo0i6850MTBKH2u4QLGIqg=="],
+    "@hono/node-server": ["@hono/node-server@2.1.1", "", { "peerDependencies": { "hono": "^4" } }, "sha512-ELuehkj5VCBdgEw9zs+ivkKwyzzUCSQuE96YmiPvn1ECBoZCczbFXJLeEGMTYjphP6gydh4pHMqEYPVMYUVgQg=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.1", "", {}, "sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA=="],
 
@@ -424,7 +424,7 @@
 
     "hasown": ["hasown@2.0.2", "", { "dependencies": { "function-bind": "^1.1.2" } }, "sha512-0hJU9SCPvmMzIBdZFqNPXWa6dqh7WdH0cII9y+CyS8rG3nL48Bclra9HmKhVVUHyPWNH5Y7xDwAB7bfgSjkUMQ=="],
 
-    "hono": ["hono@4.13.1", "", {}, "sha512-kdJoFVv2xmayw6cY09H7AbMJMt8Jn5jdlEdXsP7AGBdF2DIptVlKlOLKXP41yPip4/a3yQPv9gVcJYI8YY04dw=="],
+    "hono": ["hono@4.13.2", "", {}, "sha512-JydRilDRkYBQMt9qR9U92mXxmbGqsqSn/IKOrh4e7/gEbn+0zSr8igTu0obwJoNGN4sez28DIql7FBHWydoJpA=="],
 
     "http-errors": ["http-errors@2.0.1", "", { "dependencies": { "depd": "~2.0.0", "inherits": "~2.0.4", "setprototypeof": "~1.2.0", "statuses": "~2.0.2", "toidentifier": "~1.0.1" } }, "sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ=="],
 
