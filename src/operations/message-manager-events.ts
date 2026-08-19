@@ -87,6 +87,26 @@ export interface MessageManagerEventMap {
   };
 
   /**
+   * Emitted when a routine-creation confirmation receives a response.
+   * The lifecycle listener performs the store write on approval.
+   */
+  'routine-prompt:complete': {
+    approved: boolean;
+    parsed: {
+      name: string;
+      prompt: string;
+      schedule: {
+        preset: 'hourly' | 'daily' | 'weekdays' | 'weekly';
+        time?: string;
+        weekday?: number;
+        timezone: string;
+      };
+    };
+    requestedBy: string;
+    postId: string;
+  };
+
+  /**
    * Emitted when an initial worktree prompt (branch suggestions) receives a response.
    */
   'worktree-initial-prompt:complete': {

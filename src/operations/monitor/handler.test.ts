@@ -12,6 +12,7 @@ function createMockContext(): SessionContext {
       sessionStore: {} as never,
       githubEmailsStore: {} as never,
       memoryStore: {} as never,
+      routinesStore: {} as never,
       isShuttingDown: false,
     },
     config: {

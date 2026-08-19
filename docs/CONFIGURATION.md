@@ -245,6 +245,64 @@ platforms:
   `CLAUDE_CODE_REMOTE` is set (unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is
   configured) — the repo layer will be inert in such environments.
 
+### Routines (`routines`, default: enabled)
+
+Scheduled recurring work, Claude Tag-style: a routine fires on its schedule
+as a **bot-initiated session thread** in the channel — a completely normal
+session (platform permission mode, account-pool balancing, channel memory,
+distillation) whose task is the routine's prompt.
+
+```yaml
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    # ... credentials ...
+    routines: true              # default; `false` disables the scheduler + commands
+
+limits:
+  maxRoutines: 10               # per-platform cap (default 10)
+```
+
+**Creating** (natural language, confirmed before saving):
+
+```
+!routine every weekday at 9am, summarize the open review threads
+```
+
+A haiku pass parses the request into a structured schedule (presets: hourly /
+daily / weekdays / weekly — hourly is the floor), the bot posts the parsed
+result, and **nothing is saved until someone reacts 👍**. Timezones: name one
+explicitly ("9am Pacific"); otherwise the bot host's timezone is used and the
+confirmation says so.
+
+**Managing:**
+
+- `!routines` — numbered list with schedule, creator, and last-run status
+- `!routines pause|resume|delete <n>` — owner-gated
+- `!routines run <n>` — fire now, outside the schedule (any allowed user;
+  does not consume the period's scheduled fire)
+
+**Semantics & guardrails:**
+
+- Runs fire **as their creator** and are re-authorized on every fire — a
+  creator who loses platform authorization disables the routine (with a
+  channel notice), mirroring Claude Tag.
+- At most one fire per period (hour/day/week), evaluated on the wall clock in
+  the routine's timezone (DST-safe). A window missed entirely (bot offline)
+  is skipped, not back-filled.
+- 3 consecutive failed runs auto-disable the routine with a channel notice;
+  `!routines resume <n>` re-arms it.
+- Runs count against `MAX_SESSIONS`; at the limit a fire is retried within
+  its window and otherwise skipped.
+- **Each run starts a full Claude session on your subscription** — the
+  confirmation and `!routines` listing both say so.
+- Routines are scoped per platform instance (same privacy boundary as
+  memory) and stored at `~/.config/claude-threads/routines.yaml` (0600;
+  override with `CLAUDE_THREADS_ROUTINES_PATH`).
+- The natural-language parse uses one haiku `claude -p` call — the same
+  bot-process-credentials caveat as memory distillation applies in OAuth
+  account pools.
+
 ## Claude Accounts (optional, multi-account mode)
 
 By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts. Omit the block entirely to stay in single-account mode (unchanged behavior).

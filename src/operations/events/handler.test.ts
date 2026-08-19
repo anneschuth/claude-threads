@@ -133,6 +133,14 @@ function createSessionContext(): SessionContext {
       sessionStore: { save: () => {}, remove: () => {}, load: () => new Map(), findByPostId: () => undefined, cleanStale: () => [] } as any,
       githubEmailsStore: { get: () => undefined, set: () => {}, delete: () => false } as any,
       memoryStore: { buildChannelMemoryBlock: () => null, listChannelEntries: () => [] } as any,
+      routinesStore: {
+        list: mock(() => []),
+        get: mock(() => undefined),
+        add: mock(() => Promise.resolve({ ok: true, routine: {} })),
+        update: mock(() => Promise.resolve(undefined)),
+        remove: mock(() => Promise.resolve(undefined)),
+        countEnabled: mock(() => 0),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -172,6 +180,8 @@ function createSessionContext(): SessionContext {
       getClaudeAccountPoolStatus: mock(() => []),
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
+      isRoutinesEnabled: mock(() => true),
+      fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
     },
   };
 }

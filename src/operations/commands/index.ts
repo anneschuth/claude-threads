@@ -26,6 +26,10 @@ export {
   showMemory,
   forgetMemory,
 
+  // Routines
+  createRoutine,
+  manageRoutines,
+
   // Permission management
   setSessionPermissionMode,
 

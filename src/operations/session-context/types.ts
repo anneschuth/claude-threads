@@ -21,6 +21,7 @@ import type { BuiltMessageContent } from '../streaming/handler.js';
 import type { ClaudeAccount, PermissionMode, PlatformOverhead, ResolvedMemoryConfig } from '../../config/index.js';
 import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
 import type { MemoryStore } from '../../memory/store.js';
+import type { Routine, RoutinesStore, RoutineRunStatus } from '../../persistence/routines-store.js';
 
 // =============================================================================
 // Configuration (read-only state)
@@ -52,6 +53,8 @@ export interface SessionConfig {
   debug: boolean;
   /** Maximum concurrent sessions allowed */
   maxSessions: number;
+  /** Maximum routines per platform instance (default: 10) */
+  maxRoutines?: number;
   /** Whether thread logging is enabled (default: true) */
   threadLogsEnabled?: boolean;
   /** Thread log retention in days (default: 30) */
@@ -82,6 +85,8 @@ export interface SessionState {
   readonly githubEmailsStore: GitHubEmailsStore;
   /** Persistent memory (channel layer + repo-layer directory management) */
   readonly memoryStore: MemoryStore;
+  /** Scheduled routines (Claude Tag-style recurring work) */
+  readonly routinesStore: RoutinesStore;
   /** Whether the manager is shutting down */
   readonly isShuttingDown: boolean;
 }
@@ -332,6 +337,18 @@ export interface SessionOperations {
    * the platform was registered without an explicit `memory` option.
    */
   getPlatformMemoryConfig(platformId: string): ResolvedMemoryConfig;
+
+  /**
+   * Whether scheduled routines are enabled for a platform (default true).
+   */
+  isRoutinesEnabled(platformId: string): boolean;
+
+  /**
+   * Fire one routine immediately (the `!routines run <n>` path). Runs through
+   * the scheduler's bookkeeping but does not consume the current period's
+   * scheduled fire.
+   */
+  fireRoutineNow(platformId: string, routine: Routine): Promise<RoutineRunStatus | 'unauthorized'>;
 }
 
 // =============================================================================

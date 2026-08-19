@@ -41,6 +41,7 @@ import type {
   PendingContextPrompt,
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
+  PendingRoutinePrompt,
   PendingBugReport,
 } from './executors/types.js';
 import { PostTracker } from './post-tracker.js';
@@ -783,6 +784,19 @@ export class MessageManager {
    */
   clearPendingUpdatePrompt(): void {
     this.promptExecutor.clearPendingUpdatePrompt();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Routine-creation confirmation delegation
+  // ---------------------------------------------------------------------------
+
+  /** Set the pending routine-creation confirmation (one per session). */
+  setPendingRoutinePrompt(prompt: PendingRoutinePrompt): void {
+    this.promptExecutor.setPendingRoutinePrompt(prompt);
+  }
+
+  hasPendingRoutinePrompt(): boolean {
+    return this.promptExecutor.hasPendingRoutinePrompt();
   }
 
   // ---------------------------------------------------------------------------

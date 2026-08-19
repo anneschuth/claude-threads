@@ -75,6 +75,10 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   ['remember', /^!remember\s+([\s\S]+)$/i],
   ['memory', /^!memory(?:\s+([\s\S]+))?$/i],
 
+  // Scheduled routines — !routine creates (natural language), !routines manages.
+  ['routines', /^!routines(?:\s+([\s\S]+))?$/i],
+  ['routine', /^!routine\s+([\s\S]+)$/i],
+
   // Updates
   ['update', /^!update(?:\s+(now|defer))?\s*$/i],
 

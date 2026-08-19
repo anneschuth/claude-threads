@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Routines — scheduled recurring work, Claude Tag-style.** `!routine every weekday at 9am, summarize the open review threads` creates a routine in natural language: one haiku pass parses the request into a structured schedule (presets hourly/daily/weekdays/weekly — hourly is the floor; timezone from the request or the bot host's zone, stated explicitly), the bot posts the parsed result, and **nothing is saved until someone reacts 👍**. Each run fires as a **bot-initiated session thread** in the channel — a completely normal session (platform permission mode, account-pool balancing, channel memory, end-of-session distillation) started as the routine's creator, with the creator re-authorized on every fire (a deauthorized creator disables the routine with a channel notice, mirroring Claude Tag).
+  - **Managing:** `!routines` lists numbered with schedule/creator/last-run; `!routines pause|resume|delete <n>` (owner-gated); `!routines run <n>` fires now without consuming the period's scheduled run.
+  - **Scheduling correctness:** due-ness is evaluated on the wall clock in the routine's own timezone (DST-safe, unit-tested across both switches), anchored to one fire per period; windows missed while the bot is down are skipped, not back-filled.
+  - **Guardrails:** per-platform cap (`limits.maxRoutines`, default 10); 3 consecutive failed runs auto-disable with a notice; runs count against `MAX_SESSIONS` (retried within the window when at the limit); cost is stated in the confirmation and the listing (each run starts a full Claude session on your subscription). Per-platform `routines: false` disables the feature; storage at `~/.config/claude-threads/routines.yaml` (0600, per-platform scoped like memory; override `CLAUDE_THREADS_ROUTINES_PATH`).
+
 ## [1.25.0] - 2026-08-19
 
 ### Added

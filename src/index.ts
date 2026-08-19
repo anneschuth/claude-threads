@@ -7,6 +7,7 @@ import {
   resolvePermissionMode,
   resolveOverheadVisibility,
   resolveMemoryConfig,
+  resolveRoutinesEnabled,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
@@ -657,6 +658,9 @@ async function startWithoutDaemon() {
     }, resolveMemoryConfig(
       platformConfig.memory,
       `platforms[${platformConfig.id}].memory`,
+    ), resolveRoutinesEnabled(
+      platformConfig.routines,
+      `platforms[${platformConfig.id}].routines`,
     ));
 
     // Wire up platform events

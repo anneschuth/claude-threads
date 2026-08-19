@@ -272,6 +272,10 @@
                 notes with every session, ended sessions distill durable facts,
                 and Claude's native auto-memory keeps per-repo knowledge
               </li>
+              <li>
+                Routines: <code>!routine every weekday at 9am, ...</code>
+                schedules recurring work that posts its runs as new threads
+              </li>
               <li>Quiet mode and per-channel verbosity dials</li>
               <li>Runs on macOS, Linux, and Windows</li>
             </ul>
@@ -347,6 +351,17 @@
                 <td>
                   Show channel memory (<code>forget &lt;n|text&gt;</code>
                   removes an entry)
+                </td>
+              </tr>
+              <tr>
+                <td><code>!routine &lt;schedule, task&gt;</code></td>
+                <td>Schedule a recurring routine (confirmed with 👍)</td>
+              </tr>
+              <tr>
+                <td><code>!routines</code></td>
+                <td>
+                  List routines (<code>pause|resume|delete|run &lt;n&gt;</code>
+                  manage them)
                 </td>
               </tr>
               <tr>
