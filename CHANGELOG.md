@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.24.3] - 2026-08-19
+
+### Changed
+- **Dependency updates** (#473, #474). Production: `@hono/node-server` 2.1.0 → 2.1.1, `hono` 4.13.1 → 4.13.2. Dev: `knip` 6.32.0 → 6.32.2, pulling `oxc-parser` 0.142.0 → 0.143.0 and `unbash` 4.0.6 → 4.0.10. `typescript-eslint` 8.67.0 landed in `package-lock.json` only — it is a caret-ranged dev dependency, so `bun install` left `bun.lock` (what CI actually installs from) on 8.65.0. Full typecheck/lint/knip/test/build battery green on the combined result.
+
 ## [1.24.2] - 2026-08-13
 
 ### Changed
