@@ -6,6 +6,7 @@ import {
   configExists as checkConfigExists,
   resolvePermissionMode,
   resolveOverheadVisibility,
+  resolveMemoryConfig,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
@@ -653,7 +654,10 @@ async function startWithoutDaemon() {
         platformConfig.stickyMessage,
         `platforms[${platformConfig.id}].stickyMessage`,
       ),
-    });
+    }, resolveMemoryConfig(
+      platformConfig.memory,
+      `platforms[${platformConfig.id}].memory`,
+    ));
 
     // Wire up platform events
     wirePlatformEvents(platformConfig.id, client, session, ui);

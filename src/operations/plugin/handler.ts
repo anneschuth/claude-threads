@@ -10,6 +10,10 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
 import { effectivePermissionMode } from '../../config/index.js';
+import { resolveSessionMemory, activeWorktreeRepoRoot } from '../../memory/store.js';
+import { buildRestartCliOptions } from '../../claude/restart-options.js';
+import { buildAppendSystemPrompt } from '../../commands/system-prompt-generator.js';
+import { CHAT_PLATFORM_PROMPT } from '../../session/lifecycle.js';
 import { post, postError } from '../post-helpers/index.js';
 import { restartClaudeSession } from '../commands/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -17,6 +21,67 @@ import { createSessionLog } from '../../utils/session-log.js';
 
 const log = createLogger('plugin');
 const sessionLog = createSessionLog(log);
+
+/**
+ * CLI options for the post-(un)install respawn. Built on
+ * `buildRestartCliOptions` so the cross-cutting fields every restart site
+ * must thread (uploadDir/outboundFiles for send_file, the session's pooled
+ * account, the decision-bridge socket, sessionOwnerUsername) can't silently
+ * drop — resuming under the wrong account HOME fails with "No conversation
+ * found", and a missing uploadDir breaks send_file.
+ *
+ * Only resume when Claude has actually responded — an early restart (e.g.
+ * plugin install before the first turn) has no conversation to resume and
+ * Claude CLI rejects `--resume <uuid>` with "No conversation found".
+ */
+async function buildPluginRestartCliOptions(
+  session: Session,
+  ctx: SessionContext,
+): Promise<ClaudeCliOptions> {
+  const account = session.claudeAccountId
+    ? ctx.ops.getClaudeAccount(session.claudeAccountId)
+    : undefined;
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(session.platformId);
+  return {
+    ...buildRestartCliOptions(session, {
+      chromeEnabled: ctx.config.chromeEnabled,
+      permissionTimeoutMs: ctx.config.permissionTimeoutMs,
+      account: account ? { id: account.id, home: account.home, apiKey: account.apiKey } : undefined,
+    }),
+    workingDir: session.workingDir,
+    permissionMode: effectivePermissionMode({
+      override: session.permissionModeOverride,
+      sessionHasInteractiveOverride: session.forceInteractivePermissions,
+      botWideMode: ctx.config.permissionMode,
+    }),
+    sessionId: session.claudeSessionId,
+    resume: session.lifecycle.hasClaudeResponded,
+    // Rebuild the append-system-prompt: `--append-system-prompt` is
+    // per-invocation and NOT re-applied by `--resume`, so without this the
+    // respawned Claude would lose the platform context, command list,
+    // co-author rules, attribution note, and channel memory. Mirrors the
+    // !cd / !permissions restart paths.
+    appendSystemPrompt: await buildAppendSystemPrompt(
+      session.platform,
+      session.platformId,
+      session.workingDir,
+      session.threadId,
+      session.startedBy,
+      session.sessionAllowedUsers,
+      CHAT_PLATFORM_PROMPT,
+      ctx.state.githubEmailsStore,
+      memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
+      { userAttribution: session.userAttribution },
+    ),
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore,
+      memoryConfig,
+      session.platformId,
+      session.workingDir,
+      activeWorktreeRepoRoot(session.workingDir, session.worktreeInfo),
+    ),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Subprocess execution
@@ -120,25 +185,7 @@ export async function handlePluginInstall(
     `✅ Plugin installed: ${formatter.formatCode(pluginName)}\n🔄 Restarting Claude to load plugin...`
   );
 
-  // Build CLI options from session state (can't access private session.claude.options).
-  // Only resume when Claude has actually responded — an early restart (e.g.
-  // plugin install before the first turn) has no conversation to resume and
-  // Claude CLI rejects `--resume <uuid>` with "No conversation found".
-  const cliOptions: ClaudeCliOptions = {
-    workingDir: session.workingDir,
-    threadId: session.threadId,
-    permissionMode: effectivePermissionMode({
-      override: session.permissionModeOverride,
-      sessionHasInteractiveOverride: session.forceInteractivePermissions,
-      botWideMode: ctx.config.permissionMode,
-    }),
-    sessionId: session.claudeSessionId,
-    resume: session.lifecycle.hasClaudeResponded,
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
-    logSessionId: session.sessionId,
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-  };
+  const cliOptions = await buildPluginRestartCliOptions(session, ctx);
 
   // Restart Claude CLI to pick up the new plugin
   const success = await restartClaudeSession(
@@ -185,25 +232,7 @@ export async function handlePluginUninstall(
     `✅ Plugin uninstalled: ${formatter.formatCode(pluginName)}\n🔄 Restarting Claude...`
   );
 
-  // Build CLI options from session state (can't access private session.claude.options).
-  // Only resume when Claude has actually responded — an early restart (e.g.
-  // plugin install before the first turn) has no conversation to resume and
-  // Claude CLI rejects `--resume <uuid>` with "No conversation found".
-  const cliOptions: ClaudeCliOptions = {
-    workingDir: session.workingDir,
-    threadId: session.threadId,
-    permissionMode: effectivePermissionMode({
-      override: session.permissionModeOverride,
-      sessionHasInteractiveOverride: session.forceInteractivePermissions,
-      botWideMode: ctx.config.permissionMode,
-    }),
-    sessionId: session.claudeSessionId,
-    resume: session.lifecycle.hasClaudeResponded,
-    chrome: ctx.config.chromeEnabled,
-    platformConfig: session.platform.getMcpConfig(),
-    logSessionId: session.sessionId,
-    permissionTimeoutMs: ctx.config.permissionTimeoutMs,
-  };
+  const cliOptions = await buildPluginRestartCliOptions(session, ctx);
 
   // Restart Claude CLI to unload the plugin
   const success = await restartClaudeSession(

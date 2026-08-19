@@ -350,3 +350,38 @@ describe('CLAUDE_ALLOWED_COMMANDS', () => {
     expect(CLAUDE_ALLOWED_COMMANDS.size).toBe(3);
   });
 });
+
+describe('channel memory commands', () => {
+  test('parses !remember with text', () => {
+    const result = parseCommand('!remember deploys happen on Tuesdays');
+    expect(result).toEqual({
+      command: 'remember',
+      args: 'deploys happen on Tuesdays',
+      match: '!remember deploys happen on Tuesdays',
+    });
+  });
+
+  test('!remember without text does not match the remember pattern', () => {
+    // Falls through to the dynamic slash-command catch-all, which the
+    // executor rejects because `remember` has a registered handler.
+    const result = parseCommand('!remember');
+    expect(result?.command).toBe('remember');
+    expect(result?.args).toBeUndefined();
+  });
+
+  test('parses bare !memory', () => {
+    const result = parseCommand('!memory');
+    expect(result?.command).toBe('memory');
+    expect(result?.args).toBeUndefined();
+  });
+
+  test('parses !memory forget with number', () => {
+    const result = parseCommand('!memory forget 2');
+    expect(result).toEqual({ command: 'memory', args: 'forget 2', match: '!memory forget 2' });
+  });
+
+  test('parses !memory forget with text and !memory forget all', () => {
+    expect(parseCommand('!memory forget the deploy fact')?.args).toBe('forget the deploy fact');
+    expect(parseCommand('!memory forget all')?.args).toBe('forget all');
+  });
+});

@@ -172,6 +172,10 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Priority: explicit path > generate new path
   const sessionsPath = explicitSessionsPath ?? generateTestSessionsPath();
   process.env.CLAUDE_THREADS_SESSIONS_PATH = sessionsPath;
+  // Isolate persistent memory the same way (default would be the real
+  // ~/.config/claude-threads/memory). Keyed off the sessions path so resume
+  // tests that share a sessions file also share their memory root.
+  process.env.CLAUDE_THREADS_MEMORY_DIR = `${sessionsPath}.memory`;
 
   // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
   if (clearPersistedSessions) {
@@ -364,6 +368,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       // set them anyway, and deleting them can cause race conditions with async
       // operations that are still running.
       delete process.env.CLAUDE_THREADS_SESSIONS_PATH;
+      delete process.env.CLAUDE_THREADS_MEMORY_DIR;
       if (debug) {
         console.log('[test-bot] Stopped');
       }

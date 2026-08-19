@@ -52,6 +52,8 @@ import {
   postSkippedFilesFeedback,
 } from '../operations/streaming/handler.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
+import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
+import { scheduleDistillation } from '../memory/distiller.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -1026,6 +1028,7 @@ export async function startSession(
   // standby one-liner. The full list is published into the thread later
   // (by `postCollaboratorUpdatedNotice` on each !invite/!kick), and Claude
   // reads it from there on the next turn — the static prompt is not rewritten.
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(platformId);
   const systemPrompt = await buildAppendSystemPrompt(
     platform,
     platformId,
@@ -1035,6 +1038,7 @@ export async function startSession(
     [username],
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
     { userAttribution },
   );
 
@@ -1082,6 +1086,11 @@ export async function startSession(
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: username,
     decisionBridgePath: decisionBridge?.path,
+    // Repo memory layer: redirect Claude's native auto-memory into the
+    // bot-managed per-(platform, repo) directory. Null disables it entirely.
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore, memoryConfig, platformId, workingDir,
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1330,6 +1339,7 @@ export async function resumeSession(
 
   // Include system prompt for resumed sessions (platform context, command info,
   // and collaborator co-author tags carried over from before the restart).
+  const memoryConfig = ctx.ops.getPlatformMemoryConfig(state.platformId);
   const appendSystemPrompt = await buildAppendSystemPrompt(
     platform,
     state.platformId,
@@ -1339,6 +1349,7 @@ export async function resumeSession(
     state.sessionAllowedUsers || [state.startedBy],
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
+    memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
     { userAttribution },
   );
 
@@ -1378,6 +1389,12 @@ export async function resumeSession(
     outboundFiles: platformMcpConfig.outboundFiles,
     sessionOwnerUsername: state.startedBy,
     decisionBridgePath: resumeBridge?.path,
+    // Same repo-memory binding as startSession — recomputed, not persisted,
+    // so a moved/deleted repo can't strand the session.
+    memory: await resolveSessionMemory(
+      ctx.state.memoryStore, memoryConfig, state.platformId, state.workingDir,
+      activeWorktreeRepoRoot(state.workingDir, state.worktreeInfo),
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1890,6 +1907,9 @@ export async function handleExit(
   // Normal exit cleanup
   sessionLog(session).debug(`Normal exit, cleaning up`);
 
+  // Distill the thread into channel memory (fire-and-forget; never blocks teardown)
+  scheduleDistillation(session, ctx, 'exit');
+
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
   await closeThreadLogger(session, 'exit', { exitCode: code });
@@ -1942,6 +1962,12 @@ export async function killSession(
   // Set restarting state to prevent handleExit from also unpersisting
   if (!unpersist) {
     transitionTo(session, 'restarting');
+  }
+
+  // A real kill (not a pause/respawn) ends the conversation — distill it into
+  // channel memory. Fire-and-forget; snapshots state before teardown.
+  if (unpersist) {
+    scheduleDistillation(session, ctx, 'stop');
   }
 
   ctx.ops.stopTyping(session);
@@ -2047,6 +2073,11 @@ export async function cleanupIdleSessions(
       // Mark as paused so it won't auto-resume on bot restart
       transitionTo(session, 'paused');
       ctx.ops.persistSession(session);
+
+      // A timed-out thread is usually done — distill it into channel memory.
+      // If it resumes and ends again later, the dedupe pass absorbs the second
+      // distillation. (killSession(unpersist=false) itself does not distill.)
+      scheduleDistillation(session, ctx, 'timeout');
 
       // Kill without unpersisting to allow resume
       await killSession(session, false, ctx);

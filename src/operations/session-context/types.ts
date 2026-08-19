@@ -18,8 +18,9 @@ import type { SessionStore } from '../../persistence/session-store.js';
 import type { GitHubEmailsStore } from '../../persistence/github-emails-store.js';
 import type { SessionInfo } from '../../ui/types.js';
 import type { BuiltMessageContent } from '../streaming/handler.js';
-import type { ClaudeAccount, PermissionMode, PlatformOverhead } from '../../config/index.js';
+import type { ClaudeAccount, PermissionMode, PlatformOverhead, ResolvedMemoryConfig } from '../../config/index.js';
 import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
+import type { MemoryStore } from '../../memory/store.js';
 
 // =============================================================================
 // Configuration (read-only state)
@@ -79,6 +80,8 @@ export interface SessionState {
   readonly sessionStore: SessionStore;
   /** GitHub noreply email registrations (for commit co-author attribution) */
   readonly githubEmailsStore: GitHubEmailsStore;
+  /** Persistent memory (channel layer + repo-layer directory management) */
+  readonly memoryStore: MemoryStore;
   /** Whether the manager is shutting down */
   readonly isShuttingDown: boolean;
 }
@@ -323,6 +326,12 @@ export interface SessionOperations {
    * explicit settings.
    */
   getPlatformOverhead(platformId: string): PlatformOverhead;
+
+  /**
+   * Resolved memory settings for a platform. Defaults to fully enabled when
+   * the platform was registered without an explicit `memory` option.
+   */
+  getPlatformMemoryConfig(platformId: string): ResolvedMemoryConfig;
 }
 
 // =============================================================================

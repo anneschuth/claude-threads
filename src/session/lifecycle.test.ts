@@ -189,6 +189,14 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         set: mock(() => {}),
         delete: mock(() => false),
       } as any,
+      memoryStore: {
+        buildChannelMemoryBlock: mock(() => null),
+        listChannelEntries: mock(() => []),
+        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [], superseded: [] })),
+        forgetChannelEntry: mock(() => Promise.resolve({ ok: false, reason: 'empty', matches: [] })),
+        clearChannel: mock(() => Promise.resolve()),
+        repoMemoryDir: mock(() => '/tmp/test-memory'),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -227,6 +235,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
+      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
     },
   };
 }

@@ -149,6 +149,23 @@ export interface ClaudeCliOptions {
    * prompts.
    */
   decisionBridgePath?: string;
+  /**
+   * Repo-layer memory wiring (see src/memory/store.ts).
+   *
+   * - `{ autoMemoryDir }`: Claude Code's native auto-memory is redirected into
+   *   this bot-managed directory via the `autoMemoryDirectory` setting, so the
+   *   bot controls the privacy boundary (per platform + repo) instead of the
+   *   default `$HOME/.claude/projects/...` location — which would be shared
+   *   across channels when an account pool overrides HOME per session.
+   * - `null`: memory is disabled for this session. Native auto-memory is
+   *   suppressed outright via `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` so it can't
+   *   silently accumulate cross-channel context under a pooled account's HOME.
+   *
+   * Deliberately REQUIRED (not optional): every spawn site must decide, so a
+   * new respawn path can't silently drop the memory binding — the same
+   * failure mode buildRestartCliOptions exists to prevent for uploadDir.
+   */
+  memory: { autoMemoryDir: string } | null;
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -166,7 +183,7 @@ export interface ClaudeCliAccount {
 export function buildClaudeChildEnv(
   parentEnv: NodeJS.ProcessEnv,
   account?: ClaudeCliAccount,
-  opts?: { decisionBridge?: boolean }
+  opts?: { decisionBridge?: boolean; disableAutoMemory?: boolean }
 ): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...parentEnv };
 
@@ -176,6 +193,15 @@ export function buildClaudeChildEnv(
   }
   if (env.ENABLE_PROMPT_CACHING_1H === undefined) {
     env.ENABLE_PROMPT_CACHING_1H = 'true';
+  }
+
+  // Memory off for this session → force-suppress native auto-memory. This is
+  // a privacy measure, not tuning, so it deliberately overrides the parent
+  // env: without it the CLI would write memories under $HOME/.claude — and
+  // with an account pool that HOME is shared by sessions from *other*
+  // channels, silently leaking context across privacy boundaries.
+  if (opts?.disableAutoMemory) {
+    env.CLAUDE_CODE_DISABLE_AUTO_MEMORY = '1';
   }
 
   // With a decision bridge, plan approvals and question answers block the
@@ -204,6 +230,38 @@ export function buildClaudeChildEnv(
   }
 
   return env;
+}
+
+/**
+ * Assemble the inline `--settings` JSON for a Claude spawn. Pure function so
+ * the wiring is unit-testable. Returns null when nothing needs settings (no
+ * `--settings` flag is emitted at all — preserving pre-memory behavior).
+ *
+ * The memory redirect (`autoMemoryDirectory`) is how the repo memory layer
+ * works: Claude Code's native auto-memory machinery reads/writes the
+ * bot-managed directory instead of `$HOME/.claude/projects/...`. Verified
+ * against CLI 2.1.235: honored headless over stream-json (MEMORY.md loads at
+ * session start; saves go through normal file tools, auto-allowed in the
+ * memory directory). Note the CLI ignores this key when set in checked-in
+ * project settings — command-line `--settings` is the supported path.
+ */
+export function buildInlineSettings(
+  statusLineCommand: string | undefined,
+  memory: ClaudeCliOptions['memory'],
+): Record<string, unknown> | null {
+  const settings: Record<string, unknown> = {};
+  if (statusLineCommand) {
+    settings.statusLine = {
+      type: 'command',
+      command: statusLineCommand,
+      padding: 0,
+    };
+  }
+  if (memory) {
+    settings.autoMemoryEnabled = true;
+    settings.autoMemoryDirectory = memory.autoMemoryDir;
+  }
+  return Object.keys(settings).length > 0 ? settings : null;
 }
 
 /**
@@ -580,20 +638,20 @@ export class ClaudeCli extends EventEmitter {
       args.push('--append-system-prompt', this.options.appendSystemPrompt);
     }
 
-    // Configure status line to write context data to a temp file
-    // This gives us accurate context window usage information
+    // Inline --settings JSON, assembled from every feature that needs one.
+    // Emitted at most once — the CLI takes a single --settings value.
+    let statusLineCommand: string | undefined;
     if (this.options.sessionId) {
+      // Status line writes context data to a temp file — this gives us
+      // accurate context window usage information.
       this.statusFilePath = join(tmpdir(), `claude-threads-status-${this.options.sessionId}.json`);
       const statusLineWriterPath = this.getStatusLineWriterPath();
       const runtime = runtimeForScriptPath(statusLineWriterPath);
-      const statusLineSettings = {
-        statusLine: {
-          type: 'command',
-          command: `${runtime} ${statusLineWriterPath} ${this.options.sessionId}`,
-          padding: 0,
-        },
-      };
-      args.push('--settings', JSON.stringify(statusLineSettings));
+      statusLineCommand = `${runtime} ${statusLineWriterPath} ${this.options.sessionId}`;
+    }
+    const settings = buildInlineSettings(statusLineCommand, this.options.memory);
+    if (settings) {
+      args.push('--settings', JSON.stringify(settings));
     }
 
     this.log.debug(`Starting: ${claudePath} ${args.slice(0, 5).join(' ')}...`);
@@ -994,6 +1052,7 @@ export class ClaudeCli extends EventEmitter {
   private buildChildEnv(): NodeJS.ProcessEnv {
     return buildClaudeChildEnv(process.env, this.options.account, {
       decisionBridge: this.options.decisionBridgePath !== undefined,
+      disableAutoMemory: this.options.memory === null,
     });
   }
 

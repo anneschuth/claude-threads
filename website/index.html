@@ -267,6 +267,11 @@
                 the thread
               </li>
               <li>Git worktrees isolate each session's changes on a branch</li>
+              <li>
+                Channels learn over time: <code>!remember</code> shares team
+                notes with every session, ended sessions distill durable facts,
+                and Claude's native auto-memory keeps per-repo knowledge
+              </li>
               <li>Quiet mode and per-channel verbosity dials</li>
               <li>Runs on macOS, Linux, and Windows</li>
             </ul>
@@ -332,6 +337,17 @@
               <tr>
                 <td><code>!mentions [on|off]</code></td>
                 <td>Quiet mode: respond only when @mentioned</td>
+              </tr>
+              <tr>
+                <td><code>!remember &lt;text&gt;</code></td>
+                <td>Save a note to the channel's shared memory</td>
+              </tr>
+              <tr>
+                <td><code>!memory</code></td>
+                <td>
+                  Show channel memory (<code>forget &lt;n|text&gt;</code>
+                  removes an entry)
+                </td>
               </tr>
               <tr>
                 <td><code>!worktree &lt;branch&gt;</code></td>

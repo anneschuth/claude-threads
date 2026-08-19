@@ -21,8 +21,13 @@ export type {
   PermissionMode,
   OverheadVisibility,
   PlatformOverhead,
+  MemoryOption,
+  ResolvedMemoryConfig,
 } from './types.js';
 export {
+  DEFAULT_MEMORY_CONFIG,
+  MEMORY_DISABLED,
+  resolveMemoryConfig,
   LIMITS_DEFAULTS,
   resolveLimits,
   resolvePermissionMode,

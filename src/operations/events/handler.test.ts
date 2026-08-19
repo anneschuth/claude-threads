@@ -132,6 +132,7 @@ function createSessionContext(): SessionContext {
       platforms: new Map(),
       sessionStore: { save: () => {}, remove: () => {}, load: () => new Map(), findByPostId: () => undefined, cleanStale: () => [] } as any,
       githubEmailsStore: { get: () => undefined, set: () => {}, delete: () => false } as any,
+      memoryStore: { buildChannelMemoryBlock: () => null, listChannelEntries: () => [] } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -170,6 +171,7 @@ function createSessionContext(): SessionContext {
       markClaudeAccountCooling: mock(() => {}),
       getClaudeAccountPoolStatus: mock(() => []),
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
+      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
     },
   };
 }

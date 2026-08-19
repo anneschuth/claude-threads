@@ -23,6 +23,7 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     permissionMode: default
+    memory: true                  # persistent memory (default on; see Memory below)
 
   # Slack
   - id: slack-eng
@@ -174,6 +175,76 @@ platforms:
 
 Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-level `Config.stickyMessage: { description, footer }` block, which still customizes the full sticky for platforms not in `hidden` mode.
 
+### Memory (`memory`, default: fully enabled)
+
+Each platform instance (≈ one channel) can carry persistent memory, modeled on
+how Anthropic's own products do it:
+
+- **Repo layer** (Claude Code style): Claude Code's native *auto-memory* is
+  redirected into a bot-managed directory scoped per **(platform, repository)**.
+  Claude saves and recalls project knowledge (build commands, conventions,
+  gotchas) across sessions in the same repo, using its built-in memory
+  machinery — worktrees of one repo share the same memory, mirroring native
+  behavior. Requires Claude CLI 2.1.235+ (the `autoMemoryDirectory` setting).
+- **Channel layer** (Claude Tag style): a shared per-channel `MEMORY.md` of
+  team notes — decisions, conventions, stable facts — injected into every
+  session's system prompt (capped at 200 lines / 25 KB, mirroring native
+  limits). Written by users (`!remember`) and by end-of-session
+  **distillation**: when a session ends, a one-shot haiku pass extracts up to
+  3 durable facts from the thread.
+
+```yaml
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    # ... credentials ...
+    memory: true                # default — everything on; `false` disables all layers
+    # or per-layer:
+    # memory:
+    #   repoLayer: true         # native auto-memory redirect
+    #   channelLayer: true      # shared channel notes in the system prompt
+    #   distillation: false     # no end-of-session haiku pass
+```
+
+**Commands** (any session-authorized user; `forget` is owner-gated):
+
+- `!remember <text>` — save a note to the channel's shared memory
+- `!memory` — show the channel memory as a numbered list
+- `!memory forget <n|text>` — remove one entry; `!memory forget all` clears it
+
+**Storage & privacy:**
+
+- Everything lives under `~/.config/claude-threads/memory/` (override with
+  `CLAUDE_THREADS_MEMORY_DIR`), dirs `0700` / bot-written files `0600`.
+- **The platform instance is a hard privacy boundary**: memory never crosses
+  platform instances, even for the same repository — mirroring Claude Tag's
+  per-channel isolation. The storage location is also independent of the
+  Claude-account pool's per-session `HOME` overrides.
+- When memory is disabled, the bot also sets `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`
+  on the Claude CLI child so native auto-memory can't silently accumulate
+  cross-channel context under a shared pooled-account `$HOME`.
+- `!memory forget` removes the entry atomically for all **future** sessions;
+  sessions already running keep their injected copy until their next
+  respawn/resume. Repo-layer files are owned by the Claude CLI — ask Claude
+  in-session to update its memory, or delete the directory on disk.
+- Channel memory is chat-derived content that persists into future sessions'
+  prompts. The system-prompt framing tells Claude to treat it as background
+  context — never as instructions or authorization — but memory is only as
+  trusted as the channel's membership. Distillation currently reads the whole
+  thread, including messages from non-allowed users that entered via the
+  approval flow. There is no automatic expiry. Both are candidates for
+  follow-up options.
+- Distillation runs one `claude -p` haiku call per session end, billed to the
+  bot's default account (not the session's pooled account). In an OAuth
+  `claudeAccounts` pool where only the per-account HOMEs are logged in, the
+  bot's own environment may have no credentials — distillation then fails
+  silently (debug-logged) and the channel only learns via `!remember`. Give
+  the bot process its own credentials (`claude login` under the bot's HOME,
+  or `ANTHROPIC_API_KEY` in its env) if you want distillation in that setup.
+- Note for exotic setups: the Claude CLI disables auto-memory when
+  `CLAUDE_CODE_REMOTE` is set (unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is
+  configured) — the repo layer will be inert in such environments.
+
 ## Claude Accounts (optional, multi-account mode)
 
 By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts. Omit the block entirely to stay in single-account mode (unchanged behavior).
@@ -215,6 +286,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
 | `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
 | `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
+| `CLAUDE_THREADS_MEMORY_DIR` | Override the root of the persistent memory storage (default `~/.config/claude-threads/memory/`). | - |
 | `NO_UPDATE_NOTIFIER` | Disable update checks | - |
 
 ### Forwarded to Claude CLI automatically

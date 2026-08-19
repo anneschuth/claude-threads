@@ -74,8 +74,12 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
     args.push('--system-prompt', systemPrompt);
   }
 
-  // Add the prompt as the final argument
-  args.push(prompt);
+  // The prompt travels over STDIN, not as an argv argument (`claude -p`
+  // reads the prompt from stdin when no positional prompt is given —
+  // verified against CLI 2.1.235). Long prompts (distillation feeds ~40KB:
+  // existing memory + thread tail) would exceed Windows command-line limits
+  // as argv (cmd.exe caps at 8,191 chars via the npm shim), silently killing
+  // the spawn; stdin has no such cap.
 
   log.debug(`Quick query: model=${model}, timeout=${timeout}ms, prompt="${prompt.substring(0, 50)}..."`);
 
@@ -149,7 +153,7 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
       }
     });
 
-    // Close stdin immediately since we pass prompt as argument
-    proc.stdin?.end();
+    // Write the prompt over stdin and close it so the CLI knows input ended.
+    proc.stdin?.end(prompt);
   });
 }
