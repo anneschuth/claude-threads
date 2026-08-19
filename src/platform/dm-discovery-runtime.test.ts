@@ -254,6 +254,39 @@ describe('dm-discovery-runtime: connect-failure ordering', () => {
     expect(h.platforms.has(DM_ID)).toBe(false);
   });
 
+  it('waits through a replacement retry generation before the registry check', async () => {
+    let rejectConnect!: (err: Error) => void;
+    const h = makeHarness({ connect: () => new Promise<void>((_r, rej) => { rejectConnect = rej; }) });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+
+    const key = `${DM_ID}:${THREAD_ID}`;
+    // Generation A: a start that will fail (no session registered).
+    let finishA!: () => void;
+    _inFlightSessionStarts.set(key, new Promise<void>((r) => { finishA = r; }));
+
+    rejectConnect(new Error('boom'));
+    await sleep(15);
+    expect(h.cancelled.length).toBe(0);                 // waiting on A
+
+    // A fails; a waiter immediately installs retry generation B under the
+    // same key (mirrors the startSession wrapper's retry behavior).
+    let finishB!: () => void;
+    _inFlightSessionStarts.set(key, new Promise<void>((r) => { finishB = r; }));
+    finishA();
+    await sleep(15);
+    expect(h.cancelled.length).toBe(0);                 // must now wait on B, not proceed
+
+    // B succeeds and registers a session — cleanup must find and cancel it.
+    h.activeSessions.add(THREAD_ID);
+    finishB();
+    _inFlightSessionStarts.delete(key);
+    await sleep(20);
+    expect(h.cancelled).toEqual([THREAD_ID]);
+    expect(h.platforms.has(DM_ID)).toBe(false);
+  });
+
   it('live discovery ignores a disabled derived instance id', async () => {
     const h = makeHarness({ isEnabled: (id) => id !== DM_ID });
     const rt = createDmDiscoveryRuntime(h.deps);

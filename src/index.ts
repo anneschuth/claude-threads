@@ -2,6 +2,7 @@
 
 import { program } from 'commander';
 import { createDmDiscoveryRuntime, type DmDiscoveryRuntime } from './platform/dm-discovery-runtime.js';
+import { DM_PLATFORM_SEP } from './platform/dm-discovery.js';
 import type { DirectChannelModeConfig } from './platform/utils.js';
 import {
   loadConfigWithMigration,
@@ -543,6 +544,16 @@ async function startWithoutDaemon() {
       onPlatformToggle: async (platformId, enabled) => {
         const client = platforms.get(platformId);
         if (!client) {
+          // A derived DM instance may legitimately have no live client (torn
+          // down, or skipped at boot because it was disabled). Persist the
+          // desired state anyway — enabling means the next incoming DM
+          // re-discovers the channel.
+          if (platformId.includes(DM_PLATFORM_SEP)) {
+            sessionStore.setPlatformEnabled(platformId, enabled);
+            platformEnabledState.set(platformId, enabled);
+            ui.addLog({ level: 'info', component: 'toggle', message: `DM instance ${platformId} ${enabled ? 'enabled (re-discovered on next DM)' : 'disabled'}` });
+            return;
+          }
           ui.addLog({ level: 'error', component: 'toggle', message: `Platform ${platformId} not found` });
           return;
         }
@@ -553,8 +564,10 @@ async function startWithoutDaemon() {
           try {
             client.prepareForReconnect();
             await client.connect();
-            // Persist enabled state after successful connect
+            // Persist enabled state after successful connect — including the
+            // in-memory snapshot the DM discovery runtime consults.
             sessionStore.setPlatformEnabled(platformId, true);
+            platformEnabledState.set(platformId, true);
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
             // Resume paused sessions for this platform
             await sessionManager?.resumePausedSessionsForPlatform(platformId);
@@ -569,8 +582,11 @@ async function startWithoutDaemon() {
           // Pause all active sessions for this platform first
           await sessionManager?.pauseSessionsForPlatform(platformId);
           client.disconnect();
-          // Persist disabled state
+          // Persist disabled state — including the in-memory snapshot the DM
+          // discovery runtime consults, so the next incoming DM cannot
+          // silently re-enable this instance.
           sessionStore.setPlatformEnabled(platformId, false);
+          platformEnabledState.set(platformId, false);
           ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
         }

@@ -183,9 +183,15 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
           // The first message's session start may still be in flight (the
           // session registers only late in startSession) — wait for it, or
           // the registry check below would miss a session that materializes
-          // a moment later and strand it.
-          const inFlight = _inFlightSessionStarts.get(`${dmId}:${threadId}`);
-          if (inFlight) await inFlight.catch(() => {});
+          // a moment later and strand it. Loop: a failed start can be
+          // replaced by a waiter's retry attempt under the same key, so keep
+          // waiting until the map is empty for this key (same convergence
+          // argument as the startSession wrapper).
+          for (;;) {
+            const inFlight = _inFlightSessionStarts.get(`${dmId}:${threadId}`);
+            if (!inFlight) break;
+            await inFlight.catch(() => {});
+          }
           if (session.registry.findByThreadId(threadId)) {
             // Awaited so the session is gone before the platform vanishes.
             // One retry: the cancel path posts a notification first, and a
