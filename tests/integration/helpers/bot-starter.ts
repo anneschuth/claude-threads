@@ -21,6 +21,7 @@ import type { PlatformClient } from '../../../src/platform/client.js';
 import type { PlatformPost, PlatformUser } from '../../../src/platform/types.js';
 import { loadConfig } from '../setup/config.js';
 import { handleMessage } from '../../../src/message-handler.js';
+import { createDmDiscoveryRuntime } from '../../../src/platform/dm-discovery-runtime.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -127,6 +128,11 @@ export interface StartBotOptions {
   directChannelMode?: import('../../../src/platform/utils.js').DirectChannelModeConfig;
   /** Platform-level approvals mode (owner | all_users). Default: unset. */
   approvals?: import('../../../src/platform/utils.js').ApprovalsMode;
+  /** Enable Mattermost DM auto-discovery on the bot's platform entry. */
+  directMessages?: boolean;
+  /** Timer overrides for the DM discovery runtime (tests only). */
+  dmGraceMs?: number;
+  dmOrphanTtlMs?: number;
   /**
    * Reuse a specific platform id instead of minting a fresh per-start one
    * (Mattermost mints `test-mattermost-<pool>-<seq>` per start). Needed for
@@ -168,6 +174,9 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
     platformIdOverride,
     directChannelMode,
     approvals,
+    directMessages,
+    dmGraceMs,
+    dmOrphanTtlMs,
   } = options;
 
   // Load test config
@@ -214,6 +223,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
 
   // Create platform client based on platform type
   let platformClient: PlatformClient;
+  let mattermostPlatformConfig: import('../../../src/config/types.js').MattermostPlatformConfig | undefined;
   let platformId: string;
   let botUsername: string;
   let botUserId: string;
@@ -282,9 +292,11 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       skipPermissions,
       directChannelMode,
       approvals,
+      directMessages,
     };
 
     platformClient = new MattermostClient(platformConfig);
+    mattermostPlatformConfig = platformConfig;
     botUsername = poolBot.username;
     botUserId = poolBot.userId!;
   }
@@ -308,8 +320,44 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // Register platform (this wires up reaction handlers)
   sessionManager.addPlatform(platformId, platformClient);
 
+  // DM auto-discovery: the PRODUCTION runtime (src/platform/dm-discovery-runtime.ts)
+  // wired with test dependencies — same code path as index.ts.
+  const dmPlatforms = new Map<string, PlatformClient>();
+  const dmRuntime = directMessages && platform === 'mattermost'
+    ? createDmDiscoveryRuntime({
+        platforms: dmPlatforms,
+        session: sessionManager,
+        log: debug ? (level, message) => console.log(`[test-bot dm ${level}]`, message) : () => {},
+        registerPlatform: (dmConfig) => {
+          const dmClient = new MattermostClient(dmConfig);
+          dmPlatforms.set(dmConfig.id, dmClient);
+          sessionManager.addPlatform(dmConfig.id, dmClient);
+          dmClient.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+            if (dmRuntime?.isRoutedPost(post.id)) return;
+            await handleMessage(dmClient, sessionManager, post, user, {
+              platformId: dmConfig.id,
+              directChannelMode: true,
+            });
+          });
+          return dmClient;
+        },
+        deliverMessage: (client, post, user, dmPlatformIdArg) =>
+          handleMessage(client, sessionManager, post, user, {
+            platformId: dmPlatformIdArg,
+            directChannelMode: true,
+          }),
+        loadPersistedSessions: () => new SessionStore(sessionsPath).load(),
+        graceMs: dmGraceMs,
+        orphanTtlMs: dmOrphanTtlMs,
+      })
+    : undefined;
+  if (dmRuntime) {
+    sessionManager.on('session:remove', (sessionId: string) => dmRuntime.onSessionRemove(sessionId));
+  }
+
   // Wire up message handler - uses the actual bot logic from src/message-handler.ts
   platformClient.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+    if (dmRuntime?.isRoutedPost(post.id)) return;
     await handleMessage(platformClient, sessionManager, post, user, {
       platformId,
       directChannelMode,
@@ -324,6 +372,10 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       },
     });
   });
+
+  if (dmRuntime && mattermostPlatformConfig) {
+    dmRuntime.wireParent(mattermostPlatformConfig, platformClient);
+  }
 
   // Connect to platform. Wrap to surface the actual error — MattermostClient's
   // connect() rejects with the raw WebSocket error event, which serializes as
