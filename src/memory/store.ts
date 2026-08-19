@@ -48,7 +48,7 @@ import {
 import { homedir } from 'os';
 import { basename, dirname, join } from 'path';
 import { createLogger } from '../utils/logger.js';
-import { getRepositoryRoot, isGitRepository } from '../git/worktree.js';
+import { getMainRepositoryRoot } from '../git/worktree.js';
 import type { ResolvedMemoryConfig } from '../config/types.js';
 
 const log = createLogger('memory');
@@ -125,10 +125,14 @@ export function platformSegment(platformId: string): string {
 
 /**
  * Derive the repo key for the repo memory layer. Worktree-aware: worktrees of
- * the same repository share one key (pass `worktreeRepoRoot` from
- * `session.worktreeInfo.repoRoot`), mirroring native auto-memory which is
- * shared across worktrees. Outside a git repo, the working directory itself
- * is the key. Symlinked paths resolve to one key via realpath.
+ * the same repository share one key, mirroring native auto-memory which is
+ * shared across worktrees. `worktreeRepoRoot` (from
+ * `session.worktreeInfo.repoRoot`) is a fast path for bot-managed worktrees;
+ * without it, `getMainRepositoryRoot` follows any linked worktree back to its
+ * main repository via `--git-common-dir` — so paths that reach a worktree
+ * some other way (e.g. `!cd` into one) still key to the shared root.
+ * Outside a git repo, the working directory itself is the key. Symlinked
+ * paths resolve to one key via realpath.
  */
 export async function resolveRepoKey(
   workingDir: string,
@@ -137,9 +141,7 @@ export async function resolveRepoKey(
   let root = worktreeRepoRoot;
   if (!root) {
     try {
-      if (await isGitRepository(workingDir)) {
-        root = await getRepositoryRoot(workingDir);
-      }
+      root = (await getMainRepositoryRoot(workingDir)) ?? undefined;
     } catch {
       // Not a repo / git unavailable — fall through to workingDir.
     }
@@ -159,9 +161,23 @@ function normalizeForDedupe(text: string): string {
   return text.toLowerCase().replace(/\s+/g, ' ').replace(/[.!?\s]+$/g, '').trim();
 }
 
+/** Collapse to a single line (newlines become `; `, whitespace runs collapse). */
+function collapseEntryText(text: string): string {
+  return text.replace(/\s*[\r\n]+\s*/g, '; ').replace(/\s+/g, ' ').trim();
+}
+
 /** Collapse to a single line and cap the length. */
 export function sanitizeEntryText(text: string): string {
-  return text.replace(/\s*[\r\n]+\s*/g, '; ').replace(/\s+/g, ' ').trim().slice(0, MAX_ENTRY_LENGTH);
+  return collapseEntryText(text).slice(0, MAX_ENTRY_LENGTH);
+}
+
+/**
+ * Whether `sanitizeEntryText` would actually truncate this text. Checked on
+ * the collapsed form — newline collapsing can lengthen the text (`\n` → `; `),
+ * so the raw input length is not a reliable proxy.
+ */
+export function entryTextExceedsCap(text: string): boolean {
+  return collapseEntryText(text).length > MAX_ENTRY_LENGTH;
 }
 
 function formatEntryLine(entry: ChannelMemoryEntry): string {
@@ -237,7 +253,12 @@ export class MemoryStore {
           .filter((e): e is ChannelMemoryEntry => e !== undefined);
         const isDuplicate = existing.some((e) => {
           const en = normalizeForDedupe(e.text);
-          return en === normalized || en.includes(normalized);
+          if (en === normalized) return true;
+          // Containment counts as a duplicate only for distilled candidates.
+          // An explicit user `!remember` that is a fragment of an existing
+          // entry may be a correction or contradiction ("use npm" vs a stored
+          // "never use npm") — it must land, not be swallowed as known.
+          return candidate.source === 'distilled' && en.includes(normalized);
         });
         if (isDuplicate) {
           result.duplicates.push(text);
@@ -386,7 +407,10 @@ export class MemoryStore {
     const lines: FileLine[] = [];
     for (const line of raw.split('\n')) {
       const trimmed = line.trimEnd();
-      if (!trimmed || trimmed.startsWith('#')) continue;
+      // Skip blanks and the managed header only — other `#` lines are hand
+      // edits (e.g. section headings) and must survive rewrites like any
+      // other unparseable line.
+      if (!trimmed || trimmed === FILE_HEADER) continue;
       const m = trimmed.match(ENTRY_RE);
       if (m) {
         const source = m[2] === 'distilled' ? 'distilled' : 'user';

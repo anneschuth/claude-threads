@@ -23,6 +23,7 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     permissionMode: default
+    memory: true                  # persistent memory (default on; see Memory below)
 
   # Slack
   - id: slack-eng
@@ -280,6 +281,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
 | `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
 | `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
+| `CLAUDE_THREADS_MEMORY_DIR` | Override the root of the persistent memory storage (default `~/.config/claude-threads/memory/`). | - |
 | `NO_UPDATE_NOTIFIER` | Disable update checks | - |
 
 ### Forwarded to Claude CLI automatically

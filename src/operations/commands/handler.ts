@@ -66,7 +66,7 @@ import {
   resolveCollaborators,
 } from '../../commands/system-prompt-generator.js';
 import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
-import { resolveSessionMemory, MAX_ENTRY_LENGTH, sanitizeEntryText } from '../../memory/store.js';
+import { resolveSessionMemory, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -855,7 +855,7 @@ export async function rememberEntry(
     await post(session, 'warning', `Usage: ${formatter.formatCode('!remember <text>')}`);
     return;
   }
-  if (text.trim().length > MAX_ENTRY_LENGTH) {
+  if (entryTextExceedsCap(text)) {
     await post(
       session,
       'warning',
@@ -904,13 +904,33 @@ export async function showMemory(
     const source = e.source === 'user' ? formatter.formatUserMention(e.addedBy ?? 'unknown') : formatter.formatItalic('distilled');
     return `${i + 1}. [${e.addedAt}] (${source}) ${e.text}`;
   });
-  await post(
-    session,
-    'info',
-    `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:\n\n` +
-    `${lines.join('\n')}\n\n` +
-    `${formatter.formatItalic(`Remove with ${'`!memory forget <number>`'} or ${'`!memory forget <text>`'}; add with ${'`!remember <text>`'}.`)}`,
+  const intro = `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:`;
+  const outro = formatter.formatItalic(`Remove with ${'`!memory forget <number>`'} or ${'`!memory forget <text>`'}; add with ${'`!remember <text>`'}.`);
+
+  // A full channel memory (hundreds of entries, up to ~530 chars per line)
+  // can exceed the platform's post size limit — batch the listing so the
+  // createPost call can't fail on length.
+  const batchBudget = Math.max(
+    1000,
+    session.platform.getMessageLimits().maxLength - intro.length - outro.length - 100,
   );
+  const batches: string[] = [];
+  let current = '';
+  for (const line of lines) {
+    if (current && current.length + 1 + line.length > batchBudget) {
+      batches.push(current);
+      current = line;
+    } else {
+      current = current ? `${current}\n${line}` : line;
+    }
+  }
+  if (current) batches.push(current);
+
+  for (let i = 0; i < batches.length; i++) {
+    const prefix = i === 0 ? `${intro}\n\n` : '';
+    const suffix = i === batches.length - 1 ? `\n\n${outro}` : '';
+    await post(session, 'info', `${prefix}${batches[i]}${suffix}`);
+  }
   session.threadLogger?.logCommand('memory', 'show', username);
 }
 
@@ -966,11 +986,17 @@ export async function forgetMemory(
       await post(session, 'info', `🧠 No channel memory to forget.`);
       break;
     case 'ambiguous': {
-      const list = result.matches.map((e) => `- ${e.text}`).join('\n');
+      // Cap the preview so a broad selector can't blow the post size limit.
+      const MAX_AMBIGUOUS_SHOWN = 10;
+      const shown = result.matches.slice(0, MAX_AMBIGUOUS_SHOWN);
+      const more = result.matches.length > shown.length
+        ? `\n… and ${result.matches.length - shown.length} more`
+        : '';
+      const list = shown.map((e) => `- ${e.text}`).join('\n');
       await post(
         session,
         'warning',
-        `🧠 That matches ${result.matches.length} entries — use ${formatter.formatCode('!memory')} and forget by number instead:\n${list}`,
+        `🧠 That matches ${result.matches.length} entries — use ${formatter.formatCode('!memory')} and forget by number instead:\n${list}${more}`,
       );
       break;
     }

@@ -87,6 +87,32 @@ export async function getRepositoryRoot(dir: string): Promise<string> {
 }
 
 /**
+ * Get the MAIN repository root for a directory, following a linked worktree
+ * back to the repository it was created from. For a plain checkout this
+ * equals `getRepositoryRoot`; inside a `git worktree` checkout,
+ * `--git-common-dir` points at the main repository's `.git` directory.
+ * Returns null when the directory is not inside a git repository.
+ */
+export async function getMainRepositoryRoot(dir: string): Promise<string | null> {
+  try {
+    const toplevel = await getRepositoryRoot(dir);
+    const commonOut = (await execGit(['rev-parse', '--git-common-dir'], dir)).trim();
+    if (commonOut) {
+      // May be relative to the cwd the command ran in (e.g. `.git`).
+      const commonDir = path.isAbsolute(commonOut) ? commonOut : path.resolve(dir, commonOut);
+      // Standard layout: <main-root>/.git — anything else (bare repos,
+      // GIT_DIR overrides) falls back to the worktree's own toplevel.
+      if (path.basename(commonDir) === '.git') {
+        return path.dirname(commonDir);
+      }
+    }
+    return toplevel;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Get the current branch name for a directory
  * Returns null if not on a branch (detached HEAD) or not in a git repo
  */

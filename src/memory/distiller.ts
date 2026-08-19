@@ -30,6 +30,15 @@ const MESSAGE_CHAR_CAP = 500;
 /** Max facts extracted per session end. */
 export const MAX_FACTS_PER_SESSION = 3;
 
+/**
+ * How many of the newest existing entries ride along in the prompt for
+ * at-the-source dedupe. The channel file can hold up to 400 entries × 500
+ * chars — embedding all of it in every distillation call would dwarf the
+ * conversation itself; the store's merge-time dedupe still catches repeats
+ * of anything older than this window.
+ */
+export const DISTILL_EXISTING_LIMIT = 50;
+
 const DISTILL_TIMEOUT_MS = 15000;
 
 export type DistillationReason = 'stop' | 'exit' | 'timeout';
@@ -122,7 +131,7 @@ export async function distillThread(
   });
   if (messages.length < MIN_THREAD_MESSAGES) return 0;
 
-  const existing = store.listChannelEntries(platformId);
+  const existing = store.listChannelEntries(platformId).slice(-DISTILL_EXISTING_LIMIT);
   const prompt = buildDistillationPrompt(existing, messages);
 
   // No workingDir: distillation needs no repo context, and a CWD-independent

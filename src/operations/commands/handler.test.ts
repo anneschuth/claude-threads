@@ -36,6 +36,7 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     getMcpConfig: mock(() => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] })),
     createInteractivePost: mock(() => Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })),
     getThreadHistory: mock(() => Promise.resolve([])),
+    getMessageLimits: mock(() => ({ maxLength: 16000, hardThreshold: 14000 })),
     pinPost: mock(() => Promise.resolve()),
     unpinPost: mock(() => Promise.resolve()),
     getPinnedPosts: mock(() => Promise.resolve([])),

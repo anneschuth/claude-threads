@@ -15,6 +15,7 @@ import {
   resolveRepoKey,
   resolveSessionMemory,
   sanitizeEntryText,
+  entryTextExceedsCap,
   platformSegment,
   CHANNEL_BLOCK_MAX_LINES,
   CHANNEL_FILE_MAX_ENTRIES,
@@ -54,6 +55,19 @@ describe('sanitizeEntryText', () => {
   test('caps length', () => {
     expect(sanitizeEntryText('x'.repeat(2000)).length).toBe(MAX_ENTRY_LENGTH);
   });
+
+  test('entryTextExceedsCap tracks the collapsed length, not the raw length', () => {
+    // Newline collapsing expands text ('\n' → '; '): 250 two-char segments
+    // joined by '; ' exceed the cap although the raw input does not.
+    const expanding = Array.from({ length: 140 }, () => 'ab').join('\n');
+    expect(expanding.length).toBeLessThanOrEqual(MAX_ENTRY_LENGTH);
+    expect(entryTextExceedsCap(expanding)).toBe(true);
+    expect(sanitizeEntryText(expanding).length).toBe(MAX_ENTRY_LENGTH);
+
+    // Whitespace collapsing shrinks text: long runs of spaces do not truncate.
+    const shrinking = `a${' '.repeat(600)}b`;
+    expect(entryTextExceedsCap(shrinking)).toBe(false);
+  });
 });
 
 describe('addChannelEntries / listChannelEntries', () => {
@@ -82,6 +96,31 @@ describe('addChannelEntries / listChannelEntries', () => {
     expect(result.added).toHaveLength(0);
     expect(result.duplicates).toHaveLength(1);
     expect(store.listChannelEntries('mm')).toHaveLength(1);
+  });
+
+  test('a user note that is a fragment of an existing entry still lands (may be a correction)', async () => {
+    // Regression-defender: containment dedupe must not swallow explicit user
+    // corrections. "use npm" is contained in the stored entry but contradicts
+    // it — reporting "Already known" would silently drop the correction.
+    await store.addChannelEntries('mm', [
+      { text: 'never use npm; always use bun', source: 'distilled' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'use npm', source: 'user', addedBy: 'a' },
+    ]);
+    expect(result.added).toHaveLength(1);
+    expect(store.listChannelEntries('mm')).toHaveLength(2);
+  });
+
+  test('a distilled fragment of an existing entry is still deduped', async () => {
+    await store.addChannelEntries('mm', [
+      { text: 'never use npm; always use bun', source: 'user', addedBy: 'a' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'always use bun', source: 'distilled' },
+    ]);
+    expect(result.added).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(1);
   });
 
   test('a longer superseding entry replaces the shorter existing one', async () => {
@@ -128,6 +167,17 @@ describe('addChannelEntries / listChannelEntries', () => {
 });
 
 describe('hand-edited file tolerance', () => {
+  test('hand-written # heading lines survive a rewrite (only the managed header is skipped)', async () => {
+    await store.addChannelEntries('mm', [{ text: 'parsed entry', source: 'user', addedBy: 'a' }]);
+    const file = store.channelMemoryPath('mm');
+    writeFileSync(file, readFileSync(file, 'utf-8') + '## Team conventions\n');
+    await store.addChannelEntries('mm', [{ text: 'second entry', source: 'user', addedBy: 'a' }]);
+    const raw = readFileSync(file, 'utf-8');
+    expect(raw).toContain('## Team conventions');
+    // The managed header is not duplicated by the rewrite.
+    expect(raw.split('\n').filter((l) => l === '# Channel memory — managed by claude-threads.')).toHaveLength(1);
+  });
+
   test('unparseable lines survive a rewrite verbatim', async () => {
     await store.addChannelEntries('mm', [{ text: 'parsed entry', source: 'user', addedBy: 'a' }]);
     const file = store.channelMemoryPath('mm');
@@ -257,6 +307,21 @@ describe('resolveRepoKey', () => {
     const a = await resolveRepoKey(repo);
     const b = await resolveRepoKey(join(repo, 'sub'));
     expect(a).toBe(b);
+  });
+
+  test('a linked git worktree keys to the MAIN repo root even without worktreeRepoRoot', async () => {
+    // `!cd` into a worktree reaches resolveRepoKey without the session's
+    // worktreeInfo — the key must still be the shared main-repo key.
+    const repo = join(root, 'wt-main');
+    const worktree = join(root, 'wt-linked');
+    mkdirSync(repo);
+    const git = (args: string[], cwd: string) =>
+      spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], { cwd });
+    git(['init', '-q'], repo);
+    git(['commit', '--allow-empty', '-m', 'x', '-q'], repo);
+    git(['worktree', 'add', '-q', worktree], repo);
+
+    expect(await resolveRepoKey(worktree)).toBe(await resolveRepoKey(repo));
   });
 
   test('worktreeRepoRoot wins so worktrees share the main repo key', async () => {

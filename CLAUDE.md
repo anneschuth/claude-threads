@@ -796,6 +796,7 @@ claude-threads stores sensitive session data locally. The following retention po
 | Thread logs | `~/.claude-threads/logs/{platformId}/` | 30 days (configurable) | `0600` (owner only) |
 | Worktree metadata | `~/.claude-threads/worktrees.json` | Until worktree cleanup | `0600` (owner only) |
 | Configuration | `~/.config/claude-threads/config.yaml` | Permanent | `0600` (owner only) |
+| Persistent memory (channel + repo layers) | `~/.config/claude-threads/memory/` | Until removed by `!memory forget` / manual delete (no automatic expiry) | `0600` files, `0700` dirs |
 
 ### Automatic Cleanup
 
