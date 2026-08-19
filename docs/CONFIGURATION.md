@@ -225,7 +225,7 @@ On first contact the bot spawns a derived platform instance for that DM channel 
 
 Details and caveats:
 
-- **Lifecycle**: when a DM session ends (idle timeout, `!stop`), its derived instance and connection are torn down; the next DM re-discovers the channel and resumes the persisted session. Instances therefore do not accumulate over uptime.
+- **Lifecycle**: when a DM session leaves the registry its derived instance and connection are torn down (after a short grace period). After an **idle timeout** the session is persisted — the next DM re-discovers the channel and resumes the conversation. After **`!stop`** the session is deliberately unpersisted — the next DM starts fresh. Instances that never produce a session are reaped after a TTL, so instances do not accumulate over uptime.
 - **Multiple entries, one bot account**: the first entry to discover a DM channel owns it — other `directMessages: true` entries stay out, so the bot never double-replies.
 - **Empty `allowedUsers`**: consistent with the rest of the bot, an empty list means *everyone* — combined with `directMessages: true` that is every user on the server who can DM the bot. Leave it empty only on servers you trust.
 - **Renaming a platform entry** strands its persisted DM sessions (as it does any persisted session referencing the old id); they are skipped with a warning.

@@ -74,11 +74,42 @@ const dmRoutedPosts = new Set<string>();
 let dmRuntime: { platforms: Map<string, PlatformClient>; session: SessionManager; ui: UIProvider } | undefined;
 
 function rememberDmRoutedPost(postId: string): void {
+  // Refresh recency on re-insert so this behaves as an LRU, not a FIFO.
+  dmRoutedPosts.delete(postId);
   dmRoutedPosts.add(postId);
   if (dmRoutedPosts.size > 200) {
     const oldest = dmRoutedPosts.values().next().value;
     if (oldest) dmRoutedPosts.delete(oldest);
   }
+}
+
+/** LRU membership check: a hit refreshes the entry's recency. */
+function isDmRoutedPost(postId: string): boolean {
+  if (!dmRoutedPosts.has(postId)) return false;
+  rememberDmRoutedPost(postId);
+  return true;
+}
+
+/** Grace before tearing down a DM instance after its session leaves the registry. */
+const DM_TEARDOWN_GRACE_MS = 30_000;
+/** How long a discovered instance may exist without ever producing a session. */
+const DM_ORPHAN_TTL_MS = 10 * 60_000;
+
+/**
+ * Tear down one derived DM instance (shared by session-remove, orphan reaper,
+ * and connect-failure paths). Guarded against the ABA case: only acts if the
+ * registry still maps this channel to this exact instance.
+ */
+function teardownDmInstance(channelId: string, dmId: string, reason: string): void {
+  if (!dmRuntime) return;
+  if (dmInstanceByChannel.get(channelId) !== dmId) return;
+  dmInstanceByChannel.delete(channelId);
+  dmConnecting.delete(dmId);
+  const client = dmRuntime.platforms.get(dmId);
+  dmRuntime.platforms.delete(dmId);
+  dmRuntime.session.removePlatform(dmId);
+  if (client) void Promise.resolve(client.disconnect()).catch(() => {});
+  dmRuntime.ui.addLog({ level: 'info', component: 'dm', message: `🧹 DM instance ${dmId} torn down (${reason})` });
 }
 
 /**
@@ -90,13 +121,16 @@ function teardownDmInstanceForSession(sessionId: string): void {
   if (!dmRuntime) return;
   for (const [channelId, dmId] of dmInstanceByChannel) {
     if (!sessionId.startsWith(`${dmId}:`)) continue;
-    dmInstanceByChannel.delete(channelId);
-    dmConnecting.delete(dmId);
-    const client = dmRuntime.platforms.get(dmId);
-    dmRuntime.platforms.delete(dmId);
-    dmRuntime.session.removePlatform(dmId);
-    if (client) void Promise.resolve(client.disconnect()).catch(() => {});
-    dmRuntime.ui.addLog({ level: 'info', component: 'dm', message: `🧹 DM instance ${dmId} torn down (session ended)` });
+    // Deferred with a grace period: session:remove is emitted synchronously
+    // during registry cleanup, and a message may still be mid-flight on this
+    // instance. Re-check before acting — a new session on the same instance
+    // (or a re-registered instance) cancels the teardown.
+    const runtime = dmRuntime;
+    setTimeout(() => {
+      const activeSession = runtime.session.registry.findByThreadId(`dcm:${dmId}`);
+      if (activeSession) return; // a new session took over — keep the instance
+      teardownDmInstance(channelId, dmId, 'session ended');
+    }, DM_TEARDOWN_GRACE_MS);
     return;
   }
 }
@@ -113,7 +147,7 @@ function wirePlatformEvents(
     // Dedupe for the DM-discovery handover window: a post the parent already
     // routed must not be processed again when the derived instance's own
     // socket delivers it moments later.
-    if (dmRoutedPosts.has(post.id)) return;
+    if (isDmRoutedPost(post.id)) return;
     await handleMessage(client, session, post, user, {
       platformId,
       directChannelMode,
@@ -761,7 +795,7 @@ async function startWithoutDaemon() {
       // in the channel" — with directMessages that is every user who can DM
       // the bot, so leave it empty only on servers you trust (documented).
       if (!username || !parentClient.isUserAllowed(username)) return;
-      if (dmRoutedPosts.has(post.id)) return;
+      if (isDmRoutedPost(post.id)) return;
 
       // First parent wins across multiple entries sharing one bot account:
       // if any instance owns this DM channel, only route during its connect
@@ -787,16 +821,30 @@ async function startWithoutDaemon() {
       const dmClient = registerDmPlatform(mmConfig, post.channelId, [username]);
       dmConnecting.add(dmId);
       dmClient.connect().then(() => {
+        // Stale-completion guard (ABA): only act if this exact client still
+        // owns the id — a torn-down-and-rediscovered instance must not have
+        // its state clobbered by an old callback.
+        if (platforms.get(dmId) !== dmClient) return;
         dmConnecting.delete(dmId);
       }).catch((err: unknown) => {
+        if (platforms.get(dmId) !== dmClient) return;
         // A dead instance must not permanently block the channel: tear it
-        // down so the next DM retries discovery from scratch.
+        // down (including its half-open connection) so the next DM retries
+        // discovery from scratch.
         ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}, discarding: ${err}` });
-        dmConnecting.delete(dmId);
-        dmInstanceByChannel.delete(post.channelId);
-        platforms.delete(dmId);
-        session.removePlatform(dmId);
+        teardownDmInstance(post.channelId, dmId, 'connect failed');
       });
+      // Orphan reaper: an instance whose first message never produced a
+      // session (empty prompt, immediate command, capacity rejection) emits
+      // no session:remove — reap it after a TTL unless a session exists or
+      // the conversation was persisted.
+      setTimeout(() => {
+        if (platforms.get(dmId) !== dmClient) return;
+        const threadId = `dcm:${dmId}`;
+        if (session.registry.findByThreadId(threadId)) return;
+        if (session.getPersistedSession(threadId)) return;
+        teardownDmInstance(post.channelId, dmId, 'no session within TTL');
+      }, DM_ORPHAN_TTL_MS);
       rememberDmRoutedPost(post.id);
       await handleMessage(dmClient, session, post, user, {
         platformId: dmId,
@@ -816,17 +864,27 @@ async function startWithoutDaemon() {
     // string parsing — injective even if a platform id itself contains the
     // separator. A renamed parent strands its DM sessions (as it does any
     // persisted session referencing the old id); we only warn.
-    const parentCfg = config.platforms.find(
-      (p): p is MattermostPlatformConfig =>
-        p.type === 'mattermost' &&
-        !!(p as MattermostPlatformConfig).directMessages &&
-        pid.startsWith(`${p.id}${DM_PLATFORM_SEP}`)
-    );
+    const parentCfg = config.platforms
+      .filter(
+        (p): p is MattermostPlatformConfig =>
+          p.type === 'mattermost' &&
+          !!(p as MattermostPlatformConfig).directMessages &&
+          pid.startsWith(`${p.id}${DM_PLATFORM_SEP}`)
+      )
+      // Longest id wins: with parents 'a' and 'a--dm-b', a persisted id
+      // 'a--dm-b--dm-c' belongs to 'a--dm-b', not to 'a'.
+      .sort((a, b) => b.id.length - a.id.length)[0];
     if (!parentCfg) {
       ui.addLog({ level: 'warn', component: 'dm', message: `Skipping persisted DM session for ${pid} (parent missing, renamed, or directMessages off)` });
       continue;
     }
     const channelId = pid.slice(parentCfg.id.length + DM_PLATFORM_SEP.length);
+    // First instance wins per DM channel, mirroring live discovery — an old
+    // duplicated pair of persisted sessions must not reconnect twice.
+    if (dmInstanceByChannel.has(channelId)) {
+      ui.addLog({ level: 'warn', component: 'dm', message: `Skipping persisted DM session for ${pid} (channel already owned by ${dmInstanceByChannel.get(channelId)})` });
+      continue;
+    }
     const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
       ? persisted.sessionAllowedUsers
       : [persisted.startedBy].filter((u): u is string => !!u);

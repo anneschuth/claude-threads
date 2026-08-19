@@ -552,6 +552,12 @@ export class MattermostClient extends BasePlatformClient {
   async connect(): Promise<void> {
     // Get bot user first
     await this.getBotUser();
+    // A disconnect() issued while we awaited must win: without this check a
+    // torn-down client would resume here and open a websocket nobody owns.
+    if (this.isIntentionalDisconnect) {
+      wsLogger.debug('connect() aborted: client was disconnected while connecting');
+      return;
+    }
     wsLogger.debug(`Bot user ID: ${this.botUserId}`);
 
     const wsUrl = this.url
