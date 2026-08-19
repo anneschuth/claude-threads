@@ -1796,9 +1796,11 @@ export async function sendFollowUp(
   options?: { system?: boolean }
 ): Promise<void> {
   // The session is registered before its Claude process finishes starting.
-  // A message landing in that window must not be dropped — give the CLI a
-  // moment to come up before giving up.
+  // A message landing in that window must not be dropped — but only wait
+  // when a start for this exact key is actually in flight; a genuinely dead
+  // session still returns immediately.
   if (!session.claude.isRunning()) {
+    if (!_inFlightSessionStarts.has(session.sessionId)) return;
     const deadline = Date.now() + 10_000;
     while (!session.claude.isRunning() && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 250));
