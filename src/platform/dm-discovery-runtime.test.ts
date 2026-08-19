@@ -287,6 +287,36 @@ describe('dm-discovery-runtime: connect-failure ordering', () => {
     expect(h.platforms.has(DM_ID)).toBe(false);
   });
 
+  it('sweep cancels a session that slipped through the empty-map window', async () => {
+    let rejectConnect!: (err: Error) => void;
+    const h = makeHarness({ connect: () => new Promise<void>((_r, rej) => { rejectConnect = rej; }) });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+
+    rejectConnect(new Error('boom'));
+    await sleep(20);                                   // cleanup ran, platform gone
+    expect(h.platforms.has(DM_ID)).toBe(false);
+
+    // A retry generation registered its session AFTER cleanup's registry
+    // check (the transient empty-map ordering) — bound to the removed client.
+    h.activeSessions.add(THREAD_ID);
+
+    await sleep(2200);                                 // the sweep enforces the invariant
+    expect(h.cancelled).toContain(THREAD_ID);
+  }, 10000);
+
+  it('reconstructPersisted reports skipped disabled instances', () => {
+    const h = makeHarness();
+    const rt = createDmDiscoveryRuntime(h.deps);
+    h.persisted.set('x', { threadId: THREAD_ID, platformId: DM_ID, sessionAllowedUsers: ['alice'], startedBy: 'alice' });
+
+    const skipped = rt.reconstructPersisted([parentConfig], () => false);
+
+    expect(skipped).toEqual([{ platformId: DM_ID, channelId: 'dm-chan-1' }]);
+    expect(h.platforms.size).toBe(0);
+  });
+
   it('live discovery ignores a disabled derived instance id', async () => {
     const h = makeHarness({ isEnabled: (id) => id !== DM_ID });
     const rt = createDmDiscoveryRuntime(h.deps);

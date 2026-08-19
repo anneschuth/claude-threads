@@ -747,8 +747,19 @@ async function startWithoutDaemon() {
   }
 
   // Boot reconstruction: rebuild derived instances for persisted DM sessions
-  // before connecting, so session.initialize() can resume them.
-  dmRuntime.reconstructPersisted(config.platforms, (id) => platformEnabledState.get(id) ?? true);
+  // before connecting, so session.initialize() can resume them. Disabled
+  // instances get a UI row anyway — the toggle can only address platforms it
+  // can see, and enabling one means re-discovery on the next DM.
+  const skippedDisabledDm = dmRuntime.reconstructPersisted(config.platforms, (id) => platformEnabledState.get(id) ?? true);
+  for (const { platformId: dmPid } of skippedDisabledDm) {
+    ui.setPlatformStatus(dmPid, {
+      displayName: `${dmPid} (disabled DM)`,
+      botName: '',
+      url: '',
+      platformType: 'mattermost',
+      enabled: false,
+    });
+  }
 
   // Connect only enabled platforms
   const enabledPlatforms = Array.from(platforms.entries()).filter(

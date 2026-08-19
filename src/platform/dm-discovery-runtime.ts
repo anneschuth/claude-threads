@@ -53,8 +53,13 @@ export interface DmDiscoveryDeps {
 export interface DmDiscoveryRuntime {
   /** Listen for cold DMs on a parent entry with `directMessages: true`. */
   wireParent(parentConfig: MattermostPlatformConfig, parentClient: PlatformClient): void;
-  /** Rebuild derived instances for persisted DM sessions (call before connect). */
-  reconstructPersisted(platformConfigs: PlatformInstanceConfig[], isEnabled: (id: string) => boolean): void;
+  /**
+   * Rebuild derived instances for persisted DM sessions (call before
+   * connect). Returns the disabled instances that were skipped, so the host
+   * can still surface them (e.g. as a UI row) — otherwise a disabled DM
+   * instance would be un-toggleable after a restart.
+   */
+  reconstructPersisted(platformConfigs: PlatformInstanceConfig[], isEnabled: (id: string) => boolean): Array<{ platformId: string; channelId: string }>;
   /** Settle a reconstructed instance's boot connect result (no-op for others). */
   settleBootResult(id: string, success: boolean, client: PlatformClient | undefined): void;
   /** Hook for the host's session:remove listener. */
@@ -208,6 +213,17 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
             }
           }
           teardown(post.channelId, dmId, 'connect failed', dmClient);
+          // Sweep: whatever ordering the start/retry races take, the end-state
+          // invariant is enforced here — a session whose platform is gone
+          // (e.g. a retry generation that slipped through the transient
+          // empty-map window and registered late) is cancelled shortly after.
+          // Losing that one message is within the declared failure model.
+          setTimeout(() => {
+            if (platforms.has(dmId)) return; // rediscovered — session is fine
+            if (!session.registry.findByThreadId(threadId)) return;
+            log('warn', `Sweeping session stranded on removed DM platform ${dmId}`);
+            void session.cancelSession(threadId, dmClient.getBotName()).catch(() => {});
+          }, 2000);
         })();
       });
       // Orphan reaper: an instance whose first message never produced a
@@ -229,7 +245,8 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
     });
   };
 
-  const reconstructPersisted = (platformConfigs: PlatformInstanceConfig[], isEnabled: (id: string) => boolean): void => {
+  const reconstructPersisted = (platformConfigs: PlatformInstanceConfig[], isEnabled: (id: string) => boolean): Array<{ platformId: string; channelId: string }> => {
+    const skippedDisabled: Array<{ platformId: string; channelId: string }> = [];
     for (const [, persisted] of deps.loadPersistedSessions()) {
       const pid = persisted.platformId || '';
       if (!pid.includes(DM_PLATFORM_SEP) || platforms.has(pid)) continue;
@@ -255,9 +272,11 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
         log('warn', `Skipping persisted DM session for ${pid} (channel already owned by ${instanceByChannel.get(channelId)})`);
         continue;
       }
-      // A derived instance the user disabled stays down.
+      // A derived instance the user disabled stays down — but report it so
+      // the host can keep it visible/toggleable.
       if (!isEnabled(pid)) {
         log('info', `Skipping disabled DM instance ${pid}`);
+        skippedDisabled.push({ platformId: pid, channelId });
         continue;
       }
       const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
@@ -271,6 +290,7 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
       connecting.add(pid);
       reconstructed.set(pid, channelId);
     }
+    return skippedDisabled;
   };
 
   const settleBootResult = (id: string, success: boolean, client: PlatformClient | undefined): void => {
