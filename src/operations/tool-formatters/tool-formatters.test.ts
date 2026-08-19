@@ -261,6 +261,25 @@ describe('Bash Formatter', () => {
     expect(result!.display!.length).toBeLessThan(longCommand.length);
   });
 
+  it('shows the full command in the permission prompt (not the 100-char display cut)', () => {
+    // A realistic compound command well over the old 100-char cap: the user
+    // must be able to see the tail (the part that actually matters) before
+    // approving.
+    const command = `npm view claude-threads version 2>/dev/null; echo "---"; ${'x'.repeat(200)}; rm -rf /tmp/scratch`;
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain(command);
+    expect(result!.permissionText).not.toContain('...');
+  });
+
+  it('still caps a pathological command in the permission prompt', () => {
+    const command = 'y'.repeat(5000);
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain('...');
+    expect(result!.permissionText!.length).toBeLessThan(2000);
+  });
+
   it('shortens worktree paths in commands', () => {
     const result = bashToolFormatter.format(
       'Bash',

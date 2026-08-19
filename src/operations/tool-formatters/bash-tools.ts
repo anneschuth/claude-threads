@@ -9,6 +9,15 @@
 import type { ToolFormatter, ToolFormatResult, ToolInput, ToolFormatOptions } from './types.js';
 import { escapeRegExp } from './utils.js';
 
+/**
+ * The permission prompt is the user's only chance to see what is about to run —
+ * a hard-truncated command turns the approval gate into rubber-stamping. Show
+ * the command up to this cap; anything longer is still cut so a pathological
+ * command cannot blow up the prompt post (the platform layer enforces its own
+ * overall message-size limits on top).
+ */
+const PERMISSION_COMMAND_MAX = 1500;
+
 // ---------------------------------------------------------------------------
 // Bash Formatter
 // ---------------------------------------------------------------------------
@@ -40,7 +49,7 @@ export const bashToolFormatter: ToolFormatter = {
 
     return {
       display: `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(displayCmd + (truncated ? '...' : ''))}`,
-      permissionText: `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd.substring(0, 100) + (cmd.length >= 100 ? '...' : ''))}`,
+      permissionText: `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(cmd.substring(0, PERMISSION_COMMAND_MAX) + (cmd.length > PERMISSION_COMMAND_MAX ? '...' : ''))}`,
       isDestructive: true, // Bash commands can be destructive
     };
   },
