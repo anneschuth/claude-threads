@@ -852,9 +852,15 @@ async function startWithoutDaemon() {
         if (platforms.get(dmId) !== dmClient) return;
         // A dead instance must not permanently block the channel: tear it
         // down (including its half-open connection) so the next DM retries
-        // discovery from scratch.
+        // discovery from scratch. A session created from the first message in
+        // the meantime would be stranded on the disconnected client — kill it
+        // (it persists and resumes on the next DM).
         ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}, discarding: ${err}` });
-        teardownDmInstance(post.channelId, dmId, 'connect failed');
+        const threadId = `dcm:${dmId}`;
+        if (session.registry.findByThreadId(threadId)) {
+          void session.cancelSession(threadId, 'system').catch(() => {});
+        }
+        teardownDmInstance(post.channelId, dmId, 'connect failed', dmClient);
       });
       // Orphan reaper: an instance whose first message never produced a
       // session (empty prompt, immediate command, capacity rejection) emits
@@ -886,6 +892,7 @@ async function startWithoutDaemon() {
   // Boot reconstruction: persisted DM sessions reference derived platform ids
   // that no longer exist after a restart — rebuild those instances before
   // connecting, so session.initialize() can resume them.
+  const reconstructedDmChannels = new Map<string, string>();
   for (const [, persisted] of sessionStore.load()) {
     const pid = persisted.platformId || '';
     if (!pid.includes(DM_PLATFORM_SEP) || platforms.has(pid)) continue;
@@ -919,6 +926,11 @@ async function startWithoutDaemon() {
       : [persisted.startedBy].filter((u): u is string => !!u);
     ui.addLog({ level: 'info', component: 'dm', message: `♻️ Reconstructing DM instance ${pid}` });
     registerDmPlatform(parentCfg, channelId, partners);
+    // Until its own socket is confirmed up (below, after the concurrent
+    // connect), the parent must keep forwarding this channel's messages —
+    // otherwise a DM arriving during startup is silently dropped.
+    dmConnecting.add(pid);
+    reconstructedDmChannels.set(pid, channelId);
   }
 
   // Connect only enabled platforms
@@ -942,6 +954,20 @@ async function startWithoutDaemon() {
       }
     })
   );
+
+  // Settle reconstructed DM instances: a connected one leaves the forwarding
+  // window; a failed one must not keep owning its channel (that would block
+  // rediscovery forever) — tear it down so the next DM starts fresh.
+  for (const result of connectionResults) {
+    if (result.status !== 'fulfilled') continue;
+    const dmChannelId = reconstructedDmChannels.get(result.value.id);
+    if (!dmChannelId) continue;
+    if (result.value.success) {
+      dmConnecting.delete(result.value.id);
+    } else {
+      teardownDmInstance(dmChannelId, result.value.id, 'boot connect failed', platforms.get(result.value.id));
+    }
+  }
 
   // Check if at least one platform connected successfully
   const successfulConnections = connectionResults.filter(
