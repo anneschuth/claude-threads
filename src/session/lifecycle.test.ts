@@ -192,7 +192,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       memoryStore: {
         buildChannelMemoryBlock: mock(() => null),
         listChannelEntries: mock(() => []),
-        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [] })),
+        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [], superseded: [] })),
         forgetChannelEntry: mock(() => Promise.resolve({ ok: false, reason: 'empty', matches: [] })),
         clearChannel: mock(() => Promise.resolve()),
         repoMemoryDir: mock(() => '/tmp/test-memory'),

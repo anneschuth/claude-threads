@@ -94,6 +94,13 @@ export interface AddEntriesResult {
   added: ChannelMemoryEntry[];
   /** Candidate texts skipped because an equivalent entry already exists. */
   duplicates: string[];
+  /**
+   * Existing entries removed because a new entry contains them (longer, more
+   * specific form wins). Only entries the writer may replace land here — see
+   * the supersede rule in `addChannelEntries`. Surfaced so callers can report
+   * replacements instead of removing entries silently.
+   */
+  superseded: ChannelMemoryEntry[];
 }
 
 export type ForgetResult =
@@ -138,15 +145,10 @@ export async function resolveRepoKey(
   workingDir: string,
   worktreeRepoRoot?: string,
 ): Promise<string> {
-  let root = worktreeRepoRoot;
-  if (!root) {
-    try {
-      root = (await getMainRepositoryRoot(workingDir)) ?? undefined;
-    } catch {
-      // Not a repo / git unavailable — fall through to workingDir.
-    }
-  }
-  if (!root) root = workingDir;
+  // getMainRepositoryRoot never throws — it returns null when the directory
+  // is not a git repo (or git is unavailable), so workingDir is the fallback.
+  const root =
+    worktreeRepoRoot ?? (await getMainRepositoryRoot(workingDir)) ?? workingDir;
   let real = root;
   try {
     real = realpathSync(root);
@@ -242,7 +244,7 @@ export class MemoryStore {
   ): Promise<AddEntriesResult> {
     return this.runExclusive(platformId, () => {
       const lines = this.loadLines(platformId);
-      const result: AddEntriesResult = { added: [], duplicates: [] };
+      const result: AddEntriesResult = { added: [], duplicates: [], superseded: [] };
 
       for (const candidate of entries) {
         const text = sanitizeEntryText(candidate.text);
@@ -265,10 +267,24 @@ export class MemoryStore {
           continue;
         }
         // If the new entry supersedes (contains) an existing one, drop the
-        // shorter old entry — keep the longer, more specific form.
+        // shorter old entry — keep the longer, more specific form. But ONLY
+        // when the writer legitimately owns the old entry: removal is
+        // otherwise an owner-gated operation (`!memory forget` requires
+        // requireSessionOwner), and `!remember` is open to any
+        // session-authorized user — including temporarily invited ones —
+        // so an unrestricted supersede would let a non-owner silently
+        // delete/rewrite another principal's entry by embedding its text.
+        // Rule: distilled entries are fair game for anyone (background
+        // inference, no author); a user entry may only be superseded by the
+        // SAME user. Anything else coexists — visible in `!memory`, and the
+        // owner can resolve the contradiction with `forget`.
+        const canSupersede = (e: ChannelMemoryEntry): boolean =>
+          e.source === 'distilled' ||
+          (candidate.source === 'user' && e.source === 'user' && e.addedBy === candidate.addedBy);
         for (let i = lines.length - 1; i >= 0; i--) {
           const e = lines[i].entry;
-          if (e && normalized.includes(normalizeForDedupe(e.text))) {
+          if (e && canSupersede(e) && normalized.includes(normalizeForDedupe(e.text))) {
+            result.superseded.push(e);
             lines.splice(i, 1);
           }
         }

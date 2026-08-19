@@ -867,15 +867,22 @@ export async function rememberEntry(
     { text: sanitized, source: 'user', addedBy: username },
   ]);
   if (result.added.length > 0) {
+    // Never silent about removals: name what the new note replaced.
+    const replaced = result.superseded.length > 0
+      ? ` It replaces ${result.superseded.length === 1
+          ? `an earlier note (${formatter.formatItalic(result.superseded[0].text.substring(0, 120))})`
+          : `${result.superseded.length} earlier notes`}.`
+      : '';
     await post(
       session,
       'success',
-      `🧠 Remembered for this channel. ${formatter.formatItalic(`New sessions will see it; view with ${'`!memory`'}.`)}`,
+      `🧠 Remembered for this channel.${replaced} ${formatter.formatItalic(`New sessions will see it; view with ${'`!memory`'}.`)}`,
     );
+    sessionLog(session).info(`🧠 @${username} added a channel memory entry`);
   } else {
     await post(session, 'info', `🧠 Already known — an equivalent entry exists. See ${formatter.formatCode('!memory')}.`);
+    sessionLog(session).debug(`🧠 @${username} tried to add a duplicate channel memory entry`);
   }
-  sessionLog(session).info(`🧠 @${username} added a channel memory entry`);
   session.threadLogger?.logCommand('remember', sanitized.substring(0, 80), username);
 }
 
@@ -901,7 +908,9 @@ export async function showMemory(
   }
 
   const lines = entries.map((e, i) => {
-    const source = e.source === 'user' ? formatter.formatUserMention(e.addedBy ?? 'unknown') : formatter.formatItalic('distilled');
+    // Author as inline code, NOT formatUserMention: a live @mention would
+    // ping every entry author each time anyone views the listing.
+    const source = e.source === 'user' ? formatter.formatCode(`@${e.addedBy ?? 'unknown'}`) : formatter.formatItalic('distilled');
     return `${i + 1}. [${e.addedAt}] (${source}) ${e.text}`;
   });
   const intro = `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:`;

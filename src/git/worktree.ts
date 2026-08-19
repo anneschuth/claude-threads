@@ -340,19 +340,9 @@ export async function detectWorktreeInfo(
       return null;
     }
 
-    // Get the main repository root (the one this worktree is linked to)
-    // The .git file in a worktree points to the main repo
-    const gitDirOutput = await execGit(['rev-parse', '--git-common-dir'], workingDir);
-    let repoRoot = gitDirOutput?.trim();
-    if (repoRoot) {
-      // git-common-dir returns something like /path/to/repo/.git
-      // We want /path/to/repo
-      if (repoRoot.endsWith('/.git')) {
-        repoRoot = repoRoot.slice(0, -5);
-      } else if (repoRoot.endsWith('.git')) {
-        repoRoot = repoRoot.slice(0, -4);
-      }
-    }
+    // Get the main repository root (the one this worktree is linked to) —
+    // shared derivation with getMainRepositoryRoot (git-common-dir).
+    const repoRoot = await getMainRepositoryRoot(workingDir);
 
     log.debug(`Detected worktree: path=${workingDir}, branch=${branch}, repoRoot=${repoRoot}`);
 

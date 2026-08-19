@@ -14,6 +14,7 @@ import { suggestBranchNames } from '../suggestions/branch.js';
 import {
   isGitRepository,
   getRepositoryRoot,
+  getMainRepositoryRoot,
   hasUncommittedChanges,
   listWorktrees as listGitWorktrees,
   createWorktree as createGitWorktree,
@@ -439,8 +440,14 @@ export async function createAndSwitchToWorktree(
     return;
   }
 
-  // Get repo root
-  const repoRoot = await getRepositoryRoot(session.workingDir);
+  // Get repo root — the MAIN repository root, even when the session is
+  // currently inside a linked worktree (a chained `!worktree` switch, or a
+  // session whose configured workingDir is itself a worktree). Using the
+  // worktree's own toplevel here would leak into `worktreeInfo.repoRoot` and
+  // the repo-memory key, which all worktrees of one repository must share.
+  const repoRoot =
+    (await getMainRepositoryRoot(session.workingDir)) ??
+    (await getRepositoryRoot(session.workingDir));
 
   // Check if worktree already exists for this branch
   const existing = await findWorktreeByBranch(repoRoot, branch);

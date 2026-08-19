@@ -235,7 +235,12 @@ platforms:
   approval flow. There is no automatic expiry. Both are candidates for
   follow-up options.
 - Distillation runs one `claude -p` haiku call per session end, billed to the
-  bot's default account (not the session's pooled account).
+  bot's default account (not the session's pooled account). In an OAuth
+  `claudeAccounts` pool where only the per-account HOMEs are logged in, the
+  bot's own environment may have no credentials — distillation then fails
+  silently (debug-logged) and the channel only learns via `!remember`. Give
+  the bot process its own credentials (`claude login` under the bot's HOME,
+  or `ANTHROPIC_API_KEY` in its env) if you want distillation in that setup.
 - Note for exotic setups: the Claude CLI disables auto-memory when
   `CLAUDE_CODE_REMOTE` is set (unless `CLAUDE_CODE_REMOTE_MEMORY_DIR` is
   configured) — the repo layer will be inert in such environments.

@@ -366,3 +366,66 @@ describe('resolveSessionMemory', () => {
     expect(other!.autoMemoryDir).not.toBe(result!.autoMemoryDir);
   });
 });
+
+describe('supersede authorization (who may replace whose entries)', () => {
+  test("a user's containing note does NOT remove another user's entry (authz: removal is owner-gated)", async () => {
+    // Regression-defender: `!remember` is open to any session-authorized user
+    // (including invited collaborators), while `!memory forget` is
+    // owner-gated. An unrestricted supersede would let a non-owner silently
+    // delete the owner's entry by embedding its text in a new note.
+    await store.addChannelEntries('mm', [
+      { text: 'never deploy on Fridays', source: 'user', addedBy: 'owner' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      {
+        text: 'never deploy on Fridays — obsolete rule, deploy whenever convenient',
+        source: 'user',
+        addedBy: 'invited-user',
+      },
+    ]);
+    expect(result.added).toHaveLength(1);
+    expect(result.superseded).toHaveLength(0);
+    // Both entries coexist; the contradiction is visible in !memory and the
+    // owner resolves it with forget.
+    const entries = store.listChannelEntries('mm');
+    expect(entries).toHaveLength(2);
+    expect(entries.some((e) => e.addedBy === 'owner')).toBe(true);
+  });
+
+  test('the SAME user may supersede their own earlier entry, and it is reported', async () => {
+    await store.addChannelEntries('mm', [
+      { text: 'deploys on tuesdays', source: 'user', addedBy: 'anne' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'Deploys on Tuesdays, except during code freeze', source: 'user', addedBy: 'anne' },
+    ]);
+    expect(result.added).toHaveLength(1);
+    expect(result.superseded).toHaveLength(1);
+    expect(result.superseded[0].text).toBe('deploys on tuesdays');
+    expect(store.listChannelEntries('mm')).toHaveLength(1);
+  });
+
+  test("anyone's note may supersede a distilled entry (no author to protect)", async () => {
+    await store.addChannelEntries('mm', [
+      { text: 'ci runs on jenkins', source: 'distilled' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'CI runs on Jenkins, migrating to GitHub Actions in Q4', source: 'user', addedBy: 'bob' },
+    ]);
+    expect(result.superseded).toHaveLength(1);
+    expect(store.listChannelEntries('mm')).toHaveLength(1);
+  });
+
+  test('a distilled candidate never removes a user-authored entry', async () => {
+    await store.addChannelEntries('mm', [
+      { text: 'release day is Thursday', source: 'user', addedBy: 'anne' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'release day is Thursday according to the team calendar', source: 'distilled' },
+    ]);
+    // The distilled fact lands alongside; the user entry survives.
+    expect(result.superseded).toHaveLength(0);
+    const entries = store.listChannelEntries('mm');
+    expect(entries.some((e) => e.source === 'user' && e.addedBy === 'anne')).toBe(true);
+  });
+});

@@ -118,14 +118,22 @@ export function resolveMemoryConfig(value: unknown, fieldPath?: string): Resolve
   if (value === false) return MEMORY_DISABLED;
   if (typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as { enabled?: unknown; repoLayer?: unknown; channelLayer?: unknown; distillation?: unknown };
-    const bool = (v: unknown, dflt: boolean): boolean => (typeof v === 'boolean' ? v : dflt);
-    const enabled = bool(obj.enabled, true);
+    const bool = (v: unknown, name: string, dflt: boolean): boolean => {
+      if (typeof v === 'boolean') return v;
+      if (v !== undefined) {
+        console.warn(
+          `Invalid ${fieldPath ?? 'memory'}.${name}: expected boolean, got ${JSON.stringify(v)} — using default (${dflt})`,
+        );
+      }
+      return dflt;
+    };
+    const enabled = bool(obj.enabled, 'enabled', true);
     if (!enabled) return MEMORY_DISABLED;
     return {
       enabled: true,
-      repoLayer: bool(obj.repoLayer, true),
-      channelLayer: bool(obj.channelLayer, true),
-      distillation: bool(obj.distillation, true),
+      repoLayer: bool(obj.repoLayer, 'repoLayer', true),
+      channelLayer: bool(obj.channelLayer, 'channelLayer', true),
+      distillation: bool(obj.distillation, 'distillation', true),
     };
   }
   console.warn(
