@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
-import { dmPlatformId, parseDmPlatformId, deriveDmPlatformConfig } from './platform/dm-discovery.js';
+import { dmPlatformId, DM_PLATFORM_SEP, deriveDmPlatformConfig } from './platform/dm-discovery.js';
 import type { DirectChannelModeConfig } from './platform/utils.js';
 import {
   loadConfigWithMigration,
@@ -61,6 +61,46 @@ function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
 /**
  * Wire up platform events to session manager and UI.
  */
+// ---------------------------------------------------------------------------
+// DM auto-discovery runtime state (module level so the session:remove handler
+// and the per-parent discovery listeners share one view).
+// ---------------------------------------------------------------------------
+/** Derived DM instances: DM channel id → derived platform id (first parent wins). */
+const dmInstanceByChannel = new Map<string, string>();
+/** Derived instances whose own websocket has not confirmed connecting yet. */
+const dmConnecting = new Set<string>();
+/** Post ids already routed via the parent during the connect window (dedupe). */
+const dmRoutedPosts = new Set<string>();
+let dmRuntime: { platforms: Map<string, PlatformClient>; session: SessionManager; ui: UIProvider } | undefined;
+
+function rememberDmRoutedPost(postId: string): void {
+  dmRoutedPosts.add(postId);
+  if (dmRoutedPosts.size > 200) {
+    const oldest = dmRoutedPosts.values().next().value;
+    if (oldest) dmRoutedPosts.delete(oldest);
+  }
+}
+
+/**
+ * Tear down a derived DM instance when its session leaves the registry
+ * (idle pause, !stop, error). The channel is re-discovered on the next DM and
+ * the persisted session resumes — so instances do not accumulate over uptime.
+ */
+function teardownDmInstanceForSession(sessionId: string): void {
+  if (!dmRuntime) return;
+  for (const [channelId, dmId] of dmInstanceByChannel) {
+    if (!sessionId.startsWith(`${dmId}:`)) continue;
+    dmInstanceByChannel.delete(channelId);
+    dmConnecting.delete(dmId);
+    const client = dmRuntime.platforms.get(dmId);
+    dmRuntime.platforms.delete(dmId);
+    dmRuntime.session.removePlatform(dmId);
+    if (client) void Promise.resolve(client.disconnect()).catch(() => {});
+    dmRuntime.ui.addLog({ level: 'info', component: 'dm', message: `🧹 DM instance ${dmId} torn down (session ended)` });
+    return;
+  }
+}
+
 function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
@@ -70,6 +110,10 @@ function wirePlatformEvents(
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+    // Dedupe for the DM-discovery handover window: a post the parent already
+    // routed must not be processed again when the derived instance's own
+    // socket delivers it moments later.
+    if (dmRoutedPosts.has(post.id)) return;
     await handleMessage(client, session, post, user, {
       platformId,
       directChannelMode,
@@ -621,10 +665,12 @@ async function startWithoutDaemon() {
   });
   session.on('session:remove', (sessionId) => {
     ui.removeSession(sessionId);
+    teardownDmInstanceForSession(sessionId);
   });
 
   // Store all platform clients for shutdown
   const platforms = new Map<string, PlatformClient>();
+  dmRuntime = { platforms, session, ui };
 
   // Load persisted platform enabled states (sessionStore created earlier for toggle callbacks)
   const platformEnabledState = sessionStore.getPlatformEnabledState();
@@ -684,6 +730,7 @@ async function startWithoutDaemon() {
     const dmConfig = deriveDmPlatformConfig(parentCfg, channelId, partnerUsernames);
     const dmClient = createPlatformClient(dmConfig);
     platforms.set(dmConfig.id, dmClient);
+    dmInstanceByChannel.set(channelId, dmConfig.id);
     ui.setPlatformStatus(dmConfig.id, {
       displayName: dmConfig.displayName,
       botName: dmConfig.botName,
@@ -710,14 +757,47 @@ async function startWithoutDaemon() {
     if (!parentClient) continue;
     parentClient.on('direct_message', async (post: PlatformPost, user: PlatformUser | null) => {
       const username = user?.username;
-      if (!username || !mmConfig.allowedUsers.includes(username)) return;
+      // Same semantics as everywhere else: an empty allowlist means "everyone
+      // in the channel" — with directMessages that is every user who can DM
+      // the bot, so leave it empty only on servers you trust (documented).
+      if (!username || !parentClient.isUserAllowed(username)) return;
+      if (dmRoutedPosts.has(post.id)) return;
+
+      // First parent wins across multiple entries sharing one bot account:
+      // if any instance owns this DM channel, only route during its connect
+      // window (its own socket misses those messages), otherwise stay out.
+      const existingDmId = dmInstanceByChannel.get(post.channelId);
+      if (existingDmId) {
+        if (dmConnecting.has(existingDmId)) {
+          const existingClient = platforms.get(existingDmId);
+          if (existingClient) {
+            rememberDmRoutedPost(post.id);
+            await handleMessage(existingClient, session, post, user, {
+              platformId: existingDmId,
+              directChannelMode: true,
+              logger: { error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }) },
+            });
+          }
+        }
+        return;
+      }
+
       const dmId = dmPlatformId(mmConfig.id, post.channelId);
-      if (platforms.has(dmId)) return; // existing instance receives via its own socket
       ui.addLog({ level: 'info', component: 'dm', message: `📩 New DM conversation with @${username} — spawning ${dmId}` });
       const dmClient = registerDmPlatform(mmConfig, post.channelId, [username]);
-      dmClient.connect().catch((err: unknown) => {
-        ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}: ${err}` });
+      dmConnecting.add(dmId);
+      dmClient.connect().then(() => {
+        dmConnecting.delete(dmId);
+      }).catch((err: unknown) => {
+        // A dead instance must not permanently block the channel: tear it
+        // down so the next DM retries discovery from scratch.
+        ui.addLog({ level: 'error', component: 'dm', message: `Failed to connect DM instance ${dmId}, discarding: ${err}` });
+        dmConnecting.delete(dmId);
+        dmInstanceByChannel.delete(post.channelId);
+        platforms.delete(dmId);
+        session.removePlatform(dmId);
       });
+      rememberDmRoutedPost(post.id);
       await handleMessage(dmClient, session, post, user, {
         platformId: dmId,
         directChannelMode: true,
@@ -730,18 +810,28 @@ async function startWithoutDaemon() {
   // that no longer exist after a restart — rebuild those instances before
   // connecting, so session.initialize() can resume them.
   for (const [, persisted] of sessionStore.load()) {
-    const parsed = parseDmPlatformId(persisted.platformId || '');
-    if (!parsed || platforms.has(persisted.platformId)) continue;
-    const parentCfg = config.platforms.find((p) => p.id === parsed.parentId);
-    if (!parentCfg || parentCfg.type !== 'mattermost' || !(parentCfg as MattermostPlatformConfig).directMessages) {
-      ui.addLog({ level: 'warn', component: 'dm', message: `Skipping persisted DM session for ${persisted.platformId} (parent missing or directMessages off)` });
+    const pid = persisted.platformId || '';
+    if (!pid.includes(DM_PLATFORM_SEP) || platforms.has(pid)) continue;
+    // Prefix-match against the actual configured parents instead of blind
+    // string parsing — injective even if a platform id itself contains the
+    // separator. A renamed parent strands its DM sessions (as it does any
+    // persisted session referencing the old id); we only warn.
+    const parentCfg = config.platforms.find(
+      (p): p is MattermostPlatformConfig =>
+        p.type === 'mattermost' &&
+        !!(p as MattermostPlatformConfig).directMessages &&
+        pid.startsWith(`${p.id}${DM_PLATFORM_SEP}`)
+    );
+    if (!parentCfg) {
+      ui.addLog({ level: 'warn', component: 'dm', message: `Skipping persisted DM session for ${pid} (parent missing, renamed, or directMessages off)` });
       continue;
     }
+    const channelId = pid.slice(parentCfg.id.length + DM_PLATFORM_SEP.length);
     const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
       ? persisted.sessionAllowedUsers
       : [persisted.startedBy].filter((u): u is string => !!u);
-    ui.addLog({ level: 'info', component: 'dm', message: `♻️ Reconstructing DM instance ${persisted.platformId}` });
-    registerDmPlatform(parentCfg as MattermostPlatformConfig, parsed.channelId, partners);
+    ui.addLog({ level: 'info', component: 'dm', message: `♻️ Reconstructing DM instance ${pid}` });
+    registerDmPlatform(parentCfg, channelId, partners);
   }
 
   // Connect only enabled platforms

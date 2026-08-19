@@ -223,7 +223,13 @@ platforms:
 
 On first contact the bot spawns a derived platform instance for that DM channel — a clone of the parent entry in direct channel mode, sticky hidden, `allowedUsers` scoped to the DM partner (which, with the DCM `approvals` default of `owner`, also scopes tool-permission prompts to that person). DM sessions persist and are reconstructed after a bot restart. Users not on the parent's `allowedUsers` are ignored.
 
-Mattermost only — see the note above for why the multi-connection approach cannot work on Slack. Known edge: a second message sent in the very first second of a brand-new DM conversation (before the derived instance's own connection is up) can be missed.
+Details and caveats:
+
+- **Lifecycle**: when a DM session ends (idle timeout, `!stop`), its derived instance and connection are torn down; the next DM re-discovers the channel and resumes the persisted session. Instances therefore do not accumulate over uptime.
+- **Multiple entries, one bot account**: the first entry to discover a DM channel owns it — other `directMessages: true` entries stay out, so the bot never double-replies.
+- **Empty `allowedUsers`**: consistent with the rest of the bot, an empty list means *everyone* — combined with `directMessages: true` that is every user on the server who can DM the bot. Leave it empty only on servers you trust.
+- **Renaming a platform entry** strands its persisted DM sessions (as it does any persisted session referencing the old id); they are skipped with a warning.
+- Mattermost only — see the note above for why the multi-connection approach cannot work on Slack.
 
 Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 

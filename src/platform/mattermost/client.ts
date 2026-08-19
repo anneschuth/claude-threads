@@ -130,8 +130,24 @@ export class MattermostClient extends BasePlatformClient {
    * This is needed because WebSocket events may not include full file metadata.
    */
   private async processAndEmitPost(post: MattermostPost): Promise<void> {
-    // Check if we need to fetch file metadata
-    // WebSocket events include file_ids but may not include metadata.files
+    await this.enrichFileMetadata(post);
+
+    // Get user info and emit
+    const user = await this.getUser(post.user_id);
+    const normalizedPost = this.normalizePlatformPost(post);
+    this.emit('message', normalizedPost, user);
+
+    // Also emit channel_post for top-level posts (not thread replies)
+    if (!post.root_id) {
+      this.emit('channel_post', normalizedPost, user);
+    }
+  }
+
+  /**
+   * Fetch file metadata for a post when the WebSocket event carried only
+   * file_ids (shared by regular posts and DM-discovery posts).
+   */
+  private async enrichFileMetadata(post: MattermostPost): Promise<void> {
     const fileIds = post.file_ids;
     const hasFileIds = fileIds && fileIds.length > 0;
     const hasFileMetadata = post.metadata?.files && post.metadata.files.length > 0;
@@ -162,21 +178,12 @@ export class MattermostClient extends BasePlatformClient {
         log.warn(`Failed to fetch file metadata for post ${formatShortId(post.id)}: ${err}`);
       }
     }
-
-    // Get user info and emit
-    const user = await this.getUser(post.user_id);
-    const normalizedPost = this.normalizePlatformPost(post);
-    this.emit('message', normalizedPost, user);
-
-    // Also emit channel_post for top-level posts (not thread replies)
-    if (!post.root_id) {
-      this.emit('channel_post', normalizedPost, user);
-    }
   }
 
   /** Resolve the sender and emit a 'direct_message' event (DM discovery). */
   private async emitDirectMessage(post: MattermostPost): Promise<void> {
     try {
+      await this.enrichFileMetadata(post);
       const user = await this.getUser(post.user_id);
       this.emit('direct_message', this.normalizePlatformPost(post), user);
     } catch (err) {
