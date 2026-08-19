@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Keep-alive inhibitors no longer outlive the bot process.** The sleep-prevention child processes are now tied to the bot's lifetime at the OS level: on Linux `systemd-inhibit` runs `cat` on a pipe held by the bot (EOF on bot death releases the lock, even after SIGKILL), on macOS `caffeinate -w <pid>` watches the bot pid natively, and the xdg-screensaver/PowerShell fallbacks poll the parent pid. Previously a hard death of the bot (SIGKILL, crashed test runner) orphaned `systemd-inhibit sleep infinity` processes to init, permanently blocking system sleep/hibernate until they were killed by hand.
+
 ## [1.25.0] - 2026-08-19
 
 ### Added

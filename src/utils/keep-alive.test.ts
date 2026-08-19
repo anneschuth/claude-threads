@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
-import { KeepAliveManager } from './keep-alive.js';
+import { KeepAliveManager, keepAliveSpawnSpec, linuxFallbackScript, windowsScript } from './keep-alive.js';
 
 describe('KeepAliveManager', () => {
   let manager: KeepAliveManager;
@@ -174,5 +174,40 @@ describe('KeepAliveManager', () => {
     manager.sessionEnded();
     // After all sessions end, should not be active
     expect(manager.isActive()).toBe(false);
+  });
+});
+
+describe('keepAliveSpawnSpec (process-lifetime coupling)', () => {
+  test('linux: inhibited command is cat on a piped stdin, not sleep infinity', () => {
+    const spec = keepAliveSpawnSpec('linux', 1234)!;
+    expect(spec.command).toBe('systemd-inhibit');
+    // cat exits on EOF when the bot dies and the pipe closes - sleep
+    // infinity would leak the inhibitor to init on SIGKILL
+    expect(spec.args[spec.args.length - 1]).toBe('cat');
+    expect(spec.args).not.toContain('infinity');
+    expect(spec.stdio).toEqual(['pipe', 'ignore', 'ignore']);
+  });
+
+  test('darwin: caffeinate watches the parent pid', () => {
+    const spec = keepAliveSpawnSpec('darwin', 4321)!;
+    expect(spec.command).toBe('caffeinate');
+    expect(spec.args).toContain('-w');
+    expect(spec.args[spec.args.indexOf('-w') + 1]).toBe('4321');
+  });
+
+  test('unsupported platforms yield no spec', () => {
+    expect(keepAliveSpawnSpec('freebsd', 1)).toBeNull();
+  });
+
+  test('linux fallback loop exits when the parent pid dies', () => {
+    const script = linuxFallbackScript(999);
+    expect(script).toContain('kill -0 999');
+    expect(script).not.toContain('while true');
+  });
+
+  test('windows script exits when the parent pid dies', () => {
+    const script = windowsScript(777);
+    expect(script).toContain('Get-Process -Id 777');
+    expect(script).not.toContain('while ($true)');
   });
 });
