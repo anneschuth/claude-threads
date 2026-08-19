@@ -751,7 +751,18 @@ async function startWithoutDaemon() {
   // instances get a UI row anyway — the toggle can only address platforms it
   // can see, and enabling one means re-discovery on the next DM.
   const skippedDisabledDm = dmRuntime.reconstructPersisted(config.platforms, (id) => platformEnabledState.get(id) ?? true);
-  for (const { platformId: dmPid } of skippedDisabledDm) {
+  // Every disabled derived DM id needs a UI row to stay re-enablable. Two
+  // sources: instances skipped during reconstruction (had a resumable
+  // session), and the enabled-state store itself — a disabled DM that never
+  // produced a Claude session (e.g. only ever received `!help`) has no
+  // persisted session to iterate, but its disable was persisted here.
+  const disabledDmIds = new Set<string>(skippedDisabledDm.map((d) => d.platformId));
+  for (const [pid, enabled] of platformEnabledState) {
+    if (!enabled && pid.includes(DM_PLATFORM_SEP) && !platforms.has(pid)) {
+      disabledDmIds.add(pid);
+    }
+  }
+  for (const dmPid of disabledDmIds) {
     ui.setPlatformStatus(dmPid, {
       displayName: `${dmPid} (disabled DM)`,
       botName: '',
