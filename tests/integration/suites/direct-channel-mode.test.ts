@@ -184,6 +184,13 @@ describe.skipIf(SKIP)('Direct Channel Mode — respondTo: mention', () => {
     );
 
     expect(reply.rootId ?? '').toBe('');
-    expect(bot.sessionManager.registry.findByThreadId(`dcm:${bot.platformId}`)).toBeDefined();
+    // The first bot post after the mention (header/sticky) can land before
+    // startSession registers the session — registration is deliberately late
+    // (in-flight dedup). Wait for it instead of asserting the instant race.
+    const dcmSession = await waitFor(
+      async () => bot.sessionManager.registry.findByThreadId(`dcm:${bot.platformId}`) ?? null,
+      { timeout: 15000, interval: 250, description: 'DCM session registered' },
+    );
+    expect(dcmSession).toBeDefined();
   });
 });
