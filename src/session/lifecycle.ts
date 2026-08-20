@@ -408,6 +408,7 @@ function createMessageManager(
   });
 
   messageManager.events.on('routine-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
+    session.threadLogger?.logCommand('routine', approved ? 'created' : 'discarded', requestedBy);
     if (!approved) {
       sessionLog(session).info(`🕘 Routine "${parsed.name}" discarded before saving`);
       return;
@@ -436,7 +437,6 @@ function createMessageManager(
       );
       sessionLog(session).warn(`🕘 Routine save failed: ${result.error}`);
     }
-    session.threadLogger?.logCommand('routine', approved ? 'created' : 'discarded', requestedBy);
   });
 
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {

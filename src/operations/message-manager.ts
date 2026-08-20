@@ -795,10 +795,6 @@ export class MessageManager {
     this.promptExecutor.setPendingRoutinePrompt(prompt);
   }
 
-  hasPendingRoutinePrompt(): boolean {
-    return this.promptExecutor.hasPendingRoutinePrompt();
-  }
-
   // ---------------------------------------------------------------------------
   // Bug report delegation
   // ---------------------------------------------------------------------------

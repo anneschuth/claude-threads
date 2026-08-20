@@ -106,7 +106,18 @@ export function isInFireWindow(routine: Routine, now: Date): boolean {
   const [hh, mm] = (schedule.time ?? '00:00').split(':').map((s) => parseInt(s, 10));
   const nowMs = (p.hour * 60 + p.minute) * 60 * 1000;
   const schedMs = (hh * 60 + mm) * 60 * 1000;
-  return nowMs >= schedMs && nowMs - schedMs < FIRE_WINDOW_MS;
+  if (nowMs >= schedMs && nowMs - schedMs < FIRE_WINDOW_MS) return true;
+
+  // DST spring-forward: a scheduled time inside the skipped hour (e.g. 02:30
+  // Europe/Amsterdam on the last Sunday of March) is never rendered by the
+  // wall clock, so the check above stays false all day. If the wall clock
+  // jumped OVER the scheduled time within the last window-span, the window is
+  // open now: fire at the first minutes after the gap. Same-day guard keeps
+  // this from bleeding across midnight into the previous day's schedule.
+  const prev = getLocalParts(new Date(now.getTime() - FIRE_WINDOW_MS), schedule.timezone);
+  const sameDay = prev.year === p.year && prev.month === p.month && prev.day === p.day;
+  const prevMs = (prev.hour * 60 + prev.minute) * 60 * 1000;
+  return sameDay && prevMs < schedMs && nowMs >= schedMs;
 }
 
 /**
@@ -159,6 +170,10 @@ export class RoutineScheduler {
     this.timer = setInterval(() => {
       void this.tick(new Date());
     }, this.intervalMs);
+    // Immediate first pass: a restart that lands inside a firing window must
+    // not lose the window to interval alignment (the first interval tick can
+    // land just after the window closes).
+    void this.tick(new Date());
     log.debug(`Routine scheduler started (interval: ${this.intervalMs / 1000}s)`);
   }
 
@@ -213,9 +228,18 @@ export class RoutineScheduler {
       return status;
     }
 
+    if (!anchorPeriod) {
+      // Manual `!routines run`: record the outcome, but never touch the
+      // scheduled-run failure streak — three manual retries of a broken
+      // routine must not auto-disable it, and a manual success must not mask
+      // scheduled failures that should disable it.
+      await this.opts.store.update(platformId, routine.id, { lastRunStatus: status });
+      return status;
+    }
+
     const failures = status === 'failed' ? routine.consecutiveFailures + 1 : 0;
     await this.opts.store.update(platformId, routine.id, {
-      ...(anchorPeriod ? { lastRunAt: now.toISOString() } : {}),
+      lastRunAt: now.toISOString(),
       lastRunStatus: status,
       consecutiveFailures: failures,
     });

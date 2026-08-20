@@ -335,7 +335,16 @@ export function handleEventPostProcessing(
     if (mainHandling) {
       void mainHandling
         .catch(() => { /* op-chain errors are logged in MessageManager; still persist */ })
-        .then(() => ctx.ops.persistSession(session));
+        .then(() => {
+          // The session may have been torn down while mainHandling settled —
+          // the CLI can exit milliseconds after its result event, and
+          // handleExit then runs removeFromRegistry + softDelete before this
+          // deferred persist lands. Re-saving here would resurrect the
+          // soft-deleted record as active, so a later reply in the thread
+          // resumes a session the bot just ended. Skip once unregistered.
+          if (!ctx.state.sessions.has(session.sessionId)) return;
+          ctx.ops.persistSession(session);
+        });
     } else {
       ctx.ops.persistSession(session);
     }

@@ -15,6 +15,7 @@
 import { EventEmitter } from 'events';
 import type { PendingBugReport } from './executors/types.js';
 import type { StatusUpdateOp, LifecycleOp } from './types.js';
+import type { ParsedRoutineRequest } from '../routines/parser.js';
 
 // ---------------------------------------------------------------------------
 // Event Payload Types
@@ -92,16 +93,7 @@ export interface MessageManagerEventMap {
    */
   'routine-prompt:complete': {
     approved: boolean;
-    parsed: {
-      name: string;
-      prompt: string;
-      schedule: {
-        preset: 'hourly' | 'daily' | 'weekdays' | 'weekly';
-        time?: string;
-        weekday?: number;
-        timezone: string;
-      };
-    };
+    parsed: ParsedRoutineRequest;
     requestedBy: string;
     postId: string;
   };

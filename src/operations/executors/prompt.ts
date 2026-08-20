@@ -383,10 +383,6 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     return this.state.pendingRoutinePrompt !== null;
   }
 
-  clearPendingRoutinePrompt(): void {
-    this.state.pendingRoutinePrompt = null;
-  }
-
   /**
    * Handle a routine confirmation reaction. Emits 'routine-prompt:complete';
    * the lifecycle listener does the actual store write on approval.

@@ -98,6 +98,25 @@ describe('isInFireWindow', () => {
     expect(isInFireWindow(r, new Date('2026-08-19T00:00:00Z'))).toBe(true);
     expect(isInFireWindow(r, new Date('2026-08-19T07:00:00Z'))).toBe(false);
   });
+
+  test('DST spring-forward: a schedule inside the skipped hour fires right after the gap', () => {
+    // 2026-03-29 Europe/Amsterdam: 02:00 CET jumps to 03:00 CEST — 02:30
+    // never exists on the wall clock that day. The window opens at 03:00
+    // local (01:00Z), when the clock has just jumped over the scheduled time.
+    const r = makeRoutine({ schedule: { time: '02:30' } });
+    expect(isInFireWindow(r, new Date('2026-03-29T01:00:00Z'))).toBe(true);  // 03:00 local
+    expect(isInFireWindow(r, new Date('2026-03-29T01:04:00Z'))).toBe(true);  // 03:04 local
+    expect(isInFireWindow(r, new Date('2026-03-29T01:10:00Z'))).toBe(false); // 03:10 local — gap window closed
+    expect(isInFireWindow(r, new Date('2026-03-29T00:50:00Z'))).toBe(false); // 01:50 local — before the jump
+    // The day after, 02:30 exists again and the normal window applies
+    expect(isInFireWindow(r, new Date('2026-03-30T00:31:00Z'))).toBe(true);  // 02:31 CEST
+  });
+
+  test('DST spring-forward does not open a window for schedules outside the gap', () => {
+    const r = makeRoutine({ schedule: { time: '09:00' } });
+    expect(isInFireWindow(r, new Date('2026-03-29T01:01:00Z'))).toBe(false); // 03:01 local
+    expect(isInFireWindow(r, new Date('2026-03-29T07:01:00Z'))).toBe(true);  // 09:01 CEST — normal window
+  });
 });
 
 describe('isRoutineDue (period anchoring)', () => {
@@ -222,6 +241,41 @@ describe('RoutineScheduler.fire bookkeeping', () => {
     const updated = store.get('mm', routine.id)!;
     expect(updated.lastRunAt).toBeUndefined();
     expect(isRoutineDue(updated, new Date('2026-08-19T07:01:00Z'))).toBe(true);
+  });
+
+  test('manual runs never touch the scheduled-run failure streak', async () => {
+    const routine = await addRoutine();
+    await store.update('mm', routine.id, { consecutiveFailures: 2 });
+    const notices: string[] = [];
+
+    // A manual failure must not push the streak to 3 (which would auto-disable)
+    const failing = makeScheduler(async () => 'failed', notices);
+    await failing.fire('mm', store.get('mm', routine.id)!, new Date('2026-08-19T06:00:00Z'), false);
+    let updated = store.get('mm', routine.id)!;
+    expect(updated.consecutiveFailures).toBe(2);
+    expect(updated.enabled).toBe(true);
+    expect(updated.lastRunStatus).toBe('failed');
+    expect(notices).toHaveLength(0);
+
+    // A manual success must not reset the streak either (a third scheduled
+    // failure should still disable the routine)
+    const succeeding = makeScheduler(async () => 'ok', notices);
+    await succeeding.fire('mm', store.get('mm', routine.id)!, new Date('2026-08-19T06:05:00Z'), false);
+    updated = store.get('mm', routine.id)!;
+    expect(updated.consecutiveFailures).toBe(2);
+    expect(updated.lastRunAt).toBeUndefined();
+  });
+
+  test('start() runs an immediate tick so a restart inside a window does not miss it', () => {
+    const scheduler = makeScheduler(async () => 'ok', []);
+    let ticks = 0;
+    scheduler.tick = async () => { ticks++; };
+    scheduler.start();
+    try {
+      expect(ticks).toBe(1);
+    } finally {
+      scheduler.stop();
+    }
   });
 
   test('tick fires only due routines on enabled platforms', async () => {

@@ -68,7 +68,6 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
     getPendingQuestionSet: () => pendingQuestionSet,
     clearPendingQuestionSet: () => { pendingQuestionSet = null; },
     setPendingRoutinePrompt: mock(() => {}),
-    hasPendingRoutinePrompt: () => false,
   } as any;
 }
 
@@ -168,7 +167,6 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         add: mock(() => Promise.resolve({ ok: true, routine: {} })),
         update: mock(() => Promise.resolve(undefined)),
         remove: mock(() => Promise.resolve(undefined)),
-        countEnabled: mock(() => 0),
       } as any,
       isShuttingDown: false,
     },

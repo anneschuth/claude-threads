@@ -76,7 +76,15 @@ export async function fireRoutine(
     ctx,
   );
 
-  // startSession posts its own errors; reaching here without a throw means
-  // the session was admitted (or converted to a follow-up). Treat as ok.
+  // startSession reports admission failures by posting into the thread, not
+  // by throwing — it declines silently when the session cap was hit between
+  // our pre-check and its own (which also counts in-flight starts), or when
+  // its header post fails. Verify the session actually registered before
+  // reporting success: a silent decline must retry within the window
+  // ('skipped'), not consume the period as a phantom 'ok'.
+  if (!ctx.state.sessions.has(ctx.ops.getSessionId(platformId, rootPost.id))) {
+    log.debug(`Routine "${routine.name}": startSession declined to start a session — skipping this tick`);
+    return 'skipped';
+  }
   return 'ok';
 }

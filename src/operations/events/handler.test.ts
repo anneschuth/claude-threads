@@ -139,7 +139,6 @@ function createSessionContext(): SessionContext {
         add: mock(() => Promise.resolve({ ok: true, routine: {} })),
         update: mock(() => Promise.resolve(undefined)),
         remove: mock(() => Promise.resolve(undefined)),
-        countEnabled: mock(() => 0),
       } as any,
       isShuttingDown: false,
     },
@@ -396,6 +395,9 @@ describe('handleEventPostProcessing', () => {
     platform = createMockPlatform();
     session = createTestSession(platform);
     ctx = createSessionContext();
+    // Post-processing runs on registered sessions; the deferred turn-end
+    // persist checks this registration to avoid resurrecting torn-down ones.
+    (ctx.state.sessions as Map<string, Session>).set(session.sessionId, session);
   });
 
   test('stops typing on result event', () => {
@@ -475,6 +477,29 @@ describe('handleEventPostProcessing', () => {
     resolveMain();
     await new Promise((r) => setTimeout(r, 0));
     expect(ctx.ops.persistSession).toHaveBeenCalledTimes(1);
+  });
+
+  test('deferred persist is skipped when the session was torn down while main handling settled', async () => {
+    // Race seen in CI: the CLI exits milliseconds after its result event, so
+    // handleExit (removeFromRegistry + softDelete) runs before the deferred
+    // turn-end persist lands. Persisting then would re-save the soft-deleted
+    // record as active — resurrecting the session, so a later plain reply in
+    // the thread resumes a session the bot just ended (the "should ignore
+    // side conversations" integration flake).
+    let resolveMain!: () => void;
+    const mainHandling = new Promise<void>((r) => { resolveMain = r; });
+
+    handleEventPostProcessing(session, {
+      type: 'result', total_cost_usd: 0.1,
+      modelUsage: { 'claude-haiku-4-5-20251001': { inputTokens: 1, outputTokens: 1, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 200000, costUSD: 0.1 } },
+    }, ctx, mainHandling);
+
+    // Session teardown wins the race: unregistered before mainHandling settles
+    (ctx.state.sessions as Map<string, Session>).delete(session.sessionId);
+
+    resolveMain();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(ctx.ops.persistSession).not.toHaveBeenCalled();
   });
 
   test('result events still persist when the main handling rejects', async () => {

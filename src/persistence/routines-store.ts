@@ -163,10 +163,6 @@ export class RoutinesStore {
     return this.list(platformId).find((r) => r.id === id);
   }
 
-  countEnabled(platformId: string): number {
-    return this.list(platformId).filter((r) => r.enabled).length;
-  }
-
   /**
    * Add a routine. Rejects (returns an error string) on invalid schedules or
    * when the platform is at `maxRoutines` — validation lives here so no

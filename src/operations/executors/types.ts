@@ -10,6 +10,7 @@ import type { PostTracker, RegisterPostOptions, PostType, InteractionType } from
 import type { ContentBreaker } from '../content-breaker.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ThreadLogger } from '../../persistence/thread-logger.js';
+import type { ParsedRoutineRequest } from '../../routines/parser.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -153,16 +154,7 @@ export interface PendingUpdatePrompt {
 export interface PendingRoutinePrompt {
   postId: string;
   /** Haiku-parsed routine, revalidated (see src/routines/parser.ts). */
-  parsed: {
-    name: string;
-    prompt: string;
-    schedule: {
-      preset: 'hourly' | 'daily' | 'weekdays' | 'weekly';
-      time?: string;
-      weekday?: number;
-      timezone: string;
-    };
-  };
+  parsed: ParsedRoutineRequest;
   /** Who asked for the routine — becomes `createdBy` on approval. */
   requestedBy: string;
 }
