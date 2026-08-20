@@ -1412,6 +1412,41 @@ describe('resumeSessionHeaderMode', () => {
   });
 });
 
+describe('resumeSession backward compatibility', () => {
+  // Persisted sessions written before sessionAllowedUsers existed lack the
+  // field entirely. Restoring them as an empty set silently drops the owner
+  // from their own session — under `approvals: owner` that locks them out of
+  // every approval gate. The rebuild must fall back to [startedBy], like the
+  // restore sites at resumePausedSession and pause-state reconstruction do.
+  it('restores the owner into sessionAllowedUsers when the persisted field is missing (legacy data)', async () => {
+    const platform = createMockPlatform({
+      getPost: mock(() => Promise.resolve({ id: 'thread-legacy' })) as any,
+    });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+    const legacyState = {
+      threadId: 'thread-legacy',
+      platformId: 'test-platform',
+      claudeSessionId: 'claude-session-legacy',
+      workingDir: process.cwd(),
+      startedBy: 'alice',
+      startedAt: new Date().toISOString(),
+      // no sessionAllowedUsers — the legacy shape under test
+    };
+
+    // emitSessionAdd fires with the rebuilt Session after registration and
+    // before the spawn attempt, so the assertion holds even though
+    // claude.start() fails and rolls the session back in this mock harness.
+    await lifecycle.resumeSession(legacyState as never, ctx);
+
+    const calls = (ctx.ops.emitSessionAdd as ReturnType<typeof mock>).mock.calls;
+    expect(calls.length).toBeGreaterThan(0);
+    const session = calls[0][0] as Session;
+    expect(session.sessionAllowedUsers.has('alice')).toBe(true);
+  });
+});
+
 describe('userAttribution flag seeding', () => {
   // startSession fails at claude.start() in this mock environment and rolls
   // the session back out of the registry, so assertions read the session from
