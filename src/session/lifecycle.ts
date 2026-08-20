@@ -307,6 +307,13 @@ async function cleanupSession(
   }
   keepAlive.sessionEnded();
   releaseAccountIfHeld(session, ctx);
+  // One-place rule, like releaseAccountIfHeld: every exit path must drop the
+  // worktree reference or early exits leak it and block cleanup until restart.
+  // unregisterWorktreeUser is set-based, so paths that already unregistered
+  // are unaffected.
+  if (session.worktreeInfo) {
+    ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
+  }
   await cleanupSessionUploads(session.platformId, session.threadId);
 }
 
@@ -1145,7 +1152,12 @@ async function startSessionImpl(
 
   // Check if we should prompt for worktree
   // Skip if explicitly disabled (e.g., when branch was specified in initial message via !worktree)
-  const shouldPrompt = options.skipWorktreePrompt ? null : await ctx.ops.shouldPromptForWorktree(session);
+  // Always run the check — it also detects (and records) an existing worktree
+  // around workingDir. skipWorktreePrompt suppresses only the prompt itself,
+  // otherwise unattended starts inside a worktree would miss worktreeInfo and
+  // its reference-count protection.
+  const worktreePromptReason = await ctx.ops.shouldPromptForWorktree(session);
+  const shouldPrompt = options.skipWorktreePrompt ? null : worktreePromptReason;
   if (shouldPrompt) {
     session.queuedPrompt = options.prompt;
     session.queuedByUsername = username;   // owner — used when the worktree prompt later re-sends
@@ -1155,6 +1167,14 @@ async function startSessionImpl(
     ctx.ops.persistSession(session);
     await ctx.ops.updateStickyMessage();
     return;
+  }
+
+  // shouldPromptForWorktree may have detected that workingDir already IS a
+  // worktree and recorded it on the session; register it for reference
+  // counting like every other path that sets worktreeInfo, or another
+  // session's cleanup can remove the directory under this live session.
+  if (session.worktreeInfo) {
+    ctx.ops.registerWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
   // Build message content

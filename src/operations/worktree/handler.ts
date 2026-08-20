@@ -26,6 +26,7 @@ import {
   isValidBranchName,
   writeWorktreeMetadata,
   isValidWorktreePath,
+  detectWorktreeInfo,
 } from '../../git/worktree.js';
 import type { ClaudeCliOptions, ClaudeEvent } from '../../claude/cli.js';
 import { ClaudeCli } from '../../claude/cli.js';
@@ -152,6 +153,20 @@ export async function shouldPromptForWorktree(
 
   // Skip if already in a worktree
   if (session.worktreeInfo) return null;
+
+  // Started directly inside a worktree (e.g. a dynamic-channel session whose
+  // channel IS the worktree): the isolation requirement is already satisfied.
+  // Detect and record it instead of prompting for a worktree-in-a-worktree.
+  const detected = await detectWorktreeInfo(session.workingDir);
+  if (detected) {
+    session.worktreeInfo = {
+      repoRoot: detected.repoRoot,
+      worktreePath: detected.worktreePath,
+      branch: detected.branch,
+    };
+    session.messageManager?.setWorktreeInfo(detected.worktreePath, detected.branch);
+    return null;
+  }
 
   // Check if we're in a git repository
   const isRepo = await isGitRepository(session.workingDir);

@@ -11,6 +11,8 @@ import { join } from 'path';
 
 // Mock the git/worktree module
 const mockIsGitRepository = mock(() => Promise.resolve(true));
+const mockDetectWorktreeInfo = mock(() =>
+  Promise.resolve(null as { repoRoot: string; worktreePath: string; branch: string } | null));
 const mockGetRepositoryRoot = mock(() => Promise.resolve('/repo'));
 const mockFindWorktreeByBranch = mock(() => Promise.resolve(null as { path: string; branch: string; isMain: boolean } | null));
 const mockCreateWorktree = mock(() => Promise.resolve());
@@ -21,6 +23,7 @@ const mockWriteWorktreeMetadata = mock(() => Promise.resolve());
 
 mock.module('../../git/worktree.js', () => ({
   isGitRepository: mockIsGitRepository,
+  detectWorktreeInfo: mockDetectWorktreeInfo,
   getRepositoryRoot: mockGetRepositoryRoot,
   findWorktreeByBranch: mockFindWorktreeByBranch,
   createWorktree: mockCreateWorktree,
@@ -899,6 +902,43 @@ describe('Worktree Module', () => {
       const session = createMockSession();
       const result = await worktree.shouldPromptForWorktree(session, 'require', () => false);
       expect(result).toBe('require');
+    });
+
+    it('records the worktree and skips the prompt when the session starts inside one', async () => {
+      mockDetectWorktreeInfo.mockResolvedValueOnce({
+        repoRoot: '/repo',
+        worktreePath: '/repo-worktrees/task-1',
+        branch: 'task-1',
+      });
+      const mockSetWorktreeInfo = mock(() => {});
+      const session = createMockSession({
+        messageManager: { setWorktreeInfo: mockSetWorktreeInfo } as never,
+      });
+      const result = await worktree.shouldPromptForWorktree(session, 'require', () => false);
+      expect(result).toBeNull();
+      expect(session.worktreeInfo).toEqual({
+        repoRoot: '/repo',
+        worktreePath: '/repo-worktrees/task-1',
+        branch: 'task-1',
+      });
+      expect(mockSetWorktreeInfo).toHaveBeenCalledWith('/repo-worktrees/task-1', 'task-1');
+    });
+
+    it('does not run detection when worktreeMode is off', async () => {
+      mockDetectWorktreeInfo.mockClear();
+      const session = createMockSession();
+      const result = await worktree.shouldPromptForWorktree(session, 'off', () => false);
+      expect(result).toBeNull();
+      expect(mockDetectWorktreeInfo).not.toHaveBeenCalled();
+      expect(session.worktreeInfo).toBeUndefined();
+    });
+
+    it('still prompts in require mode when the working dir is not a worktree', async () => {
+      mockDetectWorktreeInfo.mockResolvedValueOnce(null);
+      const session = createMockSession();
+      const result = await worktree.shouldPromptForWorktree(session, 'require', () => false);
+      expect(result).toBe('require');
+      expect(session.worktreeInfo).toBeUndefined();
     });
   });
 
