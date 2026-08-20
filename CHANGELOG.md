@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Permission prompts show the full Bash command.** The approval prompt used to hard-truncate commands at 100 characters, so anything past the first pipe or `&&` was invisible at the exact moment the user was asked to approve it — the gate could only be rubber-stamped. The prompt now shows the command up to a generous 1500-character cap (a pathological command is still cut so it cannot blow up the prompt post). The 50-character display truncation in the streaming view is unchanged; only the permission prompt is affected.
+- **Resuming a legacy persisted session no longer drops the owner from `sessionAllowedUsers`.** (#483) A session persisted before the collaboration list existed restored as an empty set, silently removing the owner from their own session — the one restore site without the defensive `[startedBy]` fallback its siblings already had.
 
 ## [1.26.0] - 2026-08-20
 

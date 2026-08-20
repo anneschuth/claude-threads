@@ -1584,7 +1584,7 @@ async function resumeSessionImpl(
     workingDir: state.workingDir,
     claude,
     planApproved: state.planApproved ?? false,
-    sessionAllowedUsers: new Set(state.sessionAllowedUsers),
+    sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
     userAttribution,
