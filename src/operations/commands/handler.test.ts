@@ -1,5 +1,38 @@
-import { describe, it, expect, mock, afterEach } from 'bun:test';
-import * as commands from './handler.js';
+import { describe, it, expect, mock, afterEach, afterAll } from 'bun:test';
+
+// `updateSessionHeader` (reached by most command handlers) probes the real
+// environment: `isGitRepository`/`getCurrentBranch` spawn `git` child
+// processes and `formatBatteryStatus` execs `pmset` on macOS. Under machine
+// load (parallel test files, CI contention) a fork/exec can stall past the
+// per-test budget and flake any test that refreshes the session header.
+// Mock the probes out — none of these tests assert git or battery rows.
+// Same pattern and caveats as the crossSpawn mock in plugin/handler.test.ts.
+// IMPORTANT: snapshot the export VALUES before mocking. Bun's module
+// namespaces are live bindings — after mock.module the namespace object
+// itself yields the mocks, so restoring "the namespace" would restore the
+// mocks. The spread copies the real function values at this moment.
+const realWorktree = { ...(await import('../../git/worktree.js')) };
+const realBattery = { ...(await import('../../utils/battery.js')) };
+mock.module('../../git/worktree.js', () => ({
+  ...realWorktree,
+  isGitRepository: () => Promise.resolve(false),
+  getCurrentBranch: () => Promise.resolve(null),
+}));
+mock.module('../../utils/battery.js', () => ({
+  ...realBattery,
+  formatBatteryStatus: () => Promise.resolve(null),
+}));
+
+// bun's `mock.module` is process-global and one-way — overwrite with the
+// pre-mock value snapshot so later test files in the same process (e.g.
+// git/worktree.test.ts) get the real implementations back.
+afterAll(() => {
+  mock.module('../../git/worktree.js', () => realWorktree);
+  mock.module('../../utils/battery.js', () => realBattery);
+});
+
+// Import AFTER mock.module so the handler binds the mocked probes.
+const commands = await import('./handler.js');
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';

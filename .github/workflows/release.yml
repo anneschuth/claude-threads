@@ -92,7 +92,7 @@ jobs:
 
       - name: Run tests
         if: steps.check.outputs.release == 'true'
-        run: bun test src/
+        run: bun test src/ --timeout 15000
 
       - run: bun run build
         if: steps.check.outputs.release == 'true'

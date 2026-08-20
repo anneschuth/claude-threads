@@ -571,7 +571,7 @@ bun install          # Install dependencies
 bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
-bun test             # Run unit tests (~3000 tests)
+bun run test         # Run unit tests (~3000 tests)
 bun run lint         # Run ESLint
 ```
 
@@ -980,16 +980,16 @@ TEST THE ACTUAL CODE PATH, NOT A COPY OF THE LOGIC!
 git diff src/path/to/file.ts  # Note what you're removing
 
 # 2. Run JUST your test - it MUST fail
-bun test --test-name-pattern "your test name"
+bun test --timeout 15000 --test-name-pattern "your test name"
 
 # 3. If test passes → YOUR TEST IS BROKEN, rewrite it!
 #    If test fails → Good! Now restore the fix.
 
 # 4. Run test again with fix - should pass
-bun test --test-name-pattern "your test name"
+bun test --timeout 15000 --test-name-pattern "your test name"
 
 # 5. Run all tests
-bun test
+bun run test
 ```
 
 **Key principles:**

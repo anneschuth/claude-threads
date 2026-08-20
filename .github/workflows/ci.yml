@@ -100,7 +100,7 @@ jobs:
           # Run tests and capture coverage output
           # Use pipefail to ensure test failures are not masked by tee
           set -o pipefail
-          bun test src/ --coverage 2>&1 | tee coverage-output.txt
+          bun test src/ --coverage --timeout 15000 2>&1 | tee coverage-output.txt
 
           # Extract line coverage from "All files" row (column 6 is line coverage %)
           COVERAGE=$(grep "All files" coverage-output.txt | awk '{print $6}' | sed 's/%//' | cut -d'.' -f1)
