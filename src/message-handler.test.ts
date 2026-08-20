@@ -2001,6 +2001,26 @@ describe('handleMessage', () => {
       expect(client.addReaction).toHaveBeenCalledWith('post2', 'eyes');
     });
 
+    test('acks an accepted resume of a paused session', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+      (session.registry.getPersistedByThreadId as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+      (session.getPersistedSession as any).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+
+      const post: PlatformPost = {
+        id: 'post4',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'continue please',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).toHaveBeenCalled();
+      expect(client.addReaction).toHaveBeenCalledWith('post4', 'eyes');
+    });
+
     test('does not ack messages the bot ignores (no mention, no session)', async () => {
       (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
 

@@ -2,7 +2,7 @@ import { WebSocket } from '../../utils/websocket.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
-import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
+import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileMattermost } from './upload.js';
@@ -64,7 +64,7 @@ export class MattermostClient extends BasePlatformClient {
     this.outboundFiles = platformConfig.outboundFiles;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
-    this.ackReaction = platformConfig.ackReaction;
+    this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
   }
 
   // ============================================================================

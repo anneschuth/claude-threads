@@ -12,6 +12,8 @@ import {
   resolvePostThreadId,
   resolveDirectChannelMode,
   resolveApprovals,
+  normalizeAckReaction,
+  resolveAckReaction,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -443,5 +445,27 @@ describe('resolveApprovals', () => {
   it('an explicit setting wins in both modes', () => {
     expect(resolveApprovals('owner', false)).toBe('owner');
     expect(resolveApprovals('all_users', true)).toBe('all_users');
+  });
+});
+
+describe('ackReaction (normalize + resolve)', () => {
+  it('passes booleans and trimmed emoji names through', () => {
+    expect(normalizeAckReaction(true, 'p.ackReaction')).toBe(true);
+    expect(normalizeAckReaction(false, 'p.ackReaction')).toBe(false);
+    expect(normalizeAckReaction(' white_check_mark ', 'p.ackReaction')).toBe('white_check_mark');
+    expect(normalizeAckReaction(undefined, 'p.ackReaction')).toBeUndefined();
+  });
+
+  it('disables the feature on malformed values instead of silently enabling the default', () => {
+    expect(normalizeAckReaction(123, 'p.ackReaction')).toBeUndefined();
+    expect(normalizeAckReaction('', 'p.ackReaction')).toBeUndefined();
+    expect(normalizeAckReaction({ emoji: 'eyes' }, 'p.ackReaction')).toBeUndefined();
+  });
+
+  it('resolves true to eyes, strings to themselves, off to null', () => {
+    expect(resolveAckReaction(true)).toBe('eyes');
+    expect(resolveAckReaction('rocket')).toBe('rocket');
+    expect(resolveAckReaction(false)).toBeNull();
+    expect(resolveAckReaction(undefined)).toBeNull();
   });
 });

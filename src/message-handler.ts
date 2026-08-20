@@ -19,6 +19,9 @@ import {
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
 import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
+import { createLogger } from './utils/logger.js';
+
+const ackLog = createLogger('ack');
 
 /**
  * Logger interface for message handler
@@ -66,7 +69,11 @@ export interface MessageHandlerOptions {
 function ackReceipt(client: PlatformClient, postId: string): void {
   const emoji = resolveAckReaction(client.ackReaction);
   if (!emoji) return;
-  void Promise.resolve(client.addReaction(postId, emoji)).catch(() => {});
+  void Promise.resolve(client.addReaction(postId, emoji)).catch((err) => {
+    // Typically a nonexistent custom emoji name — visible at debug level so a
+    // typo in the config is diagnosable, while a flaky reaction stays silent.
+    ackLog.debug(`ack reaction '${emoji}' failed on ${postId}: ${err}`);
+  });
 }
 
 export async function handleMessage(
