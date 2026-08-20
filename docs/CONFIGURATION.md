@@ -279,8 +279,9 @@ confirmation says so.
 
 - `!routines` — numbered list with schedule, creator, and last-run status
 - `!routines pause|resume|delete <n>` — owner-gated
-- `!routines run <n>` — fire now, outside the schedule (any allowed user;
-  does not consume the period's scheduled fire)
+- `!routines run <n>` — fire now, outside the schedule (platform-allowed
+  users only — not temporarily `!invite`d guests; does not consume the
+  period's scheduled fire)
 
 **Semantics & guardrails:**
 

@@ -1102,7 +1102,8 @@ function routineByIndex(ctx: SessionContext, platformId: string, arg: string): R
 
 /**
  * `!routines` — list; `!routines pause|resume|delete <n>` (owner-gated);
- * `!routines run <n>` (any allowed user; fires outside the schedule).
+ * `!routines run <n>` (platform-allowed users, not !invite'd guests; fires
+ * outside the schedule).
  */
 export async function manageRoutines(
   session: Session,
@@ -1159,6 +1160,18 @@ export async function manageRoutines(
 
   const lowered = action.toLowerCase();
   if (lowered !== 'run' && !await requireSessionOwner(session, username, 'manage routines')) {
+    return;
+  }
+  // `run` is open to platform-allowed users but NOT to temporarily !invite'd
+  // guests: each run spawns a full unattended session under the routine
+  // creator's identity, outside the thread the guest was invited to —
+  // session-level allowance must not buy that.
+  if (lowered === 'run' && !session.platform.isUserAllowed(username)) {
+    await post(
+      session,
+      'warning',
+      `🕘 Only platform-allowed users can run routines (${formatter.formatCode('@' + username)} is invited to this session only).`,
+    );
     return;
   }
 

@@ -413,11 +413,20 @@ function createMessageManager(
       sessionLog(session).info(`🕘 Routine "${parsed.name}" discarded before saving`);
       return;
     }
-    const result = await ctx.state.routinesStore.add(
-      session.platformId,
-      { name: parsed.name, prompt: parsed.prompt, schedule: parsed.schedule, createdBy: requestedBy },
-      ctx.config.maxRoutines,
-    );
+    // The store write must not reject out of this async listener:
+    // EventEmitter never awaits listeners, so an fs error at 👍-time would
+    // become an unhandled rejection and kill the bot process. Convert it to
+    // the same visible-failure path as a validation error.
+    let result: Awaited<ReturnType<typeof ctx.state.routinesStore.add>>;
+    try {
+      result = await ctx.state.routinesStore.add(
+        session.platformId,
+        { name: parsed.name, prompt: parsed.prompt, schedule: parsed.schedule, createdBy: requestedBy },
+        ctx.config.maxRoutines,
+      );
+    } catch (err) {
+      result = { ok: false, error: `could not write the routines file (${(err as Error).message})` };
+    }
     const formatter = session.platform.getFormatter();
     if (result.ok) {
       const position = ctx.state.routinesStore.list(session.platformId).length;

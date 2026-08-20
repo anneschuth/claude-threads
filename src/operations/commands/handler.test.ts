@@ -1323,8 +1323,11 @@ describe('routine commands', () => {
     expect(listing).toContain('weekdays at 09:00');
   });
 
-  it('pause/resume/delete are owner-gated; run is not', async () => {
+  it('pause/resume/delete are owner-gated; run needs platform allowance, not just an invite', async () => {
     const session = createMockSession();
+    // Only 'platformuser' is on the platform allowlist; 'stranger' stands in
+    // for a temporarily !invite'd guest (session-allowed, platform-denied).
+    (session.platform.isUserAllowed as any) = mock((u: string) => u === 'platformuser');
     const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
     const routine = await seedRoutine(ctx);
 
@@ -1334,7 +1337,13 @@ describe('routine commands', () => {
     await commands.manageRoutines(session, 'pause 1', 'testuser', ctx);
     expect(ctx.state.routinesStore.get('test-platform', routine.id)?.enabled).toBe(false);
 
+    // A session-invited guest must NOT be able to spawn unattended sessions
+    // under the creator's identity via `run`.
     await commands.manageRoutines(session, 'run 1', 'stranger', ctx);
+    expect((ctx.ops.fireRoutineNow as any)).toHaveBeenCalledTimes(0);
+
+    // A platform-allowed non-owner may fire.
+    await commands.manageRoutines(session, 'run 1', 'platformuser', ctx);
     expect((ctx.ops.fireRoutineNow as any)).toHaveBeenCalledTimes(1);
 
     await commands.manageRoutines(session, 'delete 1', 'testuser', ctx);

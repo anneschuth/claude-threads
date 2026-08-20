@@ -12,12 +12,13 @@
  * the file), mirroring MemoryStore.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import yaml from 'js-yaml';
 import { createLogger } from '../utils/logger.js';
+import { SerialQueue, writeFileAtomic } from './atomic-file.js';
 
 const log = createLogger('routines');
 
@@ -138,7 +139,7 @@ export class RoutinesStore {
   private readonly file: string;
   private readonly configDir: string;
   /** In-process write mutex (single bot process owns the file). */
-  private tail: Promise<unknown> = Promise.resolve();
+  private readonly queue = new SerialQueue();
 
   constructor(filePath?: string) {
     const effective = filePath ?? process.env.CLAUDE_THREADS_ROUTINES_PATH;
@@ -228,9 +229,7 @@ export class RoutinesStore {
   // ---------------------------------------------------------------------------
 
   private runExclusive<T>(fn: () => T): Promise<T> {
-    const next = this.tail.then(fn, fn);
-    this.tail = next.catch(() => undefined);
-    return next;
+    return this.queue.run(fn);
   }
 
   private loadRaw(): FileShape {
@@ -260,10 +259,6 @@ export class RoutinesStore {
   }
 
   private writeAtomic(data: FileShape): void {
-    const tempFile = `${this.file}.tmp`;
-    const text = yaml.dump(data, { sortKeys: true, lineWidth: -1 });
-    writeFileSync(tempFile, text, { encoding: 'utf-8', mode: 0o600 });
-    renameSync(tempFile, this.file);
-    chmodSync(this.file, 0o600);
+    writeFileAtomic(this.file, yaml.dump(data, { sortKeys: true, lineWidth: -1 }));
   }
 }

@@ -266,6 +266,38 @@ describe('RoutineScheduler.fire bookkeeping', () => {
     expect(updated.lastRunAt).toBeUndefined();
   });
 
+  test('fire() never rejects when the store write fails (a crash here would kill the bot)', async () => {
+    // The scheduler's tick promises float (setInterval callback) and the
+    // manual-run path awaits fire() from a command handler: a store-write
+    // rejection escaping fire() becomes an unhandled rejection → process exit.
+    const brokenStore = {
+      list: () => [],
+      get: () => undefined,
+      add: () => Promise.reject(new Error('disk full')),
+      update: () => Promise.reject(new Error('disk full')),
+      remove: () => Promise.reject(new Error('disk full')),
+    } as unknown as RoutinesStore;
+    const scheduler = new RoutineScheduler({
+      store: brokenStore,
+      listPlatformIds: () => ['mm'],
+      isRoutinesEnabled: () => true,
+      fireRoutine: async () => 'ok',
+      notifyDisabled: async () => {},
+    });
+    // Every status path hits at least one store.update — none may reject out.
+    await expect(scheduler.fire('mm', makeRoutine(), new Date('2026-08-19T07:01:00Z'))).resolves.toBe('ok');
+    await expect(scheduler.fire('mm', makeRoutine(), new Date('2026-08-19T07:01:00Z'), false)).resolves.toBe('ok');
+
+    const failing = new RoutineScheduler({
+      store: brokenStore,
+      listPlatformIds: () => ['mm'],
+      isRoutinesEnabled: () => true,
+      fireRoutine: async () => 'failed',
+      notifyDisabled: async () => {},
+    });
+    await expect(failing.fire('mm', makeRoutine(), new Date('2026-08-19T07:01:00Z'))).resolves.toBe('failed');
+  });
+
   test('start() runs an immediate tick so a restart inside a window does not miss it', () => {
     const scheduler = makeScheduler(async () => 'ok', []);
     let ticks = 0;
