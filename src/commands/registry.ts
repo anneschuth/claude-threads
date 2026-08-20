@@ -253,6 +253,28 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
       { name: 'forget', description: 'Remove one entry (by number or matching text), or all', args: '<n|text> | all' },
     ],
   },
+  {
+    command: 'routine',
+    description: 'Create a scheduled routine from a natural-language request (confirmed with 👍 before saving)',
+    args: '<schedule, task>',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+  },
+  {
+    command: 'routines',
+    description: 'List scheduled routines; pause/resume/delete/run manage them',
+    args: '[pause|resume|delete|run <n>]',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+    subcommands: [
+      { name: 'pause', description: 'Pause a routine', args: '<n>' },
+      { name: 'resume', description: 'Resume a paused routine', args: '<n>' },
+      { name: 'delete', description: 'Delete a routine', args: '<n>' },
+      { name: 'run', description: 'Run a routine now, outside its schedule', args: '<n>' },
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // System

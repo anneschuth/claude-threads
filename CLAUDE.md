@@ -24,6 +24,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - Automatic idle session cleanup
 - **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost or Slack permalink to its content (and optional thread context) inside the bot's own channel
 - **Persistent memory** - per-channel shared notes (`!remember` / `!memory`, Claude Tag style) plus Claude Code's native auto-memory redirected into bot-managed per-(platform, repo) directories; end-of-session distillation learns team facts over time
+- **Routines** - scheduled recurring work (`!routine every weekday at 9am, ...`, Claude Tag style): natural-language creation with 👍 confirmation, fired as bot-initiated session threads; `!routines` to list/pause/resume/delete/run
 
 ## Contribution Conventions
 
@@ -270,6 +271,26 @@ site must pass the `channelMemory` reader (or `null` when the layer is off).
 Config: per-platform `memory:` option (`resolveMemoryConfig` in
 `src/config/types.ts`), default fully enabled. Docs: `docs/CONFIGURATION.md`
 § Memory.
+
+## Routines
+
+Scheduled recurring work (Claude Tag parity), scoped per platform instance
+like memory. A routine = `{name, prompt, schedule, createdBy}` stored in
+`~/.config/claude-threads/routines.yaml` (`RoutinesStore`, 0600, override
+`CLAUDE_THREADS_ROUTINES_PATH`).
+
+| File | Role |
+|------|------|
+| `src/persistence/routines-store.ts` | Store + `validateSchedule` (presets hourly/daily/weekdays/weekly — hourly is the floor, sub-hourly is unrepresentable). |
+| `src/routines/scheduler.ts` | `RoutineScheduler` (1-min tick, SessionMonitor pattern) + pure due-ness: wall-clock windows in the routine's timezone via Intl (DST-safe), period anchoring (one fire per hour/day/week), missed windows skipped. Auto-disable after 3 consecutive failures or a deauthorized creator. |
+| `src/routines/runner.ts` | `fireRoutine`: bot posts the thread root itself, then `startSession` as the creator — a normal session (platform permission mode, pool, memory, distillation). |
+| `src/routines/parser.ts` | NL → schedule via one haiku `quickQuery`, strict-JSON extraction + revalidation. Nothing saves without a human 👍 (PromptExecutor routine prompt → `routine-prompt:complete` → lifecycle listener writes the store). |
+
+Commands: `!routine <natural language>` (owner-gated create), `!routines`
+(list), `!routines pause|resume|delete <n>` (owner-gated), `!routines run <n>`.
+Config: per-platform `routines: false` disables; `limits.maxRoutines` caps
+(default 10). `createRoutine` takes an injectable `parse` fn — other test
+files module-mock quick-query.js, so tests inject rather than stub the CLI.
 
 ## Source Files
 

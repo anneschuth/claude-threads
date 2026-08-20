@@ -67,6 +67,8 @@ import {
 } from '../../commands/system-prompt-generator.js';
 import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
+import { describeSchedule, type Routine } from '../../persistence/routines-store.js';
+import { parseRoutineRequest, hostTimezone } from '../../routines/parser.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -1016,6 +1018,191 @@ export async function forgetMemory(
         `🧠 No matching entry. Use ${formatter.formatCode('!memory')} to list entries, then ${formatter.formatCode('!memory forget <number>')}.`,
       );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Routine commands (!routine, !routines)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard for the routine commands: posts an explanation and returns false
+ * when routines are disabled for the platform.
+ */
+async function requireRoutinesEnabled(session: Session, ctx: SessionContext): Promise<boolean> {
+  if (ctx.ops.isRoutinesEnabled(session.platformId)) return true;
+  await post(
+    session,
+    'info',
+    `🕘 Routines are disabled for this platform (see the \`routines\` option in config.yaml).`,
+  );
+  return false;
+}
+
+/**
+ * `!routine <natural language>` — parse the request with haiku, show the
+ * structured result, and wait for a 👍/👎 confirmation before saving.
+ * Owner-gated like other channel-shaping settings: routines run unattended
+ * as their creator and cost a session per run.
+ */
+export async function createRoutine(
+  session: Session,
+  request: string,
+  username: string,
+  ctx: SessionContext,
+  // Injectable for tests: other test files module-mock quick-query.js, so
+  // stubbing via CLAUDE_PATH is unreliable in full-suite runs.
+  parse: typeof parseRoutineRequest = parseRoutineRequest,
+): Promise<void> {
+  if (!await requireRoutinesEnabled(session, ctx)) return;
+  if (!await requireSessionOwner(session, username, 'create routines')) return;
+  const formatter = session.platform.getFormatter();
+
+  const trimmed = request.trim();
+  if (!trimmed) {
+    await post(session, 'warning', `Usage: ${formatter.formatCode('!routine every weekday at 9:00, <task>')}`);
+    return;
+  }
+
+  await post(session, 'info', `🕘 Parsing the schedule...`);
+  const result = await parse(trimmed, hostTimezone());
+  if (!result.ok) {
+    await post(session, 'warning', `🕘 Could not create a routine: ${result.error}`);
+    sessionLog(session).warn(`🕘 Routine parse failed for @${username}: ${result.error}`);
+    return;
+  }
+
+  const { parsed, timezoneDefaulted } = result;
+  const tzNote = timezoneDefaulted
+    ? `\n${formatter.formatItalic(`Timezone defaulted to the bot host's ${parsed.schedule.timezone} — name one explicitly ("9am Pacific") to override.`)}`
+    : '';
+  const confirmPost = await postInteractiveAndRegister(
+    session,
+    `🕘 ${formatter.formatBold(`Create routine "${parsed.name}"?`)}\n` +
+    `${formatter.formatBold('Schedule:')} ${describeSchedule(parsed.schedule)}\n` +
+    `${formatter.formatBold('Task:')} ${parsed.prompt}${tzNote}\n\n` +
+    `${formatter.formatItalic('Each run starts a full Claude session in a new thread. React 👍 to save or 👎 to discard.')}`,
+    ['+1', '-1'],
+    (postId, threadId) => ctx.ops.registerPost(postId, threadId),
+  );
+
+  session.messageManager?.setPendingRoutinePrompt({
+    postId: confirmPost.id,
+    parsed,
+    requestedBy: username,
+  });
+  sessionLog(session).info(`🕘 Routine proposal posted for @${username}: "${parsed.name}"`);
+}
+
+/** Resolve a 1-based list index argument to a routine. */
+function routineByIndex(ctx: SessionContext, platformId: string, arg: string): Routine | undefined {
+  if (!/^\d+$/.test(arg)) return undefined;
+  const list = ctx.state.routinesStore.list(platformId);
+  return list[parseInt(arg, 10) - 1];
+}
+
+/**
+ * `!routines` — list; `!routines pause|resume|delete <n>` (owner-gated);
+ * `!routines run <n>` (platform-allowed users, not !invite'd guests; fires
+ * outside the schedule).
+ */
+export async function manageRoutines(
+  session: Session,
+  args: string | undefined,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireRoutinesEnabled(session, ctx)) return;
+  const formatter = session.platform.getFormatter();
+  const platformId = session.platformId;
+  const trimmed = args?.trim();
+
+  if (!trimmed) {
+    const routines = ctx.state.routinesStore.list(platformId);
+    if (routines.length === 0) {
+      await post(
+        session,
+        'info',
+        `🕘 No routines yet. Create one with ${formatter.formatCode('!routine every weekday at 9:00, <task>')}.`,
+      );
+      return;
+    }
+    const lines = routines.map((r, i) => {
+      const status = r.enabled ? '' : ' — ⏸️ paused';
+      const last = r.lastRunAt ? ` · last run ${r.lastRunAt.slice(0, 16).replace('T', ' ')}Z (${r.lastRunStatus})` : '';
+      return `${i + 1}. ${formatter.formatBold(r.name)} — ${describeSchedule(r.schedule)} · by ${formatter.formatCode('@' + r.createdBy)}${status}${last}`;
+    });
+    await post(
+      session,
+      'info',
+      `🕘 ${formatter.formatBold(`Routines (${routines.length})`)} — each run starts a full Claude session in a new thread:\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `${formatter.formatItalic(`Manage with ${'`!routines pause|resume|delete|run <n>`'}.`)}`,
+    );
+    session.threadLogger?.logCommand('routines', 'list', username);
+    return;
+  }
+
+  const match = trimmed.match(/^(pause|resume|delete|run)\s+(\d+)$/i);
+  if (!match) {
+    await post(
+      session,
+      'warning',
+      `🕘 Usage: ${formatter.formatCode('!routines')} or ${formatter.formatCode('!routines pause|resume|delete|run <n>')}`,
+    );
+    return;
+  }
+  const [, action, indexArg] = match;
+  const routine = routineByIndex(ctx, platformId, indexArg);
+  if (!routine) {
+    await post(session, 'warning', `🕘 No routine ${indexArg}. See ${formatter.formatCode('!routines')}.`);
+    return;
+  }
+
+  const lowered = action.toLowerCase();
+  if (lowered !== 'run' && !await requireSessionOwner(session, username, 'manage routines')) {
+    return;
+  }
+  // `run` is open to platform-allowed users but NOT to temporarily !invite'd
+  // guests: each run spawns a full unattended session under the routine
+  // creator's identity, outside the thread the guest was invited to —
+  // session-level allowance must not buy that.
+  if (lowered === 'run' && !session.platform.isUserAllowed(username)) {
+    await post(
+      session,
+      'warning',
+      `🕘 Only platform-allowed users can run routines (${formatter.formatCode('@' + username)} is invited to this session only).`,
+    );
+    return;
+  }
+
+  switch (lowered) {
+    case 'pause':
+      await ctx.state.routinesStore.update(platformId, routine.id, { enabled: false });
+      await post(session, 'success', `⏸️ Routine ${formatter.formatBold(routine.name)} paused.`);
+      break;
+    case 'resume':
+      await ctx.state.routinesStore.update(platformId, routine.id, { enabled: true, consecutiveFailures: 0 });
+      await post(session, 'success', `▶️ Routine ${formatter.formatBold(routine.name)} resumed.`);
+      break;
+    case 'delete':
+      await ctx.state.routinesStore.remove(platformId, routine.id);
+      await post(session, 'success', `🗑️ Routine ${formatter.formatBold(routine.name)} deleted.`);
+      break;
+    case 'run': {
+      await post(session, 'info', `🕘 Running ${formatter.formatBold(routine.name)} now — it will post in a new thread.`);
+      const status = await ctx.ops.fireRoutineNow(platformId, routine);
+      if (status === 'skipped') {
+        await post(session, 'warning', `🕘 Could not run now (session limit reached or platform busy) — try again shortly.`);
+      } else if (status === 'unauthorized') {
+        await post(session, 'warning', `🕘 The routine's creator ${formatter.formatCode('@' + routine.createdBy)} is no longer authorized — routine disabled.`);
+      } else if (status === 'failed') {
+        await post(session, 'warning', `🕘 The run failed to start — check the bot logs.`);
+      }
+      break;
+    }
+  }
+  sessionLog(session).info(`🕘 @${username}: !routines ${lowered} ${indexArg} ("${routine.name}")`);
+  session.threadLogger?.logCommand('routines', `${lowered} ${indexArg}`, username);
 }
 
 // ---------------------------------------------------------------------------

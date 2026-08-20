@@ -6,6 +6,7 @@ import { createSessionTimers, createSessionLifecycle } from '../../session/types
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 import { MemoryStore } from '../../memory/store.js';
+import { RoutinesStore } from '../../persistence/routines-store.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -66,6 +67,7 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
     clearPendingApproval: () => { pendingApproval = null; },
     getPendingQuestionSet: () => pendingQuestionSet,
     clearPendingQuestionSet: () => { pendingQuestionSet = null; },
+    setPendingRoutinePrompt: mock(() => {}),
   } as any;
 }
 
@@ -159,6 +161,13 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         clearChannel: mock(() => Promise.resolve()),
         repoMemoryDir: mock(() => '/tmp/test-memory'),
       } as any,
+      routinesStore: {
+        list: mock(() => []),
+        get: mock(() => undefined),
+        add: mock(() => Promise.resolve({ ok: true, routine: {} })),
+        update: mock(() => Promise.resolve(undefined)),
+        remove: mock(() => Promise.resolve(undefined)),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -198,6 +207,8 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       getClaudeAccountPoolStatus: mock(() => []),
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
+      isRoutinesEnabled: mock(() => true),
+      fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
     },
   };
 }
@@ -1214,5 +1225,140 @@ describe('channel memory commands', () => {
     expect(store.listChannelEntries('test-platform')).toHaveLength(2);
     const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
     expect(calls.some((m: string) => m.includes('matches 2'))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Routine commands (!routine / !routines)
+// ---------------------------------------------------------------------------
+
+describe('routine commands', () => {
+  let routinesRoot: string;
+
+  function createRoutinesCtx(sessions: Map<string, Session>, enabled = true): SessionContext {
+    const ctx = createMockSessionContext(sessions);
+    routinesRoot = mkdtempSync(join(tmpdir(), 'ct-routinecmd-test-'));
+    (ctx.state as { routinesStore: unknown }).routinesStore = new RoutinesStore(join(routinesRoot, 'routines.yaml'));
+    (ctx.ops as { isRoutinesEnabled: unknown }).isRoutinesEnabled = mock(() => enabled);
+    return ctx;
+  }
+
+  afterEach(() => {
+    if (routinesRoot) rmSync(routinesRoot, { recursive: true, force: true });
+  });
+
+  async function seedRoutine(ctx: SessionContext, name = 'Standup summary') {
+    const result = await ctx.state.routinesStore.add('test-platform', {
+      name,
+      prompt: 'summarize open threads',
+      schedule: { preset: 'weekdays', time: '09:00', timezone: 'Europe/Amsterdam' },
+      createdBy: 'testuser',
+    });
+    if (!result.ok) throw new Error(result.error);
+    return result.routine;
+  }
+
+  it('explains itself when routines are disabled for the platform', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]), false);
+
+    await commands.manageRoutines(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('disabled'))).toBe(true);
+  });
+
+  it('createRoutine is owner-gated', async () => {
+    const session = createMockSession(); // startedBy testuser; isUserAllowed → false
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.createRoutine(session, 'every day at 9, do things', 'stranger', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('can create routines'))).toBe(true);
+    expect((session.messageManager as any).setPendingRoutinePrompt).not.toHaveBeenCalled();
+  });
+
+  it('createRoutine posts a confirmation card from the parsed schedule', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+
+    // Inject the parse result directly (module-mocking quick-query leaks
+    // across test files, and CLAUDE_PATH stubbing races with those mocks).
+    const parse = async () => ({
+      ok: true as const,
+      parsed: {
+        name: 'Standup summary',
+        prompt: 'summarize open threads',
+        schedule: { preset: 'weekdays' as const, time: '09:00', timezone: 'Europe/Amsterdam' },
+      },
+      timezoneDefaulted: true,
+    });
+    await commands.createRoutine(session, 'every weekday at 9, summarize open threads', 'testuser', ctx, parse);
+
+    // Confirmation card posted with the parsed schedule, pending state set.
+    const interactive = (session.platform.createInteractivePost as any).mock.calls;
+    expect(interactive.length).toBe(1);
+    expect(interactive[0][0]).toContain('Standup summary');
+    expect(interactive[0][0]).toContain('weekdays at 09:00');
+    const setPending = (session.messageManager as any).setPendingRoutinePrompt;
+    expect(setPending).toHaveBeenCalledTimes(1);
+    expect(setPending.mock.calls[0][0].requestedBy).toBe('testuser');
+    // Nothing saved yet — saving happens only on 👍 via the lifecycle listener.
+    expect(ctx.state.routinesStore.list('test-platform')).toHaveLength(0);
+  });
+
+  it('lists routines numbered with schedule and creator', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+    await seedRoutine(ctx);
+
+    await commands.manageRoutines(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const listing = calls.find((m: string) => m.includes('Routines (1)'));
+    expect(listing).toBeDefined();
+    expect(listing).toContain('1. ');
+    expect(listing).toContain('Standup summary');
+    expect(listing).toContain('weekdays at 09:00');
+  });
+
+  it('pause/resume/delete are owner-gated; run needs platform allowance, not just an invite', async () => {
+    const session = createMockSession();
+    // Only 'platformuser' is on the platform allowlist; 'stranger' stands in
+    // for a temporarily !invite'd guest (session-allowed, platform-denied).
+    (session.platform.isUserAllowed as any) = mock((u: string) => u === 'platformuser');
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+    const routine = await seedRoutine(ctx);
+
+    await commands.manageRoutines(session, 'pause 1', 'stranger', ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.enabled).toBe(true);
+
+    await commands.manageRoutines(session, 'pause 1', 'testuser', ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.enabled).toBe(false);
+
+    // A session-invited guest must NOT be able to spawn unattended sessions
+    // under the creator's identity via `run`.
+    await commands.manageRoutines(session, 'run 1', 'stranger', ctx);
+    expect((ctx.ops.fireRoutineNow as any)).toHaveBeenCalledTimes(0);
+
+    // A platform-allowed non-owner may fire.
+    await commands.manageRoutines(session, 'run 1', 'platformuser', ctx);
+    expect((ctx.ops.fireRoutineNow as any)).toHaveBeenCalledTimes(1);
+
+    await commands.manageRoutines(session, 'delete 1', 'testuser', ctx);
+    expect(ctx.state.routinesStore.list('test-platform')).toHaveLength(0);
+  });
+
+  it('reports unknown indices and bad subcommands', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.manageRoutines(session, 'pause 7', 'testuser', ctx);
+    await commands.manageRoutines(session, 'frobnicate 1', 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('No routine 7'))).toBe(true);
+    expect(calls.some((m: string) => m.includes('Usage'))).toBe(true);
   });
 });

@@ -1087,3 +1087,57 @@ describe('PromptExecutor', () => {
     });
   });
 });
+
+describe('PromptExecutor — routine-creation confirmation', () => {
+  function setup() {
+    const platform = createMockPlatform();
+    const ctx = createTestContext(platform);
+    const events = createMessageManagerEvents();
+    const completions: Array<{ approved: boolean; requestedBy: string; name: string }> = [];
+    events.on('routine-prompt:complete', ({ approved, parsed, requestedBy }) => {
+      completions.push({ approved, requestedBy, name: parsed.name });
+    });
+    const executor = new PromptExecutor({
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      events,
+    } as any);
+    const parsed = {
+      name: 'Standup summary',
+      prompt: 'summarize open threads',
+      schedule: { preset: 'weekdays' as const, time: '09:00', timezone: 'Europe/Amsterdam' },
+    };
+    executor.setPendingRoutinePrompt({ postId: 'post-r1', parsed, requestedBy: 'anne' });
+    return { executor, ctx, completions };
+  }
+
+  it('👍 approves: emits event with approved=true and clears pending state', async () => {
+    const { executor, ctx, completions } = setup();
+    const handled = await executor.handleReaction('post-r1', '+1', 'anne', 'added', ctx);
+    expect(handled).toBe(true);
+    expect(completions).toEqual([{ approved: true, requestedBy: 'anne', name: 'Standup summary' }]);
+    expect(executor.hasPendingRoutinePrompt()).toBe(false);
+  });
+
+  it('👎 discards: emits event with approved=false', async () => {
+    const { executor, ctx, completions } = setup();
+    const handled = await executor.handleReaction('post-r1', '-1', 'bob', 'added', ctx);
+    expect(handled).toBe(true);
+    expect(completions).toEqual([{ approved: false, requestedBy: 'anne', name: 'Standup summary' }]);
+  });
+
+  it('irrelevant emoji and other posts are ignored; removals ignored', async () => {
+    const { executor, ctx, completions } = setup();
+    expect(await executor.handleReaction('post-r1', 'eyes', 'anne', 'added', ctx)).toBe(false);
+    expect(await executor.handleReaction('other-post', '+1', 'anne', 'added', ctx)).toBe(false);
+    expect(await executor.handleReaction('post-r1', '+1', 'anne', 'removed', ctx)).toBe(false);
+    expect(completions).toHaveLength(0);
+    expect(executor.hasPendingRoutinePrompt()).toBe(true);
+  });
+
+  it('routine prompts are transient: hydrateState never restores one', () => {
+    const { executor } = setup();
+    executor.hydrateState({});
+    expect(executor.hasPendingRoutinePrompt()).toBe(false);
+  });
+});

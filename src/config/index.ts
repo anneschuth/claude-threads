@@ -28,6 +28,7 @@ export {
   DEFAULT_MEMORY_CONFIG,
   MEMORY_DISABLED,
   resolveMemoryConfig,
+  resolveRoutinesEnabled,
   LIMITS_DEFAULTS,
   resolveLimits,
   resolvePermissionMode,

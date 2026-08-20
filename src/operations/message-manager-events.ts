@@ -15,6 +15,7 @@
 import { EventEmitter } from 'events';
 import type { PendingBugReport } from './executors/types.js';
 import type { StatusUpdateOp, LifecycleOp } from './types.js';
+import type { ParsedRoutineRequest } from '../routines/parser.js';
 
 // ---------------------------------------------------------------------------
 // Event Payload Types
@@ -84,6 +85,17 @@ export interface MessageManagerEventMap {
    */
   'update-prompt:complete': {
     decision: 'update_now' | 'defer';
+  };
+
+  /**
+   * Emitted when a routine-creation confirmation receives a response.
+   * The lifecycle listener performs the store write on approval.
+   */
+  'routine-prompt:complete': {
+    approved: boolean;
+    parsed: ParsedRoutineRequest;
+    requestedBy: string;
+    postId: string;
   };
 
   /**

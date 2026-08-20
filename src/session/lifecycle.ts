@@ -407,6 +407,47 @@ function createMessageManager(
     // 'deny' - nothing extra to do, post already updated by MessageManager
   });
 
+  messageManager.events.on('routine-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
+    session.threadLogger?.logCommand('routine', approved ? 'created' : 'discarded', requestedBy);
+    if (!approved) {
+      sessionLog(session).info(`🕘 Routine "${parsed.name}" discarded before saving`);
+      return;
+    }
+    // The store write must not reject out of this async listener:
+    // EventEmitter never awaits listeners, so an fs error at 👍-time would
+    // become an unhandled rejection and kill the bot process. Convert it to
+    // the same visible-failure path as a validation error.
+    let result: Awaited<ReturnType<typeof ctx.state.routinesStore.add>>;
+    try {
+      result = await ctx.state.routinesStore.add(
+        session.platformId,
+        { name: parsed.name, prompt: parsed.prompt, schedule: parsed.schedule, createdBy: requestedBy },
+        ctx.config.maxRoutines,
+      );
+    } catch (err) {
+      result = { ok: false, error: `could not write the routines file (${(err as Error).message})` };
+    }
+    const formatter = session.platform.getFormatter();
+    if (result.ok) {
+      const position = ctx.state.routinesStore.list(session.platformId).length;
+      await withErrorHandling(
+        () => session.platform.updatePost(
+          postId,
+          `✅ ${formatter.formatBold(`Routine ${position}: ${result.routine.name}`)} saved — it will post its runs as new threads in this channel. ` +
+          `${formatter.formatItalic(`Manage with ${'`!routines`'}. Each run starts a full Claude session.`)}`,
+        ),
+        { action: 'Update routine confirmation post', session },
+      );
+      sessionLog(session).info(`🕘 Routine "${result.routine.name}" saved by @${requestedBy}`);
+    } else {
+      await withErrorHandling(
+        () => session.platform.updatePost(postId, `⚠️ Could not save routine: ${result.error}`),
+        { action: 'Update routine confirmation post', session },
+      );
+      sessionLog(session).warn(`🕘 Routine save failed: ${result.error}`);
+    }
+  });
+
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
     const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));

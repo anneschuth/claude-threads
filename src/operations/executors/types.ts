@@ -10,6 +10,7 @@ import type { PostTracker, RegisterPostOptions, PostType, InteractionType } from
 import type { ContentBreaker } from '../content-breaker.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ThreadLogger } from '../../persistence/thread-logger.js';
+import type { ParsedRoutineRequest } from '../../routines/parser.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -145,6 +146,20 @@ export interface PendingUpdatePrompt {
 }
 
 /**
+ * Pending routine-creation confirmation: the haiku-parsed schedule shown to
+ * the user, awaiting a 👍/👎 reaction before anything is saved. Transient —
+ * deliberately NOT persisted: an unconfirmed proposal simply expires with
+ * the bot process.
+ */
+export interface PendingRoutinePrompt {
+  postId: string;
+  /** Haiku-parsed routine, revalidated (see src/routines/parser.ts). */
+  parsed: ParsedRoutineRequest;
+  /** Who asked for the routine — becomes `createdBy` on approval. */
+  requestedBy: string;
+}
+
+/**
  * Pending bug report state for bug report submission.
  */
 export interface PendingBugReport {
@@ -203,6 +218,8 @@ export interface PromptState {
   pendingExistingWorktreePrompt: PendingExistingWorktreePrompt | null;
   /** Pending update prompt for version update prompts */
   pendingUpdatePrompt: PendingUpdatePrompt | null;
+  /** Pending routine-creation confirmation (transient, never persisted) */
+  pendingRoutinePrompt: PendingRoutinePrompt | null;
 }
 
 /**

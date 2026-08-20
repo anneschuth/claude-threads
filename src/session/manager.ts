@@ -21,6 +21,9 @@ import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
+import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
+import { RoutineScheduler } from '../routines/scheduler.js';
+import { fireRoutine } from '../routines/runner.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
 import type { SessionInfo } from '../ui/types.js';
@@ -117,6 +120,9 @@ export class SessionManager extends EventEmitter {
   private githubEmailsStore!: GitHubEmailsStore;
   // Persistent memory (channel layer + repo-layer auto-memory directories)
   private memoryStore!: MemoryStore;
+  // Scheduled routines (Claude Tag-style recurring work)
+  private routinesStore!: RoutinesStore;
+  private routineScheduler: RoutineScheduler | null = null;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -134,6 +140,9 @@ export class SessionManager extends EventEmitter {
 
   // Per-platform resolved memory settings (default: fully enabled)
   private platformMemory: Map<string, ResolvedMemoryConfig> = new Map();
+
+  // Per-platform routines toggle (default: enabled)
+  private platformRoutines: Map<string, boolean> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -181,6 +190,7 @@ export class SessionManager extends EventEmitter {
     this.sessionStore = new SessionStore(sessionsPath);
     this.githubEmailsStore = new GitHubEmailsStore();
     this.memoryStore = new MemoryStore();
+    this.routinesStore = new RoutinesStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
 
@@ -201,6 +211,22 @@ export class SessionManager extends EventEmitter {
       maxWorktreeAgeMs: this.limits.maxWorktreeAgeHours * 60 * 60 * 1000,
       cleanupWorktrees: this.limits.cleanupWorktrees,
     });
+
+    this.routineScheduler = new RoutineScheduler({
+      store: this.routinesStore,
+      listPlatformIds: () => Array.from(this.platforms.keys()),
+      isRoutinesEnabled: (pid) => this.platformRoutines.get(pid) ?? true,
+      fireRoutine: (pid, routine) => fireRoutine(routine, pid, this.getContext()),
+      notifyDisabled: async (pid, routine, reason) => {
+        const platform = this.platforms.get(pid);
+        if (!platform) return;
+        const formatter = platform.getFormatter();
+        await platform.createPost(
+          `🕘 ${formatter.formatBold(`Routine "${routine.name}" disabled`)} — ${reason}. ` +
+          `Re-enable with ${formatter.formatCode('!routines resume <n>')} once resolved.`,
+        ).catch(() => {});
+      },
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -211,7 +237,8 @@ export class SessionManager extends EventEmitter {
     platformId: string,
     client: PlatformClient,
     overhead?: Partial<PlatformOverhead>,
-    memory?: ResolvedMemoryConfig
+    memory?: ResolvedMemoryConfig,
+    routinesEnabled?: boolean
   ): void {
     this.platforms.set(platformId, client);
     this.platformOverhead.set(platformId, {
@@ -219,6 +246,7 @@ export class SessionManager extends EventEmitter {
       stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
     });
     this.platformMemory.set(platformId, memory ?? DEFAULT_MEMORY_CONFIG);
+    this.platformRoutines.set(platformId, routinesEnabled ?? true);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -248,6 +276,7 @@ export class SessionManager extends EventEmitter {
     this.platforms.delete(platformId);
     this.platformOverhead.delete(platformId);
     this.platformMemory.delete(platformId);
+    this.platformRoutines.delete(platformId);
     stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
@@ -322,6 +351,7 @@ export class SessionManager extends EventEmitter {
       userAttribution: this.userAttribution,
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
+      maxRoutines: this.limits.maxRoutines,
       threadLogsEnabled: this.threadLogsEnabled,
       threadLogsRetentionDays: this.threadLogsRetentionDays,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
@@ -335,6 +365,7 @@ export class SessionManager extends EventEmitter {
       sessionStore: this.sessionStore,
       githubEmailsStore: this.githubEmailsStore,
       memoryStore: this.memoryStore,
+      routinesStore: this.routinesStore,
       isShuttingDown: this.isShuttingDown,
     };
 
@@ -411,6 +442,10 @@ export class SessionManager extends EventEmitter {
       },
 
       getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,
+
+      isRoutinesEnabled: (pid) => this.platformRoutines.get(pid) ?? true,
+
+      fireRoutineNow: (pid, routine) => this.fireRoutineNowImpl(pid, routine),
     };
 
     return createSessionContext(config, state, ops);
@@ -997,6 +1032,7 @@ export class SessionManager extends EventEmitter {
     // Start background tasks
     this.sessionMonitor?.start();
     this.backgroundCleanup?.start();
+    this.routineScheduler?.start();
 
     // Clean up stale sessions that timed out while bot was down
     // Use 2x timeout to be generous (bot might have been down for a while)
@@ -1230,6 +1266,29 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.forgetMemory(session, selector, username, this.getContext());
+  }
+
+  /** `!routine <natural language>` — propose a routine for confirmation. */
+  async createRoutine(threadId: string, request: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.createRoutine(session, request, username, this.getContext());
+  }
+
+  /** `!routines [subcommand]` — list/pause/resume/delete/run routines. */
+  async manageRoutines(threadId: string, args: string | undefined, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.manageRoutines(session, args, username, this.getContext());
+  }
+
+  /**
+   * Fire one routine outside its schedule (`!routines run <n>`). Shares the
+   * scheduler's bookkeeping but never consumes the period's scheduled fire.
+   */
+  private async fireRoutineNowImpl(platformId: string, routine: Routine): Promise<RoutineRunStatus | 'unauthorized'> {
+    if (!this.routineScheduler) return 'skipped';
+    return this.routineScheduler.fire(platformId, routine, new Date(), false);
   }
 
   /**
@@ -1815,6 +1874,7 @@ export class SessionManager extends EventEmitter {
     // Stop background tasks
     this.sessionMonitor?.stop();
     this.backgroundCleanup?.stop();
+    this.routineScheduler?.stop();
 
     // Post shutdown message to all active sessions
     if (message) {

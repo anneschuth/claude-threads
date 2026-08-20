@@ -229,6 +229,41 @@ const handleMemory: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Handle !routine command — create a scheduled routine from natural language.
+ */
+const handleRoutine: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  if (!args?.trim()) {
+    await ctx.client.createPost(
+      `⚠️ Usage: ${ctx.formatter.formatCode('!routine every weekday at 9:00, <task>')}`,
+      ctx.threadId
+    );
+    return { handled: true };
+  }
+  await ctx.sessionManager.createRoutine(ctx.threadId, args, ctx.username);
+  return { handled: true };
+};
+
+/**
+ * Handle !routines command — list/pause/resume/delete/run routines.
+ */
+const handleRoutines: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  await ctx.sessionManager.manageRoutines(ctx.threadId, args, ctx.username);
+  return { handled: true };
+};
+
+/**
  * Handle !cd command.
  */
 const handleCd: CommandHandler = async (ctx, args) => {
@@ -525,6 +560,8 @@ handlers.set('kick', handleKick);
 handlers.set('github-email', handleGitHubEmail);
 handlers.set('remember', handleRemember);
 handlers.set('memory', handleMemory);
+handlers.set('routine', handleRoutine);
+handlers.set('routines', handleRoutines);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
 handlers.set('mentions', handleMentions);

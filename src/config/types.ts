@@ -142,6 +142,26 @@ export function resolveMemoryConfig(value: unknown, fieldPath?: string): Resolve
   return DEFAULT_MEMORY_CONFIG;
 }
 
+// =============================================================================
+// Routines (per-platform, default on)
+// =============================================================================
+
+/**
+ * Normalize the per-platform `routines` field: scheduled recurring work
+ * (Claude Tag-style). Undefined/`true` → enabled (the default; there is no
+ * idle cost until someone creates a routine), `false` → the scheduler skips
+ * the platform and the !routine/!routines commands explain themselves.
+ * Malformed values warn and fall back to enabled.
+ */
+export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): boolean {
+  if (value === undefined || value === null || value === true) return true;
+  if (value === false) return false;
+  console.warn(
+    `Invalid ${fieldPath ?? 'routines'} config: expected boolean, got ${JSON.stringify(value)} — routines stay enabled`,
+  );
+  return true;
+}
+
 /**
  * Thread logging configuration
  */
@@ -177,6 +197,8 @@ export interface LimitsConfig {
    * more API calls. Higher = fewer posts + coarser visible streaming.
    */
   flushDelayMs?: number;
+  /** Maximum routines per platform instance (default: 10). */
+  maxRoutines?: number;
 }
 
 /**
@@ -192,6 +214,7 @@ export interface ResolvedLimits {
   cleanupWorktrees: boolean;
   permissionTimeoutSeconds: number;
   flushDelayMs: number;
+  maxRoutines: number;
 }
 
 /**
@@ -206,6 +229,7 @@ export const LIMITS_DEFAULTS: ResolvedLimits = {
   cleanupWorktrees: true,
   permissionTimeoutSeconds: 120,
   flushDelayMs: 500,
+  maxRoutines: 10,
 };
 
 /**
@@ -227,6 +251,7 @@ export function resolveLimits(limits?: LimitsConfig): ResolvedLimits {
     cleanupWorktrees: limits?.cleanupWorktrees ?? LIMITS_DEFAULTS.cleanupWorktrees,
     permissionTimeoutSeconds: limits?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
     flushDelayMs: limits?.flushDelayMs ?? LIMITS_DEFAULTS.flushDelayMs,
+    maxRoutines: limits?.maxRoutines ?? LIMITS_DEFAULTS.maxRoutines,
   };
 }
 
@@ -327,6 +352,11 @@ export interface PlatformInstanceConfig {
    * See `MemoryOption` for the accepted shapes and layer semantics.
    */
   memory?: MemoryOption;
+  /**
+   * Scheduled routines for this platform instance (default: enabled).
+   * `false` disables the scheduler and the !routine/!routines commands.
+   */
+  routines?: boolean;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }
