@@ -61,17 +61,18 @@ function makeFakeProc(opts: FakeSubprocessOpts) {
 }
 
 const crossSpawnMock = mock(() => makeFakeProc(crossSpawnCfg.current));
-const realSpawn = await import('../../utils/spawn.js');
+// Snapshot the export VALUES before mocking: bun module namespaces are live
+// bindings, so after mock.module the namespace yields the mock — a namespace
+// "restore" would restore the mock. The spread copies the real values now.
+const realSpawn = { ...(await import('../../utils/spawn.js')) };
 mock.module('../../utils/spawn.js', () => ({
   ...realSpawn,
   crossSpawn: crossSpawnMock,
 }));
 
 // bun's `mock.module` is process-global and one-way — there is no native
-// "unmock". The best we can do is overwrite it with a pass-through factory
-// that returns the real module, so later test files loading this path behave
-// as if it were never mocked. This is NOT a true restore; it works only
-// because `realSpawn` is still the real live module object.
+// "unmock". Overwrite it with the pre-mock value snapshot so later test
+// files loading this path behave as if it were never mocked.
 afterAll(() => {
   mock.module('../../utils/spawn.js', () => realSpawn);
 });

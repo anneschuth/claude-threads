@@ -13,6 +13,6 @@ How was this tested?
 
 ## Checklist
 
-- [ ] Tests pass (`bun test`)
+- [ ] Tests pass (`bun run test`)
 - [ ] Linting passes (`bun run lint`)
 - [ ] Documentation updated (if needed)

@@ -18,7 +18,7 @@ Requires [Bun](https://bun.sh/) 1.2.21+ and Node 20+.
 - `bun install` - Install dependencies
 - `bun run dev` - Watch mode for development
 - `bun run build` - Build for production
-- `bun test` - Run the unit tests (~2500 of them)
+- `bun run test` - Run the unit tests (~2500 of them)
 - `bun run lint` - Check code style
 
 ### Integration Tests
@@ -39,7 +39,7 @@ Want to add support for another chat platform? Start with [`src/platform/IMPLEME
 
 1. Fork the repo and create your branch from `main`
 2. Make your changes
-3. Ensure tests pass (`bun test`)
+3. Ensure tests pass (`bun run test`)
 4. Ensure linting passes (`bun run lint`)
 5. Submit a pull request
 
