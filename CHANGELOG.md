@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Permission prompts show the full Bash command.** The approval prompt used to hard-truncate commands at 100 characters, so anything past the first pipe or `&&` was invisible at the exact moment the user was asked to approve it — the gate could only be rubber-stamped. The prompt now shows the command up to a generous 1500-character cap (a pathological command is still cut so it cannot blow up the prompt post). The 50-character display truncation in the streaming view is unchanged; only the permission prompt is affected.
+
 ## [1.26.0] - 2026-08-20
 
 ### Added

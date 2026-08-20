@@ -115,5 +115,11 @@ export function truncateWithEllipsis(str: string, maxLength: number): string {
  * @returns Content with escaped backticks
  */
 export function escapeCodeBlockContent(content: string): string {
-  return content.replace(/```/g, '` ``');
+  // A single pass can recreate a fence: '````' -> '` ```'. Repeat until no
+  // triple-backtick run is left — each pass splits runs, so this converges.
+  let result = content;
+  while (result.includes('```')) {
+    result = result.replace(/```/g, '` ``');
+  }
+  return result;
 }

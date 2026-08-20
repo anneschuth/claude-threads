@@ -261,6 +261,59 @@ describe('Bash Formatter', () => {
     expect(result!.display!.length).toBeLessThan(longCommand.length);
   });
 
+  it('shows the full command in the permission prompt (not the 100-char display cut)', () => {
+    // A realistic compound command well over the old 100-char cap: the user
+    // must be able to see the tail (the part that actually matters) before
+    // approving.
+    const command = `npm view claude-threads version 2>/dev/null; echo "---"; ${'x'.repeat(200)}; rm -rf /tmp/scratch`;
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain(command);
+    expect(result!.permissionText).not.toContain('...');
+  });
+
+  it('still caps a pathological command in the permission prompt', () => {
+    const command = 'y'.repeat(5000);
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain('[... truncated]');
+    expect(result!.permissionText!.length).toBeLessThan(2000);
+  });
+
+  it('renders the permission command as a fenced block so backticks cannot break out', () => {
+    const command = 'echo `whoami` && printf "```"';
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    // Triple backticks inside the command are defused; single backticks are
+    // harmless inside a fenced block.
+    expect(result!.permissionText).toContain('```bash');
+    expect(result!.permissionText).not.toContain('printf "```"');
+    expect(result!.permissionText).toContain('echo `whoami`');
+  });
+
+  it('defuses arbitrarily long backtick runs (a single pass would recreate a fence)', () => {
+    const command = 'printf "`````" && echo ````';
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    // No triple-backtick run may survive inside the fenced block.
+    const inner = result!.permissionText!.split('```bash')[1] ?? '';
+    expect(inner.replace(/```$/, '')).not.toContain('```');
+  });
+
+  it('never cuts inside a surrogate pair when truncating the permission command', () => {
+    // The single BMP prefix forces the cut onto an odd UTF-16 index: a naive
+    // substring(0, N) would slice mid-pair and leave a lone high surrogate.
+    const command = 'a' + '\u{1F600}'.repeat(1600); // astral emoji, 2 UTF-16 units each
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.permissionText).toContain('[... truncated]');
+    // A mid-pair cut leaves a lone surrogate, making the string ill-formed.
+    // With the /u flag, paired surrogates form a single code point outside
+    // this range, so the class only matches LONE surrogates (equivalent to
+    // !isWellFormed(), which tsconfig's ES2022 target does not know yet).
+    expect(/[\uD800-\uDFFF]/u.test(result!.permissionText!)).toBe(false);
+  });
+
   it('shortens worktree paths in commands', () => {
     const result = bashToolFormatter.format(
       'Bash',
