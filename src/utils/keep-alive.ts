@@ -8,10 +8,94 @@
  * - Windows: stay-awake npm package (if available)
  */
 
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, StdioOptions } from 'child_process';
 import { createLogger } from './logger.js';
 
 const log = createLogger('keepalive');
+
+/**
+ * Spawn specification for a platform's keep-alive process.
+ */
+interface KeepAliveSpawnSpec {
+  command: string;
+  args: string[];
+  stdio: StdioOptions;
+}
+
+/**
+ * Build the spawn spec for the given platform, tying the keep-alive
+ * process's lifetime to `parentPid` (the bot process).
+ *
+ * This coupling is the load-bearing part: without it, a hard death of the
+ * bot (SIGKILL, crashed test runner) orphans the inhibitor to init and the
+ * machine can never sleep again until someone kills it by hand.
+ *
+ * - macOS: `caffeinate -w <pid>` exits natively when the watched pid dies.
+ * - Linux: `systemd-inhibit ... cat` with a piped stdin. systemd-inhibit
+ *   execs the command, so the inhibitor lock is held by `cat` itself; when
+ *   the bot dies the kernel closes the pipe, `cat` reads EOF and exits,
+ *   releasing the lock. Event-driven, works even on SIGKILL.
+ * - Fallbacks (xdg-screensaver / PowerShell): poll the parent pid in the
+ *   loop and exit when it is gone.
+ */
+function keepAliveSpawnSpec(
+  platform: NodeJS.Platform,
+  parentPid: number
+): KeepAliveSpawnSpec | null {
+  switch (platform) {
+    case 'darwin':
+      return {
+        command: 'caffeinate',
+        args: ['-s', '-i', '-w', String(parentPid)],
+        stdio: 'ignore',
+      };
+    case 'linux':
+      return {
+        command: 'systemd-inhibit',
+        args: [
+          '--what=sleep:idle:handle-lid-switch',
+          '--why=Claude Code session active',
+          '--mode=block',
+          'cat',
+        ],
+        stdio: ['pipe', 'ignore', 'ignore'],
+      };
+    default:
+      return null;
+  }
+}
+
+/**
+ * Linux fallback loop: xdg-screensaver reset while the parent is alive.
+ */
+function linuxFallbackScript(parentPid: number): string {
+  return `while kill -0 ${parentPid} 2>/dev/null; do xdg-screensaver reset 2>/dev/null || true; sleep 60; done`;
+}
+
+/**
+ * Windows keep-alive script: SetThreadExecutionState while the parent is
+ * alive. The execution state dies with the PowerShell process, so exiting
+ * the loop is enough to release it.
+ */
+function windowsScript(parentPid: number): string {
+  return `
+        Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class PowerState {
+            [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
+            public static extern uint SetThreadExecutionState(uint esFlags);
+          }
+"@
+        # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
+        [PowerState]::SetThreadExecutionState(0x80000001) | Out-Null
+        # Keep running until killed or the parent process exits
+        while (Get-Process -Id ${parentPid} -ErrorAction SilentlyContinue) { Start-Sleep -Seconds 60 }
+      `;
+}
+
+export { keepAliveSpawnSpec, linuxFallbackScript, windowsScript };
+export type { KeepAliveSpawnSpec };
 
 /**
  * KeepAlive manager - singleton that tracks active sessions and manages
@@ -145,8 +229,12 @@ class KeepAliveManager {
     try {
       // caffeinate -s prevents system sleep (but allows display sleep)
       // caffeinate -i prevents idle sleep
-      this.keepAliveProcess = spawn('caffeinate', ['-s', '-i'], {
-        stdio: 'ignore',
+      // caffeinate -w <pid> makes it exit when the bot process dies,
+      // so a crashed bot can't leave the Mac sleepless
+      const spec = keepAliveSpawnSpec('darwin', process.pid);
+      if (!spec) return;
+      this.keepAliveProcess = spawn(spec.command, spec.args, {
+        stdio: spec.stdio,
         detached: false,
       });
 
@@ -174,22 +262,17 @@ class KeepAliveManager {
    */
   private startLinuxKeepAlive(): void {
     try {
-      // Try systemd-inhibit first (standard on modern Linux)
-      // It runs a command while inhibiting sleep - we use 'sleep infinity'
-      this.keepAliveProcess = spawn(
-        'systemd-inhibit',
-        [
-          '--what=sleep:idle:handle-lid-switch',
-          '--why=Claude Code session active',
-          '--mode=block',
-          'sleep',
-          'infinity',
-        ],
-        {
-          stdio: 'ignore',
-          detached: false,
-        }
-      );
+      // Try systemd-inhibit first (standard on modern Linux).
+      // It execs a command while inhibiting sleep - we use 'cat' reading
+      // from a pipe held by this process: if the bot dies (even SIGKILL),
+      // the pipe closes, cat exits on EOF and the inhibitor lock is
+      // released instead of leaking to init.
+      const spec = keepAliveSpawnSpec('linux', process.pid);
+      if (!spec) return;
+      this.keepAliveProcess = spawn(spec.command, spec.args, {
+        stdio: spec.stdio,
+        detached: false,
+      });
 
       this.keepAliveProcess.on('error', (err) => {
         log.debug(`systemd-inhibit not available: ${err.message}`);
@@ -219,14 +302,11 @@ class KeepAliveManager {
   private startLinuxKeepAliveFallback(): void {
     // Try xdg-screensaver suspend (works on many desktop environments)
     try {
-      // xdg-screensaver suspend suspends screensaver until the given window ID's process exits
-      // We use the current PID as a reference
+      // The loop watches the bot pid and exits when it is gone, so a hard
+      // bot death can't leave the reset loop running forever
       this.keepAliveProcess = spawn(
         'bash',
-        [
-          '-c',
-          `while true; do xdg-screensaver reset 2>/dev/null || true; sleep 60; done`,
-        ],
+        ['-c', linuxFallbackScript(process.pid)],
         {
           stdio: 'ignore',
           detached: false,
@@ -257,20 +337,7 @@ class KeepAliveManager {
     try {
       // Use PowerShell to call SetThreadExecutionState API
       // ES_CONTINUOUS (0x80000000) + ES_SYSTEM_REQUIRED (0x00000001) = 0x80000001
-      const script = `
-        Add-Type -TypeDefinition @"
-          using System;
-          using System.Runtime.InteropServices;
-          public class PowerState {
-            [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-            public static extern uint SetThreadExecutionState(uint esFlags);
-          }
-"@
-        # ES_CONTINUOUS | ES_SYSTEM_REQUIRED
-        [PowerState]::SetThreadExecutionState(0x80000001) | Out-Null
-        # Keep running until killed
-        while ($true) { Start-Sleep -Seconds 60 }
-      `;
+      const script = windowsScript(process.pid);
 
       this.keepAliveProcess = spawn(
         'powershell',
