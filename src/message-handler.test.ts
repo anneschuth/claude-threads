@@ -585,6 +585,27 @@ describe('handleMessage', () => {
       expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
     });
 
+    test('rejects resume from an allowlisted non-participant under approvals: owner', async () => {
+      // The platform allowlist alone must not resume an owner-scoped
+      // session — parity with the reaction-based resume gate.
+      (client as unknown as { approvals?: string }).approvals = 'owner';
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'continue please',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'admin', displayName: 'Admin' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(client.createPost).toHaveBeenCalled();
+    });
+
     test('rejects resume for unauthorized user', async () => {
       const post: PlatformPost = {
         id: 'post1',

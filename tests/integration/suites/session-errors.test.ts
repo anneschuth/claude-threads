@@ -169,8 +169,10 @@ describe.skipIf(SKIP)('Session Error Handling', () => {
         // Wait for response
         await waitForBotResponse(ctx, rootPost.id, { timeout: 30000, minResponses: 1 });
 
-        // Wait for session to complete
-        await new Promise((r) => setTimeout(r, 500));
+        // Wait for the session to end. A fixed sleep raced teardown here:
+        // the mock CLI's exit and the bot's cleanup are asynchronous, and
+        // 500ms was only usually enough. Bounded wait instead of re-rolling.
+        await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 10000 });
 
         // Session should have ended cleanly
         expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);

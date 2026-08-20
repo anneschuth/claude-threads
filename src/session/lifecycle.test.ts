@@ -1663,6 +1663,22 @@ describe('decision-bridge listener wiring', () => {
 });
 
 describe('resumeSession with direct channel mode', () => {
+  // resumeSessionImpl drives all the way into ClaudeCli.start(), which spawns
+  // the CLI binary. On dev machines the real `claude` exists (the test would
+  // silently launch one); on CI runners it does not (ENOENT → red). Same shim
+  // as the decision-bridge describe: point CLAUDE_PATH at a harmless
+  // executable so the spawn succeeds without the real CLI.
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
   function dcmState(threadId: string) {
     return {
       threadId,
