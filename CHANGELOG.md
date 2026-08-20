@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.26.0] - 2026-08-20
 
 ### Added
 - **Routines — scheduled recurring work, Claude Tag-style.** `!routine every weekday at 9am, summarize the open review threads` creates a routine in natural language: one haiku pass parses the request into a structured schedule (presets hourly/daily/weekdays/weekly — hourly is the floor; timezone from the request or the bot host's zone, stated explicitly), the bot posts the parsed result, and **nothing is saved until someone reacts 👍**. Each run fires as a **bot-initiated session thread** in the channel — a completely normal session (platform permission mode, account-pool balancing, channel memory, end-of-session distillation) started as the routine's creator, with the creator re-authorized on every fire (a deauthorized creator disables the routine with a channel notice, mirroring Claude Tag).
