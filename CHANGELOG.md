@@ -15,7 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Ended sessions could come back from the dead.** The turn-end persistence write is deferred until the turn's message operations settle; when Claude exited immediately after its final turn (fast one-shot sessions), that deferred write could land *after* session teardown had soft-deleted the record — re-saving it as active. A later plain reply in the thread then resumed a session the bot had just ended. The deferred persist now no-ops once the session is unregistered. (Also the root cause of the flaky "should ignore side conversations" integration test.)
-- **Keep-alive inhibitors no longer outlive the bot process.** The sleep-prevention child processes are now tied to the bot's lifetime at the OS level: on Linux `systemd-inhibit` runs `cat` on a pipe held by the bot (EOF on bot death releases the lock, even after SIGKILL), on macOS `caffeinate -w <pid>` watches the bot pid natively, and the xdg-screensaver/PowerShell fallbacks poll the parent pid. Previously a hard death of the bot (SIGKILL, crashed test runner) orphaned `systemd-inhibit sleep infinity` processes to init, permanently blocking system sleep/hibernate until they were killed by hand.
+
+## [1.25.1] - 2026-08-20
+
+### Fixed
+- **Keep-alive inhibitors no longer outlive the bot process.** (#480, thanks @Jadefalkner) The sleep-prevention child processes are now tied to the bot's lifetime at the OS level: on Linux `systemd-inhibit` runs `cat` on a pipe held by the bot (EOF on bot death releases the lock, even after SIGKILL), on macOS `caffeinate -w <pid>` watches the bot pid natively, and the xdg-screensaver/PowerShell fallbacks poll the parent pid. Previously a hard death of the bot (SIGKILL, crashed test runner) orphaned `systemd-inhibit sleep infinity` processes to init, permanently blocking system sleep/hibernate until they were killed by hand.
 
 ## [1.25.0] - 2026-08-19
 
