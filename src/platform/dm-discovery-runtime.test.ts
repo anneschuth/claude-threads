@@ -45,6 +45,7 @@ interface Harness {
   parent: PlatformClient & { emitDm: (post: PlatformPost, user: PlatformUser | null) => Promise<void> };
   delivered: Array<{ platformId: string; postId: string }>;
   removedPlatforms: string[];
+  removedUiRows: string[];
   cancelled: string[];
   activeSessions: Set<string>;
   persisted: Map<string, { threadId: string; platformId: string; sessionAllowedUsers?: string[]; startedBy?: string }>;
@@ -56,6 +57,7 @@ function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: (
   const platforms = new Map<string, PlatformClient>();
   const delivered: Harness['delivered'] = [];
   const removedPlatforms: string[] = [];
+  const removedUiRows: string[] = [];
   const cancelled: string[] = [];
   const activeSessions = new Set<string>();
   const persisted: Harness['persisted'] = new Map();
@@ -110,11 +112,12 @@ function makeHarness(opts: { graceMs?: number; orphanTtlMs?: number; connect?: (
     },
     loadPersistedSessions: () => persisted as never,
     isEnabled: opts.isEnabled,
+    removeUiRow: (id) => { removedUiRows.push(id); },
     graceMs: opts.graceMs ?? 40,
     orphanTtlMs: opts.orphanTtlMs ?? 80,
   };
 
-  return { deps, platforms, parent, delivered, removedPlatforms, cancelled, activeSessions, persisted, makeClient, lastRegisteredClient: () => lastClient };
+  return { deps, platforms, parent, delivered, removedPlatforms, removedUiRows, cancelled, activeSessions, persisted, makeClient, lastRegisteredClient: () => lastClient };
 }
 
 const DM_ID = 'mm-main--dm-dm-chan-1';
@@ -381,6 +384,29 @@ describe('dm-discovery-runtime: teardown lifecycle', () => {
 
     await sleep(80);
     expect(h.platforms.has(DM_ID)).toBe(false);
+  });
+
+  it('teardown removes the UI status row of the torn-down instance', async () => {
+    const h = makeHarness({ orphanTtlMs: 40 });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+
+    await sleep(80);
+    expect(h.removedUiRows).toEqual([DM_ID]);
+  });
+
+  it('teardown keeps the UI row of a disabled instance (re-enable handle)', async () => {
+    const enabled = new Map<string, boolean>();
+    const h = makeHarness({ orphanTtlMs: 40, isEnabled: (id) => enabled.get(id) ?? true });
+    const rt = createDmDiscoveryRuntime(h.deps);
+    rt.wireParent(parentConfig, h.parent);
+    await h.parent.emitDm(makePost(), alice);
+    enabled.set(DM_ID, false);
+
+    await sleep(80);
+    expect(h.platforms.has(DM_ID)).toBe(false);
+    expect(h.removedUiRows).toEqual([]);
   });
 
   it('orphan reaper spares an instance with a resumable persisted session', async () => {

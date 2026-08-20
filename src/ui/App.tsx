@@ -47,6 +47,7 @@ export interface AppHandlers {
   removeSession: (sessionId: string) => void;
   addLog: (entry: Omit<LogEntry, 'id' | 'timestamp'>) => void;
   setPlatformStatus: (platformId: string, status: Partial<PlatformStatus>) => void;
+  removePlatformStatus: (platformId: string) => void;
   setUpdateState: (state: UpdatePanelState) => void;
   getToggles: () => ToggleState;
 }
@@ -62,6 +63,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
     addLog,
     selectSession,
     setPlatformStatus,
+    removePlatformStatus,
     togglePlatformEnabled,
     getLogsForSession,
     getGlobalLogs,
@@ -174,10 +176,11 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
       removeSession,
       addLog,
       setPlatformStatus,
+      removePlatformStatus,
       setUpdateState,
       getToggles,
     });
-  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus, setUpdateState, getToggles]);
+  }, [onStateReady, setReady, setShuttingDown, addSession, updateSession, removeSession, addLog, setPlatformStatus, removePlatformStatus, setUpdateState, getToggles]);
 
   // Register resize handler
   React.useEffect(() => {

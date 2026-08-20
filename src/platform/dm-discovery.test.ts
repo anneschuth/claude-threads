@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { dmPlatformId, parseDmPlatformId, deriveDmPlatformConfig } from './dm-discovery.js';
+import { dmPlatformId, deriveDmPlatformConfig } from './dm-discovery.js';
 import type { MattermostPlatformConfig } from '../config/types.js';
 
 const parent: MattermostPlatformConfig = {
@@ -15,16 +15,8 @@ const parent: MattermostPlatformConfig = {
 };
 
 describe('dm platform ids', () => {
-  it('round-trips through build and parse', () => {
-    const id = dmPlatformId('mattermost-main', 'abc123');
-    expect(id).toBe('mattermost-main--dm-abc123');
-    expect(parseDmPlatformId(id)).toEqual({ parentId: 'mattermost-main', channelId: 'abc123' });
-  });
-
-  it('rejects non-DM ids', () => {
-    expect(parseDmPlatformId('mattermost-main')).toBeNull();
-    expect(parseDmPlatformId('--dm-abc')).toBeNull();
-    expect(parseDmPlatformId('mattermost-main--dm-')).toBeNull();
+  it('derives a deterministic id from parent and channel', () => {
+    expect(dmPlatformId('mattermost-main', 'abc123')).toBe('mattermost-main--dm-abc123');
   });
 });
 

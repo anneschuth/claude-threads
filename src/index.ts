@@ -734,6 +734,7 @@ async function startWithoutDaemon() {
       }),
     loadPersistedSessions: () => sessionStore.load(),
     isEnabled: (id) => platformEnabledState.get(id) ?? true,
+    removeUiRow: (id) => ui.removePlatformStatus(id),
   });
   activeDmRuntime = dmRuntime;
 

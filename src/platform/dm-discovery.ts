@@ -25,15 +25,10 @@ export function dmPlatformId(parentId: string, channelId: string): string {
   return `${parentId}${DM_PLATFORM_SEP}${channelId}`;
 }
 
-/** Parse a derived DM platform id back into its parts (null if not one). */
-export function parseDmPlatformId(platformId: string): { parentId: string; channelId: string } | null {
-  const idx = platformId.indexOf(DM_PLATFORM_SEP);
-  if (idx <= 0) return null;
-  const parentId = platformId.slice(0, idx);
-  const channelId = platformId.slice(idx + DM_PLATFORM_SEP.length);
-  if (!channelId) return null;
-  return { parentId, channelId };
-}
+// NOTE: deliberately no parseDmPlatformId here — a parent platform id may
+// itself contain the separator, so splitting at the first occurrence is
+// ambiguous. Reconstruction resolves ids against the configured parents
+// (longest-prefix match) instead.
 
 /**
  * Derive the platform config for a DM instance from its parent entry.

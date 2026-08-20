@@ -44,6 +44,12 @@ export interface DmDiscoveryDeps {
    * silently re-enabled by the next incoming DM. Default: everything enabled.
    */
   isEnabled?: (platformId: string) => boolean;
+  /**
+   * Remove the host UI's status row for a torn-down instance. Without this,
+   * every DM channel ever contacted leaves a permanent row behind. Disabled
+   * instances keep their row (it is the re-enable handle).
+   */
+  removeUiRow?: (platformId: string) => void;
   /** Grace before tearing down an instance after its session leaves the registry. */
   graceMs?: number;
   /** How long a discovered instance may exist without ever producing a session. */
@@ -124,6 +130,9 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
     platforms.delete(dmId);
     session.removePlatform(dmId);
     if (client) void Promise.resolve(client.disconnect()).catch(() => {});
+    // Drop the UI row — except for disabled instances, whose row is the only
+    // handle to re-enable them.
+    if (deps.isEnabled?.(dmId) !== false) deps.removeUiRow?.(dmId);
     log('info', `🧹 DM instance ${dmId} torn down (${reason})`);
   };
 
@@ -191,11 +200,22 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
           // a moment later and strand it. Loop: a failed start can be
           // replaced by a waiter's retry attempt under the same key, so keep
           // waiting until the map is empty for this key (same convergence
-          // argument as the startSession wrapper).
+          // argument as the startSession wrapper). Bounded: if an attempt
+          // promise ever fails to settle, this dead instance must not own
+          // the channel forever and block rediscovery — the end-state sweep
+          // below catches a session that registers after we move on.
+          const inFlightDeadline = Date.now() + 30_000;
           for (;;) {
             const inFlight = _inFlightSessionStarts.get(`${dmId}:${threadId}`);
             if (!inFlight) break;
-            await inFlight.catch(() => {});
+            if (Date.now() > inFlightDeadline) {
+              log('warn', `In-flight session start for ${dmId} did not settle within 30s — proceeding with teardown`);
+              break;
+            }
+            await Promise.race([
+              inFlight.catch(() => {}),
+              new Promise((res) => setTimeout(res, 1_000)),
+            ]);
           }
           if (session.registry.findByThreadId(threadId)) {
             // Awaited so the session is gone before the platform vanishes.
@@ -279,6 +299,11 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
         skippedDisabled.push({ platformId: pid, channelId });
         continue;
       }
+      // Asymmetry with live discovery is intentional: live discovery scopes
+      // the derived allowlist to the DM partner alone (the only counterparty
+      // a fresh 1:1 DM can have), while boot reconstruction restores the
+      // persisted participant set — an `!invite`d collaborator must survive a
+      // bot restart. Do not "fix" either side to match the other.
       const partners = (persisted.sessionAllowedUsers && persisted.sessionAllowedUsers.length > 0)
         ? persisted.sessionAllowedUsers
         : [persisted.startedBy].filter((u): u is string => !!u);
