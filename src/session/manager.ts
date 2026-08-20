@@ -1142,7 +1142,10 @@ export class SessionManager extends EventEmitter {
 
   async sendFollowUp(threadId: string, message: string, files?: PlatformFile[], username?: string, displayName?: string, options?: { system?: boolean }): Promise<void> {
     const session = this.findSessionByThreadId(threadId);
-    if (!session || !session.claude.isRunning()) return;
+    if (!session) return;
+    // No isRunning() pre-check here: lifecycle.sendFollowUp owns that gate,
+    // including the bounded wait for a Claude process that is still starting
+    // (registry insertion happens before claude.start() completes).
     await lifecycle.sendFollowUp(session, message, files, this.getContext(), username, displayName, options);
   }
 

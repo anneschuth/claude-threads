@@ -1661,3 +1661,181 @@ describe('decision-bridge listener wiring', () => {
     }
   });
 });
+
+describe('resumeSession with direct channel mode', () => {
+  // resumeSessionImpl drives all the way into ClaudeCli.start(), which spawns
+  // the CLI binary. On dev machines the real `claude` exists (the test would
+  // silently launch one); on CI runners it does not (ENOENT → red). Same shim
+  // as the decision-bridge describe: point CLAUDE_PATH at a harmless
+  // executable so the spawn succeeds without the real CLI.
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
+  function dcmState(threadId: string) {
+    return {
+      threadId,
+      platformId: 'test-platform',
+      claudeSessionId: 'claude-session-dcm',
+      workingDir: process.cwd(),
+      startedBy: 'alice',
+      sessionAllowedUsers: ['alice'],
+    } as any;
+  }
+
+  const dcmEnabled = { enabled: true, respondTo: 'all_messages' } as const;
+
+  it('skips the thread-existence check for a synthetic DCM session id', async () => {
+    // getPost resolves null (a real thread id would be treated as deleted).
+    const getPost = mock(() => Promise.resolve(null));
+    const platform = createMockPlatform({ getPost: getPost as any, directChannelMode: dcmEnabled as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('dcm:test-platform'), ctx);
+
+    // The synthetic id must never be looked up as a post, and resume must
+    // get past the thread-existence gate to account acquisition. (Later
+    // steps may still fail in this mocked environment — the gate is what
+    // this test pins down.)
+    expect(getPost).not.toHaveBeenCalled();
+    expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+  });
+
+  it('drops a persisted DCM session when direct channel mode was turned off', async () => {
+    const platform = createMockPlatform({ getPost: mock(() => Promise.resolve(null)) as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('dcm:test-platform'), ctx);
+
+    expect(ctx.state.sessionStore.remove).toHaveBeenCalledWith('test-platform:dcm:test-platform');
+    expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+  });
+
+  it('still drops a regular session whose thread was deleted', async () => {
+    const platform = createMockPlatform({ getPost: mock(() => Promise.resolve(null)) as any });
+    const ctx = createMockSessionContext(new Map());
+    (ctx.state.platforms as Map<string, unknown>).set('test-platform', platform);
+
+    await lifecycle.resumeSession(dcmState('a1b2c3realthread'), ctx);
+
+    expect(ctx.state.sessionStore.remove).toHaveBeenCalledWith('test-platform:a1b2c3realthread');
+    expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe('_inFlightSessionStarts (start dedup and retry hand-off)', () => {
+  const KEY = 'test-platform:thread-123';
+
+  afterEach(() => {
+    lifecycle._inFlightSessionStarts.delete(KEY);
+  });
+
+  it('delivers a message arriving during an in-flight start as a follow-up', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    const sessions = new Map([[KEY, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // A start for this key is in flight and succeeds.
+    let resolveStart!: () => void;
+    lifecycle._inFlightSessionStarts.set(KEY, new Promise<void>((res) => { resolveStart = res; }));
+
+    const call = lifecycle.startSession(
+      { prompt: 'queued while starting' },
+      'user',
+      'User Name',
+      'thread-123',
+      'test-platform',
+      ctx
+    );
+    resolveStart();
+    await call;
+
+    // Delivered as follow-up to the session the attempt registered — no
+    // second attempt was placed into the in-flight map by this caller.
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'queued while starting',
+      undefined,
+      'user',
+      'User Name'
+    );
+  });
+
+  it('waits for a retry registered by another waiter after a failed attempt', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    // The first attempt failed: no session registered yet.
+    const sessions = new Map<string, any>();
+    const ctx = createMockSessionContext(sessions as any);
+
+    let rejectFirst!: (e: Error) => void;
+    const firstAttempt = new Promise<void>((_, rej) => { rejectFirst = rej; });
+    let resolveRetry!: () => void;
+    const retryAttempt = new Promise<void>((res) => { resolveRetry = res; });
+
+    // Simulates the OTHER waiter: on failure it synchronously registers its
+    // retry, which succeeds shortly after and registers the session.
+    const handoff = firstAttempt.catch(() => {
+      lifecycle._inFlightSessionStarts.set(KEY, retryAttempt);
+      setTimeout(() => {
+        sessions.set(KEY, session);
+        resolveRetry();
+      }, 10);
+    });
+
+    lifecycle._inFlightSessionStarts.set(KEY, firstAttempt);
+    const call = lifecycle.startSession(
+      { prompt: 'queued behind retry' },
+      'user',
+      'User Name',
+      'thread-123',
+      'test-platform',
+      ctx
+    );
+
+    rejectFirst(new Error('first attempt failed'));
+    await handoff;
+    await call;
+
+    // The caller waited out BOTH attempts instead of fanning out its own
+    // parallel retry, then delivered its message to the retried session.
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'queued behind retry',
+      undefined,
+      'user',
+      'User Name'
+    );
+  });
+
+  it('sendFollowUp waits for a registered-but-not-yet-running session when its start is in flight', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    let running = false;
+    (session.claude.isRunning as any).mockImplementation(() => running);
+    const sessions = new Map([[KEY, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // Session is registered, Claude still coming up, start in flight.
+    lifecycle._inFlightSessionStarts.set(session.sessionId, new Promise<void>(() => {}));
+    setTimeout(() => { running = true; }, 300);
+
+    await lifecycle.sendFollowUp(session, 'early message', undefined, ctx, 'user', 'User Name');
+
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'early message',
+      undefined,
+      'user',
+      'User Name'
+    );
+    lifecycle._inFlightSessionStarts.delete(session.sessionId);
+  });
+});

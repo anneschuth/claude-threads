@@ -16,6 +16,7 @@ import {
 import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
+import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import { isAuthorizedForSession } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
@@ -82,6 +83,16 @@ let pendingStartsCount = 0;
 function releasePendingStart(): void {
   if (pendingStartsCount > 0) pendingStartsCount--;
 }
+
+/**
+ * In-flight session starts/resumes keyed by composite session id
+ * (`platformId:threadId`). Two messages arriving during an asynchronous start
+ * must not spawn two Claude processes for the same key — likely in direct
+ * channel mode, where every channel message maps to the same synthetic key,
+ * but the window also exists for two quick replies in a brand-new thread.
+ * Exported with an underscore for tests only.
+ */
+export const _inFlightSessionStarts = new Map<string, Promise<void>>();
 
 /**
  * Get postIndex map with correct mutable type.
@@ -901,6 +912,45 @@ export async function startSession(
   triggeringPostId?: string,
   initialOptions?: InitialSessionOptions
 ): Promise<void> {
+  const sessionKey = `${platformId}:${replyToPostId || ''}`;
+
+  // A start for this exact session key is already in flight: wait for it and
+  // deliver this message as a follow-up instead of spawning a second Claude.
+  // Loop: after a failed start, one waiter begins a retry and registers it
+  // synchronously — the other waiters must wait for THAT attempt too, not
+  // fan out into parallel retries of their own.
+  for (;;) {
+    const inFlight = _inFlightSessionStarts.get(sessionKey);
+    if (!inFlight) break;
+    await inFlight.catch(() => {});
+    const started = (ctx.state?.sessions as Map<string, Session> | undefined)?.get(sessionKey);
+    if (started && started.claude.isRunning()) {
+      await sendFollowUp(started, options.prompt, options.files, ctx, username, displayName);
+      return;
+    }
+    // The awaited attempt failed — re-check the map: if another waiter
+    // already started a retry, wait for it; otherwise it is our turn.
+  }
+
+  const attempt = startSessionImpl(options, username, displayName, replyToPostId, platformId, ctx, triggeringPostId, initialOptions);
+  _inFlightSessionStarts.set(sessionKey, attempt);
+  try {
+    await attempt;
+  } finally {
+    _inFlightSessionStarts.delete(sessionKey);
+  }
+}
+
+async function startSessionImpl(
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
+  username: string,
+  displayName: string | undefined,
+  replyToPostId: string | undefined,
+  platformId: string,
+  ctx: SessionContext,
+  triggeringPostId?: string,
+  initialOptions?: InitialSessionOptions
+): Promise<void> {
   const threadId = replyToPostId || '';
 
   // Check if session already exists for this thread
@@ -1085,6 +1135,15 @@ export async function startSession(
 
   // Create Claude CLI with options
   const platformMcpConfig = platform.getMcpConfig();
+  // Approvals scoping: with the effective mode `owner` only the session
+  // participants may answer tool-permission prompts (`all_users` = platform
+  // allowlist; unset defaults to all_users for threads and owner for DCM —
+  // see resolveApprovals). The list is fixed at spawn time; a later `!invite`
+  // extends message access but not the approval set until the CLI is
+  // respawned (e.g. via `!cd` or `!permissions`).
+  if (resolveApprovals(platform.approvals, isDcmThreadId(threadId)) === 'owner') {
+    platformMcpConfig.allowedUsers = [username];
+  }
 
   // Reserve a Claude account from the pool (null = single-account mode). New
   // sessions balance by real subscription headroom (`/usage`), routing to
@@ -1162,7 +1221,13 @@ export async function startSession(
     forceInteractivePermissions,
     // Seed from the config default (#402); users can still flip it per-session
     // with `!mentions`. Resumed sessions keep their own persisted value.
-    respondOnlyWhenMentioned: ctx.config.respondOnlyWhenMentioned ?? false,
+    // In direct channel mode the global default is NOT inherited (it would
+    // silently disable DCM's whole point); instead the seed comes from the
+    // platform's `directChannelMode.respondTo` option, and `!mentions` still
+    // toggles it at runtime.
+    respondOnlyWhenMentioned: isDcmThreadId(threadId)
+      ? platform.directChannelMode?.respondTo === 'mention'
+      : (ctx.config.respondOnlyWhenMentioned ?? false),
     userAttribution,
     permissionModeOverride: sessionPermissionModeOverride,
     sessionStartPostId: startPost ? startPost.id : null,
@@ -1274,7 +1339,10 @@ export async function startSession(
   // please send", causing a duplicate send to Claude — visible in CI as
   // mock-claude receiving each user message twice and emitting all events
   // twice. Caught by stack-trace diagnostic in PR #340.
-  if (replyToPostId) {
+  // In direct channel mode the "thread root" is a synthetic id, not a real
+  // post — there is no thread history to offer, so skip the context prompt
+  // and take the plain send path below.
+  if (replyToPostId && !isDcmThreadId(replyToPostId)) {
     const excludePostId = triggeringPostId || replyToPostId;
     await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username);
     // Either path inside offerContextPrompt sends or queues. Surface any
@@ -1308,6 +1376,41 @@ export async function resumeSession(
   state: PersistedSession,
   ctx: SessionContext
 ): Promise<void> {
+  // Idempotency guard: a resume can be triggered from two sides at once
+  // (startup resume-all and an incoming message via resumePausedSession).
+  // If this key is already registered or a start/resume is in flight, there
+  // is nothing to do — resumePausedSession delivers its message through the
+  // registered session afterwards.
+  if (state.threadId && state.platformId) {
+    const sessionKey = `${state.platformId}:${state.threadId}`;
+    // Defensive: some callers (and tests) construct minimal contexts — the
+    // guard is an optimization, resumeSessionImpl revalidates everything.
+    const sessions = ctx.state?.sessions as Map<string, Session> | undefined;
+    if (sessions?.has(sessionKey)) {
+      log.debug(`Session ${state.threadId.substring(0, 8)}... already active, skipping resume`);
+      return;
+    }
+    const inFlight = _inFlightSessionStarts.get(sessionKey);
+    if (inFlight) {
+      await inFlight.catch(() => {});
+      return;
+    }
+    const attempt = resumeSessionImpl(state, ctx);
+    _inFlightSessionStarts.set(sessionKey, attempt);
+    try {
+      await attempt;
+    } finally {
+      _inFlightSessionStarts.delete(sessionKey);
+    }
+    return;
+  }
+  await resumeSessionImpl(state, ctx);
+}
+
+async function resumeSessionImpl(
+  state: PersistedSession,
+  ctx: SessionContext
+): Promise<void> {
   // Validate required fields - skip gracefully if critical data is missing
   if (!state.threadId || !state.platformId || !state.claudeSessionId || !state.workingDir) {
     const missing = [
@@ -1330,12 +1433,24 @@ export async function resumeSession(
     return;
   }
 
-  // Verify thread still exists
-  const threadPost = await platform.getPost(state.threadId);
-  if (!threadPost) {
-    log.warn(`Thread ${shortId}... deleted, skipping resume`);
+  // A persisted DCM session must not resume when the platform no longer runs
+  // in direct channel mode — it would keep posting channel-root messages into
+  // a channel that has gone back to thread-per-session.
+  if (isDcmThreadId(state.threadId) && !platform.directChannelMode?.enabled) {
+    log.warn(`Direct channel mode disabled for ${state.platformId}, dropping persisted DCM session`);
     ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
     return;
+  }
+
+  // Verify thread still exists. A synthetic DCM id is not a real post — the
+  // "thread" is the channel itself, which always exists — so skip the check.
+  if (!isDcmThreadId(state.threadId)) {
+    const threadPost = await platform.getPost(state.threadId);
+    if (!threadPost) {
+      log.warn(`Thread ${shortId}... deleted, skipping resume`);
+      ctx.state.sessionStore.remove(`${state.platformId}:${state.threadId}`);
+      return;
+    }
   }
 
   // Check max sessions limit
@@ -1377,6 +1492,13 @@ export async function resumeSession(
     state.forceInteractivePermissions ? 'default' : ctx.config.permissionMode;
   const userAttribution = state.userAttribution ?? false;
   const platformMcpConfig = platform.getMcpConfig();
+  // Approvals scoping on resume mirrors the fresh-start path: session
+  // participants (owner + invited) instead of the whole platform allowlist.
+  if (resolveApprovals(platform.approvals, isDcmThreadId(state.threadId)) === 'owner') {
+    platformMcpConfig.allowedUsers = Array.from(
+      new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean))
+    ) as string[];
+  }
 
   // Include system prompt for resumed sessions (platform context, command info,
   // and collaborator co-author tags carried over from before the restart).
@@ -1673,7 +1795,21 @@ export async function sendFollowUp(
   displayName?: string,
   options?: { system?: boolean }
 ): Promise<void> {
-  if (!session.claude.isRunning()) return;
+  // The session is registered before its Claude process finishes starting.
+  // A message landing in that window must not be dropped — but only wait
+  // when a start for this exact key is actually in flight; a genuinely dead
+  // session still returns immediately.
+  if (!session.claude.isRunning()) {
+    if (!_inFlightSessionStarts.has(session.sessionId)) return;
+    const deadline = Date.now() + 10_000;
+    while (!session.claude.isRunning() && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (!session.claude.isRunning()) {
+      sessionLog(session).warn('sendFollowUp: Claude did not come up in time — message dropped');
+      return;
+    }
+  }
 
   // Fail-closed authorization gate (#388). Internal/system follow-ups (e.g.
   // passthrough slash commands like /context, already gated upstream by the

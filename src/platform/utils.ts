@@ -338,3 +338,94 @@ export function convertMarkdownTablesToSlack(content: string): string {
     return formattedRows.join('\n');
   });
 }
+
+// =============================================================================
+// Direct channel mode (DCM)
+// =============================================================================
+
+/**
+ * Prefix for the synthetic thread id used by direct channel mode (DCM).
+ *
+ * In DCM the whole configured channel behaves as one session: the bot replies
+ * with top-level channel posts instead of thread replies, and messages do not
+ * need an @mention. Internally every session is still keyed by a thread id, so
+ * DCM uses a synthetic, per-platform id (`dcm:<platformId>`) as that key. The
+ * platform clients recognize the prefix and post to the channel root instead
+ * of treating it as a real post id.
+ */
+export const DCM_THREAD_PREFIX = 'dcm:';
+
+/** Build the synthetic DCM thread id for a platform instance. */
+export function dcmThreadId(platformId: string): string {
+  return `${DCM_THREAD_PREFIX}${platformId}`;
+}
+
+/** True if the given thread id is a synthetic DCM id (not a real post id). */
+export function isDcmThreadId(threadId: string | undefined): boolean {
+  return !!threadId && threadId.startsWith(DCM_THREAD_PREFIX);
+}
+
+/**
+ * Resolve a thread id for use in a platform API call: a synthetic DCM id must
+ * never reach the platform as root_id/thread_ts (it is not a real post id), so
+ * it resolves to `undefined` (= post to the channel root).
+ */
+export function resolvePostThreadId(threadId: string | undefined): string | undefined {
+  return isDcmThreadId(threadId) ? undefined : threadId;
+}
+
+/** Per-platform DCM options (long form of `directChannelMode`). */
+export interface DirectChannelModeOptions {
+  /** Turn DCM on/off. Providing the object at all defaults to enabled. */
+  enabled?: boolean;
+  /**
+   * Which channel messages the bot responds to. `all_messages` (default):
+   * every message from an allowed user reaches the bot. `mention`: only
+   * messages that @mention the bot (replies still arrive as channel posts).
+   * Backed by the per-session quiet-mode flag, so `!mentions` toggles it at
+   * runtime.
+   */
+  respondTo?: 'all_messages' | 'mention';
+}
+
+/** `directChannelMode` as written in config.yaml: shorthand boolean or options. */
+export type DirectChannelModeConfig = boolean | DirectChannelModeOptions;
+
+/** Fully-resolved DCM settings with defaults applied. */
+export interface ResolvedDirectChannelMode {
+  enabled: boolean;
+  respondTo: 'all_messages' | 'mention';
+}
+
+/** Apply defaults: `true` → enabled with all_messages; object → enabled unless `enabled: false`. */
+export function resolveDirectChannelMode(cfg: DirectChannelModeConfig | undefined): ResolvedDirectChannelMode {
+  if (cfg === undefined || cfg === false) {
+    return { enabled: false, respondTo: 'all_messages' };
+  }
+  if (cfg === true) {
+    return { enabled: true, respondTo: 'all_messages' };
+  }
+  return {
+    enabled: cfg.enabled ?? true,
+    respondTo: cfg.respondTo ?? 'all_messages',
+  };
+}
+
+/**
+ * Who may answer tool-permission prompts and other reaction gates (plan
+ * approvals, question answers, session resume) for a platform's sessions.
+ *
+ * - `owner`: the session participants — the starter plus explicitly
+ *   `!invite`d users.
+ * - `all_users`: everyone on the platform's `allowedUsers` list.
+ *
+ * Unset keeps each mode's historical default: `all_users` for classic thread
+ * sessions (upstream behavior, non-breaking), `owner` for direct channel mode
+ * (a shared channel should not let every allowed user approve by default).
+ */
+export type ApprovalsMode = 'owner' | 'all_users';
+
+/** Resolve the effective approvals mode: explicit setting wins, else per-mode default. */
+export function resolveApprovals(configured: ApprovalsMode | undefined, isDcmSession: boolean): ApprovalsMode {
+  return configured ?? (isDcmSession ? 'owner' : 'all_users');
+}

@@ -7,6 +7,11 @@ import {
   convertMarkdownTablesToSlack,
   convertMarkdownToSlack,
   formatWebSocketError,
+  dcmThreadId,
+  isDcmThreadId,
+  resolvePostThreadId,
+  resolveDirectChannelMode,
+  resolveApprovals,
 } from './utils.js';
 
 describe('getPlatformIcon', () => {
@@ -394,5 +399,49 @@ describe('formatWebSocketError', () => {
     for (const s of shapes) {
       expect(formatWebSocketError(s)).not.toContain('[object');
     }
+  });
+});
+
+describe('direct channel mode thread ids', () => {
+  it('builds and recognizes synthetic DCM ids', () => {
+    const id = dcmThreadId('mattermost-main');
+    expect(id).toBe('dcm:mattermost-main');
+    expect(isDcmThreadId(id)).toBe(true);
+    expect(isDcmThreadId('a1b2c3realpostid')).toBe(false);
+    expect(isDcmThreadId(undefined)).toBe(false);
+  });
+
+  it('resolves a DCM id to undefined for platform API calls, passes real ids through', () => {
+    expect(resolvePostThreadId(dcmThreadId('p1'))).toBeUndefined();
+    expect(resolvePostThreadId('a1b2c3realpostid')).toBe('a1b2c3realpostid');
+    expect(resolvePostThreadId(undefined)).toBeUndefined();
+  });
+});
+
+describe('resolveDirectChannelMode', () => {
+  it('shorthand true enables with the all_messages default', () => {
+    expect(resolveDirectChannelMode(true)).toEqual({ enabled: true, respondTo: 'all_messages' });
+  });
+
+  it('false and undefined stay disabled', () => {
+    expect(resolveDirectChannelMode(false).enabled).toBe(false);
+    expect(resolveDirectChannelMode(undefined).enabled).toBe(false);
+  });
+
+  it('an options object is enabled by default and applies option defaults', () => {
+    expect(resolveDirectChannelMode({ respondTo: 'mention' })).toEqual({ enabled: true, respondTo: 'mention' });
+    expect(resolveDirectChannelMode({ enabled: false, respondTo: 'mention' }).enabled).toBe(false);
+  });
+});
+
+describe('resolveApprovals', () => {
+  it('unset keeps each mode\'s historical default', () => {
+    expect(resolveApprovals(undefined, false)).toBe('all_users'); // threads: upstream behavior
+    expect(resolveApprovals(undefined, true)).toBe('owner');      // DCM: safe default
+  });
+
+  it('an explicit setting wins in both modes', () => {
+    expect(resolveApprovals('owner', false)).toBe('owner');
+    expect(resolveApprovals('all_users', true)).toBe('all_users');
   });
 });

@@ -6,6 +6,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { isDcmThreadId } from '../../platform/utils.js';
 import type { ThreadMessage, PlatformFile } from '../../platform/index.js';
 import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
 import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
@@ -132,6 +133,9 @@ export async function getThreadContextCount(
   session: Session,
   excludePostId?: string
 ): Promise<number> {
+  // Direct channel mode: the synthetic session id is not a thread root —
+  // there is no thread history behind it.
+  if (isDcmThreadId(session.threadId)) return 0;
   try {
     const messages = await session.platform.getThreadHistory(
       session.threadId,
@@ -280,6 +284,7 @@ export async function getThreadMessagesForContext(
   limit: number,
   excludePostId?: string
 ): Promise<ThreadMessage[]> {
+  if (isDcmThreadId(session.threadId)) return [];
   const messages = await session.platform.getThreadHistory(
     session.threadId,
     { limit, excludeBotMessages: true }

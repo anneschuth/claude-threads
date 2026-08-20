@@ -129,6 +129,8 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
+| `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 
 ### Slack
 
@@ -147,6 +149,66 @@ stickyMessage:
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
+| `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
+
+### Direct Channel Mode
+
+`directChannelMode: true` turns the configured channel into a single, always-on conversation with the bot:
+
+- Every message in the channel reaches the bot — no `@mention` required (messages starting with `@someone-else` are still treated as side conversations and ignored).
+- The bot replies with **top-level channel posts** instead of thread replies, so the channel reads like a plain chat.
+- Only **one session** exists per platform instance; internally it is keyed by the synthetic thread id `dcm:<platform id>`, so persistence, resume after bot restarts, emoji permission prompts, and `!commands` all work exactly as in thread sessions.
+- Messages posted inside any thread of the channel are routed to the same session.
+
+This is the mode to use for a dedicated channel with the bot (see issue #315). For shared channels where multiple parallel sessions are wanted, keep the default thread-per-session behavior.
+
+The long form configures how the shared channel behaves:
+
+```yaml
+directChannelMode:
+  respondTo: all_messages   # or: mention
+```
+
+| Option | Values | Default | Meaning |
+|--------|--------|---------|---------|
+| `respondTo` | `all_messages` / `mention` | `all_messages` | `all_messages`: every message from an allowed user reaches the bot. `mention`: the bot only reacts to messages that @mention it — useful when several people discuss in the channel and the bot should not join every exchange. Backed by the per-session quiet-mode flag, so `!mentions` toggles it at runtime. |
+
+Who may approve tool use in the channel is controlled by the platform-level [`approvals`](#approvals) option (DCM defaults to `owner`).
+
+### Approvals
+
+The platform-level `approvals` option controls who may answer tool-permission prompts (👍/✅/👎) and the other reaction gates — plan approvals, question answers, and session resume:
+
+- `owner` — the session participants: the starter plus explicitly `!invite`d users.
+- `all_users` — everyone on the platform's `allowedUsers` list.
+
+Unset keeps the historical default per mode, so existing setups are unaffected: thread sessions behave as before (`all_users`), direct channel mode defaults to the safer `owner`. Setting the option applies it to every session of that platform entry — including classic thread sessions, where `approvals: owner` is an opt-in hardening.
+
+Under effective `owner` mode the scoping is enforced consistently across every path, so the boundary cannot be talked around: the text alternatives (`!approve`, message-based resume) apply the same participant check as their reaction counterparts, and the owner-gated session commands (`!invite`, `!kick`, `!cd`, `!permissions`, …) additionally require the caller to be a session participant — a platform-allowlisted non-participant can neither approve directly nor `!invite` themselves into the approval set.
+
+The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access immediately but reaches the approval set on the next CLI respawn (e.g. via `!cd` or `!permissions`).
+
+### Direct messages (DM)
+
+**Mattermost only.** A Mattermost DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id — no separate feature needed. (This recipe does NOT work on Slack: Socket Mode distributes event envelopes across an app's active connections, so a second platform entry sharing the same app credentials can consume and discard events meant for the other entry. Slack DM support needs a single-connection, channel-aware implementation.)
+
+```yaml
+platforms:
+  - id: mattermost-dm
+    type: mattermost
+    url: https://chat.example.com
+    token: your-bot-token       # same bot token as the main entry
+    channelId: <dm-channel-id>
+    botName: claude-code
+    directChannelMode: true
+    stickyMessage: hidden       # a sticky makes little sense in a DM
+    allowedUsers: [you]
+```
+
+Get the DM channel id with one API call: `POST /api/v4/channels/direct` with `["<bot-user-id>", "<your-user-id>"]` — the returned `id` is stable.
+
+Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 
 ### Permission Modes
 

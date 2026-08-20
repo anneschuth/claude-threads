@@ -20,6 +20,7 @@
  */
 
 import type { PlatformClient } from '../platform/index.js';
+import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ReactionAction } from '../operations/executors/types.js';
 import type { SessionRegistry } from './registry.js';
@@ -102,9 +103,16 @@ export async function handleReaction(
   // SECURITY: Only process reactions from allowed users.
   // This is the primary authorization gate for all reaction-based actions.
   // All reactions are validated here before reaching MessageManager/executors.
+  // With effective approvals mode `owner` only the session participants may
+  // act on reaction gates — bridged plan approvals and question answers are
+  // authoritative permission decisions, so the platform-wide allowlist must
+  // not bypass the scoping there. Unset keeps the historical default per
+  // mode (threads: all_users, DCM: owner) — see resolveApprovals.
+  const ownerScoped =
+    resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner';
   if (
     !session.sessionAllowedUsers.has(username) &&
-    !session.platform.isUserAllowed(username)
+    (ownerScoped || !session.platform.isUserAllowed(username))
   ) {
     // Audit trail: record unauthorized reaction attempts so operators can
     // detect probing. Structured fields stay searchable across platforms.
@@ -148,7 +156,18 @@ async function tryResumeFromReaction(
   const sessionAllowedUsers = new Set(
     persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean),
   );
-  if (!platform || !isAuthorizedForSession({ username, platform, sessionAllowedUsers })) {
+  // Effective approvals mode `owner`: resume is participant-only, the
+  // platform-wide allowlist must not bypass the scoping (consistent with the
+  // active-session reaction gate above).
+  const resumeOwnerScoped =
+    !!platform &&
+    resolveApprovals(platform.approvals, isDcmThreadId(persistedSession.threadId)) === 'owner';
+  const resumeAuthorized =
+    !!platform &&
+    (resumeOwnerScoped
+      ? sessionAllowedUsers.has(username)
+      : isAuthorizedForSession({ username, platform, sessionAllowedUsers }));
+  if (!platform || !resumeAuthorized) {
     if (platform) {
       await platform.createPost(
         `⚠️ @${username} is not authorized to resume this session`,

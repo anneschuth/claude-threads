@@ -1,7 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
-import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError } from '../utils.js';
+import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileSlack } from './upload.js';
@@ -48,6 +48,8 @@ export class SlackClient extends BasePlatformClient {
   readonly platformId: string;
   readonly platformType = 'slack' as const;
   readonly displayName: string;
+  readonly directChannelMode: ResolvedDirectChannelMode;
+  readonly approvals?: ApprovalsMode;
 
   private ws: WebSocket | null = null;
   private botToken: string;
@@ -93,6 +95,8 @@ export class SlackClient extends BasePlatformClient {
     this.skipPermissions = platformConfig.skipPermissions ?? false;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
     this.outboundFiles = platformConfig.outboundFiles;
+    this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
+    this.approvals = platformConfig.approvals;
   }
 
   // ============================================================================
@@ -787,6 +791,15 @@ export class SlackClient extends BasePlatformClient {
    * If lastMessageTs is provided, links to that specific message (jump to bottom)
    */
   getThreadLink(threadId: string, _lastMessageId?: string, lastMessageTs?: string): string {
+    // Direct channel mode: the synthetic id is not a message ts. Link to the
+    // last real message if known, otherwise to the channel itself.
+    if (isDcmThreadId(threadId)) {
+      if (!this.teamUrl) return '';
+      if (lastMessageTs) {
+        return `${this.teamUrl}/archives/${this.channelId}/p${lastMessageTs.replace('.', '')}`;
+      }
+      return `${this.teamUrl}/archives/${this.channelId}`;
+    }
     // Use lastMessageTs if provided for jump-to-bottom, otherwise use threadId (root message)
     const targetTs = lastMessageTs || threadId;
     // Convert "1767690059.430179" to "1767690059430179"
@@ -827,9 +840,13 @@ export class SlackClient extends BasePlatformClient {
     threadId?: string,
     options?: { unfurl?: boolean }
   ): Promise<PlatformPost> {
+    // A synthetic DCM thread id is not a real message ts — resolve it to a
+    // top-level channel post (direct channel mode).
+    const resolvedThreadId = resolvePostThreadId(threadId);
+
     // Disable unfurling for channel-level posts (sticky message) by default
     // Thread messages can have previews unless explicitly disabled
-    const shouldUnfurl = options?.unfurl ?? (threadId !== undefined);
+    const shouldUnfurl = options?.unfurl ?? (resolvedThreadId !== undefined);
 
     // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
     const truncatedMessage = this.truncateMessageIfNeeded(message);
@@ -841,8 +858,8 @@ export class SlackClient extends BasePlatformClient {
       unfurl_media: shouldUnfurl,
     };
 
-    if (threadId) {
-      body.thread_ts = threadId;
+    if (resolvedThreadId) {
+      body.thread_ts = resolvedThreadId;
     }
 
     const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', body);

@@ -34,7 +34,7 @@ import type {
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
 import { SlackFormatter } from './formatter.js';
-import { formatWebSocketError } from '../utils.js';
+import { formatWebSocketError, resolvePostThreadId } from '../utils.js';
 import { uploadFileSlack } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
@@ -174,7 +174,8 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       {
         channel: this.config.channelId,
         text: message,
-        thread_ts: threadTs || this.config.threadTs,
+        // A synthetic DCM thread id resolves to a top-level channel post.
+        thread_ts: resolvePostThreadId(threadTs || this.config.threadTs),
         mrkdwn: true,
       }
     );

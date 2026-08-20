@@ -3,6 +3,7 @@
  */
 
 import type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow } from '../auto-update/types.js';
+import type { DirectChannelModeConfig, ApprovalsMode } from '../platform/utils.js';
 
 // Re-export auto-update types for convenience
 export type { AutoUpdateConfig, AutoRestartMode, ScheduledWindow };
@@ -332,6 +333,39 @@ export interface PlatformInstanceConfig {
   id: string;
   type: 'mattermost' | 'slack';
   displayName: string;
+  /**
+   * Direct channel mode (DCM): treat the whole configured channel as one
+   * session. The bot replies with top-level channel posts instead of thread
+   * replies — the channel reads like a plain conversation. Only one session
+   * runs per platform instance in this mode (the channel *is* the session).
+   *
+   * Shorthand `true` enables DCM with defaults; the long form configures it:
+   *
+   * ```yaml
+   * directChannelMode:
+   *   respondTo: all_messages   # or: mention
+   * ```
+   *
+   * Who may approve tool use is the platform-level `approvals` option.
+   *
+   * Internally the session is keyed by a synthetic thread id
+   * (`dcm:<platformId>`), so persistence, resume, reactions, and permission
+   * prompts work exactly as they do for thread sessions.
+   *
+   * Default `false` (classic thread-per-session behavior).
+   */
+  directChannelMode?: DirectChannelModeConfig;
+  /**
+   * Who may answer tool-permission prompts and other reaction gates (plan
+   * approvals, question answers, resume) for this platform's sessions:
+   * `owner` (session participants — starter plus `!invite`d users) or
+   * `all_users` (everyone on `allowedUsers`).
+   *
+   * Unset keeps the historical default per mode: `all_users` for thread
+   * sessions (unchanged upstream behavior), `owner` for direct channel mode.
+   * Setting it applies to both modes.
+   */
+  approvals?: ApprovalsMode;
   /**
    * Per-thread session header visibility. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the

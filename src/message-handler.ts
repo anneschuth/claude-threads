@@ -18,6 +18,7 @@ import {
 } from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
+import { dcmThreadId, isDcmThreadId, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
 
 /**
  * Logger interface for message handler
@@ -38,6 +39,14 @@ export interface MessageHandlerOptions {
    * In tests this can just disconnect without exiting.
    */
   onKill?: (username: string) => void | Promise<void>;
+  /**
+   * Direct channel mode (DCM): the whole channel is one session. All messages
+   * route to the synthetic `dcm:<platformId>` session key regardless of which
+   * thread they were posted in. Accepts the raw config value (shorthand
+   * boolean or options object); defaults are applied here. See
+   * `PlatformInstanceConfig.directChannelMode`.
+   */
+  directChannelMode?: DirectChannelModeConfig;
 }
 
 /**
@@ -54,9 +63,13 @@ export async function handleMessage(
   options: MessageHandlerOptions
 ): Promise<void> {
   const { platformId, logger, onKill } = options;
+  const dcm = resolveDirectChannelMode(options.directChannelMode);
   const username = user?.username || 'unknown';
   const message = post.message;
-  const threadRoot = post.rootId || post.id;
+  // In DCM every message in the channel — top-level or inside any thread —
+  // belongs to the one channel session, so the session key is the synthetic
+  // per-platform id instead of the post's own thread root.
+  const threadRoot = dcm.enabled ? dcmThreadId(platformId) : (post.rootId || post.id);
   const formatter = client.getFormatter();
 
   try {
@@ -241,11 +254,16 @@ export async function handleMessage(
         return;
       }
 
-      // Check if user is allowed in the paused session
+      // Check if user is allowed in the paused session. Under effective
+      // approvals mode `owner`, message-based resume is scoped to session
+      // participants, matching the reaction-based resume gate in
+      // reaction-router.ts — the platform allowlist alone is not enough.
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
         const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
-        if (!allowedUsers.has(username) && !client.isUserAllowed(username)) {
+        const ownerScoped =
+          resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
+        if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {
           // Not allowed - could request approval but that would require the session to be active
           await client.createPost(
             `⚠️ ${formatter.formatUserMention(username)} is not authorized to resume this session`,
@@ -274,15 +292,21 @@ export async function handleMessage(
       return;
     }
 
-    // New session requires @mention
-    if (!client.isBotMentioned(message)) return;
+    // New session requires @mention — except in DCM with the default
+    // `respondTo: all_messages`, where every channel message is implicitly
+    // addressed to the bot (the channel is the session). With
+    // `respondTo: mention` the DCM session also starts only on a mention.
+    const mentionRequired = !dcm.enabled || dcm.respondTo === 'mention';
+    if (mentionRequired && !client.isBotMentioned(message)) return;
 
     if (!client.isUserAllowed(username)) {
       await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
       return;
     }
 
-    let prompt = client.extractPrompt(message);
+    let prompt = client.isBotMentioned(message)
+      ? client.extractPrompt(message)
+      : message.trim();
     const files = post.metadata?.files;
 
     if (!prompt && !files?.length) {

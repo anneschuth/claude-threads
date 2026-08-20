@@ -1350,6 +1350,10 @@ async function setupMattermostPlatform(
       botName: basicSettings.botName,
       allowedUsers,
       permissionMode: lastPermissionMode,
+      // The wizard has no prompts for these — preserve them verbatim so an
+      // edit round-trip doesn't silently disable DCM or approvals hardening.
+      ...(existing?.directChannelMode !== undefined ? { directChannelMode: existing.directChannelMode } : {}),
+      ...(existing?.approvals !== undefined ? { approvals: existing.approvals } : {}),
       // Verbosity persistence:
       //  - Split config (user had different values per surface, prompt was
       //    skipped): preserve both originals verbatim.
@@ -1794,6 +1798,10 @@ async function setupSlackPlatform(
       botName: basicSettings.botName,
       allowedUsers,
       permissionMode: lastPermissionMode,
+      // The wizard has no prompts for these — preserve them verbatim so an
+      // edit round-trip doesn't silently disable DCM or approvals hardening.
+      ...(existing?.directChannelMode !== undefined ? { directChannelMode: existing.directChannelMode } : {}),
+      ...(existing?.approvals !== undefined ? { approvals: existing.approvals } : {}),
       // Same persistence rules as Mattermost (split → preserve, default →
       // omit, non-default → write both with same value).
       ...(hasSplitVerbosity

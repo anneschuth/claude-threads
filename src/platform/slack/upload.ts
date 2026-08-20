@@ -1,5 +1,6 @@
 import { readFile } from 'fs/promises';
 import { createLogger } from '../../utils/logger.js';
+import { resolvePostThreadId } from '../utils.js';
 
 const log = createLogger('slack-upload');
 
@@ -104,7 +105,8 @@ export async function uploadFileSlack(args: SlackUploadArgs): Promise<SlackUploa
   const step3Body: Record<string, unknown> = {
     files: [{ id: fileId, title: caption ?? filename }],
     channel_id: channelId,
-    thread_ts: threadTs,
+    // A synthetic DCM thread id resolves to a top-level channel post.
+    thread_ts: resolvePostThreadId(threadTs),
   };
   if (caption !== undefined) {
     step3Body.initial_comment = caption;
