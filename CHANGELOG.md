@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Audit trail (`auditLog`)** - Opt-in per platform: an append-only JSONL stream per platform (`~/.claude-threads/audit/`, files `0600` enforced even on pre-existing artifacts, symlink-refusing writer, never deleted by the bot) recording what the bot did — every tool call Claude issued incl. `server_tool_use` and subagent sidechains (with Bash command line / file path / pattern as detail), session lifecycle incl. failure paths with the triggering user, security-relevant `!commands` (`!kill` and paused-session `!stop` included), routine creation, worktree/plugin mutations, and plan approvals with decider. Built for SIEM file ingestion; rotation/retention is the operator's call. Tool-permission allow/deny decisions stay out of scope (they resolve inside the MCP permission server subprocess; the issued request is still recorded).
 
+### Fixed
+- **`ackReaction` accepts a literal Unicode emoji on both platforms.** `ackReaction: "👀"` used to work on Slack but silently no-op on Mattermost (its reaction API needs the shortcode name). Literal emoji are now normalized to their shortcode at config time; anything that is not a plain shortcode name after mapping (unmapped emoji, flags, keycaps, ZWJ sequences) warns and disables the feature instead of never reacting. Follow-up to #487.
+
+### Changed
+- Documented that messages accepted through the message-approval flow (an authorized user approving a non-participant's message) intentionally get no read receipt — the approval reaction is already the visible signal. Also adds the missing red-verified no-ack test for the follow-up path's session-membership gate.
+
 ## [1.27.0] - 2026-08-20
 
 ### Added

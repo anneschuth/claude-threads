@@ -462,6 +462,28 @@ describe('ackReaction (normalize + resolve)', () => {
     expect(normalizeAckReaction({ emoji: 'eyes' }, 'p.ackReaction')).toBeUndefined();
   });
 
+  it('converts a literal Unicode emoji to its shortcode name (Mattermost no-ops on raw Unicode)', () => {
+    expect(normalizeAckReaction('👀', 'p.ackReaction')).toBe('eyes');
+    expect(normalizeAckReaction('👍', 'p.ackReaction')).toBe('+1');
+    expect(normalizeAckReaction('❤️', 'p.ackReaction')).toBe('heart');
+  });
+
+  it("accepts Slack's compound skin-tone shortcode names", () => {
+    expect(normalizeAckReaction('thumbsup::skin-tone-6', 'p.ackReaction')).toBe('thumbsup::skin-tone-6');
+    expect(normalizeAckReaction('wave::skin-tone-3', 'p.ackReaction')).toBe('wave::skin-tone-3');
+  });
+
+  it('disables the feature on an unmappable Unicode emoji instead of silently no-opping', () => {
+    expect(normalizeAckReaction('🦖', 'p.ackReaction')).toBeUndefined();
+    // Sequences without any Extended_Pictographic code point must be caught
+    // too: regional-indicator flags, keycaps, standalone skin-tone modifiers.
+    expect(normalizeAckReaction('🇺🇸', 'p.ackReaction')).toBeUndefined();
+    expect(normalizeAckReaction('#️⃣', 'p.ackReaction')).toBeUndefined();
+    expect(normalizeAckReaction('🏻', 'p.ackReaction')).toBeUndefined();
+    // ZWJ family sequence: pictographic base, still unmapped.
+    expect(normalizeAckReaction('👨‍👩‍👧‍👦', 'p.ackReaction')).toBeUndefined();
+  });
+
   it('resolves true to eyes, strings to themselves, off to null', () => {
     expect(resolveAckReaction(true)).toBe('eyes');
     expect(resolveAckReaction('rocket')).toBe('rocket');
