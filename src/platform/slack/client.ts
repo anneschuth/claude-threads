@@ -50,6 +50,7 @@ export class SlackClient extends BasePlatformClient {
   readonly displayName: string;
   readonly directChannelMode: ResolvedDirectChannelMode;
   readonly approvals?: ApprovalsMode;
+  readonly ackReaction?: boolean | string;
 
   private ws: WebSocket | null = null;
   private botToken: string;
@@ -97,6 +98,7 @@ export class SlackClient extends BasePlatformClient {
     this.outboundFiles = platformConfig.outboundFiles;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
+    this.ackReaction = platformConfig.ackReaction;
   }
 
   // ============================================================================

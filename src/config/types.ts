@@ -367,6 +367,15 @@ export interface PlatformInstanceConfig {
    */
   approvals?: ApprovalsMode;
   /**
+   * Acknowledge accepted messages with an instant reaction (a read receipt).
+   * The bot reacts on every message it actually accepts for processing —
+   * session start, follow-up, resume — before Claude produces any output.
+   * Unlike the typing indicator this is persistent and survives reconnects,
+   * so users in busy channels can see at a glance that their message landed.
+   * `true` uses 👀 (`eyes`); a string names a custom emoji. Default off.
+   */
+  ackReaction?: boolean | string;
+  /**
    * Per-thread session header visibility. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the
    * header post entirely so Claude's own response is the first message in

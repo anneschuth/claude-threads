@@ -34,6 +34,7 @@ function createMockPlatform(botName = 'claude-bot') {
     getBotName: mock(() => botName),
     getPostPermalink: mock((post: PlatformPost) => `https://mm.test/pl/${post.id}`),
     getFormatter: () => createMockFormatter(),
+    addReaction: mock(() => Promise.resolve()),
     disconnect: mock(() => {}),
     posts,
   } as unknown as PlatformClient & { posts: Map<string, string> };
@@ -1944,7 +1945,93 @@ describe('handleMessage', () => {
       expect(session.requestMessageApproval).toHaveBeenCalled();
     });
   });
+  describe('ack reaction (read receipt)', () => {
+    const mentionPost = (): PlatformPost => ({
+      id: 'post1',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'user1',
+      message: '@claude-bot help me',
+      rootId: 'thread1',
+      createAt: Date.now(),
+    });
+    const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+    test('is off by default', async () => {
+      await handleMessage(client, session, mentionPost(), user, options);
+
+      expect(session.startSession).toHaveBeenCalled();
+      expect(client.addReaction).not.toHaveBeenCalled();
+    });
+
+    test('acks an accepted session start with eyes when enabled', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+
+      await handleMessage(client, session, mentionPost(), user, options);
+
+      expect(client.addReaction).toHaveBeenCalledWith('post1', 'eyes');
+    });
+
+    test('uses a custom emoji name when configured as a string', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = 'white_check_mark';
+
+      await handleMessage(client, session, mentionPost(), user, options);
+
+      expect(client.addReaction).toHaveBeenCalledWith('post1', 'white_check_mark');
+    });
+
+    test('acks an accepted follow-up in an active session', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+      (session.registry.findByThreadId as any).mockReturnValue({
+        respondOnlyWhenMentioned: false,
+      });
+
+      const post: PlatformPost = {
+        id: 'post2',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'a follow-up',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).toHaveBeenCalled();
+      expect(client.addReaction).toHaveBeenCalledWith('post2', 'eyes');
+    });
+
+    test('does not ack messages the bot ignores (no mention, no session)', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+
+      const post: PlatformPost = {
+        id: 'post3',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: 'just chatting with someone else',
+        rootId: '',
+        createAt: Date.now(),
+      };
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.startSession).not.toHaveBeenCalled();
+      expect(client.addReaction).not.toHaveBeenCalled();
+    });
+
+    test('does not ack an unauthorized user', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+
+      const post = mentionPost();
+      const outsider: PlatformUser = { id: 'u2', username: 'outsider', displayName: 'X' };
+      await handleMessage(client, session, post, outsider, options);
+
+      expect(session.startSession).not.toHaveBeenCalled();
+      expect(client.addReaction).not.toHaveBeenCalled();
+    });
+  });
 });
+
 
 describe('direct channel mode (DCM)', () => {
   let client: PlatformClient & { posts: Map<string, string> };
@@ -2037,4 +2124,5 @@ describe('direct channel mode (DCM)', () => {
     expect(session.startSession).not.toHaveBeenCalled();
     expect(session.sendFollowUp).not.toHaveBeenCalled();
   });
+
 });

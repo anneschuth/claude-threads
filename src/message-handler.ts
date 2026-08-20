@@ -18,7 +18,7 @@ import {
 } from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
-import { dcmThreadId, isDcmThreadId, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
+import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
 
 /**
  * Logger interface for message handler
@@ -55,6 +55,20 @@ export interface MessageHandlerOptions {
  * This is the core message handling logic extracted from index.ts.
  * Both the main bot and integration tests use this same code.
  */
+/**
+ * Read receipt: acknowledge a message the bot has ACCEPTED for processing
+ * with an instant reaction. Unlike the typing indicator this is persistent,
+ * so users in busy channels see at a glance that their message landed —
+ * including messages queued behind an in-flight session start, which
+ * otherwise produce no visible signal until Claude responds.
+ * Fire-and-forget: a failed reaction must never block message handling.
+ */
+function ackReceipt(client: PlatformClient, postId: string): void {
+  const emoji = resolveAckReaction(client.ackReaction);
+  if (!emoji) return;
+  void Promise.resolve(client.addReaction(postId, emoji)).catch(() => {});
+}
+
 export async function handleMessage(
   client: PlatformClient,
   session: SessionManager,
@@ -215,7 +229,10 @@ export async function handleMessage(
       // Get any attached files (images)
       const files = post.metadata?.files;
 
-      if (content || files?.length) await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
+      if (content || files?.length) {
+        ackReceipt(client, post.id);
+        await session.sendFollowUp(threadRoot, content, files, username, user?.displayName);
+      }
       return;
     }
 
@@ -287,6 +304,7 @@ export async function handleMessage(
       const files = post.metadata?.files;
 
       if (content || files?.length) {
+        ackReceipt(client, post.id);
         await session.resumePausedSession(threadRoot, content, files, username);
       }
       return;
@@ -397,6 +415,8 @@ export async function handleMessage(
     }
 
     // Start session with worktree if branch specified
+    ackReceipt(client, post.id);
+
     if (worktreeBranch) {
       await session.startSessionWithWorktree(
         { prompt, files },

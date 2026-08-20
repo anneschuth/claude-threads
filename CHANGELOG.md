@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Read-receipt reaction (`ackReaction`)** - Opt-in per platform: the bot reacts to every message it accepts for processing (session start, follow-up, resume) the moment it is accepted — before any Claude output. `true` uses 👀, a string names a custom emoji. Unlike the transient typing indicator the reaction is persistent and survives reconnects, so users in busy channels (and messages queued behind an in-flight session start) get an immediate, lasting "your message landed" signal.
+
 ### Changed
 - **Unit-test infrastructure hardening.** `handler.test.ts` no longer probes the real environment (git child processes, battery readouts are mocked, with a correct pre-mock value-snapshot restore — Bun module namespaces are live bindings, so restoring the namespace would restore the mocks; the same hazard is fixed in the plugin suite's `crossSpawn` restore). The per-test budget on all unit-test entry points is raised to 15s: the 5s default was routinely blown by event-loop contention when several processes compete for the machine, killing millisecond-fast tests at exactly the budget.
 

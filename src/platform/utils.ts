@@ -429,3 +429,12 @@ export type ApprovalsMode = 'owner' | 'all_users';
 export function resolveApprovals(configured: ApprovalsMode | undefined, isDcmSession: boolean): ApprovalsMode {
   return configured ?? (isDcmSession ? 'owner' : 'all_users');
 }
+
+/**
+ * Resolve the effective read-receipt reaction: `true` means the default
+ * `eyes` emoji, a string names a custom emoji, unset/false disables it.
+ */
+export function resolveAckReaction(configured: boolean | string | undefined): string | null {
+  if (!configured) return null;
+  return typeof configured === 'string' ? configured : 'eyes';
+}
