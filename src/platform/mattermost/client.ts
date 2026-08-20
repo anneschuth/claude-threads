@@ -41,6 +41,7 @@ export class MattermostClient extends BasePlatformClient {
   private url: string;
   private token: string;
   private channelId: string;
+  private directMessages: boolean;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
@@ -56,6 +57,7 @@ export class MattermostClient extends BasePlatformClient {
     this.url = platformConfig.url;
     this.token = platformConfig.token;
     this.channelId = platformConfig.channelId;
+    this.directMessages = platformConfig.directMessages ?? false;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
@@ -128,8 +130,24 @@ export class MattermostClient extends BasePlatformClient {
    * This is needed because WebSocket events may not include full file metadata.
    */
   private async processAndEmitPost(post: MattermostPost): Promise<void> {
-    // Check if we need to fetch file metadata
-    // WebSocket events include file_ids but may not include metadata.files
+    await this.enrichFileMetadata(post);
+
+    // Get user info and emit
+    const user = await this.getUser(post.user_id);
+    const normalizedPost = this.normalizePlatformPost(post);
+    this.emit('message', normalizedPost, user);
+
+    // Also emit channel_post for top-level posts (not thread replies)
+    if (!post.root_id) {
+      this.emit('channel_post', normalizedPost, user);
+    }
+  }
+
+  /**
+   * Fetch file metadata for a post when the WebSocket event carried only
+   * file_ids (shared by regular posts and DM-discovery posts).
+   */
+  private async enrichFileMetadata(post: MattermostPost): Promise<void> {
     const fileIds = post.file_ids;
     const hasFileIds = fileIds && fileIds.length > 0;
     const hasFileMetadata = post.metadata?.files && post.metadata.files.length > 0;
@@ -160,15 +178,16 @@ export class MattermostClient extends BasePlatformClient {
         log.warn(`Failed to fetch file metadata for post ${formatShortId(post.id)}: ${err}`);
       }
     }
+  }
 
-    // Get user info and emit
-    const user = await this.getUser(post.user_id);
-    const normalizedPost = this.normalizePlatformPost(post);
-    this.emit('message', normalizedPost, user);
-
-    // Also emit channel_post for top-level posts (not thread replies)
-    if (!post.root_id) {
-      this.emit('channel_post', normalizedPost, user);
+  /** Resolve the sender and emit a 'direct_message' event (DM discovery). */
+  private async emitDirectMessage(post: MattermostPost): Promise<void> {
+    try {
+      await this.enrichFileMetadata(post);
+      const user = await this.getUser(post.user_id);
+      this.emit('direct_message', this.normalizePlatformPost(post), user);
+    } catch (err) {
+      log.warn(`Failed to emit direct message: ${err}`);
     }
   }
 
@@ -533,6 +552,12 @@ export class MattermostClient extends BasePlatformClient {
   async connect(): Promise<void> {
     // Get bot user first
     await this.getBotUser();
+    // A disconnect() issued while we awaited must win: without this check a
+    // torn-down client would resume here and open a websocket nobody owns.
+    if (this.isIntentionalDisconnect) {
+      wsLogger.debug('connect() aborted: client was disconnected while connecting');
+      return;
+    }
     wsLogger.debug(`Bot user ID: ${this.botUserId}`);
 
     const wsUrl = this.url
@@ -600,8 +625,15 @@ export class MattermostClient extends BasePlatformClient {
         // Ignore messages from ourselves
         if (post.user_id === this.botUserId) return;
 
-        // Only handle messages in our channel
-        if (post.channel_id !== this.channelId) return;
+        // Only handle messages in our channel — except direct messages when
+        // DM auto-discovery is on: those are surfaced as 'direct_message'
+        // events so the bot can spawn a derived instance for the DM channel.
+        if (post.channel_id !== this.channelId) {
+          if (this.directMessages && data.channel_type === 'D') {
+            void this.emitDirectMessage(post);
+          }
+          return;
+        }
 
         // Track last processed post for message recovery after disconnection
         this.lastProcessedPostId = post.id;

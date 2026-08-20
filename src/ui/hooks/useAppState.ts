@@ -101,6 +101,15 @@ export function useAppState(initialConfig: AppConfig) {
     });
   }, []);
 
+  const removePlatformStatus = useCallback((platformId: string) => {
+    setState((prev) => {
+      if (!prev.platforms.has(platformId)) return prev;
+      const platforms = new Map(prev.platforms);
+      platforms.delete(platformId);
+      return { ...prev, platforms };
+    });
+  }, []);
+
   const getLogsForSession = useCallback((sessionId: string): LogEntry[] => {
     return state.logs.filter((log) => log.sessionId === sessionId);
   }, [state.logs]);
@@ -134,6 +143,7 @@ export function useAppState(initialConfig: AppConfig) {
     addLog,
     selectSession,
     setPlatformStatus,
+    removePlatformStatus,
     togglePlatformEnabled,
     getLogsForSession,
     getGlobalLogs,

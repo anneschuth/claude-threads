@@ -41,6 +41,9 @@ export interface UIOperations {
   /** Update platform status */
   setPlatformStatus(platformId: string, status: Partial<PlatformStatus>): void;
 
+  /** Remove a platform's status row (torn-down derived DM instances) */
+  removePlatformStatus(platformId: string): void;
+
   /** Update auto-update state */
   setUpdateState(state: UpdatePanelState): void;
 

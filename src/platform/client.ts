@@ -24,6 +24,12 @@ export interface PlatformClientEvents {
   reaction_removed: (reaction: PlatformReaction, user: PlatformUser | null) => void;
   /** Emitted when someone posts at channel level (not in a thread) */
   channel_post: (post: PlatformPost, user: PlatformUser | null) => void;
+  /**
+   * Emitted for a post in a direct-message channel that is NOT this client's
+   * configured channel, when DM auto-discovery is enabled (Mattermost only).
+   * The listener decides whether to spawn a derived platform instance.
+   */
+  direct_message: (post: PlatformPost, user: PlatformUser | null) => void;
 }
 
 /**

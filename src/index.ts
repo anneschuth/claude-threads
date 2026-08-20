@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
+import { createDmDiscoveryRuntime, type DmDiscoveryRuntime } from './platform/dm-discovery-runtime.js';
+import { DM_PLATFORM_SEP } from './platform/dm-discovery.js';
 import type { DirectChannelModeConfig } from './platform/utils.js';
 import {
   loadConfigWithMigration,
@@ -60,6 +62,13 @@ function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
 /**
  * Wire up platform events to session manager and UI.
  */
+/**
+ * Active DM auto-discovery runtime (created during init). Module-level so the
+ * session:remove handler and the message dedupe in wirePlatformEvents can
+ * reach it; all state lives inside the runtime instance.
+ */
+let activeDmRuntime: DmDiscoveryRuntime | undefined;
+
 function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
@@ -69,6 +78,10 @@ function wirePlatformEvents(
 ): void {
   // Handle incoming messages
   client.on('message', async (post: PlatformPost, user: PlatformUser | null) => {
+    // Dedupe for the DM-discovery handover window: a post the parent already
+    // routed must not be processed again when the derived instance's own
+    // socket delivers it moments later.
+    if (activeDmRuntime?.isRoutedPost(post.id)) return;
     await handleMessage(client, session, post, user, {
       platformId,
       directChannelMode,
@@ -531,6 +544,16 @@ async function startWithoutDaemon() {
       onPlatformToggle: async (platformId, enabled) => {
         const client = platforms.get(platformId);
         if (!client) {
+          // A derived DM instance may legitimately have no live client (torn
+          // down, or skipped at boot because it was disabled). Persist the
+          // desired state anyway — enabling means the next incoming DM
+          // re-discovers the channel.
+          if (platformId.includes(DM_PLATFORM_SEP)) {
+            sessionStore.setPlatformEnabled(platformId, enabled);
+            platformEnabledState.set(platformId, enabled);
+            ui.addLog({ level: 'info', component: 'toggle', message: `DM instance ${platformId} ${enabled ? 'enabled (re-discovered on next DM)' : 'disabled'}` });
+            return;
+          }
           ui.addLog({ level: 'error', component: 'toggle', message: `Platform ${platformId} not found` });
           return;
         }
@@ -541,8 +564,10 @@ async function startWithoutDaemon() {
           try {
             client.prepareForReconnect();
             await client.connect();
-            // Persist enabled state after successful connect
+            // Persist enabled state after successful connect — including the
+            // in-memory snapshot the DM discovery runtime consults.
             sessionStore.setPlatformEnabled(platformId, true);
+            platformEnabledState.set(platformId, true);
             ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
             // Resume paused sessions for this platform
             await sessionManager?.resumePausedSessionsForPlatform(platformId);
@@ -557,8 +582,11 @@ async function startWithoutDaemon() {
           // Pause all active sessions for this platform first
           await sessionManager?.pauseSessionsForPlatform(platformId);
           client.disconnect();
-          // Persist disabled state
+          // Persist disabled state — including the in-memory snapshot the DM
+          // discovery runtime consults, so the next incoming DM cannot
+          // silently re-enable this instance.
           sessionStore.setPlatformEnabled(platformId, false);
+          platformEnabledState.set(platformId, false);
           ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
         }
@@ -620,6 +648,7 @@ async function startWithoutDaemon() {
   });
   session.on('session:remove', (sessionId) => {
     ui.removeSession(sessionId);
+    activeDmRuntime?.onSessionRemove(sessionId);
   });
 
   // Store all platform clients for shutdown
@@ -670,6 +699,80 @@ async function startWithoutDaemon() {
     wirePlatformEvents(platformConfig.id, client, session, ui, platformConfig.directChannelMode);
   }
 
+  // ---------------------------------------------------------------------------
+  // DM auto-discovery (Mattermost only): derived platform instances for DM
+  // channels — spawned live on first contact, reconstructed at boot from
+  // persisted sessions so DM sessions survive restarts. The lifecycle logic
+  // lives in the injectable runtime (src/platform/dm-discovery-runtime.ts).
+  // ---------------------------------------------------------------------------
+  const dmRuntime = createDmDiscoveryRuntime({
+    platforms,
+    session,
+    log: (level, message) => ui.addLog({ level, component: 'dm', message }),
+    registerPlatform: (dmConfig) => {
+      const dmClient = createPlatformClient(dmConfig);
+      platforms.set(dmConfig.id, dmClient);
+      ui.setPlatformStatus(dmConfig.id, {
+        displayName: dmConfig.displayName,
+        botName: dmConfig.botName,
+        url: dmConfig.url,
+        platformType: 'mattermost',
+        enabled: true,
+      });
+      session.addPlatform(dmConfig.id, dmClient, {
+        sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+        stickyMessage: 'hidden',
+      });
+      wirePlatformEvents(dmConfig.id, dmClient, session, ui, dmConfig.directChannelMode);
+      return dmClient;
+    },
+    deliverMessage: (client, post, user, dmPlatformIdArg) =>
+      handleMessage(client, session, post, user, {
+        platformId: dmPlatformIdArg,
+        directChannelMode: true,
+        logger: { error: (msg) => ui.addLog({ level: 'error', component: '❌', message: msg }) },
+      }),
+    loadPersistedSessions: () => sessionStore.load(),
+    isEnabled: (id) => platformEnabledState.get(id) ?? true,
+    removeUiRow: (id) => ui.removePlatformStatus(id),
+  });
+  activeDmRuntime = dmRuntime;
+
+  for (const platformConfig of config.platforms) {
+    if (platformConfig.type !== 'mattermost') continue;
+    const mmConfig = platformConfig as MattermostPlatformConfig;
+    if (!mmConfig.directMessages) continue;
+    const parentClient = platforms.get(platformConfig.id);
+    if (!parentClient) continue;
+    dmRuntime.wireParent(mmConfig, parentClient);
+  }
+
+  // Boot reconstruction: rebuild derived instances for persisted DM sessions
+  // before connecting, so session.initialize() can resume them. Disabled
+  // instances get a UI row anyway — the toggle can only address platforms it
+  // can see, and enabling one means re-discovery on the next DM.
+  const skippedDisabledDm = dmRuntime.reconstructPersisted(config.platforms, (id) => platformEnabledState.get(id) ?? true);
+  // Every disabled derived DM id needs a UI row to stay re-enablable. Two
+  // sources: instances skipped during reconstruction (had a resumable
+  // session), and the enabled-state store itself — a disabled DM that never
+  // produced a Claude session (e.g. only ever received `!help`) has no
+  // persisted session to iterate, but its disable was persisted here.
+  const disabledDmIds = new Set<string>(skippedDisabledDm.map((d) => d.platformId));
+  for (const [pid, enabled] of platformEnabledState) {
+    if (!enabled && pid.includes(DM_PLATFORM_SEP) && !platforms.has(pid)) {
+      disabledDmIds.add(pid);
+    }
+  }
+  for (const dmPid of disabledDmIds) {
+    ui.setPlatformStatus(dmPid, {
+      displayName: `${dmPid} (disabled DM)`,
+      botName: '',
+      url: '',
+      platformType: 'mattermost',
+      enabled: false,
+    });
+  }
+
   // Connect only enabled platforms
   const enabledPlatforms = Array.from(platforms.entries()).filter(
     ([id]) => platformEnabledState.get(id) ?? true
@@ -682,15 +785,23 @@ async function startWithoutDaemon() {
       try {
         await client.connect();
         ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
-        return { id, success: true };
+        return { id, success: true, client };
       } catch (err) {
         ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
         // Mark the platform as disabled so we don't try to use it
         platformEnabledState.set(id, false);
-        return { id, success: false, error: err };
+        return { id, success: false, error: err, client };
       }
     })
   );
+
+  // Settle reconstructed DM instances: a connected one leaves the forwarding
+  // window; a failed one must not keep owning its channel (that would block
+  // rediscovery forever) — tear it down so the next DM starts fresh.
+  for (const result of connectionResults) {
+    if (result.status !== 'fulfilled') continue;
+    dmRuntime.settleBootResult(result.value.id, result.value.success, result.value.client);
+  }
 
   // Check if at least one platform connected successfully
   const successfulConnections = connectionResults.filter(

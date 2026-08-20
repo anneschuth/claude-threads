@@ -1354,6 +1354,7 @@ async function setupMattermostPlatform(
       // edit round-trip doesn't silently disable DCM or approvals hardening.
       ...(existing?.directChannelMode !== undefined ? { directChannelMode: existing.directChannelMode } : {}),
       ...(existing?.approvals !== undefined ? { approvals: existing.approvals } : {}),
+      ...(existingMattermost?.directMessages !== undefined ? { directMessages: existingMattermost.directMessages } : {}),
       // Verbosity persistence:
       //  - Split config (user had different values per surface, prompt was
       //    skipped): preserve both originals verbatim.

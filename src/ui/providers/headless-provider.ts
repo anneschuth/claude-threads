@@ -151,6 +151,10 @@ export class HeadlessProvider implements UIProvider {
     }
   }
 
+  removePlatformStatus(platformId: string): void {
+    this.platforms.delete(platformId);
+  }
+
   setUpdateState(state: UpdatePanelState): void {
     switch (state.status) {
       case 'available':

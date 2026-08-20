@@ -156,6 +156,13 @@ export class InkProvider implements UIProvider {
     this.handlers.setPlatformStatus(platformId, status);
   }
 
+  removePlatformStatus(platformId: string): void {
+    if (!this.handlers) {
+      throw new Error('InkProvider not started. Call start() first.');
+    }
+    this.handlers.removePlatformStatus(platformId);
+  }
+
   setUpdateState(state: UpdatePanelState): void {
     if (!this.handlers) {
       throw new Error('InkProvider not started. Call start() first.');

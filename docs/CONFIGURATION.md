@@ -131,6 +131,7 @@ stickyMessage:
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 | `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
 | `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
+| `directMessages` | No | Mattermost only: DM auto-discovery. A direct message from a user on `allowedUsers` spawns a derived direct-channel-mode instance for that DM conversation — no per-DM entry needed. See [DM auto-discovery](#dm-auto-discovery). |
 
 ### Slack
 
@@ -207,6 +208,28 @@ platforms:
 ```
 
 Get the DM channel id with one API call: `POST /api/v4/channels/direct` with `["<bot-user-id>", "<your-user-id>"]` — the returned `id` is stable.
+
+#### DM auto-discovery
+
+Maintaining one static entry per DM conversation does not scale to a team. With `directMessages: true` on a Mattermost entry, anyone on that entry's `allowedUsers` can simply DM the bot "out of the cold":
+
+```yaml
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    # ... regular entry ...
+    directMessages: true
+```
+
+On first contact the bot spawns a derived platform instance for that DM channel — a clone of the parent entry in direct channel mode, sticky hidden, `allowedUsers` scoped to the DM partner (which, with the DCM `approvals` default of `owner`, also scopes tool-permission prompts to that person). DM sessions persist and are reconstructed after a bot restart. Users not on the parent's `allowedUsers` are ignored.
+
+Details and caveats:
+
+- **Lifecycle**: when a DM session leaves the registry its derived instance and connection are torn down (after a short grace period). After an **idle timeout** the session is persisted — the next DM re-discovers the channel and resumes the conversation. After **`!stop`** the session is deliberately unpersisted — the next DM starts fresh. Instances that never produce a session are reaped after a TTL, so instances do not accumulate over uptime.
+- **Multiple entries, one bot account**: the first entry to discover a DM channel owns it — other `directMessages: true` entries stay out, so the bot never double-replies.
+- **Empty `allowedUsers`**: consistent with the rest of the bot, an empty list means *everyone* — combined with `directMessages: true` that is every user on the server who can DM the bot. Leave it empty only on servers you trust.
+- **Renaming a platform entry** strands its persisted DM sessions (as it does any persisted session referencing the old id); they are skipped with a warning.
+- Mattermost only — see the note above for why the multi-connection approach cannot work on Slack.
 
 Limitations: the thread-context prompt ("include previous messages?") is skipped — there is no thread history to offer — and the `list_thread` MCP tool cannot resolve the synthetic session id (use `read_channel_history` instead).
 

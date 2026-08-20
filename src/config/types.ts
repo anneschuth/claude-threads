@@ -529,6 +529,14 @@ export interface MattermostPlatformConfig extends PlatformInstanceConfig {
   url: string;
   token: string;
   channelId: string;
+  /**
+   * DM auto-discovery: when `true`, a direct message to the bot from a user
+   * on `allowedUsers` spawns a derived platform instance for that DM channel
+   * (direct channel mode, sticky hidden, scoped to the DM partner) — no
+   * per-DM config entry needed. Mattermost only; see
+   * `src/platform/dm-discovery.ts` for why Slack is excluded.
+   */
+  directMessages?: boolean;
   botName: string;
   allowedUsers: string[];
   /**
