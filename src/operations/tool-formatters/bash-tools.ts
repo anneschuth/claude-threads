@@ -15,6 +15,10 @@ import { escapeRegExp, escapeCodeBlockContent } from './utils.js';
  * the command up to this cap; anything longer is still cut so a pathological
  * command cannot blow up the prompt post (the platform layer enforces its own
  * overall message-size limits on top).
+ *
+ * The cap counts Unicode code points, not UTF-16 units: an all-astral command
+ * can emit up to twice this many units (~3000), still far under the platform
+ * layer's 16K message split.
  */
 const PERMISSION_COMMAND_MAX = 1500;
 

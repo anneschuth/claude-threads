@@ -301,12 +301,17 @@ describe('Bash Formatter', () => {
   });
 
   it('never cuts inside a surrogate pair when truncating the permission command', () => {
-    const command = '\u{1F600}'.repeat(1600); // astral emoji, 2 UTF-16 units each
+    // The single BMP prefix forces the cut onto an odd UTF-16 index: a naive
+    // substring(0, N) would slice mid-pair and leave a lone high surrogate.
+    const command = 'a' + '\u{1F600}'.repeat(1600); // astral emoji, 2 UTF-16 units each
     const result = bashToolFormatter.format('Bash', { command }, options);
 
     expect(result!.permissionText).toContain('[... truncated]');
-    // A broken surrogate would surface as the replacement char when re-encoded.
-    expect(result!.permissionText!.includes('\uFFFD')).toBe(false);
+    // A mid-pair cut leaves a lone surrogate, making the string ill-formed.
+    // With the /u flag, paired surrogates form a single code point outside
+    // this range, so the class only matches LONE surrogates (equivalent to
+    // !isWellFormed(), which tsconfig's ES2022 target does not know yet).
+    expect(/[\uD800-\uDFFF]/u.test(result!.permissionText!)).toBe(false);
   });
 
   it('shortens worktree paths in commands', () => {
