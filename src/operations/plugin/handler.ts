@@ -6,6 +6,7 @@
  */
 
 import { crossSpawn } from '../../utils/spawn.js';
+import { auditLog } from '../../persistence/audit-log.js';
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions } from '../../claude/cli.js';
@@ -168,6 +169,14 @@ export async function handlePluginInstall(
 
   await post(session, 'info', `📦 Installing plugin: ${formatter.formatCode(pluginName)}...`);
   sessionLog(session).info(`Installing plugin: ${pluginName} (requested by @${username})`);
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: username,
+    kind: 'command',
+    tool: 'plugin install',
+    detail: pluginName,
+  });
   session.threadLogger?.logCommand('plugin install', pluginName, username);
 
   const result = await runPluginCommand(['install', pluginName], session.workingDir);
@@ -215,6 +224,14 @@ export async function handlePluginUninstall(
 
   await post(session, 'info', `🗑️ Uninstalling plugin: ${formatter.formatCode(pluginName)}...`);
   sessionLog(session).info(`Uninstalling plugin: ${pluginName} (requested by @${username})`);
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: username,
+    kind: 'command',
+    tool: 'plugin uninstall',
+    detail: pluginName,
+  });
   session.threadLogger?.logCommand('plugin uninstall', pluginName, username);
 
   const result = await runPluginCommand(['uninstall', pluginName], session.workingDir);

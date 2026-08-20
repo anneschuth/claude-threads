@@ -5,6 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { auditLog } from '../../persistence/audit-log.js';
 import { transitionTo, isSessionRestarting } from '../../session/types.js';
 import type { WorktreeMode, PermissionMode, ResolvedMemoryConfig } from '../../config/index.js';
 import { effectivePermissionMode } from '../../config/index.js';
@@ -1019,6 +1020,14 @@ export async function removeWorktreeCommand(
 
   try {
     await removeGitWorktree(repoRoot, target.path);
+    auditLog(session.platformId, {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      actor: username,
+      kind: 'command',
+      tool: 'worktree remove',
+      detail: target.path,
+    });
 
     const shortPath = shortenPath(target.path, undefined, { path: target.path, branch: target.branch });
     await post(session, 'success', `Removed worktree \`${target.branch}\` at \`${shortPath}\``);

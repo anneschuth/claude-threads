@@ -132,6 +132,7 @@ stickyMessage:
 | `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
 | `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 | `ackReaction` | No | Read receipt: react to every accepted message (session start, follow-up, resume) the instant it is accepted, before Claude produces output. `true` uses 👀 (`eyes`), a string names a custom emoji. Persistent, unlike the typing indicator — useful in busy channels and for messages queued behind an in-flight session start. The receipt means *accepted*, not *delivered*: a later failure (capacity limit, Claude not coming up) is still reported by its own post. `!commands` are not acked — they have their own immediate feedback. Note: in direct channel mode this is one reaction API call per accepted message. Default off. |
+| `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
 | `directMessages` | No | Mattermost only: DM auto-discovery. A direct message from a user on `allowedUsers` spawns a derived direct-channel-mode instance for that DM conversation — no per-DM entry needed. See [DM auto-discovery](#dm-auto-discovery). |
 
 ### Slack
@@ -154,6 +155,7 @@ stickyMessage:
 | `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
 | `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 | `ackReaction` | No | Read receipt: react to every accepted message (session start, follow-up, resume) the instant it is accepted, before Claude produces output. `true` uses 👀 (`eyes`), a string names a custom emoji. Persistent, unlike the typing indicator — useful in busy channels and for messages queued behind an in-flight session start. The receipt means *accepted*, not *delivered*: a later failure (capacity limit, Claude not coming up) is still reported by its own post. `!commands` are not acked — they have their own immediate feedback. Note: in direct channel mode this is one reaction API call per accepted message. Default off. |
+| `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
 
 ### Direct Channel Mode
 
@@ -191,6 +193,22 @@ Unset keeps the historical default per mode, so existing setups are unaffected: 
 Under effective `owner` mode the scoping is enforced consistently across every path, so the boundary cannot be talked around: the text alternatives (`!approve`, message-based resume) apply the same participant check as their reaction counterparts, and the owner-gated session commands (`!invite`, `!kick`, `!cd`, `!permissions`, …) additionally require the caller to be a session participant — a platform-allowlisted non-participant can neither approve directly nor `!invite` themselves into the approval set.
 
 The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access immediately but reaches the approval set on the next CLI respawn (e.g. via `!cd` or `!permissions`).
+
+### Audit log
+
+`auditLog: true` writes an append-only JSONL stream per platform to `~/.claude-threads/audit/<platformId>.jsonl` (override the directory with `CLAUDE_THREADS_AUDIT_DIR`). One line per event:
+
+- `tool_use` — every tool call Claude **issued** (including `server_tool_use` blocks), with the audit-relevant detail (Bash command line, file path, search pattern); subagent sidechain calls are included and marked `subagent: true`. Note the semantics: the audit records the *request* at the moment Claude emits it — an interactive permission denial can still stop the execution, and the denied attempt is exactly what an auditor wants to see.
+- `session_start` / `session_resume` / `session_end` — lifecycle with the triggering user.
+- `command` — security-relevant `!commands` with actor: `!cd`, `!invite`, `!kick`, `!permissions`, `!stop` (active and paused sessions), `!kill`, `!memory forget`, `!routines` management, routine creation, `!worktree remove`, `!plugin install`/`uninstall`.
+- `plan_approval` — plan approved/denied, by whom, via reaction or `!approve`.
+
+Notes for operators:
+
+- **The bot never deletes audit files.** An audit trail that expires itself is not one — rotation and retention are yours (logrotate, or let your SIEM's file collector ingest and rotate).
+- **Entries contain command lines verbatim** (that is the point); files are `0600` in a `0700` directory — enforced on every start, including pre-existing files, and the writer refuses symlinked audit paths. Treat the directory with the same care as the thread logs.
+- **Actor attribution is best effort**: the username whose (authorized) message triggered the current turn — resumes are attributed to the resuming user — falling back to the session starter. In fast multi-user threads a tool call can be attributed to the previous sender.
+- **Tool-permission decisions (allow/deny of individual tool calls) are not recorded** — they are resolved inside the MCP permission server subprocess, which the bot process does not observe. Plan approvals and the audited commands cover the decisions that flow through the bot itself.
 
 ### Direct messages (DM)
 

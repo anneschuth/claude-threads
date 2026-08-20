@@ -19,6 +19,7 @@ import {
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
 import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
+import { auditLog } from './persistence/audit-log.js';
 import { createLogger } from './utils/logger.js';
 
 const ackLog = createLogger('ack');
@@ -104,6 +105,12 @@ export async function handleMessage(
         await client.createPost(`⛔ Only authorized users can use ${formatter.formatCode('!kill')}`, threadRoot);
         return;
       }
+      auditLog(platformId, {
+        threadId: threadRoot,
+        actor: username,
+        kind: 'command',
+        tool: 'kill',
+      });
       // Post confirmation to the channel where !kill was issued
       const activeCount = session.registry.getActiveThreadIds().length;
       try {
@@ -266,6 +273,13 @@ export async function handleMessage(
           if (persistedSession) {
             const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
+              auditLog(platformId, {
+                threadId: threadRoot,
+                actor: username,
+                kind: 'command',
+                tool: 'stop',
+                detail: 'paused session cancelled',
+              });
               session.cancelPausedSession(threadRoot);
               await client.createPost(
                 `🛑 ${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`,

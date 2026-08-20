@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Audit trail (`auditLog`)** - Opt-in per platform: an append-only JSONL stream per platform (`~/.claude-threads/audit/`, files `0600` enforced even on pre-existing artifacts, symlink-refusing writer, never deleted by the bot) recording what the bot did — every tool call Claude issued incl. `server_tool_use` and subagent sidechains (with Bash command line / file path / pattern as detail), session lifecycle incl. failure paths with the triggering user, security-relevant `!commands` (`!kill` and paused-session `!stop` included), routine creation, worktree/plugin mutations, and plan approvals with decider. Built for SIEM file ingestion; rotation/retention is the operator's call. Tool-permission allow/deny decisions stay out of scope (they resolve inside the MCP permission server subprocess; the issued request is still recorded).
+
 ## [1.27.0] - 2026-08-20
 
 ### Added

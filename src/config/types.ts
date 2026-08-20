@@ -164,6 +164,20 @@ export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): bool
 }
 
 /**
+ * Normalize the per-platform `auditLog` field. Only `true` enables it;
+ * malformed values warn and stay off — an audit trail that half-works is
+ * worse than none, the operator should notice at startup.
+ */
+export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): boolean {
+  if (value === true) return true;
+  if (value === undefined || value === null || value === false) return false;
+  console.warn(
+    `Invalid ${fieldPath ?? 'auditLog'} config: expected boolean, got ${JSON.stringify(value)} — audit log stays off`,
+  );
+  return false;
+}
+
+/**
  * Thread logging configuration
  */
 export interface ThreadLogsConfig {
@@ -375,6 +389,14 @@ export interface PlatformInstanceConfig {
    * `true` uses 👀 (`eyes`); a string names a custom emoji. Default off.
    */
   ackReaction?: boolean | string;
+  /**
+   * Append-only audit trail of what the bot executed for this platform:
+   * tool calls, session lifecycle, security-relevant commands, plan
+   * approvals. One JSONL stream per platform under
+   * `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`),
+   * never deleted by the bot. Default off.
+   */
+  auditLog?: boolean;
   /**
    * Per-thread session header visibility. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the

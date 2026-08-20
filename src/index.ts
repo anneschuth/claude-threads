@@ -10,6 +10,7 @@ import {
   resolvePermissionMode,
   resolveOverheadVisibility,
   resolveMemoryConfig,
+  resolveAuditLogEnabled,
   resolveRoutinesEnabled,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
@@ -24,6 +25,7 @@ import { runOnboarding } from './onboarding.js';
 import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
 import { SessionStore } from './persistence/session-store.js';
+import { configureAuditLog } from './persistence/audit-log.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
@@ -676,6 +678,7 @@ async function startWithoutDaemon() {
     // Create platform client using factory
     const client = createPlatformClient(platformConfig);
     platforms.set(platformConfig.id, client);
+    configureAuditLog(platformConfig.id, resolveAuditLogEnabled(platformConfig.auditLog, `platforms[${platformConfig.id}].auditLog`));
 
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {
@@ -719,6 +722,7 @@ async function startWithoutDaemon() {
         platformType: 'mattermost',
         enabled: true,
       });
+      configureAuditLog(dmConfig.id, resolveAuditLogEnabled(dmConfig.auditLog, `dm[${dmConfig.id}].auditLog`));
       session.addPlatform(dmConfig.id, dmClient, {
         sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
         stickyMessage: 'hidden',
