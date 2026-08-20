@@ -31,7 +31,10 @@ afterAll(() => {
   mock.module('../../utils/battery.js', () => realBattery);
 });
 
-// Import AFTER mock.module so the handler binds the mocked probes.
+// Dynamic import for clarity of intent — though ordering alone is not what
+// makes this work: hoisted static imports load handler.js transitively before
+// mock.module runs, and Bun retroactively patches the live bindings of
+// already-loaded modules. The mocks apply either way.
 const commands = await import('./handler.js');
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
