@@ -55,6 +55,7 @@ import {
 import { detectWorktreeInfo } from '../git/worktree.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
 import { scheduleDistillation } from '../memory/distiller.js';
+import { auditLog } from '../persistence/audit-log.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -114,7 +115,30 @@ function cleanupSessionTimers(session: Session): void {
  * Close the thread logger for a session.
  * Call this before removing a session from the map.
  */
-async function closeThreadLogger(session: Session, action?: string, details?: Record<string, unknown>): Promise<void> {
+/**
+ * Record the session's end in the audit trail exactly once, no matter which
+ * cleanup path(s) run (cleanupSession, removeFromRegistry, inline failure
+ * cleanups can overlap).
+ */
+function auditSessionEnd(session: Session, reason: string): void {
+  if (session.auditEndRecorded) return;
+  session.auditEndRecorded = true;
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: session.lastActorUsername ?? session.startedBy,
+    kind: 'session_end',
+    detail: reason,
+  });
+}
+
+async function closeThreadLogger(session: Session, action?: string, details?: Record<string, unknown>, auditReason?: string): Promise<void> {
+  // The audit reason can be more specific than the logger action (e.g. action
+  // 'kill' with reason 'timeout') — without the override, the exactly-once
+  // guard makes this first write win and the precise cause is lost.
+  if (auditReason ?? action) {
+    auditSessionEnd(session, (auditReason ?? action) as string);
+  }
   if (session.threadLogger) {
     // Log the lifecycle event before closing
     if (action) {
@@ -163,6 +187,8 @@ interface CleanupSessionOptions {
   closeLogger?: boolean;
   /** Whether to clean up post index entries (default: true) */
   cleanupPostIndex?: boolean;
+  /** Audit-trail cause when it is more specific than `action` (e.g. 'shutdown') */
+  auditReason?: string;
 }
 
 /**
@@ -185,12 +211,15 @@ async function cleanupSession(
     details,
     closeLogger: doCloseLogger = true,
     cleanupPostIndex: doCleanupPostIndex = true,
+    auditReason,
   } = options;
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
   if (doCloseLogger) {
-    await closeThreadLogger(session, action, details);
+    await closeThreadLogger(session, action, details, auditReason);
+  } else if (auditReason ?? action) {
+    auditSessionEnd(session, (auditReason ?? action) as string);
   }
   session.messageManager?.dispose();
   void session.decisionBridge?.close();
@@ -230,7 +259,8 @@ function releaseAccountIfHeld(session: Session, ctx: SessionContext): void {
  * @param session - The session to remove from registry
  * @param ctx - Session context for state access
  */
-function removeFromRegistry(session: Session, ctx: SessionContext): void {
+function removeFromRegistry(session: Session, ctx: SessionContext, auditReason?: string): void {
+  if (auditReason) auditSessionEnd(session, auditReason);
   session.messageManager?.dispose();
   void session.decisionBridge?.close();
   session.decisionBridge = undefined;
@@ -419,6 +449,14 @@ function createMessageManager(
   });
 
   messageManager.events.on('routine-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
+    auditLog(session.platformId, {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      actor: requestedBy,
+      kind: 'command',
+      tool: 'routine',
+      detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
+    });
     session.threadLogger?.logCommand('routine', approved ? 'created' : 'discarded', requestedBy);
     if (!approved) {
       sessionLog(session).info(`🕘 Routine "${parsed.name}" discarded before saving`);
@@ -1254,6 +1292,12 @@ async function startSessionImpl(
   bridgeSessionRef.current = session;
 
   // Log session start
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: session.startedBy,
+    kind: 'session_start',
+  });
   session.threadLogger?.logLifecycle('start', {
     username,
     workingDir: ctx.config.workingDir,
@@ -1294,6 +1338,7 @@ async function startSessionImpl(
     claude.start();
   } catch (err) {
     await logAndNotify(err, { action: 'Start Claude', session });
+    auditSessionEnd(session, 'start-failed');
     ctx.ops.stopTyping(session);
     session.messageManager?.dispose();
     void session.decisionBridge?.close();
@@ -1374,7 +1419,8 @@ async function startSessionImpl(
  */
 export async function resumeSession(
   state: PersistedSession,
-  ctx: SessionContext
+  ctx: SessionContext,
+  resumedBy?: string
 ): Promise<void> {
   // Idempotency guard: a resume can be triggered from two sides at once
   // (startup resume-all and an incoming message via resumePausedSession).
@@ -1395,7 +1441,7 @@ export async function resumeSession(
       await inFlight.catch(() => {});
       return;
     }
-    const attempt = resumeSessionImpl(state, ctx);
+    const attempt = resumeSessionImpl(state, ctx, resumedBy);
     _inFlightSessionStarts.set(sessionKey, attempt);
     try {
       await attempt;
@@ -1404,12 +1450,13 @@ export async function resumeSession(
     }
     return;
   }
-  await resumeSessionImpl(state, ctx);
+  await resumeSessionImpl(state, ctx, resumedBy);
 }
 
 async function resumeSessionImpl(
   state: PersistedSession,
-  ctx: SessionContext
+  ctx: SessionContext,
+  resumedBy?: string
 ): Promise<void> {
   // Validate required fields - skip gracefully if critical data is missing
   if (!state.threadId || !state.platformId || !state.claudeSessionId || !state.workingDir) {
@@ -1686,6 +1733,13 @@ async function resumeSessionImpl(
   }
 
   // Log session resume
+  if (resumedBy) session.lastActorUsername = resumedBy;
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: resumedBy ?? session.startedBy,
+    kind: 'session_resume',
+  });
   session.threadLogger?.logLifecycle('resume', {
     username: state.startedBy,
     workingDir: state.workingDir,
@@ -1755,6 +1809,7 @@ async function resumeSessionImpl(
     ctx.ops.persistSession(session);
   } catch (err) {
     log.error(`Failed to resume session ${shortId}`, err instanceof Error ? err : undefined);
+    auditSessionEnd(session, 'resume-failed');
     session.messageManager?.dispose();
     void session.decisionBridge?.close();
     session.decisionBridge = undefined;
@@ -1822,6 +1877,10 @@ export async function sendFollowUp(
       return;
     }
   }
+
+  // Audit-actor attribution only AFTER the gate — a rejected follow-up must
+  // not poison the attribution of subsequent tool calls.
+  if (username && !options?.system) session.lastActorUsername = username;
 
   // Check if we need to offer context prompt (e.g., after !cd)
   // This must happen BEFORE MessageManager handles the message
@@ -1893,7 +1952,7 @@ export async function resumePausedSession(
   log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session
-  await resumeSession(state, ctx);
+  await resumeSession(state, ctx, username);
 
   // Wait a moment for the session to be ready, then send the message
   const session = ctx.ops.findSessionByThreadId(threadId);
@@ -1962,6 +2021,7 @@ export async function handleExit(
       action: 'exit',
       details: { reason: 'shutdown', exitCode: code },
       cleanupPostIndex: false,  // Preserve for faster shutdown
+      auditReason: 'shutdown',
     });
     return;
   }
@@ -1971,7 +2031,7 @@ export async function handleExit(
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'interrupt', { exitCode: code });
+    await closeThreadLogger(session, 'interrupt', { exitCode: code }, 'pause');
 
     // Notify user first, then persist with the lifecyclePostId
     // This ensures the session won't auto-resume on bot restart
@@ -1993,7 +2053,7 @@ export async function handleExit(
       }
       ctx.ops.persistSession(session);
     }
-    removeFromRegistry(session, ctx);
+    removeFromRegistry(session, ctx, 'pause');
     sessionLog(session).info(`⏸ Session paused`);
     // Update sticky channel message after session pause
     await ctx.ops.updateStickyMessage();
@@ -2007,6 +2067,7 @@ export async function handleExit(
     await cleanupSession(session, ctx, {
       action: 'exit',
       details: { reason: 'early_exit', exitCode: code },
+      auditReason: 'early-exit',
     });
     // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
@@ -2031,6 +2092,11 @@ export async function handleExit(
     sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     // Skip closeLogger (session is already persisted, logger may be closed)
     // Skip cleanupPostIndex (was already cleaned on original session end)
+    // Every non-starting session lands here on a non-zero exit ('wasResumed'
+    // is a proxy, not a real resume marker), so the audit trail records the
+    // plain fact — exit with this code — not a guessed resume history. A
+    // signal death (code null) matches the normal-exit path's plain 'exit'.
+    auditSessionEnd(session, code === null ? 'exit' : `exit:${code}`);
     await cleanupSession(session, ctx, {
       closeLogger: false,
       cleanupPostIndex: false,
@@ -2089,7 +2155,7 @@ export async function handleExit(
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
-  await closeThreadLogger(session, 'exit', { exitCode: code });
+  await closeThreadLogger(session, 'exit', { exitCode: code }, code === 0 || code === null ? 'exit' : `exit:${code}`);
 
   // Unpin task post on session exit (get from MessageManager, source of truth)
   const exitTaskState = session.messageManager?.getTaskListState();
@@ -2113,7 +2179,7 @@ export async function handleExit(
   }
 
   // Clean up session from maps and notify keep-alive
-  removeFromRegistry(session, ctx);
+  removeFromRegistry(session, ctx, code === 0 ? 'exit' : `exit:${code}`);
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
@@ -2134,7 +2200,8 @@ export async function handleExit(
 export async function killSession(
   session: Session,
   unpersist: boolean,
-  ctx: SessionContext
+  ctx: SessionContext,
+  auditCause: string = 'kill'
 ): Promise<void> {
   // Set restarting state to prevent handleExit from also unpersisting
   if (!unpersist) {
@@ -2148,7 +2215,7 @@ export async function killSession(
   }
 
   ctx.ops.stopTyping(session);
-  await closeThreadLogger(session, 'kill', { unpersist });
+  await closeThreadLogger(session, 'kill', { unpersist }, auditCause);
   session.claude.kill();
 
   // Unpin task post on session kill (get from MessageManager, source of truth)
@@ -2164,7 +2231,7 @@ export async function killSession(
   }
 
   // Clean up session from maps and notify keep-alive
-  removeFromRegistry(session, ctx);
+  removeFromRegistry(session, ctx, auditCause);
 
   // Explicitly unpersist if requested
   if (unpersist) {
@@ -2191,6 +2258,10 @@ export async function killAllSessions(ctx: SessionContext): Promise<void> {
     if (ctx.state.isShuttingDown) {
       ctx.ops.persistSession(session);
     }
+    // Record the cause before the raw kill: the per-session exit handlers
+    // only see a generic exit and may even be skipped when the registry is
+    // cleared below first — the exactly-once guard makes their write a no-op.
+    auditSessionEnd(session, ctx.state.isShuttingDown ? 'shutdown' : 'kill');
     killPromises.push(session.claude.kill());
   }
 
@@ -2257,7 +2328,7 @@ export async function cleanupIdleSessions(
       scheduleDistillation(session, ctx, 'timeout');
 
       // Kill without unpersisting to allow resume
-      await killSession(session, false, ctx);
+      await killSession(session, false, ctx, 'timeout');
       continue;
     }
 

@@ -2,7 +2,11 @@
  * Tests for message-handler.ts - Core message handling logic
  */
 
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { configureAuditLog, _resetAuditLog } from './persistence/audit-log.js';
 import { handleMessage, type MessageHandlerOptions } from './message-handler.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './platform/index.js';
 import type { SessionManager } from './session/index.js';
@@ -2052,6 +2056,71 @@ describe('handleMessage', () => {
   });
 });
 
+describe('audit command taps', () => {
+  let auditDir: string;
+  let prevAuditDir: string | undefined;
+
+  beforeEach(() => {
+    auditDir = mkdtempSync(join(tmpdir(), 'ct-audit-mh-'));
+    prevAuditDir = process.env.CLAUDE_THREADS_AUDIT_DIR;
+    process.env.CLAUDE_THREADS_AUDIT_DIR = auditDir;
+    _resetAuditLog();
+  });
+
+  afterEach(() => {
+    if (prevAuditDir === undefined) delete process.env.CLAUDE_THREADS_AUDIT_DIR;
+    else process.env.CLAUDE_THREADS_AUDIT_DIR = prevAuditDir;
+    _resetAuditLog();
+    rmSync(auditDir, { recursive: true, force: true });
+  });
+
+  test('!kill from an authorized user is recorded', async () => {
+    const client = createMockPlatform();
+    const session = createMockSessionManager();
+    const options = { platformId: 'test-platform', logger: { error: mock(() => {}) }, onKill: mock(() => {}) };
+    configureAuditLog('test-platform', true);
+
+    const post: PlatformPost = {
+      id: 'post-kill',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'user1',
+      message: '!kill',
+      rootId: '',
+      createAt: Date.now(),
+    };
+    const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+    await handleMessage(client as never, session as never, post, user, options as never);
+
+    const rec = JSON.parse(readFileSync(join(auditDir, 'test-platform.jsonl'), 'utf-8').trim());
+    expect(rec.kind).toBe('command');
+    expect(rec.tool).toBe('kill');
+    expect(rec.actor).toBe('allowed-user');
+  });
+
+  test('!kill from an unauthorized user is not recorded', async () => {
+    const client = createMockPlatform();
+    const session = createMockSessionManager();
+    const options = { platformId: 'test-platform', logger: { error: mock(() => {}) }, onKill: mock(() => {}) };
+    configureAuditLog('test-platform', true);
+
+    const post: PlatformPost = {
+      id: 'post-kill2',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'user1',
+      message: '!kill',
+      rootId: '',
+      createAt: Date.now(),
+    };
+    const user: PlatformUser = { id: 'user1', username: 'outsider', displayName: 'X' };
+
+    await handleMessage(client as never, session as never, post, user, options as never);
+
+    expect(readdirSync(auditDir)).toHaveLength(0);
+  });
+});
 
 describe('direct channel mode (DCM)', () => {
   let client: PlatformClient & { posts: Map<string, string> };

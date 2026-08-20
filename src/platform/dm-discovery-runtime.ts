@@ -12,6 +12,7 @@
  */
 
 import type { MattermostPlatformConfig, PlatformInstanceConfig } from '../config/types.js';
+import { configureAuditLog } from '../persistence/audit-log.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './index.js';
 import type { SessionManager } from '../session/index.js';
 import type { PersistedSession } from '../persistence/session-store.js';
@@ -130,6 +131,7 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
     platforms.delete(dmId);
     session.removePlatform(dmId);
     if (client) void Promise.resolve(client.disconnect()).catch(() => {});
+    configureAuditLog(dmId, false);
     // Drop the UI row — except for disabled instances, whose row is the only
     // handle to re-enable them.
     if (deps.isEnabled?.(dmId) !== false) deps.removeUiRow?.(dmId);

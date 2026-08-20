@@ -6,7 +6,11 @@
  * wrap the MessageManager.
  */
 
-import { describe, test, expect, beforeEach, mock } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import { configureAuditLog, _resetAuditLog } from '../../persistence/audit-log.js';
 import {
   handleEventPreProcessing,
   handleEventPostProcessing,
@@ -184,6 +188,78 @@ function createSessionContext(): SessionContext {
     },
   };
 }
+
+describe('handleEventPreProcessing audit tap', () => {
+  let dir: string;
+  let prevDir: string | undefined;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'ct-audit-tap-'));
+    prevDir = process.env.CLAUDE_THREADS_AUDIT_DIR;
+    process.env.CLAUDE_THREADS_AUDIT_DIR = dir;
+    _resetAuditLog();
+  });
+
+  afterEach(() => {
+    if (prevDir === undefined) delete process.env.CLAUDE_THREADS_AUDIT_DIR;
+    else process.env.CLAUDE_THREADS_AUDIT_DIR = prevDir;
+    _resetAuditLog();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('records tool_use blocks from assistant events when enabled', () => {
+    const platform = createMockPlatform();
+    const session = createTestSession(platform);
+    const ctx = createSessionContext();
+    configureAuditLog(session.platformId, true);
+
+    handleEventPreProcessing(session, {
+      type: 'assistant',
+      message: { content: [
+        { type: 'text', text: 'running' },
+        { type: 'tool_use', name: 'Bash', input: { command: 'ls -la' } },
+      ] },
+    } as never, ctx);
+
+    const lines = readFileSync(join(dir, `${session.platformId}.jsonl`), 'utf-8').trim().split('\n');
+    expect(lines).toHaveLength(1);
+    const rec = JSON.parse(lines[0]);
+    expect(rec.kind).toBe('tool_use');
+    expect(rec.tool).toBe('Bash');
+    expect(rec.detail).toBe('ls -la');
+    expect(rec.actor).toBe(session.startedBy);
+    expect(rec.subagent).toBeUndefined();
+  });
+
+  test('marks subagent sidechain tool calls', () => {
+    const platform = createMockPlatform();
+    const session = createTestSession(platform);
+    const ctx = createSessionContext();
+    configureAuditLog(session.platformId, true);
+
+    handleEventPreProcessing(session, {
+      type: 'assistant',
+      parent_tool_use_id: 'toolu_parent',
+      message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/x' } }] },
+    } as never, ctx);
+
+    const rec = JSON.parse(readFileSync(join(dir, `${session.platformId}.jsonl`), 'utf-8').trim());
+    expect(rec.subagent).toBe(true);
+  });
+
+  test('writes nothing when the platform is not enabled', () => {
+    const platform = createMockPlatform();
+    const session = createTestSession(platform);
+    const ctx = createSessionContext();
+
+    handleEventPreProcessing(session, {
+      type: 'assistant',
+      message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'ls' } }] },
+    } as never, ctx);
+
+    expect(readdirSync(dir)).toHaveLength(0);
+  });
+});
 
 describe('handleEventPreProcessing', () => {
   let platform: PlatformClient;

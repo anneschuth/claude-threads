@@ -418,6 +418,14 @@ export interface Session {
   // Thread logging
   threadLogger?: ThreadLogger;            // Logger for persisting events to disk
 
+  // Best-effort actor attribution for the audit trail: the username whose
+  // message triggered the current turn (fallback: startedBy).
+  lastActorUsername?: string;
+
+  // Idempotency guard: the audit trail records exactly one session_end no
+  // matter which cleanup path(s) run.
+  auditEndRecorded?: boolean;
+
   // Side conversation tracking
   // Messages from approved users that are directed at other users (not the bot).
   // These are included as context with the next message sent to Claude.

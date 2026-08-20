@@ -41,6 +41,7 @@ import type { PlatformFile } from '../../platform/types.js';
 import { formatBatteryStatus } from '../../utils/battery.js';
 import { formatUptime } from '../../utils/uptime.js';
 import { keepAlive } from '../../utils/keep-alive.js';
+import { auditLog } from '../../persistence/audit-log.js';
 import { logAndNotify } from '../../utils/error-handler/index.js';
 import {
   post,
@@ -182,6 +183,19 @@ export async function restartClaudeSession(
  * Posts warning message if not authorized.
  * Returns true if authorized, false otherwise.
  */
+
+/** Audit a security-relevant command execution (no-op unless enabled). */
+function auditCommand(session: Session, command: string, detail: string | undefined, username: string): void {
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: username,
+    kind: 'command',
+    tool: command,
+    detail,
+  });
+}
+
 async function requireSessionOwner(
   session: Session,
   username: string,
@@ -253,6 +267,7 @@ export async function cancelSession(
   ctx: SessionContext
 ): Promise<void> {
   sessionLog(session).info(`🛑 Cancelled by @${username}`);
+  auditCommand(session, 'stop', undefined, username);
   session.threadLogger?.logCommand('stop', undefined, username);
 
   // Mark as cancelling BEFORE killing to prevent re-persistence in handleExit
@@ -322,6 +337,14 @@ export async function approvePendingPlan(
   }
 
   const { postId } = pendingApproval;
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: username,
+    kind: 'plan_approval',
+    approved: true,
+    detail: 'via !approve',
+  });
   sessionLog(session).info(`✅ Plan approved by @${username} via command`);
 
   // On modern CLIs ExitPlanMode is BLOCKED on the MCP permission prompt with
@@ -458,6 +481,7 @@ export async function changeDirectory(
     : undefined;
   const shortDir = shortenPath(absoluteDir, undefined, worktreeContext);
   sessionLog(session).info(`📂 Changing directory to ${shortDir}`);
+  auditCommand(session, 'cd', absoluteDir, username);
   session.threadLogger?.logCommand('cd', absoluteDir, username);
 
   // Generate summary of previous work before switching directories
@@ -642,6 +666,7 @@ export async function inviteUser(
   session.sessionAllowedUsers.add(invitedUser);
   await post(session, 'success', `${formatter.formatUserMention(invitedUser)} can now participate in this session (invited by ${formatter.formatUserMention(invitedBy)})`);
   sessionLog(session).info(`👋 @${invitedUser} invited by @${invitedBy}`);
+  auditCommand(session, 'invite', invitedUser, invitedBy);
   session.threadLogger?.logCommand('invite', invitedUser, invitedBy);
   await updateSessionHeader(session, ctx);
   // Persist FIRST so a failure in the chat-side notices below doesn't leave
@@ -693,6 +718,7 @@ export async function kickUser(
   if (session.sessionAllowedUsers.delete(kickedUser)) {
     await post(session, 'user', `${formatter.formatUserMention(kickedUser)} removed from this session by ${formatter.formatUserMention(kickedBy)}`);
     sessionLog(session).info(`🚫 @${kickedUser} kicked by @${kickedBy}`);
+    auditCommand(session, 'kick', kickedUser, kickedBy);
     session.threadLogger?.logCommand('kick', kickedUser, kickedBy);
     await updateSessionHeader(session, ctx);
     // Persist FIRST, mirror of inviteUser: a network failure on the
@@ -1008,6 +1034,7 @@ export async function forgetMemory(
       `🧠 Channel memory cleared (${count} ${count === 1 ? 'entry' : 'entries'} removed). Running sessions keep their copy until their next restart.`,
     );
     sessionLog(session).info(`🧠 @${username} cleared channel memory (${count} entries)`);
+    auditCommand(session, 'memory', 'forget all', username);
     session.threadLogger?.logCommand('memory', 'forget all', username);
     return;
   }
@@ -1021,6 +1048,7 @@ export async function forgetMemory(
   if (result.ok) {
     await post(session, 'success', `🧠 Forgot: ${formatter.formatItalic(result.removed.text)}`);
     sessionLog(session).info(`🧠 @${username} removed a channel memory entry`);
+    auditCommand(session, 'memory', 'forget', username);
     session.threadLogger?.logCommand('memory', 'forget', username);
     return;
   }
@@ -1235,6 +1263,7 @@ export async function manageRoutines(
     }
   }
   sessionLog(session).info(`🕘 @${username}: !routines ${lowered} ${indexArg} ("${routine.name}")`);
+  auditCommand(session, 'routines', `${lowered} ${indexArg}`, username);
   session.threadLogger?.logCommand('routines', `${lowered} ${indexArg}`, username);
 }
 
@@ -1270,6 +1299,7 @@ export async function setSessionPermissionMode(
   session.forceInteractivePermissions = mode === 'default';
 
   sessionLog(session).info(`🔐 Setting permission mode to "${mode}"`);
+  auditCommand(session, 'permissions', mode, username);
   session.threadLogger?.logCommand('permissions', mode, username);
 
   // If Claude has never responded (user ran `!permissions` before the first

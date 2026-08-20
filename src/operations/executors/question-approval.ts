@@ -9,6 +9,7 @@
  */
 
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
+import { auditLog } from '../../persistence/audit-log.js';
 import { formatShortId } from '../../utils/format.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, QuestionApprovalState } from './types.js';
@@ -413,14 +414,28 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
 
     // Check pending approval
     if (this.state.pendingApproval?.postId === postId) {
+      const approvalType = this.state.pendingApproval.type;
+      const auditDecision = (approved: boolean) => {
+        if (approvalType !== 'plan') return;
+        auditLog(ctx.platform.platformId, {
+          threadId: ctx.threadId,
+          sessionId: ctx.sessionId,
+          actor: user,
+          kind: 'plan_approval',
+          approved,
+          detail: 'via reaction',
+        });
+      };
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Approval reaction from @${user}: approved`);
+        auditDecision(true);
         const handled = await this.handleApprovalResponse(postId, true, ctx);
         ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=approved, handled=${handled}`);
         return handled;
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Approval reaction from @${user}: denied`);
+        auditDecision(false);
         const handled = await this.handleApprovalResponse(postId, false, ctx);
         ctx.logger.debug(`QuestionApprovalExecutor: approval outcome=denied, handled=${handled}`);
         return handled;
