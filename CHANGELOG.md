@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.27.0] - 2026-08-20
 
 ### Changed
 - **Unit-test infrastructure hardening.** `handler.test.ts` no longer probes the real environment (git child processes, battery readouts are mocked, with a correct pre-mock value-snapshot restore — Bun module namespaces are live bindings, so restoring the namespace would restore the mocks; the same hazard is fixed in the plugin suite's `crossSpawn` restore). The per-test budget on all unit-test entry points is raised to 15s: the 5s default was routinely blown by event-loop contention when several processes compete for the machine, killing millisecond-fast tests at exactly the budget.
