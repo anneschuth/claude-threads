@@ -76,6 +76,12 @@ export interface PlatformClient extends EventEmitter {
    */
   readonly approvals?: ApprovalsMode;
 
+  /**
+   * Read-receipt reaction for accepted messages (`true` → `eyes`, string →
+   * custom emoji name, unset/false → off). See `resolveAckReaction`.
+   */
+  readonly ackReaction?: boolean | string;
+
   // ============================================================================
   // Connection Management
   // ============================================================================

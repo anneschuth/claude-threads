@@ -429,3 +429,28 @@ export type ApprovalsMode = 'owner' | 'all_users';
 export function resolveApprovals(configured: ApprovalsMode | undefined, isDcmSession: boolean): ApprovalsMode {
   return configured ?? (isDcmSession ? 'owner' : 'all_users');
 }
+
+/**
+ * Normalize the per-platform `ackReaction` config value at construction
+ * time: booleans and non-empty strings pass through, anything else warns
+ * once and disables the feature (a malformed value must not silently
+ * enable the default emoji).
+ */
+export function normalizeAckReaction(value: unknown, fieldPath: string): boolean | string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  console.warn(
+    `Invalid ${fieldPath}: expected boolean or emoji name, got ${JSON.stringify(value)} — ack reaction disabled`,
+  );
+  return undefined;
+}
+
+/**
+ * Resolve the effective read-receipt reaction: `true` means the default
+ * `eyes` emoji, a string names a custom emoji, unset/false disables it.
+ */
+export function resolveAckReaction(configured: boolean | string | undefined): string | null {
+  if (!configured) return null;
+  return typeof configured === 'string' ? configured : 'eyes';
+}
