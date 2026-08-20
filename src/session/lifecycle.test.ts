@@ -1715,3 +1715,111 @@ describe('resumeSession with direct channel mode', () => {
     expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
   });
 });
+
+describe('_inFlightSessionStarts (start dedup and retry hand-off)', () => {
+  const KEY = 'test-platform:thread-123';
+
+  afterEach(() => {
+    lifecycle._inFlightSessionStarts.delete(KEY);
+  });
+
+  it('delivers a message arriving during an in-flight start as a follow-up', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    const sessions = new Map([[KEY, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // A start for this key is in flight and succeeds.
+    let resolveStart!: () => void;
+    lifecycle._inFlightSessionStarts.set(KEY, new Promise<void>((res) => { resolveStart = res; }));
+
+    const call = lifecycle.startSession(
+      { prompt: 'queued while starting' },
+      'user',
+      'User Name',
+      'thread-123',
+      'test-platform',
+      ctx
+    );
+    resolveStart();
+    await call;
+
+    // Delivered as follow-up to the session the attempt registered — no
+    // second attempt was placed into the in-flight map by this caller.
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'queued while starting',
+      undefined,
+      'user',
+      'User Name'
+    );
+  });
+
+  it('waits for a retry registered by another waiter after a failed attempt', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    // The first attempt failed: no session registered yet.
+    const sessions = new Map<string, any>();
+    const ctx = createMockSessionContext(sessions as any);
+
+    let rejectFirst!: (e: Error) => void;
+    const firstAttempt = new Promise<void>((_, rej) => { rejectFirst = rej; });
+    let resolveRetry!: () => void;
+    const retryAttempt = new Promise<void>((res) => { resolveRetry = res; });
+
+    // Simulates the OTHER waiter: on failure it synchronously registers its
+    // retry, which succeeds shortly after and registers the session.
+    const handoff = firstAttempt.catch(() => {
+      lifecycle._inFlightSessionStarts.set(KEY, retryAttempt);
+      setTimeout(() => {
+        sessions.set(KEY, session);
+        resolveRetry();
+      }, 10);
+    });
+
+    lifecycle._inFlightSessionStarts.set(KEY, firstAttempt);
+    const call = lifecycle.startSession(
+      { prompt: 'queued behind retry' },
+      'user',
+      'User Name',
+      'thread-123',
+      'test-platform',
+      ctx
+    );
+
+    rejectFirst(new Error('first attempt failed'));
+    await handoff;
+    await call;
+
+    // The caller waited out BOTH attempts instead of fanning out its own
+    // parallel retry, then delivered its message to the retried session.
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'queued behind retry',
+      undefined,
+      'user',
+      'User Name'
+    );
+  });
+
+  it('sendFollowUp waits for a registered-but-not-yet-running session when its start is in flight', async () => {
+    const mockMsgManager = createMockMessageManager();
+    const session = createMockSession({ messageManager: mockMsgManager as any });
+    let running = false;
+    (session.claude.isRunning as any).mockImplementation(() => running);
+    const sessions = new Map([[KEY, session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    // Session is registered, Claude still coming up, start in flight.
+    lifecycle._inFlightSessionStarts.set(session.sessionId, new Promise<void>(() => {}));
+    setTimeout(() => { running = true; }, 300);
+
+    await lifecycle.sendFollowUp(session, 'early message', undefined, ctx, 'user', 'User Name');
+
+    expect(mockMsgManager.handleUserMessage).toHaveBeenCalledWith(
+      'early message',
+      undefined,
+      'user',
+      'User Name'
+    );
+    lifecycle._inFlightSessionStarts.delete(session.sessionId);
+  });
+});

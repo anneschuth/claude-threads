@@ -5,7 +5,7 @@
  */
 
 import type { Session } from '../../session/types.js';
-import { isDcmThreadId } from '../../platform/utils.js';
+import { isDcmThreadId, resolveApprovals } from '../../platform/utils.js';
 import { transitionTo, isSessionRestarting } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../../claude/cli.js';
@@ -187,10 +187,21 @@ async function requireSessionOwner(
   username: string,
   action: string
 ): Promise<boolean> {
+  const formatter = session.platform.getFormatter();
   if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    const formatter = session.platform.getFormatter();
     await post(session, 'warning', `Only ${formatter.formatUserMention(session.startedBy)} or allowed users can ${action}`);
     sessionLog(session).warn(`Unauthorized: @${username} tried to ${action}`);
+    return false;
+  }
+  // SECURITY: under effective approvals mode `owner`, owner-gated commands
+  // additionally require being a session participant. Without this, any
+  // platform-allowlisted non-participant could `!invite` themselves past the
+  // owner-scoped reaction gate, reducing `owner` to an audit trail.
+  const ownerScoped =
+    resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner';
+  if (ownerScoped && !session.sessionAllowedUsers.has(username)) {
+    await post(session, 'warning', `Only session participants can ${action} in this session`);
+    sessionLog(session).warn(`Unauthorized: non-participant @${username} tried to ${action} (approvals: owner)`);
     return false;
   }
   return true;
@@ -287,6 +298,21 @@ export async function approvePendingPlan(
   username: string,
   ctx: SessionContext
 ): Promise<void> {
+  // SECURITY: mirror the reaction router's gate — under effective approvals
+  // mode `owner`, plan approval is an authoritative permission decision
+  // scoped to session participants. The platform allowlist alone must not
+  // grant it, or `!approve` becomes a text bypass of the owner-scoped 👍.
+  const ownerScoped =
+    resolveApprovals(session.platform.approvals, isDcmThreadId(session.threadId)) === 'owner';
+  if (ownerScoped && !session.sessionAllowedUsers.has(username)) {
+    await post(session, 'warning', `Only session participants can approve plans here`);
+    sessionLog(session).warn(`Unauthorized: @${username} tried !approve (approvals: owner)`, {
+      event: 'approve.rejected',
+      username,
+    });
+    return;
+  }
+
   // Check if there's a pending plan approval
   const pendingApproval = session.messageManager?.getPendingApproval();
   if (!pendingApproval || pendingApproval.type !== 'plan') {

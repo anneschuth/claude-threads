@@ -13,6 +13,7 @@
 import type { Session } from '../session/types.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import { quickQuery } from '../claude/quick-query.js';
+import { isDcmThreadId } from '../platform/utils.js';
 import { createLogger } from '../utils/logger.js';
 import type { ChannelMemoryEntry, MemoryStore } from './store.js';
 
@@ -98,6 +99,15 @@ export function scheduleDistillation(
 ): void {
   const memoryConfig = ctx.ops.getPlatformMemoryConfig(session.platformId);
   if (!memoryConfig.enabled || !memoryConfig.channelLayer || !memoryConfig.distillation) {
+    return;
+  }
+  // Direct channel mode: the synthetic session id is not a thread root, so
+  // there is no thread history to distill — getThreadHistory would fail and
+  // the fire-and-forget catch would swallow it silently. Skip loudly instead.
+  // (Distilling from channel history needs a platform API that does not exist
+  // yet; see the PR discussion.)
+  if (isDcmThreadId(session.threadId)) {
+    log.debug(`Skipping distillation for DCM session ${session.platformId}:${session.threadId}`);
     return;
   }
   // Snapshot before teardown — the promise below outlives the session.

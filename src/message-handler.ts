@@ -18,7 +18,7 @@ import {
 } from './commands/index.js';
 import type { InitialSessionOptions } from './session/types.js';
 import { logSilentError } from './utils/error-handler/index.js';
-import { dcmThreadId, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
+import { dcmThreadId, isDcmThreadId, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
 
 /**
  * Logger interface for message handler
@@ -254,11 +254,16 @@ export async function handleMessage(
         return;
       }
 
-      // Check if user is allowed in the paused session
+      // Check if user is allowed in the paused session. Under effective
+      // approvals mode `owner`, message-based resume is scoped to session
+      // participants, matching the reaction-based resume gate in
+      // reaction-router.ts — the platform allowlist alone is not enough.
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
         const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
-        if (!allowedUsers.has(username) && !client.isUserAllowed(username)) {
+        const ownerScoped =
+          resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
+        if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {
           // Not allowed - could request approval but that would require the session to be active
           await client.createPost(
             `⚠️ ${formatter.formatUserMention(username)} is not authorized to resume this session`,

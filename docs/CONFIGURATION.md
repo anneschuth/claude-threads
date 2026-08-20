@@ -185,6 +185,8 @@ The platform-level `approvals` option controls who may answer tool-permission pr
 
 Unset keeps the historical default per mode, so existing setups are unaffected: thread sessions behave as before (`all_users`), direct channel mode defaults to the safer `owner`. Setting the option applies it to every session of that platform entry — including classic thread sessions, where `approvals: owner` is an opt-in hardening.
 
+Under effective `owner` mode the scoping is enforced consistently across every path, so the boundary cannot be talked around: the text alternatives (`!approve`, message-based resume) apply the same participant check as their reaction counterparts, and the owner-gated session commands (`!invite`, `!kick`, `!cd`, `!permissions`, …) additionally require the caller to be a session participant — a platform-allowlisted non-participant can neither approve directly nor `!invite` themselves into the approval set.
+
 The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access immediately but reaches the approval set on the next CLI respawn (e.g. via `!cd` or `!permissions`).
 
 ### Direct messages (DM)

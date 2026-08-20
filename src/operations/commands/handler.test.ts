@@ -1362,3 +1362,71 @@ describe('routine commands', () => {
     expect(calls.some((m: string) => m.includes('Usage'))).toBe(true);
   });
 });
+
+describe('approvals: owner gates on text commands', () => {
+  it('rejects !approve from a platform-allowlisted non-participant under owner mode', async () => {
+    const mockPlatform = createMockPlatform();
+    (mockPlatform.isUserAllowed as any).mockReturnValue(true);
+    (mockPlatform as any).approvals = 'owner';
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'outsider', ctx);
+
+    // Rejected: warning posted, plan untouched.
+    expect(mockPlatform.createPost).toHaveBeenCalledWith(
+      expect.stringContaining('participants'),
+      session.threadId
+    );
+    expect(session.messageManager?.getPendingApproval()).not.toBeNull();
+    expect(session.planApproved).toBeFalsy();
+  });
+
+  it('still allows !approve from a session participant under owner mode', async () => {
+    const mockPlatform = createMockPlatform();
+    (mockPlatform as any).approvals = 'owner';
+    const session = createMockSession({
+      platform: mockPlatform,
+      pendingApproval: { postId: 'plan-post-1', type: 'plan', toolUseId: 'tool-1' },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.approvePendingPlan(session, 'testuser', ctx);
+
+    expect(session.planApproved).toBe(true);
+  });
+
+  it('rejects !invite self-escalation by an allowlisted non-participant under owner mode', async () => {
+    const mockPlatform = createMockPlatform();
+    (mockPlatform.isUserAllowed as any).mockReturnValue(true);
+    (mockPlatform as any).approvals = 'owner';
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.inviteUser(session, 'outsider', 'outsider', ctx);
+
+    expect(session.sessionAllowedUsers.has('outsider')).toBe(false);
+    expect(mockPlatform.createPost).toHaveBeenCalledWith(
+      expect.stringContaining('participants'),
+      session.threadId
+    );
+  });
+
+  it('keeps legacy invite behavior for allowlisted users without owner mode', async () => {
+    const mockPlatform = createMockPlatform();
+    (mockPlatform.isUserAllowed as any).mockReturnValue(true);
+    const session = createMockSession({ platform: mockPlatform });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await commands.inviteUser(session, 'newuser', 'someoneelse', ctx);
+
+    expect(session.sessionAllowedUsers.has('newuser')).toBe(true);
+  });
+});
