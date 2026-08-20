@@ -1,5 +1,7 @@
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import * as lifecycle from './lifecycle.js';
 import type { SessionContext } from '../operations/session-context/index.js';
@@ -7,6 +9,7 @@ import type { Session } from './types.js';
 import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
+import { configureAuditLog, _resetAuditLog } from '../persistence/audit-log.js';
 
 // =============================================================================
 // Test Utilities
@@ -1872,5 +1875,165 @@ describe('_inFlightSessionStarts (start dedup and retry hand-off)', () => {
       'User Name'
     );
     lifecycle._inFlightSessionStarts.delete(session.sessionId);
+  });
+});
+
+// =============================================================================
+// Session-end audit causes — regression tests
+// =============================================================================
+// closeThreadLogger runs before removeFromRegistry on every teardown path, and
+// auditSessionEnd's exactly-once guard makes the first writer win. Without the
+// auditReason override the trail recorded the generic logger action ('kill',
+// 'exit') and the precise cause ('timeout', 'exit:<code>', 'pause') was
+// unreachable — exactly the distinction an audit log exists for.
+
+describe('session end audit causes', () => {
+  let auditDir: string;
+  let prevAuditDir: string | undefined;
+
+  beforeEach(() => {
+    auditDir = mkdtempSync(join(tmpdir(), 'ct-audit-lc-'));
+    prevAuditDir = process.env.CLAUDE_THREADS_AUDIT_DIR;
+    process.env.CLAUDE_THREADS_AUDIT_DIR = auditDir;
+    _resetAuditLog();
+    configureAuditLog('test-platform', true);
+  });
+
+  afterEach(() => {
+    if (prevAuditDir === undefined) delete process.env.CLAUDE_THREADS_AUDIT_DIR;
+    else process.env.CLAUDE_THREADS_AUDIT_DIR = prevAuditDir;
+    _resetAuditLog();
+    rmSync(auditDir, { recursive: true, force: true });
+  });
+
+  /** All session_end entries — every test asserts exactly one is recorded. */
+  function sessionEndEntries(): Array<{ kind: string; detail?: string }> {
+    const file = join(auditDir, 'test-platform.jsonl');
+    if (!existsSync(file)) return [];
+    return readFileSync(file, 'utf-8')
+      .trim()
+      .split('\n')
+      .map(line => JSON.parse(line))
+      .filter(entry => entry.kind === 'session_end');
+  }
+
+  function expectSingleEndCause(detail: string): void {
+    const ends = sessionEndEntries();
+    expect(ends).toHaveLength(1);
+    expect(ends[0].detail).toBe(detail);
+  }
+
+  /** An 'active' session as production creates it once Claude responded. */
+  function activeSession(overrides?: Parameters<typeof createMockSession>[0]) {
+    return createMockSession({
+      platformId: 'test-platform',
+      lifecycle: { state: 'active', resumeFailCount: 0, hasClaudeResponded: true },
+      claude: {
+        isRunning: mock(() => true),
+        kill: mock(() => Promise.resolve()),
+        start: mock(() => {}),
+        sendMessage: mock(() => {}),
+        on: mock(() => {}),
+        interrupt: mock(() => {}),
+        isPermanentFailure: mock(() => false),
+        getPermanentFailureReason: mock(() => undefined),
+      } as any,
+      ...overrides,
+    });
+  }
+
+  it('idle timeout records "timeout", not the generic "kill"', async () => {
+    const session = activeSession({ lastActivityAt: new Date(Date.now() - 10_000) });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(1_000, 500, ctx);
+
+    expectSingleEndCause('timeout');
+  });
+
+  it('a non-zero exit of an active session records the exit code', async () => {
+    const session = activeSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', 2, ctx);
+
+    expectSingleEndCause('exit:2');
+  });
+
+  it('a clean exit of an active session records plain "exit"', async () => {
+    const session = activeSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', 0, ctx);
+
+    expectSingleEndCause('exit');
+  });
+
+  it('a signal death (code null) records plain "exit", not "exit:null"', async () => {
+    const session = activeSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', null as unknown as number, ctx);
+
+    expectSingleEndCause('exit');
+  });
+
+  it('a user kill still records "kill"', async () => {
+    const session = createMockSession({ platformId: 'test-platform' });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killSession(session, true, ctx);
+
+    expectSingleEndCause('kill');
+  });
+
+  it('an interrupt-pause records "pause"', async () => {
+    const session = createMockSession({
+      platformId: 'test-platform',
+      wasInterrupted: true,
+      hasClaudeResponded: true,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', 0, ctx);
+
+    expectSingleEndCause('pause');
+  });
+
+  it('a graceful shutdown records "shutdown", not "exit"', async () => {
+    const session = activeSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.state as { isShuttingDown: boolean }).isShuttingDown = true;
+
+    await lifecycle.handleExit('test-platform:thread-123', 0, ctx);
+
+    expectSingleEndCause('shutdown');
+  });
+
+  it('an exit before Claude responded records "early-exit"', async () => {
+    const session = createMockSession({ platformId: 'test-platform' });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.handleExit('test-platform:thread-123', 1, ctx);
+
+    expectSingleEndCause('early-exit');
+  });
+
+  it('emergency killAllSessions records "kill" per session', async () => {
+    const session = activeSession();
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.killAllSessions(ctx);
+
+    expectSingleEndCause('kill');
   });
 });

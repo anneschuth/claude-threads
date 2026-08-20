@@ -205,7 +205,7 @@ The approval set is fixed when the Claude CLI is spawned; a later `!invite` exte
 
 Notes for operators:
 
-- **The bot never deletes audit files.** An audit trail that expires itself is not one — rotation and retention are yours (logrotate, or let your SIEM's file collector ingest and rotate).
+- **The bot never deletes audit files.** An audit trail that expires itself is not one — rotation and retention are yours (logrotate, or let your SIEM's file collector ingest and rotate). The writer holds the file descriptor open across writes, so use **`copytruncate`** (or restart the bot after rotating): a rename-based rotate never errors the cached fd, and the bot would keep appending to the rotated file until restart.
 - **Entries contain command lines verbatim** (that is the point); files are `0600` in a `0700` directory — enforced on every start, including pre-existing files, and the writer refuses symlinked audit paths. Treat the directory with the same care as the thread logs.
 - **Actor attribution is best effort**: the username whose (authorized) message triggered the current turn — resumes are attributed to the resuming user — falling back to the session starter. In fast multi-user threads a tool call can be attributed to the previous sender.
 - **Tool-permission decisions (allow/deny of individual tool calls) are not recorded** — they are resolved inside the MCP permission server subprocess, which the bot process does not observe. Plan approvals and the audited commands cover the decisions that flow through the bot itself.

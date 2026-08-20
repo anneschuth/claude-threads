@@ -178,32 +178,38 @@ export function handleEventPreProcessing(
 
   // Audit trail (opt-in per platform): record every tool call, including
   // subagent sidechains — an auditor wants the full execution record even
-  // when the thread display skips it.
-  if (isAuditEnabled(session.platformId)) {
-    const subagent = isSidechainEvent(event) || undefined;
-    const record = (name: string, input: Record<string, unknown> | undefined) =>
-      auditLog(session.platformId, {
-        threadId: session.threadId,
-        sessionId: session.sessionId,
-        actor: session.lastActorUsername ?? session.startedBy,
-        kind: 'tool_use',
-        tool: name,
-        detail: auditDetailForTool(name, input),
-        subagent,
-      });
-    if (event.type === 'assistant') {
-      const msg = event.message as { content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }> };
-      if (Array.isArray(msg?.content)) {
-        for (const block of msg.content) {
-          if ((block.type === 'tool_use' || block.type === 'server_tool_use') && block.name) {
-            record(block.name, block.input);
+  // when the thread display skips it. The whole tap is wrapped so a
+  // pathological event shape can never throw past it and skip message
+  // handling — auditing must never take the message path down.
+  try {
+    if (isAuditEnabled(session.platformId)) {
+      const subagent = isSidechainEvent(event) || undefined;
+      const record = (name: string, input: Record<string, unknown> | undefined) =>
+        auditLog(session.platformId, {
+          threadId: session.threadId,
+          sessionId: session.sessionId,
+          actor: session.lastActorUsername ?? session.startedBy,
+          kind: 'tool_use',
+          tool: name,
+          detail: auditDetailForTool(name, input),
+          subagent,
+        });
+      if (event.type === 'assistant') {
+        const msg = event.message as { content?: Array<{ type: string; name?: string; input?: Record<string, unknown> }> };
+        if (Array.isArray(msg?.content)) {
+          for (const block of msg.content) {
+            if ((block.type === 'tool_use' || block.type === 'server_tool_use') && block.name) {
+              record(block.name, block.input);
+            }
           }
         }
+      } else if (event.type === 'tool_use') {
+        const tool = event.tool_use as { name: string; input?: Record<string, unknown> };
+        if (tool?.name) record(tool.name, tool.input);
       }
-    } else if (event.type === 'tool_use') {
-      const tool = event.tool_use as { name: string; input?: Record<string, unknown> };
-      if (tool?.name) record(tool.name, tool.input);
     }
+  } catch {
+    // Swallowed by design — see the comment above.
   }
 
   // Reset activity and clear timeout tracking (prevents updating stale posts in long threads)

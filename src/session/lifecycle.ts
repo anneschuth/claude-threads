@@ -132,9 +132,12 @@ function auditSessionEnd(session: Session, reason: string): void {
   });
 }
 
-async function closeThreadLogger(session: Session, action?: string, details?: Record<string, unknown>): Promise<void> {
-  if (action) {
-    auditSessionEnd(session, action);
+async function closeThreadLogger(session: Session, action?: string, details?: Record<string, unknown>, auditReason?: string): Promise<void> {
+  // The audit reason can be more specific than the logger action (e.g. action
+  // 'kill' with reason 'timeout') — without the override, the exactly-once
+  // guard makes this first write win and the precise cause is lost.
+  if (auditReason ?? action) {
+    auditSessionEnd(session, (auditReason ?? action) as string);
   }
   if (session.threadLogger) {
     // Log the lifecycle event before closing
@@ -184,6 +187,8 @@ interface CleanupSessionOptions {
   closeLogger?: boolean;
   /** Whether to clean up post index entries (default: true) */
   cleanupPostIndex?: boolean;
+  /** Audit-trail cause when it is more specific than `action` (e.g. 'shutdown') */
+  auditReason?: string;
 }
 
 /**
@@ -206,14 +211,15 @@ async function cleanupSession(
     details,
     closeLogger: doCloseLogger = true,
     cleanupPostIndex: doCleanupPostIndex = true,
+    auditReason,
   } = options;
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
   if (doCloseLogger) {
-    await closeThreadLogger(session, action, details);
-  } else if (action) {
-    auditSessionEnd(session, action);
+    await closeThreadLogger(session, action, details, auditReason);
+  } else if (auditReason ?? action) {
+    auditSessionEnd(session, (auditReason ?? action) as string);
   }
   session.messageManager?.dispose();
   void session.decisionBridge?.close();
@@ -2015,6 +2021,7 @@ export async function handleExit(
       action: 'exit',
       details: { reason: 'shutdown', exitCode: code },
       cleanupPostIndex: false,  // Preserve for faster shutdown
+      auditReason: 'shutdown',
     });
     return;
   }
@@ -2024,7 +2031,7 @@ export async function handleExit(
     sessionLog(session).debug(`Exited after interrupt, preserving for resume`);
     ctx.ops.stopTyping(session);
     cleanupSessionTimers(session);
-    await closeThreadLogger(session, 'interrupt', { exitCode: code });
+    await closeThreadLogger(session, 'interrupt', { exitCode: code }, 'pause');
 
     // Notify user first, then persist with the lifecyclePostId
     // This ensures the session won't auto-resume on bot restart
@@ -2060,6 +2067,7 @@ export async function handleExit(
     await cleanupSession(session, ctx, {
       action: 'exit',
       details: { reason: 'early_exit', exitCode: code },
+      auditReason: 'early-exit',
     });
     // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
@@ -2084,7 +2092,11 @@ export async function handleExit(
     sessionLog(session).debug(`Resumed session failed with code ${code}, attempt ${session.lifecycle.resumeFailCount}/${MAX_RESUME_FAILURES}, permanent=${isPermanent}`);
     // Skip closeLogger (session is already persisted, logger may be closed)
     // Skip cleanupPostIndex (was already cleaned on original session end)
-    auditSessionEnd(session, `resume-exit:${code}`);
+    // Every non-starting session lands here on a non-zero exit ('wasResumed'
+    // is a proxy, not a real resume marker), so the audit trail records the
+    // plain fact — exit with this code — not a guessed resume history. A
+    // signal death (code null) matches the normal-exit path's plain 'exit'.
+    auditSessionEnd(session, code === null ? 'exit' : `exit:${code}`);
     await cleanupSession(session, ctx, {
       closeLogger: false,
       cleanupPostIndex: false,
@@ -2143,7 +2155,7 @@ export async function handleExit(
 
   ctx.ops.stopTyping(session);
   cleanupSessionTimers(session);
-  await closeThreadLogger(session, 'exit', { exitCode: code });
+  await closeThreadLogger(session, 'exit', { exitCode: code }, code === 0 || code === null ? 'exit' : `exit:${code}`);
 
   // Unpin task post on session exit (get from MessageManager, source of truth)
   const exitTaskState = session.messageManager?.getTaskListState();
@@ -2203,7 +2215,7 @@ export async function killSession(
   }
 
   ctx.ops.stopTyping(session);
-  await closeThreadLogger(session, 'kill', { unpersist });
+  await closeThreadLogger(session, 'kill', { unpersist }, auditCause);
   session.claude.kill();
 
   // Unpin task post on session kill (get from MessageManager, source of truth)
@@ -2246,6 +2258,10 @@ export async function killAllSessions(ctx: SessionContext): Promise<void> {
     if (ctx.state.isShuttingDown) {
       ctx.ops.persistSession(session);
     }
+    // Record the cause before the raw kill: the per-session exit handlers
+    // only see a generic exit and may even be skipped when the registry is
+    // cleared below first — the exactly-once guard makes their write a no-op.
+    auditSessionEnd(session, ctx.state.isShuttingDown ? 'shutdown' : 'kill');
     killPromises.push(session.claude.kill());
   }
 
