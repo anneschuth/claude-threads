@@ -2053,6 +2053,30 @@ describe('handleMessage', () => {
       expect(session.startSession).not.toHaveBeenCalled();
       expect(client.addReaction).not.toHaveBeenCalled();
     });
+
+    test('does not ack a follow-up from a user outside the session (message-approval path)', async () => {
+      (client as unknown as { ackReaction?: boolean | string }).ackReaction = true;
+      (session.registry.findByThreadId as any).mockReturnValue({
+        respondOnlyWhenMentioned: false,
+      });
+      (session.isUserAllowedInSession as any).mockReturnValue(false);
+
+      const post: PlatformPost = {
+        id: 'post5',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'u2',
+        message: 'may I join in',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const outsider: PlatformUser = { id: 'u2', username: 'outsider', displayName: 'X' };
+      await handleMessage(client, session, post, outsider, options);
+
+      expect(session.requestMessageApproval).toHaveBeenCalled();
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(client.addReaction).not.toHaveBeenCalled();
+    });
   });
 });
 

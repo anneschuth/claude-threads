@@ -192,6 +192,8 @@ const EMOJI_UNICODE_TO_NAME: Record<string, string> = {
   '📋': 'clipboard',
   '🔽': 'small_red_triangle_down',
   '🆕': 'new',
+  '👀': 'eyes',
+  '❤️': 'heart',
 };
 
 /**
@@ -439,7 +441,24 @@ export function resolveApprovals(configured: ApprovalsMode | undefined, isDcmSes
 export function normalizeAckReaction(value: unknown, fieldPath: string): boolean | string | undefined {
   if (value === undefined || value === null) return undefined;
   if (typeof value === 'boolean') return value;
-  if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  if (typeof value === 'string' && value.trim().length > 0) {
+    // A literal Unicode emoji is converted to its shortcode name here, so
+    // both platforms see a name (Mattermost's reaction API silently no-ops
+    // on raw Unicode; Slack converts late in addReaction). Anything that is
+    // not a plain ASCII shortcode name after mapping — unmapped pictographs,
+    // ZWJ sequences, regional-indicator flags, keycaps, stray modifiers —
+    // gets the same warn-and-disable treatment as any malformed value: a
+    // reaction that never appears is worse than a startup warning. (An
+    // allowlist beats trying to enumerate every Unicode emoji shape.)
+    const name = getEmojiName(value.trim());
+    if (!/^[a-z0-9_+':.-]+$/i.test(name)) {
+      console.warn(
+        `Invalid ${fieldPath}: unknown emoji ${JSON.stringify(value)} — use its shortcode name (e.g. "eyes"); ack reaction disabled`,
+      );
+      return undefined;
+    }
+    return name;
+  }
   console.warn(
     `Invalid ${fieldPath}: expected boolean or emoji name, got ${JSON.stringify(value)} — ack reaction disabled`,
   );
