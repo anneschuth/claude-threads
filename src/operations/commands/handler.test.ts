@@ -1525,6 +1525,21 @@ describe('watch commands', () => {
     expect((session.messageManager as any).setPendingWatchPrompt).not.toHaveBeenCalled();
   });
 
+  it('createWatch refuses in direct channel mode (a saved watch could never fire)', async () => {
+    // The message handler never evaluates watches in DCM (all traffic routes
+    // to the one channel session), so saving here would create a permanently
+    // inert watch behind a success message.
+    const session = createMockSession();
+    (session.platform as any).directChannelMode = { enabled: true, respondTo: 'all_messages' };
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.createWatch(session, 'when someone reports an incident, triage it', 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('direct channel mode'))).toBe(true);
+    expect((session.messageManager as any).setPendingWatchPrompt).not.toHaveBeenCalled();
+  });
+
   it('createWatch posts a confirmation card showing condition and keywords', async () => {
     const session = createMockSession();
     const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));

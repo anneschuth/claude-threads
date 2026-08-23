@@ -483,6 +483,20 @@ all three, and **nothing is saved until someone reacts 👍**.
 - The parse and each match confirmation use one haiku `claude -p` call — the
   same bot-process-credentials caveat as memory distillation applies in
   OAuth account pools.
+- Watches are not available in **direct channel mode** — a DCM channel routes
+  every message to the one channel session, so there is no "otherwise
+  ignored" traffic to evaluate; `!watch` refuses with an explanation.
+
+**Security note — who can trigger a fire:** the *creator* must be authorized,
+but the *triggering message* can come from **any channel member** (that is the
+point: incident reporters and CI bots are usually not on `allowedUsers`). The
+channel membership is the trust boundary. The triggering content is framed as
+data — the confirm prompt classifies it without following instructions inside
+it, and the fired session's prompt marks the thread as context, not
+instructions — but framing is a mitigation, not authorization. Treat a watch
+in a channel with untrusted members accordingly, and be especially deliberate
+about combining watches with `skipPermissions: true`, which lets the fired
+session act without human tool approval.
 
 ## Claude Accounts (optional, multi-account mode)
 

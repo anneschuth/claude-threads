@@ -1275,9 +1275,21 @@ export async function manageRoutines(
 
 /**
  * Guard for the watch commands: posts an explanation and returns false when
- * watches are disabled for the platform.
+ * watches are disabled for the platform or can never fire on it.
  */
 async function requireWatchesEnabled(session: Session, ctx: SessionContext): Promise<boolean> {
+  // Watches never evaluate in direct channel mode (the whole channel is one
+  // session, and a session fired on a message's real thread would be
+  // unreachable) \u2014 refuse creation instead of saving a permanently inert
+  // watch with a success message.
+  if (session.platform.directChannelMode?.enabled) {
+    await post(
+      session,
+      'info',
+      `\u{1F441}\uFE0F Watches are not available in direct channel mode \u2014 the whole channel already routes to one session.`,
+    );
+    return false;
+  }
   if (ctx.ops.isWatchesEnabled(session.platformId)) return true;
   await post(
     session,

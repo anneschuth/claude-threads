@@ -66,6 +66,18 @@ describe('WatchesStore', () => {
     expect(store.get('mm', result.watch.id)?.condition).toContain('production incident');
   });
 
+  test('add() returns a copy — caller mutations never reach the store', async () => {
+    const result = await store.add('mm', newWatch());
+    if (!result.ok) throw new Error(result.error);
+
+    result.watch.name = 'mutated-by-caller';
+    result.watch.keywords.push('injected');
+
+    const stored = store.get('mm', result.watch.id)!;
+    expect(stored.name).toBe('Incident triage');
+    expect(stored.keywords).toEqual(['incident', 'outage', 'down']);
+  });
+
   test('platformId scoping is a hard boundary', async () => {
     await store.add('mm', newWatch());
     expect(store.list('slack')).toHaveLength(0);

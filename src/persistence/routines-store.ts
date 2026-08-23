@@ -171,7 +171,9 @@ export class RoutinesStore extends PlatformListStore<Routine> {
       data.items[platformId] = [...existing, full];
       this.writeAtomic(data);
       log.info(`Routine "${full.name}" created on ${platformId} by @${full.createdBy}`);
-      return { ok: true as const, routine: full };
+      // Copy: `full` is now part of the cached graph (see PlatformListStore's
+      // no-live-reference invariant on list/update).
+      return { ok: true as const, routine: structuredClone(full) };
     });
   }
 

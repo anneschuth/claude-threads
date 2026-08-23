@@ -35,7 +35,14 @@ import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('watches');
 
-const CONFIRM_TIMEOUT_MS = 10000;
+/**
+ * Confirm calls pay the same CLI spawn/auth overhead the parser measured at
+ * ~15s worst-case (see PARSE_TIMEOUT_MS in parser.ts) — the confirm's output
+ * is far smaller, but the budget must cover the fixed overhead on slow hosts
+ * or every watch silently stops firing. Evaluation runs detached from
+ * message handling, so a longer wait costs no interactivity.
+ */
+const CONFIRM_TIMEOUT_MS = 20000;
 /** Max haiku confirms in flight at once, bot-wide. Overflow candidates are dropped (logged). */
 const MAX_CONCURRENT_CONFIRMS = 4;
 /**
@@ -106,13 +113,16 @@ export async function confirmMatch(watch: Watch, message: string, author: string
     model: 'haiku',
     timeout: CONFIRM_TIMEOUT_MS,
   });
+  // warn, not debug: fail-closed means a systematically failing confirm
+  // (e.g. a CLI slower than the timeout) silently kills every watch — the
+  // operator needs to see WHY watches stopped firing without DEBUG=1.
   if (!result.success || !result.response) {
-    log.debug(`Watch "${watch.name}": confirm call failed (${result.error ?? 'empty'}) — not firing`);
+    log.warn(`Watch "${watch.name}": confirm call failed (${result.error ?? 'empty'}) — not firing`);
     return false;
   }
   const raw = extractJsonObject(result.response);
   if (!raw || typeof raw.match !== 'boolean') {
-    log.debug(`Watch "${watch.name}": confirm returned unusable output — not firing`);
+    log.warn(`Watch "${watch.name}": confirm returned unusable output — not firing`);
     return false;
   }
   if (raw.match) {

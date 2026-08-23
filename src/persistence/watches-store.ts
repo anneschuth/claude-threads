@@ -133,7 +133,9 @@ export class WatchesStore extends PlatformListStore<Watch> {
       data.items[platformId] = [...existing, full];
       this.writeAtomic(data);
       log.info(`Watch "${full.name}" created on ${platformId} by @${full.createdBy}`);
-      return { ok: true as const, watch: full };
+      // Copy: `full` is now part of the cached graph (see PlatformListStore's
+      // no-live-reference invariant on list/update).
+      return { ok: true as const, watch: structuredClone(full) };
     });
   }
 

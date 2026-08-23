@@ -90,6 +90,15 @@ describe('RoutinesStore CRUD', () => {
     expect(store.get('mm', result.routine.id)?.name).toBe('Standup summary');
   });
 
+  test('add() returns a copy — caller mutations never reach the store', async () => {
+    const result = await store.add('mm', newRoutine());
+    if (!result.ok) throw new Error(result.error);
+
+    result.routine.name = 'mutated-by-caller';
+
+    expect(store.get('mm', result.routine.id)?.name).toBe('Standup summary');
+  });
+
   test('writes 0600', async () => {
     await store.add('mm', newRoutine());
     expect(statSync(file).mode & 0o777).toBe(0o600);
