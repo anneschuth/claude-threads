@@ -78,6 +78,7 @@ function createMockSessionManager() {
     hasPendingWorktreePrompt: mock(() => false),
     handleWorktreeBranchResponse: mock(async () => false),
     sendFollowUp: mock(async () => {}),
+    evaluateWatches: mock(() => {}),
     resumePausedSession: mock(async () => {}),
     cancelPausedSession: mock(() => {}),
     startSession: mock(async () => {}),
@@ -2238,4 +2239,55 @@ describe('direct channel mode (DCM)', () => {
     expect(session.sendFollowUp).not.toHaveBeenCalled();
   });
 
+});
+
+describe('handleMessage - watch evaluation hook', () => {
+  let client: PlatformClient & { posts: Map<string, string> };
+  let session: ReturnType<typeof createMockSessionManager>;
+
+  const makePost = (overrides: Partial<PlatformPost> = {}): PlatformPost => ({
+    id: 'post1',
+    platformId: 'test',
+    channelId: 'channel1',
+    userId: 'user1',
+    message: 'the deploy pipeline is broken again',
+    rootId: '',
+    createAt: Date.now(),
+    ...overrides,
+  });
+  const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+  });
+
+  test('an otherwise-ignored channel message is offered to the watch evaluator', async () => {
+    await handleMessage(client, session, makePost(), user, { platformId: 'test-platform' });
+
+    expect(session.evaluateWatches).toHaveBeenCalledTimes(1);
+    const call = (session.evaluateWatches as ReturnType<typeof mock>).mock.calls[0];
+    expect(call[0]).toBe('test-platform');
+    expect(call[3]).toBe('the deploy pipeline is broken again');
+  });
+
+  test('a mentioned message is never offered to the watch evaluator', async () => {
+    await handleMessage(client, session, makePost({ message: '@claude-bot do something' }), user, { platformId: 'test-platform' });
+
+    expect(session.evaluateWatches).not.toHaveBeenCalled();
+  });
+
+  test('watches are inert in DCM — a fired session would be keyed on the real thread and unreachable', async () => {
+    // DCM routes every message to the synthetic dcm:<platformId> key, so a
+    // watch-fired session on the message's real thread root could never
+    // receive follow-ups or !stop. respondTo: 'mention' is the only DCM
+    // shape whose non-mention messages even reach the fall-through.
+    await handleMessage(client, session, makePost(), user, {
+      platformId: 'test-platform',
+      directChannelMode: { respondTo: 'mention' },
+    });
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(session.evaluateWatches).not.toHaveBeenCalled();
+  });
 });

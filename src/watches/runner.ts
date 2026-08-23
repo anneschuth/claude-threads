@@ -10,7 +10,7 @@
 import type { SessionContext } from '../operations/session-context/index.js';
 import type { PlatformClient } from '../platform/index.js';
 import { isAuthorizedForSession } from '../session/authorization.js';
-import { startSession } from '../session/lifecycle.js';
+import { isSessionStartInFlight, startSession } from '../session/lifecycle.js';
 import type { Watch, WatchFireStatus } from '../persistence/watches-store.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -57,8 +57,15 @@ export async function fireWatch(
   const threadRoot = post.rootId || post.id;
 
   // The evaluator only sees messages in threads without an active or paused
-  // session, but re-check here: racing messages could both confirm.
-  if (ctx.state.sessions.has(ctx.ops.getSessionId(platformId, threadRoot))) {
+  // session, but the ~10s confirm await is a race window — a user may have
+  // @mentioned the bot in this thread meanwhile. Check registered sessions
+  // AND in-flight starts: calling startSession while a start for this key is
+  // in flight would deliver the watch's synthetic prompt into the user's
+  // session as a follow-up (and burn the cooldown on a fire that never ran).
+  // No await sits between these checks and startSession's own in-flight
+  // registration, so the window is fully closed.
+  const sessionKey = ctx.ops.getSessionId(platformId, threadRoot);
+  if (ctx.state.sessions.has(sessionKey) || isSessionStartInFlight(sessionKey)) {
     log.debug(`Watch "${watch.name}": thread already hosts a session — skipping`);
     return 'skipped';
   }
@@ -91,7 +98,7 @@ export async function fireWatch(
   // startSession reports admission failures by posting, not throwing —
   // verify the session actually registered before reporting success
   // (phantom-'ok' would burn the cooldown without a run).
-  if (!ctx.state.sessions.has(ctx.ops.getSessionId(platformId, threadRoot))) {
+  if (!ctx.state.sessions.has(sessionKey)) {
     log.debug(`Watch "${watch.name}": startSession declined to start a session — skipping`);
     return 'skipped';
   }

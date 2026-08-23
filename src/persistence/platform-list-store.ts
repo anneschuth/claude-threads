@@ -57,15 +57,22 @@ export abstract class PlatformListStore<T extends { id: string }> {
   /** Read-failure log hook (subclasses own their logger/component name). */
   protected abstract warn(message: string): void;
 
+  /**
+   * List a platform's items. Returns a deep copy — the cached graph is the
+   * store's source of truth between writes, so handing out live references
+   * would let callers corrupt it (a mutation would stick in memory without
+   * ever being persisted) and would let a concurrent remove() splice an
+   * array out from under an iterating caller.
+   */
   list(platformId: string): T[] {
-    return this.loadRaw().items[platformId] ?? [];
+    return structuredClone(this.loadRaw().items[platformId] ?? []);
   }
 
   get(platformId: string, id: string): T | undefined {
     return this.list(platformId).find((item) => item.id === id);
   }
 
-  /** Merge a partial update into one item. Returns the updated item or undefined. */
+  /** Merge a partial update into one item. Returns a copy of the updated item or undefined. */
   update(platformId: string, id: string, patch: Partial<T>): Promise<T | undefined> {
     return this.runExclusive(() => {
       const data = this.loadRaw();
@@ -74,7 +81,7 @@ export abstract class PlatformListStore<T extends { id: string }> {
       if (idx < 0) return undefined;
       items[idx] = { ...items[idx], ...patch };
       this.writeAtomic(data);
-      return items[idx];
+      return structuredClone(items[idx]);
     });
   }
 
@@ -134,10 +141,18 @@ export abstract class PlatformListStore<T extends { id: string }> {
   }
 
   protected writeAtomic(data: FileShape<T>): void {
-    writeFileAtomic(
-      this.file,
-      yaml.dump({ version: data.version, [this.collectionKey]: data.items }, { sortKeys: true, lineWidth: -1 }),
-    );
+    try {
+      this.persistFile(yaml.dump({ version: data.version, [this.collectionKey]: data.items }, { sortKeys: true, lineWidth: -1 }));
+    } catch (err) {
+      // `data` IS the cached object graph, already mutated by the caller,
+      // while the file still holds the old state (atomic write: the target
+      // is untouched on failure) — so its mtime/size still match the cache
+      // key. Without invalidation every later read would serve the phantom
+      // mutation until restart, diverging from what the user was told
+      // (e.g. "could not save watch" — yet the watch lists and fires).
+      this.cache = null;
+      throw err;
+    }
     // The written object graph is what loadRaw would parse back; caching it
     // directly avoids an immediate re-read. mtime/size from the fresh stat.
     try {
@@ -146,5 +161,10 @@ export abstract class PlatformListStore<T extends { id: string }> {
     } catch {
       this.cache = null;
     }
+  }
+
+  /** The actual disk write, separated so tests can inject write failures. */
+  protected persistFile(content: string): void {
+    writeFileAtomic(this.file, content);
   }
 }

@@ -171,17 +171,24 @@ export class WatchEvaluator {
     post: { id: string; rootId?: string; userId?: string },
     author: string,
     message: string,
-    botUserId?: string,
+    getBotUserId?: () => Promise<string | undefined>,
   ): Promise<void> {
     try {
-      // Belt-and-braces: platform clients filter the bot's own posts before
-      // emitting, but a future client must not be able to create loops here.
-      if (botUserId && post.userId === botUserId) return;
       if (!this.opts.isWatchesEnabled(platformId)) return;
       if (!message.trim()) return;
 
       const watches = this.opts.store.list(platformId).filter((w) => w.enabled);
       if (watches.length === 0) return; // the common, zero-cost case
+
+      // Belt-and-braces loop guard: platform clients filter the bot's own
+      // posts before emitting, but a future client must not be able to create
+      // loops here. Resolved lazily AFTER the free exits above — on
+      // Mattermost the lookup can be an API call, and this path runs for
+      // every otherwise-ignored channel message.
+      if (getBotUserId && post.userId) {
+        const botUserId = await getBotUserId().catch(() => undefined);
+        if (botUserId && post.userId === botUserId) return;
+      }
 
       const now = new Date();
       for (const watch of watches) {

@@ -208,8 +208,37 @@ describe('WatchEvaluator pipeline', () => {
   test('the bot own-post guard blocks evaluation (loop prevention belt-and-braces)', async () => {
     await seed();
     const { evaluator, confirms } = makeEvaluator();
-    await evaluator.evaluate('mm', { id: 'p1', userId: 'BOT' }, 'botname', 'incident!', 'BOT');
+    await evaluator.evaluate('mm', { id: 'p1', userId: 'BOT' }, 'botname', 'incident!', async () => 'BOT');
     expect(confirms).toHaveLength(0);
+  });
+
+  test('the bot user id is resolved lazily — never for a platform without enabled watches', async () => {
+    // No watches seeded: on Mattermost the lookup is an API call, so the
+    // zero-watch hot path (every ignored channel message) must not pay it.
+    let lookups = 0;
+    const { evaluator, confirms } = makeEvaluator();
+    const getBotUserId = async () => {
+      lookups++;
+      return 'BOT';
+    };
+
+    await evaluator.evaluate('mm', { id: 'p1', userId: 'u1' }, 'bob', 'incident!', getBotUserId);
+    expect(lookups).toBe(0);
+
+    // With an enabled watch the guard resolves the id (and still evaluates).
+    await seed();
+    await evaluator.evaluate('mm', { id: 'p2', userId: 'u1' }, 'bob', 'incident!', getBotUserId);
+    expect(lookups).toBe(1);
+    expect(confirms).toHaveLength(1);
+  });
+
+  test('a failing bot-user lookup fails open — the message still evaluates', async () => {
+    await seed();
+    const { evaluator, fires } = makeEvaluator();
+    await evaluator.evaluate('mm', { id: 'p1', userId: 'u1' }, 'bob', 'incident!', async () => {
+      throw new Error('api down');
+    });
+    expect(fires).toHaveLength(1);
   });
 
   test("'skipped' fires touch neither cooldown nor failure streak", async () => {

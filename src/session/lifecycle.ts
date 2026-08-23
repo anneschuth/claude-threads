@@ -96,6 +96,17 @@ function releasePendingStart(): void {
 export const _inFlightSessionStarts = new Map<string, Promise<void>>();
 
 /**
+ * True while a start/resume for this composite session id is in flight but
+ * not yet registered in `ctx.state.sessions`. Unattended callers (watch
+ * fires) must treat an in-flight start like an existing session: calling
+ * startSession during the window would deliver their synthetic prompt into
+ * the other start's session as a follow-up.
+ */
+export function isSessionStartInFlight(sessionId: string): boolean {
+  return _inFlightSessionStarts.has(sessionId);
+}
+
+/**
  * Get postIndex map with correct mutable type.
  * Reduces type casting noise throughout the module.
  */

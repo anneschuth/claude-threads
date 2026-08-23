@@ -1342,14 +1342,27 @@ export class SessionManager extends EventEmitter {
   evaluateWatches(platformId: string, post: { id: string; rootId?: string; userId?: string }, author: string, message: string): void {
     const evaluator = this.watchEvaluator;
     if (!evaluator) return;
-    void (async () => {
-      // Belt-and-braces loop guard: pass the bot's own user id so the
-      // evaluator can drop bot self-posts even if a platform client ever
-      // stops filtering them before emitting. getBotUser() is cached by the
-      // clients, so this is not a per-message API call.
-      const botUser = await this.platforms.get(platformId)?.getBotUser().catch(() => null);
-      await evaluator.evaluate(platformId, post, author, message, botUser?.id);
-    })().catch(() => {});
+    // The bot user id feeds the evaluator's belt-and-braces self-post guard.
+    // The evaluator calls the getter lazily (only when the platform actually
+    // has enabled watches), and the id is cached here because Mattermost's
+    // getBotUser() is an uncached API call — without the cache every
+    // prefilter candidate would cost an HTTP round-trip.
+    void evaluator
+      .evaluate(platformId, post, author, message, () => this.resolveBotUserId(platformId))
+      .catch(() => {});
+  }
+
+  /** Per-platform bot user ids for the watch self-post guard (see evaluateWatches). */
+  private readonly watchBotUserIds = new Map<string, string>();
+
+  private async resolveBotUserId(platformId: string): Promise<string | undefined> {
+    const cached = this.watchBotUserIds.get(platformId);
+    if (cached) return cached;
+    const botUser = await this.platforms.get(platformId)?.getBotUser().catch(() => null);
+    // Cache only successful lookups: a transient API failure must not pin
+    // "unknown" (guard disabled) for the rest of the process lifetime.
+    if (botUser?.id) this.watchBotUserIds.set(platformId, botUser.id);
+    return botUser?.id;
   }
 
   /**

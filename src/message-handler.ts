@@ -341,8 +341,13 @@ export async function handleMessage(
       // triggers (watches) evaluate it. Fire-and-forget: evaluation must
       // never delay or break message handling. Session and paused-session
       // threads returned above, so a fired session's own thread can never
-      // re-trigger a watch.
-      session.evaluateWatches(platformId, post, username, message);
+      // re-trigger a watch. Watches are inert in DCM: every message in a DCM
+      // channel routes to the synthetic channel-session key (line ~94), so a
+      // session fired on the message's REAL thread root would be unreachable
+      // — replies and !stop in its thread would never route to it.
+      if (!dcm.enabled) {
+        session.evaluateWatches(platformId, post, username, message);
+      }
       return;
     }
 
