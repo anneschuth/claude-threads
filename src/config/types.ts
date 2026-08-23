@@ -230,11 +230,11 @@ export interface LimitsConfig {
   flushDelayMs?: number;
   /** Maximum routines per platform instance (default: 10). */
   maxRoutines?: number;
-  /** Maximum watches (event triggers) per platform instance (default: 5). */
+  /** Maximum watches (event triggers) per platform instance (default: 10). */
   maxWatches?: number;
-  /** Minimum minutes between fires of one watch (default: 15). */
+  /** Minimum minutes between fires of one watch (default: 5). */
   watchCooldownMinutes?: number;
-  /** Maximum fires per watch per day (default: 10). */
+  /** Maximum fires per watch per day (default: 20). */
   watchDailyCap?: number;
 }
 
@@ -270,9 +270,9 @@ export const LIMITS_DEFAULTS: ResolvedLimits = {
   permissionTimeoutSeconds: 120,
   flushDelayMs: 500,
   maxRoutines: 10,
-  maxWatches: 5,
-  watchCooldownMinutes: 15,
-  watchDailyCap: 10,
+  maxWatches: 10,
+  watchCooldownMinutes: 5,
+  watchDailyCap: 20,
 };
 
 /**

@@ -44,7 +44,7 @@ A watch fires a task whenever a matching message appears in the channel. Output 
 - "name": short descriptive name for the watch (max 6 words)
 - "condition": the matching condition as one clear sentence describing which messages should trigger (e.g. "someone reports a production incident or outage")
 - "prompt": the task to perform when triggered, as an instruction (everything that is not the condition)
-- "keywords": 4-10 lowercase prefilter terms. Cover paraphrases: include synonyms, word-stem variants, and common informal phrasings a matching message might actually use (e.g. for incidents: "incident", "outage", "down", "storing", "broken", "500"). If the request is written in another language, include keywords in BOTH that language and English. Prefer distinctive terms over generic ones ("deploy" is good; "the" is useless).
+- "keywords": 4-10 lowercase prefilter terms. Cover paraphrases: include synonyms, word-stem variants, and common informal phrasings a matching message might actually use (e.g. for incidents: "incident", "outage", "down", "broken", "500"). If the request is written in another language, include keywords in BOTH that language and English. Prefer distinctive terms over generic ones ("deploy" is good; "the" is useless).
 
 If the request is not actually asking to watch for future messages, output exactly: {"error": "reason"}`;
 }

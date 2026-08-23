@@ -318,8 +318,8 @@ messages trigger (useful for CI bots); Slack filters all bot events.
 
 Commands: `!watch <natural language>` (owner-gated create), `!watches`
 (list), `!watches pause|resume|delete <n>` (owner-gated); no manual run.
-Config: per-platform `watches: false` disables; `limits.maxWatches` (5),
-`limits.watchCooldownMinutes` (15), `limits.watchDailyCap` (10).
+Config: per-platform `watches: false` disables; `limits.maxWatches` (10),
+`limits.watchCooldownMinutes` (5), `limits.watchDailyCap` (20).
 `createWatch` takes an injectable `parse` fn; the evaluator takes an
 injectable `confirm` fn (same DI-over-module-mock reasoning as routines).
 The integration mock CLI answers `claude -p` prompts deterministically

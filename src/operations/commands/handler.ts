@@ -1328,7 +1328,7 @@ export async function createWatch(
     `${formatter.formatBold('Task:')} ${parsed.prompt}\n` +
     `${formatter.formatBold('Prefilter keywords:')} ${parsed.keywords.map((k) => formatter.formatCode(k)).join(', ')}\n` +
     `${formatter.formatItalic('Only messages containing one of these keywords are considered; a semantic check then confirms each match before firing.')}\n\n` +
-    `${formatter.formatItalic('Each fire starts a full Claude session in the triggering thread (max 10/day, \u226515 min apart). React \u{1F44D} to save or \u{1F44E} to discard.')}`,
+    `${formatter.formatItalic('Each fire starts a full Claude session in the triggering thread (per-watch cooldown and daily cap apply). React \u{1F44D} to save or \u{1F44E} to discard.')}`,
     ['+1', '-1'],
     (postId, threadId) => ctx.ops.registerPost(postId, threadId),
   );

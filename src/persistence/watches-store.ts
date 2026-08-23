@@ -24,7 +24,7 @@ const DEFAULT_FILE = join(STORES_CONFIG_DIR, 'watches.yaml');
 export const MAX_CONSECUTIVE_WATCH_FAILURES = 3;
 
 /** Hard cap default; overridable via limits.maxWatches. */
-export const DEFAULT_MAX_WATCHES = 5;
+export const DEFAULT_MAX_WATCHES = 10;
 
 /** Prefilter keyword bounds (enforced on LLM-parsed input). */
 export const MIN_KEYWORDS = 1;

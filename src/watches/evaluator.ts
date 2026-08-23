@@ -33,7 +33,7 @@ const log = createLogger('watches');
 
 const CONFIRM_TIMEOUT_MS = 10000;
 /** Max haiku confirms in flight at once, bot-wide. Overflow candidates are dropped (logged). */
-const MAX_CONCURRENT_CONFIRMS = 2;
+const MAX_CONCURRENT_CONFIRMS = 4;
 
 /** True when any of the watch's keywords occurs in the message (case-insensitive substring). */
 export function prefilterMatch(watch: Watch, message: string): boolean {

@@ -425,9 +425,9 @@ platforms:
     watches: true               # default; `false` disables evaluation + commands
 
 limits:
-  maxWatches: 5                 # per-platform cap (default 5)
-  watchCooldownMinutes: 15      # min minutes between fires of one watch (default 15)
-  watchDailyCap: 10             # max fires per watch per day (default 10)
+  maxWatches: 10                # per-platform cap (default 10)
+  watchCooldownMinutes: 5       # min minutes between fires of one watch (default 5)
+  watchDailyCap: 20             # max fires per watch per day (default 20)
 ```
 
 **Creating** (natural language, confirmed before saving):
@@ -462,7 +462,7 @@ all three, and **nothing is saved until someone reacts 👍**.
 - Fires run **as their creator** and are re-authorized on every fire — a
   creator who loses platform authorization disables the watch (with a
   channel notice).
-- Per-watch cooldown (default 15 min) and daily cap (default 10 fires/day);
+- Per-watch cooldown (default 5 min) and daily cap (default 20 fires/day);
   at most one watch fires per message; fires count against `MAX_SESSIONS`.
 - 3 consecutive failed fires auto-disable the watch with a channel notice;
   `!watches resume <n>` re-arms it.
