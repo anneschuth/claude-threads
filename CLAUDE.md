@@ -25,6 +25,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 - **Permalink follower (`read_post` MCP tool)** - Claude can resolve a Mattermost or Slack permalink to its content (and optional thread context) inside the bot's own channel
 - **Persistent memory** - per-channel shared notes (`!remember` / `!memory`, Claude Tag style) plus Claude Code's native auto-memory redirected into bot-managed per-(platform, repo) directories; end-of-session distillation learns team facts over time
 - **Routines** - scheduled recurring work (`!routine every weekday at 9am, ...`, Claude Tag style): natural-language creation with 👍 confirmation, fired as bot-initiated session threads; `!routines` to list/pause/resume/delete/run
+- **Watches** - event triggers (`!watch when someone reports an incident, ...`): a free keyword prefilter plus a haiku semantic confirm fire a session in the triggering message's own thread; `!watches` to list/pause/resume/delete
 
 ## Contribution Conventions
 
@@ -291,6 +292,38 @@ Commands: `!routine <natural language>` (owner-gated create), `!routines`
 Config: per-platform `routines: false` disables; `limits.maxRoutines` caps
 (default 10). `createRoutine` takes an injectable `parse` fn — other test
 files module-mock quick-query.js, so tests inject rather than stub the CLI.
+
+## Watches (event triggers)
+
+The proactive counterpart to routines, scoped per platform instance. A watch
+= `{name, condition, prompt, keywords, createdBy}` stored in
+`~/.config/claude-threads/watches.yaml` (`WatchesStore`, 0600, override
+`CLAUDE_THREADS_WATCHES_PATH`). Both stores share `PlatformListStore`
+(`src/persistence/platform-list-store.ts`) for the CRUD/mutex/atomic-write
+machinery, and all haiku one-shots share `extractJsonObject`
+(`src/claude/llm-json.ts`).
+
+| File | Role |
+|------|------|
+| `src/persistence/watches-store.ts` | Store + `validateKeywords` (LLM-derived prefilter terms, normalized/capped). |
+| `src/watches/evaluator.ts` | `WatchEvaluator` — two-stage matching: free keyword prefilter over every otherwise-ignored channel message, then one haiku confirm per candidate (fail-closed). Guardrails checked before any model call: per-watch cooldown, daily cap, confirm-concurrency cap. At most one watch fires per message. Auto-disable after 3 failed fires / deauthorized creator. `evaluate` never throws (fire-and-forget from message handling). |
+| `src/watches/runner.ts` | `fireWatch`: `startSession` anchored on the **triggering message's thread** as the creator, with `autoIncludeContext: true` (skips the interactive context prompt; the thread is the event). Post-verifies registration (no phantom 'ok'). |
+| `src/watches/parser.ts` | NL → `{name, condition, prompt, keywords}` via one haiku `quickQuery`; keywords must cover synonyms + both languages for non-English requests. Nothing saves without a human 👍 (PromptExecutor watch prompt → `watch-prompt:complete` → lifecycle listener writes the store). |
+
+Hook point: `src/message-handler.ts` — `session.evaluateWatches(...)` fires
+only where a message would otherwise be dropped (after the session,
+paused-session, and command paths; before the mention-required return), so a
+session thread can never re-trigger a watch. Mattermost lets other bots'
+messages trigger (useful for CI bots); Slack filters all bot events.
+
+Commands: `!watch <natural language>` (owner-gated create), `!watches`
+(list), `!watches pause|resume|delete <n>` (owner-gated); no manual run.
+Config: per-platform `watches: false` disables; `limits.maxWatches` (5),
+`limits.watchCooldownMinutes` (15), `limits.watchDailyCap` (10).
+`createWatch` takes an injectable `parse` fn; the evaluator takes an
+injectable `confirm` fn (same DI-over-module-mock reasoning as routines).
+The integration mock CLI answers `claude -p` prompts deterministically
+(watch confirms honor `MOCK_WATCH_CONFIRM=false`).
 
 ## Source Files
 

@@ -71,6 +71,8 @@ import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store
 import { resolveSessionMemory, activeWorktreeRepoRoot, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
 import { describeSchedule, type Routine } from '../../persistence/routines-store.js';
 import { parseRoutineRequest, hostTimezone } from '../../routines/parser.js';
+import type { Watch } from '../../persistence/watches-store.js';
+import { parseWatchRequest } from '../../watches/parser.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -1265,6 +1267,167 @@ export async function manageRoutines(
   sessionLog(session).info(`🕘 @${username}: !routines ${lowered} ${indexArg} ("${routine.name}")`);
   auditCommand(session, 'routines', `${lowered} ${indexArg}`, username);
   session.threadLogger?.logCommand('routines', `${lowered} ${indexArg}`, username);
+}
+
+// ---------------------------------------------------------------------------
+// Event triggers (watches)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard for the watch commands: posts an explanation and returns false when
+ * watches are disabled for the platform.
+ */
+async function requireWatchesEnabled(session: Session, ctx: SessionContext): Promise<boolean> {
+  if (ctx.ops.isWatchesEnabled(session.platformId)) return true;
+  await post(
+    session,
+    'info',
+    `\u{1F441}\uFE0F Watches are disabled for this platform (see the \`watches\` option in config.yaml).`,
+  );
+  return false;
+}
+
+/**
+ * `!watch <natural language>` — parse the request with haiku, show the
+ * structured result (including the derived prefilter keywords), and wait for
+ * a 👍/👎 confirmation before saving. Owner-gated: watches fire unattended
+ * sessions as their creator.
+ */
+export async function createWatch(
+  session: Session,
+  request: string,
+  username: string,
+  ctx: SessionContext,
+  // Injectable for tests: other test files module-mock quick-query.js, so
+  // stubbing via CLAUDE_PATH is unreliable in full-suite runs.
+  parse: typeof parseWatchRequest = parseWatchRequest,
+): Promise<void> {
+  if (!await requireWatchesEnabled(session, ctx)) return;
+  if (!await requireSessionOwner(session, username, 'create watches')) return;
+  const formatter = session.platform.getFormatter();
+
+  const trimmed = request.trim();
+  if (!trimmed) {
+    await post(session, 'warning', `Usage: ${formatter.formatCode('!watch when <something happens>, <task>')}`);
+    return;
+  }
+
+  await post(session, 'info', `\u{1F441}\uFE0F Parsing the trigger...`);
+  const result = await parse(trimmed);
+  if (!result.ok) {
+    await post(session, 'warning', `\u{1F441}\uFE0F Could not create a watch: ${result.error}`);
+    sessionLog(session).warn(`\u{1F441}\uFE0F Watch parse failed for @${username}: ${result.error}`);
+    return;
+  }
+
+  const { parsed } = result;
+  const confirmPost = await postInteractiveAndRegister(
+    session,
+    `\u{1F441}\uFE0F ${formatter.formatBold(`Create watch "${parsed.name}"?`)}\n` +
+    `${formatter.formatBold('Fires when:')} ${parsed.condition}\n` +
+    `${formatter.formatBold('Task:')} ${parsed.prompt}\n` +
+    `${formatter.formatBold('Prefilter keywords:')} ${parsed.keywords.map((k) => formatter.formatCode(k)).join(', ')}\n` +
+    `${formatter.formatItalic('Only messages containing one of these keywords are considered; a semantic check then confirms each match before firing.')}\n\n` +
+    `${formatter.formatItalic('Each fire starts a full Claude session in the triggering thread (max 10/day, \u226515 min apart). React \u{1F44D} to save or \u{1F44E} to discard.')}`,
+    ['+1', '-1'],
+    (postId, threadId) => ctx.ops.registerPost(postId, threadId),
+  );
+
+  session.messageManager?.setPendingWatchPrompt({
+    postId: confirmPost.id,
+    parsed,
+    requestedBy: username,
+  });
+  sessionLog(session).info(`\u{1F441}\uFE0F Watch proposal posted for @${username}: "${parsed.name}"`);
+}
+
+/** Resolve a 1-based list index argument to a watch. */
+function watchByIndex(ctx: SessionContext, platformId: string, arg: string): Watch | undefined {
+  if (!/^\d+$/.test(arg)) return undefined;
+  const list = ctx.state.watchesStore.list(platformId);
+  return list[parseInt(arg, 10) - 1];
+}
+
+/**
+ * `!watches` — list; `!watches pause|resume|delete <n>` (owner-gated).
+ * No manual run: watches are event-driven (use `!routines run` for
+ * on-demand work).
+ */
+export async function manageWatches(
+  session: Session,
+  args: string | undefined,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireWatchesEnabled(session, ctx)) return;
+  const formatter = session.platform.getFormatter();
+  const platformId = session.platformId;
+  const trimmed = args?.trim();
+
+  if (!trimmed) {
+    const watches = ctx.state.watchesStore.list(platformId);
+    if (watches.length === 0) {
+      await post(
+        session,
+        'info',
+        `\u{1F441}\uFE0F No watches yet. Create one with ${formatter.formatCode('!watch when <something happens>, <task>')}.`,
+      );
+      return;
+    }
+    const lines = watches.map((w, i) => {
+      const status = w.enabled ? '' : ' — \u23F8\uFE0F paused';
+      const last = w.lastFiredAt ? ` · last fired ${w.lastFiredAt.slice(0, 16).replace('T', ' ')}Z (${w.lastFireStatus})` : '';
+      return `${i + 1}. ${formatter.formatBold(w.name)} — fires when ${w.condition} · by ${formatter.formatCode('@' + w.createdBy)}${status}${last}`;
+    });
+    await post(
+      session,
+      'info',
+      `\u{1F441}\uFE0F ${formatter.formatBold(`Watches (${watches.length})`)} — each fire starts a full Claude session in the triggering thread:\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `${formatter.formatItalic(`Manage with ${'`!watches pause|resume|delete <n>`'}.`)}`,
+    );
+    session.threadLogger?.logCommand('watches', 'list', username);
+    return;
+  }
+
+  const match = trimmed.match(/^(pause|resume|delete)\s+(\d+)$/i);
+  if (!match) {
+    await post(
+      session,
+      'warning',
+      `\u{1F441}\uFE0F Usage: ${formatter.formatCode('!watches')} or ${formatter.formatCode('!watches pause|resume|delete <n>')}`,
+    );
+    return;
+  }
+  const [, action, indexArg] = match;
+  const watch = watchByIndex(ctx, platformId, indexArg);
+  if (!watch) {
+    await post(session, 'warning', `\u{1F441}\uFE0F No watch ${indexArg}. See ${formatter.formatCode('!watches')}.`);
+    return;
+  }
+
+  const lowered = action.toLowerCase();
+  if (!await requireSessionOwner(session, username, 'manage watches')) {
+    return;
+  }
+
+  switch (lowered) {
+    case 'pause':
+      await ctx.state.watchesStore.update(platformId, watch.id, { enabled: false });
+      await post(session, 'success', `\u23F8\uFE0F Watch ${formatter.formatBold(watch.name)} paused.`);
+      break;
+    case 'resume':
+      await ctx.state.watchesStore.update(platformId, watch.id, { enabled: true, consecutiveFailures: 0 });
+      await post(session, 'success', `\u25B6\uFE0F Watch ${formatter.formatBold(watch.name)} resumed.`);
+      break;
+    case 'delete':
+      await ctx.state.watchesStore.remove(platformId, watch.id);
+      await post(session, 'success', `\u{1F5D1}\uFE0F Watch ${formatter.formatBold(watch.name)} deleted.`);
+      break;
+  }
+  sessionLog(session).info(`\u{1F441}\uFE0F @${username}: !watches ${lowered} ${indexArg} ("${watch.name}")`);
+  auditCommand(session, 'watches', `${lowered} ${indexArg}`, username);
+  session.threadLogger?.logCommand('watches', `${lowered} ${indexArg}`, username);
 }
 
 // ---------------------------------------------------------------------------

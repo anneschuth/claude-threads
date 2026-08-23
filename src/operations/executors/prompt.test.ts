@@ -1141,3 +1141,57 @@ describe('PromptExecutor — routine-creation confirmation', () => {
     expect(executor.hasPendingRoutinePrompt()).toBe(false);
   });
 });
+
+describe('PromptExecutor — watch-creation confirmation', () => {
+  function setup() {
+    const platform = createMockPlatform();
+    const ctx = createTestContext(platform);
+    const events = createMessageManagerEvents();
+    const completions: Array<{ approved: boolean; requestedBy: string; name: string }> = [];
+    events.on('watch-prompt:complete', ({ approved, parsed, requestedBy }) => {
+      completions.push({ approved, requestedBy, name: parsed.name });
+    });
+    const executor = new PromptExecutor({
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      events,
+    } as any);
+    const parsed = {
+      name: 'Incident triage',
+      condition: 'someone reports a production incident',
+      prompt: 'triage it',
+      keywords: ['incident', 'outage'],
+    };
+    executor.setPendingWatchPrompt({ postId: 'post-w1', parsed, requestedBy: 'anne' });
+    return { executor, ctx, completions };
+  }
+
+  it('👍 approves: emits event with approved=true and clears pending state', async () => {
+    const { executor, ctx, completions } = setup();
+    const handled = await executor.handleReaction('post-w1', '+1', 'anne', 'added', ctx);
+    expect(handled).toBe(true);
+    expect(completions).toEqual([{ approved: true, requestedBy: 'anne', name: 'Incident triage' }]);
+    expect(executor.hasPendingWatchPrompt()).toBe(false);
+  });
+
+  it('👎 discards: emits event with approved=false', async () => {
+    const { executor, ctx, completions } = setup();
+    const handled = await executor.handleReaction('post-w1', '-1', 'bob', 'added', ctx);
+    expect(handled).toBe(true);
+    expect(completions).toEqual([{ approved: false, requestedBy: 'anne', name: 'Incident triage' }]);
+  });
+
+  it('irrelevant emoji and other posts are ignored', async () => {
+    const { executor, ctx, completions } = setup();
+    expect(await executor.handleReaction('post-w1', 'eyes', 'anne', 'added', ctx)).toBe(false);
+    expect(await executor.handleReaction('other-post', '+1', 'anne', 'added', ctx)).toBe(false);
+    expect(completions).toHaveLength(0);
+    expect(executor.hasPendingWatchPrompt()).toBe(true);
+  });
+
+  it('watch prompts are transient: hydrateState never restores one', () => {
+    const { executor } = setup();
+    executor.hydrateState({});
+    expect(executor.hasPendingWatchPrompt()).toBe(false);
+  });
+});

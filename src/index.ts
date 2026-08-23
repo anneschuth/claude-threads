@@ -12,6 +12,7 @@ import {
   resolveMemoryConfig,
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
+  resolveWatchesEnabled,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
@@ -696,6 +697,9 @@ async function startWithoutDaemon() {
     ), resolveRoutinesEnabled(
       platformConfig.routines,
       `platforms[${platformConfig.id}].routines`,
+    ), resolveWatchesEnabled(
+      platformConfig.watches,
+      `platforms[${platformConfig.id}].watches`,
     ));
 
     // Wire up platform events

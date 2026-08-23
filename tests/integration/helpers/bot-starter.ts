@@ -195,6 +195,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
   // tests that share a sessions file also share their memory root.
   process.env.CLAUDE_THREADS_MEMORY_DIR = `${sessionsPath}.memory`;
   process.env.CLAUDE_THREADS_ROUTINES_PATH = `${sessionsPath}.routines.yaml`;
+  process.env.CLAUDE_THREADS_WATCHES_PATH = `${sessionsPath}.watches.yaml`;
 
   // Clear persisted sessions to avoid "Thread deleted, skipping resume" noise
   if (clearPersistedSessions) {
@@ -442,6 +443,7 @@ export async function startTestBot(options: StartBotOptions = {}): Promise<TestB
       delete process.env.CLAUDE_THREADS_SESSIONS_PATH;
       delete process.env.CLAUDE_THREADS_MEMORY_DIR;
       delete process.env.CLAUDE_THREADS_ROUTINES_PATH;
+      delete process.env.CLAUDE_THREADS_WATCHES_PATH;
       if (debug) {
         console.log('[test-bot] Stopped');
       }

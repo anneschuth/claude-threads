@@ -16,6 +16,7 @@ import type {
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
   PendingRoutinePrompt,
+  PendingWatchPrompt,
 } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
@@ -59,6 +60,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingExistingWorktreePrompt: null,
       pendingUpdatePrompt: null,
       pendingRoutinePrompt: null,
+      pendingWatchPrompt: null,
     };
   }
 
@@ -84,6 +86,9 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingRoutinePrompt: this.state.pendingRoutinePrompt
         ? { ...this.state.pendingRoutinePrompt }
         : null,
+      pendingWatchPrompt: this.state.pendingWatchPrompt
+        ? { ...this.state.pendingWatchPrompt }
+        : null,
     };
   }
 
@@ -100,8 +105,9 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingContextPrompt: persisted.pendingContextPrompt ?? null,
       pendingExistingWorktreePrompt: persisted.pendingExistingWorktreePrompt ?? null,
       pendingUpdatePrompt: persisted.pendingUpdatePrompt ?? null,
-      // Routine confirmations are transient by design — never restored.
+      // Routine/watch confirmations are transient by design — never restored.
       pendingRoutinePrompt: null,
+      pendingWatchPrompt: null,
     };
   }
 
@@ -416,6 +422,54 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   }
 
   // ---------------------------------------------------------------------------
+  // Watch-creation confirmation methods
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Set the pending watch-creation confirmation. One at a time per session;
+   * a newer request replaces an unanswered older one.
+   */
+  setPendingWatchPrompt(prompt: PendingWatchPrompt): void {
+    this.state.pendingWatchPrompt = prompt;
+  }
+
+  hasPendingWatchPrompt(): boolean {
+    return this.state.pendingWatchPrompt !== null;
+  }
+
+  /**
+   * Handle a watch confirmation reaction. Emits 'watch-prompt:complete';
+   * the lifecycle listener does the actual store write on approval.
+   */
+  async handleWatchPromptResponse(
+    postId: string,
+    approved: boolean,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    if (!this.state.pendingWatchPrompt) return false;
+    if (this.state.pendingWatchPrompt.postId !== postId) return false;
+
+    const { parsed, requestedBy } = this.state.pendingWatchPrompt;
+
+    const statusMessage = approved
+      ? `\u2705 ${ctx.formatter.formatBold(`Watch "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
+      : `\u274C ${ctx.formatter.formatBold(`Watch "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      ctx.logger.debug(`Failed to update watch prompt post: ${err}`);
+    }
+
+    this.state.pendingWatchPrompt = null;
+
+    if (this.events) {
+      this.events.emit('watch-prompt:complete', { approved, parsed, requestedBy, postId });
+    }
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
   // Unified reaction handler
   // ---------------------------------------------------------------------------
 
@@ -518,6 +572,19 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         return this.handleRoutinePromptResponse(postId, false, user, ctx);
       }
       ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for routine prompt, ignoring`);
+      return false;
+    }
+
+    if (this.state.pendingWatchPrompt?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        ctx.logger.debug(`Watch prompt reaction from @${user}: approve`);
+        return this.handleWatchPromptResponse(postId, true, user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        ctx.logger.debug(`Watch prompt reaction from @${user}: discard`);
+        return this.handleWatchPromptResponse(postId, false, user, ctx);
+      }
+      ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for watch prompt, ignoring`);
       return false;
     }
 

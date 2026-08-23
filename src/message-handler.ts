@@ -336,7 +336,15 @@ export async function handleMessage(
     // addressed to the bot (the channel is the session). With
     // `respondTo: mention` the DCM session also starts only on a mention.
     const mentionRequired = !dcm.enabled || dcm.respondTo === 'mention';
-    if (mentionRequired && !client.isBotMentioned(message)) return;
+    if (mentionRequired && !client.isBotMentioned(message)) {
+      // The bot is about to ignore this message — the one moment event
+      // triggers (watches) evaluate it. Fire-and-forget: evaluation must
+      // never delay or break message handling. Session and paused-session
+      // threads returned above, so a fired session's own thread can never
+      // re-trigger a watch.
+      session.evaluateWatches(platformId, post, username, message);
+      return;
+    }
 
     if (!client.isUserAllowed(username)) {
       await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);

@@ -497,6 +497,53 @@ function createMessageManager(
     }
   });
 
+  messageManager.events.on('watch-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
+    auditLog(session.platformId, {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      actor: requestedBy,
+      kind: 'command',
+      tool: 'watch',
+      detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
+    });
+    session.threadLogger?.logCommand('watch', approved ? 'created' : 'discarded', requestedBy);
+    if (!approved) {
+      sessionLog(session).info(`👁️ Watch "${parsed.name}" discarded before saving`);
+      return;
+    }
+    // Same crash-class guard as the routine listener: the store write must
+    // not reject out of an async EventEmitter listener.
+    let result: Awaited<ReturnType<typeof ctx.state.watchesStore.add>>;
+    try {
+      result = await ctx.state.watchesStore.add(
+        session.platformId,
+        { name: parsed.name, condition: parsed.condition, prompt: parsed.prompt, keywords: parsed.keywords, createdBy: requestedBy },
+        ctx.config.maxWatches,
+      );
+    } catch (err) {
+      result = { ok: false, error: `could not write the watches file (${(err as Error).message})` };
+    }
+    const formatter = session.platform.getFormatter();
+    if (result.ok) {
+      const position = ctx.state.watchesStore.list(session.platformId).length;
+      await withErrorHandling(
+        () => session.platform.updatePost(
+          postId,
+          `✅ ${formatter.formatBold(`Watch ${position}: ${result.watch.name}`)} saved — it fires a session in the triggering thread when a matching message appears. ` +
+          `${formatter.formatItalic(`Manage with ${'`!watches`'}. Each fire starts a full Claude session.`)}`,
+        ),
+        { action: 'Update watch confirmation post', session },
+      );
+      sessionLog(session).info(`👁️ Watch "${result.watch.name}" saved by @${requestedBy}`);
+    } else {
+      await withErrorHandling(
+        () => session.platform.updatePost(postId, `⚠️ Could not save watch: ${result.error}`),
+        { action: 'Update watch confirmation post', session },
+      );
+      sessionLog(session).warn(`👁️ Watch save failed: ${result.error}`);
+    }
+  });
+
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
     const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
@@ -941,7 +988,7 @@ export function resolveSessionHeaderMode(
  *                           When starting mid-thread, this is the @mention message, not the thread root.
  */
 export async function startSession(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -980,7 +1027,7 @@ export async function startSession(
 }
 
 async function startSessionImpl(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -1389,7 +1436,7 @@ async function startSessionImpl(
   // and take the plain send path below.
   if (replyToPostId && !isDcmThreadId(replyToPostId)) {
     const excludePostId = triggeringPostId || replyToPostId;
-    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username);
+    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username, options.autoIncludeContext);
     // Either path inside offerContextPrompt sends or queues. Surface any
     // skipped-file warnings and return — the fallback claude.sendMessage()
     // below would be a duplicate.

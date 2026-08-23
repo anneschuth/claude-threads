@@ -52,23 +52,9 @@ Output ONLY a JSON object, no other text, with exactly these fields:
 If the request is not actually asking for a recurring schedule, output exactly: {"error": "reason"}`;
 }
 
-/**
- * Extract the first JSON object from model output (tolerates chatter or code
- * fences around it). Returns undefined when nothing parses.
- */
-export function extractJsonObject(output: string): Record<string, unknown> | undefined {
-  const start = output.indexOf('{');
-  const end = output.lastIndexOf('}');
-  if (start < 0 || end <= start) return undefined;
-  try {
-    const parsed = JSON.parse(output.slice(start, end + 1)) as unknown;
-    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : undefined;
-  } catch {
-    return undefined;
-  }
-}
+// Re-exported so existing imports/tests keep working; implementation is shared.
+import { extractJsonObject } from '../claude/llm-json.js';
+export { extractJsonObject };
 
 /**
  * Validate raw parsed fields into a ParsedRoutineRequest. Pure — exported so

@@ -164,6 +164,22 @@ export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): bool
 }
 
 /**
+ * Normalize the per-platform `watches` field: event triggers (Claude
+ * Tag-style proactiveness). Undefined/`true` → enabled (no idle cost until
+ * someone creates a watch), `false` → the evaluator skips the platform and
+ * the !watch/!watches commands explain themselves. Malformed values warn and
+ * fall back to enabled.
+ */
+export function resolveWatchesEnabled(value: unknown, fieldPath?: string): boolean {
+  if (value === undefined || value === null || value === true) return true;
+  if (value === false) return false;
+  console.warn(
+    `Invalid ${fieldPath ?? 'watches'} config: expected boolean, got ${JSON.stringify(value)} — watches stay enabled`,
+  );
+  return true;
+}
+
+/**
  * Normalize the per-platform `auditLog` field. Only `true` enables it;
  * malformed values warn and stay off — an audit trail that half-works is
  * worse than none, the operator should notice at startup.
@@ -214,6 +230,12 @@ export interface LimitsConfig {
   flushDelayMs?: number;
   /** Maximum routines per platform instance (default: 10). */
   maxRoutines?: number;
+  /** Maximum watches (event triggers) per platform instance (default: 5). */
+  maxWatches?: number;
+  /** Minimum minutes between fires of one watch (default: 15). */
+  watchCooldownMinutes?: number;
+  /** Maximum fires per watch per day (default: 10). */
+  watchDailyCap?: number;
 }
 
 /**
@@ -230,6 +252,9 @@ export interface ResolvedLimits {
   permissionTimeoutSeconds: number;
   flushDelayMs: number;
   maxRoutines: number;
+  maxWatches: number;
+  watchCooldownMinutes: number;
+  watchDailyCap: number;
 }
 
 /**
@@ -245,6 +270,9 @@ export const LIMITS_DEFAULTS: ResolvedLimits = {
   permissionTimeoutSeconds: 120,
   flushDelayMs: 500,
   maxRoutines: 10,
+  maxWatches: 5,
+  watchCooldownMinutes: 15,
+  watchDailyCap: 10,
 };
 
 /**
@@ -267,6 +295,9 @@ export function resolveLimits(limits?: LimitsConfig): ResolvedLimits {
     permissionTimeoutSeconds: limits?.permissionTimeoutSeconds ?? LIMITS_DEFAULTS.permissionTimeoutSeconds,
     flushDelayMs: limits?.flushDelayMs ?? LIMITS_DEFAULTS.flushDelayMs,
     maxRoutines: limits?.maxRoutines ?? LIMITS_DEFAULTS.maxRoutines,
+    maxWatches: limits?.maxWatches ?? LIMITS_DEFAULTS.maxWatches,
+    watchCooldownMinutes: limits?.watchCooldownMinutes ?? LIMITS_DEFAULTS.watchCooldownMinutes,
+    watchDailyCap: limits?.watchDailyCap ?? LIMITS_DEFAULTS.watchDailyCap,
   };
 }
 
@@ -422,6 +453,11 @@ export interface PlatformInstanceConfig {
    * `false` disables the scheduler and the !routine/!routines commands.
    */
   routines?: boolean;
+  /**
+   * Event triggers (watches) for this platform instance (default: enabled).
+   * `false` disables message evaluation and the !watch/!watches commands.
+   */
+  watches?: boolean;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }

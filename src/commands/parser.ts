@@ -78,6 +78,9 @@ const COMMAND_PATTERNS: Array<[string, RegExp]> = [
   // Scheduled routines — !routine creates (natural language), !routines manages.
   ['routines', /^!routines(?:\s+([\s\S]+))?$/i],
   ['routine', /^!routine\s+([\s\S]+)$/i],
+  // Event triggers — !watch creates (natural language), !watches manages.
+  ['watches', /^!watches(?:\s+([\s\S]+))?$/i],
+  ['watch', /^!watch\s+([\s\S]+)$/i],
 
   // Updates
   ['update', /^!update(?:\s+(now|defer))?\s*$/i],

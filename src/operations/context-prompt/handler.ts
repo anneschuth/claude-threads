@@ -26,6 +26,9 @@ export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
 // Context options: last N messages
 export const CONTEXT_OPTIONS = [3, 5, 10] as const;
 
+/** Cap for forced auto-include on unattended starts (watch fires). */
+export const AUTO_INCLUDE_LIMIT = 25;
+
 // ---------------------------------------------------------------------------
 // Helper Functions for MessageManager Integration
 // ---------------------------------------------------------------------------
@@ -456,11 +459,33 @@ export async function offerContextPrompt(
   queuedFiles: PlatformFile[] | undefined,
   ctx: ContextPromptHandler,
   excludePostId?: string,
-  sender?: string
+  sender?: string,
+  autoInclude?: boolean
 ): Promise<boolean> {
   // Get thread history count (exclude bot messages and the triggering message)
   const messageCount = await getThreadContextCount(session, excludePostId);
   const userTurn = formatUserTurn(queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
+
+  // Unattended starts (watch fires) must not stall on the interactive
+  // context prompt below — force the auto-include path for any thread size.
+  // The thread IS the event being responded to, so context is wanted.
+  if (autoInclude && messageCount >= 1) {
+    const messages = await getThreadMessagesForContext(session, Math.min(messageCount, AUTO_INCLUDE_LIMIT), excludePostId);
+    let messageToSend = userTurn;
+    if (messages.length > 0) {
+      messageToSend = formatContextForClaude(messages, undefined) + userTurn;
+    }
+    session.messageCount++;
+    messageToSend = ctx.injectMetadataReminder(messageToSend, session);
+    const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
+    if (session.claude.isRunning()) {
+      session.claude.sendMessage(content);
+      ctx.startTyping(session);
+    }
+    await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+    sessionLog(session).debug(`🧵 Auto-included ${messages.length} thread message(s) as context (unattended start)`);
+    return false;
+  }
 
   if (messageCount === 0) {
     // No previous messages - but check for work summary from directory change

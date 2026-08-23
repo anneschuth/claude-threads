@@ -43,6 +43,7 @@ import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 import { MemoryStore } from '../../memory/store.js';
 import { RoutinesStore } from '../../persistence/routines-store.js';
+import { WatchesStore } from '../../persistence/watches-store.js';
 import { mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
@@ -104,6 +105,7 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
     getPendingQuestionSet: () => pendingQuestionSet,
     clearPendingQuestionSet: () => { pendingQuestionSet = null; },
     setPendingRoutinePrompt: mock(() => {}),
+    setPendingWatchPrompt: mock(() => {}),
   } as any;
 }
 
@@ -204,6 +206,13 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         update: mock(() => Promise.resolve(undefined)),
         remove: mock(() => Promise.resolve(undefined)),
       } as any,
+      watchesStore: {
+        list: mock(() => []),
+        get: mock(() => undefined),
+        add: mock(() => Promise.resolve({ ok: true, watch: {} })),
+        update: mock(() => Promise.resolve(undefined)),
+        remove: mock(() => Promise.resolve(undefined)),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -244,6 +253,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
       isRoutinesEnabled: mock(() => true),
+      isWatchesEnabled: mock(() => true),
       fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
     },
   };
@@ -1464,5 +1474,139 @@ describe('approvals: owner gates on text commands', () => {
     await commands.inviteUser(session, 'newuser', 'someoneelse', ctx);
 
     expect(session.sessionAllowedUsers.has('newuser')).toBe(true);
+  });
+});
+
+describe('watch commands', () => {
+  let watchesRoot: string;
+
+  function createWatchesCtx(sessions: Map<string, Session>, enabled = true): SessionContext {
+    const ctx = createMockSessionContext(sessions);
+    watchesRoot = mkdtempSync(join(tmpdir(), 'ct-watchcmd-test-'));
+    (ctx.state as { watchesStore: unknown }).watchesStore = new WatchesStore(join(watchesRoot, 'watches.yaml'));
+    (ctx.ops as { isWatchesEnabled: unknown }).isWatchesEnabled = mock(() => enabled);
+    return ctx;
+  }
+
+  afterEach(() => {
+    if (watchesRoot) rmSync(watchesRoot, { recursive: true, force: true });
+  });
+
+  async function seedWatch(ctx: SessionContext, name = 'Incident triage') {
+    const result = await ctx.state.watchesStore.add('test-platform', {
+      name,
+      condition: 'someone reports a production incident',
+      prompt: 'triage it',
+      keywords: ['incident', 'outage'],
+      createdBy: 'testuser',
+    });
+    if (!result.ok) throw new Error(result.error);
+    return result.watch;
+  }
+
+  it('explains itself when watches are disabled for the platform', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]), false);
+
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('disabled'))).toBe(true);
+  });
+
+  it('createWatch is owner-gated', async () => {
+    const session = createMockSession(); // startedBy testuser; isUserAllowed → false
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.createWatch(session, 'when someone reports an incident, triage it', 'stranger', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('can create watches'))).toBe(true);
+    expect((session.messageManager as any).setPendingWatchPrompt).not.toHaveBeenCalled();
+  });
+
+  it('createWatch posts a confirmation card showing condition and keywords', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+
+    // Inject the parse result directly (module-mocking quick-query leaks
+    // across test files; DI is the house pattern).
+    const parse = async () => ({
+      ok: true as const,
+      parsed: {
+        name: 'Incident triage',
+        condition: 'someone reports a production incident',
+        prompt: 'triage it and post a checklist',
+        keywords: ['incident', 'outage', 'down'],
+      },
+    });
+
+    await commands.createWatch(session, 'when someone reports an incident, triage it', 'testuser', ctx, parse);
+
+    const interactive = (session.platform.createInteractivePost as any).mock.calls;
+    expect(interactive).toHaveLength(1);
+    const card = interactive[0][0] as string;
+    expect(card).toContain('Incident triage');
+    expect(card).toContain('someone reports a production incident');
+    expect(card).toContain('incident');
+    expect(card).toContain('semantic check');
+    expect((session.messageManager as any).setPendingWatchPrompt).toHaveBeenCalled();
+  });
+
+  it('createWatch surfaces parse errors without saving anything', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+
+    const parse = async () => ({ ok: false as const, error: 'not a watch request' });
+    await commands.createWatch(session, 'what is the weather', 'testuser', ctx, parse);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('not a watch request'))).toBe(true);
+    expect(ctx.state.watchesStore.list('test-platform')).toHaveLength(0);
+  });
+
+  it('lists watches numbered with condition and creator', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    await seedWatch(ctx);
+
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    const listing = calls.find((m: string) => m.includes('Watches (1)'));
+    expect(listing).toBeDefined();
+    expect(listing).toContain('1. ');
+    expect(listing).toContain('Incident triage');
+    expect(listing).toContain('production incident');
+  });
+
+  it('pause/resume/delete are owner-gated', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    const watch = await seedWatch(ctx);
+
+    await commands.manageWatches(session, 'pause 1', 'stranger', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.enabled).toBe(true);
+
+    await commands.manageWatches(session, 'pause 1', 'testuser', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.enabled).toBe(false);
+
+    await commands.manageWatches(session, 'resume 1', 'testuser', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.enabled).toBe(true);
+
+    await commands.manageWatches(session, 'delete 1', 'testuser', ctx);
+    expect(ctx.state.watchesStore.list('test-platform')).toHaveLength(0);
+  });
+
+  it('reports unknown indices and bad subcommands', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.manageWatches(session, 'pause 7', 'testuser', ctx);
+    await commands.manageWatches(session, 'run 1', 'testuser', ctx); // no manual run for watches
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('No watch 7'))).toBe(true);
+    expect(calls.some((m: string) => m.includes('Usage'))).toBe(true);
   });
 });

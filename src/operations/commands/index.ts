@@ -28,7 +28,9 @@ export {
 
   // Routines
   createRoutine,
+  createWatch,
   manageRoutines,
+  manageWatches,
 
   // Permission management
   setSessionPermissionMode,

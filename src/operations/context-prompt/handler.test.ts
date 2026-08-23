@@ -573,4 +573,53 @@ describe('context-prompt', () => {
     });
   });
 
+  describe('offerContextPrompt autoInclude (unattended starts)', () => {
+    const threeMessages: ThreadMessage[] = [
+      { id: 'm1', userId: 'u1', username: 'alice', message: 'prod is down', createAt: 1000 },
+      { id: 'm2', userId: 'u2', username: 'bob', message: 'seeing 500s too', createAt: 2000 },
+      { id: 'm3', userId: 'u3', username: 'carol', message: 'started 5 min ago', createAt: 3000 },
+    ];
+
+    it('auto-includes a multi-message thread without posting an interactive prompt', async () => {
+      // Watch fires anchor on the triggering thread; a ≥2-message thread
+      // would normally post the interactive context prompt and stall the
+      // unattended session on a human reaction. autoInclude must take the
+      // send-directly path instead.
+      const createInteractivePost = mock(() => Promise.reject(new Error('must not be called')));
+      const session = createMockSession({
+        platformOverrides: {
+          getThreadHistory: mock(() => Promise.resolve(threeMessages)),
+          createInteractivePost: createInteractivePost as any,
+        },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      const posted = await offerContextPrompt(
+        session, 'triage this incident', undefined, makeHandlerCtx(), undefined, 'watcher', true,
+      );
+
+      expect(posted).toBe(false); // sent directly — nothing awaits a reaction
+      expect(createInteractivePost).not.toHaveBeenCalled();
+      expect(sent).toHaveLength(1);
+      // Thread content travels as context
+      expect(sent[0]).toContain('prod is down');
+      expect(sent[0]).toContain('triage this incident');
+    });
+
+    it('still sends directly when the thread has no history', async () => {
+      const session = createMockSession({
+        platformOverrides: { getThreadHistory: mock(() => Promise.resolve([])) },
+      });
+      const sent: string[] = [];
+      (session.claude.sendMessage as any) = mock((c: string) => { sent.push(c); });
+
+      const posted = await offerContextPrompt(
+        session, 'do the thing', undefined, makeHandlerCtx(), undefined, 'watcher', true,
+      );
+
+      expect(posted).toBe(false);
+      expect(sent[0]).toBe('do the thing');
+    });
+  });
 });
