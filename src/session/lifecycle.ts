@@ -1435,7 +1435,12 @@ async function startSessionImpl(
   // post — there is no thread history to offer, so skip the context prompt
   // and take the plain send path below.
   if (replyToPostId && !isDcmThreadId(replyToPostId)) {
-    const excludePostId = triggeringPostId || replyToPostId;
+    // Human starts exclude the @mention message (its content already IS the
+    // prompt). Unattended autoIncludeContext starts (watch fires) exclude
+    // nothing: their prompt is synthetic and the triggering message is the
+    // event the session must see — excluding the thread root here previously
+    // fired "triage the incident" sessions that never saw the incident.
+    const excludePostId = options.autoIncludeContext ? undefined : (triggeringPostId || replyToPostId);
     await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username, options.autoIncludeContext);
     // Either path inside offerContextPrompt sends or queues. Surface any
     // skipped-file warnings and return — the fallback claude.sendMessage()

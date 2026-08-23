@@ -1340,7 +1340,16 @@ export class SessionManager extends EventEmitter {
    * this wrapper is belt-and-braces).
    */
   evaluateWatches(platformId: string, post: { id: string; rootId?: string; userId?: string }, author: string, message: string): void {
-    void this.watchEvaluator?.evaluate(platformId, post, author, message).catch(() => {});
+    const evaluator = this.watchEvaluator;
+    if (!evaluator) return;
+    void (async () => {
+      // Belt-and-braces loop guard: pass the bot's own user id so the
+      // evaluator can drop bot self-posts even if a platform client ever
+      // stops filtering them before emitting. getBotUser() is cached by the
+      // clients, so this is not a per-message API call.
+      const botUser = await this.platforms.get(platformId)?.getBotUser().catch(() => null);
+      await evaluator.evaluate(platformId, post, author, message, botUser?.id);
+    })().catch(() => {});
   }
 
   /**

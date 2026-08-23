@@ -272,6 +272,60 @@ describe('WatchEvaluator pipeline', () => {
     expect(fires).toHaveLength(0); // just documenting: no assertion throw above is the test
   });
 
+  test('concurrent messages about one event cannot race past the cooldown (per-watch serialization)', async () => {
+    const watch = await seed();
+    let resolveConfirm!: (v: boolean) => void;
+    const gate = new Promise<boolean>((r) => { resolveConfirm = r; });
+    let confirmCalls = 0;
+    const { evaluator, fires } = makeEvaluator({
+      confirm: async () => { confirmCalls++; return gate; },
+    });
+
+    // Three people report the same incident within seconds — all evaluates
+    // start before any fire is recorded.
+    const p1 = evaluator.evaluate('mm', { id: 'p1' }, 'a', 'incident! api down');
+    const p2 = evaluator.evaluate('mm', { id: 'p2' }, 'b', 'yes, incident confirmed');
+    const p3 = evaluator.evaluate('mm', { id: 'p3' }, 'c', 'incident is bad');
+    await new Promise((r) => setTimeout(r, 10)); // let all reach the guard
+    resolveConfirm(true);
+    await Promise.all([p1, p2, p3]);
+
+    expect(confirmCalls).toBe(1); // one confirm spent, not three
+    expect(fires).toHaveLength(1); // one session, not three
+    expect(store.get('mm', watch.id)!.firesToday?.count).toBe(1);
+  });
+
+  test('post-confirm re-check: a fire that lands during the confirm blocks this one', async () => {
+    const watch = await seed();
+    const { evaluator, fires } = makeEvaluator({
+      confirm: async () => {
+        // While this confirm was in flight, another fire anchored the cooldown
+        // (e.g. from another bot process epoch or a manual store edit).
+        await store.update('mm', watch.id, { lastFiredAt: new Date().toISOString() });
+        return true;
+      },
+    });
+
+    await evaluator.evaluate('mm', { id: 'p1' }, 'bob', 'incident!');
+    expect(fires).toHaveLength(0);
+  });
+
+  test('a keyword that never semantically matches has a bounded daily confirm budget', async () => {
+    await seed();
+    let confirmCalls = 0;
+    const { evaluator, fires } = makeEvaluator({
+      dailyCap: 1, // budget = 1 * CONFIRM_BUDGET_MULTIPLIER (3)
+      confirm: async () => { confirmCalls++; return false; },
+    });
+
+    for (let i = 0; i < 6; i++) {
+      await evaluator.evaluate('mm', { id: `p${i}` }, 'bot', `deploy incident notification #${i}`);
+    }
+
+    expect(fires).toHaveLength(0);
+    expect(confirmCalls).toBe(3); // budget spent; remaining candidates dropped for free
+  });
+
   test('a throwing confirm is contained and does not fire', async () => {
     const watch = await seed();
     const { evaluator, fires } = makeEvaluator({ confirm: async () => { throw new Error('spawn failed'); } });

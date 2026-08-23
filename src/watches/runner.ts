@@ -82,8 +82,9 @@ export async function fireWatch(
     threadRoot,
     platformId,
     ctx,
-    // Deliberately NOT excluding the triggering post from context: it is the
-    // event itself — the session needs to see it.
+    // No triggeringPostId: with autoIncludeContext, startSession excludes
+    // nothing from context — the triggering message is the event itself and
+    // the session must see it.
     undefined,
   );
 

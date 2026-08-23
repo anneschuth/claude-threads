@@ -9,7 +9,7 @@
  * patch type, and any defensive per-item defaults (`applyItemDefaults`).
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, statSync } from 'fs';
 import { homedir } from 'os';
 import { join } from 'path';
 import yaml from 'js-yaml';
@@ -31,6 +31,13 @@ export abstract class PlatformListStore<T extends { id: string }> {
   private readonly queue = new SerialQueue();
   /** Top-level YAML key the platform map lives under (e.g. "routines"). */
   private readonly collectionKey: string;
+  /**
+   * mtime-keyed read cache: list() sits on hot paths (every channel message
+   * for watches, every scheduler tick for routines), and re-parsing YAML per
+   * call would put blocking parse work on the event loop. A stat() per read
+   * still detects out-of-band writes (another store instance, hand edits).
+   */
+  private cache: { mtimeMs: number; size: number; data: FileShape<T> } | null = null;
 
   protected constructor(collectionKey: string, defaultFile: string, filePath?: string) {
     this.collectionKey = collectionKey;
@@ -97,9 +104,14 @@ export abstract class PlatformListStore<T extends { id: string }> {
 
   protected loadRaw(): FileShape<T> {
     if (!existsSync(this.file)) {
+      this.cache = null;
       return { version: STORE_VERSION, items: {} };
     }
     try {
+      const stat = statSync(this.file);
+      if (this.cache && this.cache.mtimeMs === stat.mtimeMs && this.cache.size === stat.size) {
+        return this.cache.data;
+      }
       const parsed = yaml.load(readFileSync(this.file, 'utf-8')) as Record<string, unknown> | undefined;
       if (!parsed || typeof parsed !== 'object') {
         return { version: STORE_VERSION, items: {} };
@@ -111,9 +123,12 @@ export abstract class PlatformListStore<T extends { id: string }> {
       for (const list of Object.values(items)) {
         for (const item of list) this.applyItemDefaults(item);
       }
-      return { version: (parsed.version as number | undefined) ?? STORE_VERSION, items };
+      const data = { version: (parsed.version as number | undefined) ?? STORE_VERSION, items };
+      this.cache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
+      return data;
     } catch (err) {
       this.warn(`Failed to read ${this.file}: ${(err as Error).message} — starting empty`);
+      this.cache = null;
       return { version: STORE_VERSION, items: {} };
     }
   }
@@ -123,5 +138,13 @@ export abstract class PlatformListStore<T extends { id: string }> {
       this.file,
       yaml.dump({ version: data.version, [this.collectionKey]: data.items }, { sortKeys: true, lineWidth: -1 }),
     );
+    // The written object graph is what loadRaw would parse back; caching it
+    // directly avoids an immediate re-read. mtime/size from the fresh stat.
+    try {
+      const stat = statSync(this.file);
+      this.cache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
+    } catch {
+      this.cache = null;
+    }
   }
 }

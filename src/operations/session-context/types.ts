@@ -56,7 +56,7 @@ export interface SessionConfig {
   maxSessions: number;
   /** Maximum routines per platform instance (default: 10) */
   maxRoutines?: number;
-  /** Maximum watches (event triggers) per platform instance (default 5). */
+  /** Maximum watches (event triggers) per platform instance (default 10). */
   maxWatches?: number;
   /** Whether thread logging is enabled (default: true) */
   threadLogsEnabled?: boolean;

@@ -10,9 +10,13 @@
  *     alone NEVER fires; a confirm failure fails closed (no fire).
  *
  * Cost guardrails, checked cheapest-first and all before any model call:
- * per-watch cooldown, per-watch daily cap, and an in-process cap on
- * concurrent confirm calls (quickQuery spawns a process per call and has no
- * rate limiting of its own). At most one watch fires per message.
+ * per-watch cooldown, per-watch daily fire cap, a per-watch daily confirm
+ * budget (a keyword that hits often but never semantically matches must not
+ * spend haiku calls forever), per-watch in-flight serialization (a burst of
+ * messages about one event cannot race past the cooldown), and an
+ * in-process cap on concurrent confirm calls (quickQuery spawns a process
+ * per call and has no rate limiting of its own). At most one watch fires
+ * per message.
  *
  * Everything here is invoked fire-and-forget from the message handler: no
  * code path may throw out of `evaluate` (crash-class invariant — an
@@ -34,6 +38,14 @@ const log = createLogger('watches');
 const CONFIRM_TIMEOUT_MS = 10000;
 /** Max haiku confirms in flight at once, bot-wide. Overflow candidates are dropped (logged). */
 const MAX_CONCURRENT_CONFIRMS = 4;
+/**
+ * Per-watch daily budget of haiku confirm calls, as a multiple of the fire
+ * cap. Bounds the cost of a watch whose keywords hit often but whose
+ * condition never matches (e.g. a keyword shared with a chatty CI bot) —
+ * fires are capped, so confirms must be too. In-memory (resets on restart):
+ * a persisted counter would mean a disk write per confirm on the hot path.
+ */
+const CONFIRM_BUDGET_MULTIPLIER = 3;
 
 /** True when any of the watch's keywords occurs in the message (case-insensitive substring). */
 export function prefilterMatch(watch: Watch, message: string): boolean {
@@ -130,9 +142,24 @@ export interface WatchEvaluatorOptions {
 export class WatchEvaluator {
   private readonly opts: WatchEvaluatorOptions;
   private confirmsInFlight = 0;
+  /** Watch ids currently in confirm/fire — serializes concurrent messages per watch. */
+  private readonly watchInFlight = new Set<string>();
+  /** In-memory per-watch daily confirm counter (see CONFIRM_BUDGET_MULTIPLIER). */
+  private readonly confirmsToday = new Map<string, { date: string; count: number }>();
 
   constructor(opts: WatchEvaluatorOptions) {
     this.opts = opts;
+  }
+
+  /** True when the watch has haiku-confirm budget left today; counts the call. */
+  private takeConfirmBudget(watchId: string, now: Date): boolean {
+    const key = dayKey(now);
+    const budget = this.opts.dailyCap * CONFIRM_BUDGET_MULTIPLIER;
+    const entry = this.confirmsToday.get(watchId);
+    const count = entry?.date === key ? entry.count : 0;
+    if (count >= budget) return false;
+    this.confirmsToday.set(watchId, { date: key, count: count + 1 });
+    return true;
   }
 
   /**
@@ -167,22 +194,50 @@ export class WatchEvaluator {
           log.debug(`Watch "${watch.name}": daily fire cap reached — skipping`);
           continue;
         }
+        // Serialize per watch: a burst of messages about one event must not
+        // race past the cooldown while the first confirm is still awaiting.
+        // The concurrent candidates are dropped, not queued — the first
+        // confirmed fire owns the event and anchors the cooldown.
+        if (this.watchInFlight.has(watch.id)) {
+          log.debug(`Watch "${watch.name}": already evaluating a candidate — skipping`);
+          continue;
+        }
         if (this.confirmsInFlight >= MAX_CONCURRENT_CONFIRMS) {
           log.warn(`Watch "${watch.name}": too many confirms in flight — dropping candidate message`);
           continue;
         }
-
-        this.confirmsInFlight++;
-        let matched = false;
-        try {
-          matched = await (this.opts.confirm ?? confirmMatch)(watch, message, author);
-        } finally {
-          this.confirmsInFlight--;
+        if (!this.takeConfirmBudget(watch.id, now)) {
+          log.warn(`Watch "${watch.name}": daily confirm budget spent — dropping candidate message`);
+          continue;
         }
-        if (!matched) continue;
 
-        await this.fire(platformId, watch, post, author, now);
-        return; // at most one watch fires per message (earliest-created wins)
+        this.watchInFlight.add(watch.id);
+        try {
+          this.confirmsInFlight++;
+          let matched = false;
+          try {
+            matched = await (this.opts.confirm ?? confirmMatch)(watch, message, author);
+          } finally {
+            this.confirmsInFlight--;
+          }
+          if (!matched) continue;
+
+          // Re-check on FRESH store state: the ~10s confirm await is a race
+          // window — another fire (or a pause/delete) may have landed.
+          const recheck = new Date();
+          const fresh = this.opts.store.get(platformId, watch.id);
+          if (!fresh || !fresh.enabled
+            || isInCooldown(fresh, recheck, this.opts.cooldownMs)
+            || dailyCapReached(fresh, recheck, this.opts.dailyCap)) {
+            log.debug(`Watch "${watch.name}": state changed during confirm — not firing`);
+            continue;
+          }
+
+          await this.fire(platformId, fresh, post, author, recheck);
+          return; // at most one watch fires per message (earliest-created wins)
+        } finally {
+          this.watchInFlight.delete(watch.id);
+        }
       }
     } catch (err) {
       // Crash-class guard: evaluation runs detached from message handling.
