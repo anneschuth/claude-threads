@@ -13,9 +13,12 @@ name: Release
 # never publish. publish.yml is deliberately left untouched; it remains the path
 # for a release a human creates with `gh release create`.
 #
-# Safe to re-run: if the tag for the current package.json version already exists,
-# the job exits early without tagging or publishing. That also means an unrelated
-# package.json edit (a dependency bump) is a no-op rather than a bad release.
+# Safe to re-run: tagging and publishing are decided independently. If the
+# current version is already fully released (tag exists AND the version is on
+# npm), the job is a no-op — so an unrelated package.json edit (a dependency
+# bump) can never cut a bad release. If the tag exists but npm is missing the
+# version (a publish that failed after tagging, e.g. an expired NPM_TOKEN),
+# a re-run or workflow_dispatch retries just the publish.
 
 on:
   push:
@@ -48,15 +51,29 @@ jobs:
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Skip if this version was already released
+      # Two independent decisions, so a publish that failed after the tag was
+      # created (e.g. a dead NPM_TOKEN) can be retried with a plain
+      # workflow_dispatch once the token is fixed: tag exists + version absent
+      # from npm → skip tagging, still verify/build/publish. Tag exists +
+      # version on npm → full no-op (an unrelated package.json edit stays a
+      # non-release, same as before).
+      - name: Decide what this run must do
         id: check
         run: |
-          tag="v${{ steps.version.outputs.version }}"
+          version="${{ steps.version.outputs.version }}"
+          tag="v$version"
           if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
-            echo "Tag $tag already exists — nothing to release."
+            echo "Tag $tag already exists — will not tag."
+            echo "tag=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tag $tag does not exist — will tag and release."
+            echo "tag=true" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$(npm view "claude-threads@$version" version 2>/dev/null)" = "$version" ]; then
+            echo "claude-threads@$version is already on npm — will not publish."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
-            echo "Tag $tag does not exist — releasing."
+            echo "claude-threads@$version is not on npm — will publish."
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -106,7 +123,7 @@ jobs:
 
       # Creates the tag on this commit and the release in one call.
       - name: Create tag and GitHub release
-        if: steps.check.outputs.release == 'true'
+        if: steps.check.outputs.release == 'true' && steps.check.outputs.tag == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
