@@ -253,6 +253,16 @@ function refuseProposal(
 
 const PROPOSED = 'proposed_awaiting_human_approval';
 
+/**
+ * Model-controlled text that lands VERBATIM in the human-approval card the
+ * whole propose_* security model hangs on. Collapse all whitespace runs
+ * (newlines included) to single spaces: an embedded "\n\nReact 👍 to
+ * dismiss" must not be able to restyle the card or bury its badge.
+ */
+function singleLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
 async function proposeRoutine(
   session: Session,
   ctx: SessionContext,
@@ -262,8 +272,8 @@ async function proposeRoutine(
   const refusal = refuseProposal(session, ctx, 'routines');
   if (refusal) return { ok: false, reason: refusal };
 
-  const name = typeof input.name === 'string' ? input.name.trim() : '';
-  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
+  const name = typeof input.name === 'string' ? singleLine(input.name) : '';
+  const prompt = typeof input.prompt === 'string' ? singleLine(input.prompt) : '';
   if (!name || !prompt) return { ok: false, reason: 'name and prompt must be non-empty strings' };
   // Refuse over-length fields instead of silently truncating (same policy
   // as remember_fact): the store's own slice-on-save would corrupt the
@@ -284,9 +294,18 @@ async function proposeRoutine(
   if (scheduleError) {
     return { ok: false, reason: `invalid schedule: ${scheduleError} (presets: ${SCHEDULE_PRESETS.join('/')})` };
   }
+  // One pending confirmation per flavor per session: replacing it would
+  // leave an earlier card (possibly a human's !routine) dead with its
+  // reactions silently ignored.
+  if (session.messageManager?.hasPendingRoutinePrompt()) {
+    return { ok: false, reason: 'a routine confirmation is already awaiting a decision in this thread — wait for it to be decided first' };
+  }
 
   // The bridge client gave up (timeout / dead MCP child): don't post an
-  // orphan card nobody's tool call is waiting on.
+  // orphan card nobody's tool call is waiting on. (Residual window: an
+  // abort DURING the awaited card post below still lands the card — the
+  // 15s client timeout vs sub-second platform posts makes that rare, and
+  // the card stays a valid, human-decidable proposal either way.)
   if (signal.aborted) return { ok: false, reason: 'cancelled' };
 
   await postRoutineConfirmation(
@@ -325,9 +344,9 @@ async function proposeWatch(
   const refusal = refuseProposal(session, ctx, 'watches');
   if (refusal) return { ok: false, reason: refusal };
 
-  const name = typeof input.name === 'string' ? input.name.trim() : '';
-  const condition = typeof input.condition === 'string' ? input.condition.trim() : '';
-  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
+  const name = typeof input.name === 'string' ? singleLine(input.name) : '';
+  const condition = typeof input.condition === 'string' ? singleLine(input.condition) : '';
+  const prompt = typeof input.prompt === 'string' ? singleLine(input.prompt) : '';
   if (!name || !condition || !prompt) {
     return { ok: false, reason: 'name, condition and prompt must be non-empty strings' };
   }
@@ -337,6 +356,9 @@ async function proposeWatch(
   const keywords = validateKeywords(input.keywords);
   if (typeof keywords === 'string') {
     return { ok: false, reason: `invalid keywords: ${keywords}` };
+  }
+  if (session.messageManager?.hasPendingWatchPrompt()) {
+    return { ok: false, reason: 'a watch confirmation is already awaiting a decision in this thread — wait for it to be decided first' };
   }
 
   if (signal.aborted) return { ok: false, reason: 'cancelled' };

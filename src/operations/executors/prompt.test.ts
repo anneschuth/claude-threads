@@ -1104,8 +1104,11 @@ describe('PromptExecutor — agent-proposal decision gate', () => {
       expect(completions).toHaveLength(0);
       expect(executor.hasPendingRoutinePrompt()).toBe(true);
     }
-    const warnings = [...(platform as unknown as { posts: Map<string, { content: string }> }).posts.values()];
-    expect(warnings.some((p) => p.content.includes('can decide'))).toBe(true);
+    const warnings = [...(platform as unknown as { posts: Map<string, { content: string }> }).posts.values()]
+      .filter((p) => p.content.includes('can decide'));
+    // Warn once per pending proposal — a reaction-toggling guest must not
+    // be able to spam the thread.
+    expect(warnings).toHaveLength(1);
 
     // The owner's later reaction still decides the SAME pending proposal.
     await executor.handleReaction('post-r1', '+1', 'anne', 'added', ctx);

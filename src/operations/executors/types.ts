@@ -161,6 +161,8 @@ export interface PendingRoutinePrompt {
   /** True when Claude proposed this via the propose_routine MCP tool
    *  (requestedBy is then the session owner it runs as). */
   proposedByAgent?: boolean;
+  /** Set after the first unauthorized-reaction warning (spam guard). */
+  unauthorizedWarned?: boolean;
 }
 
 /**
@@ -175,6 +177,8 @@ export interface PendingWatchPrompt {
   requestedBy: string;
   /** True when Claude proposed this via the propose_watch MCP tool. */
   proposedByAgent?: boolean;
+  /** Set after the first unauthorized-reaction warning (spam guard). */
+  unauthorizedWarned?: boolean;
 }
 
 /**

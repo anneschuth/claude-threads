@@ -378,10 +378,15 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       username !== pending.requestedBy &&
       !ctx.platform.isUserAllowed(username)
     ) {
-      await ctx.createPost(
-        `⚠️ Only ${ctx.formatter.formatUserMention(pending.requestedBy)} or allowed users can decide a ${label.toLowerCase()} Claude proposed.`,
-        { type: 'system' },
-      );
+      // Warn once per pending proposal: a guest toggling reactions must
+      // not be able to spam the thread with one warning per toggle.
+      if (!(pending as { unauthorizedWarned?: boolean }).unauthorizedWarned) {
+        (pending as { unauthorizedWarned?: boolean }).unauthorizedWarned = true;
+        await ctx.createPost(
+          `⚠️ Only ${ctx.formatter.formatUserMention(pending.requestedBy)} or allowed users can decide a ${label.toLowerCase()} Claude proposed.`,
+          { type: 'system' },
+        );
+      }
       return true;
     }
     return completePendingPrompt({

@@ -513,11 +513,8 @@ export async function createAndSwitchToWorktree(
           ...buildRestartCliOptions(session, {
             chromeEnabled: options.chromeEnabled,
             permissionTimeoutMs: options.permissionTimeoutMs,
-            ops: {
-              getPlatformMemoryConfig: options.getPlatformMemoryConfig,
-              isRoutinesEnabled: options.isRoutinesEnabled,
-              isWatchesEnabled: options.isWatchesEnabled,
-            },
+            // options structurally satisfies AgentFeatureOps.
+            ops: options,
           }),
           workingDir: existing.path,
           permissionMode: effectivePermissionMode({
@@ -697,11 +694,8 @@ export async function createAndSwitchToWorktree(
         ...buildRestartCliOptions(session, {
           chromeEnabled: options.chromeEnabled,
           permissionTimeoutMs: options.permissionTimeoutMs,
-          ops: {
-            getPlatformMemoryConfig: options.getPlatformMemoryConfig,
-            isRoutinesEnabled: options.isRoutinesEnabled,
-            isWatchesEnabled: options.isWatchesEnabled,
-          },
+          // options structurally satisfies AgentFeatureOps.
+          ops: options,
         }),
         workingDir: worktreePath,
         permissionMode: effectivePermissionMode({

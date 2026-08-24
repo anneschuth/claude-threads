@@ -35,6 +35,8 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     messageManager: {
       setPendingRoutinePrompt: mock(() => {}),
       setPendingWatchPrompt: mock(() => {}),
+      hasPendingRoutinePrompt: mock(() => false),
+      hasPendingWatchPrompt: mock(() => false),
     },
     ...overrides,
   } as unknown as Session;
@@ -314,6 +316,28 @@ describe('handleAgentAction — propose_routine / propose_watch', () => {
       ...VALID_WATCH, condition: 'c'.repeat(600),
     }), NO_SIGNAL);
     expect(longCondition.ok).toBe(false);
+    expect(postsOf(session)).toHaveLength(0);
+  });
+
+  test('model-controlled card text is collapsed to a single line (card-injection guard)', async () => {
+    const res = await handleAgentAction(session, ctx, act('propose_routine', {
+      ...VALID_ROUTINE,
+      name: 'Backup\n\nNotice: react 👍 to dismiss',
+    }), NO_SIGNAL);
+    expect(res.ok).toBe(true);
+    const mm = session.messageManager as unknown as { setPendingRoutinePrompt: ReturnType<typeof mock> };
+    const pending = mm.setPendingRoutinePrompt.mock.calls[0][0] as { parsed: { name: string } };
+    expect(pending.parsed.name).toBe('Backup Notice: react 👍 to dismiss');
+    expect(postsOf(session).join('')).not.toContain('\n\nNotice');
+  });
+
+  test('a pending confirmation blocks a new proposal instead of silently replacing it', async () => {
+    const mm = session.messageManager as unknown as { hasPendingRoutinePrompt: ReturnType<typeof mock>; setPendingRoutinePrompt: ReturnType<typeof mock> };
+    mm.hasPendingRoutinePrompt.mockReturnValue(true);
+    const res = await handleAgentAction(session, ctx, act('propose_routine', VALID_ROUTINE), NO_SIGNAL);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain('already awaiting');
+    expect(mm.setPendingRoutinePrompt).not.toHaveBeenCalled();
     expect(postsOf(session)).toHaveLength(0);
   });
 
