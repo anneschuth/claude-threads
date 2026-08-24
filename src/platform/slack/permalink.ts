@@ -15,14 +15,12 @@
  * the only one the bot is authorized to read.
  */
 
-import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
+import type { McpPlatformApi } from '../mcp-platform-api.js';
 import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
   clampThreadLimit,
-  truncateBody,
-  quoteBlock,
 } from '../permalink-shared.js';
 
 export { DEFAULT_THREAD_LIMIT, MAX_THREAD_LIMIT, MAX_MESSAGE_BODY_CHARS };
@@ -96,25 +94,9 @@ export function parseSlackPermalink(url: string): ParsedSlackPermalink | null {
   return { channelId, ts, threadParentTs };
 }
 
-export interface ResolveOptions {
-  includeThread?: boolean;
-  /** Defaults to DEFAULT_THREAD_LIMIT, capped at MAX_THREAD_LIMIT. */
-  maxMessages?: number;
-}
-
-export interface ResolvedSlackPermalink {
-  post: McpPost;
-  thread: McpPost[];
-}
-
-export type ResolveError =
-  | { kind: 'wrong-channel' } // permalink is for a channel other than the bot's
-  | { kind: 'not-found' }
-  | { kind: 'unsupported' };
-
-export type ResolveResult =
-  | { ok: true; resolved: ResolvedSlackPermalink }
-  | { ok: false; error: ResolveError };
+export type { ResolveOptions, ResolveResult } from '../permalink-shared.js';
+export type { ResolvedPermalink as ResolvedSlackPermalink } from '../permalink-shared.js';
+import { formatResolvedPermalink, type ResolveOptions, type ResolveResult, type ResolvedPermalink as ResolvedSlackPermalink } from '../permalink-shared.js';
 
 /**
  * Fetch the post (and optionally thread) via the McpPlatformApi. The
@@ -163,26 +145,5 @@ export async function resolveSlackPermalink(
  * formatter for consistency in tool output.
  */
 export function formatResolvedSlack(resolved: ResolvedSlackPermalink): string {
-  const { post, thread } = resolved;
-  const lines: string[] = [];
-
-  lines.push(`Slack message by @${post.username ?? 'unknown'}:`);
-  lines.push('');
-  lines.push(quoteBlock(truncateBody(post.message)));
-
-  if (thread.length > 0) {
-    lines.push('');
-    lines.push(`Thread context (${thread.length} message${thread.length === 1 ? '' : 's'}):`);
-    lines.push('');
-    for (const m of thread) {
-      const marker = m.id === post.id ? ' ← linked message' : '';
-      const author = m.username ?? 'unknown';
-      lines.push(`@${author}${marker}:`);
-      lines.push(quoteBlock(truncateBody(m.message)));
-      lines.push('');
-    }
-    if (lines[lines.length - 1] === '') lines.pop();
-  }
-
-  return lines.join('\n');
+  return formatResolvedPermalink(resolved, { header: 'Slack message by', linkedMarker: '← linked message' });
 }

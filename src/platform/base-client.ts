@@ -54,6 +54,47 @@ export interface BaseMcpConfig {
  * - Interactive post creation
  */
 export abstract class BasePlatformClient extends EventEmitter implements PlatformClient {
+  /**
+   * Force-close a WebSocket and resolve when it is fully down (or after a
+   * 1s safety timeout if the close handshake hangs). Strips all listeners
+   * first and installs a one-shot close watcher. Shared by both clients'
+   * forceCloseConnection() — the bodies were byte-identical copies.
+   */
+  protected closeSocket(ws: { readyState: number; close(): void; onopen: unknown; onmessage: unknown; onerror: unknown; onclose: unknown } | null): Promise<void> {
+    if (!ws) return Promise.resolve();
+
+    // Remove existing listeners; we install a one-shot close watcher below.
+    ws.onopen = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+
+    const CLOSED = 3; // WebSocket.CLOSED
+    const OPEN = 1; // WebSocket.OPEN
+    const CONNECTING = 0; // WebSocket.CONNECTING
+
+    if (ws.readyState === CLOSED) {
+      ws.onclose = null;
+      return Promise.resolve();
+    }
+
+    return new Promise<void>((resolve) => {
+      const done = () => {
+        ws.onclose = null;
+        resolve();
+      };
+      ws.onclose = done;
+      // Safety: don't wait forever if the close handshake hangs.
+      setTimeout(done, 1000);
+      if (ws.readyState === OPEN || ws.readyState === CONNECTING) {
+        try {
+          ws.close();
+        } catch {
+          done();
+        }
+      }
+    });
+  }
+
   // ============================================================================
   // Identity (from PlatformClient interface)
   // ============================================================================

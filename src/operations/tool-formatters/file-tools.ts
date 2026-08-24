@@ -30,7 +30,6 @@ export const fileToolsFormatter: ToolFormatter = {
         const filePath = short(input.file_path as string);
         return {
           display: `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(filePath)}`,
-          permissionText: `📄 ${formatter.formatBold('Read')} ${formatter.formatCode(filePath)}`,
         };
       }
 
@@ -89,7 +88,6 @@ export const fileToolsFormatter: ToolFormatter = {
 
         return {
           display: `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(filePath)}`,
-          permissionText: `✏️ ${formatter.formatBold('Edit')} ${formatter.formatCode(filePath)}`,
           isDestructive: true,
         };
       }
@@ -121,7 +119,6 @@ export const fileToolsFormatter: ToolFormatter = {
 
         return {
           display: `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)}`,
-          permissionText: `📝 ${formatter.formatBold('Write')} ${formatter.formatCode(filePath)}`,
           isDestructive: true,
         };
       }
@@ -130,7 +127,6 @@ export const fileToolsFormatter: ToolFormatter = {
         const pattern = input.pattern as string;
         return {
           display: `🔍 ${formatter.formatBold('Glob')} ${formatter.formatCode(pattern)}`,
-          permissionText: `🔍 ${formatter.formatBold('Glob')} ${formatter.formatCode(pattern)}`,
         };
       }
 
@@ -138,7 +134,6 @@ export const fileToolsFormatter: ToolFormatter = {
         const pattern = input.pattern as string;
         return {
           display: `🔎 ${formatter.formatBold('Grep')} ${formatter.formatCode(pattern)}`,
-          permissionText: `🔎 ${formatter.formatBold('Grep')} ${formatter.formatCode(pattern)}`,
         };
       }
 

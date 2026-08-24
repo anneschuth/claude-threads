@@ -116,60 +116,31 @@ export class SystemExecutor extends BaseExecutor<SystemState> {
     ctx.logger.debug(`Lifecycle event: ${op.event}`);
   }
 
-  /**
-   * Post an info message.
-   */
+  /** Post a system message at the given level; the four public wrappers below are the API. */
+  private async postLevel(level: 'info' | 'warning' | 'error' | 'success', message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
+    const formattedMessage = this.formatSystemMessage(message, level, ctx.formatter);
+    try {
+      return await ctx.createPost(formattedMessage, { type: 'system' });
+    } catch (err) {
+      ctx.logger.error(`Failed to post ${level} message: ${err}`);
+      return undefined;
+    }
+  }
+
   async postInfo(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formattedMessage = this.formatSystemMessage(message, 'info', ctx.formatter);
-
-    try {
-      return await ctx.createPost(formattedMessage, { type: 'system' });
-    } catch (err) {
-      ctx.logger.error(`Failed to post info message: ${err}`);
-      return undefined;
-    }
+    return this.postLevel('info', message, ctx);
   }
 
-  /**
-   * Post a warning message.
-   */
   async postWarning(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formattedMessage = this.formatSystemMessage(message, 'warning', ctx.formatter);
-
-    try {
-      return await ctx.createPost(formattedMessage, { type: 'system' });
-    } catch (err) {
-      ctx.logger.error(`Failed to post warning message: ${err}`);
-      return undefined;
-    }
+    return this.postLevel('warning', message, ctx);
   }
 
-  /**
-   * Post an error message.
-   */
   async postError(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formattedMessage = this.formatSystemMessage(message, 'error', ctx.formatter);
-
-    try {
-      return await ctx.createPost(formattedMessage, { type: 'system' });
-    } catch (err) {
-      ctx.logger.error(`Failed to post error message: ${err}`);
-      return undefined;
-    }
+    return this.postLevel('error', message, ctx);
   }
 
-  /**
-   * Post a success message.
-   */
   async postSuccess(message: string, ctx: ExecutorContext): Promise<PlatformPost | undefined> {
-    const formattedMessage = this.formatSystemMessage(message, 'success', ctx.formatter);
-
-    try {
-      return await ctx.createPost(formattedMessage, { type: 'system' });
-    } catch (err) {
-      ctx.logger.error(`Failed to post success message: ${err}`);
-      return undefined;
-    }
+    return this.postLevel('success', message, ctx);
   }
 
   /**

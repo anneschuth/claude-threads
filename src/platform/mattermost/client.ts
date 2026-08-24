@@ -692,34 +692,7 @@ export class MattermostClient extends BasePlatformClient {
   protected forceCloseConnection(): Promise<void> {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return Promise.resolve();
-
-    // Remove existing listeners; we install a one-shot close watcher below.
-    ws.onopen = null;
-    ws.onmessage = null;
-    ws.onerror = null;
-
-    if (ws.readyState === WebSocket.CLOSED) {
-      ws.onclose = null;
-      return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-      const done = () => {
-        ws.onclose = null;
-        resolve();
-      };
-      ws.onclose = done;
-      // Safety: don't wait forever if the close handshake hangs.
-      setTimeout(done, 1000);
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        try {
-          ws.close();
-        } catch {
-          done();
-        }
-      }
-    });
+    return this.closeSocket(ws);
   }
 
   /**

@@ -26,7 +26,6 @@ export const webToolsFormatter: ToolFormatter = {
         const url = ((input.url as string) || '').substring(0, 40);
         return {
           display: `🌐 ${formatter.formatBold('Fetching')} ${formatter.formatCode(url)}`,
-          permissionText: `🌐 ${formatter.formatBold('Fetching')} ${formatter.formatCode(url)}`,
         };
       }
 
@@ -34,7 +33,6 @@ export const webToolsFormatter: ToolFormatter = {
         const query = (input.query as string) || '';
         return {
           display: `🔍 ${formatter.formatBold('Searching')} ${formatter.formatCode(query)}`,
-          permissionText: `🔍 ${formatter.formatBold('Searching')} ${formatter.formatCode(query)}`,
         };
       }
 

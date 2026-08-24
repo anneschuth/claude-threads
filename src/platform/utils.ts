@@ -236,6 +236,23 @@ export function getEmojiName(emoji: string): string {
  * @param content - Content in standard markdown
  * @returns Content converted to Slack mrkdwn format
  */
+/**
+ * Fix code blocks that have text immediately after the closing ``` —
+ * happens when Claude outputs code blocks without proper newlines.
+ *
+ * The pattern distinguishes opening vs closing ```:
+ * - Opening: at line start, followed by optional language identifier, then newline
+ * - Closing: at line start (after code content), followed by newline or end of string
+ *
+ * We match ``` preceded by newline (closing marker), followed by a non-whitespace
+ * character that isn't part of a language identifier pattern (which would indicate
+ * opening ```). The (?=\S) ensures there IS something after ``` (not end of
+ * string or whitespace).
+ */
+export function fixCodeFenceRuns(text: string): string {
+  return text.replace(/(?<=\n)```(?=\S)(?![a-zA-Z]*\n)/g, '```\n');
+}
+
 export function convertMarkdownToSlack(content: string): string {
   // First, extract and preserve code blocks to avoid modifying their content
   const codeBlocks: string[] = [];
@@ -277,17 +294,7 @@ export function convertMarkdownToSlack(content: string): string {
     preserved = preserved.replace(`${CODE_BLOCK_PLACEHOLDER}${i}\x00`, codeBlocks[i]);
   }
 
-  // Fix code blocks that have text immediately after the closing ```
-  // This happens when Claude outputs code blocks without proper newlines
-  //
-  // The pattern distinguishes opening vs closing ```:
-  // - Opening: at line start, followed by optional language identifier, then newline
-  // - Closing: at line start (after code content), followed by newline or end of string
-  //
-  // We match ``` preceded by newline (closing marker), followed by a non-whitespace character
-  // that isn't part of a language identifier pattern (which would indicate opening ```)
-  // The (?=\S) ensures there IS something after ``` (not end of string or whitespace)
-  preserved = preserved.replace(/(?<=\n)```(?=\S)(?![a-zA-Z]*\n)/g, '```\n');
+  preserved = fixCodeFenceRuns(preserved);
 
   return preserved;
 }

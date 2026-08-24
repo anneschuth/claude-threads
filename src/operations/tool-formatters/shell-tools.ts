@@ -67,7 +67,6 @@ export const shellToolsFormatter: ToolFormatter = {
 
         return {
           display: `🛑 ${formatter.formatBold('KillShell')} ${formatter.formatCode(shellId)}`,
-          permissionText: `🛑 ${formatter.formatBold('KillShell')} ${formatter.formatCode(shellId)}`,
           isDestructive: true, // Killing a shell is a destructive operation
         };
       }

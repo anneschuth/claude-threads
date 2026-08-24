@@ -17,7 +17,7 @@ import type { OverheadVisibility, PermissionMode } from '../config/index.js';
 import { DEFAULT_OVERHEAD_VISIBILITY } from '../config/index.js';
 import { clearAllTimers } from './timer-manager.js';
 import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
-import { isAuthorizedForSession } from './authorization.js';
+import { isAuthorizedForSession, sessionAllowedUserSet } from './authorization.js';
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
@@ -1341,7 +1341,7 @@ async function resumeSessionImpl(
   // participants (owner + invited) instead of the whole platform allowlist.
   if (resolveApprovals(platform.approvals, isDcmThreadId(state.threadId)) === 'owner') {
     platformMcpConfig.allowedUsers = Array.from(
-      new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean))
+      sessionAllowedUserSet(state)
     ) as string[];
   }
 
@@ -1354,7 +1354,7 @@ async function resumeSessionImpl(
     state.workingDir,
     state.threadId,
     state.startedBy,
-    state.sessionAllowedUsers || [state.startedBy],
+    [...sessionAllowedUserSet(state)],
     CHAT_PLATFORM_PROMPT,
     ctx.state.githubEmailsStore,
     memoryConfig.enabled && memoryConfig.channelLayer ? ctx.state.memoryStore : null,
@@ -1429,7 +1429,7 @@ async function resumeSessionImpl(
     workingDir: state.workingDir,
     claude,
     planApproved: state.planApproved ?? false,
-    sessionAllowedUsers: new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean)),
+    sessionAllowedUsers: sessionAllowedUserSet(state),
     forceInteractivePermissions: state.forceInteractivePermissions ?? false,
     respondOnlyWhenMentioned: state.respondOnlyWhenMentioned ?? false,
     userAttribution,
@@ -1742,7 +1742,7 @@ export async function resumePausedSession(
     log.warn(`auth.denied.resume: platform '${state.platformId}' not found for ${shortId}...`);
     return;
   }
-  const sessionAllowedUsers = new Set(state.sessionAllowedUsers || [state.startedBy].filter(Boolean));
+  const sessionAllowedUsers = sessionAllowedUserSet(state);
   if (!isAuthorizedForSession({ username, platform, sessionAllowedUsers })) {
     log.warn(`auth.denied.resume: @${username || 'unknown'} not authorized to resume ${shortId}...`);
     return;

@@ -104,14 +104,12 @@ export class ToolFormatterRegistry implements ToolFormatterRegistryInterface {
     if (mcpParts) {
       return {
         display: `🔌 ${formatter.formatBold(mcpParts.tool)} ${formatter.formatItalic(`(${mcpParts.server})`)}`,
-        permissionText: `🔌 ${formatter.formatBold(mcpParts.tool)} ${formatter.formatItalic(`(${mcpParts.server})`)}`,
       };
     }
 
     // Unknown tool - generic format
     return {
       display: `● ${formatter.formatBold(toolName)}`,
-      permissionText: `● ${formatter.formatBold(toolName)}`,
     };
   }
 

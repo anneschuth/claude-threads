@@ -11,6 +11,7 @@
  * delivery) are injected, and the timers are overridable for tests.
  */
 
+import { dcmThreadId } from './utils.js';
 import type { MattermostPlatformConfig, PlatformInstanceConfig } from '../config/types.js';
 import { configureAuditLog } from '../persistence/audit-log.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './index.js';
@@ -195,7 +196,7 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
         // reaches the DM via REST) so the next DM starts fresh.
         log('error', `Failed to connect DM instance ${dmId}, discarding: ${err}`);
         void (async () => {
-          const threadId = `dcm:${dmId}`;
+          const threadId = dcmThreadId(dmId);
           // The first message's session start may still be in flight (the
           // session registers only late in startSession) — wait for it, or
           // the registry check below would miss a session that materializes
@@ -254,7 +255,7 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
       // conversation is resumably persisted, or a grace teardown is pending.
       setTimeout(() => {
         if (platforms.get(dmId) !== dmClient) return;
-        const threadId = `dcm:${dmId}`;
+        const threadId = dcmThreadId(dmId);
         if (session.registry.findByThreadId(threadId)) return;
         for (const [, p] of deps.loadPersistedSessions()) {
           if (p.threadId === threadId) return;
@@ -343,7 +344,7 @@ export function createDmDiscoveryRuntime(deps: DmDiscoveryDeps): DmDiscoveryRunt
       cancelGraceTimer(dmId); // stacked session:remove events collapse to one timer
       const timer = setTimeout(() => {
         graceTimers.delete(dmId);
-        if (session.registry.findByThreadId(`dcm:${dmId}`)) return; // new session took over
+        if (session.registry.findByThreadId(dcmThreadId(dmId))) return; // new session took over
         teardown(channelId, dmId, 'session ended', expectedClient);
       }, graceMs);
       graceTimers.set(dmId, timer);

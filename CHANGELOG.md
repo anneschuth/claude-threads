@@ -15,9 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Audit trail: routine/watch creation confirmations now record the user whose reaction decided them** (the requester is carried in the detail) — matching how plan approvals are attributed.
 - **sessions.json and the GitHub-emails store can no longer be wiped by a transient read failure.** Every mutation is a read-modify-write; when the existing file cannot be read faithfully (corruption, EMFILE), reads degrade to empty but writes now refuse — previously the next persist atomically replaced the file with the degraded empty view, destroying every paused session across all platforms. A parseable file that merely lacks the collection key (e.g. a bare `{}`) provably holds nothing and stays writable.
 - Mattermost thread history resolves usernames only for the messages the limit keeps (matches the Slack client).
+- **Slack MCP tools now normalize literal Unicode emoji to shortcodes** for `react_to_post` and interactive-post reactions — `reactions.add` rejects raw 👍; the client path already normalized, the MCP path was the odd one out.
+- **All haiku one-shots (routine/watch parses, watch confirms, memory distillation) now resolve the claude binary like sessions do** — `quickQuery` used a bare `claude` from PATH while sessions fall back to common install locations, so on some hosts sessions worked while every one-shot silently failed.
 
 ### Changed
 - Internal restructuring after three feature waves: the user-commands module splits by domain (guards/memory/automation), lifecycle sheds the out-of-band metadata-suggestions domain into its own module, and the last two stores (sessions, GitHub emails) migrate onto the shared atomic-write primitives.
+- A wide DRY + dead-code sweep (net −800 lines): shared WebSocket close/permalink formatting/post-list rendering/limit clamping across the platform and MCP layers, one canonical legacy-allowlist helper for the six hand-copied authorization fallbacks, nine MCP tool registrations collapsed into one helper, ~380 lines of dead test helpers deleted, and the client test files adopt the shared fetch harness.
 
 ## [1.29.0] - 2026-08-24
 

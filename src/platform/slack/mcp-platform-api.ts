@@ -34,7 +34,7 @@ import type {
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
 import { SlackFormatter } from './formatter.js';
-import { formatWebSocketError, resolvePostThreadId } from '../utils.js';
+import { formatWebSocketError, resolvePostThreadId, getEmojiName } from '../utils.js';
 import { uploadFileSlack } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
@@ -42,17 +42,10 @@ import { sanitizeFilename } from '../../utils/safe-filename.js';
 // Slack MCP API Configuration
 // =============================================================================
 
-/**
- * Configuration for the Slack MCP platform API
- */
-export interface SlackMcpApiConfig {
-  botToken: string;      // xoxb-... token for Web API
-  appToken: string;      // xapp-... token for Socket Mode
-  channelId: string;
-  threadTs?: string;     // Thread timestamp if posting in a thread
-  allowedUsers: string[];
-  debug?: boolean;
-}
+// The config shape is the canonical one from mcp-platform-api.ts — a local
+// shadow copy (without platformType) used to hide behind the factory's cast.
+export type { SlackMcpApiConfig } from '../mcp-platform-api.js';
+import type { SlackMcpApiConfig } from '../mcp-platform-api.js';
 
 // =============================================================================
 // Slack API Helpers
@@ -186,8 +179,9 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     // Add reaction emojis as options
     for (const emoji of reactions) {
       try {
-        // Slack reaction names don't include colons
-        const emojiName = emoji.replace(/:/g, '');
+        // Normalize like the client does: strips colons AND maps literal
+        // Unicode emoji to their shortcode (reactions.add rejects raw 👍).
+        const emojiName = getEmojiName(emoji);
         await slackApi(
           'reactions.add',
           this.config.botToken,
@@ -425,8 +419,9 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   }
 
   async addReaction(postId: string, emojiName: string): Promise<void> {
-    // Slack reaction names never include the surrounding colons in the API.
-    const name = emojiName.replace(/:/g, '');
+    // Normalize like the client does: strips colons AND maps literal
+    // Unicode emoji to their shortcode (reactions.add rejects raw 👍).
+    const name = getEmojiName(emojiName);
     mcpLogger.debug(`addReaction: :${name}: on ts ${postId}`);
     // Implicit channel scope: Slack identifies messages by (channel, ts), so
     // we always pass the bot's configured channel here. The interface

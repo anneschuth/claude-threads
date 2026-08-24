@@ -42,7 +42,6 @@ export const playwrightToolsFormatter: ToolFormatter = {
 
         return {
           display: `🎭 ${formatter.formatBold('Playwright')} navigate → ${formatter.formatCode(domain)}`,
-          permissionText: `🎭 ${formatter.formatBold('Playwright')} navigate → ${formatter.formatCode(domain)}`,
         };
       }
 

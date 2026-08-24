@@ -136,15 +136,18 @@ describe('ToolFormatterRegistry', () => {
       expect(result.display).toContain('plugin_my_custom_plugin');
     });
 
-    it('provides permissionText for generic MCP tools', () => {
+    it('permission text (via the display fallback) names generic MCP tools', () => {
+      // Formatters only set permissionText when it DIFFERS from display —
+      // the permission consumer falls back to display otherwise.
       const result = registry.format(
         'mcp__server__tool',
         {},
         { formatter: mockFormatter }
       );
 
-      expect(result.permissionText).toContain('tool');
-      expect(result.permissionText).toContain('server');
+      const text = result.permissionText ?? result.display;
+      expect(text).toContain('tool');
+      expect(text).toContain('server');
     });
   });
 });
