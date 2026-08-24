@@ -158,6 +158,9 @@ export interface PendingRoutinePrompt {
   parsed: ParsedRoutineRequest;
   /** Who asked for the routine — becomes `createdBy` on approval. */
   requestedBy: string;
+  /** True when Claude proposed this via the propose_routine MCP tool
+   *  (requestedBy is then the session owner it runs as). */
+  proposedByAgent?: boolean;
 }
 
 /**
@@ -170,6 +173,8 @@ export interface PendingWatchPrompt {
   parsed: ParsedWatchRequest;
   /** Who asked for the watch — becomes `createdBy` on approval. */
   requestedBy: string;
+  /** True when Claude proposed this via the propose_watch MCP tool. */
+  proposedByAgent?: boolean;
 }
 
 /**

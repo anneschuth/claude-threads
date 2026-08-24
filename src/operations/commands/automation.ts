@@ -9,8 +9,8 @@ import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import { post, postInteractiveAndRegister } from '../post-helpers/index.js';
 import { describeSchedule } from '../../persistence/routines-store.js';
-import { parseRoutineRequest, hostTimezone } from '../../routines/parser.js';
-import { parseWatchRequest } from '../../watches/parser.js';
+import { parseRoutineRequest, hostTimezone, type ParsedRoutineRequest } from '../../routines/parser.js';
+import { parseWatchRequest, type ParsedWatchRequest } from '../../watches/parser.js';
 import { formatIsoMinute } from '../../utils/format.js';
 import { auditCommand, requireSessionOwner } from './guards.js';
 import { createLogger } from '../../utils/logger.js';
@@ -88,11 +88,31 @@ export async function createRoutine(
   const tzNote = timezoneDefaulted
     ? `\n${formatter.formatItalic(`Timezone defaulted to the bot host's ${parsed.schedule.timezone} — name one explicitly ("9am Pacific") to override.`)}`
     : '';
+  await postRoutineConfirmation(session, ctx, parsed, username, { extraNote: tzNote });
+}
+
+/**
+ * Post the routine confirmation card and park the pending prompt. Shared by
+ * the `!routine` command (haiku-parsed input) and the agent's
+ * `propose_routine` MCP tool (structured input) — one card, one approval
+ * flow, one save path: NOTHING saves without a human 👍 on this card.
+ */
+export async function postRoutineConfirmation(
+  session: Session,
+  ctx: SessionContext,
+  parsed: ParsedRoutineRequest,
+  requestedBy: string,
+  opts: { extraNote?: string; proposedByAgent?: boolean } = {},
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+  const heading = opts.proposedByAgent
+    ? `🕘 ${formatter.formatBold(`Claude proposes routine "${parsed.name}"`)} — approve?`
+    : `🕘 ${formatter.formatBold(`Create routine "${parsed.name}"?`)}`;
   const confirmPost = await postInteractiveAndRegister(
     session,
-    `🕘 ${formatter.formatBold(`Create routine "${parsed.name}"?`)}\n` +
+    `${heading}\n` +
     `${formatter.formatBold('Schedule:')} ${describeSchedule(parsed.schedule)}\n` +
-    `${formatter.formatBold('Task:')} ${parsed.prompt}${tzNote}\n\n` +
+    `${formatter.formatBold('Task:')} ${parsed.prompt}${opts.extraNote ?? ''}\n\n` +
     `${formatter.formatItalic('Each run starts a full Claude session in a new thread. React 👍 to save or 👎 to discard.')}`,
     ['+1', '-1'],
     (postId, threadId) => ctx.ops.registerPost(postId, threadId),
@@ -101,9 +121,10 @@ export async function createRoutine(
   session.messageManager?.setPendingRoutinePrompt({
     postId: confirmPost.id,
     parsed,
-    requestedBy: username,
+    requestedBy,
+    proposedByAgent: opts.proposedByAgent,
   });
-  sessionLog(session).info(`🕘 Routine proposal posted for @${username}: "${parsed.name}"`);
+  sessionLog(session).info(`🕘 Routine proposal posted for @${requestedBy}${opts.proposedByAgent ? ' (agent-proposed)' : ''}: "${parsed.name}"`);
 }
 
 /**
@@ -331,9 +352,28 @@ export async function createWatch(
   }
 
   const { parsed } = result;
+  await postWatchConfirmation(session, ctx, parsed, username);
+}
+
+/**
+ * Post the watch confirmation card and park the pending prompt. Shared by
+ * `!watch` and the agent's `propose_watch` MCP tool — one card, one
+ * approval flow: NOTHING saves without a human 👍.
+ */
+export async function postWatchConfirmation(
+  session: Session,
+  ctx: SessionContext,
+  parsed: ParsedWatchRequest,
+  requestedBy: string,
+  opts: { proposedByAgent?: boolean } = {},
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+  const heading = opts.proposedByAgent
+    ? `\u{1F441}\uFE0F ${formatter.formatBold(`Claude proposes watch "${parsed.name}"`)} — approve?`
+    : `\u{1F441}\uFE0F ${formatter.formatBold(`Create watch "${parsed.name}"?`)}`;
   const confirmPost = await postInteractiveAndRegister(
     session,
-    `\u{1F441}\uFE0F ${formatter.formatBold(`Create watch "${parsed.name}"?`)}\n` +
+    `${heading}\n` +
     `${formatter.formatBold('Fires when:')} ${parsed.condition}\n` +
     `${formatter.formatBold('Task:')} ${parsed.prompt}\n` +
     `${formatter.formatBold('Prefilter keywords:')} ${parsed.keywords.map((k) => formatter.formatCode(k)).join(', ')}\n` +
@@ -346,9 +386,10 @@ export async function createWatch(
   session.messageManager?.setPendingWatchPrompt({
     postId: confirmPost.id,
     parsed,
-    requestedBy: username,
+    requestedBy,
+    proposedByAgent: opts.proposedByAgent,
   });
-  sessionLog(session).info(`\u{1F441}\uFE0F Watch proposal posted for @${username}: "${parsed.name}"`);
+  sessionLog(session).info(`\u{1F441}\uFE0F Watch proposal posted for @${requestedBy}${opts.proposedByAgent ? ' (agent-proposed)' : ''}: "${parsed.name}"`);
 }
 
 /**

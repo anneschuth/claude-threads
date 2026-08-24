@@ -69,22 +69,28 @@ export const MAX_ENTRY_LENGTH = 500;
 const FILE_HEADER = '# Channel memory — managed by claude-threads.';
 
 /**
- * Entry line format: `- [YYYY-MM-DD] (@user) text` or `- [YYYY-MM-DD] (distilled) text`.
+ * Entry line format: `- [YYYY-MM-DD] (@user) text`, `(distilled)`, or
+ * `(agent)` — the last written by Claude itself via the `remember_fact` MCP
+ * tool. Compat note: a pre-agent-source bot parses `(agent)` lines as raw
+ * lines — preserved across rewrites, shown by `!memory`, but not
+ * forgettable-by-number until upgraded.
  */
-const ENTRY_RE = /^- \[(\d{4}-\d{2}-\d{2})\] \((@[^\s)]+|distilled)\) (.+)$/;
+const ENTRY_RE = /^- \[(\d{4}-\d{2}-\d{2})\] \((@[^\s)]+|distilled|agent)\) (.+)$/;
+
+export type ChannelMemorySource = 'user' | 'distilled' | 'agent';
 
 export interface ChannelMemoryEntry {
   text: string;
   /** YYYY-MM-DD */
   addedAt: string;
-  source: 'user' | 'distilled';
+  source: ChannelMemorySource;
   /** Username, only for `source: 'user'`. */
   addedBy?: string;
 }
 
 export interface NewChannelMemoryEntry {
   text: string;
-  source: 'user' | 'distilled';
+  source: ChannelMemorySource;
   addedBy?: string;
 }
 
@@ -206,7 +212,7 @@ export function entryTextExceedsCap(text: string): boolean {
 }
 
 function formatEntryLine(entry: ChannelMemoryEntry): string {
-  const source = entry.source === 'user' ? `@${entry.addedBy ?? 'unknown'}` : 'distilled';
+  const source = entry.source === 'user' ? `@${entry.addedBy ?? 'unknown'}` : entry.source;
   return `- [${entry.addedAt}] (${source}) ${entry.text}`;
 }
 
@@ -279,11 +285,12 @@ export class MemoryStore {
         const isDuplicate = existing.some((e) => {
           const en = normalizeForDedupe(e.text);
           if (en === normalized) return true;
-          // Containment counts as a duplicate only for distilled candidates.
-          // An explicit user `!remember` that is a fragment of an existing
-          // entry may be a correction or contradiction ("use npm" vs a stored
-          // "never use npm") — it must land, not be swallowed as known.
-          return candidate.source === 'distilled' && en.includes(normalized);
+          // Containment counts as a duplicate only for non-user candidates
+          // (distilled, agent). An explicit user `!remember` that is a
+          // fragment of an existing entry may be a correction or
+          // contradiction ("use npm" vs a stored "never use npm") — it must
+          // land, not be swallowed as known.
+          return candidate.source !== 'user' && en.includes(normalized);
         });
         if (isDuplicate) {
           result.duplicates.push(text);
@@ -297,12 +304,14 @@ export class MemoryStore {
         // session-authorized user — including temporarily invited ones —
         // so an unrestricted supersede would let a non-owner silently
         // delete/rewrite another principal's entry by embedding its text.
-        // Rule: distilled entries are fair game for anyone (background
-        // inference, no author); a user entry may only be superseded by the
-        // SAME user. Anything else coexists — visible in `!memory`, and the
-        // owner can resolve the contradiction with `forget`.
+        // Rule: non-user entries (distilled, agent) are fair game for anyone
+        // (background inference / model output, no human author); a user
+        // entry may only be superseded by the SAME user — in particular an
+        // agent candidate can never displace a user's entry. Anything else
+        // coexists — visible in `!memory`, and the owner can resolve the
+        // contradiction with `forget`.
         const canSupersede = (e: ChannelMemoryEntry): boolean =>
-          e.source === 'distilled' ||
+          e.source !== 'user' ||
           (candidate.source === 'user' && e.source === 'user' && e.addedBy === candidate.addedBy);
         for (let i = lines.length - 1; i >= 0; i--) {
           const e = lines[i].entry;
@@ -412,8 +421,10 @@ export class MemoryStore {
     };
     while (lines.length > 1 && overCap(lines)) {
       truncated = true;
-      const distilledIdx = lines.findIndex((l) => l.entry?.source === 'distilled');
-      lines.splice(distilledIdx >= 0 ? distilledIdx : 0, 1);
+      // Oldest model-written (distilled/agent) entries go first; user
+      // entries and hand edits survive longest.
+      const modelIdx = lines.findIndex((l) => l.entry !== undefined && l.entry.source !== 'user');
+      lines.splice(modelIdx >= 0 ? modelIdx : 0, 1);
     }
 
     const rendered = lines.map((l) => l.raw).join('\n');
@@ -453,7 +464,8 @@ export class MemoryStore {
       if (!trimmed || trimmed === FILE_HEADER) continue;
       const m = trimmed.match(ENTRY_RE);
       if (m) {
-        const source = m[2] === 'distilled' ? 'distilled' : 'user';
+        const source: ChannelMemorySource =
+          m[2] === 'distilled' ? 'distilled' : m[2] === 'agent' ? 'agent' : 'user';
         lines.push({
           raw: trimmed,
           entry: {
@@ -470,11 +482,12 @@ export class MemoryStore {
     return lines;
   }
 
-  /** Enforce the hard write cap: drop oldest distilled first, then oldest lines. */
+  /** Enforce the hard write cap: drop oldest model-written (distilled/agent)
+   *  entries first, then oldest lines. */
   private enforceFileCap(lines: FileLine[]): void {
     while (lines.length > CHANNEL_FILE_MAX_ENTRIES) {
-      const distilledIdx = lines.findIndex((l) => l.entry?.source === 'distilled');
-      lines.splice(distilledIdx >= 0 ? distilledIdx : 0, 1);
+      const modelIdx = lines.findIndex((l) => l.entry !== undefined && l.entry.source !== 'user');
+      lines.splice(modelIdx >= 0 ? modelIdx : 0, 1);
     }
   }
 

@@ -21,12 +21,45 @@ import type { ClaudeCliOptions, ClaudeCliAccount } from './cli.js';
 import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import type { Session } from '../session/types.js';
 import { getSessionUploadDir } from '../operations/streaming/index.js';
+import type { ResolvedMemoryConfig } from '../config/index.js';
 
 export interface RestartContext {
   chromeEnabled: boolean;
   permissionTimeoutMs?: number;
   /** Pre-resolved account binding. Undefined for single-account mode. */
   account?: ClaudeCliAccount;
+  /**
+   * Feature-gate resolvers (a subset of SessionContext.ops), used to compute
+   * the MCP child's agent-tool gates. REQUIRED so a respawn can't silently
+   * drop the gating — the same hazard class this module exists for.
+   */
+  ops: AgentFeatureOps;
+}
+
+/** The SessionContext.ops subset sessionAgentFeatures needs. */
+export interface AgentFeatureOps {
+  getPlatformMemoryConfig(platformId: string): ResolvedMemoryConfig;
+  isRoutinesEnabled(platformId: string): boolean;
+  isWatchesEnabled(platformId: string): boolean;
+}
+
+/**
+ * Compute the agent-feature tool gates for a session spawn/respawn: which
+ * agent-initiated MCP tools (remember_fact, propose_routine, …) the child
+ * may register. Advisory — the bot re-checks per bridge request — but keep
+ * it truthful so disabled features' tools never appear in the model's list.
+ */
+export function sessionAgentFeatures(
+  session: { platformId: string; unattended?: boolean },
+  ops: AgentFeatureOps,
+): NonNullable<ClaudeCliOptions['agentFeatures']> {
+  const memory = ops.getPlatformMemoryConfig(session.platformId);
+  return {
+    memoryChannel: memory.enabled && memory.channelLayer,
+    routines: ops.isRoutinesEnabled(session.platformId),
+    watches: ops.isWatchesEnabled(session.platformId),
+    unattended: session.unattended === true,
+  };
 }
 
 /**
@@ -47,7 +80,7 @@ export function scopedMcpConfig(session: Session): ReturnType<Session['platform'
 export function buildRestartCliOptions(
   session: Session,
   ctx: RestartContext,
-): Partial<ClaudeCliOptions> {
+): Partial<ClaudeCliOptions> & Pick<ClaudeCliOptions, 'agentFeatures'> {
   const platformMcpConfig = scopedMcpConfig(session);
   return {
     threadId: session.threadId,
@@ -62,5 +95,6 @@ export function buildRestartCliOptions(
     // The bridge is session-scoped and survives respawns: the new MCP child
     // must reconnect to the same socket.
     decisionBridgePath: session.decisionBridge?.path,
+    agentFeatures: sessionAgentFeatures(session, ctx.ops),
   };
 }

@@ -105,6 +105,12 @@ export interface PersistedSession {
    * this field and resume with `'full'` (today's behavior).
    */
   sessionHeaderMode?: OverheadVisibility;
+  /**
+   * True for unattended runs (routine/watch fires). Resume must keep the
+   * flag so the agent propose_* tools stay suppressed after a bot restart.
+   * Optional for backward compatibility (missing = attended).
+   */
+  unattended?: boolean;
 }
 
 /**

@@ -190,6 +190,8 @@ function createMockOptions() {
     // touching the filesystem.
     memoryStore: new MemoryStore(join(tmpdir(), 'claude-threads-test-memory')),
     getPlatformMemoryConfig: mock(() => MEMORY_DISABLED),
+    isRoutinesEnabled: mock(() => true),
+    isWatchesEnabled: mock(() => true),
   };
 }
 

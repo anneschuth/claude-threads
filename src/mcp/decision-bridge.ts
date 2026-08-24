@@ -37,6 +37,37 @@ export interface BridgeRequest {
   input: Record<string, unknown>;
 }
 
+/**
+ * Agent-initiated feature actions (remember_fact, propose_routine, …): the
+ * MCP child has no access to the bot's stores — the stores, their mutexes
+ * and their caps all live in the bot process — so the tool call travels
+ * over the bridge and is executed bot-side. Same wire, new shape: the
+ * transport is shape-agnostic (one JSON line per connection either way).
+ */
+export type AgentAction =
+  | 'remember_fact'
+  | 'list_memory'
+  | 'propose_routine'
+  | 'propose_watch'
+  | 'list_routines'
+  | 'list_watches';
+
+export interface AgentActionRequest {
+  kind: 'agent_action';
+  action: AgentAction;
+  input: Record<string, unknown>;
+}
+
+/**
+ * Result of a bot-side agent action, serialized back as the MCP tool
+ * result. `reason` is user-facing wording the model can act on.
+ */
+export interface AgentActionResponse {
+  ok: boolean;
+  result?: unknown;
+  reason?: string;
+}
+
 /** The decision, in the permission-result shape the CLI understands. */
 export interface BridgeResponse {
   behavior: 'allow' | 'deny';
@@ -60,9 +91,9 @@ export class BridgeUnavailableError extends Error {}
  * the next real decision instead of letting it fall back to stdin.
  */
 export type BridgeDecisionHandler = (
-  req: BridgeRequest,
+  req: BridgeRequest | AgentActionRequest,
   signal: AbortSignal
-) => Promise<BridgeResponse>;
+) => Promise<BridgeResponse | AgentActionResponse>;
 
 /** Build a platform-appropriate socket path for a new bridge. */
 export function bridgeSocketPath(): string {
@@ -103,9 +134,9 @@ export class DecisionBridgeServer {
         if (newline === -1) return;
         const line = buffer.slice(0, newline);
         buffer = '';
-        let request: BridgeRequest;
+        let request: BridgeRequest | AgentActionRequest;
         try {
-          request = JSON.parse(line) as BridgeRequest;
+          request = JSON.parse(line) as BridgeRequest | AgentActionRequest;
         } catch {
           responded = true;
           socket.end(JSON.stringify({ behavior: 'deny', message: 'Malformed bridge request' }) + '\n');
@@ -224,4 +255,24 @@ export function requestBridgeDecision(
     socket.on('error', (err) => fail(err));
     socket.on('close', () => fail(new Error('Bridge connection closed before a decision arrived')));
   });
+}
+
+/**
+ * MCP-side client for agent actions. Same transport as
+ * `requestBridgeDecision`; typed separately because the response shape is a
+ * tool result, not a permission decision. Callers use a SHORT timeout
+ * (~15s): the bot answers agent actions immediately (a store write or a
+ * card post) — nothing waits on a human inside the bridge call.
+ */
+export async function requestAgentAction(
+  path: string,
+  request: AgentActionRequest,
+  timeoutMs: number
+): Promise<AgentActionResponse> {
+  const response = await requestBridgeDecision(
+    path,
+    request as unknown as BridgeRequest,
+    timeoutMs
+  );
+  return response as unknown as AgentActionResponse;
 }

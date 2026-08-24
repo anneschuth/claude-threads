@@ -21,7 +21,7 @@ describe('DecisionBridge', () => {
   it('round-trips an approval decision over a real socket', async () => {
     const seen: BridgeRequest[] = [];
     const server = await DecisionBridgeServer.create(async (req) => {
-      seen.push(req);
+      seen.push(req as BridgeRequest);
       return { behavior: 'allow', updatedInput: req.input };
     });
     try {

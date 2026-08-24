@@ -355,10 +355,10 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * load-bearing for the lifecycle listeners.
    */
   private completeCreationPrompt<P extends { name: string }>(
-    pending: { postId: string; parsed: P; requestedBy: string } | null,
+    pending: { postId: string; parsed: P; requestedBy: string; proposedByAgent?: boolean } | null,
     label: string,
     clear: () => void,
-    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string }) => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean }) => void,
     postId: string,
     approved: boolean,
     username: string,
@@ -373,7 +373,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
         : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`,
       clear,
-      emit: ({ parsed, requestedBy }) => emit({ approved, parsed, requestedBy, decidedBy: username, postId }),
+      emit: ({ parsed, requestedBy }) => emit({ approved, parsed, requestedBy, decidedBy: username, postId, proposedByAgent: pending?.proposedByAgent }),
     });
   }
 

@@ -78,6 +78,10 @@ export async function runUnattendedSession(opts: {
       // Autonomous runs must not stall on interactive prompts.
       skipWorktreePrompt: true,
       autoIncludeContext: opts.autoIncludeContext,
+      // Marks the session so the agent propose_routine/propose_watch tools
+      // are suppressed — unattended work must not schedule more unattended
+      // work (self-replication loop).
+      unattended: true,
     },
     createdBy,
     undefined,

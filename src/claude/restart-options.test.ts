@@ -27,7 +27,16 @@ function makeSession(overrides: Record<string, unknown> = {}): Session {
 }
 
 describe('buildRestartCliOptions', () => {
-  const deps = { chromeEnabled: false, permissionTimeoutMs: 120000, account: undefined };
+  const deps = {
+    chromeEnabled: false,
+    permissionTimeoutMs: 120000,
+    account: undefined,
+    ops: {
+      getPlatformMemoryConfig: () => ({ enabled: true, repoLayer: true, channelLayer: true, distillation: true }),
+      isRoutinesEnabled: () => true,
+      isWatchesEnabled: () => true,
+    },
+  };
 
   it('carries the decision-bridge path across respawns', () => {
     // The bridge is session-scoped: losing its path on !cd/!permissions
@@ -46,7 +55,16 @@ describe('buildRestartCliOptions', () => {
 });
 
 describe('buildRestartCliOptions — DCM approvals scoping', () => {
-  const deps = { chromeEnabled: false, permissionTimeoutMs: 120000, account: undefined };
+  const deps = {
+    chromeEnabled: false,
+    permissionTimeoutMs: 120000,
+    account: undefined,
+    ops: {
+      getPlatformMemoryConfig: () => ({ enabled: true, repoLayer: true, channelLayer: true, distillation: true }),
+      isRoutinesEnabled: () => true,
+      isWatchesEnabled: () => true,
+    },
+  };
 
   function scopedSession(threadId: string, approvals?: 'owner' | 'all_users') {
     return makeSession({

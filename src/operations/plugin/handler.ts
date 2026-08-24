@@ -49,6 +49,7 @@ async function buildPluginRestartCliOptions(
       chromeEnabled: ctx.config.chromeEnabled,
       permissionTimeoutMs: ctx.config.permissionTimeoutMs,
       account: account ? { id: account.id, home: account.home, apiKey: account.apiKey } : undefined,
+      ops: ctx.ops,
     }),
     workingDir: session.workingDir,
     permissionMode: effectivePermissionMode({

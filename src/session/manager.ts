@@ -804,6 +804,7 @@ export class SessionManager extends EventEmitter {
       resumeFailCount: session.lifecycle.resumeFailCount,
       claudeAccountId: session.claudeAccountId,
       sessionHeaderMode: session.sessionHeaderMode,
+      unattended: session.unattended,
     };
     this.sessionStore.save(session.sessionId, state);
   }
@@ -1555,6 +1556,8 @@ export class SessionManager extends EventEmitter {
       githubEmailsStore: this.githubEmailsStore,
       memoryStore: this.memoryStore,
       getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,
+      isRoutinesEnabled: (pid) => this.platformRoutines.get(pid) ?? true,
+      isWatchesEnabled: (pid) => this.platformWatches.get(pid) ?? true,
       registerPost: (postId, tid) => this.registerPost(postId, tid),
       updateStickyMessage: () => this.updateStickyMessage(),
       registerWorktreeUser: (path, sid) => this.registerWorktreeUser(path, sid),

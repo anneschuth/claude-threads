@@ -98,11 +98,12 @@ function sessionAccountOption(
 function commonRestartCliOptions(
   session: Session,
   ctx: SessionContext,
-): Partial<ClaudeCliOptions> {
+): Partial<ClaudeCliOptions> & Pick<ClaudeCliOptions, 'agentFeatures'> {
   return buildRestartCliOptions(session, {
     chromeEnabled: ctx.config.chromeEnabled,
     permissionTimeoutMs: ctx.config.permissionTimeoutMs,
     account: sessionAccountOption(session, ctx),
+    ops: ctx.ops,
   });
 }
 

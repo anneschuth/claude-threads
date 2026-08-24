@@ -56,6 +56,8 @@ import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js
 import { scheduleDistillation } from '../memory/distiller.js';
 import { auditLog } from '../persistence/audit-log.js';
 import { compositeSessionId } from './registry.js';
+import { sessionAgentFeatures } from '../claude/restart-options.js';
+import { handleAgentAction } from '../operations/agent-actions/handler.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -406,11 +408,22 @@ function findPersistedByThreadId(
  * MCP child's env) while the Session/MessageManager are created after.
  */
 async function createSessionDecisionBridge(
-  ref: { current?: Session }
+  ref: { current?: Session },
+  ctx: SessionContext
 ): Promise<DecisionBridgeServer | null> {
   try {
     return await DecisionBridgeServer.create(async (request, signal) => {
-      const messageManager = ref.current?.messageManager;
+      const session = ref.current;
+      // Agent-initiated feature actions (remember_fact, propose_routine, …)
+      // execute bot-side where the stores and their gates live — they never
+      // go through the MessageManager's decision plumbing.
+      if (request.kind === 'agent_action') {
+        if (!session) {
+          return { ok: false, reason: 'session is not ready yet' };
+        }
+        return handleAgentAction(session, ctx, request, signal);
+      }
+      const messageManager = session?.messageManager;
       if (!messageManager) {
         // Drop the connection instead of denying: a deny would be final,
         // while a dropped connection makes the MCP server fall back to its
@@ -734,7 +747,7 @@ export function resolveSessionHeaderMode(
  *                           When starting mid-thread, this is the @mention message, not the thread root.
  */
 export async function startSession(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean; unattended?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -773,7 +786,7 @@ export async function startSession(
 }
 
 async function startSessionImpl(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean; unattended?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -997,7 +1010,7 @@ async function startSessionImpl(
   // the session's MessageManager exists — the handler dereferences it lazily
   // through the ref box (the Session object itself is created further down).
   const bridgeSessionRef: { current?: Session } = {};
-  const decisionBridge = await createSessionDecisionBridge(bridgeSessionRef);
+  const decisionBridge = await createSessionDecisionBridge(bridgeSessionRef, ctx);
 
   const cliOptions: ClaudeCliOptions = {
     workingDir,
@@ -1022,6 +1035,10 @@ async function startSessionImpl(
     memory: await resolveSessionMemory(
       ctx.state.memoryStore, memoryConfig, platformId, workingDir,
     ),
+    agentFeatures: sessionAgentFeatures(
+      { platformId, unattended: options.unattended },
+      ctx.ops,
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1040,6 +1057,7 @@ async function startSessionImpl(
     platform,
     claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    unattended: options.unattended || undefined,
     startedBy: username,
     startedByDisplayName: displayName,
     startedAt: new Date(),
@@ -1377,7 +1395,7 @@ async function resumeSessionImpl(
 
   // Decision bridge for the resumed session (see startSession for rationale)
   const resumeBridgeRef: { current?: Session } = {};
-  const resumeBridge = await createSessionDecisionBridge(resumeBridgeRef);
+  const resumeBridge = await createSessionDecisionBridge(resumeBridgeRef, ctx);
 
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
@@ -1403,6 +1421,10 @@ async function resumeSessionImpl(
       ctx.state.memoryStore, memoryConfig, state.platformId, state.workingDir,
       activeWorktreeRepoRoot(state.workingDir, state.worktreeInfo),
     ),
+    agentFeatures: sessionAgentFeatures(
+      { platformId: state.platformId, unattended: state.unattended },
+      ctx.ops,
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1421,6 +1443,7 @@ async function resumeSessionImpl(
     platform,
     claudeSessionId: state.claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    unattended: state.unattended,
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
