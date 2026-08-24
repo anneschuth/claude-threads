@@ -44,6 +44,7 @@ import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import * as plugin from '../operations/plugin/index.js';
 import type { Session, InitialSessionOptions } from './types.js';
+import { maybeInjectMetadataReminder } from './metadata-suggestions.js';
 import { compositeSessionId, SessionRegistry } from './registry.js';
 import * as reactionRouter from './reaction-router.js';
 import { post } from '../operations/post-helpers/index.js';
@@ -616,7 +617,7 @@ export class SessionManager extends EventEmitter {
       registerPost: (pid, tid) => this.registerPost(pid, tid),
       startTyping: (s) => this.startTyping(s),
       persistSession: (s) => this.persistSession(s),
-      injectMetadataReminder: (msg, session) => lifecycle.maybeInjectMetadataReminder(msg, session),
+      injectMetadataReminder: (msg, session) => maybeInjectMetadataReminder(msg, session),
       buildMessageContent: (text, session, files) => {
         const uploadDir = streaming.getSessionUploadDir(session.platformId, session.threadId);
         return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug);

@@ -35,7 +35,11 @@ afterAll(() => {
 // makes this work: hoisted static imports load handler.js transitively before
 // mock.module runs, and Bun retroactively patches the live bindings of
 // already-loaded modules. The mocks apply either way.
-const commands = await import('./handler.js');
+const commands = {
+  ...(await import('./handler.js')),
+  ...(await import('./memory.js')),
+  ...(await import('./automation.js')),
+};
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';

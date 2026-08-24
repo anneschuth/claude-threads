@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import * as lifecycle from './lifecycle.js';
+import * as metadataSuggestions from './metadata-suggestions.js';
 import type { SessionContext } from '../operations/session-context/index.js';
 import type { Session } from './types.js';
 import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
@@ -497,7 +498,7 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
     const session = { messageCount: 1 };
 
-    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+    const result = metadataSuggestions.maybeInjectMetadataReminder(message, session);
 
     expect(result).toBe('Hello');
   });
@@ -506,7 +507,7 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
     const session = { messageCount: 2 };
 
-    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+    const result = metadataSuggestions.maybeInjectMetadataReminder(message, session);
 
     expect(result).toBe('Hello');
   });
@@ -515,15 +516,15 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
 
     // 5th message - still returns unchanged (just fires reclassification in background)
-    const result5 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 5 });
+    const result5 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 5 });
     expect(result5).toBe('Hello');
 
     // 10th message - same behavior
-    const result10 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 10 });
+    const result10 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 10 });
     expect(result10).toBe('Hello');
 
     // 15th message - same behavior
-    const result15 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 15 });
+    const result15 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 15 });
     expect(result15).toBe('Hello');
   });
 
@@ -531,10 +532,10 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
 
     // All messages should return unchanged
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 7 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 7 })).toBe('Hello');
   });
 });
 
@@ -815,7 +816,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Test Title',
         description: 'Test Description',
@@ -840,7 +841,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => null,
       suggestTags: async () => ['feature'],
     });
@@ -861,7 +862,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Success Title',
         description: 'Success Desc',
@@ -886,7 +887,7 @@ describe('attemptMetadataFetch', () => {
     const ctx = createMockSessionContext(sessions);
 
     // Even if suggestions fail, existing metadata counts as success
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => null,
       suggestTags: async () => [],
     });
@@ -905,7 +906,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map<string, Session>();
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Title',
         description: 'Desc',
@@ -928,7 +929,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'New Title',
         description: 'New Desc',

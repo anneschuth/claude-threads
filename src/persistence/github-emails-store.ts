@@ -15,7 +15,8 @@
  * `slack-workspace` may be different humans, so they keep separate entries.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { writeFileAtomic } from './atomic-file.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import yaml from 'js-yaml';
@@ -137,10 +138,6 @@ export class GitHubEmailsStore {
   }
 
   private writeAtomic(data: FileShape): void {
-    const tempFile = `${this.file}.tmp`;
-    const yamlText = yaml.dump(data, { sortKeys: true, lineWidth: -1 });
-    writeFileSync(tempFile, yamlText, { encoding: 'utf-8', mode: 0o600 });
-    renameSync(tempFile, this.file);
-    chmodSync(this.file, 0o600);
+    writeFileAtomic(this.file, yaml.dump(data, { sortKeys: true, lineWidth: -1 }));
   }
 }
