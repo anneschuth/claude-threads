@@ -12,6 +12,7 @@ import { effectivePermissionMode } from '../../config/index.js';
 import { resolveSessionMemory, type MemoryStore } from '../../memory/store.js';
 import type { PlatformFile } from '../../platform/index.js';
 import { suggestBranchNames } from '../suggestions/branch.js';
+import { requireSessionOwner } from '../commands/guards.js';
 import {
   isGitRepository,
   getRepositoryRoot,
@@ -426,12 +427,7 @@ export async function createAndSwitchToWorktree(
     registerWorktreeUser?: (worktreePath: string, sessionId: string) => void;
   }
 ): Promise<void> {
-  // Only session owner or admins can manage worktrees
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
-    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to manage worktrees`);
-    return;
-  }
+  if (!await requireSessionOwner(session, username, 'manage worktrees')) return;
 
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
@@ -855,12 +851,7 @@ export async function switchToWorktree(
   username: string,
   changeDirectory: (threadId: string, newDir: string, username: string) => Promise<void>
 ): Promise<void> {
-  // Only session owner or admins can manage worktrees
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
-    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to switch worktree`);
-    return;
-  }
+  if (!await requireSessionOwner(session, username, 'switch worktrees')) return;
 
   // Get current repo root
   const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
@@ -980,12 +971,7 @@ export async function removeWorktreeCommand(
   branchOrPath: string,
   username: string
 ): Promise<void> {
-  // Only session owner or admins can manage worktrees
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
-    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to remove worktree`);
-    return;
-  }
+  if (!await requireSessionOwner(session, username, 'remove worktrees')) return;
 
   // Get current repo root
   const repoRoot = session.worktreeInfo?.repoRoot || await getRepositoryRoot(session.workingDir);
@@ -1046,12 +1032,7 @@ export async function disableWorktreePrompt(
   username: string,
   persistSession: (session: Session) => void
 ): Promise<void> {
-  // Only session owner or admins can manage worktrees
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
-    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to disable worktree prompts`);
-    return;
-  }
+  if (!await requireSessionOwner(session, username, 'disable worktree prompts')) return;
 
   session.worktreePromptDisabled = true;
   persistSession(session);
@@ -1085,12 +1066,7 @@ export async function cleanupWorktreeCommand(
   hasOtherSessionsUsingWorktree: (worktreePath: string, excludeSessionId: string) => boolean,
   changeDirectory: (threadId: string, path: string, username: string) => Promise<void>
 ): Promise<void> {
-  // Only session owner or admins can manage worktrees
-  if (session.startedBy !== username && !session.platform.isUserAllowed(username)) {
-    await post(session, 'warning', `Only @${session.startedBy} or allowed users can manage worktrees`);
-    sessionLog(session).warn(`🌿 Unauthorized: @${username} tried to cleanup worktree`);
-    return;
-  }
+  if (!await requireSessionOwner(session, username, 'clean up worktrees')) return;
 
   // Check if we're in a worktree
   if (!session.worktreeInfo) {

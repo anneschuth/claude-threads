@@ -784,6 +784,29 @@ describe('Worktree Module', () => {
         // Should attempt to create worktree (or find existing)
         expect(mockGetRepositoryRoot).toHaveBeenCalled();
       });
+
+      it("rejects an allowlisted non-participant under approvals: 'owner'", async () => {
+        // Worktree commands change the session's working directory — under
+        // owner-scoped approvals they must require session participation,
+        // like every other owner-gated command (requireSessionOwner). The
+        // old ad-hoc check let any platform-allowlisted user through.
+        const platform = createMockPlatform({
+          isUserAllowed: mock(() => true),
+        });
+        (platform as unknown as { approvals: string }).approvals = 'owner';
+        const session = createMockSession({
+          startedBy: 'owner',
+          sessionAllowedUsers: new Set(['owner']),
+          platform,
+        });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'feature-branch', 'allowlisted-outsider', options);
+
+        expect(mockCreateWorktree).not.toHaveBeenCalled();
+        const warning = (platform.createPost as ReturnType<typeof mock>).mock.calls[0]?.[0] as string;
+        expect(warning).toContain('session participants');
+      });
     });
   });
 
