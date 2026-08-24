@@ -22,6 +22,7 @@ import type { ClaudeAccount, PermissionMode, PlatformOverhead, ResolvedMemoryCon
 import type { AccountPoolStatus, AcquireOptions } from '../../claude/account-pool.js';
 import type { MemoryStore } from '../../memory/store.js';
 import type { Routine, RoutinesStore, RoutineRunStatus } from '../../persistence/routines-store.js';
+import type { WatchesStore } from '../../persistence/watches-store.js';
 
 // =============================================================================
 // Configuration (read-only state)
@@ -55,6 +56,8 @@ export interface SessionConfig {
   maxSessions: number;
   /** Maximum routines per platform instance (default: 10) */
   maxRoutines?: number;
+  /** Maximum watches (event triggers) per platform instance (default 10). */
+  maxWatches?: number;
   /** Whether thread logging is enabled (default: true) */
   threadLogsEnabled?: boolean;
   /** Thread log retention in days (default: 30) */
@@ -87,6 +90,8 @@ export interface SessionState {
   readonly memoryStore: MemoryStore;
   /** Scheduled routines (Claude Tag-style recurring work) */
   readonly routinesStore: RoutinesStore;
+  /** Event-trigger store (per-platform watches). */
+  readonly watchesStore: WatchesStore;
   /** Whether the manager is shutting down */
   readonly isShuttingDown: boolean;
 }
@@ -252,6 +257,7 @@ export interface SessionOperations {
     queuedFiles?: PlatformFile[],
     excludePostId?: string,
     sender?: string,
+    autoInclude?: boolean,
   ): Promise<boolean>;
 
   // ---------------------------------------------------------------------------
@@ -349,6 +355,12 @@ export interface SessionOperations {
    * scheduled fire.
    */
   fireRoutineNow(platformId: string, routine: Routine): Promise<RoutineRunStatus | 'unauthorized'>;
+
+  /**
+   * Whether event triggers (watches) are enabled for a platform instance
+   * (per-platform `watches` config option; default true).
+   */
+  isWatchesEnabled(platformId: string): boolean;
 }
 
 // =============================================================================

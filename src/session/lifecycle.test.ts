@@ -207,6 +207,13 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
         update: mock(() => Promise.resolve(undefined)),
         remove: mock(() => Promise.resolve(undefined)),
       } as any,
+      watchesStore: {
+        list: mock(() => []),
+        get: mock(() => undefined),
+        add: mock(() => Promise.resolve({ ok: true, watch: {} })),
+        update: mock(() => Promise.resolve(undefined)),
+        remove: mock(() => Promise.resolve(undefined)),
+      } as any,
       isShuttingDown: false,
     },
     ops: {
@@ -247,6 +254,7 @@ function createMockSessionContext(sessions: Map<string, Session> = new Map()): S
       getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
       isRoutinesEnabled: mock(() => true),
+      isWatchesEnabled: mock(() => true),
       fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
     },
   };

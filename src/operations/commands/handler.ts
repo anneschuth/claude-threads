@@ -69,8 +69,9 @@ import {
 } from '../../commands/system-prompt-generator.js';
 import { isValidGitHubNoreplyEmail } from '../../persistence/github-emails-store.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot, MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
-import { describeSchedule, type Routine } from '../../persistence/routines-store.js';
+import { describeSchedule } from '../../persistence/routines-store.js';
 import { parseRoutineRequest, hostTimezone } from '../../routines/parser.js';
+import { parseWatchRequest } from '../../watches/parser.js';
 
 const log = createLogger('commands');
 const sessionLog = createSessionLog(log);
@@ -1115,6 +1116,20 @@ export async function createRoutine(
   parse: typeof parseRoutineRequest = parseRoutineRequest,
 ): Promise<void> {
   if (!await requireRoutinesEnabled(session, ctx)) return;
+  // In direct channel mode a fired routine's session is keyed on its root
+  // post, but every typed message routes to the synthetic channel-session
+  // key — follow-ups and !stop can never reach it. Refuse creation instead
+  // of saving a routine whose sessions are unreachable by text. (Creation
+  // only: routines that predate this guard stay listable/pausable/deletable
+  // via !routines, and their write-only fires keep working.)
+  if (session.platform.directChannelMode?.enabled) {
+    await post(
+      session,
+      'info',
+      `🕘 Routines are not available in direct channel mode — a fired routine's session could not be reached from this channel.`,
+    );
+    return;
+  }
   if (!await requireSessionOwner(session, username, 'create routines')) return;
   const formatter = session.platform.getFormatter();
 
@@ -1155,10 +1170,121 @@ export async function createRoutine(
 }
 
 /** Resolve a 1-based list index argument to a routine. */
-function routineByIndex(ctx: SessionContext, platformId: string, arg: string): Routine | undefined {
-  if (!/^\d+$/.test(arg)) return undefined;
-  const list = ctx.state.routinesStore.list(platformId);
-  return list[parseInt(arg, 10) - 1];
+/**
+ * Shared implementation of the `!routines` / `!watches` management commands:
+ * numbered list, pause/resume/delete (owner-gated), plus flavor-specific
+ * extra actions (routines' `run`, which is platform-allowlist-gated
+ * instead). One policy for parsing, index lookup, gating, logging and audit;
+ * the flavors carry only wording and store wiring.
+ */
+async function manageListItems<T extends { id: string; name: string; createdBy: string; enabled: boolean }>(
+  session: Session,
+  args: string | undefined,
+  username: string,
+  flavor: {
+    emoji: string;
+    /** Capitalized item noun ('Routine'). */
+    noun: string;
+    /** Command + audit name ('routines'). */
+    command: string;
+    /** Action alternation for the usage/footer lines ('pause|resume|delete|run'). */
+    actions: string;
+    /** Creation hint shown for an empty list. */
+    createHint: string;
+    /** List headline after the bold count ('each run starts ... new thread:'). */
+    headlineSuffix: string;
+    /** Per-item line body after the "N. " numbering. */
+    describe(item: T, formatter: ReturnType<Session['platform']['getFormatter']>): string;
+    list(): T[];
+    update(id: string, patch: { enabled?: boolean; consecutiveFailures?: number }): Promise<unknown>;
+    remove(id: string): Promise<unknown>;
+    /**
+     * Actions exempt from the owner gate but requiring the platform
+     * allowlist: each such action starts unattended work under the item
+     * creator's identity, so a temporarily !invite'd guest's session-level
+     * allowance must not buy it.
+     */
+    platformAllowedActions?: Set<string>;
+    /** Handle a flavor-specific action; only called for non-CRUD actions. */
+    extraAction?(action: string, item: T): Promise<void>;
+  },
+): Promise<void> {
+  const formatter = session.platform.getFormatter();
+  const trimmed = args?.trim();
+  const cmd = `!${flavor.command}`;
+  const plural = flavor.command.charAt(0).toUpperCase() + flavor.command.slice(1);
+
+  if (!trimmed) {
+    const items = flavor.list();
+    if (items.length === 0) {
+      await post(
+        session,
+        'info',
+        `${flavor.emoji} No ${flavor.command} yet. Create one with ${formatter.formatCode(flavor.createHint)}.`,
+      );
+      return;
+    }
+    const lines = items.map((item, i) => `${i + 1}. ${flavor.describe(item, formatter)}`);
+    await post(
+      session,
+      'info',
+      `${flavor.emoji} ${formatter.formatBold(`${plural} (${items.length})`)} — ${flavor.headlineSuffix}\n\n` +
+      `${lines.join('\n')}\n\n` +
+      `${formatter.formatItalic(`Manage with ${'`' + cmd + ' ' + flavor.actions + ' <n>`'}.`)}`,
+    );
+    session.threadLogger?.logCommand(flavor.command, 'list', username);
+    return;
+  }
+
+  const match = trimmed.match(new RegExp(`^(${flavor.actions})\\s+(\\d+)$`, 'i'));
+  if (!match) {
+    await post(
+      session,
+      'warning',
+      `${flavor.emoji} Usage: ${formatter.formatCode(cmd)} or ${formatter.formatCode(`${cmd} ${flavor.actions} <n>`)}`,
+    );
+    return;
+  }
+  const [, action, indexArg] = match;
+  const item = flavor.list()[parseInt(indexArg, 10) - 1];
+  if (!item) {
+    await post(session, 'warning', `${flavor.emoji} No ${flavor.noun.toLowerCase()} ${indexArg}. See ${formatter.formatCode(cmd)}.`);
+    return;
+  }
+
+  const lowered = action.toLowerCase();
+  const platformGated = flavor.platformAllowedActions?.has(lowered) ?? false;
+  if (!platformGated && !await requireSessionOwner(session, username, `manage ${flavor.command}`)) {
+    return;
+  }
+  if (platformGated && !session.platform.isUserAllowed(username)) {
+    await post(
+      session,
+      'warning',
+      `${flavor.emoji} Only platform-allowed users can ${lowered} ${flavor.command} (${formatter.formatCode('@' + username)} is invited to this session only).`,
+    );
+    return;
+  }
+
+  switch (lowered) {
+    case 'pause':
+      await flavor.update(item.id, { enabled: false });
+      await post(session, 'success', `⏸️ ${flavor.noun} ${formatter.formatBold(item.name)} paused.`);
+      break;
+    case 'resume':
+      await flavor.update(item.id, { enabled: true, consecutiveFailures: 0 });
+      await post(session, 'success', `▶️ ${flavor.noun} ${formatter.formatBold(item.name)} resumed.`);
+      break;
+    case 'delete':
+      await flavor.remove(item.id);
+      await post(session, 'success', `🗑️ ${flavor.noun} ${formatter.formatBold(item.name)} deleted.`);
+      break;
+    default:
+      await flavor.extraAction?.(lowered, item);
+  }
+  sessionLog(session).info(`${flavor.emoji} @${username}: ${cmd} ${lowered} ${indexArg} ("${item.name}")`);
+  auditCommand(session, flavor.command, `${lowered} ${indexArg}`, username);
+  session.threadLogger?.logCommand(flavor.command, `${lowered} ${indexArg}`, username);
 }
 
 /**
@@ -1173,83 +1299,29 @@ export async function manageRoutines(
   ctx: SessionContext,
 ): Promise<void> {
   if (!await requireRoutinesEnabled(session, ctx)) return;
-  const formatter = session.platform.getFormatter();
   const platformId = session.platformId;
-  const trimmed = args?.trim();
-
-  if (!trimmed) {
-    const routines = ctx.state.routinesStore.list(platformId);
-    if (routines.length === 0) {
-      await post(
-        session,
-        'info',
-        `🕘 No routines yet. Create one with ${formatter.formatCode('!routine every weekday at 9:00, <task>')}.`,
-      );
-      return;
-    }
-    const lines = routines.map((r, i) => {
+  await manageListItems(session, args, username, {
+    emoji: '🕘',
+    noun: 'Routine',
+    command: 'routines',
+    actions: 'pause|resume|delete|run',
+    createHint: '!routine every weekday at 9:00, <task>',
+    headlineSuffix: 'each run starts a full Claude session in a new thread:',
+    describe: (r, formatter) => {
       const status = r.enabled ? '' : ' — ⏸️ paused';
       const last = r.lastRunAt ? ` · last run ${r.lastRunAt.slice(0, 16).replace('T', ' ')}Z (${r.lastRunStatus})` : '';
-      return `${i + 1}. ${formatter.formatBold(r.name)} — ${describeSchedule(r.schedule)} · by ${formatter.formatCode('@' + r.createdBy)}${status}${last}`;
-    });
-    await post(
-      session,
-      'info',
-      `🕘 ${formatter.formatBold(`Routines (${routines.length})`)} — each run starts a full Claude session in a new thread:\n\n` +
-      `${lines.join('\n')}\n\n` +
-      `${formatter.formatItalic(`Manage with ${'`!routines pause|resume|delete|run <n>`'}.`)}`,
-    );
-    session.threadLogger?.logCommand('routines', 'list', username);
-    return;
-  }
-
-  const match = trimmed.match(/^(pause|resume|delete|run)\s+(\d+)$/i);
-  if (!match) {
-    await post(
-      session,
-      'warning',
-      `🕘 Usage: ${formatter.formatCode('!routines')} or ${formatter.formatCode('!routines pause|resume|delete|run <n>')}`,
-    );
-    return;
-  }
-  const [, action, indexArg] = match;
-  const routine = routineByIndex(ctx, platformId, indexArg);
-  if (!routine) {
-    await post(session, 'warning', `🕘 No routine ${indexArg}. See ${formatter.formatCode('!routines')}.`);
-    return;
-  }
-
-  const lowered = action.toLowerCase();
-  if (lowered !== 'run' && !await requireSessionOwner(session, username, 'manage routines')) {
-    return;
-  }
-  // `run` is open to platform-allowed users but NOT to temporarily !invite'd
-  // guests: each run spawns a full unattended session under the routine
-  // creator's identity, outside the thread the guest was invited to —
-  // session-level allowance must not buy that.
-  if (lowered === 'run' && !session.platform.isUserAllowed(username)) {
-    await post(
-      session,
-      'warning',
-      `🕘 Only platform-allowed users can run routines (${formatter.formatCode('@' + username)} is invited to this session only).`,
-    );
-    return;
-  }
-
-  switch (lowered) {
-    case 'pause':
-      await ctx.state.routinesStore.update(platformId, routine.id, { enabled: false });
-      await post(session, 'success', `⏸️ Routine ${formatter.formatBold(routine.name)} paused.`);
-      break;
-    case 'resume':
-      await ctx.state.routinesStore.update(platformId, routine.id, { enabled: true, consecutiveFailures: 0 });
-      await post(session, 'success', `▶️ Routine ${formatter.formatBold(routine.name)} resumed.`);
-      break;
-    case 'delete':
-      await ctx.state.routinesStore.remove(platformId, routine.id);
-      await post(session, 'success', `🗑️ Routine ${formatter.formatBold(routine.name)} deleted.`);
-      break;
-    case 'run': {
+      return `${formatter.formatBold(r.name)} — ${describeSchedule(r.schedule)} · by ${formatter.formatCode('@' + r.createdBy)}${status}${last}`;
+    },
+    list: () => ctx.state.routinesStore.list(platformId),
+    update: (id, patch) => ctx.state.routinesStore.update(platformId, id, patch),
+    remove: (id) => ctx.state.routinesStore.remove(platformId, id),
+    // `run` spawns a full unattended session under the routine creator's
+    // identity, outside the thread a guest was invited to — hence the
+    // platform-allowlist gate instead of the owner gate.
+    platformAllowedActions: new Set(['run']),
+    extraAction: async (action, routine) => {
+      if (action !== 'run') return;
+      const formatter = session.platform.getFormatter();
       await post(session, 'info', `🕘 Running ${formatter.formatBold(routine.name)} now — it will post in a new thread.`);
       const status = await ctx.ops.fireRoutineNow(platformId, routine);
       if (status === 'skipped') {
@@ -1259,12 +1331,124 @@ export async function manageRoutines(
       } else if (status === 'failed') {
         await post(session, 'warning', `🕘 The run failed to start — check the bot logs.`);
       }
-      break;
-    }
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Event triggers (watches)
+// ---------------------------------------------------------------------------
+
+/**
+ * Guard for the watch commands: posts an explanation and returns false when
+ * watches are disabled for the platform or can never fire on it.
+ */
+async function requireWatchesEnabled(session: Session, ctx: SessionContext): Promise<boolean> {
+  // Watches never evaluate in direct channel mode (the whole channel is one
+  // session, and a session fired on a message's real thread would be
+  // unreachable) \u2014 refuse creation instead of saving a permanently inert
+  // watch with a success message.
+  if (session.platform.directChannelMode?.enabled) {
+    await post(
+      session,
+      'info',
+      `\u{1F441}\uFE0F Watches are not available in direct channel mode \u2014 the whole channel already routes to one session.`,
+    );
+    return false;
   }
-  sessionLog(session).info(`🕘 @${username}: !routines ${lowered} ${indexArg} ("${routine.name}")`);
-  auditCommand(session, 'routines', `${lowered} ${indexArg}`, username);
-  session.threadLogger?.logCommand('routines', `${lowered} ${indexArg}`, username);
+  if (ctx.ops.isWatchesEnabled(session.platformId)) return true;
+  await post(
+    session,
+    'info',
+    `\u{1F441}\uFE0F Watches are disabled for this platform (see the \`watches\` option in config.yaml).`,
+  );
+  return false;
+}
+
+/**
+ * `!watch <natural language>` — parse the request with haiku, show the
+ * structured result (including the derived prefilter keywords), and wait for
+ * a 👍/👎 confirmation before saving. Owner-gated: watches fire unattended
+ * sessions as their creator.
+ */
+export async function createWatch(
+  session: Session,
+  request: string,
+  username: string,
+  ctx: SessionContext,
+  // Injectable for tests: other test files module-mock quick-query.js, so
+  // stubbing via CLAUDE_PATH is unreliable in full-suite runs.
+  parse: typeof parseWatchRequest = parseWatchRequest,
+): Promise<void> {
+  if (!await requireWatchesEnabled(session, ctx)) return;
+  if (!await requireSessionOwner(session, username, 'create watches')) return;
+  const formatter = session.platform.getFormatter();
+
+  const trimmed = request.trim();
+  if (!trimmed) {
+    await post(session, 'warning', `Usage: ${formatter.formatCode('!watch when <something happens>, <task>')}`);
+    return;
+  }
+
+  await post(session, 'info', `\u{1F441}\uFE0F Parsing the trigger...`);
+  const result = await parse(trimmed);
+  if (!result.ok) {
+    await post(session, 'warning', `\u{1F441}\uFE0F Could not create a watch: ${result.error}`);
+    sessionLog(session).warn(`\u{1F441}\uFE0F Watch parse failed for @${username}: ${result.error}`);
+    return;
+  }
+
+  const { parsed } = result;
+  const confirmPost = await postInteractiveAndRegister(
+    session,
+    `\u{1F441}\uFE0F ${formatter.formatBold(`Create watch "${parsed.name}"?`)}\n` +
+    `${formatter.formatBold('Fires when:')} ${parsed.condition}\n` +
+    `${formatter.formatBold('Task:')} ${parsed.prompt}\n` +
+    `${formatter.formatBold('Prefilter keywords:')} ${parsed.keywords.map((k) => formatter.formatCode(k)).join(', ')}\n` +
+    `${formatter.formatItalic('Only messages containing one of these keywords are considered; a semantic check then confirms each match before firing.')}\n\n` +
+    `${formatter.formatItalic('Each fire starts a full Claude session in the triggering thread (per-watch cooldown and daily cap apply). React \u{1F44D} to save or \u{1F44E} to discard.')}`,
+    ['+1', '-1'],
+    (postId, threadId) => ctx.ops.registerPost(postId, threadId),
+  );
+
+  session.messageManager?.setPendingWatchPrompt({
+    postId: confirmPost.id,
+    parsed,
+    requestedBy: username,
+  });
+  sessionLog(session).info(`\u{1F441}\uFE0F Watch proposal posted for @${username}: "${parsed.name}"`);
+}
+
+/** Resolve a 1-based list index argument to a watch. */
+/**
+ * `!watches` — list; `!watches pause|resume|delete <n>` (owner-gated).
+ * No manual run: watches are event-driven (use `!routines run` for
+ * on-demand work).
+ */
+export async function manageWatches(
+  session: Session,
+  args: string | undefined,
+  username: string,
+  ctx: SessionContext,
+): Promise<void> {
+  if (!await requireWatchesEnabled(session, ctx)) return;
+  const platformId = session.platformId;
+  await manageListItems(session, args, username, {
+    emoji: '👁️',
+    noun: 'Watch',
+    command: 'watches',
+    actions: 'pause|resume|delete',
+    createHint: '!watch when <something happens>, <task>',
+    headlineSuffix: 'each fire starts a full Claude session in the triggering thread:',
+    describe: (w, formatter) => {
+      const status = w.enabled ? '' : ' — ⏸️ paused';
+      const last = w.lastFiredAt ? ` · last fired ${w.lastFiredAt.slice(0, 16).replace('T', ' ')}Z (${w.lastFireStatus})` : '';
+      return `${formatter.formatBold(w.name)} — fires when ${w.condition} · by ${formatter.formatCode('@' + w.createdBy)}${status}${last}`;
+    },
+    list: () => ctx.state.watchesStore.list(platformId),
+    update: (id, patch) => ctx.state.watchesStore.update(platformId, id, patch),
+    remove: (id) => ctx.state.watchesStore.remove(platformId, id),
+  });
 }
 
 // ---------------------------------------------------------------------------

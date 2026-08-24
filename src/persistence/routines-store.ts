@@ -12,20 +12,14 @@
  * the file), mirroring MemoryStore.
  */
 
-import { existsSync, mkdirSync, readFileSync } from 'fs';
-import { homedir } from 'os';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import yaml from 'js-yaml';
 import { createLogger } from '../utils/logger.js';
-import { SerialQueue, writeFileAtomic } from './atomic-file.js';
+import { PlatformListStore, STORES_CONFIG_DIR } from './platform-list-store.js';
 
 const log = createLogger('routines');
 
-const DEFAULT_CONFIG_DIR = join(homedir(), '.config', 'claude-threads');
-const DEFAULT_FILE = join(DEFAULT_CONFIG_DIR, 'routines.yaml');
-
-const STORE_VERSION = 1;
+const DEFAULT_FILE = join(STORES_CONFIG_DIR, 'routines.yaml');
 
 /** Routines are disabled after this many consecutive failed runs. */
 export const MAX_CONSECUTIVE_FAILURES = 3;
@@ -74,12 +68,6 @@ export interface Routine {
 
 /** Input for creating a routine; id/bookkeeping fields are filled in by the store. */
 export type NewRoutine = Omit<Routine, 'id' | 'createdAt' | 'enabled' | 'consecutiveFailures'>;
-
-interface FileShape {
-  version: number;
-  /** platformId -> routines */
-  routines: Record<string, Routine[]>;
-}
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -135,33 +123,22 @@ export function describeSchedule(schedule: RoutineSchedule): string {
   }
 }
 
-export class RoutinesStore {
-  private readonly file: string;
-  private readonly configDir: string;
-  /** In-process write mutex (single bot process owns the file). */
-  private readonly queue = new SerialQueue();
-
+export class RoutinesStore extends PlatformListStore<Routine> {
   constructor(filePath?: string) {
-    const effective = filePath ?? process.env.CLAUDE_THREADS_ROUTINES_PATH;
-    if (effective) {
-      this.file = effective;
-      this.configDir = join(effective, '..');
-    } else {
-      this.file = DEFAULT_FILE;
-      this.configDir = DEFAULT_CONFIG_DIR;
-    }
-    if (!existsSync(this.configDir)) {
-      mkdirSync(this.configDir, { recursive: true, mode: 0o700 });
-    }
+    super('routines', DEFAULT_FILE, filePath ?? process.env.CLAUDE_THREADS_ROUTINES_PATH);
   }
 
-  /** All routines for a platform, in creation order. */
-  list(platformId: string): Routine[] {
-    return this.loadRaw().routines[platformId] ?? [];
+  protected applyItemDefaults(r: Routine): void {
+    r.enabled = r.enabled ?? true;
+    r.consecutiveFailures = r.consecutiveFailures ?? 0;
   }
 
-  get(platformId: string, id: string): Routine | undefined {
-    return this.list(platformId).find((r) => r.id === id);
+  protected warn(message: string): void {
+    log.warn(message);
+  }
+
+  protected override onRemoved(platformId: string, routine: Routine): void {
+    log.info(`Routine "${routine.name}" removed from ${platformId}`);
   }
 
   /**
@@ -169,20 +146,14 @@ export class RoutinesStore {
    * when the platform is at `maxRoutines` — validation lives here so no
    * caller can bypass it.
    */
-  add(platformId: string, routine: NewRoutine, maxRoutines = DEFAULT_MAX_ROUTINES): Promise<{ ok: true; routine: Routine } | { ok: false; error: string }> {
-    return this.runExclusive(() => {
+  async add(platformId: string, routine: NewRoutine, maxRoutines = DEFAULT_MAX_ROUTINES): Promise<{ ok: true; routine: Routine } | { ok: false; error: string }> {
+    const result = await this.addItem(platformId, maxRoutines, 'routine', () => {
       const scheduleError = validateSchedule(routine.schedule);
-      if (scheduleError) return { ok: false as const, error: scheduleError };
+      if (scheduleError) return scheduleError;
       const name = routine.name.trim().slice(0, 80);
       const prompt = routine.prompt.trim().slice(0, 2000);
-      if (!name || !prompt) return { ok: false as const, error: 'name and prompt are required' };
-
-      const data = this.loadRaw();
-      const existing = data.routines[platformId] ?? [];
-      if (existing.length >= maxRoutines) {
-        return { ok: false as const, error: `routine limit reached (${maxRoutines}); delete one first` };
-      }
-      const full: Routine = {
+      if (!name || !prompt) return 'name and prompt are required';
+      return {
         ...routine,
         name,
         prompt,
@@ -191,74 +162,14 @@ export class RoutinesStore {
         enabled: true,
         consecutiveFailures: 0,
       };
-      data.routines[platformId] = [...existing, full];
-      this.writeAtomic(data);
-      log.info(`Routine "${full.name}" created on ${platformId} by @${full.createdBy}`);
-      return { ok: true as const, routine: full };
     });
+    if (!result.ok) return result;
+    log.info(`Routine "${result.item.name}" created on ${platformId} by @${result.item.createdBy}`);
+    return { ok: true, routine: result.item };
   }
 
   /** Merge a partial update into one routine. Returns the updated routine or undefined. */
-  update(platformId: string, id: string, patch: Partial<Pick<Routine, 'enabled' | 'lastRunAt' | 'lastRunStatus' | 'consecutiveFailures'>>): Promise<Routine | undefined> {
-    return this.runExclusive(() => {
-      const data = this.loadRaw();
-      const routines = data.routines[platformId] ?? [];
-      const idx = routines.findIndex((r) => r.id === id);
-      if (idx < 0) return undefined;
-      routines[idx] = { ...routines[idx], ...patch };
-      this.writeAtomic(data);
-      return routines[idx];
-    });
-  }
-
-  /** Remove a routine. Returns the removed routine or undefined. */
-  remove(platformId: string, id: string): Promise<Routine | undefined> {
-    return this.runExclusive(() => {
-      const data = this.loadRaw();
-      const routines = data.routines[platformId] ?? [];
-      const idx = routines.findIndex((r) => r.id === id);
-      if (idx < 0) return undefined;
-      const [removed] = routines.splice(idx, 1);
-      if (routines.length === 0) delete data.routines[platformId];
-      this.writeAtomic(data);
-      log.info(`Routine "${removed.name}" removed from ${platformId}`);
-      return removed;
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-
-  private runExclusive<T>(fn: () => T): Promise<T> {
-    return this.queue.run(fn);
-  }
-
-  private loadRaw(): FileShape {
-    if (!existsSync(this.file)) {
-      return { version: STORE_VERSION, routines: {} };
-    }
-    try {
-      const parsed = yaml.load(readFileSync(this.file, 'utf-8')) as Partial<FileShape> | undefined;
-      if (!parsed || typeof parsed !== 'object') {
-        return { version: STORE_VERSION, routines: {} };
-      }
-      const routines = (parsed.routines && typeof parsed.routines === 'object')
-        ? parsed.routines as Record<string, Routine[]>
-        : {};
-      // Defensive defaults for forward/backward compatibility.
-      for (const list of Object.values(routines)) {
-        for (const r of list) {
-          r.enabled = r.enabled ?? true;
-          r.consecutiveFailures = r.consecutiveFailures ?? 0;
-        }
-      }
-      return { version: parsed.version ?? STORE_VERSION, routines };
-    } catch (err) {
-      log.warn(`Failed to read ${this.file}: ${(err as Error).message} — starting empty`);
-      return { version: STORE_VERSION, routines: {} };
-    }
-  }
-
-  private writeAtomic(data: FileShape): void {
-    writeFileAtomic(this.file, yaml.dump(data, { sortKeys: true, lineWidth: -1 }));
+  override update(platformId: string, id: string, patch: Partial<Pick<Routine, 'enabled' | 'lastRunAt' | 'lastRunStatus' | 'consecutiveFailures'>>): Promise<Routine | undefined> {
+    return super.update(platformId, id, patch);
   }
 }

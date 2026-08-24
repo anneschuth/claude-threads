@@ -271,7 +271,9 @@ export async function handleMessage(
           // Clean up the paused session instead of resuming it
           const persistedSession = session.getPersistedSession(threadRoot);
           if (persistedSession) {
-            const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+            // Legacy records may lack sessionAllowedUsers — fall back to the
+            // owner (CLAUDE.md backward-compat rule; matches reaction-router).
+            const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
               auditLog(platformId, {
                 threadId: threadRoot,
@@ -298,7 +300,11 @@ export async function handleMessage(
       // reaction-router.ts — the platform allowlist alone is not enough.
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+        // Legacy records may lack sessionAllowedUsers — without the owner
+        // fallback, `approvals: 'owner'` (which drops the global-allowlist
+        // rescue below) would lock the owner out of resuming their own
+        // session (CLAUDE.md backward-compat rule; matches reaction-router).
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
         const ownerScoped =
           resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
         if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {
@@ -336,7 +342,20 @@ export async function handleMessage(
     // addressed to the bot (the channel is the session). With
     // `respondTo: mention` the DCM session also starts only on a mention.
     const mentionRequired = !dcm.enabled || dcm.respondTo === 'mention';
-    if (mentionRequired && !client.isBotMentioned(message)) return;
+    if (mentionRequired && !client.isBotMentioned(message)) {
+      // The bot is about to ignore this message — the one moment event
+      // triggers (watches) evaluate it. Fire-and-forget: evaluation must
+      // never delay or break message handling. Session and paused-session
+      // threads returned above, so a fired session's own thread can never
+      // re-trigger a watch. Watches are inert in DCM: every message in a DCM
+      // channel routes to the synthetic channel-session key (line ~94), so a
+      // session fired on the message's REAL thread root would be unreachable
+      // — replies and !stop in its thread would never route to it.
+      if (!dcm.enabled) {
+        session.evaluateWatches(platformId, post, username, message);
+      }
+      return;
+    }
 
     if (!client.isUserAllowed(username)) {
       await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);

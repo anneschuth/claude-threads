@@ -55,6 +55,7 @@
 - **Git worktrees** - `!worktree feature/foo` isolates Claude's changes on a branch
 - **Memory** - Channels learn over time: `!remember` saves shared team notes every session sees, sessions distill durable facts when they end, and Claude's native auto-memory keeps per-repo project knowledge — all scoped per channel ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#memory-memory-default-fully-enabled))
 - **Routines** - `!routine every weekday at 9am, summarize open threads` schedules recurring work; runs post as new threads in the channel, confirmed before saving and managed with `!routines` ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#routines-routines-default-enabled))
+- **Watches** - `!watch when someone reports an incident, triage it` reacts to matching channel messages: a free keyword prefilter plus a semantic check fire a session right in the triggering thread ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#watches-watches-default-enabled))
 - **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
 - **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
@@ -126,6 +127,8 @@ Type `!help` in any session thread:
 | `!memory`                                   | Show channel memory (`forget <n\|text>` removes entries)                                 |
 | `!routine <schedule, task>`                 | Schedule a recurring routine in natural language (confirmed with 👍)                     |
 | `!routines`                                 | List routines (`pause\|resume\|delete\|run <n>` to manage)                               |
+| `!watch <when ..., task>`                   | Create an event trigger in natural language (confirmed with 👍)                          |
+| `!watches`                                  | List event triggers (`pause\|resume\|delete <n>` to manage)                             |
 | `!update`                                   | Show auto-update status (`!update now` / `!update defer`)                                |
 | `!bug <desc>`                               | Report a bug with context (creates a GitHub issue)                                       |
 | `!approve`                                  | Approve pending plan (alternative to 👍; also `!yes`)                                    |

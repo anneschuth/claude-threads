@@ -26,6 +26,9 @@ export const CONTEXT_PROMPT_TIMEOUT_MS = 30000;
 // Context options: last N messages
 export const CONTEXT_OPTIONS = [3, 5, 10] as const;
 
+/** Cap for forced auto-include on unattended starts (watch fires). */
+export const AUTO_INCLUDE_LIMIT = 25;
+
 // ---------------------------------------------------------------------------
 // Helper Functions for MessageManager Integration
 // ---------------------------------------------------------------------------
@@ -383,6 +386,42 @@ export interface ContextPromptHandler {
   buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<BuiltMessageContent>;
 }
 
+/** previousWorkSummary is a one-time context transfer (set by !cd) — read and clear. */
+function consumePreviousWorkSummary(session: Session): string | undefined {
+  const summary = session.previousWorkSummary;
+  session.previousWorkSummary = undefined;
+  return summary;
+}
+
+/**
+ * Build the final first message (context prefix + user turn), send it to
+ * Claude, and surface skipped attachments. The single implementation behind
+ * every "send directly, no interactive prompt" path: prompt timeout, empty
+ * thread, single-message auto-include, and unattended (watch-fire)
+ * auto-include.
+ */
+async function sendWithContext(
+  session: Session,
+  ctx: ContextPromptHandler,
+  userTurn: string,
+  queuedFiles: PlatformFile[] | undefined,
+  messages: ThreadMessage[],
+  previousWorkSummary?: string,
+): Promise<void> {
+  let messageToSend = userTurn;
+  if (messages.length > 0 || previousWorkSummary) {
+    messageToSend = formatContextForClaude(messages, previousWorkSummary) + userTurn;
+  }
+  session.messageCount++;
+  messageToSend = ctx.injectMetadataReminder(messageToSend, session);
+  const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
+  if (session.claude.isRunning()) {
+    session.claude.sendMessage(content);
+    ctx.startTyping(session);
+  }
+  await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+}
+
 /**
  * Handle context prompt timeout.
  */
@@ -406,37 +445,14 @@ export async function handleContextPromptTimeout(
   // Clear pending context prompt (MessageManager and local storage)
   clearPendingContextPromptInManager(session);
 
-  // Get any previous work summary (from directory change)
-  // Even on timeout, we should include the work summary as it's valuable context
-  const previousWorkSummary = session.previousWorkSummary;
-  // Clear it after use - it's a one-time context transfer
-  session.previousWorkSummary = undefined;
-
-  let queuedPrompt = userTurn;
-  // If we have a work summary, include it even though user didn't select thread context
+  // Even on timeout, include the work summary — it's valuable context the
+  // user didn't decline (they only declined thread messages).
+  const previousWorkSummary = consumePreviousWorkSummary(session);
   if (previousWorkSummary) {
-    const contextPrefix = formatContextForClaude([], previousWorkSummary);
-    queuedPrompt = contextPrefix + userTurn;
     sessionLog(session).debug(`🧵 Including work summary despite timeout`);
   }
 
-  // Increment message counter
-  session.messageCount++;
-
-  // Inject metadata reminder periodically
-  const messageToSend = ctx.injectMetadataReminder(queuedPrompt, session);
-
-  // Build content with files (images)
-  const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
-
-  // Send the message without context
-  if (session.claude.isRunning()) {
-    session.claude.sendMessage(content);
-    ctx.startTyping(session);
-  }
-
-  // Surface any skipped attachments to the user
-  await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+  await sendWithContext(session, ctx, userTurn, queuedFiles, [], previousWorkSummary);
 
   // Persist updated state
   ctx.persistSession(session);
@@ -456,61 +472,39 @@ export async function offerContextPrompt(
   queuedFiles: PlatformFile[] | undefined,
   ctx: ContextPromptHandler,
   excludePostId?: string,
-  sender?: string
+  sender?: string,
+  autoInclude?: boolean
 ): Promise<boolean> {
   // Get thread history count (exclude bot messages and the triggering message)
   const messageCount = await getThreadContextCount(session, excludePostId);
   const userTurn = formatUserTurn(queuedPrompt, sender, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
 
-  if (messageCount === 0) {
-    // No previous messages - but check for work summary from directory change
-    const previousWorkSummary = session.previousWorkSummary;
-    // Clear it after use - it's a one-time context transfer
-    session.previousWorkSummary = undefined;
+  // Unattended starts (watch fires) must not stall on the interactive
+  // context prompt below — force the auto-include path for any thread size.
+  // The thread IS the event being responded to, so context is wanted.
+  if (autoInclude && messageCount >= 1) {
+    const messages = await getThreadMessagesForContext(session, Math.min(messageCount, AUTO_INCLUDE_LIMIT), excludePostId);
+    await sendWithContext(session, ctx, userTurn, queuedFiles, messages, consumePreviousWorkSummary(session));
+    sessionLog(session).debug(`🧵 Auto-included ${messages.length} thread message(s) as context (unattended start)`);
+    return false;
+  }
 
-    session.messageCount++;
-    let messageToSend = userTurn;
+  if (messageCount === 0) {
+    // No previous messages - but a work summary from a directory change may exist
+    const previousWorkSummary = consumePreviousWorkSummary(session);
     if (previousWorkSummary) {
-      const contextPrefix = formatContextForClaude([], previousWorkSummary);
-      messageToSend = contextPrefix + userTurn;
       sessionLog(session).debug(`🧵 Including work summary (no thread messages)`);
     }
-    messageToSend = ctx.injectMetadataReminder(messageToSend, session);
-    const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(content);
-      ctx.startTyping(session);
-    }
-    await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+    await sendWithContext(session, ctx, userTurn, queuedFiles, [], previousWorkSummary);
     return false;
   }
 
   if (messageCount === 1) {
     // Only one message (the thread starter) - auto-include without asking
     const messages = await getThreadMessagesForContext(session, 1, excludePostId);
-
-    // Get any previous work summary (from directory change)
-    const previousWorkSummary = session.previousWorkSummary;
-    // Clear it after use - it's a one-time context transfer
-    session.previousWorkSummary = undefined;
-
-    let messageToSend = userTurn;
-    if (messages.length > 0 || previousWorkSummary) {
-      const contextPrefix = formatContextForClaude(messages, previousWorkSummary);
-      messageToSend = contextPrefix + userTurn;
-    }
-
-    session.messageCount++;
-    messageToSend = ctx.injectMetadataReminder(messageToSend, session);
-    const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(content);
-      ctx.startTyping(session);
-    }
-    await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-
+    const previousWorkSummary = consumePreviousWorkSummary(session);
+    await sendWithContext(session, ctx, userTurn, queuedFiles, messages, previousWorkSummary);
     sessionLog(session).debug(`🧵 Auto-included 1 message as context (thread starter)${previousWorkSummary ? ' + work summary' : ''}`);
-
     return false;
   }
 

@@ -96,6 +96,27 @@ if (process.argv.includes('--version')) {
   process.exit(0);
 }
 
+// -p (print mode): quickQuery spawns `claude -p --model haiku` for one-shot
+// asks (watch match confirms, distillation, NL parses) with the prompt on
+// stdin. Answer deterministically so those paths are testable end to end;
+// unknown prompts get a bare OK (callers treat unusable output as a no-op).
+if (process.argv.includes('-p')) {
+  const prompt = await new Promise<string>((resolve) => {
+    let buf = '';
+    process.stdin.on('data', (d) => { buf += d; });
+    process.stdin.on('end', () => resolve(buf));
+    setTimeout(() => resolve(buf), 5000).unref();
+  });
+  if (prompt.includes('Trigger condition:')) {
+    // Watch confirm — MOCK_WATCH_CONFIRM=false simulates a semantic no-match.
+    const match = process.env.MOCK_WATCH_CONFIRM !== 'false';
+    console.log(JSON.stringify({ match, reason: 'mock confirm' }));
+  } else {
+    console.log('OK');
+  }
+  process.exit(0);
+}
+
 const ARGS = parseArgs(process.argv.slice(2));
 
 // ============================================================================

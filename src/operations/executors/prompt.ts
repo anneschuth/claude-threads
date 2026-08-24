@@ -16,6 +16,7 @@ import type {
   PendingExistingWorktreePrompt,
   PendingUpdatePrompt,
   PendingRoutinePrompt,
+  PendingWatchPrompt,
 } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
@@ -59,6 +60,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingExistingWorktreePrompt: null,
       pendingUpdatePrompt: null,
       pendingRoutinePrompt: null,
+      pendingWatchPrompt: null,
     };
   }
 
@@ -84,6 +86,9 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingRoutinePrompt: this.state.pendingRoutinePrompt
         ? { ...this.state.pendingRoutinePrompt }
         : null,
+      pendingWatchPrompt: this.state.pendingWatchPrompt
+        ? { ...this.state.pendingWatchPrompt }
+        : null,
     };
   }
 
@@ -100,8 +105,9 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       pendingContextPrompt: persisted.pendingContextPrompt ?? null,
       pendingExistingWorktreePrompt: persisted.pendingExistingWorktreePrompt ?? null,
       pendingUpdatePrompt: persisted.pendingUpdatePrompt ?? null,
-      // Routine confirmations are transient by design — never restored.
+      // Routine/watch confirmations are transient by design — never restored.
       pendingRoutinePrompt: null,
+      pendingWatchPrompt: null,
     };
   }
 
@@ -384,35 +390,91 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   }
 
   /**
+   * Shared body of the routine/watch creation-confirmation handlers: match
+   * the pending prompt to the reacted post, update the confirmation card,
+   * clear the pending state, and hand the typed payload to `emit`. The
+   * public wrappers below keep the per-flavor typed events — those are
+   * load-bearing for the lifecycle listeners.
+   */
+  private async completeCreationPrompt<P extends { name: string }>(
+    pending: { postId: string; parsed: P; requestedBy: string } | null,
+    label: string,
+    clear: () => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; postId: string }) => void,
+    postId: string,
+    approved: boolean,
+    username: string,
+    ctx: ExecutorContext,
+  ): Promise<boolean> {
+    if (!pending || pending.postId !== postId) return false;
+
+    const { parsed, requestedBy } = pending;
+    const statusMessage = approved
+      ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
+      : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      ctx.logger.debug(`Failed to update ${label.toLowerCase()} prompt post: ${err}`);
+    }
+
+    clear();
+    emit({ approved, parsed, requestedBy, postId });
+    return true;
+  }
+
+  /**
    * Handle a routine confirmation reaction. Emits 'routine-prompt:complete';
    * the lifecycle listener does the actual store write on approval.
    */
-  async handleRoutinePromptResponse(
+  handleRoutinePromptResponse(
     postId: string,
     approved: boolean,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingRoutinePrompt) return false;
-    if (this.state.pendingRoutinePrompt.postId !== postId) return false;
+    return this.completeCreationPrompt(
+      this.state.pendingRoutinePrompt,
+      'Routine',
+      () => { this.state.pendingRoutinePrompt = null; },
+      (payload) => this.events?.emit('routine-prompt:complete', payload),
+      postId, approved, username, ctx,
+    );
+  }
 
-    const { parsed, requestedBy } = this.state.pendingRoutinePrompt;
+  // ---------------------------------------------------------------------------
+  // Watch-creation confirmation methods
+  // ---------------------------------------------------------------------------
 
-    const statusMessage = approved
-      ? `✅ ${ctx.formatter.formatBold(`Routine "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
-      : `❌ ${ctx.formatter.formatBold(`Routine "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update routine prompt post: ${err}`);
-    }
+  /**
+   * Set the pending watch-creation confirmation. One at a time per session;
+   * a newer request replaces an unanswered older one.
+   */
+  setPendingWatchPrompt(prompt: PendingWatchPrompt): void {
+    this.state.pendingWatchPrompt = prompt;
+  }
 
-    this.state.pendingRoutinePrompt = null;
+  hasPendingWatchPrompt(): boolean {
+    return this.state.pendingWatchPrompt !== null;
+  }
 
-    if (this.events) {
-      this.events.emit('routine-prompt:complete', { approved, parsed, requestedBy, postId });
-    }
-    return true;
+  /**
+   * Handle a watch confirmation reaction. Emits 'watch-prompt:complete';
+   * the lifecycle listener does the actual store write on approval.
+   */
+  handleWatchPromptResponse(
+    postId: string,
+    approved: boolean,
+    username: string,
+    ctx: ExecutorContext
+  ): Promise<boolean> {
+    return this.completeCreationPrompt(
+      this.state.pendingWatchPrompt,
+      'Watch',
+      () => { this.state.pendingWatchPrompt = null; },
+      (payload) => this.events?.emit('watch-prompt:complete', payload),
+      postId, approved, username, ctx,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -518,6 +580,19 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         return this.handleRoutinePromptResponse(postId, false, user, ctx);
       }
       ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for routine prompt, ignoring`);
+      return false;
+    }
+
+    if (this.state.pendingWatchPrompt?.postId === postId) {
+      if (isApprovalEmoji(emoji)) {
+        ctx.logger.debug(`Watch prompt reaction from @${user}: approve`);
+        return this.handleWatchPromptResponse(postId, true, user, ctx);
+      }
+      if (isDenialEmoji(emoji)) {
+        ctx.logger.debug(`Watch prompt reaction from @${user}: discard`);
+        return this.handleWatchPromptResponse(postId, false, user, ctx);
+      }
+      ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for watch prompt, ignoring`);
       return false;
     }
 

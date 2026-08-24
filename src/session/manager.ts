@@ -22,6 +22,9 @@ import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
 import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
 import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
+import { WatchesStore } from '../persistence/watches-store.js';
+import { WatchEvaluator } from '../watches/evaluator.js';
+import { fireWatch } from '../watches/runner.js';
 import { RoutineScheduler } from '../routines/scheduler.js';
 import { fireRoutine } from '../routines/runner.js';
 import { AccountPool } from '../claude/account-pool.js';
@@ -41,7 +44,7 @@ import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import * as plugin from '../operations/plugin/index.js';
 import type { Session, InitialSessionOptions } from './types.js';
-import { SessionRegistry } from './registry.js';
+import { compositeSessionId, SessionRegistry } from './registry.js';
 import * as reactionRouter from './reaction-router.js';
 import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
@@ -123,6 +126,9 @@ export class SessionManager extends EventEmitter {
   // Scheduled routines (Claude Tag-style recurring work)
   private routinesStore!: RoutinesStore;
   private routineScheduler: RoutineScheduler | null = null;
+  // Event triggers (Claude Tag-style proactiveness)
+  private watchesStore!: WatchesStore;
+  private watchEvaluator: WatchEvaluator | null = null;
 
   // Background tasks
   private sessionMonitor: SessionMonitor | null = null;       // Idle timeout + sticky refresh (1 min)
@@ -143,6 +149,9 @@ export class SessionManager extends EventEmitter {
 
   // Per-platform routines toggle (default: enabled)
   private platformRoutines: Map<string, boolean> = new Map();
+
+  // Per-platform watches toggle (default: enabled)
+  private platformWatches: Map<string, boolean> = new Map();
 
   // Auto-update manager (set via setAutoUpdateManager)
   private autoUpdateManager: commands.AutoUpdateManagerInterface | null = null;
@@ -191,6 +200,7 @@ export class SessionManager extends EventEmitter {
     this.githubEmailsStore = new GitHubEmailsStore();
     this.memoryStore = new MemoryStore();
     this.routinesStore = new RoutinesStore();
+    this.watchesStore = new WatchesStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
 
@@ -227,6 +237,23 @@ export class SessionManager extends EventEmitter {
         ).catch(() => {});
       },
     });
+
+    this.watchEvaluator = new WatchEvaluator({
+      store: this.watchesStore,
+      isWatchesEnabled: (pid) => this.platformWatches.get(pid) ?? true,
+      fireWatch: (pid, watch, post, author) => fireWatch(watch, pid, post, author, this.getContext()),
+      notifyDisabled: async (pid, watch, reason) => {
+        const platform = this.platforms.get(pid);
+        if (!platform) return;
+        const formatter = platform.getFormatter();
+        await platform.createPost(
+          `\u{1F441}\uFE0F ${formatter.formatBold(`Watch "${watch.name}" disabled`)} — ${reason}. ` +
+          `Re-enable with ${formatter.formatCode('!watches resume <n>')} once resolved.`,
+        ).catch(() => {});
+      },
+      cooldownMs: this.limits.watchCooldownMinutes * 60 * 1000,
+      dailyCap: this.limits.watchDailyCap,
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -236,17 +263,24 @@ export class SessionManager extends EventEmitter {
   addPlatform(
     platformId: string,
     client: PlatformClient,
-    overhead?: Partial<PlatformOverhead>,
-    memory?: ResolvedMemoryConfig,
-    routinesEnabled?: boolean
+    // A keyed options object, not positional params: the tail used to be
+    // two adjacent optional booleans, and a transposed call site would have
+    // silently enabled the wrong feature per platform.
+    options?: {
+      overhead?: Partial<PlatformOverhead>;
+      memory?: ResolvedMemoryConfig;
+      routinesEnabled?: boolean;
+      watchesEnabled?: boolean;
+    },
   ): void {
     this.platforms.set(platformId, client);
     this.platformOverhead.set(platformId, {
-      sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
-      stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
+      sessionHeader: options?.overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
+      stickyMessage: options?.overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
     });
-    this.platformMemory.set(platformId, memory ?? DEFAULT_MEMORY_CONFIG);
-    this.platformRoutines.set(platformId, routinesEnabled ?? true);
+    this.platformMemory.set(platformId, options?.memory ?? DEFAULT_MEMORY_CONFIG);
+    this.platformRoutines.set(platformId, options?.routinesEnabled ?? true);
+    this.platformWatches.set(platformId, options?.watchesEnabled ?? true);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -277,6 +311,7 @@ export class SessionManager extends EventEmitter {
     this.platformOverhead.delete(platformId);
     this.platformMemory.delete(platformId);
     this.platformRoutines.delete(platformId);
+    this.platformWatches.delete(platformId);
     stickyMessage.clearHiddenCleanupTracking(platformId);
   }
 
@@ -352,6 +387,7 @@ export class SessionManager extends EventEmitter {
       debug: this.debug,
       maxSessions: this.limits.maxSessions,
       maxRoutines: this.limits.maxRoutines,
+      maxWatches: this.limits.maxWatches,
       threadLogsEnabled: this.threadLogsEnabled,
       threadLogsRetentionDays: this.threadLogsRetentionDays,
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
@@ -366,6 +402,7 @@ export class SessionManager extends EventEmitter {
       githubEmailsStore: this.githubEmailsStore,
       memoryStore: this.memoryStore,
       routinesStore: this.routinesStore,
+      watchesStore: this.watchesStore,
       isShuttingDown: this.isShuttingDown,
     };
 
@@ -420,7 +457,7 @@ export class SessionManager extends EventEmitter {
       handleBugReportApproval: (s, approved, user) => commands.handleBugReportApproval(s, approved, user),
 
       // Context prompt (inlined - no wrapper method needed)
-      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
+      offerContextPrompt: (s, q, f, e, sender, autoInclude) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender, autoInclude),
 
       // UI event emission
       emitSessionAdd: (s) => this.emitSessionAdd(s),
@@ -446,6 +483,8 @@ export class SessionManager extends EventEmitter {
       isRoutinesEnabled: (pid) => this.platformRoutines.get(pid) ?? true,
 
       fireRoutineNow: (pid, routine) => this.fireRoutineNowImpl(pid, routine),
+
+      isWatchesEnabled: (pid) => this.platformWatches.get(pid) ?? true,
     };
 
     return createSessionContext(config, state, ops);
@@ -456,7 +495,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private getSessionId(platformId: string, threadId: string): string {
-    return `${platformId}:${threadId}`;
+    return compositeSessionId(platformId, threadId);
   }
 
   // ---------------------------------------------------------------------------
@@ -1118,7 +1157,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async startSession(
-    options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean },
+    options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
     username: string,
     replyToPostId?: string,
     platformId: string = 'default',
@@ -1283,6 +1322,52 @@ export class SessionManager extends EventEmitter {
     const session = this.findSessionByThreadId(threadId);
     if (!session) return;
     await commands.manageRoutines(session, args, username, this.getContext());
+  }
+
+  /** `!watch <natural language>` — propose an event trigger for confirmation. */
+  async createWatch(threadId: string, request: string, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.createWatch(session, request, username, this.getContext());
+  }
+
+  /** `!watches [subcommand]` — list/pause/resume/delete watches. */
+  async manageWatches(threadId: string, args: string | undefined, username: string): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await commands.manageWatches(session, args, username, this.getContext());
+  }
+
+  /**
+   * Evaluate a channel message against this platform's event triggers.
+   * Called fire-and-forget from the message handler for messages the bot
+   * would otherwise ignore; must never throw (the evaluator guards itself,
+   * this wrapper is belt-and-braces).
+   */
+  evaluateWatches(platformId: string, post: { id: string; rootId?: string; userId?: string }, author: string, message: string): void {
+    const evaluator = this.watchEvaluator;
+    if (!evaluator) return;
+    // The bot user id feeds the evaluator's belt-and-braces self-post guard.
+    // The evaluator calls the getter lazily (only when the platform actually
+    // has enabled watches), and the id is cached here because Mattermost's
+    // getBotUser() is an uncached API call — without the cache every
+    // prefilter candidate would cost an HTTP round-trip.
+    void evaluator
+      .evaluate(platformId, post, author, message, () => this.resolveBotUserId(platformId))
+      .catch(() => {});
+  }
+
+  /** Per-platform bot user ids for the watch self-post guard (see evaluateWatches). */
+  private readonly watchBotUserIds = new Map<string, string>();
+
+  private async resolveBotUserId(platformId: string): Promise<string | undefined> {
+    const cached = this.watchBotUserIds.get(platformId);
+    if (cached) return cached;
+    const botUser = await this.platforms.get(platformId)?.getBotUser().catch(() => null);
+    // Cache only successful lookups: a transient API failure must not pin
+    // "unknown" (guard disabled) for the rest of the process lifetime.
+    if (botUser?.id) this.watchBotUserIds.set(platformId, botUser.id);
+    return botUser?.id;
   }
 
   /**
@@ -1490,7 +1575,7 @@ export class SessionManager extends EventEmitter {
       persistSession: (s) => this.persistSession(s),
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      offerContextPrompt: (s, q, f, e, sender) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender),
+      offerContextPrompt: (s, q, f, e, sender, autoInclude) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender, autoInclude),
       buildMessageContent: (text, s, files) => {
         const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
         return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug);

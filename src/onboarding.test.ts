@@ -4,8 +4,9 @@ import {
   validateMattermostCredentials,
   validateSlackCredentials,
   pruneDefaultFalseFlags,
+  unmanagedFields,
 } from './onboarding.js';
-import type { Config } from './config/index.js';
+import type { Config, PlatformInstanceConfig } from './config/index.js';
 
 // Store original fetch to restore after tests
 const originalFetch = globalThis.fetch;
@@ -854,6 +855,63 @@ describe('validateSlackCredentials token validation', () => {
       'G0123456789'
     );
     expect(result.success).toBe(true);
+  });
+});
+
+describe('unmanagedFields', () => {
+  const existing = {
+    id: 'mm-main',
+    type: 'mattermost',
+    displayName: 'Main',
+    url: 'https://chat.example.com',
+    token: 'secret',
+    channelId: 'abc123',
+    botName: 'claude-code',
+    allowedUsers: ['anne'],
+    // Fields the wizard never asks about:
+    memory: false,
+    routines: false,
+    watches: false,
+    skipPermissions: true,
+    auditLog: false,
+    ackReaction: 'eyes',
+    someFutureFlag: 'kept',
+  } as unknown as PlatformInstanceConfig;
+
+  test('returns exactly the fields the wizard does not manage', () => {
+    expect(unmanagedFields(existing)).toEqual({
+      memory: false,
+      routines: false,
+      watches: false,
+      skipPermissions: true,
+      auditLog: false,
+      ackReaction: 'eyes',
+      someFutureFlag: 'kept',
+    } as unknown as Partial<PlatformInstanceConfig>);
+  });
+
+  test('an edit round-trip merge preserves unmanaged settings', () => {
+    // Simulates runReconfigureFlow: the wizard returns only managed fields;
+    // a wholesale replacement silently dropped memory: false (privacy) and
+    // the rest.
+    const wizardResult = {
+      id: 'mm-main',
+      type: 'mattermost',
+      displayName: 'Renamed',
+      url: 'https://chat.example.com',
+      token: 'rotated',
+      channelId: 'abc123',
+      botName: 'claude-code',
+      allowedUsers: ['anne', 'bob'],
+    } as unknown as PlatformInstanceConfig;
+
+    const merged = { ...unmanagedFields(existing), ...wizardResult } as unknown as Record<string, unknown>;
+
+    expect(merged.memory).toBe(false);
+    expect(merged.skipPermissions).toBe(true);
+    expect(merged.someFutureFlag).toBe('kept');
+    expect(merged.displayName).toBe('Renamed');
+    expect(merged.token).toBe('rotated');
   });
 });
 

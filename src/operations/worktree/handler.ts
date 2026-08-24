@@ -344,7 +344,7 @@ export async function handleWorktreeSkip(
   session: Session,
   username: string,
   persistSession: (session: Session) => void,
-  offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string) => Promise<boolean>
+  offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string, autoInclude?: boolean) => Promise<boolean>
 ): Promise<void> {
   // Check if we're handling a failure retry prompt or the initial worktree prompt
   const isFailurePrompt = !!session.pendingWorktreeFailurePrompt;
@@ -411,7 +411,7 @@ export async function createAndSwitchToWorktree(
     persistSession: (session: Session) => void;
     startTyping: (session: Session) => void;
     stopTyping: (session: Session) => void;
-    offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string) => Promise<boolean>;
+    offerContextPrompt: (session: Session, queuedPrompt: string, queuedFiles?: PlatformFile[], excludePostId?: string, sender?: string, autoInclude?: boolean) => Promise<boolean>;
     buildMessageContent: (text: string, session: Session, files?: PlatformFile[]) => Promise<BuiltMessageContent>;
     // Context preservation for mid-session worktree creation
     generateWorkSummary: (session: Session) => Promise<string | undefined>;

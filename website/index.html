@@ -276,6 +276,11 @@
                 Routines: <code>!routine every weekday at 9am, ...</code>
                 schedules recurring work that posts its runs as new threads
               </li>
+              <li>
+                Watches: <code>!watch when someone reports an incident, ...</code>
+                fires a session in the triggering thread when a matching
+                message appears
+              </li>
               <li>Quiet mode and per-channel verbosity dials</li>
               <li>Runs on macOS, Linux, and Windows</li>
             </ul>
@@ -361,6 +366,17 @@
                 <td><code>!routines</code></td>
                 <td>
                   List routines (<code>pause|resume|delete|run &lt;n&gt;</code>
+                  manage them)
+                </td>
+              </tr>
+              <tr>
+                <td><code>!watch &lt;when ..., task&gt;</code></td>
+                <td>Create an event trigger (confirmed with 👍)</td>
+              </tr>
+              <tr>
+                <td><code>!watches</code></td>
+                <td>
+                  List event triggers (<code>pause|resume|delete &lt;n&gt;</code>
                   manage them)
                 </td>
               </tr>

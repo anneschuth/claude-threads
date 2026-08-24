@@ -11,6 +11,7 @@ import type { ContentBreaker } from '../content-breaker.js';
 import type { Logger } from '../../utils/logger.js';
 import type { ThreadLogger } from '../../persistence/thread-logger.js';
 import type { ParsedRoutineRequest } from '../../routines/parser.js';
+import type { ParsedWatchRequest } from '../../watches/parser.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -160,6 +161,18 @@ export interface PendingRoutinePrompt {
 }
 
 /**
+ * A watch (event trigger) proposal shown to the user, awaiting a 👍/👎
+ * reaction before anything is saved. Transient like the routine prompt.
+ */
+export interface PendingWatchPrompt {
+  postId: string;
+  /** Haiku-parsed watch, revalidated (see src/watches/parser.ts). */
+  parsed: ParsedWatchRequest;
+  /** Who asked for the watch — becomes `createdBy` on approval. */
+  requestedBy: string;
+}
+
+/**
  * Pending bug report state for bug report submission.
  */
 export interface PendingBugReport {
@@ -220,6 +233,8 @@ export interface PromptState {
   pendingUpdatePrompt: PendingUpdatePrompt | null;
   /** Pending routine-creation confirmation (transient, never persisted) */
   pendingRoutinePrompt: PendingRoutinePrompt | null;
+  /** Pending watch-creation confirmation (transient, never persisted) */
+  pendingWatchPrompt: PendingWatchPrompt | null;
 }
 
 /**

@@ -12,6 +12,17 @@ import type { Session } from './types.js';
 import type { SessionStore, PersistedSession } from '../persistence/session-store.js';
 
 /**
+ * THE composite session id format (`platformId:threadId`). Every producer —
+ * the registry, SessionManager, and lifecycle's in-flight-start keys — must
+ * build ids through this function: the watch/routine runners consult
+ * `isSessionStartInFlight` with ids from `ctx.ops.getSessionId`, so a
+ * format drift between producers would silently disable that guard.
+ */
+export function compositeSessionId(platformId: string, threadId: string): string {
+  return `${platformId}:${threadId}`;
+}
+
+/**
  * Registry for tracking active sessions and their posts.
  *
  * Responsibilities:
@@ -37,7 +48,7 @@ export class SessionRegistry {
    * Generate composite session ID from platform and thread.
    */
   getSessionId(platformId: string, threadId: string): string {
-    return `${platformId}:${threadId}`;
+    return compositeSessionId(platformId, threadId);
   }
 
   /**

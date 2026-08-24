@@ -213,6 +213,9 @@ export interface UpdateMessageResponse extends SlackApiResponse {
 export interface ConversationsRepliesResponse extends SlackApiResponse {
   messages: SlackMessage[];
   has_more: boolean;
+  response_metadata?: {
+    next_cursor: string;
+  };
 }
 
 export interface ConversationsHistoryResponse extends SlackApiResponse {

@@ -409,6 +409,95 @@ confirmation says so.
   bot-process-credentials caveat as memory distillation applies in OAuth
   account pools.
 
+### Watches (`watches`, default: enabled)
+
+Event triggers, Claude Tag-style proactiveness: a watch fires when a
+**matching message appears in the channel** — the bot starts a session **in
+the triggering message's own thread** (as the watch's creator) and works the
+task right where the event happened. Other thread participants reach the
+session through the normal message-approval flow.
+
+```yaml
+platforms:
+  - id: mattermost-main
+    type: mattermost
+    # ... credentials ...
+    watches: true               # default; `false` disables evaluation + commands
+
+limits:
+  maxWatches: 10                # per-platform cap (default 10)
+  watchCooldownMinutes: 5       # min minutes between fires of one watch (default 5)
+  watchDailyCap: 20             # max fires per watch per day (default 20)
+```
+
+**Creating** (natural language, confirmed before saving):
+
+```
+!watch when someone reports a production incident, triage it and post a checklist
+```
+
+A haiku pass splits the request into a matching **condition**, a **task**,
+and a set of lowercase **prefilter keywords** (with synonyms and — for
+non-English requests — terms in both languages). The confirmation card shows
+all three, and **nothing is saved until someone reacts 👍**.
+
+**Matching is two-stage** to keep chatty channels free:
+
+1. Every channel message the bot would otherwise ignore is screened against
+   the keywords locally (zero cost). No keyword hit → nothing happens.
+2. A keyword hit gets **one haiku call** that semantically confirms the
+   message against the condition ("a link to last year's incident postmortem"
+   does not fire an incident watch). A keyword hit alone never fires;
+   a failed or ambiguous confirmation never fires (fail-closed).
+
+**Managing:**
+
+- `!watches` — numbered list with condition, creator, and last-fire status
+- `!watches pause|resume|delete <n>` — owner-gated
+- (No manual `run` — watches are event-driven; use `!routines run` for
+  on-demand work.)
+
+**Semantics & guardrails:**
+
+- Fires run **as their creator** and are re-authorized on every fire — a
+  creator who loses platform authorization disables the watch (with a
+  channel notice).
+- Per-watch cooldown (default 5 min) and daily cap (default 20 fires/day);
+  at most one watch fires per message; fires count against `MAX_SESSIONS`.
+- 3 consecutive failed fires auto-disable the watch with a channel notice;
+  `!watches resume <n>` re-arms it.
+- Messages inside active or paused session threads never trigger watches
+  (loop prevention), and the bot's own posts are filtered before evaluation.
+- Platform note: on **Mattermost**, messages from *other* bots (CI alerts,
+  webhook integrations) can trigger watches — useful for "watch the CI bot".
+  On **Slack**, the client filters all bot events, so only human messages
+  trigger.
+- The fired session auto-includes the triggering thread's recent messages as
+  context (it is the event being responded to) — no interactive context
+  prompt to stall on.
+- **Each fire starts a full Claude session on your subscription** — the
+  confirmation and `!watches` listing both say so.
+- Watches are scoped per platform instance (same privacy boundary as memory)
+  and stored at `~/.config/claude-threads/watches.yaml` (0600; override with
+  `CLAUDE_THREADS_WATCHES_PATH`).
+- The parse and each match confirmation use one haiku `claude -p` call — the
+  same bot-process-credentials caveat as memory distillation applies in
+  OAuth account pools.
+- Watches are not available in **direct channel mode** — a DCM channel routes
+  every message to the one channel session, so there is no "otherwise
+  ignored" traffic to evaluate; `!watch` refuses with an explanation.
+
+**Security note — who can trigger a fire:** the *creator* must be authorized,
+but the *triggering message* can come from **any channel member** (that is the
+point: incident reporters and CI bots are usually not on `allowedUsers`). The
+channel membership is the trust boundary. The triggering content is framed as
+data — the confirm prompt classifies it without following instructions inside
+it, and the fired session's prompt marks the thread as context, not
+instructions — but framing is a mitigation, not authorization. Treat a watch
+in a channel with untrusted members accordingly, and be especially deliberate
+about combining watches with `skipPermissions: true`, which lets the fired
+session act without human tool approval.
+
 ## Claude Accounts (optional, multi-account mode)
 
 By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts. Omit the block entirely to stay in single-account mode (unchanged behavior).

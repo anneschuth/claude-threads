@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.0] - 2026-08-24
+
+### Added
+- **Watches — event triggers, the proactive counterpart to routines.** `!watch when someone reports a production incident, triage it and post a checklist` creates a watch in natural language: one haiku pass extracts the matching condition, the task, and a set of prefilter keywords (synonyms and both languages for non-English requests), the bot shows all three, and **nothing is saved until someone reacts 👍**. When a matching message appears in the channel, the bot starts a full Claude session **in the triggering message's own thread**, running as the watch's creator with the thread's recent messages auto-included as context.
+  - **Two-stage matching keeps chatty channels free:** a zero-cost local keyword prefilter screens every message; only prefilter hits get one haiku call that semantically confirms the match. A keyword hit alone never fires, and a failed confirmation never fires (fail-closed).
+  - **Managing:** `!watches` lists numbered with condition/creator/last-fire; `!watches pause|resume|delete <n>` (owner-gated). No manual run — watches are event-driven.
+  - **Guardrails:** per-watch cooldown (`limits.watchCooldownMinutes`, default 5) and daily fire cap (`limits.watchDailyCap`, default 20); per-platform cap (`limits.maxWatches`, default 10); at most one watch fires per message; 3 consecutive failed fires auto-disable with a notice; a deauthorized creator disables the watch; session threads and bot posts can never re-trigger (loop prevention); fires count against `MAX_SESSIONS`. Per-platform `watches: false` disables the feature; storage at `~/.config/claude-threads/watches.yaml` (0600, per-platform scoped like memory; override `CLAUDE_THREADS_WATCHES_PATH`).
+  - **Platform note:** on Mattermost, other bots' messages (CI alerts, webhooks) can trigger watches; Slack's event filtering means only human messages trigger there.
+  - Shared-infrastructure cleanup along the way: the per-platform YAML list store machinery behind routines and watches is now one `PlatformListStore` base (with a shared add/fire-outcome/manage-command core), the strict-JSON extraction all haiku one-shots use lives in one shared helper, and the channel-memory store now uses the shared mutex/atomic-write primitives.
+
+### Fixed
+- **DM auto-discovery instances now honor the parent platform's `memory`, `routines`, and `watches` settings.** Derived DM instances previously fell back to the fully-enabled defaults — a parent with `memory: false` (privacy) still got end-of-session distillation persisted from private DM conversations.
+- **Routines and watches refuse creation in direct-channel-mode channels.** A fired session there would be keyed on a thread that no typed message can reach (`!stop` and follow-ups route to the channel session). Existing DCM routines stay listable/pausable/deletable and their write-only runs keep working.
+- **Slack thread history now follows cursor pagination.** Threads longer than one API page (1000 messages) previously returned the oldest page's tail as "recent context" for context prompts, work summaries, and memory distillation.
+- **Reconfiguring a platform via the wizard no longer drops settings the prompts don't ask about** (`memory`, `routines`, `watches`, `skipPermissions`, `auditLog`, `ackReaction`, and any future field) — the edit now merges over the existing entry instead of replacing it.
+- **Store hardening:** a failed write can no longer leave a phantom item in the in-memory cache; writes refuse to proceed over an existing-but-unreadable store file instead of destroying it; store reads hand out copies, never live cache references; hand-edited watch keywords are normalized to lowercase (uppercase keywords could never match).
+- **Watch confirm hardening:** the haiku confirm quotes every message line so a spoofed end-delimiter cannot smuggle instructions out of the data block; the confirm budget covers slow hosts (20s) and failures log at warn instead of debug.
+
 ## [1.28.0] - 2026-08-21
 
 ### Added

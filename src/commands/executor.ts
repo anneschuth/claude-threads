@@ -264,6 +264,41 @@ const handleRoutines: CommandHandler = async (ctx, args) => {
 };
 
 /**
+ * Handle !watch command — create an event trigger from natural language.
+ */
+const handleWatch: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  if (!args?.trim()) {
+    await ctx.client.createPost(
+      `\u26A0\uFE0F Usage: ${ctx.formatter.formatCode('!watch when <something happens>, <task>')}`,
+      ctx.threadId
+    );
+    return { handled: true };
+  }
+  await ctx.sessionManager.createWatch(ctx.threadId, args, ctx.username);
+  return { handled: true };
+};
+
+/**
+ * Handle !watches command — list/pause/resume/delete watches.
+ */
+const handleWatches: CommandHandler = async (ctx, args) => {
+  if (ctx.commandContext === 'first-message') {
+    return { handled: false }; // Needs an existing session
+  }
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+  await ctx.sessionManager.manageWatches(ctx.threadId, args, ctx.username);
+  return { handled: true };
+};
+
+/**
  * Handle !cd command.
  */
 const handleCd: CommandHandler = async (ctx, args) => {
@@ -562,6 +597,8 @@ handlers.set('remember', handleRemember);
 handlers.set('memory', handleMemory);
 handlers.set('routine', handleRoutine);
 handlers.set('routines', handleRoutines);
+handlers.set('watch', handleWatch);
+handlers.set('watches', handleWatches);
 handlers.set('cd', handleCd);
 handlers.set('permissions', handlePermissions);
 handlers.set('mentions', handleMentions);

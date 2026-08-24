@@ -275,6 +275,27 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
       { name: 'run', description: 'Run a routine now, outside its schedule', args: '<n>' },
     ],
   },
+  {
+    command: 'watch',
+    description: 'Create an event trigger from a natural-language request (confirmed with 👍 before saving)',
+    args: '<when ..., task>',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+  },
+  {
+    command: 'watches',
+    description: 'List event triggers; pause/resume/delete manage them',
+    args: '[pause|resume|delete <n>]',
+    category: 'settings',
+    audience: 'user',
+    claudeNotes: 'User decisions, not yours',
+    subcommands: [
+      { name: 'pause', description: 'Pause a watch', args: '<n>' },
+      { name: 'resume', description: 'Resume a paused watch', args: '<n>' },
+      { name: 'delete', description: 'Delete a watch', args: '<n>' },
+    ],
+  },
 
   // ---------------------------------------------------------------------------
   // System
