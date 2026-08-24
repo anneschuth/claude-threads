@@ -1063,6 +1063,78 @@ describe('PromptExecutor — routine-creation confirmation', () => {
   });
 });
 
+describe('PromptExecutor — agent-proposal decision gate', () => {
+  function setup() {
+    const platform = createMockPlatform();
+    (platform as unknown as { isUserAllowed: (u: string) => boolean }).isUserAllowed =
+      (u: string) => u === 'allowlisted';
+    const ctx = createTestContext(platform);
+    const events = createMessageManagerEvents();
+    const completions: Array<{ approved: boolean; decidedBy: string }> = [];
+    events.on('routine-prompt:complete', ({ approved, decidedBy }) => {
+      completions.push({ approved, decidedBy });
+    });
+    const executor = new PromptExecutor({
+      sessionId: 'test:session-1',
+      threadId: 'thread-123',
+      events,
+    } as any);
+    executor.setPendingRoutinePrompt({
+      postId: 'post-r1',
+      parsed: {
+        name: 'Standup summary',
+        prompt: 'summarize open threads',
+        schedule: { preset: 'weekdays' as const, time: '09:00', timezone: 'Europe/Amsterdam' },
+      },
+      requestedBy: 'anne',
+      proposedByAgent: true,
+    });
+    return { executor, ctx, completions, platform };
+  }
+
+  it("a non-allowlisted guest's reaction is refused WITHOUT consuming the pending prompt", async () => {
+    // Claude's proposals skip the request-time owner gate, so the decision
+    // is owner-gated instead — and gated BEFORE the pending slot is
+    // consumed: a guest reaction (either way) must not veto the proposal.
+    const { executor, ctx, completions, platform } = setup();
+
+    for (const emoji of ['+1', '-1']) {
+      const handled = await executor.handleReaction('post-r1', emoji, 'guest', 'added', ctx);
+      expect(handled).toBe(true);
+      expect(completions).toHaveLength(0);
+      expect(executor.hasPendingRoutinePrompt()).toBe(true);
+    }
+    const warnings = [...(platform as unknown as { posts: Map<string, { content: string }> }).posts.values()];
+    expect(warnings.some((p) => p.content.includes('can decide'))).toBe(true);
+
+    // The owner's later reaction still decides the SAME pending proposal.
+    await executor.handleReaction('post-r1', '+1', 'anne', 'added', ctx);
+    expect(completions).toEqual([{ approved: true, decidedBy: 'anne' }]);
+    expect(executor.hasPendingRoutinePrompt()).toBe(false);
+  });
+
+  it('platform-allowlisted users may decide', async () => {
+    const { executor, ctx, completions } = setup();
+    await executor.handleReaction('post-r1', '-1', 'allowlisted', 'added', ctx);
+    expect(completions).toEqual([{ approved: false, decidedBy: 'allowlisted' }]);
+  });
+
+  it('human-requested cards are untouched by the gate', async () => {
+    const { executor, ctx, completions } = setup();
+    executor.setPendingRoutinePrompt({
+      postId: 'post-r2',
+      parsed: {
+        name: 'Human routine',
+        prompt: 'p',
+        schedule: { preset: 'hourly' as const, timezone: 'UTC' },
+      },
+      requestedBy: 'anne',
+    });
+    await executor.handleReaction('post-r2', '+1', 'guest', 'added', ctx);
+    expect(completions).toEqual([{ approved: true, decidedBy: 'guest' }]);
+  });
+});
+
 describe('PromptExecutor — watch-creation confirmation', () => {
   function setup() {
     const platform = createMockPlatform();

@@ -50,7 +50,7 @@ export interface AgentFeatureOps {
  * it truthful so disabled features' tools never appear in the model's list.
  */
 export function sessionAgentFeatures(
-  session: { platformId: string; unattended?: boolean },
+  session: { platformId: string; threadId: string; unattended?: boolean },
   ops: AgentFeatureOps,
 ): NonNullable<ClaudeCliOptions['agentFeatures']> {
   const memory = ops.getPlatformMemoryConfig(session.platformId);
@@ -59,6 +59,9 @@ export function sessionAgentFeatures(
     routines: ops.isRoutinesEnabled(session.platformId),
     watches: ops.isWatchesEnabled(session.platformId),
     unattended: session.unattended === true,
+    // Routines/watches cannot be CREATED in DCM — don't offer tools that
+    // can only be refused (list_* stays useful, so the feature flags stay).
+    dcm: isDcmThreadId(session.threadId),
   };
 }
 

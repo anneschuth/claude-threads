@@ -211,9 +211,14 @@ export function entryTextExceedsCap(text: string): boolean {
   return collapseEntryText(text).length > MAX_ENTRY_LENGTH;
 }
 
+/** Canonical provenance label: '@name' for user entries, the source name
+ *  otherwise. Shared by the file format, `!memory`, and `list_memory`. */
+export function entrySourceLabel(entry: ChannelMemoryEntry): string {
+  return entry.source === 'user' ? `@${entry.addedBy ?? 'unknown'}` : entry.source;
+}
+
 function formatEntryLine(entry: ChannelMemoryEntry): string {
-  const source = entry.source === 'user' ? `@${entry.addedBy ?? 'unknown'}` : entry.source;
-  return `- [${entry.addedAt}] (${source}) ${entry.text}`;
+  return `- [${entry.addedAt}] (${entrySourceLabel(entry)}) ${entry.text}`;
 }
 
 function todayStamp(): string {

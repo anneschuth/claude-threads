@@ -29,7 +29,7 @@ import type { SessionContext } from '../session-context/index.js';
 import type { AgentActionRequest, AgentActionResponse } from '../../mcp/decision-bridge.js';
 import { post } from '../post-helpers/index.js';
 import { postRoutineConfirmation, postWatchConfirmation } from '../commands/automation.js';
-import { sanitizeEntryText, entryTextExceedsCap, MAX_ENTRY_LENGTH } from '../../memory/store.js';
+import { sanitizeEntryText, entryTextExceedsCap, entrySourceLabel, MAX_ENTRY_LENGTH } from '../../memory/store.js';
 import {
   validateSchedule,
   describeSchedule,
@@ -63,7 +63,7 @@ export async function handleAgentAction(
   try {
     switch (request.action) {
       case 'remember_fact':
-        return await rememberFact(session, ctx, request.input);
+        return await rememberFact(session, ctx, request.input, signal);
       case 'list_memory':
         return listMemory(session, ctx);
       case 'propose_routine':
@@ -99,6 +99,7 @@ async function rememberFact(
   session: Session,
   ctx: SessionContext,
   input: Record<string, unknown>,
+  signal: AbortSignal,
 ): Promise<AgentActionResponse> {
   if (!memoryChannelEnabled(session, ctx)) {
     return { ok: false, reason: 'channel memory is disabled for this platform' };
@@ -129,14 +130,31 @@ async function rememberFact(
       reason: `session cap reached (${AGENT_MEMORY_WRITES_PER_SESSION} memories per session) — ask the user to \`!remember\` anything further`,
     };
   }
+  // The bridge client already gave up — don't write a fact the model was
+  // told failed (it would misreport, then 'duplicate' on retry).
+  if (signal.aborted) return { ok: false, reason: 'cancelled' };
 
-  const result = await ctx.state.memoryStore.addChannelEntries(session.platformId, [
-    { text, source: 'agent' },
-  ]);
-  // The cap slot is consumed only by a write that actually happened — a
-  // store error above throws before this line, and duplicates are free.
-  const writesAfter = result.added.length > 0 ? writes + 1 : writes;
-  session.agentMemoryWrites = writesAfter;
+  // Reserve the cap slot SYNCHRONOUSLY (before the awaited store write):
+  // parallel tool calls interleave only at awaits, so check-then-increment
+  // with the increment after the await would let a burst of concurrent
+  // calls each pass the check at 0 — the exact burst the cap bounds.
+  // Duplicates and store failures refund the slot below.
+  session.agentMemoryWrites = writes + 1;
+
+  let result;
+  try {
+    result = await ctx.state.memoryStore.addChannelEntries(session.platformId, [
+      { text, source: 'agent' },
+    ]);
+  } catch (err) {
+    session.agentMemoryWrites = (session.agentMemoryWrites ?? 1) - 1;
+    throw err;
+  }
+  if (result.added.length === 0) {
+    // Refund: a duplicate is free.
+    session.agentMemoryWrites = (session.agentMemoryWrites ?? 1) - 1;
+  }
+  const writesAfter = session.agentMemoryWrites;
 
   auditLog(session.platformId, {
     threadId: session.threadId,
@@ -189,12 +207,18 @@ function listMemory(session: Session, ctx: SessionContext): AgentActionResponse 
     ok: true,
     result: {
       total: entries.length,
-      entries: entries.slice(0, LIST_LIMIT).map((e, i) => ({
-        index: i + 1,
-        addedAt: e.addedAt,
-        source: e.source === 'user' ? `@${e.addedBy ?? 'unknown'}` : e.source,
-        text: e.text,
-      })),
+      // Newest entries matter most (the file appends at the end), and the
+      // 1-based indices must stay aligned with `!memory forget <n>` — so
+      // index BEFORE slicing from the tail.
+      entries: entries
+        .map((e, i) => ({
+          index: i + 1,
+          addedAt: e.addedAt,
+          source: entrySourceLabel(e),
+          text: e.text,
+        }))
+        .slice(-LIST_LIMIT),
+      ...(entries.length > LIST_LIMIT ? { note: `showing the newest ${LIST_LIMIT} of ${entries.length} entries` } : {}),
     },
   };
 }
@@ -238,9 +262,14 @@ async function proposeRoutine(
   const refusal = refuseProposal(session, ctx, 'routines');
   if (refusal) return { ok: false, reason: refusal };
 
-  const name = typeof input.name === 'string' ? input.name.trim().slice(0, 80) : '';
-  const prompt = typeof input.prompt === 'string' ? input.prompt.trim().slice(0, 2000) : '';
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!name || !prompt) return { ok: false, reason: 'name and prompt must be non-empty strings' };
+  // Refuse over-length fields instead of silently truncating (same policy
+  // as remember_fact): the store's own slice-on-save would corrupt the
+  // task mid-sentence with nobody the wiser.
+  if (name.length > 80) return { ok: false, reason: 'name is too long (max 80 chars) — shorten it' };
+  if (prompt.length > 2000) return { ok: false, reason: 'prompt is too long (max 2000 chars) — shorten it' };
 
   const rawSchedule = (input.schedule ?? {}) as Record<string, unknown>;
   const schedule: RoutineSchedule = {
@@ -296,12 +325,15 @@ async function proposeWatch(
   const refusal = refuseProposal(session, ctx, 'watches');
   if (refusal) return { ok: false, reason: refusal };
 
-  const name = typeof input.name === 'string' ? input.name.trim().slice(0, 80) : '';
-  const condition = typeof input.condition === 'string' ? input.condition.trim().slice(0, 500) : '';
-  const prompt = typeof input.prompt === 'string' ? input.prompt.trim().slice(0, 2000) : '';
+  const name = typeof input.name === 'string' ? input.name.trim() : '';
+  const condition = typeof input.condition === 'string' ? input.condition.trim() : '';
+  const prompt = typeof input.prompt === 'string' ? input.prompt.trim() : '';
   if (!name || !condition || !prompt) {
     return { ok: false, reason: 'name, condition and prompt must be non-empty strings' };
   }
+  if (name.length > 80) return { ok: false, reason: 'name is too long (max 80 chars) — shorten it' };
+  if (condition.length > 500) return { ok: false, reason: 'condition is too long (max 500 chars) — shorten it' };
+  if (prompt.length > 2000) return { ok: false, reason: 'prompt is too long (max 2000 chars) — shorten it' };
   const keywords = validateKeywords(input.keywords);
   if (typeof keywords === 'string') {
     return { ok: false, reason: `invalid keywords: ${keywords}` };

@@ -618,7 +618,7 @@ describe('buildPermissionArgs', () => {
       ...baseOpts,
       permissionMode: 'default',
       decisionBridgePath: '/tmp/bridge-X.sock',
-      agentFeatures: { memoryChannel: true, routines: false, watches: true, unattended: true },
+      agentFeatures: { memoryChannel: true, routines: false, watches: true, unattended: true, dcm: false },
     });
     const env = getMcpEnv(args);
     expect(env.CT_MEMORY_CHANNEL_ENABLED).toBe('1');
@@ -631,12 +631,23 @@ describe('buildPermissionArgs', () => {
     const { args } = buildPermissionArgs({
       ...baseOpts,
       permissionMode: 'default',
-      agentFeatures: { memoryChannel: true, routines: true, watches: true, unattended: false },
+      agentFeatures: { memoryChannel: true, routines: true, watches: true, unattended: false, dcm: false },
     });
     const env = getMcpEnv(args);
     expect(env.CT_MEMORY_CHANNEL_ENABLED).toBeUndefined();
     expect(env.CT_ROUTINES_ENABLED).toBeUndefined();
     expect(env.CT_WATCHES_ENABLED).toBeUndefined();
+  });
+
+  it('emits CT_DCM for direct-channel-mode sessions', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: { memoryChannel: false, routines: true, watches: true, unattended: false, dcm: true },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_DCM).toBe('1');
   });
 
   it('agentFeatures: null emits no gates even with a bridge', () => {

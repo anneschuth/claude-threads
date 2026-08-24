@@ -1648,6 +1648,9 @@ function registerAgentFeatureTools(server: McpServer): void {
   const routinesEnabled = process.env[AGENT_FEATURES_ENV.ROUTINES_ENABLED] === '1';
   const watchesEnabled = process.env[AGENT_FEATURES_ENV.WATCHES_ENABLED] === '1';
   const unattended = process.env[AGENT_FEATURES_ENV.UNATTENDED] === '1';
+  // DCM sessions can list but never create routines/watches — don't offer
+  // propose_* tools the bot can only refuse.
+  const noProposals = unattended || process.env[AGENT_FEATURES_ENV.DCM] === '1';
 
   if (memoryEnabled && !unattended) {
     registerJsonTool(server, 'remember_fact',
@@ -1671,7 +1674,7 @@ function registerAgentFeatureTools(server: McpServer): void {
   }
 
   if (routinesEnabled) {
-    if (!unattended) {
+    if (!noProposals) {
       registerJsonTool(server, 'propose_routine',
         'Propose a scheduled recurring task (a routine) for this channel. This does NOT create anything: ' +
           'it posts a confirmation card in the thread, and only a human 👍 on that card saves the routine. ' +
@@ -1689,7 +1692,7 @@ function registerAgentFeatureTools(server: McpServer): void {
   }
 
   if (watchesEnabled) {
-    if (!unattended) {
+    if (!noProposals) {
       registerJsonTool(server, 'propose_watch',
         'Propose an event trigger (a watch) for this channel: when a matching message appears, a Claude ' +
           'session starts in its thread. This does NOT create anything: it posts a confirmation card, and ' +

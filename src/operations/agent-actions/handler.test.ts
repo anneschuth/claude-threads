@@ -168,6 +168,36 @@ describe('handleAgentAction — remember_fact', () => {
     expect(session.agentMemoryWrites).toBe(1);
   });
 
+  test('a parallel burst cannot bypass the session cap (slot reserved synchronously)', async () => {
+    const session = makeSession();
+    const ctx = makeCtx();
+    // Slow store: every call parks at an await, exposing the read-check-
+    // increment race the synchronous reservation exists to close.
+    (ctx.state.memoryStore.addChannelEntries as ReturnType<typeof mock>).mockImplementation(
+      async () => {
+        await new Promise((r) => setTimeout(r, 5));
+        return { added: [{ text: 'x' }], duplicates: [], superseded: [] };
+      },
+    );
+    const results = await Promise.all(
+      Array.from({ length: 10 }, (_, i) =>
+        handleAgentAction(session, ctx, act('remember_fact', { text: `burst fact ${i}` }), NO_SIGNAL)),
+    );
+    const saved = results.filter((r) => r.ok && (r.result as { status: string }).status === 'saved');
+    expect(saved).toHaveLength(AGENT_MEMORY_WRITES_PER_SESSION);
+    expect(ctx.state.memoryStore.addChannelEntries).toHaveBeenCalledTimes(AGENT_MEMORY_WRITES_PER_SESSION);
+  });
+
+  test('an aborted call writes nothing (the model was already told it failed)', async () => {
+    const session = makeSession();
+    const ctx = makeCtx();
+    const aborter = new AbortController();
+    aborter.abort();
+    const res = await handleAgentAction(session, ctx, act('remember_fact', { text: 'late fact' }), aborter.signal);
+    expect(res.ok).toBe(false);
+    expect(ctx.state.memoryStore.addChannelEntries).not.toHaveBeenCalled();
+  });
+
   test('an announcement-post failure never misreports a persisted write as failed', async () => {
     const session = makeSession();
     (session.platform.createPost as ReturnType<typeof mock>).mockImplementation(async () => {
@@ -272,6 +302,21 @@ describe('handleAgentAction — propose_routine / propose_watch', () => {
     expect(pending.proposedByAgent).toBe(true);
   });
 
+  test('over-length fields are refused, never silently truncated', async () => {
+    const session = makeSession();
+    const ctx = makeCtx();
+    const longPrompt = await handleAgentAction(session, ctx, act('propose_routine', {
+      ...VALID_ROUTINE, prompt: 'p'.repeat(2100),
+    }), NO_SIGNAL);
+    expect(longPrompt.ok).toBe(false);
+    expect(longPrompt.reason).toContain('too long');
+    const longCondition = await handleAgentAction(session, ctx, act('propose_watch', {
+      ...VALID_WATCH, condition: 'c'.repeat(600),
+    }), NO_SIGNAL);
+    expect(longCondition.ok).toBe(false);
+    expect(postsOf(session)).toHaveLength(0);
+  });
+
   test('unusable keywords are refused', async () => {
     const res = await handleAgentAction(session, ctx, act('propose_watch', { ...VALID_WATCH, keywords: [] }), NO_SIGNAL);
     expect(res.ok).toBe(false);
@@ -300,6 +345,21 @@ describe('handleAgentAction — listings and safety', () => {
     expect(res.ok).toBe(true);
     const { entries } = res.result as { entries: { source: string; text: string }[] };
     expect(entries.map((e) => e.source)).toEqual(['@anne', 'agent']);
+  });
+
+  test('list_memory keeps the NEWEST entries when capped, with forget-aligned indices', async () => {
+    const session = makeSession();
+    const many = Array.from({ length: 150 }, (_, i) => ({
+      text: `fact ${i + 1}`, addedAt: '2026-08-01', source: 'agent' as const,
+    }));
+    const ctx = makeCtx({ entries: many });
+    const res = await handleAgentAction(session, ctx, act('list_memory'), NO_SIGNAL);
+    const { entries, note } = res.result as { entries: { index: number; text: string }[]; note?: string };
+    expect(entries).toHaveLength(100);
+    // Tail of the file = newest; indices still line up with !memory forget <n>.
+    expect(entries[0]).toMatchObject({ index: 51, text: 'fact 51' });
+    expect(entries[99]).toMatchObject({ index: 150, text: 'fact 150' });
+    expect(note).toContain('newest 100');
   });
 
   test('list_routines / list_watches summarize the stores', async () => {

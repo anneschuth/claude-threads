@@ -181,8 +181,11 @@ export interface ClaudeCliOptions {
     memoryChannel: boolean;
     routines: boolean;
     watches: boolean;
-    /** True for unattended runs (routine/watch fires): suppresses propose_*. */
+    /** True for unattended runs (routine/watch fires): suppresses propose_*
+     *  and remember_fact. */
     unattended: boolean;
+    /** True for direct-channel-mode sessions: suppresses propose_*. */
+    dcm: boolean;
   } | null;
 }
 
@@ -426,6 +429,7 @@ export function buildPermissionArgs(opts: {
       if (features.routines) mcpEnv[AGENT_FEATURES_ENV.ROUTINES_ENABLED] = '1';
       if (features.watches) mcpEnv[AGENT_FEATURES_ENV.WATCHES_ENABLED] = '1';
       if (features.unattended) mcpEnv[AGENT_FEATURES_ENV.UNATTENDED] = '1';
+      if (features.dcm) mcpEnv[AGENT_FEATURES_ENV.DCM] = '1';
     }
   }
   if (opts.platformConfig.appToken) {

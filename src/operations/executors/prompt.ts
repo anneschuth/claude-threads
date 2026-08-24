@@ -354,7 +354,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * public wrappers below keep the per-flavor typed events — those are
    * load-bearing for the lifecycle listeners.
    */
-  private completeCreationPrompt<P extends { name: string }>(
+  private async completeCreationPrompt<P extends { name: string }>(
     pending: { postId: string; parsed: P; requestedBy: string; proposedByAgent?: boolean } | null,
     label: string,
     clear: () => void,
@@ -364,6 +364,26 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     username: string,
     ctx: ExecutorContext,
   ): Promise<boolean> {
+    // Agent proposals skip the owner gate the `!routine`/`!watch` commands
+    // apply at request time, so the DECISION is owner-gated here instead —
+    // and gated BEFORE the pending prompt is consumed: an unauthorized
+    // participant's reaction (either way) must not burn the one pending
+    // slot, or any invited guest could veto every proposal. The pending
+    // stays parked; the owner's later reaction still decides it.
+    // (requestedBy is the session owner for agent proposals by contract;
+    // lifecycle re-checks the same rule at save time as defense in depth.)
+    if (
+      pending?.proposedByAgent &&
+      pending.postId === postId &&
+      username !== pending.requestedBy &&
+      !ctx.platform.isUserAllowed(username)
+    ) {
+      await ctx.createPost(
+        `⚠️ Only ${ctx.formatter.formatUserMention(pending.requestedBy)} or allowed users can decide a ${label.toLowerCase()} Claude proposed.`,
+        { type: 'system' },
+      );
+      return true;
+    }
     return completePendingPrompt({
       pending,
       postId,

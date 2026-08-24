@@ -62,6 +62,7 @@ describe('buildRestartCliOptions', () => {
       routines: true,
       watches: true,
       unattended: true,
+      dcm: false,
     });
   });
 });

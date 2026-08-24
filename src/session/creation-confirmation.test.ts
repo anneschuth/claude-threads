@@ -8,7 +8,8 @@
  */
 
 import { describe, test, expect, mock } from 'bun:test';
-import { _handleCreationConfirmation } from './lifecycle.js';
+import { _handleCreationConfirmation, _resumedUnattended } from './lifecycle.js';
+import type { PersistedSession } from '../persistence/session-store.js';
 import type { Session } from './types.js';
 import { createMockFormatter } from '../test-utils/mock-formatter.js';
 
@@ -89,5 +90,25 @@ describe('_handleCreationConfirmation — agent-proposal approval gate', () => {
     const save = mock(async () => ({ ok: true as const, name: 'Daily standup', position: 1 }));
     await _handleCreationConfirmation(session, payload({ decidedBy: 'guest', proposedByAgent: false }), flavor(save));
     expect(save).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+describe('_resumedUnattended — upgrade fail-closed heuristic', () => {
+  const base = { firstPrompt: undefined } as unknown as PersistedSession;
+
+  test('an explicit persisted flag wins in both directions', () => {
+    expect(_resumedUnattended({ ...base, unattended: true } as PersistedSession)).toBe(true);
+    expect(_resumedUnattended({ ...base, unattended: false, firstPrompt: '[Watch "x" fired automatically: ...' } as PersistedSession)).toBe(false);
+  });
+
+  test('pre-upgrade routine/watch fires are recognized by their prompt prefix', () => {
+    // Sessions persisted by a pre-agent-tools bot carry no flag; failing
+    // open would hand the agent tools to exactly the sessions the gate
+    // targets during the upgrade window.
+    expect(_resumedUnattended({ ...base, firstPrompt: '[Scheduled routine "Daily standup" — started automatically on its schedule, not by a live user. ...]' } as PersistedSession)).toBe(true);
+    expect(_resumedUnattended({ ...base, firstPrompt: '[Watch "Incident triage" fired automatically: a message ...' } as PersistedSession)).toBe(true);
+    expect(_resumedUnattended({ ...base, firstPrompt: 'please fix the flaky test' } as PersistedSession)).toBe(false);
+    expect(_resumedUnattended(base)).toBe(false);
   });
 });

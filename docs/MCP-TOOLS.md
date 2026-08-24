@@ -126,7 +126,7 @@ Saves one durable team fact to the channel's shared persistent memory, with an `
 
 ### list_memory
 
-Lists the channel's memory entries (index, date, source, text). Read-only; refused when channel memory is disabled.
+Lists the channel's memory entries (index, date, source, text — newest-last; when capped at 100 the **newest** entries are kept and indices stay aligned with `!memory forget <n>`). Read-only; refused when channel memory is disabled.
 
 ### propose_routine
 
@@ -138,7 +138,7 @@ Proposes a scheduled recurring task. **Creates nothing**: it posts the same conf
 | `prompt` | string | The task each run performs. |
 | `schedule` | object | `{ preset: hourly\|daily\|weekdays\|weekly, time?, weekday?, timezone? }` — validated with the same rules as `!routine`; timezone defaults to the bot host's. |
 
-**Guardrail:** Refused when routines are disabled, in direct channel mode, and — critically — in **unattended sessions** (routine/watch fires): an unattended run proposing new unattended work would be a self-replication loop, so the tool is neither registered there nor honored bot-side. `limits.maxRoutines` is enforced at save time as always.
+**Guardrail:** Refused when routines are disabled, in direct channel mode (the tool is not even registered there — DCM can list but never create), and — critically — in **unattended sessions** (routine/watch fires): an unattended run proposing new unattended work would be a self-replication loop, so the tool is neither registered there nor honored bot-side. Over-length fields are refused rather than truncated. An unauthorized participant's reaction on the card is refused **without consuming the proposal** — the owner's later reaction still decides it. `limits.maxRoutines` is enforced at save time as always.
 
 ### propose_watch
 

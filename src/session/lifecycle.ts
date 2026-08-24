@@ -115,6 +115,20 @@ export function isSessionStartInFlight(sessionId: string): boolean {
  * store write is try/caught into the visible-failure path: an fs error at
  * 👍-time must not become a process-killing unhandled rejection.
  */
+/**
+ * Effective unattended flag for a resumed session. The flag is
+ * security-load-bearing (it gates the agent memory-write and propose_*
+ * tools), and sessions persisted by a pre-agent-tools bot have no
+ * `unattended` field — failing OPEN there would re-arm exactly the
+ * sessions the gate targets during an upgrade. Fall back to the
+ * unattended prompt prefix both runners stamp on their synthetic first
+ * prompt (stable since the features shipped).
+ */
+export function _resumedUnattended(state: PersistedSession): boolean {
+  if (state.unattended !== undefined) return state.unattended;
+  return /^\[(Scheduled routine|Watch) "/.test(state.firstPrompt ?? '');
+}
+
 // Exported for tests (underscore convention, cf. _inFlightSessionStarts):
 // the agent-proposal approval gate below is a security boundary and needs
 // direct red-green coverage.
@@ -1066,7 +1080,7 @@ async function startSessionImpl(
       ctx.state.memoryStore, memoryConfig, platformId, workingDir,
     ),
     agentFeatures: sessionAgentFeatures(
-      { platformId, unattended: options.unattended },
+      { platformId, threadId: actualThreadId, unattended: options.unattended },
       ctx.ops,
     ),
   };
@@ -1452,7 +1466,7 @@ async function resumeSessionImpl(
       activeWorktreeRepoRoot(state.workingDir, state.worktreeInfo),
     ),
     agentFeatures: sessionAgentFeatures(
-      { platformId: state.platformId, unattended: state.unattended },
+      { platformId: state.platformId, threadId: state.threadId, unattended: _resumedUnattended(state) },
       ctx.ops,
     ),
   };
@@ -1473,7 +1487,7 @@ async function resumeSessionImpl(
     platform,
     claudeSessionId: state.claudeSessionId,
     claudeAccountId: claudeAccount?.id,
-    unattended: state.unattended,
+    unattended: _resumedUnattended(state) || undefined,
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),

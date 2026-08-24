@@ -24,4 +24,11 @@ export const AGENT_FEATURES_ENV = {
    * unattended work is the self-replication loop the design forbids.
    */
   UNATTENDED: 'CT_UNATTENDED',
+  /**
+   * '1' for direct-channel-mode sessions. Suppresses the propose_* tools —
+   * routines/watches cannot be CREATED in DCM (the bot refuses), so
+   * offering the tools would only waste model turns; the list_* tools
+   * stay (listing works in DCM).
+   */
+  DCM: 'CT_DCM',
 } as const;
