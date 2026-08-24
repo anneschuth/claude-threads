@@ -139,6 +139,47 @@ describe('handleAgentAction — remember_fact', () => {
     expect(ctx.state.memoryStore.addChannelEntries).not.toHaveBeenCalled();
   });
 
+  test('an UNATTENDED session may not write memory (poisoning gate)', async () => {
+    // A watch/routine fire acts on untrusted triggering content; letting it
+    // write channel memory would seed every future session's context.
+    const session = makeSession({ unattended: true });
+    const ctx = makeCtx();
+    const res = await handleAgentAction(session, ctx, act('remember_fact', { text: 'evil fact' }), NO_SIGNAL);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain('unattended');
+    expect(ctx.state.memoryStore.addChannelEntries).not.toHaveBeenCalled();
+  });
+
+  test('over-cap text is refused, never silently truncated', async () => {
+    const session = makeSession();
+    const ctx = makeCtx();
+    const res = await handleAgentAction(session, ctx, act('remember_fact', { text: 'x'.repeat(600) }), NO_SIGNAL);
+    expect(res.ok).toBe(false);
+    expect(res.reason).toContain('too long');
+    expect(ctx.state.memoryStore.addChannelEntries).not.toHaveBeenCalled();
+  });
+
+  test('a duplicate does not consume a cap slot; a save does', async () => {
+    const session = makeSession();
+    const dupCtx = makeCtx({ addResult: { added: [], duplicates: ['x'], superseded: [] } });
+    await handleAgentAction(session, dupCtx, act('remember_fact', { text: 'known fact' }), NO_SIGNAL);
+    expect(session.agentMemoryWrites ?? 0).toBe(0);
+    await handleAgentAction(session, makeCtx(), act('remember_fact', { text: 'new fact' }), NO_SIGNAL);
+    expect(session.agentMemoryWrites).toBe(1);
+  });
+
+  test('an announcement-post failure never misreports a persisted write as failed', async () => {
+    const session = makeSession();
+    (session.platform.createPost as ReturnType<typeof mock>).mockImplementation(async () => {
+      throw new Error('platform 502');
+    });
+    const ctx = makeCtx();
+    const res = await handleAgentAction(session, ctx, act('remember_fact', { text: 'a fact' }), NO_SIGNAL);
+    expect(res.ok).toBe(true);
+    expect((res.result as { status: string; note?: string }).status).toBe('saved');
+    expect((res.result as { note?: string }).note).toContain('announcement');
+  });
+
   test('refuses empty or non-string text', async () => {
     const session = makeSession();
     const ctx = makeCtx();

@@ -155,15 +155,16 @@ describe('DecisionBridge - agent actions', () => {
       throw new Error('store exploded');
     });
     try {
-      // Thrown handler errors ride the deny-shaped fallback; the agent
-      // client surfaces them as a (mis-shaped but truthy-field-free)
-      // object — callers treat anything without ok:true as failure.
+      // Thrown handler errors ride the server's deny-shaped fallback; the
+      // agent client must map that onto the tool contract so the model
+      // always sees { ok: false, reason } — never an ok-less object.
       const response = await requestAgentAction(
         server.path,
         { kind: 'agent_action', action: 'list_memory', input: {} },
         5000,
       );
-      expect(response.ok).not.toBe(true);
+      expect(response.ok).toBe(false);
+      expect(response.reason).toContain('store exploded');
     } finally {
       await server.close();
     }

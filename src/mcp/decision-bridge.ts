@@ -273,6 +273,13 @@ export async function requestAgentAction(
     path,
     request as unknown as BridgeRequest,
     timeoutMs
-  );
-  return response as unknown as AgentActionResponse;
+  ) as unknown as AgentActionResponse & { behavior?: string; message?: string };
+  // The server's built-in fallbacks (malformed request, a handler error
+  // outside handleAgentAction's own catch) answer in the permission shape
+  // ({behavior:'deny', message}). Map them onto the tool contract so the
+  // model always sees { ok, reason } — never an ok-less mystery object.
+  if (typeof response.ok !== 'boolean' && response.behavior !== undefined) {
+    return { ok: false, reason: response.message ?? `bridge answered '${response.behavior}'` };
+  }
+  return response;
 }

@@ -115,9 +115,12 @@ export function isSessionStartInFlight(sessionId: string): boolean {
  * store write is try/caught into the visible-failure path: an fs error at
  * 👍-time must not become a process-killing unhandled rejection.
  */
-async function handleCreationConfirmation(
+// Exported for tests (underscore convention, cf. _inFlightSessionStarts):
+// the agent-proposal approval gate below is a security boundary and needs
+// direct red-green coverage.
+export async function _handleCreationConfirmation(
   session: Session,
-  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string },
+  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean },
   flavor: {
     /** Audit tool name and user-facing noun ('routine' | 'watch'). */
     tool: string;
@@ -131,7 +134,34 @@ async function handleCreationConfirmation(
     savedText(formatter: ReturnType<Session['platform']['getFormatter']>, position: number, name: string): string;
   },
 ): Promise<void> {
-  const { approved, parsed, requestedBy, decidedBy, postId } = payload;
+  const { approved, parsed, requestedBy, decidedBy, postId, proposedByAgent } = payload;
+  // Agent proposals skip the owner gate the `!routine`/`!watch` commands
+  // apply at REQUEST time (Claude has no requesting user to gate), so the
+  // equivalent gate applies at APPROVAL time: only the session owner or a
+  // platform-allowlisted user may approve — a temporarily `!invite`d guest
+  // passes the reaction-router's participant check but must not be able to
+  // stand up unattended work running as the owner.
+  if (proposedByAgent && approved &&
+      decidedBy !== session.startedBy && !session.platform.isUserAllowed(decidedBy)) {
+    auditLog(session.platformId, {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      actor: decidedBy,
+      kind: 'command',
+      tool: flavor.tool,
+      detail: `unauthorized-approval: ${parsed.name} (proposed by Claude in @${requestedBy}'s session)`,
+    });
+    const fmt = session.platform.getFormatter();
+    await withErrorHandling(
+      () => session.platform.updatePost(
+        postId,
+        `⚠️ Only ${fmt.formatUserMention(session.startedBy)} or allowed users can approve a ${flavor.tool} Claude proposed — nothing was saved.`,
+      ),
+      { action: `Update ${flavor.tool} confirmation post`, session },
+    );
+    sessionLog(session).warn(`${flavor.logPrefix} agent proposal "${parsed.name}": unauthorized approval by @${decidedBy} refused`);
+    return;
+  }
   // The actor is the user whose REACTION decided the confirmation — the
   // requester is carried in the detail. Matches plan approvals, which audit
   // the reacting user; an auditor asking "who approved this unattended
@@ -142,7 +172,7 @@ async function handleCreationConfirmation(
     actor: decidedBy,
     kind: 'command',
     tool: flavor.tool,
-    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name} (requested by @${requestedBy})`,
+    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name} (${proposedByAgent ? `proposed by Claude in @${requestedBy}'s session` : `requested by @${requestedBy}`})`,
   });
   session.threadLogger?.logCommand(flavor.tool, approved ? 'created' : 'discarded', decidedBy);
   if (!approved) {
@@ -538,7 +568,7 @@ function createMessageManager(
   });
 
   messageManager.events.on('routine-prompt:complete', (payload) =>
-    handleCreationConfirmation(session, payload, {
+    _handleCreationConfirmation(session, payload, {
       tool: 'routine',
       logPrefix: '🕘 Routine',
       fileNoun: 'routines',
@@ -557,7 +587,7 @@ function createMessageManager(
     }));
 
   messageManager.events.on('watch-prompt:complete', (payload) =>
-    handleCreationConfirmation(session, payload, {
+    _handleCreationConfirmation(session, payload, {
       tool: 'watch',
       logPrefix: '👁️ Watch',
       fileNoun: 'watches',

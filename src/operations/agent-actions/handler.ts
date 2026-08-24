@@ -29,7 +29,7 @@ import type { SessionContext } from '../session-context/index.js';
 import type { AgentActionRequest, AgentActionResponse } from '../../mcp/decision-bridge.js';
 import { post } from '../post-helpers/index.js';
 import { postRoutineConfirmation, postWatchConfirmation } from '../commands/automation.js';
-import { sanitizeEntryText } from '../../memory/store.js';
+import { sanitizeEntryText, entryTextExceedsCap, MAX_ENTRY_LENGTH } from '../../memory/store.js';
 import {
   validateSchedule,
   describeSchedule,
@@ -103,10 +103,24 @@ async function rememberFact(
   if (!memoryChannelEnabled(session, ctx)) {
     return { ok: false, reason: 'channel memory is disabled for this platform' };
   }
+  // Unattended runs (routine/watch fires) act on untrusted triggering
+  // content with no human necessarily reading the thread — a
+  // prompt-injected fire must not be able to seed every FUTURE session's
+  // context. The distiller remains the (haiku-mediated, exclusion-framed)
+  // memory path for unattended sessions.
+  if (session.unattended) {
+    return { ok: false, reason: 'unattended sessions may not write channel memory directly' };
+  }
   const raw = typeof input.text === 'string' ? input.text : '';
   const text = sanitizeEntryText(raw);
   if (!text) {
     return { ok: false, reason: 'text must be a non-empty string' };
+  }
+  // Refuse over-cap text instead of silently truncating mid-sentence: the
+  // model can shorten and retry; a corrupted half-fact in shared memory
+  // cannot be noticed by anyone (parity: !remember warns on truncation).
+  if (entryTextExceedsCap(raw)) {
+    return { ok: false, reason: `text is too long (max ${MAX_ENTRY_LENGTH} chars after normalization) — shorten it to one crisp fact` };
   }
   const writes = session.agentMemoryWrites ?? 0;
   if (writes >= AGENT_MEMORY_WRITES_PER_SESSION) {
@@ -115,11 +129,14 @@ async function rememberFact(
       reason: `session cap reached (${AGENT_MEMORY_WRITES_PER_SESSION} memories per session) — ask the user to \`!remember\` anything further`,
     };
   }
-  session.agentMemoryWrites = writes + 1;
 
   const result = await ctx.state.memoryStore.addChannelEntries(session.platformId, [
     { text, source: 'agent' },
   ]);
+  // The cap slot is consumed only by a write that actually happened — a
+  // store error above throws before this line, and duplicates are free.
+  const writesAfter = result.added.length > 0 ? writes + 1 : writes;
+  session.agentMemoryWrites = writesAfter;
 
   auditLog(session.platformId, {
     threadId: session.threadId,
@@ -135,21 +152,30 @@ async function rememberFact(
   }
 
   // Visibility is the gate-replacement: the team must see what Claude
-  // saved, in the thread where it happened, with the undo path named.
-  const formatter = session.platform.getFormatter();
-  await post(
-    session,
-    'info',
-    `🧠 ${formatter.formatBold('Claude saved a channel memory:')} ${text}\n` +
-    `${formatter.formatItalic(`View with ${'`!memory`'}, remove with ${'`!memory forget <n>`'}.`)}`,
-  );
-  sessionLog(session).info(`🧠 Agent memory saved (${session.agentMemoryWrites}/${AGENT_MEMORY_WRITES_PER_SESSION}): "${text}"`);
+  // saved, in the thread where it happened, with the undo path named. A
+  // failed announcement must not misreport the (already persisted) write
+  // as failed — contain it and tell the model to announce it itself.
+  let announced = true;
+  try {
+    const formatter = session.platform.getFormatter();
+    await post(
+      session,
+      'info',
+      `🧠 ${formatter.formatBold('Claude saved a channel memory:')} ${text}\n` +
+      `${formatter.formatItalic(`View with ${'`!memory`'}, remove with ${'`!memory forget <n>`'}.`)}`,
+    );
+  } catch (err) {
+    announced = false;
+    sessionLog(session).warn(`🧠 Agent memory saved but the announcement post failed: ${err}`);
+  }
+  sessionLog(session).info(`🧠 Agent memory saved (${writesAfter}/${AGENT_MEMORY_WRITES_PER_SESSION}): "${text}"`);
   return {
     ok: true,
     result: {
       status: 'saved',
       supersededCount: result.superseded.length,
-      remainingSessionWrites: AGENT_MEMORY_WRITES_PER_SESSION - session.agentMemoryWrites,
+      remainingSessionWrites: AGENT_MEMORY_WRITES_PER_SESSION - writesAfter,
+      ...(announced ? {} : { note: 'the announcement post failed — tell the user in your reply that you saved this memory' }),
     },
   };
 }

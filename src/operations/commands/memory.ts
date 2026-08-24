@@ -111,7 +111,9 @@ export async function showMemory(
   const lines = entries.map((e, i) => {
     // Author as inline code, NOT formatUserMention: a live @mention would
     // ping every entry author each time anyone views the listing.
-    const source = e.source === 'user' ? formatter.formatCode(`@${e.addedBy ?? 'unknown'}`) : formatter.formatItalic('distilled');
+    const source = e.source === 'user'
+      ? formatter.formatCode(`@${e.addedBy ?? 'unknown'}`)
+      : formatter.formatItalic(e.source);
     return `${i + 1}. [${e.addedAt}] (${source}) ${e.text}`;
   });
   const intro = `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:`;

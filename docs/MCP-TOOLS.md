@@ -122,7 +122,7 @@ Saves one durable team fact to the channel's shared persistent memory, with an `
 |-------|------|-------------|
 | `text` | string | One durable, team-relevant sentence (max 500 chars after normalization). |
 
-**Guardrail:** No human prompt (precedent: end-of-session distillation already writes ungated) — instead every write is **announced in the thread** ("🧠 Claude saved a channel memory: … remove with `!memory forget <n>`"), audit-logged, capped at **5 writes per session**, deduped against existing entries, and can **never displace a user-written entry** (agent entries may only supersede distilled/agent ones). Eviction under the file cap drops agent entries alongside distilled ones, before any user entry. Refused when the platform's channel memory layer is disabled.
+**Guardrail:** No human prompt (precedent: end-of-session distillation already writes ungated) — instead every write is **announced in the thread** ("🧠 Claude saved a channel memory: … remove with `!memory forget <n>`"), audit-logged, capped at **5 writes per session** (only actual saves consume a slot), deduped against existing entries, and can **never displace a user-written entry** (agent entries may only supersede distilled/agent ones). Eviction under the file cap drops agent entries alongside distilled ones, before any user entry. Over-cap text is refused (never silently truncated). Refused when the platform's channel memory layer is disabled — and in **unattended sessions** (routine/watch fires): those act on untrusted triggering content, so they must not write directly into every future session's context (the exclusion-framed distiller remains their only memory path).
 
 ### list_memory
 
@@ -130,7 +130,7 @@ Lists the channel's memory entries (index, date, source, text). Read-only; refus
 
 ### propose_routine
 
-Proposes a scheduled recurring task. **Creates nothing**: it posts the same confirmation card `!routine` uses — badged "🕘 Claude proposes routine …" — and returns immediately with `status: proposed_awaiting_human_approval`. Only a human 👍 on the card saves the routine (the reaction is authorization-gated), and the saved routine's `createdBy` is the **session owner**, so per-fire re-authorization keeps working.
+Proposes a scheduled recurring task. **Creates nothing**: it posts the same confirmation card `!routine` uses — badged "🕘 Claude proposes routine …" — and returns immediately with `status: proposed_awaiting_human_approval`. Only a human 👍 on the card saves the routine, and because Claude's proposals skip the owner gate `!routine` applies at request time, the **approval itself is owner-gated**: only the session owner or a platform-allowlisted user may approve (an `!invite`d guest's 👍 is refused at save time). The saved routine's `createdBy` is the **session owner**, so per-fire re-authorization keeps working.
 
 | Input | Type | Description |
 |-------|------|-------------|
