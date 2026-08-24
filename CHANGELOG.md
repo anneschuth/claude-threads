@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.29.0] - 2026-08-24
 
 ### Added
 - **Watches — event triggers, the proactive counterpart to routines.** `!watch when someone reports a production incident, triage it and post a checklist` creates a watch in natural language: one haiku pass extracts the matching condition, the task, and a set of prefilter keywords (synonyms and both languages for non-English requests), the bot shows all three, and **nothing is saved until someone reacts 👍**. When a matching message appears in the channel, the bot starts a full Claude session **in the triggering message's own thread**, running as the watch's creator with the thread's recent messages auto-included as context.
