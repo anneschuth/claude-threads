@@ -727,10 +727,24 @@ async function startWithoutDaemon() {
         enabled: true,
       });
       configureAuditLog(dmConfig.id, resolveAuditLogEnabled(dmConfig.auditLog, `dm[${dmConfig.id}].auditLog`));
+      // The derived config spreads the parent's fields, so memory/routines/
+      // watches settings MUST travel too: omitting them made addPlatform
+      // fall back to its fully-enabled defaults — a parent with
+      // `memory: false` (privacy) would still get end-of-session
+      // distillation on private DM conversations.
       session.addPlatform(dmConfig.id, dmClient, {
         sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
         stickyMessage: 'hidden',
-      });
+      }, resolveMemoryConfig(
+        dmConfig.memory,
+        `dm[${dmConfig.id}].memory`,
+      ), resolveRoutinesEnabled(
+        dmConfig.routines,
+        `dm[${dmConfig.id}].routines`,
+      ), resolveWatchesEnabled(
+        dmConfig.watches,
+        `dm[${dmConfig.id}].watches`,
+      ));
       wirePlatformEvents(dmConfig.id, dmClient, session, ui, dmConfig.directChannelMode);
       return dmClient;
     },
