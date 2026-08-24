@@ -37,18 +37,13 @@ import { validateOutboundPath } from './path-validator.js';
 import { requestBridgeDecision } from './decision-bridge.js';
 import { OUTBOUND_ENV } from './outbound-env.js';
 import {
-  parseMattermostPermalink,
-  resolvePermalink,
-  formatResolved,
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
-} from '../platform/mattermost/permalink.js';
-import {
-  parseSlackPermalink,
-  resolveSlackPermalink,
-  formatResolvedSlack,
-} from '../platform/slack/permalink.js';
-import { clampThreadLimit, clampLimit, formatPostList } from '../platform/permalink-shared.js';
+  clampThreadLimit,
+  clampLimit,
+  formatPostList,
+} from '../platform/permalink-shared.js';
+import { mcpPlatformStrategy } from './platform-dispatch.js';
 import { isDcmThreadId } from '../platform/utils.js';
 
 // =============================================================================
@@ -635,113 +630,19 @@ export async function handleReadPostWith(
   args: { url: string; include_thread?: boolean; max_messages?: number },
   cfg: ReadPostHandlerConfig,
 ): Promise<ReadPostResult> {
-  if (cfg.platformType === 'mattermost') {
-    return handleReadPostMattermost(args, cfg);
-  }
-  if (cfg.platformType === 'slack') {
-    return handleReadPostSlack(args, cfg);
-  }
-  return {
-    ok: false,
-    reason: `read_post is not supported on platform '${cfg.platformType}'`,
-  };
-}
-
-async function handleReadPostMattermost(
-  args: { url: string; include_thread?: boolean; max_messages?: number },
-  cfg: ReadPostHandlerConfig,
-): Promise<ReadPostResult> {
-  if (!cfg.platformUrl) {
-    return { ok: false, reason: 'platform URL not configured' };
-  }
-  if (!cfg.channelId) {
-    return { ok: false, reason: 'platform channel not configured' };
-  }
-  const parsed = parseMattermostPermalink(args.url, cfg.platformUrl);
-  if (!parsed) {
+  const strategy = mcpPlatformStrategy(cfg.platformType);
+  if (!strategy) {
     return {
       ok: false,
-      reason: `not a Mattermost permalink for ${cfg.platformUrl} (the bot can only follow links on its own instance)`,
+      reason: `read_post is not supported on platform '${cfg.platformType}'`,
     };
   }
-
-  const result = await resolvePermalink(cfg.api, parsed.postId, cfg.channelId, {
+  const result = await strategy.resolvePermalinkUrl(args.url, cfg, {
     includeThread: args.include_thread,
     maxMessages: args.max_messages,
   });
-
-  if (!result.ok) {
-    return { ok: false, reason: mattermostResolveErrorReason(result.error) };
-  }
-
-  return { ok: true, content: formatResolved(result.resolved) };
-}
-
-async function handleReadPostSlack(
-  args: { url: string; include_thread?: boolean; max_messages?: number },
-  cfg: ReadPostHandlerConfig,
-): Promise<ReadPostResult> {
-  if (!cfg.channelId) {
-    return { ok: false, reason: 'platform channel not configured' };
-  }
-  const parsed = parseSlackPermalink(args.url);
-  if (!parsed) {
-    return {
-      ok: false,
-      reason: 'not a Slack permalink (expected https://{workspace}.slack.com/archives/{channelId}/p{ts})',
-    };
-  }
-
-  const result = await resolveSlackPermalink(cfg.api, parsed, cfg.channelId, {
-    includeThread: args.include_thread,
-    maxMessages: args.max_messages,
-  });
-
-  if (!result.ok) {
-    return { ok: false, reason: slackResolveErrorReason(result.error) };
-  }
-
-  return { ok: true, content: formatResolvedSlack(result.resolved) };
-}
-
-/**
- * Map a Mattermost resolver error to a friendly user-facing reason.
- * Shared between read_post and the new tools so the wording can't drift.
- *
- * Note: `wrong-channel` from the resolver fires only when the post is
- * private AND not in the bot's channel — public posts on the same
- * instance are always in scope (see resolvePermalink's channelType check).
- * That's why the message is specifically about *private* channels.
- */
-type MattermostResolveError = { kind: 'wrong-channel' | 'not-found' | 'unsupported' };
-
-function mattermostResolveErrorReason(error: MattermostResolveError): string {
-  switch (error.kind) {
-    case 'wrong-channel':
-      return 'permalink is for a private channel the bot is not in';
-    case 'not-found':
-      return 'post not found, or the bot does not have access to it';
-    case 'unsupported':
-      return 'this platform does not support reading posts';
-  }
-}
-
-/**
- * Map a Slack resolver error to a friendly user-facing reason. Slack's
- * `wrong-channel` is about cross-channel scope (Slack's API hard-limits
- * us to channels the bot is a member of), not about visibility.
- */
-type SlackResolveError = { kind: 'wrong-channel' | 'not-found' | 'unsupported' };
-
-function slackResolveErrorReason(error: SlackResolveError): string {
-  switch (error.kind) {
-    case 'wrong-channel':
-      return 'permalink is for a different channel — the bot can only act on links inside its own channel';
-    case 'not-found':
-      return 'message not found, or the bot does not have access to it';
-    case 'unsupported':
-      return 'this platform does not support reading posts';
-  }
+  if (!result.ok) return { ok: false, reason: result.reason };
+  return { ok: true, content: strategy.formatResolved(result.resolved) };
 }
 
 async function handleReadPost(
@@ -1017,13 +918,6 @@ async function handleListThread(args: { url?: string; max_messages?: number }): 
 const READ_CHANNEL_HISTORY_DEFAULT_LIMIT = 20;
 const READ_CHANNEL_HISTORY_MAX_LIMIT = 100;
 
-/**
- * Mattermost / Slack channel-id shapes. Validating up front keeps obvious
- * garbage (URLs, freeform text) from reaching the API.
- */
-const MM_CHANNEL_ID_RE = /^[a-z0-9]{26}$/;
-const SLACK_CHANNEL_ID_RE = /^[CGD][A-Z0-9]{8,12}$/;
-
 export interface ReadChannelHistoryResult {
   ok: boolean;
   content?: string;
@@ -1076,9 +970,8 @@ export async function handleReadChannelHistoryWith(
     // can act on this — surface it cleanly rather than dressing it up.
     return {
       ok: false,
-      reason: cfg.platformType === 'slack'
-        ? 'bot is not a member of that channel — invite it before reading history'
-        : 'channel not accessible to the bot',
+      reason: mcpPlatformStrategy(cfg.platformType)?.channelNotAccessibleReason
+        ?? 'channel not accessible to the bot',
     };
   }
 
@@ -1094,9 +987,7 @@ function clampReadChannelHistoryLimit(requested: number | undefined): number {
 }
 
 function isValidChannelId(id: string, platformType: string): boolean {
-  if (platformType === 'mattermost') return MM_CHANNEL_ID_RE.test(id);
-  if (platformType === 'slack') return SLACK_CHANNEL_ID_RE.test(id);
-  return false;
+  return mcpPlatformStrategy(platformType)?.channelIdPattern.test(id) ?? false;
 }
 
 interface InScopeOk { ok: true }
@@ -1163,13 +1054,11 @@ export async function handleSearchMessagesWith(
   args: { query: string; max_results?: number },
   cfg: SearchMessagesHandlerConfig,
 ): Promise<SearchMessagesResult> {
-  if (cfg.platformType === 'slack') {
-    // Slack search.messages requires a user token (xoxp), not the bot
-    // token. Surface that explicitly so Claude doesn't keep trying.
-    return {
-      ok: false,
-      reason: 'search not supported on Slack with bot tokens (Slack requires a user token for search.messages, which is not configured)',
-    };
+  const searchUnsupported = mcpPlatformStrategy(cfg.platformType)?.searchUnsupportedReason;
+  if (searchUnsupported) {
+    // e.g. Slack: search.messages requires a user token (xoxp), not the
+    // bot token. Surface that explicitly so Claude doesn't keep trying.
+    return { ok: false, reason: searchUnsupported };
   }
   if (!cfg.api.searchMessages) {
     return { ok: false, reason: 'this platform does not support search' };
@@ -1643,49 +1532,16 @@ async function resolvePostFromUrl(
   url: string,
   cfg: PermalinkResolveCfg,
 ): Promise<ResolvedPostResult> {
-  if (cfg.platformType === 'mattermost') {
-    if (!cfg.platformUrl) {
-      return { ok: false, reason: 'platform URL not configured' };
-    }
-    if (!cfg.channelId) {
-      return { ok: false, reason: 'platform channel not configured' };
-    }
-    const parsed = parseMattermostPermalink(url, cfg.platformUrl);
-    if (!parsed) {
-      return {
-        ok: false,
-        reason: `not a Mattermost permalink for ${cfg.platformUrl} (the bot can only follow links on its own instance)`,
-      };
-    }
-    const result = await resolvePermalink(cfg.api, parsed.postId, cfg.channelId);
-    if (!result.ok) {
-      return { ok: false, reason: mattermostResolveErrorReason(result.error) };
-    }
-    return { ok: true, post: result.resolved.post };
+  const strategy = mcpPlatformStrategy(cfg.platformType);
+  if (!strategy) {
+    return {
+      ok: false,
+      reason: `not supported on platform '${cfg.platformType}'`,
+    };
   }
-
-  if (cfg.platformType === 'slack') {
-    if (!cfg.channelId) {
-      return { ok: false, reason: 'platform channel not configured' };
-    }
-    const parsed = parseSlackPermalink(url);
-    if (!parsed) {
-      return {
-        ok: false,
-        reason: 'not a Slack permalink (expected https://{workspace}.slack.com/archives/{channelId}/p{ts})',
-      };
-    }
-    const result = await resolveSlackPermalink(cfg.api, parsed, cfg.channelId);
-    if (!result.ok) {
-      return { ok: false, reason: slackResolveErrorReason(result.error) };
-    }
-    return { ok: true, post: result.resolved.post };
-  }
-
-  return {
-    ok: false,
-    reason: `not supported on platform '${cfg.platformType}'`,
-  };
+  const result = await strategy.resolvePermalinkUrl(url, cfg);
+  if (!result.ok) return { ok: false, reason: result.reason };
+  return { ok: true, post: result.resolved.post };
 }
 
 async function main() {
