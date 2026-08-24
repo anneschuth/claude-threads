@@ -153,6 +153,24 @@ describe('PlatformListStore', () => {
     expect(store.list('mm').map((i) => i.id)).toEqual(['c']);
   });
 
+  test('an empty file is a writable empty store, not an unreadable one', async () => {
+    const { writeFileSync } = await import('fs');
+    const file = join(dir, 'items.yaml');
+
+    // Zero-length/whitespace file (crashed first write, `touch`ed by an
+    // operator): provably nothing to lose — mutations must proceed, not
+    // refuse forever like the corruption cases above.
+    writeFileSync(file, '');
+    expect(store.list('mm')).toEqual([]);
+    await store.add('mm', { id: 'a', name: 'fresh' });
+    expect(store.list('mm').map((i) => i.id)).toEqual(['a']);
+
+    writeFileSync(file, '  \n\n');
+    expect(store.list('mm')).toEqual([]);
+    await store.add('mm', { id: 'b', name: 'fresh2' });
+    expect(store.list('mm').map((i) => i.id)).toEqual(['b']);
+  });
+
   test('update() returns a copy, not the live cached item', async () => {
     await store.add('mm', { id: 'a', name: 'original' });
 

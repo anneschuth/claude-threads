@@ -348,6 +348,7 @@ Session is a thin container; most logic lives in `src/operations/`:
 | `src/session/types.ts` | TypeScript types (Session interface) |
 | `src/session/registry.ts` | Session lookup and registration |
 | `src/session/timer-manager.ts` | Per-session timer management |
+| `src/session/metadata-suggestions.ts` | Out-of-band haiku title/tag suggestions + periodic reclassification |
 | `src/session/index.ts` | Public exports |
 
 ### Operations Layer (The Brain)
@@ -362,7 +363,10 @@ Most business logic lives in `src/operations/`:
 | `src/operations/types.ts` | Operation types (MessageOperation, TaskItem, etc.) |
 | `src/operations/post-helpers/` | DRY utilities for posting messages (postInfo, postError, etc.) |
 | `src/operations/events/handler.ts` | Claude CLI event handling |
-| `src/operations/commands/handler.ts` | User commands (!cd, !invite, !kick, !permissions) |
+| `src/operations/commands/handler.ts` | User commands (!cd, !invite, !kick, !permissions, session control) |
+| `src/operations/commands/guards.ts` | Shared command gates: owner/participant authorization + audit hook |
+| `src/operations/commands/memory.ts` | Channel memory commands (!remember, !memory) |
+| `src/operations/commands/automation.ts` | Routines + watches commands (!routine(s), !watch(es)) incl. the shared manage surface |
 | `src/operations/streaming/handler.ts` | Message batching and flushing to chat |
 | `src/operations/context-prompt/handler.ts` | Thread context prompt for mid-thread session starts |
 | `src/operations/worktree/handler.ts` | Git worktree management |

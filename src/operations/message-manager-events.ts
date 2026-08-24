@@ -96,6 +96,8 @@ export interface MessageManagerEventMap {
     approved: boolean;
     parsed: ParsedRoutineRequest;
     requestedBy: string;
+    /** The user whose reaction decided the confirmation (👍/👎). */
+    decidedBy: string;
     postId: string;
   };
 
@@ -107,6 +109,8 @@ export interface MessageManagerEventMap {
     approved: boolean;
     parsed: ParsedWatchRequest;
     requestedBy: string;
+    /** The user whose reaction decided the confirmation (👍/👎). */
+    decidedBy: string;
     postId: string;
   };
 

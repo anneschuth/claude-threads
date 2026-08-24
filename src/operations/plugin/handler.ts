@@ -5,6 +5,7 @@
  * Handles install, uninstall, and list operations.
  */
 
+import { getClaudePath } from '../../claude/version-check.js';
 import { crossSpawn } from '../../utils/spawn.js';
 import { auditLog } from '../../persistence/audit-log.js';
 import type { Session } from '../../session/types.js';
@@ -103,7 +104,7 @@ async function runPluginCommand(
   timeout = 60000
 ): Promise<PluginResult> {
   return new Promise((resolve) => {
-    const claudePath = process.env.CLAUDE_PATH || 'claude';
+    const claudePath = getClaudePath(); // same PATH-fallback resolution as cli.ts
     const proc = crossSpawn(claudePath, ['plugin', ...args], {
       cwd,
       timeout,

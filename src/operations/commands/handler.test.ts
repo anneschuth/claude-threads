@@ -1,3 +1,4 @@
+import { createMockSessionContext as createSharedMockSessionContext } from '../../test-utils/mock-session-context.js';
 import { describe, it, expect, mock, afterEach, afterAll } from 'bun:test';
 
 // `updateSessionHeader` (reached by most command handlers) probes the real
@@ -35,7 +36,11 @@ afterAll(() => {
 // makes this work: hoisted static imports load handler.js transitively before
 // mock.module runs, and Bun retroactively patches the live bindings of
 // already-loaded modules. The mocks apply either way.
-const commands = await import('./handler.js');
+const commands = {
+  ...(await import('./handler.js')),
+  ...(await import('./memory.js')),
+  ...(await import('./automation.js')),
+};
 import type { SessionContext } from '../session-context/index.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
@@ -89,6 +94,9 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     ...overrides,
   } as unknown as PlatformClient;
 }
+
+const createMockSessionContext = (sessions: Map<string, Session> = new Map()) =>
+  createSharedMockSessionContext(createMockPlatform, sessions);
 
 /**
  * Create a mock message manager for testing
@@ -162,102 +170,6 @@ function createMockSession(overrides?: Partial<Session> & { pendingApproval?: { 
 /**
  * Create a mock session context
  */
-function createMockSessionContext(sessions: Map<string, Session> = new Map()): SessionContext {
-  return {
-    config: {
-      workingDir: '/test',
-      permissionMode: 'bypass',
-      chromeEnabled: false,
-      debug: false,
-      maxSessions: 5,
-    },
-    state: {
-      sessions,
-      postIndex: new Map(),
-      platforms: new Map([['test-platform', createMockPlatform()]]),
-      sessionStore: {
-        save: mock(() => {}),
-        remove: mock(() => {}),
-        getAll: mock(() => []),
-        get: mock(() => null),
-        cleanStale: mock(() => []),
-        saveStickyPostId: mock(() => {}),
-        getStickyPostId: mock(() => null),
-        load: mock(() => new Map()),
-        findByPostId: mock(() => undefined),
-      } as any,
-      githubEmailsStore: {
-        get: mock(() => undefined),
-        set: mock(() => {}),
-        delete: mock(() => false),
-      } as any,
-      memoryStore: {
-        buildChannelMemoryBlock: mock(() => null),
-        listChannelEntries: mock(() => []),
-        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [], superseded: [] })),
-        forgetChannelEntry: mock(() => Promise.resolve({ ok: false, reason: 'empty', matches: [] })),
-        clearChannel: mock(() => Promise.resolve()),
-        repoMemoryDir: mock(() => '/tmp/test-memory'),
-      } as any,
-      routinesStore: {
-        list: mock(() => []),
-        get: mock(() => undefined),
-        add: mock(() => Promise.resolve({ ok: true, routine: {} })),
-        update: mock(() => Promise.resolve(undefined)),
-        remove: mock(() => Promise.resolve(undefined)),
-      } as any,
-      watchesStore: {
-        list: mock(() => []),
-        get: mock(() => undefined),
-        add: mock(() => Promise.resolve({ ok: true, watch: {} })),
-        update: mock(() => Promise.resolve(undefined)),
-        remove: mock(() => Promise.resolve(undefined)),
-      } as any,
-      isShuttingDown: false,
-    },
-    ops: {
-      getSessionId: mock((platformId, threadId) => `${platformId}:${threadId}`),
-      findSessionByThreadId: mock((threadId) => sessions.get(`test-platform:${threadId}`)),
-      registerPost: mock(() => {}),
-      handleEvent: mock(() => {}),
-      handleExit: mock(() => Promise.resolve()),
-      startTyping: mock(() => {}),
-      stopTyping: mock(() => {}),
-      flush: mock(() => Promise.resolve()),
-      updateStickyMessage: mock(() => Promise.resolve()),
-      updateSessionHeader: mock(() => Promise.resolve()),
-      persistSession: mock(() => {}),
-      unpersistSession: mock(() => {}),
-      recordSessionStarted: mock(() => {}),
-      shouldPromptForWorktree: mock(() => Promise.resolve(null)),
-      postWorktreePrompt: mock(() => Promise.resolve()),
-      buildMessageContent: mock((prompt: string) => Promise.resolve({ content: prompt, skipped: [] })),
-      offerContextPrompt: mock(() => Promise.resolve(false)),
-      killSession: mock(() => Promise.resolve()),
-      emitSessionAdd: mock(() => {}),
-      emitSessionUpdate: mock(() => {}),
-      emitSessionRemove: mock(() => {}),
-      registerWorktreeUser: mock(() => {}),
-      unregisterWorktreeUser: mock(() => {}),
-      hasOtherSessionsUsingWorktree: mock(() => false),
-      switchToWorktree: mock(async () => {}),
-      forceUpdate: mock(async () => {}),
-      deferUpdate: mock(() => {}),
-      handleBugReportApproval: mock(async () => {}),
-      acquireClaudeAccount: mock(() => null),
-      getClaudeAccount: mock(() => undefined),
-      releaseClaudeAccount: mock(() => {}),
-      refreshClaudeAccountUsage: mock(async () => {}),
-      markClaudeAccountCooling: mock(() => {}),
-      getClaudeAccountPoolStatus: mock(() => []),
-      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
-      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
-      isRoutinesEnabled: mock(() => true),
-      isWatchesEnabled: mock(() => true),
-      fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
-    },
-  };
-}
 
 // =============================================================================
 // Tests
@@ -1547,6 +1459,20 @@ describe('watch commands', () => {
     const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
     expect(calls.some((m: string) => m.includes('can create watches'))).toBe(true);
     expect((session.messageManager as any).setPendingWatchPrompt).not.toHaveBeenCalled();
+  });
+
+  it('manageWatches still works in direct channel mode (legacy watches stay manageable)', async () => {
+    // Watches that predate a switch to DCM must stay listable/pausable/
+    // deletable — only creation is refused there.
+    const session = createMockSession();
+    (session.platform as any).directChannelMode = { enabled: true, respondTo: 'all_messages' };
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    await seedWatch(ctx);
+
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('Watches (1)'))).toBe(true);
   });
 
   it('createWatch refuses in direct channel mode (a saved watch could never fire)', async () => {

@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, chmodSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync } from 'fs';
+import { writeFileAtomic } from './atomic-file.js';
 import { homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -531,22 +532,55 @@ export class SessionStore {
   /**
    * Load raw data from file
    */
+  /**
+   * True while the most recent loadRaw() could not faithfully read an
+   * EXISTING file (parse failure, malformed sessions map). Every mutation
+   * is a synchronous loadRaw() → mutate → writeAtomic() pair, so the flag
+   * always describes the read that produced the data about to be written.
+   */
+  private lastReadDegraded = false;
+
   private loadRaw(): SessionStoreData {
     if (!existsSync(this.sessionsFile)) {
+      this.lastReadDegraded = false;
       return { version: STORE_VERSION, sessions: {} };
     }
 
     try {
-      const data = JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
-      // Ensure required fields exist (handles malformed/empty files)
-      if (!data.sessions || typeof data.sessions !== 'object') {
+      const raw = readFileSync(this.sessionsFile, 'utf-8');
+      if (raw.trim() === '') {
+        // Zero-length/whitespace file (e.g. a crashed first write): provably
+        // nothing to lose, so it must NOT trip the degraded-read write
+        // refusal — that would leave the store permanently read-only.
+        this.lastReadDegraded = false;
+        return { version: STORE_VERSION, sessions: {} };
+      }
+      const data = JSON.parse(raw) as SessionStoreData;
+      if (!data || typeof data !== 'object') {
+        // Parsed to a scalar — unrecognizable content, refuse writes over it.
+        this.lastReadDegraded = true;
+        return { version: STORE_VERSION, sessions: {} };
+      }
+      if (data.sessions === undefined || data.sessions === null) {
+        // No sessions key at all (e.g. a bare '{}'): provably nothing to
+        // lose — an empty store that writes may safely replace (#258).
+        this.lastReadDegraded = false;
         data.sessions = {};
+      } else if (typeof data.sessions !== 'object') {
+        // A sessions value we cannot read faithfully: degrade reads, but
+        // refuse writes (see writeAtomic) — overwriting would destroy it.
+        this.lastReadDegraded = true;
+        data.sessions = {};
+      } else {
+        this.lastReadDegraded = false;
       }
       if (!data.version) {
         data.version = STORE_VERSION;
       }
       return data;
-    } catch {
+    } catch (err) {
+      log.warn(`Failed to read ${this.sessionsFile}: ${(err as Error).message} — reads degrade to empty`);
+      this.lastReadDegraded = true;
       return { version: STORE_VERSION, sessions: {} };
     }
   }
@@ -554,12 +588,19 @@ export class SessionStore {
   /**
    * Write data atomically (write to temp file, then rename)
    * Sets restrictive permissions (0600) to protect sensitive session data
+   *
+   * Refuses (logs, no throw — persist paths are fire-and-forget) when the
+   * data descends from a degraded read: sessions.json EXISTS but could not
+   * be read faithfully, so writing the degraded view would atomically
+   * destroy every persisted session across all platforms. The unreadable
+   * file stays on disk for recovery; one lost bookkeeping write is the
+   * acceptable outcome.
    */
   private writeAtomic(data: SessionStoreData): void {
-    const tempFile = `${this.sessionsFile}.tmp`;
-    writeFileSync(tempFile, JSON.stringify(data, null, 2), { encoding: 'utf-8', mode: 0o600 });
-    renameSync(tempFile, this.sessionsFile);
-    // Ensure final file has correct permissions (rename preserves temp file permissions)
-    chmodSync(this.sessionsFile, 0o600);
+    if (this.lastReadDegraded) {
+      log.error(`Refusing to write ${this.sessionsFile}: the last read of the existing file was degraded — writing would destroy persisted sessions`);
+      return;
+    }
+    writeFileAtomic(this.sessionsFile, JSON.stringify(data, null, 2));
   }
 }

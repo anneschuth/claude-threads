@@ -11,6 +11,7 @@
 import { NUMBER_EMOJIS, APPROVAL_EMOJIS, DENIAL_EMOJIS, isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import { auditLog } from '../../persistence/audit-log.js';
 import { formatShortId } from '../../utils/format.js';
+import { completePendingPrompt } from './pending-prompt.js';
 import type { QuestionOp, ApprovalOp } from '../types.js';
 import type { ExecutorContext, QuestionApprovalState } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
@@ -313,38 +314,25 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
    * Handle an approval reaction.
    * Returns true if the reaction was handled, false otherwise.
    */
-  async handleApprovalResponse(
+  handleApprovalResponse(
     postId: string,
     approved: boolean,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingApproval) return false;
-    if (this.state.pendingApproval.postId !== postId) return false;
-
-        const { type, toolUseId } = this.state.pendingApproval;
-
-    ctx.logger.info(`${type} ${approved ? 'approved' : 'rejected'}`);
-
-    // Update the post to show decision
-    const statusMessage = approved
-      ? `✅ ${ctx.formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`
-      : `❌ ${ctx.formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update approval post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingApproval = null;
-
-    // Emit approval complete event
-    if (this.events) {
-      this.events.emit('approval:complete', { toolUseId, approved });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingApproval,
+      postId,
+      ctx,
+      label: 'approval',
+      statusMessage: ({ type }) => {
+        ctx.logger.info(`${type} ${approved ? 'approved' : 'rejected'}`);
+        return approved
+          ? `✅ ${ctx.formatter.formatBold(type === 'plan' ? 'Plan approved' : 'Action approved')} - proceeding...`
+          : `❌ ${ctx.formatter.formatBold(type === 'plan' ? 'Changes requested' : 'Action denied')}`;
+      },
+      clear: () => { this.state.pendingApproval = null; },
+      emit: ({ toolUseId }) => this.events?.emit('approval:complete', { toolUseId, approved }),
+    });
   }
 
   /**

@@ -8,6 +8,7 @@
  */
 
 import { isApprovalEmoji, isDenialEmoji, isAllowAllEmoji } from '../../utils/emoji.js';
+import { completePendingPrompt } from './pending-prompt.js';
 import type { ExecutorContext, MessageApprovalState, PendingMessageApproval } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
@@ -104,45 +105,33 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
    * @param approver - Username of the approver (for logging)
    * @param ctx - Executor context
    */
-  async handleMessageApprovalResponse(
+  handleMessageApprovalResponse(
     postId: string,
     decision: MessageApprovalDecision,
     approver: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingMessageApproval) return false;
-    if (this.state.pendingMessageApproval.postId !== postId) return false;
-
-        const { fromUser, originalMessage } = this.state.pendingMessageApproval;
-
-    // Update the post based on decision
-    let statusMessage: string;
-    if (decision === 'allow') {
-      statusMessage = `✅ Message from ${ctx.formatter.formatUserMention(fromUser)} approved by ${ctx.formatter.formatUserMention(approver)}`;
-      ctx.logger.info(`Message from @${fromUser} approved by @${approver}`);
-    } else if (decision === 'invite') {
-      statusMessage = `✅ ${ctx.formatter.formatUserMention(fromUser)} invited to session by ${ctx.formatter.formatUserMention(approver)}`;
-      ctx.logger.info(`@${fromUser} invited to session by @${approver}`);
-    } else {
-      statusMessage = `❌ Message from ${ctx.formatter.formatUserMention(fromUser)} denied by ${ctx.formatter.formatUserMention(approver)}`;
-      ctx.logger.info(`Message from @${fromUser} denied by @${approver}`);
-    }
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update message approval post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingMessageApproval = null;
-
-    // Emit message approval complete event
-    if (this.events) {
-      this.events.emit('message-approval:complete', { decision, fromUser, originalMessage, approvedBy: approver });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingMessageApproval,
+      postId,
+      ctx,
+      label: 'message approval',
+      statusMessage: ({ fromUser }) => {
+        if (decision === 'allow') {
+          ctx.logger.info(`Message from @${fromUser} approved by @${approver}`);
+          return `✅ Message from ${ctx.formatter.formatUserMention(fromUser)} approved by ${ctx.formatter.formatUserMention(approver)}`;
+        }
+        if (decision === 'invite') {
+          ctx.logger.info(`@${fromUser} invited to session by @${approver}`);
+          return `✅ ${ctx.formatter.formatUserMention(fromUser)} invited to session by ${ctx.formatter.formatUserMention(approver)}`;
+        }
+        ctx.logger.info(`Message from @${fromUser} denied by @${approver}`);
+        return `❌ Message from ${ctx.formatter.formatUserMention(fromUser)} denied by ${ctx.formatter.formatUserMention(approver)}`;
+      },
+      clear: () => { this.state.pendingMessageApproval = null; },
+      emit: ({ fromUser, originalMessage }) =>
+        this.events?.emit('message-approval:complete', { decision, fromUser, originalMessage, approvedBy: approver }),
+    });
   }
 
   // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { fixCodeFenceRuns } from '../utils.js';
 import type { PlatformFormatter } from '../formatter.js';
 
 /**
@@ -84,17 +85,7 @@ export class MattermostFormatter implements PlatformFormatter {
     // Mattermost supports standard markdown well, but we need to ensure
     // code blocks are properly terminated with a newline
 
-    // Fix code blocks that have text immediately after the closing ```
-    // This happens when Claude outputs code blocks without proper newlines
-    //
-    // The pattern distinguishes opening vs closing ```:
-    // - Opening: at line start, followed by optional language identifier, then newline
-    // - Closing: at line start (after code content), followed by newline or end of string
-    //
-    // We match ``` preceded by newline (closing marker), followed by a non-whitespace character
-    // that isn't part of a language identifier pattern (which would indicate opening ```)
-    // The (?=\S) ensures there IS something after ``` (not end of string or whitespace)
-    let processed = content.replace(/(?<=\n)```(?=\S)(?![a-zA-Z]*\n)/g, '```\n');
+    let processed = fixCodeFenceRuns(content);
 
     // Normalize excessive newlines
     processed = processed.replace(/\n{3,}/g, '\n\n');

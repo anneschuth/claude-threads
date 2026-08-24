@@ -13,12 +13,13 @@ import type { SessionManager } from './session/index.js';
 import { createMockFormatter } from './test-utils/mock-formatter.js';
 
 // Create mock platform client
-function createMockPlatform(botName = 'claude-bot') {
+function createMockPlatform(botName = 'claude-bot', platformType = 'slack') {
   const posts: Map<string, string> = new Map();
   let postIdCounter = 1;
 
   return {
     platformId: 'test-platform',
+    platformType,
     createPost: mock(async (message: string, threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);
@@ -53,6 +54,7 @@ function createMockSessionManager() {
   return {
     // Note: isInSessionThread and hasPausedSession removed - code uses registry directly
     isUserAllowedInSession: mock(() => true),
+    addSideConversation: mock(() => {}),
     getActiveThreadIds: mockGetActiveThreadIds,
     registry: {
       getActiveThreadIds: mockGetActiveThreadIds,
@@ -364,6 +366,113 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        fromUser: 'allowed-user',
+        mentionedUser: 'someone-else',
+      }));
+    });
+
+    test('ignores side conversations in Slack raw mention form (<@U…>)', async () => {
+      // Slack delivers mentions as '<@U0BOB>', never '@bob' — a guard
+      // matching only '@name' is a silent no-op on Slack.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> did you deploy?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        mentionedUser: 'U0BOB',
+      }));
+    });
+
+    test('a message that ALSO mentions the bot is a follow-up, not a side conversation', async () => {
+      // '@bob can you review? @claude-bot please summarize' explicitly asks
+      // the bot — dropping it as a human-to-human aside loses a real request
+      // (the DCM new-session guard already exempts bot mentions).
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@bob can you review? @claude-bot please summarize the diff',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
+    });
+
+    test('a literal <@…> token on Mattermost is ordinary text, not an address', async () => {
+      // Mattermost never produces raw mention tokens — someone pasting
+      // Slack output must not have their follow-up silently dropped.
+      client = createMockPlatform('claude-bot', 'mattermost');
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> is what the Slack log said — can you check it?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
+    });
+
+    test("Slack's legacy labeled mention form <@U0…|name> is recognized too", async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB|bob> did you deploy?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        mentionedUser: 'U0BOB',
+      }));
+    });
+
+    test('a raw-form mention of the BOT is a follow-up, not a side conversation', async () => {
+      (client.isBotMentioned as any).mockImplementation((m: string) => m.includes('<@UBOT123>'));
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@UBOT123> what is the status?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
     });
 
     test('sends follow-up for regular messages', async () => {
@@ -589,6 +698,25 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
+    });
+
+    test('a message addressing another user does not resume (Slack raw form)', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> can you take this one?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      // Silent skip: no rejection post either — it's a human-to-human aside.
+      expect(client.createPost).not.toHaveBeenCalled();
     });
 
     test('rejects resume from an allowlisted non-participant under approvals: owner', async () => {
@@ -2201,14 +2329,42 @@ describe('direct channel mode (DCM)', () => {
     expect(session.startSession).not.toHaveBeenCalled();
   });
 
-  test('unauthorized users are rejected as usual', async () => {
+  test('unauthorized users are silently ignored unless they @mention the bot', async () => {
+    // In all-messages DCM EVERY channel message from a non-allowlisted
+    // member reaches the authorization check — an unconditional warning
+    // would be unbounded channel spam (and lets two bots warn at each
+    // other in a loop on Mattermost, which passes other bots' posts
+    // through).
     const badUser: PlatformUser = { id: 'u2', username: 'stranger', displayName: 'Stranger' };
 
     await handleMessage(client, session, makePost(), badUser, options);
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect([...client.posts.values()].join('\n')).not.toContain('not authorized');
+
+    // An explicit @mention still gets the warning — the user addressed the bot.
+    await handleMessage(client, session, makePost({ message: '@claude-bot help me' }), badUser, options);
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect([...client.posts.values()].join('\n')).toContain('not authorized');
+  });
+
+  test('a message addressed to another user never starts a session (side conversation)', async () => {
+    // The active- and paused-session paths ignore @someone-else messages;
+    // without the same guard here, '@bob did you deploy?' in a fresh DCM
+    // channel would start a Claude session in a human-to-human exchange.
+    await handleMessage(client, session, makePost({ message: '@bob did you deploy?' }), user, options);
 
     expect(session.startSession).not.toHaveBeenCalled();
-    const posted = [...client.posts.values()].join('\n');
-    expect(posted).toContain('not authorized');
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  test('the side-conversation guard also understands Slack raw mentions', async () => {
+    // Slack delivers '<@U0BOB> did you deploy?' — the raw user-id form.
+    // A guard matching only '@name' never fires on Slack, so every aside
+    // between two humans would start a Claude session.
+    await handleMessage(client, session, makePost({ message: '<@U0BOB> did you deploy?' }), user, options);
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
   });
 
 

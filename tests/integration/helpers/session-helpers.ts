@@ -44,7 +44,7 @@ export interface TestSessionContext {
  *
  * @param platformType - Which platform to use ('mattermost' or 'slack')
  */
-export function initTestContext(platformType: PlatformType = 'mattermost'): TestSessionContext {
+function initTestContext(platformType: PlatformType = 'mattermost'): TestSessionContext {
   const config = loadConfig();
 
   if (platformType === 'slack') {
@@ -98,6 +98,49 @@ export function initTestContext(platformType: PlatformType = 'mattermost'): Test
     testUserId: config.mattermost.testUsers[0].userId,
     testUserToken: config.mattermost.testUsers[0].token,
   };
+}
+
+/**
+ * Create a unique channel for test isolation (Mattermost only)
+ */
+async function createIsolatedChannel(
+  adminApi: MattermostTestApi,
+  teamId: string,
+  prefix: string = 'test',
+): Promise<string> {
+  const config = loadConfig();
+  const uniqueName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  const channel = await adminApi.createChannel({
+    team_id: teamId,
+    name: uniqueName,
+    display_name: `Test ${uniqueName}`,
+    type: 'O',
+  });
+
+  // Add every bot that could serve this suite to the channel. A test draws
+  // its bot from a pool (each with its own user token), and MattermostClient
+  // only receives WebSocket events for channels its user is a member of
+  // (it filters on channel_id). Miss a pool bot here and any test that draws
+  // it would silently never see the trigger message. Dedupe so the single
+  // default bot (also present in the pool) isn't added twice.
+  const botUserIds = new Set<string>();
+  if (config.mattermost.bot.userId) botUserIds.add(config.mattermost.bot.userId);
+  for (const b of config.mattermost.bots) {
+    if (b.userId) botUserIds.add(b.userId);
+  }
+  for (const userId of botUserIds) {
+    await adminApi.addUserToChannel(channel.id, userId);
+  }
+
+  // Add test users to channel
+  for (const user of config.mattermost.testUsers) {
+    if (user.userId) {
+      await adminApi.addUserToChannel(channel.id, user.userId);
+    }
+  }
+
+  return channel.id;
 }
 
 /**
@@ -478,94 +521,6 @@ export async function sendCommand(
 }
 
 /**
- * Clean up a thread by deleting all posts (Mattermost only, uses admin API)
- */
-export async function cleanupThread(
-  adminApi: MattermostTestApi,
-  threadId: string,
-): Promise<number> {
-  const result = await adminApi.getThreadPosts(threadId);
-  let count = 0;
-
-  for (const postId of result.order) {
-    try {
-      await adminApi.deletePost(postId);
-      count++;
-    } catch {
-      // Ignore errors
-    }
-  }
-
-  return count;
-}
-
-/**
- * Create a unique channel for test isolation (Mattermost only)
- */
-export async function createIsolatedChannel(
-  adminApi: MattermostTestApi,
-  teamId: string,
-  prefix: string = 'test',
-): Promise<string> {
-  const config = loadConfig();
-  const uniqueName = `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-  const channel = await adminApi.createChannel({
-    team_id: teamId,
-    name: uniqueName,
-    display_name: `Test ${uniqueName}`,
-    type: 'O',
-  });
-
-  // Add every bot that could serve this suite to the channel. A test draws
-  // its bot from a pool (each with its own user token), and MattermostClient
-  // only receives WebSocket events for channels its user is a member of
-  // (it filters on channel_id). Miss a pool bot here and any test that draws
-  // it would silently never see the trigger message. Dedupe so the single
-  // default bot (also present in the pool) isn't added twice.
-  const botUserIds = new Set<string>();
-  if (config.mattermost.bot.userId) botUserIds.add(config.mattermost.bot.userId);
-  for (const b of config.mattermost.bots) {
-    if (b.userId) botUserIds.add(b.userId);
-  }
-  for (const userId of botUserIds) {
-    await adminApi.addUserToChannel(channel.id, userId);
-  }
-
-  // Add test users to channel
-  for (const user of config.mattermost.testUsers) {
-    if (user.userId) {
-      await adminApi.addUserToChannel(channel.id, user.userId);
-    }
-  }
-
-  return channel.id;
-}
-
-/**
- * Simulate bot being mentioned and starting a session
- * Returns when the session appears to have started (bot posts in thread)
- */
-export async function startSessionAndWait(
-  ctx: TestSessionContext,
-  message: string,
-  botUsername: string = 'claude-test-bot',
-): Promise<{
-  rootPost: PlatformTestPost;
-  botResponses: PlatformTestPost[];
-}> {
-  const rootPost = await startSession(ctx, message, botUsername);
-
-  // Wait for bot to respond
-  const botResponses = await waitForBotResponse(ctx, rootPost.id, {
-    timeout: 60000, // Sessions can take a while to start
-    minResponses: 1,
-  });
-
-  return { rootPost, botResponses };
-}
-
-/**
  * Wait for a session to be registered in the session manager
  */
 export async function waitForSessionActive(
@@ -695,37 +650,6 @@ export async function startSessionMidThread(
     rootId: threadId,
     userId: ctx.testUserId, // Pass user ID for Slack mock server
   });
-}
-
-/**
- * Wait for a session to be persisted to disk
- *
- * @param threadId - The thread ID to wait for
- * @param options - Timeout options and sessionsPath for test isolation
- */
-export async function waitForSessionPersisted(
-  threadId: string,
-  options: { timeout?: number; sessionsPath?: string } = {},
-): Promise<void> {
-  const { timeout = 5000, sessionsPath } = options;
-  const sessionStore = new SessionStore(sessionsPath);
-
-  await waitFor(
-    async () => {
-      const persisted = sessionStore.load();
-      for (const session of persisted.values()) {
-        if (session.threadId === threadId) {
-          return true;
-        }
-      }
-      return false;
-    },
-    {
-      timeout,
-      interval: 100,
-      description: `session to be persisted for thread ${threadId}`,
-    },
-  );
 }
 
 /**

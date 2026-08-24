@@ -56,7 +56,6 @@ export class SlackClient extends BasePlatformClient {
   private botToken: string;
   private appToken: string;
   private channelId: string;
-  private skipPermissions: boolean;
   private apiUrl: string;
 
 
@@ -93,7 +92,6 @@ export class SlackClient extends BasePlatformClient {
     this.channelId = platformConfig.channelId;
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
-    this.skipPermissions = platformConfig.skipPermissions ?? false;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
     this.outboundFiles = platformConfig.outboundFiles;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
@@ -581,32 +579,7 @@ export class SlackClient extends BasePlatformClient {
   protected forceCloseConnection(): Promise<void> {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return Promise.resolve();
-
-    ws.onopen = null;
-    ws.onmessage = null;
-    ws.onerror = null;
-
-    if (ws.readyState === WebSocket.CLOSED) {
-      ws.onclose = null;
-      return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-      const done = () => {
-        ws.onclose = null;
-        resolve();
-      };
-      ws.onclose = done;
-      setTimeout(done, 1000);
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        try {
-          ws.close();
-        } catch {
-          done();
-        }
-      }
-    });
+    return this.closeSocket(ws);
   }
 
   /**
@@ -1020,13 +993,20 @@ export class SlackClient extends BasePlatformClient {
       // conversations.replies paginates oldest-first, so passing the caller's
       // limit straight to the API would return the OLDEST N messages of a long
       // thread. Callers (context prompt, work summary, memory distillation)
-      // want the most RECENT N — walk ALL pages via cursor pagination (one
-      // page covers threads up to 1000 messages; longer threads need the
-      // cursor or the slice below would serve the oldest page's tail as
-      // "recent context"), then apply the limit after sorting, matching the
-      // Mattermost client's behavior.
-      const MAX_PAGES = 10; // 10k messages — beyond this, keep the newest pages' content
-      const raw: SlackMessage[] = [];
+      // want the most RECENT N — walk ALL pages via cursor pagination and
+      // keep a sliding window: trimming to the limit after each page means a
+      // long thread costs API calls but bounded memory, and the walk always
+      // ends at the thread's newest messages. The page cap only bounds a
+      // pathological thread's API cost; hitting it means the END of the
+      // thread was not reached, so the newest messages are missing — say so
+      // honestly instead of claiming the most recent were kept.
+      //
+      // WITHOUT a limit there is no window to slide — the walk would
+      // accumulate every message (and a getUser call each) unbounded. A
+      // no-limit caller (getThreadContextCount) gets exactly one 1000-message
+      // page, the pre-walk behavior.
+      const MAX_PAGES = options?.limit ? 100 : 1; // 100k messages — API-cost bound, not a memory bound
+      let filtered: SlackMessage[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_PAGES; page++) {
         const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
@@ -1034,24 +1014,27 @@ export class SlackClient extends BasePlatformClient {
           'GET',
           `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000${cursorParam}`
         );
-        raw.push(...(response.messages || []));
+        for (const msg of response.messages || []) {
+          if (options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id)) continue;
+          filtered.push(msg);
+        }
+        // Sliding window: each page arrives oldest-first, so after sorting,
+        // trimming from the front keeps the newest seen so far.
+        filtered.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+        if (options?.limit && filtered.length > options.limit) {
+          filtered = filtered.slice(-options.limit);
+        }
         cursor = response.response_metadata?.next_cursor || undefined;
         if (!cursor) break;
-        if (page === MAX_PAGES - 1) {
-          log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — older pages skipped, most recent kept`);
+        if (page === MAX_PAGES - 1 && options?.limit) {
+          // Only the limited walk promises "the newest N" — stopping short
+          // there is real context loss. The no-limit single page is the
+          // documented intent, not an early stop worth alarming about.
+          log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — walk stopped early, the NEWEST messages are missing from context`);
         }
       }
 
-      const filtered = raw.filter(
-        (msg) => !(options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id))
-      );
-
-      // Sort by timestamp (oldest first), then keep only the most recent N
-      // BEFORE resolving usernames — no user lookups for messages we drop.
-      filtered.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
-      const kept = options?.limit && filtered.length > options.limit
-        ? filtered.slice(-options.limit)
-        : filtered;
+      const kept = filtered;
 
       const messages: ThreadMessage[] = [];
       for (const msg of kept) {

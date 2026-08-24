@@ -5,7 +5,8 @@
  * SlackClient HTTP surface (fetch-backed).
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { installFetchHarness, jsonResponse, type FetchResponder } from '../test-helpers/fetch-harness.js';
+import { describe, it, expect } from 'bun:test';
 import { getEmojiName } from '../utils.js';
 import { SlackClient } from './client.js';
 import type { SlackPlatformConfig } from '../../config/types.js';
@@ -71,35 +72,9 @@ describe('Slack Client Emoji Handling', () => {
 // pure helpers that don't need a WebSocket.
 // -----------------------------------------------------------------------------
 
-type FetchResponder = (url: string, init?: RequestInit) => Promise<Response> | Response;
-
-let fetchResponder: FetchResponder = () =>
-  new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } });
-let fetchCalls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }> = [];
-
-const originalFetch = global.fetch;
-beforeEach(() => {
-  fetchCalls = [];
-  global.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
-    const urlStr = typeof url === 'string' ? url : url.toString();
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers as Record<string, string>;
-      for (const k of Object.keys(h)) headers[k] = h[k];
-    }
-    let body: unknown;
-    if (typeof init?.body === 'string') {
-      try { body = JSON.parse(init.body); } catch { body = init.body; }
-    }
-    fetchCalls.push({ url: urlStr, method, headers, body });
-    return fetchResponder(urlStr, init);
-  }) as typeof global.fetch;
-});
-
-afterEach(() => {
-  global.fetch = originalFetch;
-});
+let fetchResponder: FetchResponder = () => jsonResponse({ ok: true });
+const harness = installFetchHarness(() => fetchResponder);
+const fetchCalls = harness.calls;
 
 function ok(body: Record<string, unknown> = {}): Response {
   return new Response(JSON.stringify({ ok: true, ...body }), {
@@ -148,7 +123,7 @@ async function primeBotUser(client: SlackClient, userId = 'U-BOT') {
     return ok();
   };
   await client.getBotUser();
-  fetchCalls = [];
+  fetchCalls.length = 0;
 }
 
 describe('SlackClient pure helpers', () => {
@@ -392,6 +367,32 @@ describe('SlackClient API methods', () => {
     };
     const history = await c.getThreadHistory('thread-1', { limit: 2 });
     expect(history.map(m => m.message)).toEqual(['new-1', 'new-2']);
+  });
+
+  it('getThreadHistory without a limit fetches a single page (no unbounded walk)', async () => {
+    // With no limit there is no sliding window to keep bounded: walking
+    // every cursor would accumulate the whole thread in memory and issue a
+    // getUser call per message. The no-limit caller (getThreadContextCount)
+    // gets exactly one 1000-message page — the pre-walk behavior.
+    const c = makeClient();
+    let pages = 0;
+    fetchResponder = (url) => {
+      if (url.includes('conversations.replies')) {
+        pages++;
+        return ok({
+          messages: [{ ts: `${pages * 100}.0`, user: 'U-ALICE', text: `page-${pages}` }],
+          // Always offers another page; the client must not take it.
+          response_metadata: { next_cursor: `page${pages + 1}` },
+        });
+      }
+      if (url.includes('users.info')) {
+        return ok({ user: { id: 'U-ALICE', name: 'alice', real_name: 'Alice', profile: {} } });
+      }
+      return ok();
+    };
+    const history = await c.getThreadHistory('thread-1');
+    expect(pages).toBe(1);
+    expect(history.map(m => m.message)).toEqual(['page-1']);
   });
 
   it('getThreadHistory returns [] on API error', async () => {

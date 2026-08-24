@@ -3,7 +3,8 @@
  * `global.fetch`; WebSocket paths are exercised via the pure helpers.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { installFetchHarness, jsonResponse, type FetchResponder } from '../test-helpers/fetch-harness.js';
+import { describe, it, expect } from 'bun:test';
 import { MattermostClient } from './client.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 
@@ -11,42 +12,9 @@ import type { MattermostPlatformConfig } from '../../config/index.js';
 // Fetch harness
 // -----------------------------------------------------------------------------
 
-type FetchResponder = (url: string, init?: RequestInit) => Promise<Response> | Response;
-
-let fetchResponder: FetchResponder = () =>
-  new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } });
-let fetchCalls: Array<{ url: string; method: string; headers: Record<string, string>; body?: unknown }> = [];
-
-const originalFetch = global.fetch;
-beforeEach(() => {
-  fetchCalls = [];
-  global.fetch = (async (url: RequestInfo | URL, init?: RequestInit) => {
-    const urlStr = typeof url === 'string' ? url : url.toString();
-    const method = (init?.method ?? 'GET').toUpperCase();
-    const headers: Record<string, string> = {};
-    if (init?.headers) {
-      const h = init.headers as Record<string, string>;
-      for (const k of Object.keys(h)) headers[k] = h[k];
-    }
-    let body: unknown;
-    if (typeof init?.body === 'string') {
-      try { body = JSON.parse(init.body); } catch { body = init.body; }
-    }
-    fetchCalls.push({ url: urlStr, method, headers, body });
-    return fetchResponder(urlStr, init);
-  }) as typeof global.fetch;
-});
-
-afterEach(() => {
-  global.fetch = originalFetch;
-});
-
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json' },
-  });
-}
+let fetchResponder: FetchResponder = () => jsonResponse({});
+const harness = installFetchHarness(() => fetchResponder);
+const fetchCalls = harness.calls;
 
 function errorResponse(status: number, text = 'oops'): Response {
   return new Response(text, { status });

@@ -36,7 +36,7 @@ import {
   isBugReportEmoji,
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
-import { isAuthorizedForSession } from './authorization.js';
+import { isAuthorizedForSession, sessionAllowedUserSet } from './authorization.js';
 import * as lifecycle from './lifecycle.js';
 import * as commands from '../operations/commands/index.js';
 import * as worktreeModule from '../operations/worktree/index.js';
@@ -153,9 +153,7 @@ async function tryResumeFromReaction(
   // through the same isAuthorizedForSession helper as the lifecycle sinks
   // (#388) so there is one authorization decision, not two copies.
   const platform = deps.platforms.get(platformId);
-  const sessionAllowedUsers = new Set(
-    persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean),
-  );
+  const sessionAllowedUsers = sessionAllowedUserSet(persistedSession);
   // Effective approvals mode `owner`: resume is participant-only, the
   // platform-wide allowlist must not bypass the scoping (consistent with the
   // active-session reaction gate above).

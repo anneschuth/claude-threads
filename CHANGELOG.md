@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.29.1] - 2026-08-24
+
+### Fixed
+- **DCM: a channel message addressed to another user no longer starts a session.** With no session running, `@bob did you deploy?` in a direct-channel-mode channel used to start a full Claude session in a human-to-human exchange — the side-conversation guard the active/paused paths already had now covers the new-session path too.
+- **The side-conversation guard now works on Slack.** Slack delivers mentions as raw `<@U0…>` tokens (labeled `<@U0…|name>` included), never `@name`, so the guard (active sessions, paused sessions, and the new DCM path) silently never matched there — every human-to-human aside in a session thread was fed to Claude as a follow-up. A message that *also* @mentions the bot still reaches Claude (it explicitly asks the bot), and on Mattermost a literal `<@…>` token stays ordinary text.
+- **DCM: non-allowlisted members no longer trigger an unauthorized-warning post per message.** The warning now only fires on an explicit @mention — previously every message from a non-allowlisted member produced channel spam, and two bots could warn at each other in a loop on Mattermost.
+- **`!watches` works in direct channel mode again** — only *creation* is refused there; watches that predate a switch to DCM stay listable/pausable/deletable (matches routines).
+- **Slack thread history keeps the newest messages for arbitrarily long threads** — the pagination walk now retains a sliding window instead of stopping after 10 pages with the oldest content, and the truncation warning is honest about what was dropped.
+- **Audit trail: routine/watch creation confirmations now record the user whose reaction decided them** (the requester is carried in the detail) — matching how plan approvals are attributed.
+- **sessions.json and the GitHub-emails store can no longer be wiped by a transient read failure.** Every mutation is a read-modify-write; when the existing file cannot be read faithfully (corruption, EMFILE), reads degrade to empty but writes now refuse — previously the next persist atomically replaced the file with the degraded empty view, destroying every paused session across all platforms. A parseable file that merely lacks the collection key (e.g. a bare `{}`) provably holds nothing and stays writable — as does a zero-length or whitespace-only file, so a crashed first write can never leave a store permanently read-only.
+- Mattermost thread history resolves usernames only for the messages the limit keeps (matches the Slack client).
+- **Slack MCP tools now normalize literal Unicode emoji to shortcodes** for `react_to_post` and interactive-post reactions — `reactions.add` rejects raw 👍; the client path already normalized, the MCP path was the odd one out.
+- **Worktree commands honor `approvals: owner`.** `!worktree` create/switch/remove/cleanup and worktree-prompt disabling now go through the same owner gate as every other owner-gated command: under owner-scoped approvals a platform-allowlisted non-participant could previously switch the session's working directory.
+- **All haiku one-shots (routine/watch parses, watch confirms, memory distillation) now resolve the claude binary like sessions do** — `quickQuery` used a bare `claude` from PATH while sessions fall back to common install locations, so on some hosts sessions worked while every one-shot silently failed.
+
+### Changed
+- Internal restructuring after three feature waves: the user-commands module splits by domain (guards/memory/automation), lifecycle sheds the out-of-band metadata-suggestions domain into its own module, and the last two stores (sessions, GitHub emails) migrate onto the shared atomic-write primitives.
+- A wide DRY + dead-code sweep (net −800 lines): shared WebSocket close/permalink formatting/post-list rendering/limit clamping across the platform and MCP layers, one canonical legacy-allowlist helper for the six hand-copied authorization fallbacks, nine MCP tool registrations collapsed into one helper, ~380 lines of dead test helpers deleted, and the client test files adopt the shared fetch harness.
+
 ## [1.29.0] - 2026-08-24
 
 ### Added

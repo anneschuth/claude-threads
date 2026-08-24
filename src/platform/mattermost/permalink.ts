@@ -10,14 +10,12 @@
  * it's connected to.
  */
 
-import type { McpPlatformApi, McpPost } from '../mcp-platform-api.js';
+import type { McpPlatformApi } from '../mcp-platform-api.js';
 import {
   DEFAULT_THREAD_LIMIT,
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
   clampThreadLimit,
-  truncateBody,
-  quoteBlock,
 } from '../permalink-shared.js';
 
 // Re-exported so the MCP server (and tests) can import caps from a single
@@ -109,31 +107,8 @@ export function parseMattermostPermalink(
   return { postId };
 }
 
-export interface ResolveOptions {
-  includeThread?: boolean;
-  /** Defaults to DEFAULT_THREAD_LIMIT, capped at MAX_THREAD_LIMIT. */
-  maxMessages?: number;
-}
-
-export interface ResolvedPermalink {
-  /** The post the URL pointed to. */
-  post: McpPost;
-  /**
-   * When `includeThread` is true and the post is in a thread, the surrounding
-   * messages (oldest first). Includes the linked post itself. Empty array
-   * when threading wasn't requested or the post is top-level.
-   */
-  thread: McpPost[];
-}
-
-export type ResolveError =
-  | { kind: 'wrong-channel' }      // post lives in a channel other than the bot's
-  | { kind: 'not-found' }
-  | { kind: 'unsupported' };       // platform doesn't support post reads
-
-export type ResolveResult =
-  | { ok: true; resolved: ResolvedPermalink }
-  | { ok: false; error: ResolveError };
+export type { ResolveOptions, ResolvedPermalink, ResolveResult } from '../permalink-shared.js';
+import { formatResolvedPermalink, type ResolveOptions, type ResolvedPermalink, type ResolveResult } from '../permalink-shared.js';
 
 /**
  * Fetch the post (and optionally its thread) via the McpPlatformApi.
@@ -203,27 +178,5 @@ export async function resolvePermalink(
  * Bodies longer than MAX_MESSAGE_BODY_CHARS are truncated with a marker.
  */
 export function formatResolved(resolved: ResolvedPermalink): string {
-  const { post, thread } = resolved;
-  const lines: string[] = [];
-
-  lines.push(`Mattermost post by @${post.username ?? 'unknown'}:`);
-  lines.push('');
-  lines.push(quoteBlock(truncateBody(post.message)));
-
-  if (thread.length > 0) {
-    lines.push('');
-    lines.push(`Thread context (${thread.length} message${thread.length === 1 ? '' : 's'}):`);
-    lines.push('');
-    for (const m of thread) {
-      const marker = m.id === post.id ? ' ← linked post' : '';
-      const author = m.username ?? 'unknown';
-      lines.push(`@${author}${marker}:`);
-      lines.push(quoteBlock(truncateBody(m.message)));
-      lines.push('');
-    }
-    // Drop trailing blank.
-    if (lines[lines.length - 1] === '') lines.pop();
-  }
-
-  return lines.join('\n');
+  return formatResolvedPermalink(resolved, { header: 'Mattermost post by', linkedMarker: '← linked post' });
 }

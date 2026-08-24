@@ -5,6 +5,7 @@
  * This ensures tests exercise the actual bot logic, not a duplicate.
  */
 
+import { sessionAllowedUserSet } from './session/authorization.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './platform/index.js';
 import type { SessionManager } from './session/index.js';
 import {
@@ -77,6 +78,36 @@ function ackReceipt(client: PlatformClient, postId: string): void {
   });
 }
 
+/**
+ * The user a message opens by addressing, when that user is NOT the bot —
+ * i.e. a human-to-human side conversation the bot must stay out of.
+ * Understands both mention syntaxes: plain '@name' (Mattermost, and typed
+ * names on Slack) and Slack's raw '<@U0…>' / '<@U0…|label>' forms — the raw
+ * form is what Slack actually delivers, so matching only '@name' silently
+ * disabled this guard on Slack. Returns the mentioned identifier, or null
+ * when the message doesn't open with a mention, opens by addressing the
+ * bot, or mentions the bot ANYWHERE — '@bob can you review? @bot summarize'
+ * explicitly asks the bot and must reach it (parity with the DCM
+ * new-session guard's isBotMentioned exemption).
+ */
+function leadingOtherUserMention(client: PlatformClient, message: string): string | null {
+  if (client.isBotMentioned(message)) return null;
+  const trimmed = message.trim();
+  const named = trimmed.match(/^@([\w.-]+)/);
+  if (named) {
+    return named[1].toLowerCase() === client.getBotName().toLowerCase() ? null : named[1];
+  }
+  // The raw token form exists only on Slack. Mattermost never produces it,
+  // so a literal '<@…>' there (pasted Slack output) is ordinary text, not
+  // an address — matching it would silently drop real follow-ups.
+  if (client.platformType !== 'slack') return null;
+  const raw = trimmed.match(/^<@([A-Z0-9]+)(?:\|[^>]*)?>/i);
+  if (raw) {
+    return raw[1];
+  }
+  return null;
+}
+
 export async function handleMessage(
   client: PlatformClient,
   session: SessionManager,
@@ -143,14 +174,14 @@ export async function handleMessage(
     // Use registry to check for active session directly
     const activeSession = session.registry.findByThreadId(threadRoot);
     if (activeSession) {
-      // If message starts with @mention to someone else, track it as side conversation (if from approved user)
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
-        // Track side conversation if from approved user
+      // A message opening by addressing someone else is a side conversation:
+      // track it (if from an approved user) and don't interrupt Claude.
+      const sideMentionActive = leadingOtherUserMention(client, message);
+      if (sideMentionActive) {
         if (session.isUserAllowedInSession(threadRoot, username)) {
           session.addSideConversation(threadRoot, {
             fromUser: username,
-            mentionedUser: mentionMatch[1],
+            mentionedUser: sideMentionActive,
             message: message,
             timestamp: new Date(),
             postId: post.id,
@@ -254,9 +285,8 @@ export async function handleMessage(
     // Use registry to check for persisted session directly
     const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
     if (hasPausedSession) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+      // A message opening by addressing someone else is a side conversation.
+      if (leadingOtherUserMention(client, message)) {
         return; // Side conversation, don't interrupt
       }
 
@@ -271,9 +301,7 @@ export async function handleMessage(
           // Clean up the paused session instead of resuming it
           const persistedSession = session.getPersistedSession(threadRoot);
           if (persistedSession) {
-            // Legacy records may lack sessionAllowedUsers — fall back to the
-            // owner (CLAUDE.md backward-compat rule; matches reaction-router).
-            const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
+            const allowedUsers = sessionAllowedUserSet(persistedSession);
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
               auditLog(platformId, {
                 threadId: threadRoot,
@@ -300,11 +328,7 @@ export async function handleMessage(
       // reaction-router.ts — the platform allowlist alone is not enough.
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        // Legacy records may lack sessionAllowedUsers — without the owner
-        // fallback, `approvals: 'owner'` (which drops the global-allowlist
-        // rescue below) would lock the owner out of resuming their own
-        // session (CLAUDE.md backward-compat rule; matches reaction-router).
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
+        const allowedUsers = sessionAllowedUserSet(persistedSession);
         const ownerScoped =
           resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
         if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {
@@ -357,8 +381,24 @@ export async function handleMessage(
       return;
     }
 
+    // DCM: a channel message opening with @someone-else is a human-to-human
+    // side conversation. The active- and paused-session paths ignore those
+    // (and docs promise it) — the new-session path must too, or the bot
+    // injects itself into the exchange the moment no session is running.
+    if (dcm.enabled && leadingOtherUserMention(client, message)) {
+      return;
+    }
+
     if (!client.isUserAllowed(username)) {
-      await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
+      // Warn only when the user explicitly addressed the bot. In DCM
+      // all-messages mode EVERY channel message from a non-allowlisted
+      // member reaches this branch — an unconditional warning would be
+      // unbounded channel spam, and on Mattermost (which deliberately lets
+      // other bots' posts through) two bots could warn at each other in an
+      // endless loop.
+      if (client.isBotMentioned(message)) {
+        await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
+      }
       return;
     }
 

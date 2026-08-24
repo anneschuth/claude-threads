@@ -159,5 +159,8 @@ export function formatToolForPermission(
     worktreeInfo: options.worktreeInfo,
   });
 
-  return result.permissionText ?? toolName;
+  // Fall back to the display text: most formatters used to echo their
+  // display into permissionText verbatim — the fallback makes that echo
+  // unnecessary, so formatters only set permissionText when it DIFFERS.
+  return result.permissionText ?? result.display ?? toolName;
 }

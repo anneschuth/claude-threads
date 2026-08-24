@@ -56,7 +56,6 @@ export const taskToolsFormatter: ToolFormatter = {
       case 'EnterPlanMode':
         return {
           display: `📋 ${formatter.formatBold('Planning...')}`,
-          permissionText: `📋 ${formatter.formatBold('Planning...')}`,
         };
 
       case 'ExitPlanMode': {

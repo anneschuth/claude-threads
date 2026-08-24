@@ -24,6 +24,7 @@ beforeEach(() => {
 
 function makeApi() {
   return createSlackMcpPlatformApi({
+    platformType: 'slack',
     botToken: 'xoxb-bot',
     appToken: 'xapp-app',
     channelId: 'C0123456789',

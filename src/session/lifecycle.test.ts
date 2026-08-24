@@ -1,10 +1,11 @@
+import { createMockSessionContext as createSharedMockSessionContext } from '../test-utils/mock-session-context.js';
 import { describe, it, expect, mock, beforeEach, afterEach } from 'bun:test';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import * as lifecycle from './lifecycle.js';
-import type { SessionContext } from '../operations/session-context/index.js';
+import * as metadataSuggestions from './metadata-suggestions.js';
 import type { Session } from './types.js';
 import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
@@ -49,6 +50,9 @@ function createMockPlatform(overrides?: Partial<PlatformClient>): PlatformClient
     ...overrides,
   } as unknown as PlatformClient;
 }
+
+const createMockSessionContext = (sessions: Map<string, Session> = new Map()) =>
+  createSharedMockSessionContext(createMockPlatform, sessions);
 
 /**
  * Create a mock message manager for testing
@@ -163,102 +167,6 @@ function createMockSession(overrides?: Partial<Session> & {
 /**
  * Create a mock session context
  */
-function createMockSessionContext(sessions: Map<string, Session> = new Map()): SessionContext {
-  return {
-    config: {
-      workingDir: '/test',
-      permissionMode: 'bypass',
-      chromeEnabled: false,
-      debug: false,
-      maxSessions: 5,
-    },
-    state: {
-      sessions,
-      postIndex: new Map(),
-      platforms: new Map([['test-platform', createMockPlatform()]]),
-      sessionStore: {
-        save: mock(() => {}),
-        remove: mock(() => {}),
-        getAll: mock(() => []),
-        get: mock(() => null),
-        cleanStale: mock(() => []),
-        saveStickyPostId: mock(() => {}),
-        getStickyPostId: mock(() => null),
-        load: mock(() => new Map()),
-        findByPostId: mock(() => undefined),
-      } as any,
-      githubEmailsStore: {
-        get: mock(() => undefined),
-        set: mock(() => {}),
-        delete: mock(() => false),
-      } as any,
-      memoryStore: {
-        buildChannelMemoryBlock: mock(() => null),
-        listChannelEntries: mock(() => []),
-        addChannelEntries: mock(() => Promise.resolve({ added: [], duplicates: [], superseded: [] })),
-        forgetChannelEntry: mock(() => Promise.resolve({ ok: false, reason: 'empty', matches: [] })),
-        clearChannel: mock(() => Promise.resolve()),
-        repoMemoryDir: mock(() => '/tmp/test-memory'),
-      } as any,
-      routinesStore: {
-        list: mock(() => []),
-        get: mock(() => undefined),
-        add: mock(() => Promise.resolve({ ok: true, routine: {} })),
-        update: mock(() => Promise.resolve(undefined)),
-        remove: mock(() => Promise.resolve(undefined)),
-      } as any,
-      watchesStore: {
-        list: mock(() => []),
-        get: mock(() => undefined),
-        add: mock(() => Promise.resolve({ ok: true, watch: {} })),
-        update: mock(() => Promise.resolve(undefined)),
-        remove: mock(() => Promise.resolve(undefined)),
-      } as any,
-      isShuttingDown: false,
-    },
-    ops: {
-      getSessionId: mock((platformId, threadId) => `${platformId}:${threadId}`),
-      findSessionByThreadId: mock((threadId) => sessions.get(`test-platform:${threadId}`)),
-      registerPost: mock(() => {}),
-      handleEvent: mock(() => {}),
-      handleExit: mock(() => Promise.resolve()),
-      startTyping: mock(() => {}),
-      stopTyping: mock(() => {}),
-      flush: mock(() => Promise.resolve()),
-      updateStickyMessage: mock(() => Promise.resolve()),
-      updateSessionHeader: mock(() => Promise.resolve()),
-      persistSession: mock(() => {}),
-      unpersistSession: mock(() => {}),
-      recordSessionStarted: mock(() => {}),
-      shouldPromptForWorktree: mock(() => Promise.resolve(null)),
-      postWorktreePrompt: mock(() => Promise.resolve()),
-      buildMessageContent: mock((prompt: string) => Promise.resolve({ content: prompt, skipped: [] })),
-      offerContextPrompt: mock(() => Promise.resolve(false)),
-      killSession: mock(() => Promise.resolve()),
-      emitSessionAdd: mock(() => {}),
-      emitSessionUpdate: mock(() => {}),
-      emitSessionRemove: mock(() => {}),
-      registerWorktreeUser: mock(() => {}),
-      unregisterWorktreeUser: mock(() => {}),
-      hasOtherSessionsUsingWorktree: mock(() => false),
-      switchToWorktree: mock(async () => {}),
-      forceUpdate: mock(async () => {}),
-      deferUpdate: mock(() => {}),
-      handleBugReportApproval: mock(async () => {}),
-      acquireClaudeAccount: mock(() => null),
-      getClaudeAccount: mock(() => undefined),
-      releaseClaudeAccount: mock(() => {}),
-      refreshClaudeAccountUsage: mock(async () => {}),
-      markClaudeAccountCooling: mock(() => {}),
-      getClaudeAccountPoolStatus: mock(() => []),
-      getPlatformOverhead: mock(() => ({ sessionHeader: 'full' as const, stickyMessage: 'full' as const })),
-      getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
-      isRoutinesEnabled: mock(() => true),
-      isWatchesEnabled: mock(() => true),
-      fireRoutineNow: mock(() => Promise.resolve('ok' as const)),
-    },
-  };
-}
 
 // =============================================================================
 // Tests
@@ -497,7 +405,7 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
     const session = { messageCount: 1 };
 
-    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+    const result = metadataSuggestions.maybeInjectMetadataReminder(message, session);
 
     expect(result).toBe('Hello');
   });
@@ -506,7 +414,7 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
     const session = { messageCount: 2 };
 
-    const result = lifecycle.maybeInjectMetadataReminder(message, session);
+    const result = metadataSuggestions.maybeInjectMetadataReminder(message, session);
 
     expect(result).toBe('Hello');
   });
@@ -515,15 +423,15 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
 
     // 5th message - still returns unchanged (just fires reclassification in background)
-    const result5 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 5 });
+    const result5 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 5 });
     expect(result5).toBe('Hello');
 
     // 10th message - same behavior
-    const result10 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 10 });
+    const result10 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 10 });
     expect(result10).toBe('Hello');
 
     // 15th message - same behavior
-    const result15 = lifecycle.maybeInjectMetadataReminder(message, { messageCount: 15 });
+    const result15 = metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 15 });
     expect(result15).toBe('Hello');
   });
 
@@ -531,10 +439,10 @@ describe('maybeInjectMetadataReminder', () => {
     const message = 'Hello';
 
     // All messages should return unchanged
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
-    expect(lifecycle.maybeInjectMetadataReminder(message, { messageCount: 7 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 3 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 4 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 6 })).toBe('Hello');
+    expect(metadataSuggestions.maybeInjectMetadataReminder(message, { messageCount: 7 })).toBe('Hello');
   });
 });
 
@@ -815,7 +723,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Test Title',
         description: 'Test Description',
@@ -840,7 +748,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => null,
       suggestTags: async () => ['feature'],
     });
@@ -861,7 +769,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Success Title',
         description: 'Success Desc',
@@ -886,7 +794,7 @@ describe('attemptMetadataFetch', () => {
     const ctx = createMockSessionContext(sessions);
 
     // Even if suggestions fail, existing metadata counts as success
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => null,
       suggestTags: async () => [],
     });
@@ -905,7 +813,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map<string, Session>();
     const ctx = createMockSessionContext(sessions);
 
-    const result = await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    const result = await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'Title',
         description: 'Desc',
@@ -928,7 +836,7 @@ describe('attemptMetadataFetch', () => {
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
 
-    await lifecycle.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
+    await metadataSuggestions.attemptMetadataFetch(session, 'test prompt', ctx, 1, {
       suggestMetadata: async () => ({
         title: 'New Title',
         description: 'New Desc',

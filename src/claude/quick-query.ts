@@ -12,6 +12,7 @@
  */
 
 import { crossSpawn } from '../utils/spawn.js';
+import { getClaudePath } from './version-check.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('query');
@@ -67,7 +68,11 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
 
   const startTime = Date.now();
 
-  const claudePath = process.env.CLAUDE_PATH || 'claude';
+  // getClaudePath, not a bare 'claude': it falls back to the common install
+  // locations, so hosts where the CLI isn't on PATH (but sessions work via
+  // the same resolution in cli.ts) don't have every haiku one-shot — routine
+  // and watch parses, watch confirms, memory distillation — silently fail.
+  const claudePath = getClaudePath();
   const args = ['-p', '--model', model];
 
   if (systemPrompt) {

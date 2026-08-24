@@ -5,6 +5,7 @@ import {
   formatDuration,
   formatRelativeTimeShort,
   truncateAtWord,
+  formatIsoMinute,
 } from './format.js';
 
 describe('formatShortId', () => {
@@ -166,5 +167,11 @@ describe('formatVersionString', () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe('formatIsoMinute', () => {
+  it('renders an ISO timestamp as a compact UTC minute stamp', () => {
+    expect(formatIsoMinute('2026-08-24T01:57:45.123Z')).toBe('2026-08-24 01:57Z');
   });
 });

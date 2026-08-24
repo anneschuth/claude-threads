@@ -8,6 +8,7 @@
  */
 
 import { isApprovalEmoji, isDenialEmoji } from '../../utils/emoji.js';
+import { completePendingPrompt } from './pending-prompt.js';
 import type { ExecutorContext, BugReportState, PendingBugReport } from './types.js';
 import { BaseExecutor, type ExecutorOptions } from './base.js';
 
@@ -104,42 +105,28 @@ export class BugReportExecutor extends BaseExecutor<BugReportState> {
    * @param username - Username of the user who responded (for logging)
    * @param ctx - Executor context
    */
-  async handleBugReportResponse(
+  handleBugReportResponse(
     postId: string,
     decision: BugReportDecision,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingBugReport) return false;
-    if (this.state.pendingBugReport.postId !== postId) return false;
-
-    const report = this.state.pendingBugReport;
-
-    // Update the post based on decision
-    let statusMessage: string;
-    if (decision === 'approve') {
-      statusMessage = `✅ ${ctx.formatter.formatBold('Bug report submitted')} - creating issue...`;
-      ctx.logger.info(`Bug report approved by @${username}`);
-    } else {
-      statusMessage = `❌ ${ctx.formatter.formatBold('Bug report cancelled')}`;
-      ctx.logger.info(`Bug report denied by @${username}`);
-    }
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update bug report post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingBugReport = null;
-
-    // Emit bug report complete event
-    if (this.events) {
-      this.events.emit('bug-report:complete', { decision, report });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingBugReport,
+      postId,
+      ctx,
+      label: 'bug report',
+      statusMessage: () => {
+        if (decision === 'approve') {
+          ctx.logger.info(`Bug report approved by @${username}`);
+          return `✅ ${ctx.formatter.formatBold('Bug report submitted')} - creating issue...`;
+        }
+        ctx.logger.info(`Bug report denied by @${username}`);
+        return `❌ ${ctx.formatter.formatBold('Bug report cancelled')}`;
+      },
+      clear: () => { this.state.pendingBugReport = null; },
+      emit: (report) => this.events?.emit('bug-report:complete', { decision, report }),
+    });
   }
 
   // ---------------------------------------------------------------------------

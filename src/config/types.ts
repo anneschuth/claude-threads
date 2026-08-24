@@ -119,15 +119,8 @@ export function resolveMemoryConfig(value: unknown, fieldPath?: string): Resolve
   if (value === false) return MEMORY_DISABLED;
   if (typeof value === 'object' && !Array.isArray(value)) {
     const obj = value as { enabled?: unknown; repoLayer?: unknown; channelLayer?: unknown; distillation?: unknown };
-    const bool = (v: unknown, name: string, dflt: boolean): boolean => {
-      if (typeof v === 'boolean') return v;
-      if (v !== undefined) {
-        console.warn(
-          `Invalid ${fieldPath ?? 'memory'}.${name}: expected boolean, got ${JSON.stringify(v)} — using default (${dflt})`,
-        );
-      }
-      return dflt;
-    };
+    const bool = (v: unknown, name: string, dflt: boolean): boolean =>
+      resolveBooleanFeature(v, `${fieldPath ?? 'memory'}.${name}`, { default: dflt, verb: `using default (${dflt})` });
     const enabled = bool(obj.enabled, 'enabled', true);
     if (!enabled) return MEMORY_DISABLED;
     return {

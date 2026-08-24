@@ -72,14 +72,11 @@ describe('fireWatch admission', () => {
     // The confirm await is a ~10s race window: a user @mention in the same
     // thread can have an unregistered start in flight. Calling startSession
     // then would deliver the watch's synthetic prompt into the USER'S
-    // session as a follow-up — the fire must skip instead.
-    // The entry removes itself once awaited (like a real start's finally
-    // does), so a regressed guard falls through into the real startSession
-    // and fails this test loudly instead of spinning on the map entry.
-    const inFlight = Promise.resolve().then(() => {
-      _inFlightSessionStarts.delete('mm:p1');
-    });
-    _inFlightSessionStarts.set('mm:p1', inFlight);
+    // session as a follow-up — the fire must skip instead. The entry never
+    // resolves: with the guard the skip returns without touching it; a
+    // regressed guard blocks in startSession's dedup wait and fails this
+    // test by timeout.
+    _inFlightSessionStarts.set('mm:p1', new Promise(() => {}));
 
     const result = await fireWatch(makeWatch(), 'mm', { id: 'p1' }, 'bob', makeCtx());
     expect(result).toBe('skipped');

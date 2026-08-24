@@ -51,3 +51,19 @@ export function isAuthorizedForSession(check: AuthorizationCheck): boolean {
 
   return sessionAllowedUsers?.has(username) ?? false;
 }
+
+/**
+ * A persisted session's allowlist as a Set, with the legacy fallback:
+ * records from pre-collaboration versions lack `sessionAllowedUsers`, and
+ * without falling back to the owner, `approvals: 'owner'` (which drops the
+ * global-allowlist rescue) locks the owner out of their own session — the
+ * CLAUDE.md backward-compat rule. This fallback used to be hand-copied at
+ * six call sites; every reader of persisted allowlists must come through
+ * here so a future fix lands once.
+ */
+export function sessionAllowedUserSet(state: {
+  sessionAllowedUsers?: string[];
+  startedBy?: string;
+}): Set<string> {
+  return new Set(state.sessionAllowedUsers || [state.startedBy].filter((u): u is string => !!u));
+}

@@ -9,6 +9,7 @@
  */
 
 import { isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
+import { completePendingPrompt } from './pending-prompt.js';
 import type {
   ExecutorContext,
   PromptState,
@@ -162,51 +163,39 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * @param username - Username of the user who responded (for logging)
    * @param ctx - Executor context
    */
-  async handleContextPromptResponse(
+  handleContextPromptResponse(
     postId: string,
     selection: ContextPromptSelection,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingContextPrompt) return false;
-    if (this.state.pendingContextPrompt.postId !== postId) return false;
-
-        const { queuedPrompt, queuedFiles, queuedByUsername, threadMessageCount } = this.state.pendingContextPrompt;
-
-    // Update the post based on selection
-    let statusMessage: string;
-    if (selection === 'timeout') {
-      statusMessage = `⏱️ Continuing without context (no response)`;
-      ctx.logger.info(`Context prompt timed out, continuing without context`);
-    } else if (selection === 0) {
-      statusMessage = `✅ Continuing without context (skipped by ${ctx.formatter.formatUserMention(username)})`;
-      ctx.logger.info(`Context skipped by @${username}`);
-    } else {
-      statusMessage = `✅ Including last ${selection} messages (selected by ${ctx.formatter.formatUserMention(username)})`;
-      ctx.logger.info(`Context selection: last ${selection} messages by @${username}`);
-    }
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update context prompt post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingContextPrompt = null;
-
-    // Emit context prompt complete event
-    if (this.events) {
-      this.events.emit('context-prompt:complete', {
-        selection,
-        queuedPrompt,
-        queuedFiles,
-        queuedByUsername,
-        threadMessageCount,
-      });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingContextPrompt,
+      postId,
+      ctx,
+      label: 'context prompt',
+      statusMessage: () => {
+        if (selection === 'timeout') {
+          ctx.logger.info(`Context prompt timed out, continuing without context`);
+          return `⏱️ Continuing without context (no response)`;
+        }
+        if (selection === 0) {
+          ctx.logger.info(`Context skipped by @${username}`);
+          return `✅ Continuing without context (skipped by ${ctx.formatter.formatUserMention(username)})`;
+        }
+        ctx.logger.info(`Context selection: last ${selection} messages by @${username}`);
+        return `✅ Including last ${selection} messages (selected by ${ctx.formatter.formatUserMention(username)})`;
+      },
+      clear: () => { this.state.pendingContextPrompt = null; },
+      emit: ({ queuedPrompt, queuedFiles, queuedByUsername, threadMessageCount }) =>
+        this.events?.emit('context-prompt:complete', {
+          selection,
+          queuedPrompt,
+          queuedFiles,
+          queuedByUsername,
+          threadMessageCount,
+        }),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -251,47 +240,29 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * @param username - Username of the user who responded (for logging)
    * @param ctx - Executor context
    */
-  async handleExistingWorktreeResponse(
+  handleExistingWorktreeResponse(
     postId: string,
     decision: ExistingWorktreeDecision,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingExistingWorktreePrompt) return false;
-    if (this.state.pendingExistingWorktreePrompt.postId !== postId) return false;
-
-        const { branch, worktreePath } = this.state.pendingExistingWorktreePrompt;
-
-    // Update the post based on decision
-    let statusMessage: string;
-    if (decision === 'join') {
-      statusMessage = `✅ Joining existing worktree ${ctx.formatter.formatBold(branch)} (${ctx.formatter.formatUserMention(username)})`;
-      ctx.logger.info(`Joining existing worktree ${branch} by @${username}`);
-    } else {
-      statusMessage = `✅ Continuing in current directory (skipped by ${ctx.formatter.formatUserMention(username)})`;
-      ctx.logger.info(`Skipped joining existing worktree ${branch} by @${username}`);
-    }
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update existing worktree prompt post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingExistingWorktreePrompt = null;
-
-    // Emit worktree prompt complete event
-    if (this.events) {
-      this.events.emit('worktree-prompt:complete', {
-        decision,
-        branch,
-        worktreePath,
-        username,
-      });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingExistingWorktreePrompt,
+      postId,
+      ctx,
+      label: 'existing worktree prompt',
+      statusMessage: ({ branch }) => {
+        if (decision === 'join') {
+          ctx.logger.info(`Joining existing worktree ${branch} by @${username}`);
+          return `✅ Joining existing worktree ${ctx.formatter.formatBold(branch)} (${ctx.formatter.formatUserMention(username)})`;
+        }
+        ctx.logger.info(`Skipped joining existing worktree ${branch} by @${username}`);
+        return `✅ Continuing in current directory (skipped by ${ctx.formatter.formatUserMention(username)})`;
+      },
+      clear: () => { this.state.pendingExistingWorktreePrompt = null; },
+      emit: ({ branch, worktreePath }) =>
+        this.events?.emit('worktree-prompt:complete', { decision, branch, worktreePath, username }),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -336,41 +307,28 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * @param username - Username of the user who responded (for logging)
    * @param ctx - Executor context
    */
-  async handleUpdatePromptResponse(
+  handleUpdatePromptResponse(
     postId: string,
     decision: UpdatePromptDecision,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingUpdatePrompt) return false;
-    if (this.state.pendingUpdatePrompt.postId !== postId) return false;
-
-    
-    // Update the post based on decision
-    let statusMessage: string;
-    if (decision === 'update_now') {
-      statusMessage = `🔄 ${ctx.formatter.formatBold('Forcing update')} - restarting shortly...`;
-      ctx.logger.info(`Update prompt: forcing update now by @${username}`);
-    } else {
-      statusMessage = `⏸️ ${ctx.formatter.formatBold('Update deferred')} for 1 hour`;
-      ctx.logger.info(`Update prompt: update deferred by @${username}`);
-    }
-
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update update prompt post: ${err}`);
-    }
-
-    // Clear pending state
-    this.state.pendingUpdatePrompt = null;
-
-    // Emit update prompt complete event
-    if (this.events) {
-      this.events.emit('update-prompt:complete', { decision });
-    }
-
-    return true;
+    return completePendingPrompt({
+      pending: this.state.pendingUpdatePrompt,
+      postId,
+      ctx,
+      label: 'update prompt',
+      statusMessage: () => {
+        if (decision === 'update_now') {
+          ctx.logger.info(`Update prompt: forcing update now by @${username}`);
+          return `🔄 ${ctx.formatter.formatBold('Forcing update')} - restarting shortly...`;
+        }
+        ctx.logger.info(`Update prompt: update deferred by @${username}`);
+        return `⏸️ ${ctx.formatter.formatBold('Update deferred')} for 1 hour`;
+      },
+      clear: () => { this.state.pendingUpdatePrompt = null; },
+      emit: () => this.events?.emit('update-prompt:complete', { decision }),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -396,31 +354,27 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * public wrappers below keep the per-flavor typed events — those are
    * load-bearing for the lifecycle listeners.
    */
-  private async completeCreationPrompt<P extends { name: string }>(
+  private completeCreationPrompt<P extends { name: string }>(
     pending: { postId: string; parsed: P; requestedBy: string } | null,
     label: string,
     clear: () => void,
-    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; postId: string }) => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string }) => void,
     postId: string,
     approved: boolean,
     username: string,
     ctx: ExecutorContext,
   ): Promise<boolean> {
-    if (!pending || pending.postId !== postId) return false;
-
-    const { parsed, requestedBy } = pending;
-    const statusMessage = approved
-      ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
-      : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update ${label.toLowerCase()} prompt post: ${err}`);
-    }
-
-    clear();
-    emit({ approved, parsed, requestedBy, postId });
-    return true;
+    return completePendingPrompt({
+      pending,
+      postId,
+      ctx,
+      label: `${label.toLowerCase()} prompt`,
+      statusMessage: ({ parsed }) => approved
+        ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
+        : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`,
+      clear,
+      emit: ({ parsed, requestedBy }) => emit({ approved, parsed, requestedBy, decidedBy: username, postId }),
+    });
   }
 
   /**

@@ -1,10 +1,8 @@
 /**
  * Shared primitives for the bot's small on-disk stores: a promise-tail mutex
  * to serialize mutations in-process, and an owner-only atomic file write
- * (tmp + rename + chmod). session-store and github-emails-store still carry
- * hand-rolled copies of this pattern from before the extraction — migrate
- * them here opportunistically so hardening (fsync, tmp cleanup, error
- * policy) lands once instead of per store.
+ * (tmp + rename + chmod). Every store uses these — hardening (fsync, tmp
+ * cleanup, error policy) lands here once instead of per store.
  */
 
 import { chmodSync, renameSync, writeFileSync } from 'fs';

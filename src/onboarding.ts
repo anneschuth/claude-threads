@@ -1116,6 +1116,153 @@ async function configureAdvancedSettings(existing: AdvancedSettingsInput): Promi
 // Platform Setup Functions
 // ============================================================================
 
+// ============================================================================
+// Shared platform-setup prompts (Mattermost + Slack)
+// ============================================================================
+
+/**
+ * Split-verbosity detection + the prompt default. The wizard's single-pick
+ * UX cannot represent sessionHeader != stickyMessage — silently collapsing
+ * that would be data loss — so the prompt is skipped when a split config is
+ * detected and both originals are preserved verbatim. Power users with
+ * split configs already know how to edit YAML.
+ */
+interface VerbosityState {
+  header?: OverheadVisibility;
+  sticky?: OverheadVisibility;
+  hasSplit: boolean;
+  /** Prompt default: existing value, or the global default when unset. */
+  initial: OverheadVisibility;
+}
+
+function initVerbosityState(
+  existing: { sessionHeader?: unknown; stickyMessage?: unknown } | undefined,
+): VerbosityState {
+  const header = existing?.sessionHeader as OverheadVisibility | undefined;
+  const sticky = existing?.stickyMessage as OverheadVisibility | undefined;
+  const hasSplit = header !== undefined && sticky !== undefined && header !== sticky;
+  return { header, sticky, hasSplit, initial: header ?? sticky ?? DEFAULT_OVERHEAD_VISIBILITY };
+}
+
+/**
+ * The allowed-users loop: comma-separated names, with an explicit
+ * confirmation before saving an empty list (anyone in the channel may use
+ * the bot). Loops until confirmed. `userNoun` covers the platform wording
+ * difference ('usernames' vs 'Slack usernames').
+ */
+async function promptAllowedUsers(userNoun: string, lastAllowedUsers: string): Promise<string[]> {
+  while (true) {
+    console.log('');
+    console.log(dim(`  Who can use the bot? Enter ${userNoun} separated by commas.`));
+    console.log(dim('  Leave empty to allow anyone (you\'ll be asked to confirm).'));
+    const { allowedUsersInput } = await prompts({
+      type: 'text',
+      name: 'allowedUsersInput',
+      message: 'Allowed usernames',
+      initial: lastAllowedUsers,
+    }, { onCancel });
+
+    const allowedUsers: string[] =
+      allowedUsersInput?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
+    if (allowedUsers.length > 0) return allowedUsers;
+
+    // Empty: confirm they really want to allow anyone
+    console.log('');
+    const { confirmOpen } = await prompts({
+      type: 'confirm',
+      name: 'confirmOpen',
+      message: '⚠️  Allow ANYONE in the channel to use the bot?',
+      initial: false,
+    }, { onCancel });
+    if (confirmOpen) return allowedUsers;
+
+    console.log('');
+    console.log(dim('  Let\'s add some allowed usernames.'));
+    // Loop continues - will re-prompt for usernames
+  }
+}
+
+async function promptPermissionMode(last: PermissionMode): Promise<PermissionMode> {
+  const { permissionMode } = await prompts({
+    type: 'select',
+    name: 'permissionMode',
+    message: 'Permission mode for Claude tool-uses?',
+    choices: PERMISSION_MODE_CHOICES,
+    initial: permissionModeChoiceIndex(last),
+  }, { onCancel });
+  return permissionMode;
+}
+
+/**
+ * Channel verbosity (sessionHeader + stickyMessage). One prompt drives both
+ * — separating them is rare and the YAML is right there for the few who
+ * want different values per surface. Skipped entirely for split configs.
+ */
+async function promptChannelVerbosity(v: VerbosityState, last: OverheadVisibility): Promise<OverheadVisibility> {
+  if (v.hasSplit) {
+    console.log('');
+    console.log(dim(
+      `  Channel verbosity: keeping split values from current config ` +
+      `(sessionHeader=${v.header}, stickyMessage=${v.sticky}). ` +
+      `Edit YAML directly to change.`
+    ));
+    return last;
+  }
+  const result = await prompts({
+    type: 'select',
+    name: 'channelVerbosity',
+    message: 'How verbose should the bot be in this channel?',
+    choices: OVERHEAD_VISIBILITY_CHOICES,
+    initial: overheadVisibilityChoiceIndex(last),
+  }, { onCancel });
+  return result.channelVerbosity;
+}
+
+/**
+ * Verbosity persistence for the returned platform entry:
+ *  - Split config (prompt was skipped): preserve both originals verbatim.
+ *  - User picked default: omit both fields, keeps generated YAML minimal.
+ *  - User picked non-default: write both with the same value.
+ */
+function verbosityFields(
+  v: VerbosityState,
+  chosen: OverheadVisibility,
+): { sessionHeader?: OverheadVisibility; stickyMessage?: OverheadVisibility } {
+  if (v.hasSplit) return { sessionHeader: v.header, stickyMessage: v.sticky };
+  if (chosen !== DEFAULT_OVERHEAD_VISIBILITY) return { sessionHeader: chosen, stickyMessage: chosen };
+  return {};
+}
+
+/**
+ * Post-validation-failure choice. Exits the process on cancel; 'retry'
+ * means re-enter credentials (the caller `continue`s its loop), 'save'
+ * means save anyway.
+ */
+async function promptValidationFailureAction(): Promise<'retry' | 'save'> {
+  const { action } = await prompts({
+    type: 'select',
+    name: 'action',
+    message: 'What would you like to do?',
+    choices: [
+      { title: 'Re-enter credentials', value: 'retry' },
+      { title: 'Save anyway (may not work)', value: 'save' },
+      { title: 'Cancel setup', value: 'cancel' },
+    ],
+  }, { onCancel });
+
+  if (action === 'cancel') {
+    console.log('');
+    console.log(dim('  Setup cancelled.'));
+    process.exit(1);
+  }
+  if (action === 'retry') {
+    console.log('');
+    console.log(dim('  Let\'s try again...'));
+    return 'retry';
+  }
+  return 'save';
+}
+
 async function setupMattermostPlatform(
   id: string,
   existing?: PlatformInstanceConfig
@@ -1138,21 +1285,10 @@ async function setupMattermostPlatform(
         skipPermissions: existingMattermost.skipPermissions,
       })
     : 'auto';
-  // Detect a split config (sessionHeader and stickyMessage set to different
-  // values). The wizard's single-pick UX cannot represent that — silently
-  // collapsing it would be data loss. Skip the prompt entirely in that case
-  // and preserve the original values verbatim. Power users with split
-  // configs already know how to edit YAML.
-  const existingHeader = existingMattermost?.sessionHeader as OverheadVisibility | undefined;
-  const existingSticky = existingMattermost?.stickyMessage as OverheadVisibility | undefined;
-  const hasSplitVerbosity =
-    existingHeader !== undefined &&
-    existingSticky !== undefined &&
-    existingHeader !== existingSticky;
   // Channel verbosity defaults to whatever the existing config used (or
   // `'full'` if both are unset). Keeps reconfigure non-surprising.
-  let lastChannelVerbosity: OverheadVisibility =
-    existingHeader ?? existingSticky ?? DEFAULT_OVERHEAD_VISIBILITY;
+  const verbosity = initVerbosityState(existingMattermost);
+  let lastChannelVerbosity: OverheadVisibility = verbosity.initial;
 
   // Main loop - allows retrying when validation fails
   while (true) {
@@ -1229,76 +1365,11 @@ async function setupMattermostPlatform(
       process.exit(1);
     }
 
-    // Now handle allowed users with loop for re-entry
-    let allowedUsers: string[] = [];
-    let allowedUsersConfirmed = false;
-
-    while (!allowedUsersConfirmed) {
-      console.log('');
-      console.log(dim('  Who can use the bot? Enter usernames separated by commas.'));
-      console.log(dim('  Leave empty to allow anyone (you\'ll be asked to confirm).'));
-      const { allowedUsersInput } = await prompts({
-        type: 'text',
-        name: 'allowedUsersInput',
-        message: 'Allowed usernames',
-        initial: lastAllowedUsers,
-      }, { onCancel });
-
-      allowedUsers = allowedUsersInput?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
-
-      // If empty, confirm they really want to allow anyone
-      if (allowedUsers.length === 0) {
-        console.log('');
-        const { confirmOpen } = await prompts({
-          type: 'confirm',
-          name: 'confirmOpen',
-          message: '⚠️  Allow ANYONE in the channel to use the bot?',
-          initial: false,
-        }, { onCancel });
-
-        if (confirmOpen) {
-          allowedUsersConfirmed = true;
-        } else {
-          console.log('');
-          console.log(dim('  Let\'s add some allowed usernames.'));
-          // Loop continues - will re-prompt for usernames
-        }
-      } else {
-        allowedUsersConfirmed = true;
-      }
-    }
-
-    // Now ask about permission mode (after user access is settled)
-    const { permissionMode } = await prompts({
-      type: 'select',
-      name: 'permissionMode',
-      message: 'Permission mode for Claude tool-uses?',
-      choices: PERMISSION_MODE_CHOICES,
-      initial: permissionModeChoiceIndex(lastPermissionMode),
-    }, { onCancel });
-
-    // Channel verbosity (sessionHeader + stickyMessage). One prompt drives both
-    // — separating them is rare and the YAML is right there for the few who
-    // want different values per surface. Skip the prompt entirely when the
-    // existing config has split values, to avoid silently collapsing them.
-    let channelVerbosity: OverheadVisibility = lastChannelVerbosity;
-    if (hasSplitVerbosity) {
-      console.log('');
-      console.log(dim(
-        `  Channel verbosity: keeping split values from current config ` +
-        `(sessionHeader=${existingHeader}, stickyMessage=${existingSticky}). ` +
-        `Edit YAML directly to change.`
-      ));
-    } else {
-      const result = await prompts({
-        type: 'select',
-        name: 'channelVerbosity',
-        message: 'How verbose should the bot be in this channel?',
-        choices: OVERHEAD_VISIBILITY_CHOICES,
-        initial: overheadVisibilityChoiceIndex(lastChannelVerbosity),
-      }, { onCancel });
-      channelVerbosity = result.channelVerbosity;
-    }
+    // Allowed users, then permission mode (after user access is settled),
+    // then channel verbosity — the shared prompt helpers above.
+    const allowedUsers = await promptAllowedUsers('usernames', lastAllowedUsers);
+    const permissionMode = await promptPermissionMode(lastPermissionMode);
+    const channelVerbosity = await promptChannelVerbosity(verbosity, lastChannelVerbosity);
 
     // Save entered values for potential retry
     lastUrl = basicSettings.url;
@@ -1338,27 +1409,10 @@ async function setupMattermostPlatform(
       }
       console.log('');
 
-      const { action } = await prompts({
-        type: 'select',
-        name: 'action',
-        message: 'What would you like to do?',
-        choices: [
-          { title: 'Re-enter credentials', value: 'retry' },
-          { title: 'Save anyway (may not work)', value: 'save' },
-          { title: 'Cancel setup', value: 'cancel' },
-        ],
-      }, { onCancel });
-
-      if (action === 'retry') {
-        console.log('');
-        console.log(dim('  Let\'s try again...'));
+      if (await promptValidationFailureAction() === 'retry') {
         continue; // Loop back to re-enter credentials
-      } else if (action === 'cancel') {
-        console.log('');
-        console.log(dim('  Setup cancelled.'));
-        process.exit(1);
       }
-      // action === 'save' falls through to return
+      // 'save' falls through to return
     } else {
       console.log(green('  ✓ Credentials validated successfully!'));
       if (validationResult.botUsername) {
@@ -1384,16 +1438,7 @@ async function setupMattermostPlatform(
       ...(existing?.directChannelMode !== undefined ? { directChannelMode: existing.directChannelMode } : {}),
       ...(existing?.approvals !== undefined ? { approvals: existing.approvals } : {}),
       ...(existingMattermost?.directMessages !== undefined ? { directMessages: existingMattermost.directMessages } : {}),
-      // Verbosity persistence:
-      //  - Split config (user had different values per surface, prompt was
-      //    skipped): preserve both originals verbatim.
-      //  - User picked default: omit both fields, keeps generated YAML minimal.
-      //  - User picked non-default: write both with the same value.
-      ...(hasSplitVerbosity
-        ? { sessionHeader: existingHeader, stickyMessage: existingSticky }
-        : lastChannelVerbosity !== DEFAULT_OVERHEAD_VISIBILITY
-          ? { sessionHeader: lastChannelVerbosity, stickyMessage: lastChannelVerbosity }
-          : {}),
+      ...verbosityFields(verbosity, lastChannelVerbosity),
     };
   }
 }
@@ -1579,17 +1624,8 @@ async function setupSlackPlatform(
         skipPermissions: existingSlack.skipPermissions,
       })
     : 'auto';
-  // See setupMattermostPlatform for the rationale on split-config detection
-  // — the wizard's single-pick UX cannot represent split values, so we
-  // detect and skip rather than silently collapsing them.
-  const existingHeader = existingSlack?.sessionHeader as OverheadVisibility | undefined;
-  const existingSticky = existingSlack?.stickyMessage as OverheadVisibility | undefined;
-  const hasSplitVerbosity =
-    existingHeader !== undefined &&
-    existingSticky !== undefined &&
-    existingHeader !== existingSticky;
-  let lastChannelVerbosity: OverheadVisibility =
-    existingHeader ?? existingSticky ?? DEFAULT_OVERHEAD_VISIBILITY;
+  const verbosity = initVerbosityState(existingSlack);
+  let lastChannelVerbosity: OverheadVisibility = verbosity.initial;
 
   // Main loop - allows retrying when validation fails
   while (true) {
@@ -1674,74 +1710,11 @@ async function setupSlackPlatform(
       process.exit(1);
     }
 
-    // Now handle allowed users with loop for re-entry
-    let allowedUsers: string[] = [];
-    let allowedUsersConfirmed = false;
-
-    while (!allowedUsersConfirmed) {
-      console.log('');
-      console.log(dim('  Who can use the bot? Enter Slack usernames separated by commas.'));
-      console.log(dim('  Leave empty to allow anyone (you\'ll be asked to confirm).'));
-      const { allowedUsersInput } = await prompts({
-        type: 'text',
-        name: 'allowedUsersInput',
-        message: 'Allowed usernames',
-        initial: lastAllowedUsers,
-      }, { onCancel });
-
-      allowedUsers = allowedUsersInput?.split(',').map((u: string) => u.trim()).filter((u: string) => u) || [];
-
-      // If empty, confirm they really want to allow anyone
-      if (allowedUsers.length === 0) {
-        console.log('');
-        const { confirmOpen } = await prompts({
-          type: 'confirm',
-          name: 'confirmOpen',
-          message: '⚠️  Allow ANYONE in the channel to use the bot?',
-          initial: false,
-        }, { onCancel });
-
-        if (confirmOpen) {
-          allowedUsersConfirmed = true;
-        } else {
-          console.log('');
-          console.log(dim('  Let\'s add some allowed usernames.'));
-          // Loop continues - will re-prompt for usernames
-        }
-      } else {
-        allowedUsersConfirmed = true;
-      }
-    }
-
-    // Now ask about permission mode (after user access is settled)
-    const { permissionMode } = await prompts({
-      type: 'select',
-      name: 'permissionMode',
-      message: 'Permission mode for Claude tool-uses?',
-      choices: PERMISSION_MODE_CHOICES,
-      initial: permissionModeChoiceIndex(lastPermissionMode),
-    }, { onCancel });
-
-    // Channel verbosity (sessionHeader + stickyMessage). Same prompt as
-    // Mattermost — see OVERHEAD_VISIBILITY_CHOICES for the rationale.
-    let channelVerbosity: OverheadVisibility = lastChannelVerbosity;
-    if (hasSplitVerbosity) {
-      console.log('');
-      console.log(dim(
-        `  Channel verbosity: keeping split values from current config ` +
-        `(sessionHeader=${existingHeader}, stickyMessage=${existingSticky}). ` +
-        `Edit YAML directly to change.`
-      ));
-    } else {
-      const result = await prompts({
-        type: 'select',
-        name: 'channelVerbosity',
-        message: 'How verbose should the bot be in this channel?',
-        choices: OVERHEAD_VISIBILITY_CHOICES,
-        initial: overheadVisibilityChoiceIndex(lastChannelVerbosity),
-      }, { onCancel });
-      channelVerbosity = result.channelVerbosity;
-    }
+    // Allowed users, then permission mode (after user access is settled),
+    // then channel verbosity — the shared prompt helpers above.
+    const allowedUsers = await promptAllowedUsers('Slack usernames', lastAllowedUsers);
+    const permissionMode = await promptPermissionMode(lastPermissionMode);
+    const channelVerbosity = await promptChannelVerbosity(verbosity, lastChannelVerbosity);
 
     // Save entered values for potential retry
     lastDisplayName = basicSettings.displayName;
@@ -1787,27 +1760,10 @@ async function setupSlackPlatform(
       }
       console.log('');
 
-      const { action } = await prompts({
-        type: 'select',
-        name: 'action',
-        message: 'What would you like to do?',
-        choices: [
-          { title: 'Re-enter credentials', value: 'retry' },
-          { title: 'Save anyway (may not work)', value: 'save' },
-          { title: 'Cancel setup', value: 'cancel' },
-        ],
-      }, { onCancel });
-
-      if (action === 'retry') {
-        console.log('');
-        console.log(dim('  Let\'s try again...'));
+      if (await promptValidationFailureAction() === 'retry') {
         continue; // Loop back to re-enter credentials
-      } else if (action === 'cancel') {
-        console.log('');
-        console.log(dim('  Setup cancelled.'));
-        process.exit(1);
       }
-      // action === 'save' falls through to return
+      // 'save' falls through to return
     } else {
       console.log(green('  ✓ Credentials validated successfully!'));
       if (validationResult.botUsername) {
@@ -1832,13 +1788,7 @@ async function setupSlackPlatform(
       // edit round-trip doesn't silently disable DCM or approvals hardening.
       ...(existing?.directChannelMode !== undefined ? { directChannelMode: existing.directChannelMode } : {}),
       ...(existing?.approvals !== undefined ? { approvals: existing.approvals } : {}),
-      // Same persistence rules as Mattermost (split → preserve, default →
-      // omit, non-default → write both with same value).
-      ...(hasSplitVerbosity
-        ? { sessionHeader: existingHeader, stickyMessage: existingSticky }
-        : lastChannelVerbosity !== DEFAULT_OVERHEAD_VISIBILITY
-          ? { sessionHeader: lastChannelVerbosity, stickyMessage: lastChannelVerbosity }
-          : {}),
+      ...verbosityFields(verbosity, lastChannelVerbosity),
     };
   }
 }

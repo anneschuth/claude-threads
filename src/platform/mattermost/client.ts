@@ -475,38 +475,28 @@ export class MattermostClient extends BasePlatformClient {
         posts: Record<string, MattermostPost>;
       }>('GET', `/posts/${threadId}/thread`);
 
-      // Convert posts map to sorted array (chronological order)
+      // Filter + sort + trim BEFORE resolving usernames: no user lookups
+      // (potential API calls) for messages the limit drops anyway.
+      const posts = response.order
+        .map((postId) => response.posts[postId])
+        .filter((post): post is MattermostPost => !!post)
+        .filter((post) => !(options?.excludeBotMessages && post.user_id === this.botUserId))
+        .sort((a, b) => a.create_at - b.create_at);
+      const kept = options?.limit && posts.length > options.limit
+        ? posts.slice(-options.limit)
+        : posts;
+
       const messages: ThreadMessage[] = [];
-      for (const postId of response.order) {
-        const post = response.posts[postId];
-        if (!post) continue;
-
-        // Skip bot messages if requested
-        if (options?.excludeBotMessages && post.user_id === this.botUserId) {
-          continue;
-        }
-
-        // Get username from cache or fetch
+      for (const post of kept) {
         const user = await this.getUser(post.user_id);
-        const username = user?.username || 'unknown';
-
         messages.push({
           id: post.id,
           userId: post.user_id,
-          username,
+          username: user?.username || 'unknown',
           message: post.message,
           createAt: post.create_at,
         });
       }
-
-      // Sort by createAt (oldest first)
-      messages.sort((a, b) => a.createAt - b.createAt);
-
-      // Apply limit if specified (return most recent N messages)
-      if (options?.limit && messages.length > options.limit) {
-        return messages.slice(-options.limit);
-      }
-
       return messages;
     } catch (err) {
       log.warn(`Failed to get thread history for ${threadId}: ${err}`);
@@ -702,34 +692,7 @@ export class MattermostClient extends BasePlatformClient {
   protected forceCloseConnection(): Promise<void> {
     const ws = this.ws;
     this.ws = null;
-    if (!ws) return Promise.resolve();
-
-    // Remove existing listeners; we install a one-shot close watcher below.
-    ws.onopen = null;
-    ws.onmessage = null;
-    ws.onerror = null;
-
-    if (ws.readyState === WebSocket.CLOSED) {
-      ws.onclose = null;
-      return Promise.resolve();
-    }
-
-    return new Promise<void>((resolve) => {
-      const done = () => {
-        ws.onclose = null;
-        resolve();
-      };
-      ws.onclose = done;
-      // Safety: don't wait forever if the close handshake hangs.
-      setTimeout(done, 1000);
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        try {
-          ws.close();
-        } catch {
-          done();
-        }
-      }
-    });
+    return this.closeSocket(ws);
   }
 
   /**
