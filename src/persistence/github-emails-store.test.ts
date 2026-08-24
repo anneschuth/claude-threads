@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { writeFileSync, existsSync, unlinkSync, statSync, mkdtempSync, rmSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, unlinkSync, statSync, mkdtempSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { GitHubEmailsStore, isValidGitHubNoreplyEmail } from './github-emails-store.js';
@@ -105,11 +105,16 @@ describe('GitHubEmailsStore', () => {
     expect(mode).toBe(0o600);
   });
 
-  it('handles a malformed YAML file by starting empty (no crash)', () => {
+  it('handles a malformed YAML file by starting empty for reads, refusing writes', () => {
     writeFileSync(path, '::: not yaml :::', 'utf-8');
     const store = new GitHubEmailsStore(path);
     expect(store.get('mm', 'alice')).toBeUndefined();
-    // And a subsequent set still works (we overwrite the malformed file).
+    // A set over unreadable-but-existing content refuses (no throw): the
+    // atomic write would destroy whatever the corruption still holds.
+    store.set('mm', 'alice', '111+alice@users.noreply.github.com');
+    expect(readFileSync(path, 'utf-8')).toBe('::: not yaml :::');
+    // Once the file is removed/repaired, writes resume.
+    rmSync(path);
     store.set('mm', 'alice', '111+alice@users.noreply.github.com');
     expect(store.get('mm', 'alice')).toBe('111+alice@users.noreply.github.com');
   });

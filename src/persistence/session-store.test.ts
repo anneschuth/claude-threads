@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { writeFileSync, mkdirSync, existsSync, unlinkSync, statSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, statSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { SessionStore, PersistedSession } from './session-store.js';
@@ -493,6 +493,27 @@ describe('SessionStore', () => {
       if (existsSync(tempFile)) {
         unlinkSync(tempFile);
       }
+    });
+
+    it('a degraded read refuses the next write instead of wiping all sessions', () => {
+      // Persist a session, then corrupt the file. Reads degrade to empty —
+      // but a save() proceeding on that emptiness used to atomically
+      // replace the file, destroying every persisted session across all
+      // platforms. The write must refuse (without throwing: persist paths
+      // are fire-and-forget) and leave the corrupt file for recovery.
+      tempStore = new SessionStore(tempFile);
+      const session = createTestSession();
+      tempStore.save(`${session.platformId}:${session.threadId}`, session);
+
+      writeFileSync(tempFile, '{not json');
+      const another = createTestSession({ threadId: 'thread-other' });
+      tempStore.save(`${another.platformId}:${another.threadId}`, another); // must not throw
+      expect(readFileSync(tempFile, 'utf-8')).toBe('{not json');
+
+      // Once the file is readable again, writes resume.
+      writeFileSync(tempFile, JSON.stringify({ version: 1, sessions: {} }));
+      tempStore.save(`${another.platformId}:${another.threadId}`, another);
+      expect(tempStore.load().size).toBe(1);
     });
 
     it('load() handles {} file content gracefully', () => {

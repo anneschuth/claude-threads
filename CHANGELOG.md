@@ -13,6 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`!watches` works in direct channel mode again** — only *creation* is refused there; watches that predate a switch to DCM stay listable/pausable/deletable (matches routines).
 - **Slack thread history keeps the newest messages for arbitrarily long threads** — the pagination walk now retains a sliding window instead of stopping after 10 pages with the oldest content, and the truncation warning is honest about what was dropped.
 - **Audit trail: routine/watch creation confirmations now record the user whose reaction decided them** (the requester is carried in the detail) — matching how plan approvals are attributed.
+- **sessions.json and the GitHub-emails store can no longer be wiped by a transient read failure.** Every mutation is a read-modify-write; when the existing file cannot be read faithfully (corruption, EMFILE), reads degrade to empty but writes now refuse — previously the next persist atomically replaced the file with the degraded empty view, destroying every paused session across all platforms. A parseable file that merely lacks the collection key (e.g. a bare `{}`) provably holds nothing and stays writable.
+- Mattermost thread history resolves usernames only for the messages the limit keeps (matches the Slack client).
 
 ### Changed
 - Internal restructuring after three feature waves: the user-commands module splits by domain (guards/memory/automation), lifecycle sheds the out-of-band metadata-suggestions domain into its own module, and the last two stores (sessions, GitHub emails) migrate onto the shared atomic-write primitives.

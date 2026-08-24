@@ -117,27 +117,47 @@ export class GitHubEmailsStore {
     return true;
   }
 
+  /** See SessionStore.lastReadDegraded — same read-then-write-wipe guard. */
+  private lastReadDegraded = false;
+
   private loadRaw(): FileShape {
     if (!existsSync(this.file)) {
+      this.lastReadDegraded = false;
       return { version: STORE_VERSION, emails: {} };
     }
     try {
       const raw = readFileSync(this.file, 'utf-8');
       const parsed = yaml.load(raw) as Partial<FileShape> | undefined;
       if (!parsed || typeof parsed !== 'object') {
+        this.lastReadDegraded = true;
         return { version: STORE_VERSION, emails: {} };
       }
-      const emails = (parsed.emails && typeof parsed.emails === 'object')
+      // Missing/null emails key: provably nothing to lose — writable empty
+      // store. A wrong-typed value degrades reads AND refuses writes.
+      const missing = parsed.emails === undefined || parsed.emails === null;
+      const valid = !missing && typeof parsed.emails === 'object';
+      this.lastReadDegraded = !missing && !valid;
+      const emails = valid
         ? parsed.emails as Record<string, Record<string, string>>
         : {};
       return { version: parsed.version ?? STORE_VERSION, emails };
     } catch (err) {
-      log.warn(`Failed to read ${this.file}: ${(err as Error).message} — starting empty`);
+      log.warn(`Failed to read ${this.file}: ${(err as Error).message} — reads degrade to empty`);
+      this.lastReadDegraded = true;
       return { version: STORE_VERSION, emails: {} };
     }
   }
 
+  /**
+   * Refuses (logs, no throw) when the data descends from a degraded read of
+   * an existing file — writing the degraded empty view would destroy every
+   * platform's stored emails. Mirrors SessionStore.writeAtomic.
+   */
   private writeAtomic(data: FileShape): void {
+    if (this.lastReadDegraded) {
+      log.error(`Refusing to write ${this.file}: the last read of the existing file was degraded — writing would destroy stored emails`);
+      return;
+    }
     writeFileAtomic(this.file, yaml.dump(data, { sortKeys: true, lineWidth: -1 }));
   }
 }
