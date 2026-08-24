@@ -378,6 +378,17 @@ export class SessionManager extends EventEmitter {
    * Made public to allow direct access from message-handler.ts,
    * enabling elimination of thin wrapper methods.
    */
+  /**
+   * Run `fn` against the active session for a thread; silently a no-op when
+   * none exists — the shared prologue of ~40 thread-addressed delegate
+   * methods below.
+   */
+  private async withSession(threadId: string, fn: (session: Session) => Promise<unknown> | unknown): Promise<void> {
+    const session = this.findSessionByThreadId(threadId);
+    if (!session) return;
+    await fn(session);
+  }
+
   getContext(): SessionContext {
     const config: SessionConfig = {
       workingDir: this.workingDir,
@@ -1234,9 +1245,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async killSession(threadId: string, unpersist = true): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await lifecycle.killSession(session, unpersist, this.getContext());
+    return this.withSession(threadId, (session) => lifecycle.killSession(session, unpersist, this.getContext()));
   }
 
   async killAllSessions(): Promise<void> {
@@ -1245,39 +1254,27 @@ export class SessionManager extends EventEmitter {
 
   // Commands
   async cancelSession(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.cancelSession(session, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.cancelSession(session, username, this.getContext()));
   }
 
   async interruptSession(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.interruptSession(session, username);
+    return this.withSession(threadId, (session) => commands.interruptSession(session, username));
   }
 
   async approvePendingPlan(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.approvePendingPlan(session, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.approvePendingPlan(session, username, this.getContext()));
   }
 
   async changeDirectory(threadId: string, newDir: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.changeDirectory(session, newDir, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.changeDirectory(session, newDir, username, this.getContext()));
   }
 
   async inviteUser(threadId: string, invitedUser: string, invitedBy: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.inviteUser(session, invitedUser, invitedBy, this.getContext());
+    return this.withSession(threadId, (session) => commands.inviteUser(session, invitedUser, invitedBy, this.getContext()));
   }
 
   async kickUser(threadId: string, kickedUser: string, kickedBy: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.kickUser(session, kickedUser, kickedBy, this.getContext());
+    return this.withSession(threadId, (session) => commands.kickUser(session, kickedUser, kickedBy, this.getContext()));
   }
 
   async setGitHubEmail(
@@ -1292,51 +1289,37 @@ export class SessionManager extends EventEmitter {
 
   /** `!remember <text>` — add a note to the channel's shared memory. */
   async rememberEntry(threadId: string, text: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.rememberEntry(session, text, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.rememberEntry(session, text, username, this.getContext()));
   }
 
   /** `!memory` — show the channel's shared memory. */
   async showMemory(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.showMemory(session, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.showMemory(session, username, this.getContext()));
   }
 
   /** `!memory forget <n|text>|all` — remove channel memory entries. */
   async forgetMemory(threadId: string, selector: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.forgetMemory(session, selector, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.forgetMemory(session, selector, username, this.getContext()));
   }
 
   /** `!routine <natural language>` — propose a routine for confirmation. */
   async createRoutine(threadId: string, request: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.createRoutine(session, request, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.createRoutine(session, request, username, this.getContext()));
   }
 
   /** `!routines [subcommand]` — list/pause/resume/delete/run routines. */
   async manageRoutines(threadId: string, args: string | undefined, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.manageRoutines(session, args, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.manageRoutines(session, args, username, this.getContext()));
   }
 
   /** `!watch <natural language>` — propose an event trigger for confirmation. */
   async createWatch(threadId: string, request: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.createWatch(session, request, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.createWatch(session, request, username, this.getContext()));
   }
 
   /** `!watches [subcommand]` — list/pause/resume/delete watches. */
   async manageWatches(threadId: string, args: string | undefined, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.manageWatches(session, args, username, this.getContext());
+    return this.withSession(threadId, (session) => commands.manageWatches(session, args, username, this.getContext()));
   }
 
   /**
@@ -1417,15 +1400,11 @@ export class SessionManager extends EventEmitter {
   }
 
   async reportBug(threadId: string, description: string | undefined, username: string, files?: PlatformFile[]): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.reportBug(session, description, username, this.getContext(), undefined, files);
+    return this.withSession(threadId, (session) => commands.reportBug(session, description, username, this.getContext(), undefined, files));
   }
 
   async showUpdateStatus(threadId: string, _username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.showUpdateStatus(session, this.autoUpdateManager, this.getContext());
+    return this.withSession(threadId, (session) => commands.showUpdateStatus(session, this.autoUpdateManager, this.getContext()));
   }
 
   /**
@@ -1481,34 +1460,24 @@ export class SessionManager extends EventEmitter {
   }
 
   async forceUpdateNow(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.forceUpdateNow(session, username, this.autoUpdateManager);
+    return this.withSession(threadId, (session) => commands.forceUpdateNow(session, username, this.autoUpdateManager));
   }
 
   async deferUpdate(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.deferUpdate(session, username, this.autoUpdateManager);
+    return this.withSession(threadId, (session) => commands.deferUpdate(session, username, this.autoUpdateManager));
   }
 
   // Plugin commands
   async pluginList(threadId: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await plugin.handlePluginList(session);
+    return this.withSession(threadId, (session) => plugin.handlePluginList(session));
   }
 
   async pluginInstall(threadId: string, pluginName: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await plugin.handlePluginInstall(session, pluginName, username, this.getContext());
+    return this.withSession(threadId, (session) => plugin.handlePluginInstall(session, pluginName, username, this.getContext()));
   }
 
   async pluginUninstall(threadId: string, pluginName: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await plugin.handlePluginUninstall(session, pluginName, username, this.getContext());
+    return this.withSession(threadId, (session) => plugin.handlePluginUninstall(session, pluginName, username, this.getContext()));
   }
 
   /**
@@ -1528,9 +1497,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async requestMessageApproval(threadId: string, username: string, message: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await commands.requestMessageApproval(session, username, message, this.getContext());
+    return this.withSession(threadId, (session) => commands.requestMessageApproval(session, username, message, this.getContext()));
   }
 
   // Worktree commands
@@ -1606,9 +1573,7 @@ export class SessionManager extends EventEmitter {
   }
 
   async listWorktreesCommand(threadId: string, _username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await worktreeModule.listWorktreesCommand(session);
+    return this.withSession(threadId, (session) => worktreeModule.listWorktreesCommand(session));
   }
 
   /**
@@ -1682,15 +1647,11 @@ export class SessionManager extends EventEmitter {
   }
 
   async removeWorktreeCommand(threadId: string, branchOrPath: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await worktreeModule.removeWorktreeCommand(session, branchOrPath, username);
+    return this.withSession(threadId, (session) => worktreeModule.removeWorktreeCommand(session, branchOrPath, username));
   }
 
   async disableWorktreePrompt(threadId: string, username: string): Promise<void> {
-    const session = this.findSessionByThreadId(threadId);
-    if (!session) return;
-    await worktreeModule.disableWorktreePrompt(session, username, (s) => this.persistSession(s));
+    return this.withSession(threadId, (session) => worktreeModule.disableWorktreePrompt(session, username, (s) => this.persistSession(s)));
   }
 
   async cleanupWorktreeCommand(threadId: string, username: string): Promise<void> {

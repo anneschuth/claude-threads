@@ -8,7 +8,6 @@
  * without the human confirming the parsed result (handled by the caller).
  */
 
-import { quickQuery } from '../claude/quick-query.js';
 import {
   validateSchedule,
   isValidTimezone,
@@ -53,7 +52,7 @@ If the request is not actually asking for a recurring schedule, output exactly: 
 }
 
 // Re-exported so existing imports/tests keep working; implementation is shared.
-import { extractJsonObject } from '../claude/llm-json.js';
+import { extractJsonObject, parseJsonViaHaiku } from '../claude/llm-json.js';
 export { extractJsonObject };
 
 /**
@@ -98,22 +97,15 @@ export function validateParsedRoutine(
  * Parse a natural-language routine request via haiku. Fails with a
  * user-postable error string; never throws.
  */
-export async function parseRoutineRequest(
+export function parseRoutineRequest(
   request: string,
   defaultTimezone = hostTimezone(),
 ): Promise<ParseRoutineResult> {
-  const result = await quickQuery({
+  return parseJsonViaHaiku({
     prompt: buildParsePrompt(request, defaultTimezone),
-    model: 'haiku',
-    timeout: PARSE_TIMEOUT_MS,
+    timeoutMs: PARSE_TIMEOUT_MS,
+    logDebug: (m) => log.debug(`Routine parse: ${m}`),
+    unusableMessage: 'could not understand the schedule — try e.g. "every weekday at 9:00, <task>"',
+    validate: (raw) => validateParsedRoutine(raw, defaultTimezone),
   });
-  if (!result.success || !result.response) {
-    log.debug(`Routine parse quickQuery failed: ${result.error ?? 'no response'}`);
-    return { ok: false, error: 'could not reach the parsing model — try again in a moment' };
-  }
-  const raw = extractJsonObject(result.response);
-  if (!raw) {
-    return { ok: false, error: 'could not understand the schedule — try e.g. "every weekday at 9:00, <task>"' };
-  }
-  return validateParsedRoutine(raw, defaultTimezone);
 }

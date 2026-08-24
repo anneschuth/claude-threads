@@ -10,8 +10,7 @@
  * the creator can veto a prefilter that would miss or over-match.
  */
 
-import { quickQuery } from '../claude/quick-query.js';
-import { extractJsonObject } from '../claude/llm-json.js';
+import { parseJsonViaHaiku } from '../claude/llm-json.js';
 import { validateKeywords } from '../persistence/watches-store.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -71,20 +70,12 @@ export function validateParsedWatch(raw: Record<string, unknown>): ParseWatchRes
 }
 
 /** Parse a natural-language watch request via one haiku call. Never throws. */
-export async function parseWatchRequest(request: string): Promise<ParseWatchResult> {
-  const result = await quickQuery({
+export function parseWatchRequest(request: string): Promise<ParseWatchResult> {
+  return parseJsonViaHaiku({
     prompt: buildWatchParsePrompt(request),
-    model: 'haiku',
-    timeout: PARSE_TIMEOUT_MS,
+    timeoutMs: PARSE_TIMEOUT_MS,
+    logDebug: (m) => log.debug(`Watch parse: ${m}`),
+    unusableMessage: 'the parsing model returned an unusable answer — try rephrasing',
+    validate: validateParsedWatch,
   });
-  if (!result.success || !result.response) {
-    log.debug(`Watch parse failed: ${result.error ?? 'empty response'}`);
-    return { ok: false, error: 'could not reach the parsing model — try again in a moment' };
-  }
-  const raw = extractJsonObject(result.response);
-  if (!raw) {
-    log.debug(`Watch parse returned no JSON object: ${result.response.slice(0, 200)}`);
-    return { ok: false, error: 'the parsing model returned an unusable answer — try rephrasing' };
-  }
-  return validateParsedWatch(raw);
 }
