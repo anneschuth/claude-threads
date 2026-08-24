@@ -262,10 +262,12 @@ export function getClaudePath(): string {
     }
   }
 
-  // Fallback to 'claude' - will use PATH at spawn time.
-  // Cached too: a host where discovery failed once will fail identically
-  // on every retry, and each retry costs the full probe sequence.
-  discoveredClaudePath = 'claude';
+  // Fallback to 'claude' - will use PATH at spawn time. Deliberately NOT
+  // cached: only a successful discovery is stable enough to memoize. A
+  // failed probe can be transient (EAGAIN/EMFILE under load — exactly the
+  // quickQuery-heavy moment this cache exists for), and caching the bare
+  // fallback would pin a recoverable failure for the process lifetime on
+  // hosts where the binary lives off PATH.
   return 'claude';
 }
 

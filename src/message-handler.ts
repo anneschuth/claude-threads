@@ -82,22 +82,28 @@ function ackReceipt(client: PlatformClient, postId: string): void {
  * The user a message opens by addressing, when that user is NOT the bot —
  * i.e. a human-to-human side conversation the bot must stay out of.
  * Understands both mention syntaxes: plain '@name' (Mattermost, and typed
- * names on Slack) and Slack's raw '<@U0…>' form — the latter is what Slack
- * actually delivers, so matching only '@name' silently disabled this guard
- * on Slack. Returns the mentioned identifier, or null when the message
- * doesn't open with a mention or opens by addressing the bot.
+ * names on Slack) and Slack's raw '<@U0…>' / '<@U0…|label>' forms — the raw
+ * form is what Slack actually delivers, so matching only '@name' silently
+ * disabled this guard on Slack. Returns the mentioned identifier, or null
+ * when the message doesn't open with a mention, opens by addressing the
+ * bot, or mentions the bot ANYWHERE — '@bob can you review? @bot summarize'
+ * explicitly asks the bot and must reach it (parity with the DCM
+ * new-session guard's isBotMentioned exemption).
  */
 function leadingOtherUserMention(client: PlatformClient, message: string): string | null {
+  if (client.isBotMentioned(message)) return null;
   const trimmed = message.trim();
   const named = trimmed.match(/^@([\w.-]+)/);
   if (named) {
     return named[1].toLowerCase() === client.getBotName().toLowerCase() ? null : named[1];
   }
-  const raw = trimmed.match(/^<@([A-Z0-9]+)>/i);
+  // The raw token form exists only on Slack. Mattermost never produces it,
+  // so a literal '<@…>' there (pasted Slack output) is ordinary text, not
+  // an address — matching it would silently drop real follow-ups.
+  if (client.platformType !== 'slack') return null;
+  const raw = trimmed.match(/^<@([A-Z0-9]+)(?:\|[^>]*)?>/i);
   if (raw) {
-    // Precise bot check for the raw form: ask the client about the token
-    // itself (it knows its own user id).
-    return client.isBotMentioned(raw[0]) ? null : raw[1];
+    return raw[1];
   }
   return null;
 }
@@ -379,7 +385,7 @@ export async function handleMessage(
     // side conversation. The active- and paused-session paths ignore those
     // (and docs promise it) — the new-session path must too, or the bot
     // injects itself into the exchange the moment no session is running.
-    if (dcm.enabled && !client.isBotMentioned(message) && leadingOtherUserMention(client, message)) {
+    if (dcm.enabled && leadingOtherUserMention(client, message)) {
       return;
     }
 

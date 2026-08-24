@@ -194,6 +194,27 @@ describe('version-check', () => {
       const path = getClaudePath();
       expect(path).toBe('/usr/local/bin/claude');
     });
+
+    it('memoizes a successful discovery, but never the fallback', () => {
+      // A failed probe can be transient (EAGAIN under load). Caching the
+      // bare 'claude' fallback would pin that failure for the process
+      // lifetime — the next call must re-probe and pick up the recovery.
+      let discoveryWorks = false;
+      execSyncSpy = spyOn(childProcess, 'execSync').mockImplementation(((cmd: string) => {
+        if (!discoveryWorks) throw new Error('EAGAIN');
+        if (cmd === 'which claude') return '/usr/local/bin/claude\n';
+        return '2.0.76\n';
+      }) as typeof childProcess.execSync);
+
+      expect(getClaudePath()).toBe('claude');
+      discoveryWorks = true;
+      expect(getClaudePath()).toBe('/usr/local/bin/claude');
+
+      // Successful discovery IS memoized: breaking `which` again must not
+      // affect subsequent calls.
+      discoveryWorks = false;
+      expect(getClaudePath()).toBe('/usr/local/bin/claude');
+    });
   });
 
   describe('validateClaudeCli', () => {

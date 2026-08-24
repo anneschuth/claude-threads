@@ -1026,7 +1026,10 @@ export class SlackClient extends BasePlatformClient {
         }
         cursor = response.response_metadata?.next_cursor || undefined;
         if (!cursor) break;
-        if (page === MAX_PAGES - 1) {
+        if (page === MAX_PAGES - 1 && options?.limit) {
+          // Only the limited walk promises "the newest N" — stopping short
+          // there is real context loss. The no-limit single page is the
+          // documented intent, not an early stop worth alarming about.
           log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — walk stopped early, the NEWEST messages are missing from context`);
         }
       }

@@ -13,12 +13,13 @@ import type { SessionManager } from './session/index.js';
 import { createMockFormatter } from './test-utils/mock-formatter.js';
 
 // Create mock platform client
-function createMockPlatform(botName = 'claude-bot') {
+function createMockPlatform(botName = 'claude-bot', platformType = 'slack') {
   const posts: Map<string, string> = new Map();
   let postIdCounter = 1;
 
   return {
     platformId: 'test-platform',
+    platformType,
     createPost: mock(async (message: string, threadId?: string): Promise<PlatformPost> => {
       const id = `post_${postIdCounter++}`;
       posts.set(id, message);
@@ -380,6 +381,68 @@ describe('handleMessage', () => {
         channelId: 'channel1',
         userId: 'user1',
         message: '<@U0BOB> did you deploy?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        mentionedUser: 'U0BOB',
+      }));
+    });
+
+    test('a message that ALSO mentions the bot is a follow-up, not a side conversation', async () => {
+      // '@bob can you review? @claude-bot please summarize' explicitly asks
+      // the bot — dropping it as a human-to-human aside loses a real request
+      // (the DCM new-session guard already exempts bot mentions).
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@bob can you review? @claude-bot please summarize the diff',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
+    });
+
+    test('a literal <@…> token on Mattermost is ordinary text, not an address', async () => {
+      // Mattermost never produces raw mention tokens — someone pasting
+      // Slack output must not have their follow-up silently dropped.
+      client = createMockPlatform('claude-bot', 'mattermost');
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> is what the Slack log said — can you check it?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
+    });
+
+    test("Slack's legacy labeled mention form <@U0…|name> is recognized too", async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB|bob> did you deploy?',
         rootId: 'thread1',
         createAt: Date.now(),
       };
