@@ -155,12 +155,26 @@ export function resolveMemoryConfig(value: unknown, fieldPath?: string): Resolve
  * Malformed values warn and fall back to enabled.
  */
 export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): boolean {
-  if (value === undefined || value === null || value === true) return true;
-  if (value === false) return false;
+  return resolveBooleanFeature(value, fieldPath ?? 'routines', { default: true, verb: 'routines stay enabled' });
+}
+
+/**
+ * Shared normalization for boolean feature flags: undefined/null and the
+ * default pass through; the other boolean flips; anything else warns and
+ * falls back to the default — features that are safe when idle default on,
+ * an audit trail that half-works defaults off.
+ */
+function resolveBooleanFeature(
+  value: unknown,
+  fieldPath: string,
+  opts: { default: boolean; verb: string },
+): boolean {
+  if (value === true || value === false) return value;
+  if (value === undefined || value === null) return opts.default;
   console.warn(
-    `Invalid ${fieldPath ?? 'routines'} config: expected boolean, got ${JSON.stringify(value)} — routines stay enabled`,
+    `Invalid ${fieldPath} config: expected boolean, got ${JSON.stringify(value)} — ${opts.verb}`,
   );
-  return true;
+  return opts.default;
 }
 
 /**
@@ -171,12 +185,7 @@ export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): bool
  * fall back to enabled.
  */
 export function resolveWatchesEnabled(value: unknown, fieldPath?: string): boolean {
-  if (value === undefined || value === null || value === true) return true;
-  if (value === false) return false;
-  console.warn(
-    `Invalid ${fieldPath ?? 'watches'} config: expected boolean, got ${JSON.stringify(value)} — watches stay enabled`,
-  );
-  return true;
+  return resolveBooleanFeature(value, fieldPath ?? 'watches', { default: true, verb: 'watches stay enabled' });
 }
 
 /**
@@ -185,12 +194,7 @@ export function resolveWatchesEnabled(value: unknown, fieldPath?: string): boole
  * worse than none, the operator should notice at startup.
  */
 export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): boolean {
-  if (value === true) return true;
-  if (value === undefined || value === null || value === false) return false;
-  console.warn(
-    `Invalid ${fieldPath ?? 'auditLog'} config: expected boolean, got ${JSON.stringify(value)} — audit log stays off`,
-  );
-  return false;
+  return resolveBooleanFeature(value, fieldPath ?? 'auditLog', { default: false, verb: 'audit log stays off' });
 }
 
 /**

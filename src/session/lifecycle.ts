@@ -56,6 +56,7 @@ import { detectWorktreeInfo } from '../git/worktree.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
 import { scheduleDistillation } from '../memory/distiller.js';
 import { auditLog } from '../persistence/audit-log.js';
+import { compositeSessionId } from './registry.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -1011,7 +1012,7 @@ export async function startSession(
   triggeringPostId?: string,
   initialOptions?: InitialSessionOptions
 ): Promise<void> {
-  const sessionKey = `${platformId}:${replyToPostId || ''}`;
+  const sessionKey = compositeSessionId(platformId, replyToPostId || '');
 
   // A start for this exact session key is already in flight: wait for it and
   // deliver this message as a follow-up instead of spawning a second Claude.
@@ -1494,7 +1495,7 @@ export async function resumeSession(
   // is nothing to do — resumePausedSession delivers its message through the
   // registered session afterwards.
   if (state.threadId && state.platformId) {
-    const sessionKey = `${state.platformId}:${state.threadId}`;
+    const sessionKey = compositeSessionId(state.platformId, state.threadId);
     // Defensive: some callers (and tests) construct minimal contexts — the
     // guard is an optimization, resumeSessionImpl revalidates everything.
     const sessions = ctx.state?.sessions as Map<string, Session> | undefined;

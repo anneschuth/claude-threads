@@ -271,7 +271,9 @@ export async function handleMessage(
           // Clean up the paused session instead of resuming it
           const persistedSession = session.getPersistedSession(threadRoot);
           if (persistedSession) {
-            const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+            // Legacy records may lack sessionAllowedUsers — fall back to the
+            // owner (CLAUDE.md backward-compat rule; matches reaction-router).
+            const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
               auditLog(platformId, {
                 threadId: threadRoot,
@@ -298,7 +300,11 @@ export async function handleMessage(
       // reaction-router.ts — the platform allowlist alone is not enough.
       const persistedSession = session.getPersistedSession(threadRoot);
       if (persistedSession) {
-        const allowedUsers = new Set(persistedSession.sessionAllowedUsers);
+        // Legacy records may lack sessionAllowedUsers — without the owner
+        // fallback, `approvals: 'owner'` (which drops the global-allowlist
+        // rescue below) would lock the owner out of resuming their own
+        // session (CLAUDE.md backward-compat rule; matches reaction-router).
+        const allowedUsers = new Set(persistedSession.sessionAllowedUsers || [persistedSession.startedBy].filter(Boolean));
         const ownerScoped =
           resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
         if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {

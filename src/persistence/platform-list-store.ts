@@ -157,17 +157,30 @@ export abstract class PlatformListStore<T extends { id: string }> {
         return this.cache.data;
       }
       const parsed = yaml.load(readFileSync(this.file, 'utf-8')) as Record<string, unknown> | undefined;
-      if (!parsed || typeof parsed !== 'object') {
+      const rawItems = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? parsed[this.collectionKey]
+        : undefined;
+      // A file that parses but has the wrong shape (scalar where the map
+      // should be, renamed/missing top-level key, truncated to nothing) is
+      // as unreadable as a parse error: reads degrade to empty, but a WRITE
+      // proceeding on that emptiness would atomically replace the file and
+      // destroy whatever the malformed content still holds — same refusal
+      // as the catch below. A null value for the key (hand-emptied
+      // `watches:`) is a legitimate empty map, not malformation.
+      if (rawItems !== null && (rawItems === undefined || typeof rawItems !== 'object' || Array.isArray(rawItems))) {
+        this.cache = null;
+        const problem = `unexpected shape (missing or non-map '${this.collectionKey}' key)`;
+        if (forWrite) {
+          throw new Error(`refusing to write over unreadable ${this.file}: ${problem}`);
+        }
+        this.warn(`Failed to read ${this.file}: ${problem} — starting empty`);
         return { version: STORE_VERSION, items: {} };
       }
-      const rawItems = parsed[this.collectionKey];
-      const items = (rawItems && typeof rawItems === 'object')
-        ? rawItems as Record<string, T[]>
-        : {};
+      const items = (rawItems ?? {}) as Record<string, T[]>;
       for (const list of Object.values(items)) {
         for (const item of list) this.applyItemDefaults(item);
       }
-      const data = { version: (parsed.version as number | undefined) ?? STORE_VERSION, items };
+      const data = { version: (parsed?.version as number | undefined) ?? STORE_VERSION, items };
       this.cache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
       return data;
     } catch (err) {

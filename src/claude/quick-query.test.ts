@@ -110,4 +110,5 @@ describe('prompt transport (stdin, not argv)', () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
 });

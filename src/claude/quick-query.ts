@@ -154,6 +154,16 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
     });
 
     // Write the prompt over stdin and close it so the CLI knows input ended.
+    // The 'error' listener is load-bearing: a child that closes its stdin
+    // while still alive makes this write raise EPIPE as a stream 'error'
+    // event, and with no listener that is an uncaught exception that kills
+    // the whole bot from paths documented as fire-and-forget (watch
+    // confirms, distillation). Verified empirically: `spawn('bash', ['-c',
+    // 'exec 0<&-; sleep 2'])` + a 1MB end() crashes node without this.
+    // The call itself still fails safely (timeout/empty-output path).
+    proc.stdin?.on('error', (err) => {
+      log.debug(`quickQuery: stdin write failed (${(err as NodeJS.ErrnoException).code ?? err.message})`);
+    });
     proc.stdin?.end(prompt);
   });
 }

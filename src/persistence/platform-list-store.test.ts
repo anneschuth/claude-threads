@@ -127,6 +127,32 @@ describe('PlatformListStore', () => {
     expect(store.warnings.length).toBeGreaterThan(0);
   });
 
+  test('a parseable file with the wrong shape is unreadable for writes too', async () => {
+    const { writeFileSync, readFileSync } = await import('fs');
+    await store.add('mm', { id: 'a', name: 'survivor' });
+    const file = join(dir, 'items.yaml');
+
+    // Valid YAML, wrong shape: a hand edit turned the collection into a
+    // scalar. Reads degrade to empty like a parse error — and writes must
+    // refuse the same way, or the next mutation replaces the file with the
+    // degraded empty view.
+    writeFileSync(file, 'version: 1\nitems: oops\n');
+
+    expect(store.list('mm')).toEqual([]);
+    await expect(store.add('mm', { id: 'b', name: 'destroyer' })).rejects.toThrow('refusing to write');
+    expect(readFileSync(file, 'utf-8')).toBe('version: 1\nitems: oops\n');
+
+    // A missing collection key counts as malformed too (we always write it).
+    writeFileSync(file, 'version: 1\n');
+    await expect(store.update('mm', 'a', { name: 'x' })).rejects.toThrow('refusing to write');
+
+    // But a hand-emptied `items:` (null) is a legitimate empty map.
+    writeFileSync(file, 'version: 1\nitems:\n');
+    expect(store.list('mm')).toEqual([]);
+    await store.add('mm', { id: 'c', name: 'fresh' });
+    expect(store.list('mm').map((i) => i.id)).toEqual(['c']);
+  });
+
   test('update() returns a copy, not the live cached item', async () => {
     await store.add('mm', { id: 'a', name: 'original' });
 

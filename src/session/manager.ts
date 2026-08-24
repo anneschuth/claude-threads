@@ -44,7 +44,7 @@ import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
 import * as plugin from '../operations/plugin/index.js';
 import type { Session, InitialSessionOptions } from './types.js';
-import { SessionRegistry } from './registry.js';
+import { compositeSessionId, SessionRegistry } from './registry.js';
 import * as reactionRouter from './reaction-router.js';
 import { post } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
@@ -263,19 +263,24 @@ export class SessionManager extends EventEmitter {
   addPlatform(
     platformId: string,
     client: PlatformClient,
-    overhead?: Partial<PlatformOverhead>,
-    memory?: ResolvedMemoryConfig,
-    routinesEnabled?: boolean,
-    watchesEnabled?: boolean
+    // A keyed options object, not positional params: the tail used to be
+    // two adjacent optional booleans, and a transposed call site would have
+    // silently enabled the wrong feature per platform.
+    options?: {
+      overhead?: Partial<PlatformOverhead>;
+      memory?: ResolvedMemoryConfig;
+      routinesEnabled?: boolean;
+      watchesEnabled?: boolean;
+    },
   ): void {
     this.platforms.set(platformId, client);
     this.platformOverhead.set(platformId, {
-      sessionHeader: overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
-      stickyMessage: overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
+      sessionHeader: options?.overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
+      stickyMessage: options?.overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
     });
-    this.platformMemory.set(platformId, memory ?? DEFAULT_MEMORY_CONFIG);
-    this.platformRoutines.set(platformId, routinesEnabled ?? true);
-    this.platformWatches.set(platformId, watchesEnabled ?? true);
+    this.platformMemory.set(platformId, options?.memory ?? DEFAULT_MEMORY_CONFIG);
+    this.platformRoutines.set(platformId, options?.routinesEnabled ?? true);
+    this.platformWatches.set(platformId, options?.watchesEnabled ?? true);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -490,7 +495,7 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   private getSessionId(platformId: string, threadId: string): string {
-    return `${platformId}:${threadId}`;
+    return compositeSessionId(platformId, threadId);
   }
 
   // ---------------------------------------------------------------------------

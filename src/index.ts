@@ -683,24 +683,29 @@ async function startWithoutDaemon() {
 
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {
-      sessionHeader: resolveOverheadVisibility(
-        platformConfig.sessionHeader,
-        `platforms[${platformConfig.id}].sessionHeader`,
+      overhead: {
+        sessionHeader: resolveOverheadVisibility(
+          platformConfig.sessionHeader,
+          `platforms[${platformConfig.id}].sessionHeader`,
+        ),
+        stickyMessage: resolveOverheadVisibility(
+          platformConfig.stickyMessage,
+          `platforms[${platformConfig.id}].stickyMessage`,
+        ),
+      },
+      memory: resolveMemoryConfig(
+        platformConfig.memory,
+        `platforms[${platformConfig.id}].memory`,
       ),
-      stickyMessage: resolveOverheadVisibility(
-        platformConfig.stickyMessage,
-        `platforms[${platformConfig.id}].stickyMessage`,
+      routinesEnabled: resolveRoutinesEnabled(
+        platformConfig.routines,
+        `platforms[${platformConfig.id}].routines`,
       ),
-    }, resolveMemoryConfig(
-      platformConfig.memory,
-      `platforms[${platformConfig.id}].memory`,
-    ), resolveRoutinesEnabled(
-      platformConfig.routines,
-      `platforms[${platformConfig.id}].routines`,
-    ), resolveWatchesEnabled(
-      platformConfig.watches,
-      `platforms[${platformConfig.id}].watches`,
-    ));
+      watchesEnabled: resolveWatchesEnabled(
+        platformConfig.watches,
+        `platforms[${platformConfig.id}].watches`,
+      ),
+    });
 
     // Wire up platform events
     wirePlatformEvents(platformConfig.id, client, session, ui, platformConfig.directChannelMode);
@@ -733,18 +738,23 @@ async function startWithoutDaemon() {
       // `memory: false` (privacy) would still get end-of-session
       // distillation on private DM conversations.
       session.addPlatform(dmConfig.id, dmClient, {
-        sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
-        stickyMessage: 'hidden',
-      }, resolveMemoryConfig(
-        dmConfig.memory,
-        `dm[${dmConfig.id}].memory`,
-      ), resolveRoutinesEnabled(
-        dmConfig.routines,
-        `dm[${dmConfig.id}].routines`,
-      ), resolveWatchesEnabled(
-        dmConfig.watches,
-        `dm[${dmConfig.id}].watches`,
-      ));
+        overhead: {
+          sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+          stickyMessage: 'hidden',
+        },
+        memory: resolveMemoryConfig(
+          dmConfig.memory,
+          `dm[${dmConfig.id}].memory`,
+        ),
+        routinesEnabled: resolveRoutinesEnabled(
+          dmConfig.routines,
+          `dm[${dmConfig.id}].routines`,
+        ),
+        watchesEnabled: resolveWatchesEnabled(
+          dmConfig.watches,
+          `dm[${dmConfig.id}].watches`,
+        ),
+      });
       wirePlatformEvents(dmConfig.id, dmClient, session, ui, dmConfig.directChannelMode);
       return dmClient;
     },

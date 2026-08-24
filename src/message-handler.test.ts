@@ -2241,6 +2241,39 @@ describe('direct channel mode (DCM)', () => {
 
 });
 
+describe('handleMessage - legacy paused-session resume', () => {
+  test("approvals 'owner' + a legacy record without sessionAllowedUsers still lets the owner resume", async () => {
+    // Legacy persisted sessions (pre-collaboration versions) have no
+    // sessionAllowedUsers. Under approvals 'owner' the global-allowlist
+    // rescue is dropped, so without the [startedBy] fallback the owner's
+    // own reply would be rejected and the session unresumable by text
+    // (CLAUDE.md backward-compat rule; reaction-router already has the
+    // fallback).
+    const client = createMockPlatform();
+    (client as unknown as { approvals: string }).approvals = 'owner';
+    const session = createMockSessionManager();
+    (session.registry.getPersistedByThreadId as ReturnType<typeof mock>).mockReturnValue({ startedBy: 'allowed-user' });
+    (session.getPersistedSession as ReturnType<typeof mock>).mockReturnValue({ startedBy: 'allowed-user' });
+
+    const post: PlatformPost = {
+      id: 'post1',
+      platformId: 'test',
+      channelId: 'channel1',
+      userId: 'user1',
+      message: 'please continue',
+      rootId: 'thread-1',
+      createAt: Date.now(),
+    };
+    const owner: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+    await handleMessage(client, session, post, owner, { platformId: 'test-platform' });
+
+    expect(session.resumePausedSession).toHaveBeenCalledTimes(1);
+    const posted = [...client.posts.values()].join('\n');
+    expect(posted).not.toContain('not authorized');
+  });
+});
+
 describe('handleMessage - watch evaluation hook', () => {
   let client: PlatformClient & { posts: Map<string, string> };
   let session: ReturnType<typeof createMockSessionManager>;
