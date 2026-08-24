@@ -118,4 +118,19 @@ describe('GitHubEmailsStore', () => {
     store.set('mm', 'alice', '111+alice@users.noreply.github.com');
     expect(store.get('mm', 'alice')).toBe('111+alice@users.noreply.github.com');
   });
+
+  it('an empty file is a writable empty store, not a degraded read', () => {
+    // Zero-length file: provably nothing to lose — must not trip the
+    // write-refusing degraded path, or the store is read-only forever.
+    writeFileSync(path, '', 'utf-8');
+    const store = new GitHubEmailsStore(path);
+    expect(store.get('mm', 'alice')).toBeUndefined();
+    store.set('mm', 'alice', '111+alice@users.noreply.github.com');
+    expect(store.get('mm', 'alice')).toBe('111+alice@users.noreply.github.com');
+
+    writeFileSync(path, '  \n\n', 'utf-8');
+    const store2 = new GitHubEmailsStore(path);
+    store2.set('mm', 'bob', '222+bob@users.noreply.github.com');
+    expect(store2.get('mm', 'bob')).toBe('222+bob@users.noreply.github.com');
+  });
 });

@@ -127,6 +127,12 @@ export class GitHubEmailsStore {
     }
     try {
       const raw = readFileSync(this.file, 'utf-8');
+      if (raw.trim() === '') {
+        // Empty/whitespace file: provably nothing to lose — writable empty
+        // store, NOT a degraded read (which would block writes forever).
+        this.lastReadDegraded = false;
+        return { version: STORE_VERSION, emails: {} };
+      }
       const parsed = yaml.load(raw) as Partial<FileShape> | undefined;
       if (!parsed || typeof parsed !== 'object') {
         this.lastReadDegraded = true;

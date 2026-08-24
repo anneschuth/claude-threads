@@ -8,8 +8,7 @@ import {
   CLAUDE_CLI_SUPPORTED_MAJOR,
   validateClaudeCli,
   getClaudeCliVersion,
-  getClaudePath,
-} from './version-check.js';
+  getClaudePath, _resetClaudePathCache } from './version-check.js';
 
 describe('version-check', () => {
   describe('version policy constants', () => {
@@ -155,6 +154,7 @@ describe('version-check', () => {
     const originalClaudePath = process.env.CLAUDE_PATH;
 
     beforeEach(() => {
+      _resetClaudePathCache();
       delete process.env.CLAUDE_PATH;
     });
 

@@ -217,15 +217,36 @@ export function isVersionCompatible(version: string): boolean {
  *
  * Returns 'claude' as fallback if not found (will fail at spawn time with clearer error).
  */
+/**
+ * Memo for the DISCOVERED binary path. Discovery shells out synchronously
+ * ('which claude', then --version probes of common install locations) —
+ * acceptable once at startup, but getClaudePath() is now on hot paths
+ * (every quickQuery: watch confirms, metadata suggestions, distillation),
+ * so the discovery result is resolved once per process. The CLAUDE_PATH
+ * env override is a plain read and intentionally NOT cached, so tests and
+ * runtime overrides keep working.
+ */
+let discoveredClaudePath: string | null = null;
+
+/** Test-only: clear the discovery memo (underscore convention, cf. _inFlightSessionStarts). */
+export function _resetClaudePathCache(): void {
+  discoveredClaudePath = null;
+}
+
 export function getClaudePath(): string {
   // First, check CLAUDE_PATH
   if (process.env.CLAUDE_PATH) {
     return process.env.CLAUDE_PATH;
   }
 
+  if (discoveredClaudePath !== null) {
+    return discoveredClaudePath;
+  }
+
   // Try to find claude using 'which'
   const whichResult = findClaudeInPath();
   if (whichResult) {
+    discoveredClaudePath = whichResult;
     return whichResult;
   }
 
@@ -235,12 +256,16 @@ export function getClaudePath(): string {
       // Verify it's actually executable by trying to get version
       const result = tryClaudeVersion(path);
       if (!result.error) {
+        discoveredClaudePath = path;
         return path;
       }
     }
   }
 
-  // Fallback to 'claude' - will use PATH at spawn time
+  // Fallback to 'claude' - will use PATH at spawn time.
+  // Cached too: a host where discovery failed once will fail identically
+  // on every retry, and each retry costs the full probe sequence.
+  discoveredClaudePath = 'claude';
   return 'claude';
 }
 

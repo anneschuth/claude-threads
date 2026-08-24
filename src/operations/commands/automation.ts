@@ -24,10 +24,6 @@ const sessionLog = createSessionLog(log);
 // ---------------------------------------------------------------------------
 
 /**
- * Guard for the routine commands: posts an explanation and returns false
- * when routines are disabled for the platform.
- */
-/**
  * Post `message` and return true when the platform runs in direct channel
  * mode. Routine/watch creation is refused there: a fired session would be
  * keyed on a thread that no typed message can reach (everything routes to
@@ -110,7 +106,6 @@ export async function createRoutine(
   sessionLog(session).info(`🕘 Routine proposal posted for @${username}: "${parsed.name}"`);
 }
 
-/** Resolve a 1-based list index argument to a routine. */
 /**
  * Shared implementation of the `!routines` / `!watches` management commands:
  * numbered list, pause/resume/delete (owner-gated), plus flavor-specific
@@ -356,7 +351,6 @@ export async function createWatch(
   sessionLog(session).info(`\u{1F441}\uFE0F Watch proposal posted for @${username}: "${parsed.name}"`);
 }
 
-/** Resolve a 1-based list index argument to a watch. */
 /**
  * `!watches` — list; `!watches pause|resume|delete <n>` (owner-gated).
  * No manual run: watches are event-driven (use `!routines run` for

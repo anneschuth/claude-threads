@@ -369,6 +369,32 @@ describe('SlackClient API methods', () => {
     expect(history.map(m => m.message)).toEqual(['new-1', 'new-2']);
   });
 
+  it('getThreadHistory without a limit fetches a single page (no unbounded walk)', async () => {
+    // With no limit there is no sliding window to keep bounded: walking
+    // every cursor would accumulate the whole thread in memory and issue a
+    // getUser call per message. The no-limit caller (getThreadContextCount)
+    // gets exactly one 1000-message page — the pre-walk behavior.
+    const c = makeClient();
+    let pages = 0;
+    fetchResponder = (url) => {
+      if (url.includes('conversations.replies')) {
+        pages++;
+        return ok({
+          messages: [{ ts: `${pages * 100}.0`, user: 'U-ALICE', text: `page-${pages}` }],
+          // Always offers another page; the client must not take it.
+          response_metadata: { next_cursor: `page${pages + 1}` },
+        });
+      }
+      if (url.includes('users.info')) {
+        return ok({ user: { id: 'U-ALICE', name: 'alice', real_name: 'Alice', profile: {} } });
+      }
+      return ok();
+    };
+    const history = await c.getThreadHistory('thread-1');
+    expect(pages).toBe(1);
+    expect(history.map(m => m.message)).toEqual(['page-1']);
+  });
+
   it('getThreadHistory returns [] on API error', async () => {
     fetchResponder = () => notOk('channel_not_found');
     const history = await makeClient().getThreadHistory('thread-1');

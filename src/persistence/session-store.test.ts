@@ -516,6 +516,25 @@ describe('SessionStore', () => {
       expect(tempStore.load().size).toBe(1);
     });
 
+    it('an empty file is a writable empty store, not a degraded read', () => {
+      // A zero-length sessions.json (crashed first write, `touch`ed by an
+      // operator) has provably nothing to lose. It must NOT trip the
+      // degraded-read refusal above, or the store is read-only forever.
+      writeFileSync(tempFile, '');
+      tempStore = new SessionStore(tempFile);
+      expect(tempStore.load().size).toBe(0);
+
+      const session = createTestSession();
+      tempStore.save(`${session.platformId}:${session.threadId}`, session);
+      expect(tempStore.load().size).toBe(1);
+
+      // Whitespace-only behaves the same.
+      writeFileSync(tempFile, '  \n\t\n');
+      expect(tempStore.load().size).toBe(0);
+      tempStore.save(`${session.platformId}:${session.threadId}`, session);
+      expect(tempStore.load().size).toBe(1);
+    });
+
     it('load() handles {} file content gracefully', () => {
       writeFileSync(tempFile, '{}');
       tempStore = new SessionStore(tempFile);

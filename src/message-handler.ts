@@ -78,6 +78,30 @@ function ackReceipt(client: PlatformClient, postId: string): void {
   });
 }
 
+/**
+ * The user a message opens by addressing, when that user is NOT the bot —
+ * i.e. a human-to-human side conversation the bot must stay out of.
+ * Understands both mention syntaxes: plain '@name' (Mattermost, and typed
+ * names on Slack) and Slack's raw '<@U0…>' form — the latter is what Slack
+ * actually delivers, so matching only '@name' silently disabled this guard
+ * on Slack. Returns the mentioned identifier, or null when the message
+ * doesn't open with a mention or opens by addressing the bot.
+ */
+function leadingOtherUserMention(client: PlatformClient, message: string): string | null {
+  const trimmed = message.trim();
+  const named = trimmed.match(/^@([\w.-]+)/);
+  if (named) {
+    return named[1].toLowerCase() === client.getBotName().toLowerCase() ? null : named[1];
+  }
+  const raw = trimmed.match(/^<@([A-Z0-9]+)>/i);
+  if (raw) {
+    // Precise bot check for the raw form: ask the client about the token
+    // itself (it knows its own user id).
+    return client.isBotMentioned(raw[0]) ? null : raw[1];
+  }
+  return null;
+}
+
 export async function handleMessage(
   client: PlatformClient,
   session: SessionManager,
@@ -144,14 +168,14 @@ export async function handleMessage(
     // Use registry to check for active session directly
     const activeSession = session.registry.findByThreadId(threadRoot);
     if (activeSession) {
-      // If message starts with @mention to someone else, track it as side conversation (if from approved user)
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
-        // Track side conversation if from approved user
+      // A message opening by addressing someone else is a side conversation:
+      // track it (if from an approved user) and don't interrupt Claude.
+      const sideMentionActive = leadingOtherUserMention(client, message);
+      if (sideMentionActive) {
         if (session.isUserAllowedInSession(threadRoot, username)) {
           session.addSideConversation(threadRoot, {
             fromUser: username,
-            mentionedUser: mentionMatch[1],
+            mentionedUser: sideMentionActive,
             message: message,
             timestamp: new Date(),
             postId: post.id,
@@ -255,9 +279,8 @@ export async function handleMessage(
     // Use registry to check for persisted session directly
     const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
     if (hasPausedSession) {
-      // If message starts with @mention to someone else, ignore it (side conversation)
-      const mentionMatch = message.trim().match(/^@([\w.-]+)/);
-      if (mentionMatch && mentionMatch[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+      // A message opening by addressing someone else is a side conversation.
+      if (leadingOtherUserMention(client, message)) {
         return; // Side conversation, don't interrupt
       }
 
@@ -356,11 +379,8 @@ export async function handleMessage(
     // side conversation. The active- and paused-session paths ignore those
     // (and docs promise it) — the new-session path must too, or the bot
     // injects itself into the exchange the moment no session is running.
-    if (dcm.enabled && !client.isBotMentioned(message)) {
-      const sideMention = message.trim().match(/^@([\w.-]+)/);
-      if (sideMention && sideMention[1].toLowerCase() !== client.getBotName().toLowerCase()) {
-        return;
-      }
+    if (dcm.enabled && !client.isBotMentioned(message) && leadingOtherUserMention(client, message)) {
+      return;
     }
 
     if (!client.isUserAllowed(username)) {

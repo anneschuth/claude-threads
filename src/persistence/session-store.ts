@@ -547,7 +547,15 @@ export class SessionStore {
     }
 
     try {
-      const data = JSON.parse(readFileSync(this.sessionsFile, 'utf-8')) as SessionStoreData;
+      const raw = readFileSync(this.sessionsFile, 'utf-8');
+      if (raw.trim() === '') {
+        // Zero-length/whitespace file (e.g. a crashed first write): provably
+        // nothing to lose, so it must NOT trip the degraded-read write
+        // refusal — that would leave the store permanently read-only.
+        this.lastReadDegraded = false;
+        return { version: STORE_VERSION, sessions: {} };
+      }
+      const data = JSON.parse(raw) as SessionStoreData;
       if (!data || typeof data !== 'object') {
         // Parsed to a scalar — unrecognizable content, refuse writes over it.
         this.lastReadDegraded = true;

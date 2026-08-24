@@ -1000,7 +1000,12 @@ export class SlackClient extends BasePlatformClient {
       // pathological thread's API cost; hitting it means the END of the
       // thread was not reached, so the newest messages are missing — say so
       // honestly instead of claiming the most recent were kept.
-      const MAX_PAGES = 100; // 100k messages — API-cost bound, not a memory bound
+      //
+      // WITHOUT a limit there is no window to slide — the walk would
+      // accumulate every message (and a getUser call each) unbounded. A
+      // no-limit caller (getThreadContextCount) gets exactly one 1000-message
+      // page, the pre-walk behavior.
+      const MAX_PAGES = options?.limit ? 100 : 1; // 100k messages — API-cost bound, not a memory bound
       let filtered: SlackMessage[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_PAGES; page++) {

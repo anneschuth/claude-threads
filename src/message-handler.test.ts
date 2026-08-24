@@ -53,6 +53,7 @@ function createMockSessionManager() {
   return {
     // Note: isInSessionThread and hasPausedSession removed - code uses registry directly
     isUserAllowedInSession: mock(() => true),
+    addSideConversation: mock(() => {}),
     getActiveThreadIds: mockGetActiveThreadIds,
     registry: {
       getActiveThreadIds: mockGetActiveThreadIds,
@@ -364,6 +365,51 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        fromUser: 'allowed-user',
+        mentionedUser: 'someone-else',
+      }));
+    });
+
+    test('ignores side conversations in Slack raw mention form (<@U…>)', async () => {
+      // Slack delivers mentions as '<@U0BOB>', never '@bob' — a guard
+      // matching only '@name' is a silent no-op on Slack.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> did you deploy?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.sendFollowUp).not.toHaveBeenCalled();
+      expect(session.addSideConversation).toHaveBeenCalledWith('thread1', expect.objectContaining({
+        mentionedUser: 'U0BOB',
+      }));
+    });
+
+    test('a raw-form mention of the BOT is a follow-up, not a side conversation', async () => {
+      (client.isBotMentioned as any).mockImplementation((m: string) => m.includes('<@UBOT123>'));
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@UBOT123> what is the status?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.addSideConversation).not.toHaveBeenCalled();
+      expect(session.sendFollowUp).toHaveBeenCalled();
     });
 
     test('sends follow-up for regular messages', async () => {
@@ -589,6 +635,25 @@ describe('handleMessage', () => {
       await handleMessage(client, session, post, user, options);
 
       expect(session.resumePausedSession).toHaveBeenCalledWith('thread1', 'continue please', undefined, 'allowed-user');
+    });
+
+    test('a message addressing another user does not resume (Slack raw form)', async () => {
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '<@U0BOB> can you take this one?',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      // Silent skip: no rejection post either — it's a human-to-human aside.
+      expect(client.createPost).not.toHaveBeenCalled();
     });
 
     test('rejects resume from an allowlisted non-participant under approvals: owner', async () => {
@@ -2224,6 +2289,16 @@ describe('direct channel mode (DCM)', () => {
     // without the same guard here, '@bob did you deploy?' in a fresh DCM
     // channel would start a Claude session in a human-to-human exchange.
     await handleMessage(client, session, makePost({ message: '@bob did you deploy?' }), user, options);
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
+  });
+
+  test('the side-conversation guard also understands Slack raw mentions', async () => {
+    // Slack delivers '<@U0BOB> did you deploy?' — the raw user-id form.
+    // A guard matching only '@name' never fires on Slack, so every aside
+    // between two humans would start a Claude session.
+    await handleMessage(client, session, makePost({ message: '<@U0BOB> did you deploy?' }), user, options);
 
     expect(session.startSession).not.toHaveBeenCalled();
     expect(session.sendFollowUp).not.toHaveBeenCalled();

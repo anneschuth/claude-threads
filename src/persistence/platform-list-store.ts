@@ -156,7 +156,16 @@ export abstract class PlatformListStore<T extends { id: string }> {
       if (this.cache && this.cache.mtimeMs === stat.mtimeMs && this.cache.size === stat.size) {
         return this.cache.data;
       }
-      const parsed = yaml.load(readFileSync(this.file, 'utf-8')) as Record<string, unknown> | undefined;
+      const raw = readFileSync(this.file, 'utf-8');
+      if (raw.trim() === '') {
+        // Empty/whitespace file: provably nothing to lose — a writable empty
+        // store, never the write-refusing "unreadable" case below (which
+        // would leave the store permanently read-only).
+        const data = { version: STORE_VERSION, items: {} as Record<string, T[]> };
+        this.cache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
+        return data;
+      }
+      const parsed = yaml.load(raw) as Record<string, unknown> | undefined;
       const rawItems = parsed && typeof parsed === 'object' && !Array.isArray(parsed)
         ? parsed[this.collectionKey]
         : undefined;

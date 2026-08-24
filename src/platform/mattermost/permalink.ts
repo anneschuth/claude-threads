@@ -16,7 +16,7 @@ import {
   MAX_THREAD_LIMIT,
   MAX_MESSAGE_BODY_CHARS,
   clampThreadLimit,
-    } from '../permalink-shared.js';
+} from '../permalink-shared.js';
 
 // Re-exported so the MCP server (and tests) can import caps from a single
 // per-platform entry point without learning about permalink-shared.ts.
