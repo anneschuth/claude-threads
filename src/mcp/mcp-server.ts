@@ -333,44 +333,20 @@ export async function handlePermissionWith(
     );
 
     // Wait for authorized user's reaction (keep waiting if unauthorized users react)
-    const startTime = now();
-    let reaction: Awaited<ReturnType<typeof api.waitForReaction>>;
-    let username: string | null = null;
+    const decision = await awaitReactionDecision(api, post.id, botUserId, cfg.timeoutMs, now);
 
-    while (true) {
-      const remainingTime = cfg.timeoutMs - (now() - startTime);
-      if (remainingTime <= 0) {
-        await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
-        mcpLogger.info(`Timeout: ${toolName}`);
-        return { behavior: 'deny', message: 'Permission request timed out' };
-      }
-
-      reaction = await api.waitForReaction(post.id, botUserId, remainingTime);
-
-      if (!reaction) {
-        await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
-        mcpLogger.info(`Timeout: ${toolName}`);
-        return { behavior: 'deny', message: 'Permission request timed out' };
-      }
-
-      // Get username and check if allowed
-      username = await api.getUsername(reaction.userId);
-      if (username && api.isUserAllowed(username)) {
-        break; // Authorized user - process their reaction
-      }
-
-      // Unauthorized user - log and keep waiting
-      mcpLogger.debug(`Ignoring unauthorized user: ${username || reaction.userId}, waiting for authorized user`);
+    if (decision.kind === 'timeout') {
+      await api.updatePost(post.id, `⏱️ ${formatter.formatBold('Timed out')} - permission denied\n\n${toolInfo}`);
+      mcpLogger.info(`Timeout: ${toolName}`);
+      return { behavior: 'deny', message: 'Permission request timed out' };
     }
 
-    const emoji = reaction.emojiName;
-    mcpLogger.debug(`Reaction ${emoji} from ${username}`);
-
-    if (isApprovalEmoji(emoji)) {
+    const { username } = decision;
+    if (decision.kind === 'approve') {
       await api.updatePost(post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(username)}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed: ${toolName}`);
       return { behavior: 'allow', updatedInput: toolInput };
-    } else if (isAllowAllEmoji(emoji)) {
+    } else if (decision.kind === 'allow-all') {
       cfg.setAllowAll(true);
       await api.updatePost(post.id, `✅ ${formatter.formatBold('Allowed all')} by ${formatter.formatUserMention(username)}\n\n${toolInfo}`);
       mcpLogger.info(`Allowed all: ${toolName}`);
@@ -383,6 +359,48 @@ export async function handlePermissionWith(
   } catch (error) {
     mcpLogger.error(`Permission error: ${error}`);
     return { behavior: 'deny', message: String(error) };
+  }
+}
+
+type ReactionDecision =
+  | { kind: 'approve' | 'allow-all' | 'deny'; username: string }
+  | { kind: 'timeout' };
+
+/**
+ * Wait on an interactive prompt post for an AUTHORIZED user's reaction and
+ * classify it (approve / allow-all / deny — any unrecognized emoji counts
+ * as deny). Unauthorized reactions are logged and the wait continues with
+ * the remaining time. Never touches the post: callers own the wording of
+ * the outcome update. Shared by permission_prompt and the send_dm
+ * recipient prompt so the authorization loop can't drift between them.
+ */
+async function awaitReactionDecision(
+  api: McpPlatformApi,
+  postId: string,
+  botUserId: string,
+  timeoutMs: number,
+  now: () => number,
+): Promise<ReactionDecision> {
+  const startTime = now();
+  while (true) {
+    const remainingTime = timeoutMs - (now() - startTime);
+    if (remainingTime <= 0) return { kind: 'timeout' };
+
+    const reaction = await api.waitForReaction(postId, botUserId, remainingTime);
+    if (!reaction) return { kind: 'timeout' };
+
+    const username = await api.getUsername(reaction.userId);
+    if (!username || !api.isUserAllowed(username)) {
+      // Unauthorized user - log and keep waiting
+      mcpLogger.debug(`Ignoring unauthorized user: ${username || reaction.userId}, waiting for authorized user`);
+      continue;
+    }
+
+    const emoji = reaction.emojiName;
+    mcpLogger.debug(`Reaction ${emoji} from ${username}`);
+    if (isApprovalEmoji(emoji)) return { kind: 'approve', username };
+    if (isAllowAllEmoji(emoji)) return { kind: 'allow-all', username };
+    return { kind: 'deny', username };
   }
 }
 
@@ -1388,36 +1406,20 @@ async function promptForDmPermission(
     return 'error';
   }
 
-  const startTime = now();
-
-  while (true) {
-    const remainingTime = cfg.promptTimeoutMs - (now() - startTime);
-    if (remainingTime <= 0) {
+  const decision = await awaitReactionDecision(cfg.api, post.id, botUserId, cfg.promptTimeoutMs, now);
+  switch (decision.kind) {
+    case 'timeout':
       await safeUpdatePost(cfg.api, post.id, `⏱️ ${formatter.formatBold('Timed out')} — DM to ${recipientLabel} not sent`);
       return 'timeout';
-    }
-    const reaction = await cfg.api.waitForReaction(post.id, botUserId, remainingTime);
-    if (!reaction) {
-      await safeUpdatePost(cfg.api, post.id, `⏱️ ${formatter.formatBold('Timed out')} — DM to ${recipientLabel} not sent`);
-      return 'timeout';
-    }
-    const username = await cfg.api.getUsername(reaction.userId);
-    if (username && cfg.api.isUserAllowed(username)) {
-      const emoji = reaction.emojiName;
-      if (isApprovalEmoji(emoji)) {
-        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(username)} — sending DM to ${recipientLabel}`);
-        return 'allow-once';
-      }
-      if (isAllowAllEmoji(emoji)) {
-        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allow all')} by ${formatter.formatUserMention(username)} — DMs to ${recipientLabel} won't prompt again this session`);
-        return 'allow-all';
-      }
-      await safeUpdatePost(cfg.api, post.id, `❌ ${formatter.formatBold('Denied')} by ${formatter.formatUserMention(username)}`);
+    case 'approve':
+      await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(decision.username)} — sending DM to ${recipientLabel}`);
+      return 'allow-once';
+    case 'allow-all':
+      await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allow all')} by ${formatter.formatUserMention(decision.username)} — DMs to ${recipientLabel} won't prompt again this session`);
+      return 'allow-all';
+    case 'deny':
+      await safeUpdatePost(cfg.api, post.id, `❌ ${formatter.formatBold('Denied')} by ${formatter.formatUserMention(decision.username)}`);
       return 'deny';
-    }
-    // Unauthorized user reacted — keep waiting (matches the standard
-    // permission_prompt loop).
-    mcpLogger.debug(`Ignoring unauthorized DM-permission reaction from ${username || reaction.userId}`);
   }
 }
 
