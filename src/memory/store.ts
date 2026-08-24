@@ -37,16 +37,14 @@
 
 import { createHash } from 'crypto';
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   realpathSync,
-  writeFileSync,
 } from 'fs';
 import { homedir } from 'os';
 import { basename, dirname, join, sep } from 'path';
+import { SerialQueue, writeFileAtomic } from '../persistence/atomic-file.js';
 import { createLogger } from '../utils/logger.js';
 import { getMainRepositoryRoot } from '../git/worktree.js';
 import type { ResolvedMemoryConfig } from '../config/types.js';
@@ -225,7 +223,7 @@ export class MemoryStore {
    * bot is a single process and the CLI never touches `channel/`, so an
    * in-process lock is sufficient.
    */
-  private readonly locks: Map<string, Promise<unknown>> = new Map();
+  private readonly locks: Map<string, SerialQueue> = new Map();
 
   constructor(rootDir?: string) {
     this.root = rootDir ?? process.env.CLAUDE_THREADS_MEMORY_DIR ?? DEFAULT_ROOT;
@@ -430,11 +428,12 @@ export class MemoryStore {
 
   /** Serialize a mutating operation per platform id. */
   private runExclusive<T>(platformId: string, fn: () => T): Promise<T> {
-    const tail = this.locks.get(platformId) ?? Promise.resolve();
-    const next = tail.then(fn, fn);
-    // Park the tail (swallowing rejections so one failure doesn't poison the chain).
-    this.locks.set(platformId, next.catch(() => undefined));
-    return next;
+    let queue = this.locks.get(platformId);
+    if (!queue) {
+      queue = new SerialQueue();
+      this.locks.set(platformId, queue);
+    }
+    return queue.run(fn);
   }
 
   /**
@@ -483,10 +482,7 @@ export class MemoryStore {
     const file = this.channelMemoryPath(platformId);
     this.ensureDir(dirname(file));
     const content = [FILE_HEADER, ...lines.map((l) => l.raw)].join('\n') + '\n';
-    const tempFile = `${file}.tmp`;
-    writeFileSync(tempFile, content, { encoding: 'utf-8', mode: 0o600 });
-    renameSync(tempFile, file);
-    chmodSync(file, 0o600);
+    writeFileAtomic(file, content);
   }
 
   private ensureDir(dir: string): void {

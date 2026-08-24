@@ -107,6 +107,67 @@ export function isSessionStartInFlight(sessionId: string): boolean {
 }
 
 /**
+ * Shared body of the routine/watch creation-confirmation listeners: audit,
+ * thread-log, and — on approval — a crash-guarded store write followed by a
+ * confirmation-card update. EventEmitter never awaits listeners, so the
+ * store write is try/caught into the visible-failure path: an fs error at
+ * 👍-time must not become a process-killing unhandled rejection.
+ */
+async function handleCreationConfirmation(
+  session: Session,
+  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; postId: string },
+  flavor: {
+    /** Audit tool name and user-facing noun ('routine' | 'watch'). */
+    tool: string;
+    /** Log prefix incl. emoji (e.g. '🕘 Routine'). */
+    logPrefix: string;
+    /** Store file noun for the write-failure message ('routines' | 'watches'). */
+    fileNoun: string;
+    /** Perform the store write; returns the saved name and list position. */
+    save(): Promise<{ ok: true; name: string; position: number } | { ok: false; error: string }>;
+    /** Confirmation-card text for a successful save. */
+    savedText(formatter: ReturnType<Session['platform']['getFormatter']>, position: number, name: string): string;
+  },
+): Promise<void> {
+  const { approved, parsed, requestedBy, postId } = payload;
+  auditLog(session.platformId, {
+    threadId: session.threadId,
+    sessionId: session.sessionId,
+    actor: requestedBy,
+    kind: 'command',
+    tool: flavor.tool,
+    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
+  });
+  session.threadLogger?.logCommand(flavor.tool, approved ? 'created' : 'discarded', requestedBy);
+  if (!approved) {
+    sessionLog(session).info(`${flavor.logPrefix} "${parsed.name}" discarded before saving`);
+    return;
+  }
+  let result: { ok: true; name: string; position: number } | { ok: false; error: string };
+  try {
+    result = await flavor.save();
+  } catch (err) {
+    result = { ok: false, error: `could not write the ${flavor.fileNoun} file (${(err as Error).message})` };
+  }
+  const formatter = session.platform.getFormatter();
+  if (result.ok) {
+    const { position, name } = result;
+    await withErrorHandling(
+      () => session.platform.updatePost(postId, flavor.savedText(formatter, position, name)),
+      { action: `Update ${flavor.tool} confirmation post`, session },
+    );
+    sessionLog(session).info(`${flavor.logPrefix} "${name}" saved by @${requestedBy}`);
+  } else {
+    const { error } = result;
+    await withErrorHandling(
+      () => session.platform.updatePost(postId, `⚠️ Could not save ${flavor.tool}: ${error}`),
+      { action: `Update ${flavor.tool} confirmation post`, session },
+    );
+    sessionLog(session).warn(`${flavor.logPrefix} save failed: ${error}`);
+  }
+}
+
+/**
  * Get postIndex map with correct mutable type.
  * Reduces type casting noise throughout the module.
  */
@@ -459,101 +520,43 @@ function createMessageManager(
     // 'deny' - nothing extra to do, post already updated by MessageManager
   });
 
-  messageManager.events.on('routine-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
-    auditLog(session.platformId, {
-      threadId: session.threadId,
-      sessionId: session.sessionId,
-      actor: requestedBy,
-      kind: 'command',
+  messageManager.events.on('routine-prompt:complete', (payload) =>
+    handleCreationConfirmation(session, payload, {
       tool: 'routine',
-      detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
-    });
-    session.threadLogger?.logCommand('routine', approved ? 'created' : 'discarded', requestedBy);
-    if (!approved) {
-      sessionLog(session).info(`🕘 Routine "${parsed.name}" discarded before saving`);
-      return;
-    }
-    // The store write must not reject out of this async listener:
-    // EventEmitter never awaits listeners, so an fs error at 👍-time would
-    // become an unhandled rejection and kill the bot process. Convert it to
-    // the same visible-failure path as a validation error.
-    let result: Awaited<ReturnType<typeof ctx.state.routinesStore.add>>;
-    try {
-      result = await ctx.state.routinesStore.add(
-        session.platformId,
-        { name: parsed.name, prompt: parsed.prompt, schedule: parsed.schedule, createdBy: requestedBy },
-        ctx.config.maxRoutines,
-      );
-    } catch (err) {
-      result = { ok: false, error: `could not write the routines file (${(err as Error).message})` };
-    }
-    const formatter = session.platform.getFormatter();
-    if (result.ok) {
-      const position = ctx.state.routinesStore.list(session.platformId).length;
-      await withErrorHandling(
-        () => session.platform.updatePost(
-          postId,
-          `✅ ${formatter.formatBold(`Routine ${position}: ${result.routine.name}`)} saved — it will post its runs as new threads in this channel. ` +
-          `${formatter.formatItalic(`Manage with ${'`!routines`'}. Each run starts a full Claude session.`)}`,
-        ),
-        { action: 'Update routine confirmation post', session },
-      );
-      sessionLog(session).info(`🕘 Routine "${result.routine.name}" saved by @${requestedBy}`);
-    } else {
-      await withErrorHandling(
-        () => session.platform.updatePost(postId, `⚠️ Could not save routine: ${result.error}`),
-        { action: 'Update routine confirmation post', session },
-      );
-      sessionLog(session).warn(`🕘 Routine save failed: ${result.error}`);
-    }
-  });
+      logPrefix: '🕘 Routine',
+      fileNoun: 'routines',
+      save: async () => {
+        const result = await ctx.state.routinesStore.add(
+          session.platformId,
+          { name: payload.parsed.name, prompt: payload.parsed.prompt, schedule: payload.parsed.schedule, createdBy: payload.requestedBy },
+          ctx.config.maxRoutines,
+        );
+        if (!result.ok) return result;
+        return { ok: true, name: result.routine.name, position: ctx.state.routinesStore.list(session.platformId).length };
+      },
+      savedText: (formatter, position, name) =>
+        `✅ ${formatter.formatBold(`Routine ${position}: ${name}`)} saved — it will post its runs as new threads in this channel. ` +
+        `${formatter.formatItalic(`Manage with ${'`!routines`'}. Each run starts a full Claude session.`)}`,
+    }));
 
-  messageManager.events.on('watch-prompt:complete', async ({ approved, parsed, requestedBy, postId }) => {
-    auditLog(session.platformId, {
-      threadId: session.threadId,
-      sessionId: session.sessionId,
-      actor: requestedBy,
-      kind: 'command',
+  messageManager.events.on('watch-prompt:complete', (payload) =>
+    handleCreationConfirmation(session, payload, {
       tool: 'watch',
-      detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
-    });
-    session.threadLogger?.logCommand('watch', approved ? 'created' : 'discarded', requestedBy);
-    if (!approved) {
-      sessionLog(session).info(`👁️ Watch "${parsed.name}" discarded before saving`);
-      return;
-    }
-    // Same crash-class guard as the routine listener: the store write must
-    // not reject out of an async EventEmitter listener.
-    let result: Awaited<ReturnType<typeof ctx.state.watchesStore.add>>;
-    try {
-      result = await ctx.state.watchesStore.add(
-        session.platformId,
-        { name: parsed.name, condition: parsed.condition, prompt: parsed.prompt, keywords: parsed.keywords, createdBy: requestedBy },
-        ctx.config.maxWatches,
-      );
-    } catch (err) {
-      result = { ok: false, error: `could not write the watches file (${(err as Error).message})` };
-    }
-    const formatter = session.platform.getFormatter();
-    if (result.ok) {
-      const position = ctx.state.watchesStore.list(session.platformId).length;
-      await withErrorHandling(
-        () => session.platform.updatePost(
-          postId,
-          `✅ ${formatter.formatBold(`Watch ${position}: ${result.watch.name}`)} saved — it fires a session in the triggering thread when a matching message appears. ` +
-          `${formatter.formatItalic(`Manage with ${'`!watches`'}. Each fire starts a full Claude session.`)}`,
-        ),
-        { action: 'Update watch confirmation post', session },
-      );
-      sessionLog(session).info(`👁️ Watch "${result.watch.name}" saved by @${requestedBy}`);
-    } else {
-      await withErrorHandling(
-        () => session.platform.updatePost(postId, `⚠️ Could not save watch: ${result.error}`),
-        { action: 'Update watch confirmation post', session },
-      );
-      sessionLog(session).warn(`👁️ Watch save failed: ${result.error}`);
-    }
-  });
+      logPrefix: '👁️ Watch',
+      fileNoun: 'watches',
+      save: async () => {
+        const result = await ctx.state.watchesStore.add(
+          session.platformId,
+          { name: payload.parsed.name, condition: payload.parsed.condition, prompt: payload.parsed.prompt, keywords: payload.parsed.keywords, createdBy: payload.requestedBy },
+          ctx.config.maxWatches,
+        );
+        if (!result.ok) return result;
+        return { ok: true, name: result.watch.name, position: ctx.state.watchesStore.list(session.platformId).length };
+      },
+      savedText: (formatter, position, name) =>
+        `✅ ${formatter.formatBold(`Watch ${position}: ${name}`)} saved — it fires a session in the triggering thread when a matching message appears. ` +
+        `${formatter.formatItalic(`Manage with ${'`!watches`'}. Each fire starts a full Claude session.`)}`,
+    }));
 
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context

@@ -250,6 +250,29 @@ export function deriveDisplayName(url: string): string {
  * out-of-the-box config.yaml stays clean — only the opt-in is persisted.
  * Mirrors how keepAlive is only written when disabled.
  */
+/**
+ * The fields of an existing platform entry the setup wizard does NOT manage.
+ * runReconfigureFlow merges these back over a wizard edit, so an edit
+ * round-trip can never silently drop settings the prompts never ask about
+ * (`memory`, `routines`, `watches`, `skipPermissions`, `auditLog`,
+ * `ackReaction`, and any future field). The set below lists the keys the
+ * wizard DOES own — everything else survives by default, so a new config
+ * field is safe without touching this list.
+ */
+export function unmanagedFields(existing: PlatformInstanceConfig): Partial<PlatformInstanceConfig> {
+  const WIZARD_MANAGED = new Set([
+    // Prompted for (or constructed) by setupMattermostPlatform/setupSlackPlatform:
+    'id', 'type', 'displayName', 'url', 'token', 'channelId', 'botName',
+    'allowedUsers', 'permissionMode', 'sessionHeader', 'stickyMessage',
+    'botToken', 'appToken',
+    // Preserved verbatim inside the setup functions themselves:
+    'directChannelMode', 'approvals', 'directMessages',
+  ]);
+  return Object.fromEntries(
+    Object.entries(existing).filter(([key]) => !WIZARD_MANAGED.has(key)),
+  ) as Partial<PlatformInstanceConfig>;
+}
+
 export function pruneDefaultFalseFlags(config: Config): void {
   if (!config.respondOnlyWhenMentioned) {
     delete config.respondOnlyWhenMentioned;
@@ -788,7 +811,13 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
             platform as SlackPlatformConfig
           );
         }
-        config.platforms[platformIndex] = updatedPlatform;
+        // Merge, don't replace: the wizard only returns the fields it asks
+        // about — a wholesale replacement silently dropped everything else
+        // (memory/routines/watches/skipPermissions/auditLog/ackReaction).
+        config.platforms[platformIndex] = {
+          ...unmanagedFields(platform),
+          ...updatedPlatform,
+        } as PlatformInstanceConfig;
         console.log(green(`  ✓ Updated ${updatedPlatform.displayName}`));
       }
     }

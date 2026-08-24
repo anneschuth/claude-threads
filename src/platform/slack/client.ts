@@ -1020,40 +1020,49 @@ export class SlackClient extends BasePlatformClient {
       // conversations.replies paginates oldest-first, so passing the caller's
       // limit straight to the API would return the OLDEST N messages of a long
       // thread. Callers (context prompt, work summary, memory distillation)
-      // want the most RECENT N — fetch a full page (API max 1000) and apply
-      // the limit after sorting, matching the Mattermost client's behavior.
-      const response = await this.api<ConversationsRepliesResponse>(
-        'GET',
-        `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000`
+      // want the most RECENT N — walk ALL pages via cursor pagination (one
+      // page covers threads up to 1000 messages; longer threads need the
+      // cursor or the slice below would serve the oldest page's tail as
+      // "recent context"), then apply the limit after sorting, matching the
+      // Mattermost client's behavior.
+      const MAX_PAGES = 10; // 10k messages — beyond this, keep the newest pages' content
+      const raw: SlackMessage[] = [];
+      let cursor: string | undefined;
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+        const response = await this.api<ConversationsRepliesResponse>(
+          'GET',
+          `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000${cursorParam}`
+        );
+        raw.push(...(response.messages || []));
+        cursor = response.response_metadata?.next_cursor || undefined;
+        if (!cursor) break;
+        if (page === MAX_PAGES - 1) {
+          log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — older pages skipped, most recent kept`);
+        }
+      }
+
+      const filtered = raw.filter(
+        (msg) => !(options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id))
       );
 
+      // Sort by timestamp (oldest first), then keep only the most recent N
+      // BEFORE resolving usernames — no user lookups for messages we drop.
+      filtered.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+      const kept = options?.limit && filtered.length > options.limit
+        ? filtered.slice(-options.limit)
+        : filtered;
+
       const messages: ThreadMessage[] = [];
-
-      for (const msg of response.messages || []) {
-        // Skip bot messages if requested
-        if (options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id)) {
-          continue;
-        }
-
-        // Get username from cache or fetch
+      for (const msg of kept) {
         const user = await this.getUser(msg.user || '');
-        const username = user?.username || 'unknown';
-
         messages.push({
           id: msg.ts,
           userId: msg.user || '',
-          username,
+          username: user?.username || 'unknown',
           message: msg.text,
           createAt: Math.floor(parseFloat(msg.ts) * 1000),
         });
-      }
-
-      // Sort by timestamp (oldest first)
-      messages.sort((a, b) => a.createAt - b.createAt);
-
-      // Apply limit (most recent N), like the Mattermost client
-      if (options?.limit && messages.length > options.limit) {
-        return messages.slice(-options.limit);
       }
       return messages;
     } catch (err) {

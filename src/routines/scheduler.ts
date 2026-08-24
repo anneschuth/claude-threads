@@ -25,6 +25,7 @@ import {
   type RoutinesStore,
   type RoutineRunStatus,
 } from '../persistence/routines-store.js';
+import { recordFireOutcome } from '../persistence/fire-outcome.js';
 
 const log = createLogger('routines');
 
@@ -219,41 +220,31 @@ export class RoutineScheduler {
       status = 'failed';
     }
 
-    // Bookkeeping must never throw out of fire(): a store-write failure (disk
-    // full, config dir gone) would otherwise propagate into the scheduler's
-    // floating tick promise — or the `!routines run` command path — and an
-    // unhandled rejection kills the whole bot process. The run itself already
-    // happened; losing one bookkeeping write is the acceptable outcome.
-    try {
-      if (status === 'unauthorized') {
-        await this.opts.store.update(platformId, routine.id, { enabled: false, lastRunStatus: 'failed' });
-        await this.opts.notifyDisabled(platformId, routine,
-          `its creator @${routine.createdBy} is no longer authorized on this platform`);
-      } else if (status === 'skipped') {
-        // No anchor, no failure count: retry within the window, next tick.
-        await this.opts.store.update(platformId, routine.id, { lastRunStatus: 'skipped' });
-      } else if (!anchorPeriod) {
-        // Manual `!routines run`: record the outcome, but never touch the
-        // scheduled-run failure streak — three manual retries of a broken
-        // routine must not auto-disable it, and a manual success must not
-        // mask scheduled failures that should disable it.
-        await this.opts.store.update(platformId, routine.id, { lastRunStatus: status });
-      } else {
-        const failures = status === 'failed' ? routine.consecutiveFailures + 1 : 0;
-        await this.opts.store.update(platformId, routine.id, {
-          lastRunAt: now.toISOString(),
-          lastRunStatus: status,
-          consecutiveFailures: failures,
-        });
-        if (failures >= MAX_CONSECUTIVE_FAILURES) {
-          await this.opts.store.update(platformId, routine.id, { enabled: false });
-          await this.opts.notifyDisabled(platformId, routine,
-            `${failures} consecutive runs failed`);
-        }
-      }
-    } catch (err) {
-      log.error(`Routine "${routine.name}" (${platformId}) bookkeeping failed: ${(err as Error).message}`);
-    }
+    // Shared state machine (recordFireOutcome) — it also guarantees the
+    // bookkeeping never throws out of fire(): a store-write failure would
+    // otherwise propagate into the scheduler's floating tick promise — or
+    // the `!routines run` command path — and an unhandled rejection kills
+    // the whole bot process. `counted: false` for manual runs: three manual
+    // retries of a broken routine must not auto-disable it, and a manual
+    // success must not mask scheduled failures that should disable it.
+    await recordFireOutcome({
+      status,
+      counted: anchorPeriod,
+      consecutiveFailures: routine.consecutiveFailures,
+      maxConsecutiveFailures: MAX_CONSECUTIVE_FAILURES,
+      createdBy: routine.createdBy,
+      runNoun: 'runs',
+      disableUnauthorized: () => this.opts.store.update(platformId, routine.id, { enabled: false, lastRunStatus: 'failed' }),
+      recordStatusOnly: (s) => this.opts.store.update(platformId, routine.id, { lastRunStatus: s }),
+      recordCounted: (s, failures) => this.opts.store.update(platformId, routine.id, {
+        lastRunAt: now.toISOString(),
+        lastRunStatus: s,
+        consecutiveFailures: failures,
+      }),
+      disable: () => this.opts.store.update(platformId, routine.id, { enabled: false }),
+      notifyDisabled: (reason) => this.opts.notifyDisabled(platformId, routine, reason),
+      logError: (message) => log.error(`Routine "${routine.name}" (${platformId}) bookkeeping failed: ${message}`),
+    });
     return status;
   }
 }

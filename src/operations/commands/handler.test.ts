@@ -1325,6 +1325,30 @@ describe('routine commands', () => {
     expect((session.messageManager as any).setPendingRoutinePrompt).not.toHaveBeenCalled();
   });
 
+  it('createRoutine refuses in direct channel mode (a fired session would be unreachable by text)', async () => {
+    const session = createMockSession();
+    (session.platform as any).directChannelMode = { enabled: true, respondTo: 'all_messages' };
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+
+    await commands.createRoutine(session, 'every day at 9, do things', 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('direct channel mode'))).toBe(true);
+    expect((session.messageManager as any).setPendingRoutinePrompt).not.toHaveBeenCalled();
+  });
+
+  it('manageRoutines still works in direct channel mode (legacy routines stay manageable)', async () => {
+    const session = createMockSession();
+    (session.platform as any).directChannelMode = { enabled: true, respondTo: 'all_messages' };
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+    await seedRoutine(ctx);
+
+    await commands.manageRoutines(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('Routines (1)'))).toBe(true);
+  });
+
   it('createRoutine posts a confirmation card from the parsed schedule', async () => {
     const session = createMockSession();
     const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));

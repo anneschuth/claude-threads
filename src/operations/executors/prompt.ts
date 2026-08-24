@@ -390,35 +390,56 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   }
 
   /**
+   * Shared body of the routine/watch creation-confirmation handlers: match
+   * the pending prompt to the reacted post, update the confirmation card,
+   * clear the pending state, and hand the typed payload to `emit`. The
+   * public wrappers below keep the per-flavor typed events — those are
+   * load-bearing for the lifecycle listeners.
+   */
+  private async completeCreationPrompt<P extends { name: string }>(
+    pending: { postId: string; parsed: P; requestedBy: string } | null,
+    label: string,
+    clear: () => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; postId: string }) => void,
+    postId: string,
+    approved: boolean,
+    username: string,
+    ctx: ExecutorContext,
+  ): Promise<boolean> {
+    if (!pending || pending.postId !== postId) return false;
+
+    const { parsed, requestedBy } = pending;
+    const statusMessage = approved
+      ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
+      : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
+    try {
+      await ctx.platform.updatePost(postId, statusMessage);
+    } catch (err) {
+      ctx.logger.debug(`Failed to update ${label.toLowerCase()} prompt post: ${err}`);
+    }
+
+    clear();
+    emit({ approved, parsed, requestedBy, postId });
+    return true;
+  }
+
+  /**
    * Handle a routine confirmation reaction. Emits 'routine-prompt:complete';
    * the lifecycle listener does the actual store write on approval.
    */
-  async handleRoutinePromptResponse(
+  handleRoutinePromptResponse(
     postId: string,
     approved: boolean,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingRoutinePrompt) return false;
-    if (this.state.pendingRoutinePrompt.postId !== postId) return false;
-
-    const { parsed, requestedBy } = this.state.pendingRoutinePrompt;
-
-    const statusMessage = approved
-      ? `✅ ${ctx.formatter.formatBold(`Routine "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
-      : `❌ ${ctx.formatter.formatBold(`Routine "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update routine prompt post: ${err}`);
-    }
-
-    this.state.pendingRoutinePrompt = null;
-
-    if (this.events) {
-      this.events.emit('routine-prompt:complete', { approved, parsed, requestedBy, postId });
-    }
-    return true;
+    return this.completeCreationPrompt(
+      this.state.pendingRoutinePrompt,
+      'Routine',
+      () => { this.state.pendingRoutinePrompt = null; },
+      (payload) => this.events?.emit('routine-prompt:complete', payload),
+      postId, approved, username, ctx,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -441,32 +462,19 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
    * Handle a watch confirmation reaction. Emits 'watch-prompt:complete';
    * the lifecycle listener does the actual store write on approval.
    */
-  async handleWatchPromptResponse(
+  handleWatchPromptResponse(
     postId: string,
     approved: boolean,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
-    if (!this.state.pendingWatchPrompt) return false;
-    if (this.state.pendingWatchPrompt.postId !== postId) return false;
-
-    const { parsed, requestedBy } = this.state.pendingWatchPrompt;
-
-    const statusMessage = approved
-      ? `\u2705 ${ctx.formatter.formatBold(`Watch "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
-      : `\u274C ${ctx.formatter.formatBold(`Watch "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`;
-    try {
-      await ctx.platform.updatePost(postId, statusMessage);
-    } catch (err) {
-      ctx.logger.debug(`Failed to update watch prompt post: ${err}`);
-    }
-
-    this.state.pendingWatchPrompt = null;
-
-    if (this.events) {
-      this.events.emit('watch-prompt:complete', { approved, parsed, requestedBy, postId });
-    }
-    return true;
+    return this.completeCreationPrompt(
+      this.state.pendingWatchPrompt,
+      'Watch',
+      () => { this.state.pendingWatchPrompt = null; },
+      (payload) => this.events?.emit('watch-prompt:complete', payload),
+      postId, approved, username, ctx,
+    );
   }
 
   // ---------------------------------------------------------------------------

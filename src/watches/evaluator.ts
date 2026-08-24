@@ -31,6 +31,7 @@ import {
   type WatchFireStatus,
 } from '../persistence/watches-store.js';
 import { extractJsonObject } from '../claude/llm-json.js';
+import { recordFireOutcome } from '../persistence/fire-outcome.js';
 import { createLogger } from '../utils/logger.js';
 
 const log = createLogger('watches');
@@ -288,31 +289,28 @@ export class WatchEvaluator {
       status = 'failed';
     }
 
-    try {
-      if (status === 'unauthorized') {
-        await this.opts.store.update(platformId, watch.id, { enabled: false, lastFireStatus: 'failed' });
-        await this.opts.notifyDisabled(platformId, watch,
-          `its creator @${watch.createdBy} is no longer authorized on this platform`);
-      } else if (status === 'skipped') {
-        // No cooldown, no failure count: the condition genuinely occurred but
-        // the bot was busy — the next matching message can still fire.
-        await this.opts.store.update(platformId, watch.id, { lastFireStatus: 'skipped' });
-      } else {
-        const failures = status === 'failed' ? watch.consecutiveFailures + 1 : 0;
-        await this.opts.store.update(platformId, watch.id, {
-          lastFiredAt: now.toISOString(),
-          lastFireStatus: status,
-          firesToday: nextFiresToday(watch, now),
-          consecutiveFailures: failures,
-        });
-        if (failures >= MAX_CONSECUTIVE_WATCH_FAILURES) {
-          await this.opts.store.update(platformId, watch.id, { enabled: false });
-          await this.opts.notifyDisabled(platformId, watch,
-            `${failures} consecutive fires failed`);
-        }
-      }
-    } catch (err) {
-      log.error(`Watch "${watch.name}" (${platformId}) bookkeeping failed: ${(err as Error).message}`);
-    }
+    // Shared state machine (recordFireOutcome); it never throws — see the
+    // crash-class invariant in the module header. 'skipped' records status
+    // only: the condition genuinely occurred but the bot was busy, so the
+    // next matching message can still fire (no cooldown, no failure count).
+    await recordFireOutcome({
+      status,
+      counted: true,
+      consecutiveFailures: watch.consecutiveFailures,
+      maxConsecutiveFailures: MAX_CONSECUTIVE_WATCH_FAILURES,
+      createdBy: watch.createdBy,
+      runNoun: 'fires',
+      disableUnauthorized: () => this.opts.store.update(platformId, watch.id, { enabled: false, lastFireStatus: 'failed' }),
+      recordStatusOnly: (s) => this.opts.store.update(platformId, watch.id, { lastFireStatus: s }),
+      recordCounted: (s, failures) => this.opts.store.update(platformId, watch.id, {
+        lastFiredAt: now.toISOString(),
+        lastFireStatus: s,
+        firesToday: nextFiresToday(watch, now),
+        consecutiveFailures: failures,
+      }),
+      disable: () => this.opts.store.update(platformId, watch.id, { enabled: false }),
+      notifyDisabled: (reason) => this.opts.notifyDisabled(platformId, watch, reason),
+      logError: (message) => log.error(`Watch "${watch.name}" (${platformId}) bookkeeping failed: ${message}`),
+    });
   }
 }

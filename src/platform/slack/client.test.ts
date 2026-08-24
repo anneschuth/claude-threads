@@ -360,6 +360,40 @@ describe('SlackClient API methods', () => {
     expect(history.map(m => m.message)).toEqual(['middle', 'newest']);
   });
 
+  it('getThreadHistory follows cursor pagination past the first page', async () => {
+    // A thread longer than one conversations.replies page (1000 messages)
+    // returns its OLDEST page first; without walking next_cursor the
+    // "most recent N" slice would come from that oldest page and serve
+    // long-ago content as recent context.
+    const c = makeClient();
+    fetchResponder = (url) => {
+      if (url.includes('conversations.replies')) {
+        if (!url.includes('cursor=')) {
+          return ok({
+            messages: [
+              { ts: '100.0', user: 'U-ALICE', text: 'old-1' },
+              { ts: '200.0', user: 'U-ALICE', text: 'old-2' },
+            ],
+            response_metadata: { next_cursor: 'page2' },
+          });
+        }
+        expect(url).toContain('cursor=page2');
+        return ok({
+          messages: [
+            { ts: '300.0', user: 'U-ALICE', text: 'new-1' },
+            { ts: '400.0', user: 'U-ALICE', text: 'new-2' },
+          ],
+        });
+      }
+      if (url.includes('users.info')) {
+        return ok({ user: { id: 'U-ALICE', name: 'alice', real_name: 'Alice', profile: {} } });
+      }
+      return ok();
+    };
+    const history = await c.getThreadHistory('thread-1', { limit: 2 });
+    expect(history.map(m => m.message)).toEqual(['new-1', 'new-2']);
+  });
+
   it('getThreadHistory returns [] on API error', async () => {
     fetchResponder = () => notOk('channel_not_found');
     const history = await makeClient().getThreadHistory('thread-1');
