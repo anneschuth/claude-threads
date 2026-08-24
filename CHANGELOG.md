@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Agent tools — Claude can now use the bot's own features from inside a session.** Six new MCP tools, executed in the bot process over the session's decision bridge:
+  - `remember_fact` saves one durable team fact to channel memory with a new `agent` provenance label. No approval prompt (the end-of-session distiller already writes ungated) — instead every save is **announced in the thread**, audit-logged, capped at 5 per session, and can never displace a user-written entry (supersede/dedupe/eviction rank agent entries with distilled ones). `list_memory` lists what's stored.
+  - `propose_routine` / `propose_watch` post the **existing confirmation card** (badged "Claude proposes…") and save **nothing** — only a human 👍 persists the routine/watch, which is then owned by the session owner like a hand-typed one. `list_routines` / `list_watches` are read-only.
+  - **Loop prevention:** sessions started by routine/watch fires are marked `unattended` (persisted across restarts); such sessions cannot propose new routines or watches — neither tool is offered there, and the bot refuses regardless.
+  - Tool availability follows the platform's `memory`/`routines`/`watches` config (advisory env gates on the MCP child; authoritative re-checks in the bot). Destructive operations (forget, pause, delete, manual run) are never exposed to Claude.
+
 ## [1.29.2] - 2026-08-24
 
 Re-release of 1.29.1 — no code changes. The 1.29.1 npm publish step failed

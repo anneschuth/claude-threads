@@ -6,9 +6,11 @@ import { describe, it, expect } from 'bun:test';
 import {
   DecisionBridgeServer,
   requestBridgeDecision,
+  requestAgentAction,
   bridgeSocketPath,
   type BridgeRequest,
   type BridgeResponse,
+  type AgentActionRequest,
 } from './decision-bridge.js';
 
 const PLAN_REQUEST: BridgeRequest = {
@@ -125,6 +127,49 @@ describe('DecisionBridge', () => {
     const path = server.path;
     await server.close();
     await expect(requestBridgeDecision(path, PLAN_REQUEST, 500)).rejects.toThrow();
+  });
+});
+
+describe('DecisionBridge - agent actions', () => {
+  it('round-trips an agent_action request/response over the same wire', async () => {
+    const seen: AgentActionRequest[] = [];
+    const server = await DecisionBridgeServer.create(async (req) => {
+      seen.push(req as AgentActionRequest);
+      return { ok: true, result: { status: 'saved', echoed: req.input } };
+    });
+    try {
+      const response = await requestAgentAction(
+        server.path,
+        { kind: 'agent_action', action: 'remember_fact', input: { text: 'a fact' } },
+        5000,
+      );
+      expect(response).toEqual({ ok: true, result: { status: 'saved', echoed: { text: 'a fact' } } });
+      expect(seen).toEqual([{ kind: 'agent_action', action: 'remember_fact', input: { text: 'a fact' } }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('a handler failure surfaces as a response, and a dead path rejects', async () => {
+    const server = await DecisionBridgeServer.create(async () => {
+      throw new Error('store exploded');
+    });
+    try {
+      // Thrown handler errors ride the deny-shaped fallback; the agent
+      // client surfaces them as a (mis-shaped but truthy-field-free)
+      // object — callers treat anything without ok:true as failure.
+      const response = await requestAgentAction(
+        server.path,
+        { kind: 'agent_action', action: 'list_memory', input: {} },
+        5000,
+      );
+      expect(response.ok).not.toBe(true);
+    } finally {
+      await server.close();
+    }
+    await expect(
+      requestAgentAction(bridgeSocketPath(), { kind: 'agent_action', action: 'list_memory', input: {} }, 300),
+    ).rejects.toThrow();
   });
 });
 

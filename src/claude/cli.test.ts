@@ -613,6 +613,44 @@ describe('buildPermissionArgs', () => {
     expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBeUndefined();
   });
 
+  it('emits the agent-feature gates only for enabled features (and only with a bridge)', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: { memoryChannel: true, routines: false, watches: true, unattended: true },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBe('1');
+    expect(env.CT_ROUTINES_ENABLED).toBeUndefined();
+    expect(env.CT_WATCHES_ENABLED).toBe('1');
+    expect(env.CT_UNATTENDED).toBe('1');
+  });
+
+  it('emits NO agent-feature gates without a bridge (no path to the stores)', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      agentFeatures: { memoryChannel: true, routines: true, watches: true, unattended: false },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBeUndefined();
+    expect(env.CT_ROUTINES_ENABLED).toBeUndefined();
+    expect(env.CT_WATCHES_ENABLED).toBeUndefined();
+  });
+
+  it('agentFeatures: null emits no gates even with a bridge', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: null,
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBeUndefined();
+    expect(env.CT_UNATTENDED).toBeUndefined();
+  });
+
   it("omits the upload-related env vars entirely when no roots provided", () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
     const env = getMcpEnv(args);

@@ -52,6 +52,18 @@ describe('buildRestartCliOptions', () => {
     const options = buildRestartCliOptions(makeSession(), deps);
     expect(options.decisionBridgePath).toBeUndefined();
   });
+
+  it('carries the agent-feature gates, including the unattended flag (respawn parity)', () => {
+    // A respawn (!cd, !permissions, worktrees) that dropped agentFeatures
+    // would silently re-offer propose_* to an unattended session.
+    const options = buildRestartCliOptions(makeSession({ unattended: true }), deps);
+    expect(options.agentFeatures).toEqual({
+      memoryChannel: true,
+      routines: true,
+      watches: true,
+      unattended: true,
+    });
+  });
 });
 
 describe('buildRestartCliOptions — DCM approvals scoping', () => {

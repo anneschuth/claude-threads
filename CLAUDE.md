@@ -325,6 +325,28 @@ injectable `confirm` fn (same DI-over-module-mock reasoning as routines).
 The integration mock CLI answers `claude -p` prompts deterministically
 (watch confirms honor `MOCK_WATCH_CONFIRM=false`).
 
+## Agent tools (Claude-initiated memory/routines/watches)
+
+Six MCP tools let Claude use the bot's features in-session: `remember_fact`,
+`list_memory`, `propose_routine`, `propose_watch`, `list_routines`,
+`list_watches`. Execution is bot-side: the MCP child forwards an
+`agent_action` request over the decision bridge; `handleAgentAction`
+(`src/operations/agent-actions/handler.ts`) applies the authoritative gates
+(config, DCM, unattended, session cap) and touches the stores. The env gates
+in `src/mcp/agent-features-env.ts` only decide tool registration.
+
+Invariants:
+- `propose_*` NEVER writes a store — it posts the existing confirmation card
+  (`postRoutineConfirmation`/`postWatchConfirmation`, badged
+  `proposedByAgent`) and only the human-👍 flow saves.
+- `Session.unattended` (persisted) marks routine/watch-fired sessions; they
+  are refused `propose_*` on both sides (self-replication loop).
+- `ClaudeCliOptions.agentFeatures` is REQUIRED (like `memory`) so every
+  spawn/respawn site must carry the gates — `buildRestartCliOptions` needs
+  its `ops` for this.
+- Memory writes use `source: 'agent'`: visible in `!memory`, may never
+  supersede `user` entries, evicted with `distilled` ones.
+
 ## Source Files
 
 ### Core

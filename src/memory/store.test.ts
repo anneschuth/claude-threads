@@ -167,6 +167,88 @@ describe('addChannelEntries / listChannelEntries', () => {
   });
 });
 
+describe("the 'agent' source (agent-initiated remember_fact)", () => {
+  test('round-trips through the markdown file with (agent) provenance', async () => {
+    await store.addChannelEntries('mm', [{ text: 'the API gateway lives in eu-west-1', source: 'agent' }]);
+    const entries = store.listChannelEntries('mm');
+    expect(entries[0]).toMatchObject({ text: 'the API gateway lives in eu-west-1', source: 'agent' });
+    expect(entries[0].addedBy).toBeUndefined();
+    const raw = readFileSync(store.channelMemoryPath('mm'), 'utf-8');
+    expect(raw).toContain('(agent) the API gateway lives in eu-west-1');
+  });
+
+  test('an agent candidate can NEVER supersede a user entry', async () => {
+    // The supersede rule is the ownership boundary: removal is owner-gated
+    // for humans, so the model must not delete a user's entry by embedding
+    // its text either.
+    await store.addChannelEntries('mm', [{ text: 'deploys on tuesdays', source: 'user', addedBy: 'anne' }]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'deploys on tuesdays, except during code freeze', source: 'agent' },
+    ]);
+    expect(result.added).toHaveLength(1);
+    expect(result.superseded).toHaveLength(0);
+    // Both coexist — the owner resolves contradictions with !memory forget.
+    expect(store.listChannelEntries('mm')).toHaveLength(2);
+  });
+
+  test('an agent candidate may supersede distilled and agent entries', async () => {
+    await store.addChannelEntries('mm', [
+      { text: 'deploys on tuesdays', source: 'distilled' },
+      { text: 'ci runs on push', source: 'agent' },
+    ]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'deploys on tuesdays and ci runs on push, per the runbook', source: 'agent' },
+    ]);
+    expect(result.superseded).toHaveLength(2);
+    expect(store.listChannelEntries('mm')).toHaveLength(1);
+  });
+
+  test('a user entry may supersede an agent entry', async () => {
+    await store.addChannelEntries('mm', [{ text: 'deploys on tuesdays', source: 'agent' }]);
+    const result = await store.addChannelEntries('mm', [
+      { text: 'Deploys on Tuesdays, except during code freeze', source: 'user', addedBy: 'anne' },
+    ]);
+    expect(result.superseded).toHaveLength(1);
+    expect(store.listChannelEntries('mm')).toHaveLength(1);
+  });
+
+  test('an agent fragment of an existing entry is deduped (like distilled)', async () => {
+    await store.addChannelEntries('mm', [{ text: 'never use npm; always use bun', source: 'user', addedBy: 'a' }]);
+    const result = await store.addChannelEntries('mm', [{ text: 'always use bun', source: 'agent' }]);
+    expect(result.added).toHaveLength(0);
+    expect(result.duplicates).toHaveLength(1);
+  });
+
+  test('eviction ranks agent entries with distilled, before user entries', async () => {
+    const filler = Array.from({ length: CHANNEL_FILE_MAX_ENTRIES }, (_, i) => ({
+      text: `agent fact number ${String(i).padStart(4, '0')}`,
+      source: 'agent' as const,
+    }));
+    await store.addChannelEntries('mm', filler);
+    await store.addChannelEntries('mm', [{ text: 'the newest user fact', source: 'user', addedBy: 'a' }]);
+    const all = store.listChannelEntries('mm');
+    expect(all).toHaveLength(CHANNEL_FILE_MAX_ENTRIES);
+    expect(all.some((e) => e.text === 'agent fact number 0000')).toBe(false);
+    expect(all.some((e) => e.text === 'the newest user fact')).toBe(true);
+  });
+
+  test('downgrade compat: a pre-agent parser keeps (agent) lines as raw lines', async () => {
+    // ENTRY_RE without the agent alternative doesn't match '(agent)' — the
+    // loadLines contract preserves unmatched lines raw across rewrites, so
+    // a downgraded bot shows them in the file but can't forget-by-number.
+    // Here we assert the current parser DOES match, and that a raw line
+    // survives an add (the preservation machinery both rely on).
+    mkdirSync(join(store.channelMemoryPath('mm'), '..'), { recursive: true });
+    writeFileSync(
+      store.channelMemoryPath('mm'),
+      '# Channel memory — managed by claude-threads.\n- [2026-08-24] (agent) parsed entry\nsome hand-written raw line\n',
+    );
+    await store.addChannelEntries('mm', [{ text: 'another', source: 'user', addedBy: 'a' }]);
+    expect(store.listChannelEntries('mm').map((e) => e.text)).toEqual(['parsed entry', 'another']);
+    expect(readFileSync(store.channelMemoryPath('mm'), 'utf-8')).toContain('some hand-written raw line');
+  });
+});
+
 describe('hand-edited file tolerance', () => {
   test('hand-written # heading lines survive a rewrite (only the managed header is skipped)', async () => {
     await store.addChannelEntries('mm', [{ text: 'parsed entry', source: 'user', addedBy: 'a' }]);
