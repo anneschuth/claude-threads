@@ -146,20 +146,14 @@ export class RoutinesStore extends PlatformListStore<Routine> {
    * when the platform is at `maxRoutines` — validation lives here so no
    * caller can bypass it.
    */
-  add(platformId: string, routine: NewRoutine, maxRoutines = DEFAULT_MAX_ROUTINES): Promise<{ ok: true; routine: Routine } | { ok: false; error: string }> {
-    return this.runExclusive(() => {
+  async add(platformId: string, routine: NewRoutine, maxRoutines = DEFAULT_MAX_ROUTINES): Promise<{ ok: true; routine: Routine } | { ok: false; error: string }> {
+    const result = await this.addItem(platformId, maxRoutines, 'routine', () => {
       const scheduleError = validateSchedule(routine.schedule);
-      if (scheduleError) return { ok: false as const, error: scheduleError };
+      if (scheduleError) return scheduleError;
       const name = routine.name.trim().slice(0, 80);
       const prompt = routine.prompt.trim().slice(0, 2000);
-      if (!name || !prompt) return { ok: false as const, error: 'name and prompt are required' };
-
-      const data = this.loadRaw();
-      const existing = data.items[platformId] ?? [];
-      if (existing.length >= maxRoutines) {
-        return { ok: false as const, error: `routine limit reached (${maxRoutines}); delete one first` };
-      }
-      const full: Routine = {
+      if (!name || !prompt) return 'name and prompt are required';
+      return {
         ...routine,
         name,
         prompt,
@@ -168,13 +162,10 @@ export class RoutinesStore extends PlatformListStore<Routine> {
         enabled: true,
         consecutiveFailures: 0,
       };
-      data.items[platformId] = [...existing, full];
-      this.writeAtomic(data);
-      log.info(`Routine "${full.name}" created on ${platformId} by @${full.createdBy}`);
-      // Copy: `full` is now part of the cached graph (see PlatformListStore's
-      // no-live-reference invariant on list/update).
-      return { ok: true as const, routine: structuredClone(full) };
     });
+    if (!result.ok) return result;
+    log.info(`Routine "${result.item.name}" created on ${platformId} by @${result.item.createdBy}`);
+    return { ok: true, routine: result.item };
   }
 
   /** Merge a partial update into one routine. Returns the updated routine or undefined. */

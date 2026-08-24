@@ -69,13 +69,42 @@ export abstract class PlatformListStore<T extends { id: string }> {
   }
 
   get(platformId: string, id: string): T | undefined {
-    return this.list(platformId).find((item) => item.id === id);
+    // Same no-live-reference invariant as list(), but clone only the hit.
+    const item = (this.loadRaw().items[platformId] ?? []).find((i) => i.id === id);
+    return item === undefined ? undefined : structuredClone(item);
+  }
+
+  /**
+   * Shared skeleton for subclass `add` implementations: validation (via
+   * `build`, which returns the fully-validated item or an error string),
+   * cap check, insert, atomic write, and a no-live-reference return — all
+   * inside the write mutex.
+   */
+  protected addItem(
+    platformId: string,
+    max: number,
+    capNoun: string,
+    build: () => T | string,
+  ): Promise<{ ok: true; item: T } | { ok: false; error: string }> {
+    return this.runExclusive(() => {
+      const built = build();
+      if (typeof built === 'string') return { ok: false as const, error: built };
+      const data = this.loadRaw(true);
+      const existing = data.items[platformId] ?? [];
+      if (existing.length >= max) {
+        return { ok: false as const, error: `${capNoun} limit reached (${max}); delete one first` };
+      }
+      data.items[platformId] = [...existing, built];
+      this.writeAtomic(data);
+      // Copy: `built` is now part of the cached graph.
+      return { ok: true as const, item: structuredClone(built) };
+    });
   }
 
   /** Merge a partial update into one item. Returns a copy of the updated item or undefined. */
   update(platformId: string, id: string, patch: Partial<T>): Promise<T | undefined> {
     return this.runExclusive(() => {
-      const data = this.loadRaw();
+      const data = this.loadRaw(true);
       const items = data.items[platformId] ?? [];
       const idx = items.findIndex((item) => item.id === id);
       if (idx < 0) return undefined;
@@ -88,7 +117,7 @@ export abstract class PlatformListStore<T extends { id: string }> {
   /** Remove an item. Returns the removed item or undefined. */
   remove(platformId: string, id: string): Promise<T | undefined> {
     return this.runExclusive(() => {
-      const data = this.loadRaw();
+      const data = this.loadRaw(true);
       const items = data.items[platformId] ?? [];
       const idx = items.findIndex((item) => item.id === id);
       if (idx < 0) return undefined;
@@ -109,7 +138,15 @@ export abstract class PlatformListStore<T extends { id: string }> {
     return this.queue.run(fn);
   }
 
-  protected loadRaw(): FileShape<T> {
+  /**
+   * Load the file. A missing file is an empty store. A file that EXISTS but
+   * cannot be read (corruption, transient EMFILE/EACCES) reads as empty too
+   * — but with `forWrite` the failure throws instead: a mutating op that
+   * proceeded on that emptiness would persist it, silently destroying every
+   * platform's items. Refusing the write keeps the unreadable file on disk
+   * for recovery.
+   */
+  protected loadRaw(forWrite = false): FileShape<T> {
     if (!existsSync(this.file)) {
       this.cache = null;
       return { version: STORE_VERSION, items: {} };
@@ -134,8 +171,11 @@ export abstract class PlatformListStore<T extends { id: string }> {
       this.cache = { mtimeMs: stat.mtimeMs, size: stat.size, data };
       return data;
     } catch (err) {
-      this.warn(`Failed to read ${this.file}: ${(err as Error).message} — starting empty`);
       this.cache = null;
+      if (forWrite) {
+        throw new Error(`refusing to write over unreadable ${this.file}: ${(err as Error).message}`, { cause: err });
+      }
+      this.warn(`Failed to read ${this.file}: ${(err as Error).message} — starting empty`);
       return { version: STORE_VERSION, items: {} };
     }
   }

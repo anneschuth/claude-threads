@@ -112,12 +112,15 @@ describe('WatchesStore', () => {
     expect(store.list('mm')).toHaveLength(0);
   });
 
-  test('tolerates a hand-broken file (starts empty, never throws)', async () => {
+  test('tolerates a hand-broken file for reads, but refuses to write over it', async () => {
     const file = join(dir, 'watches.yaml');
     writeFileSync(file, '{{{{not yaml');
     const broken = new WatchesStore(file);
+    // Reads degrade gracefully (a broken file must not take the bot down)...
     expect(broken.list('mm')).toEqual([]);
-    expect((await broken.add('mm', newWatch())).ok).toBe(true);
+    // ...but a write would atomically replace the file with the degraded
+    // empty view, destroying whatever the corruption still holds — refuse.
+    await expect(broken.add('mm', newWatch())).rejects.toThrow('refusing to write');
   });
 
   test('applies defensive defaults to hand-edited entries', () => {
@@ -138,6 +141,26 @@ describe('WatchesStore', () => {
     expect(w.enabled).toBe(true);
     expect(w.consecutiveFailures).toBe(0);
     expect(w.keywords).toEqual([]);
+  });
+
+  test('normalizes hand-edited keywords (prefilter lowercases only the message)', () => {
+    const file = join(dir, 'watches.yaml');
+    writeFileSync(file, [
+      'version: 1',
+      'watches:',
+      '  mm:',
+      '    - id: abc123',
+      '      name: Hand-made',
+      '      condition: something',
+      '      prompt: do it',
+      '      createdBy: anne',
+      '      createdAt: 2026-01-01T00:00:00Z',
+      '      keywords: [" Deploy ", OUTAGE, ""]',
+    ].join('\n'));
+    const s = new WatchesStore(file);
+    // 'Deploy' as written could never substring-match a lowercased message —
+    // the watch would be silently dead.
+    expect(s.list('mm')[0].keywords).toEqual(['deploy', 'outage']);
   });
 
   test('writes owner-only YAML under the watches key', async () => {

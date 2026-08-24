@@ -42,7 +42,7 @@ class TestStore extends PlatformListStore<Item> {
 
   add(platformId: string, item: Item): Promise<void> {
     return this.runExclusive(() => {
-      const data = this.loadRaw();
+      const data = this.loadRaw(true);
       data.items[platformId] = [...(data.items[platformId] ?? []), item];
       this.writeAtomic(data);
     });
@@ -103,6 +103,28 @@ describe('PlatformListStore', () => {
 
     expect(store.list('mm').map((i) => i.name)).toEqual(['first', 'second']);
     expect(store.get('mm', 'a')?.nested?.count).toBe(1);
+  });
+
+  test('mutating ops refuse to write over an existing but unreadable file', async () => {
+    const { writeFileSync, readFileSync } = await import('fs');
+    await store.add('mm', { id: 'a', name: 'survivor' });
+    const file = join(dir, 'items.yaml');
+
+    // Simulate corruption (or a transient read failure): the file EXISTS but
+    // cannot be parsed. Reads degrade to empty; writes proceeding on that
+    // emptiness would atomically replace the file, destroying every
+    // platform's items — so they must refuse instead.
+    writeFileSync(file, '{');
+
+    await expect(store.add('mm', { id: 'b', name: 'destroyer' })).rejects.toThrow('refusing to write');
+    await expect(store.update('mm', 'a', { name: 'x' })).rejects.toThrow('refusing to write');
+    await expect(store.remove('mm', 'a')).rejects.toThrow('refusing to write');
+
+    // The unreadable file is preserved on disk for recovery, not replaced.
+    expect(readFileSync(file, 'utf-8')).toBe('{');
+    // Reads still degrade gracefully.
+    expect(store.list('mm')).toEqual([]);
+    expect(store.warnings.length).toBeGreaterThan(0);
   });
 
   test('update() returns a copy, not the live cached item', async () => {

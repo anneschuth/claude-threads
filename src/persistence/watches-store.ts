@@ -89,7 +89,15 @@ export class WatchesStore extends PlatformListStore<Watch> {
   protected applyItemDefaults(w: Watch): void {
     w.enabled = w.enabled ?? true;
     w.consecutiveFailures = w.consecutiveFailures ?? 0;
-    w.keywords = Array.isArray(w.keywords) ? w.keywords : [];
+    // Normalize like validateKeywords: the file is documented as
+    // hand-editable, and the prefilter lowercases only the message — a
+    // hand-added 'Deploy' would otherwise be silently dead.
+    w.keywords = Array.isArray(w.keywords)
+      ? w.keywords
+        .filter((k): k is string => typeof k === 'string')
+        .map((k) => k.trim().toLowerCase())
+        .filter((k) => k.length > 0)
+      : [];
   }
 
   protected warn(message: string): void {
@@ -105,21 +113,15 @@ export class WatchesStore extends PlatformListStore<Watch> {
    * the platform is at `maxWatches` — validation lives here so no caller can
    * bypass it.
    */
-  add(platformId: string, watch: NewWatch, maxWatches = DEFAULT_MAX_WATCHES): Promise<{ ok: true; watch: Watch } | { ok: false; error: string }> {
-    return this.runExclusive(() => {
+  async add(platformId: string, watch: NewWatch, maxWatches = DEFAULT_MAX_WATCHES): Promise<{ ok: true; watch: Watch } | { ok: false; error: string }> {
+    const result = await this.addItem(platformId, maxWatches, 'watch', () => {
       const name = watch.name.trim().slice(0, 80);
       const condition = watch.condition.trim().slice(0, 500);
       const prompt = watch.prompt.trim().slice(0, 2000);
-      if (!name || !condition || !prompt) return { ok: false as const, error: 'name, condition and prompt are required' };
+      if (!name || !condition || !prompt) return 'name, condition and prompt are required';
       const keywords = validateKeywords(watch.keywords);
-      if (typeof keywords === 'string') return { ok: false as const, error: keywords };
-
-      const data = this.loadRaw();
-      const existing = data.items[platformId] ?? [];
-      if (existing.length >= maxWatches) {
-        return { ok: false as const, error: `watch limit reached (${maxWatches}); delete one first` };
-      }
-      const full: Watch = {
+      if (typeof keywords === 'string') return keywords;
+      return {
         ...watch,
         name,
         condition,
@@ -130,13 +132,10 @@ export class WatchesStore extends PlatformListStore<Watch> {
         enabled: true,
         consecutiveFailures: 0,
       };
-      data.items[platformId] = [...existing, full];
-      this.writeAtomic(data);
-      log.info(`Watch "${full.name}" created on ${platformId} by @${full.createdBy}`);
-      // Copy: `full` is now part of the cached graph (see PlatformListStore's
-      // no-live-reference invariant on list/update).
-      return { ok: true as const, watch: structuredClone(full) };
     });
+    if (!result.ok) return result;
+    log.info(`Watch "${result.item.name}" created on ${platformId} by @${result.item.createdBy}`);
+    return { ok: true, watch: result.item };
   }
 
   /** Merge a partial update into one watch. Returns the updated watch or undefined. */
