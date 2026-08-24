@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.29.1] - 2026-08-24
 
 ### Fixed
 - **DCM: a channel message addressed to another user no longer starts a session.** With no session running, `@bob did you deploy?` in a direct-channel-mode channel used to start a full Claude session in a human-to-human exchange — the side-conversation guard the active/paused paths already had now covers the new-session path too.
