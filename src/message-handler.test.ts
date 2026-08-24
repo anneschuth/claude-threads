@@ -2201,14 +2201,32 @@ describe('direct channel mode (DCM)', () => {
     expect(session.startSession).not.toHaveBeenCalled();
   });
 
-  test('unauthorized users are rejected as usual', async () => {
+  test('unauthorized users are silently ignored unless they @mention the bot', async () => {
+    // In all-messages DCM EVERY channel message from a non-allowlisted
+    // member reaches the authorization check — an unconditional warning
+    // would be unbounded channel spam (and lets two bots warn at each
+    // other in a loop on Mattermost, which passes other bots' posts
+    // through).
     const badUser: PlatformUser = { id: 'u2', username: 'stranger', displayName: 'Stranger' };
 
     await handleMessage(client, session, makePost(), badUser, options);
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect([...client.posts.values()].join('\n')).not.toContain('not authorized');
+
+    // An explicit @mention still gets the warning — the user addressed the bot.
+    await handleMessage(client, session, makePost({ message: '@claude-bot help me' }), badUser, options);
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect([...client.posts.values()].join('\n')).toContain('not authorized');
+  });
+
+  test('a message addressed to another user never starts a session (side conversation)', async () => {
+    // The active- and paused-session paths ignore @someone-else messages;
+    // without the same guard here, '@bob did you deploy?' in a fresh DCM
+    // channel would start a Claude session in a human-to-human exchange.
+    await handleMessage(client, session, makePost({ message: '@bob did you deploy?' }), user, options);
 
     expect(session.startSession).not.toHaveBeenCalled();
-    const posted = [...client.posts.values()].join('\n');
-    expect(posted).toContain('not authorized');
+    expect(session.sendFollowUp).not.toHaveBeenCalled();
   });
 
 

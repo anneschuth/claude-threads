@@ -1020,13 +1020,15 @@ export class SlackClient extends BasePlatformClient {
       // conversations.replies paginates oldest-first, so passing the caller's
       // limit straight to the API would return the OLDEST N messages of a long
       // thread. Callers (context prompt, work summary, memory distillation)
-      // want the most RECENT N — walk ALL pages via cursor pagination (one
-      // page covers threads up to 1000 messages; longer threads need the
-      // cursor or the slice below would serve the oldest page's tail as
-      // "recent context"), then apply the limit after sorting, matching the
-      // Mattermost client's behavior.
-      const MAX_PAGES = 10; // 10k messages — beyond this, keep the newest pages' content
-      const raw: SlackMessage[] = [];
+      // want the most RECENT N — walk ALL pages via cursor pagination and
+      // keep a sliding window: trimming to the limit after each page means a
+      // long thread costs API calls but bounded memory, and the walk always
+      // ends at the thread's newest messages. The page cap only bounds a
+      // pathological thread's API cost; hitting it means the END of the
+      // thread was not reached, so the newest messages are missing — say so
+      // honestly instead of claiming the most recent were kept.
+      const MAX_PAGES = 100; // 100k messages — API-cost bound, not a memory bound
+      let filtered: SlackMessage[] = [];
       let cursor: string | undefined;
       for (let page = 0; page < MAX_PAGES; page++) {
         const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
@@ -1034,24 +1036,24 @@ export class SlackClient extends BasePlatformClient {
           'GET',
           `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000${cursorParam}`
         );
-        raw.push(...(response.messages || []));
+        for (const msg of response.messages || []) {
+          if (options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id)) continue;
+          filtered.push(msg);
+        }
+        // Sliding window: each page arrives oldest-first, so after sorting,
+        // trimming from the front keeps the newest seen so far.
+        filtered.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
+        if (options?.limit && filtered.length > options.limit) {
+          filtered = filtered.slice(-options.limit);
+        }
         cursor = response.response_metadata?.next_cursor || undefined;
         if (!cursor) break;
         if (page === MAX_PAGES - 1) {
-          log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — older pages skipped, most recent kept`);
+          log.warn(`Thread ${threadId} exceeds ${MAX_PAGES * 1000} messages — walk stopped early, the NEWEST messages are missing from context`);
         }
       }
 
-      const filtered = raw.filter(
-        (msg) => !(options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id))
-      );
-
-      // Sort by timestamp (oldest first), then keep only the most recent N
-      // BEFORE resolving usernames — no user lookups for messages we drop.
-      filtered.sort((a, b) => parseFloat(a.ts) - parseFloat(b.ts));
-      const kept = options?.limit && filtered.length > options.limit
-        ? filtered.slice(-options.limit)
-        : filtered;
+      const kept = filtered;
 
       const messages: ThreadMessage[] = [];
       for (const msg of kept) {

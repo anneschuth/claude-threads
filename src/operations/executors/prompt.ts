@@ -400,7 +400,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     pending: { postId: string; parsed: P; requestedBy: string } | null,
     label: string,
     clear: () => void,
-    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; postId: string }) => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string }) => void,
     postId: string,
     approved: boolean,
     username: string,
@@ -419,7 +419,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     }
 
     clear();
-    emit({ approved, parsed, requestedBy, postId });
+    emit({ approved, parsed, requestedBy, decidedBy: username, postId });
     return true;
   }
 

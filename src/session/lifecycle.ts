@@ -115,7 +115,7 @@ export function isSessionStartInFlight(sessionId: string): boolean {
  */
 async function handleCreationConfirmation(
   session: Session,
-  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; postId: string },
+  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string },
   flavor: {
     /** Audit tool name and user-facing noun ('routine' | 'watch'). */
     tool: string;
@@ -129,16 +129,20 @@ async function handleCreationConfirmation(
     savedText(formatter: ReturnType<Session['platform']['getFormatter']>, position: number, name: string): string;
   },
 ): Promise<void> {
-  const { approved, parsed, requestedBy, postId } = payload;
+  const { approved, parsed, requestedBy, decidedBy, postId } = payload;
+  // The actor is the user whose REACTION decided the confirmation — the
+  // requester is carried in the detail. Matches plan approvals, which audit
+  // the reacting user; an auditor asking "who approved this unattended
+  // trigger" must get the decider.
   auditLog(session.platformId, {
     threadId: session.threadId,
     sessionId: session.sessionId,
-    actor: requestedBy,
+    actor: decidedBy,
     kind: 'command',
     tool: flavor.tool,
-    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name}`,
+    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name} (requested by @${requestedBy})`,
   });
-  session.threadLogger?.logCommand(flavor.tool, approved ? 'created' : 'discarded', requestedBy);
+  session.threadLogger?.logCommand(flavor.tool, approved ? 'created' : 'discarded', decidedBy);
   if (!approved) {
     sessionLog(session).info(`${flavor.logPrefix} "${parsed.name}" discarded before saving`);
     return;

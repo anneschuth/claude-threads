@@ -285,12 +285,6 @@ export async function manageRoutines(
  * watches are disabled for the platform or can never fire on it.
  */
 async function requireWatchesEnabled(session: Session, ctx: SessionContext): Promise<boolean> {
-  // Watches never evaluate in direct channel mode — refuse instead of
-  // saving a permanently inert watch with a success message.
-  if (await refuseInDirectChannelMode(
-    session,
-    `\u{1F441}\uFE0F Watches are not available in direct channel mode \u2014 the whole channel already routes to one session.`,
-  )) return false;
   if (ctx.ops.isWatchesEnabled(session.platformId)) return true;
   await post(
     session,
@@ -316,6 +310,14 @@ export async function createWatch(
   parse: typeof parseWatchRequest = parseWatchRequest,
 ): Promise<void> {
   if (!await requireWatchesEnabled(session, ctx)) return;
+  // Creation only (mirrors createRoutine): watches never evaluate in direct
+  // channel mode, so refuse instead of saving a permanently inert watch —
+  // but watches that predate a switch to DCM must stay listable/pausable/
+  // deletable via !watches.
+  if (await refuseInDirectChannelMode(
+    session,
+    `\u{1F441}\uFE0F Watches are not available in direct channel mode \u2014 the whole channel already routes to one session.`,
+  )) return;
   if (!await requireSessionOwner(session, username, 'create watches')) return;
   const formatter = session.platform.getFormatter();
 

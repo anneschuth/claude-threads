@@ -1147,9 +1147,9 @@ describe('PromptExecutor — watch-creation confirmation', () => {
     const platform = createMockPlatform();
     const ctx = createTestContext(platform);
     const events = createMessageManagerEvents();
-    const completions: Array<{ approved: boolean; requestedBy: string; name: string }> = [];
-    events.on('watch-prompt:complete', ({ approved, parsed, requestedBy }) => {
-      completions.push({ approved, requestedBy, name: parsed.name });
+    const completions: Array<{ approved: boolean; requestedBy: string; decidedBy: string; name: string }> = [];
+    events.on('watch-prompt:complete', ({ approved, parsed, requestedBy, decidedBy }) => {
+      completions.push({ approved, requestedBy, decidedBy, name: parsed.name });
     });
     const executor = new PromptExecutor({
       sessionId: 'test:session-1',
@@ -1168,9 +1168,11 @@ describe('PromptExecutor — watch-creation confirmation', () => {
 
   it('👍 approves: emits event with approved=true and clears pending state', async () => {
     const { executor, ctx, completions } = setup();
-    const handled = await executor.handleReaction('post-w1', '+1', 'anne', 'added', ctx);
+    // The reactor (bob) is not the requester (anne): the payload must carry
+    // BOTH — the audit trail attributes the decision to the reacting user.
+    const handled = await executor.handleReaction('post-w1', '+1', 'bob', 'added', ctx);
     expect(handled).toBe(true);
-    expect(completions).toEqual([{ approved: true, requestedBy: 'anne', name: 'Incident triage' }]);
+    expect(completions).toEqual([{ approved: true, requestedBy: 'anne', decidedBy: 'bob', name: 'Incident triage' }]);
     expect(executor.hasPendingWatchPrompt()).toBe(false);
   });
 
@@ -1178,7 +1180,7 @@ describe('PromptExecutor — watch-creation confirmation', () => {
     const { executor, ctx, completions } = setup();
     const handled = await executor.handleReaction('post-w1', '-1', 'bob', 'added', ctx);
     expect(handled).toBe(true);
-    expect(completions).toEqual([{ approved: false, requestedBy: 'anne', name: 'Incident triage' }]);
+    expect(completions).toEqual([{ approved: false, requestedBy: 'anne', decidedBy: 'bob', name: 'Incident triage' }]);
   });
 
   it('irrelevant emoji and other posts are ignored', async () => {

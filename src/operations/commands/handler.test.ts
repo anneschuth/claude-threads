@@ -1553,6 +1553,20 @@ describe('watch commands', () => {
     expect((session.messageManager as any).setPendingWatchPrompt).not.toHaveBeenCalled();
   });
 
+  it('manageWatches still works in direct channel mode (legacy watches stay manageable)', async () => {
+    // Watches that predate a switch to DCM must stay listable/pausable/
+    // deletable — only creation is refused there.
+    const session = createMockSession();
+    (session.platform as any).directChannelMode = { enabled: true, respondTo: 'all_messages' };
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    await seedWatch(ctx);
+
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('Watches (1)'))).toBe(true);
+  });
+
   it('createWatch refuses in direct channel mode (a saved watch could never fire)', async () => {
     // The message handler never evaluates watches in DCM (all traffic routes
     // to the one channel session), so saving here would create a permanently

@@ -21,10 +21,6 @@ export {
   setGitHubEmail,
   setRespondOnlyWhenMentioned,
 
-  // Channel memory
-
-  // Routines
-
   // Permission management
   setSessionPermissionMode,
 

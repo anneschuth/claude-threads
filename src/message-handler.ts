@@ -357,8 +357,27 @@ export async function handleMessage(
       return;
     }
 
+    // DCM: a channel message opening with @someone-else is a human-to-human
+    // side conversation. The active- and paused-session paths ignore those
+    // (and docs promise it) — the new-session path must too, or the bot
+    // injects itself into the exchange the moment no session is running.
+    if (dcm.enabled && !client.isBotMentioned(message)) {
+      const sideMention = message.trim().match(/^@([\w.-]+)/);
+      if (sideMention && sideMention[1].toLowerCase() !== client.getBotName().toLowerCase()) {
+        return;
+      }
+    }
+
     if (!client.isUserAllowed(username)) {
-      await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
+      // Warn only when the user explicitly addressed the bot. In DCM
+      // all-messages mode EVERY channel message from a non-allowlisted
+      // member reaches this branch — an unconditional warning would be
+      // unbounded channel spam, and on Mattermost (which deliberately lets
+      // other bots' posts through) two bots could warn at each other in an
+      // endless loop.
+      if (client.isBotMentioned(message)) {
+        await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
+      }
       return;
     }
 

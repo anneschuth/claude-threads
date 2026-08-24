@@ -253,11 +253,6 @@ function firePeriodicReclassification(
   })();
 }
 
-// ---------------------------------------------------------------------------
-// System prompt for chat platform context
-// ---------------------------------------------------------------------------
-
-
 /**
  * How often to fire periodic reclassification (every N messages).
  */

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **DCM: a channel message addressed to another user no longer starts a session.** With no session running, `@bob did you deploy?` in a direct-channel-mode channel used to start a full Claude session in a human-to-human exchange — the side-conversation guard the active/paused paths already had now covers the new-session path too.
+- **DCM: non-allowlisted members no longer trigger an unauthorized-warning post per message.** The warning now only fires on an explicit @mention — previously every message from a non-allowlisted member produced channel spam, and two bots could warn at each other in a loop on Mattermost.
+- **`!watches` works in direct channel mode again** — only *creation* is refused there; watches that predate a switch to DCM stay listable/pausable/deletable (matches routines).
+- **Slack thread history keeps the newest messages for arbitrarily long threads** — the pagination walk now retains a sliding window instead of stopping after 10 pages with the oldest content, and the truncation warning is honest about what was dropped.
+- **Audit trail: routine/watch creation confirmations now record the user whose reaction decided them** (the requester is carried in the detail) — matching how plan approvals are attributed.
+
+### Changed
+- Internal restructuring after three feature waves: the user-commands module splits by domain (guards/memory/automation), lifecycle sheds the out-of-band metadata-suggestions domain into its own module, and the last two stores (sessions, GitHub emails) migrate onto the shared atomic-write primitives.
+
 ## [1.29.0] - 2026-08-24
 
 ### Added

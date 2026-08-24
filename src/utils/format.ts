@@ -100,6 +100,14 @@ export function formatRelativeTimeShort(date: Date): string {
 // =============================================================================
 
 /**
+ * Compact UTC minute stamp for list displays: `2026-08-24T01:57:45.123Z`
+ * becomes `2026-08-24 01:57Z`.
+ */
+export function formatIsoMinute(iso: string): string {
+  return `${iso.slice(0, 16).replace('T', ' ')}Z`;
+}
+
+/**
  * Format version string for status bar display.
  * CT = claude-threads, CC = Claude Code (the CLI).
  *
@@ -116,14 +124,6 @@ export function formatRelativeTimeShort(date: Date): string {
  *   " ⚠️ untested"/" ⚠️ unsupported" appended), or "CT v1.3.1" if no
  *   CLI version
  */
-/**
- * Compact UTC minute stamp for list displays: `2026-08-24T01:57:45.123Z`
- * becomes `2026-08-24 01:57Z`.
- */
-export function formatIsoMinute(iso: string): string {
-  return `${iso.slice(0, 16).replace('T', ' ')}Z`;
-}
-
 export function formatVersionString(): string {
   const claudeVersion = getClaudeCliVersion().version;
   if (!claudeVersion) return `CT v${VERSION}`;
