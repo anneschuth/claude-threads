@@ -83,8 +83,26 @@ export class SlackClient extends BasePlatformClient {
 
   private readonly formatter = new SlackFormatter();
 
-  constructor(platformConfig: SlackPlatformConfig) {
+  // Shared event source: when several SlackClient instances serve one Slack
+  // app, Slack round-robins Socket Mode envelopes across their connections.
+  // Instead, exactly one client (the parent) holds the socket and routes
+  // events for other channels into registered secondary clients.
+  private readonly channelClients = new Map<string, SlackClient>();
+  private sharedEventSource?: SlackClient;
+  private socketConnected = false;
+
+  constructor(platformConfig: SlackPlatformConfig, sharedEventSource?: SlackClient) {
     super();
+    this.sharedEventSource = sharedEventSource;
+    // A secondary's only event feed is the parent's socket, so the parent's
+    // connection state IS the secondary's connection state — mirror it.
+    for (const state of ['connected', 'disconnected', 'reconnecting'] as const) {
+      this.on(state, (...args: unknown[]) => {
+        for (const secondary of this.channelClients.values()) {
+          secondary.emit(state, ...args);
+        }
+      });
+    }
     this.platformId = platformConfig.id;
     this.displayName = platformConfig.displayName;
     this.botToken = platformConfig.botToken;
@@ -97,6 +115,52 @@ export class SlackClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+  }
+
+  // ============================================================================
+  // Shared event source plumbing
+  // ============================================================================
+
+  /**
+   * Parent-side: route events for `channelId` into a secondary client.
+   *
+   * Register secondaries (or call their `connect()`) BEFORE connecting the
+   * parent: events arriving between the parent's socket going live and a
+   * secondary's registration hit the unregistered-channel drop path.
+   */
+  registerChannelClient(channelId: string, client: SlackClient): void {
+    if (channelId === this.channelId) {
+      // Routing requires eventChannel !== this.channelId, so a same-channel
+      // secondary would register fine and then never receive anything.
+      throw new Error(
+        `registerChannelClient: ${channelId} is the parent's own channel — a secondary there can never receive events`
+      );
+    }
+    this.channelClients.set(channelId, client);
+  }
+
+  /**
+   * Parent-side: stop routing events for `channelId`. When `client` is given,
+   * the registration is removed only if it still belongs to that instance —
+   * an old secondary's teardown must not evict its replacement.
+   */
+  unregisterChannelClient(channelId: string, client?: SlackClient): void {
+    if (client && this.channelClients.get(channelId) !== client) return;
+    this.channelClients.delete(channelId);
+  }
+
+  /** Secondary-side: receive an event injected by the parent's socket. */
+  _injectSlackEvent(event: Parameters<SlackClient['handleSlackEvent']>[0]): void {
+    this.handleSlackEvent(event);
+  }
+
+  override disconnect(): Promise<void> {
+    // A secondary must stop receiving injected events when it goes away;
+    // the base teardown is still safe to run (it has no socket to close).
+    if (this.sharedEventSource) {
+      this.sharedEventSource.unregisterChannelClient(this.channelId, this);
+    }
+    return super.disconnect();
   }
 
   // ============================================================================
@@ -279,6 +343,25 @@ export class SlackClient extends BasePlatformClient {
    * 4. Receive events and ACK within 3 seconds
    */
   async connect(): Promise<void> {
+    // Secondary instance on a shared event source: NEVER open a second Socket
+    // Mode connection — Slack round-robins envelopes across an app's
+    // connections, so a second socket steals events from the parent. The
+    // parent injects events via _injectSlackEvent; Web API calls (which are
+    // plain HTTPS) work independently.
+    if (this.sharedEventSource) {
+      await this.fetchBotUser();
+      // disconnect() may have run while fetchBotUser was in flight — a stale
+      // continuation must not resurrect the registration.
+      if (this.isIntentionalDisconnect) return;
+      this.sharedEventSource.registerChannelClient(this.channelId, this);
+      // Only claim connected while the parent's socket actually is; otherwise
+      // the state mirror emits 'connected' when the parent's hello arrives.
+      if (this.sharedEventSource.socketConnected) {
+        this.emit('connected');
+      }
+      return;
+    }
+
     // First, get bot user info
     await this.fetchBotUser();
     wsLogger.debug(`Slack bot user ID: ${this.botUserId}`);
@@ -339,13 +422,23 @@ export class SlackClient extends BasePlatformClient {
           // Connection established on 'hello'
           if (envelope.type === 'hello') {
             clearTimeout(connectionTimeout);
+            this.socketConnected = true;
             this.onConnectionEstablished();
 
-            // Recover missed messages if reconnecting
-            if (this.isReconnecting && this.lastProcessedTs) {
-              this.recoverMissedMessages().catch((err) => {
-                log.warn(`Failed to recover missed messages: ${err}`);
-              });
+            // Recover missed messages if reconnecting — for this channel and
+            // for every registered secondary, whose only feed is this socket
+            // (each recovery no-ops without its own lastProcessedTs).
+            if (this.isReconnecting) {
+              if (this.lastProcessedTs) {
+                this.recoverMissedMessages().catch((err) => {
+                  log.warn(`Failed to recover missed messages: ${err}`);
+                });
+              }
+              for (const secondary of this.channelClients.values()) {
+                secondary.recoverMissedMessages().catch((err) => {
+                  log.warn(`Failed to recover missed messages for ${secondary.platformId}: ${err}`);
+                });
+              }
             }
 
             doResolve();
@@ -356,6 +449,7 @@ export class SlackClient extends BasePlatformClient {
       };
 
       this.ws.onclose = (event) => {
+        this.socketConnected = false;
         clearTimeout(connectionTimeout);
         wsLogger.info(
           `Socket Mode: WebSocket disconnected (code: ${event.code}, reason: ${event.reason || 'none'}, clean: ${event.wasClean})`
@@ -447,6 +541,19 @@ export class SlackClient extends BasePlatformClient {
     bot_id?: string;
     files?: SlackFile[];
   }): void {
+    // Shared event source: this socket may carry events for channels owned by
+    // registered secondary clients — hand those over before any own-channel
+    // filtering. Events for unregistered foreign channels keep the existing
+    // behavior (dropped below by the own-channel checks).
+    const eventChannel = event.channel || event.item?.channel;
+    if (eventChannel && eventChannel !== this.channelId) {
+      const secondary = this.channelClients.get(eventChannel);
+      if (secondary) {
+        secondary._injectSlackEvent(event);
+        return;
+      }
+    }
+
     // Handle message events
     // Note: file_share subtype is used when a user uploads a file with a message
     if (event.type === 'message' && (!event.subtype || event.subtype === 'file_share')) {
