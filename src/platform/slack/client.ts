@@ -459,6 +459,14 @@ export class SlackClient extends BasePlatformClient {
         wsLogger.info('Socket Mode: WebSocket connected, waiting for hello...');
       };
 
+      // Slack keeps idle Socket Mode connections alive with protocol-level ping
+      // frames (~10s cadence) — they never reach onmessage. Bun's WebSocket
+      // surfaces them as 'ping' events; count them as activity, or the 60s
+      // heartbeat executes every healthy idle connection (observed 2026-08-25).
+      (this.ws as unknown as EventTarget).addEventListener?.('ping', () => {
+        this.updateLastMessageTime();
+      });
+
       this.ws.onmessage = (event) => {
         this.updateLastMessageTime();
 
