@@ -407,8 +407,11 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     }
 
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      log.error('Max reconnection attempts reached');
-      return;
+      // A dead socket with a live process is a zombie the supervisor can't see:
+      // systemd keeps the unit "active" while no events ever arrive. Exit instead —
+      // Restart=always brings us back with a fresh socket, which reliably reconnects.
+      log.error('Max reconnection attempts reached — exiting for supervisor restart');
+      process.exit(1);
     }
 
     // Clean up any existing connection before reconnecting
