@@ -335,8 +335,18 @@ export async function detectWorktreeInfo(
     // Get the branch name from git
     const branchOutput = await execGit(['rev-parse', '--abbrev-ref', 'HEAD'], workingDir);
     const branch = branchOutput?.trim();
-    if (!branch) {
+    // A detached HEAD reports the literal string "HEAD" — not a branch name;
+    // downstream (findWorktreeByBranch, list markers) would treat it as one.
+    if (!branch || branch === 'HEAD') {
       log.debug(`Could not detect branch for worktree at ${workingDir}`);
+      return null;
+    }
+
+    // The worktree root, not workingDir: a session may start in a nested
+    // subdirectory, and reference counting / `git worktree remove` must see
+    // the actual worktree path.
+    const toplevel = (await execGit(['rev-parse', '--show-toplevel'], workingDir))?.trim();
+    if (!toplevel || !isValidWorktreePath(toplevel)) {
       return null;
     }
 
@@ -347,9 +357,9 @@ export async function detectWorktreeInfo(
     log.debug(`Detected worktree: path=${workingDir}, branch=${branch}, repoRoot=${repoRoot}`);
 
     return {
-      worktreePath: workingDir,
+      worktreePath: toplevel,
       branch,
-      repoRoot: repoRoot || workingDir,
+      repoRoot: repoRoot || toplevel,
     };
   } catch (err) {
     log.debug(`Failed to detect worktree info for ${workingDir}: ${err}`);
