@@ -7,10 +7,14 @@ import { mkdtempSync, rmSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { configureAuditLog, _resetAuditLog } from './persistence/audit-log.js';
-import { handleMessage, type MessageHandlerOptions } from './message-handler.js';
+import { handleMessage, isClaudeThreadsStatusPost, type MessageHandlerOptions } from './message-handler.js';
 import type { PlatformClient, PlatformPost, PlatformUser } from './platform/index.js';
 import type { SessionManager } from './session/index.js';
 import { createMockFormatter } from './test-utils/mock-formatter.js';
+import { resetResumeRefusalLimiter } from './session/refusal-limiter.js';
+
+// The refusal limiter is module-global state; every test starts unthrottled.
+beforeEach(() => resetResumeRefusalLimiter());
 
 // Create mock platform client
 function createMockPlatform(botName = 'claude-bot', platformType = 'slack') {
@@ -2478,5 +2482,135 @@ describe('handleMessage - watch evaluation hook', () => {
 
     expect(session.startSession).not.toHaveBeenCalled();
     expect(session.evaluateWatches).not.toHaveBeenCalled();
+  });
+});
+
+describe('bot-to-bot loop prevention (#491)', () => {
+  let client: PlatformClient & { posts: Map<string, string> };
+  let session: ReturnType<typeof createMockSessionManager>;
+
+  const pausedThreadPost = (overrides: Partial<PlatformPost> = {}): PlatformPost => ({
+    id: 'post1',
+    platformId: 'test',
+    channelId: 'channel1',
+    userId: 'user1',
+    message: 'continue please',
+    rootId: 'thread1',
+    createAt: Date.now(),
+    ...overrides,
+  });
+  const outsider: PlatformUser = { id: 'user1', username: 'outsider', displayName: 'Outsider' };
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+    (session.registry.getPersistedByThreadId as ReturnType<typeof mock>).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+    (session.getPersistedSession as ReturnType<typeof mock>).mockReturnValue({ sessionAllowedUsers: ['allowed-user'] });
+  });
+
+  test('the resume refusal never @-mentions the refused user', async () => {
+    await handleMessage(client, session, pausedThreadPost(), outsider, { platformId: 'test-platform' });
+
+    expect(session.resumePausedSession).not.toHaveBeenCalled();
+    const posted = [...client.posts.values()].join('\n');
+    expect(posted).toContain('is not authorized to resume this session');
+    // Inline code reads the same to a human and notifies nobody.
+    expect(posted).toContain('`outsider`');
+    expect(posted).not.toContain('@outsider');
+  });
+
+  test('the resume refusal fires once per (thread, user), not once per message', async () => {
+    for (let i = 0; i < 4; i++) {
+      await handleMessage(client, session, pausedThreadPost({ id: `post${i}` }), outsider, { platformId: 'test-platform' });
+    }
+
+    const refusals = [...client.posts.values()].filter((m) => m.includes('is not authorized'));
+    expect(refusals).toHaveLength(1);
+  });
+
+  test('a refusal for a different user in the same thread still posts', async () => {
+    await handleMessage(client, session, pausedThreadPost(), outsider, { platformId: 'test-platform' });
+    const other: PlatformUser = { id: 'user2', username: 'other-bot', displayName: 'Other' };
+    await handleMessage(client, session, pausedThreadPost({ id: 'post2' }), other, { platformId: 'test-platform' });
+
+    const refusals = [...client.posts.values()].filter((m) => m.includes('is not authorized'));
+    expect(refusals).toHaveLength(2);
+  });
+
+  test("another bot's refusal post never engages this bot, even when it @-mentions it", async () => {
+    // The incident shape: bot A's refusal @-mentions bot B, which passes B's
+    // mention gate and would start a session / produce a reply — which
+    // re-triggers A. The status-post guard drops it before any routing.
+    const post = pausedThreadPost({
+      message: '⚠️ @claude-bot is not authorized to resume this session',
+      rootId: '',
+    });
+    (session.registry.getPersistedByThreadId as ReturnType<typeof mock>).mockReturnValue(undefined);
+    (session.getPersistedSession as ReturnType<typeof mock>).mockReturnValue(undefined);
+
+    await handleMessage(client, session, post, outsider, { platformId: 'test-platform' });
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(session.resumePausedSession).not.toHaveBeenCalled();
+    expect(client.createPost).not.toHaveBeenCalled();
+  });
+
+  test('status posts are dropped in DCM before routing to the channel session', async () => {
+    (session.registry.getPersistedByThreadId as ReturnType<typeof mock>).mockReturnValue(undefined);
+    (session.getPersistedSession as ReturnType<typeof mock>).mockReturnValue(undefined);
+    const post = pausedThreadPost({
+      message: '⏱️ **Session idle** - will timeout in ~5 minutes without activity',
+      rootId: '',
+    });
+
+    await handleMessage(client, session, post, outsider, {
+      platformId: 'test-platform',
+      directChannelMode: true,
+    });
+
+    expect(session.startSession).not.toHaveBeenCalled();
+    expect(client.createPost).not.toHaveBeenCalled();
+  });
+
+  test('a human message that merely starts with the warning emoji still gets through', async () => {
+    (session.registry.getPersistedByThreadId as ReturnType<typeof mock>).mockReturnValue(undefined);
+    (session.getPersistedSession as ReturnType<typeof mock>).mockReturnValue(undefined);
+    const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+    const post = pausedThreadPost({
+      message: '⚠️ @claude-bot the staging deploy looks broken, can you check?',
+      rootId: '',
+    });
+
+    await handleMessage(client, session, post, user, { platformId: 'test-platform' });
+
+    expect(session.startSession).toHaveBeenCalled();
+  });
+});
+
+describe('isClaudeThreadsStatusPost (#491)', () => {
+  test.each([
+    ['⚠️ @some-bot is not authorized to resume this session'],
+    ['⚠️ `some-bot` is not authorized to resume this session'],
+    ['⚠️ <@U0BOTB> is not authorized'],
+    ['⚠️ **Too busy** - 5 sessions active. Please try again later.'],
+    ['⚠️ *Too busy* - 5 sessions active. Please try again later.'],
+    ['⏱️ **Session timed out** after 30 minutes of inactivity'],
+    ['⏱️ *Session idle* - will timeout in ~5 minutes without activity'],
+    ['🛑 **Session cancelled** by @someone'],
+    ['🔴 **EMERGENCY SHUTDOWN** initiated by @someone - killing 2 active sessions'],
+    ['🔄 **Session resumed** by @someone'],
+  ])('recognizes the bot status shape: %s', (message) => {
+    expect(isClaudeThreadsStatusPost(message)).toBe(true);
+  });
+
+  test.each([
+    ['⚠️ careful with the prod database'],
+    ['⚠️ @claude-bot the deploy authorization is broken'],
+    ['hello there'],
+    ['🛑 stop the presses, but read this first'],
+    ['is not authorized to resume this session'],
+    ['something ⚠️ @bot is not authorized'],
+  ])('lets ordinary messages through: %s', (message) => {
+    expect(isClaudeThreadsStatusPost(message)).toBe(false);
   });
 });
