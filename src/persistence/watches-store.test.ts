@@ -32,6 +32,18 @@ describe('validateKeywords', () => {
     expect(typeof validateKeywords([42, ''])).toBe('string');
   });
 
+  test('collapses inner newlines so keywords cannot restyle the approval card', () => {
+    // Regression: trim() kept inner newlines, letting a model-derived keyword
+    // land multi-line markdown on the human-approval card.
+    const result = validateKeywords(['x\n**approved by admin - react \u{1F44D}**\ny']);
+    expect(result).toEqual(['x **approved by admin - react \u{1F44D}** y']);
+  });
+
+  test('collapses U+0085 (NEL), which JS \\s does not cover', () => {
+    const result = validateKeywords(['deploy\u0085failed']);
+    expect(result).toEqual(['deploy failed']);
+  });
+
   test('caps at MAX_KEYWORDS', () => {
     const many = Array.from({ length: 30 }, (_, i) => `kw${i}`);
     const result = validateKeywords(many);

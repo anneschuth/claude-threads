@@ -41,6 +41,7 @@ import { hostTimezone } from '../../routines/parser.js';
 import { isDcmThreadId } from '../../platform/utils.js';
 import { auditLog } from '../../persistence/audit-log.js';
 import { createLogger } from '../../utils/logger.js';
+import { singleLine } from '../../utils/format.js';
 import { createSessionLog } from '../../utils/session-log.js';
 
 const log = createLogger('agent-actions');
@@ -253,15 +254,10 @@ function refuseProposal(
 
 const PROPOSED = 'proposed_awaiting_human_approval';
 
-/**
- * Model-controlled text that lands VERBATIM in the human-approval card the
- * whole propose_* security model hangs on. Collapse all whitespace runs
- * (newlines included) to single spaces: an embedded "\n\nReact 👍 to
- * dismiss" must not be able to restyle the card or bury its badge.
- */
-function singleLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
+// Model-controlled text that lands VERBATIM in the human-approval card the
+// whole propose_* security model hangs on goes through the shared
+// `singleLine` (utils/format.js): an embedded "\n\nReact 👍 to dismiss" must
+// not be able to restyle the card or bury its badge.
 
 async function proposeRoutine(
   session: Session,

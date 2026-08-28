@@ -6,6 +6,7 @@ import {
   formatRelativeTimeShort,
   truncateAtWord,
   formatIsoMinute,
+  singleLine,
 } from './format.js';
 
 describe('formatShortId', () => {
@@ -173,5 +174,19 @@ describe('formatVersionString', () => {
 describe('formatIsoMinute', () => {
   it('renders an ISO timestamp as a compact UTC minute stamp', () => {
     expect(formatIsoMinute('2026-08-24T01:57:45.123Z')).toBe('2026-08-24 01:57Z');
+  });
+});
+
+describe('singleLine', () => {
+  it('collapses whitespace runs (newlines included) to single spaces', () => {
+    expect(singleLine('a\n\nb\tc  d')).toBe('a b c d');
+  });
+
+  it('collapses U+0085 (NEL) and U+2028/U+2029 line separators', () => {
+    expect(singleLine('a\u0085b\u2028c\u2029d')).toBe('a b c d');
+  });
+
+  it('trims the result', () => {
+    expect(singleLine('  x  ')).toBe('x');
   });
 });

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- **Watch keywords can no longer smuggle multi-line markdown onto the human-approval card.** `validateKeywords` collapsed case and edges but kept inner newlines, bypassing the single-line guard the card relies on; keywords — and haiku-parsed names/conditions/prompts, plus the store-level name/condition gates — now go through one shared `singleLine` that also covers U+0085 (NEL), which JS `\s` misses.
+- **The decision bridge caps its per-request line buffer at 1 MB** — a newline-less stream from a misbehaving client can no longer grow the bot's memory without bound (the connection is dropped without a response).
+
 ### Added
 - **Agent tools — Claude can now use the bot's own features from inside a session.** Six new MCP tools, executed in the bot process over the session's decision bridge:
   - `remember_fact` saves one durable team fact to channel memory with a new `agent` provenance label. No approval prompt (the end-of-session distiller already writes ungated) — instead every save is **announced in the thread**, audit-logged, capped at 5 per session, and can never displace a user-written entry (supersede/dedupe/eviction rank agent entries with distilled ones). `list_memory` lists what's stored.

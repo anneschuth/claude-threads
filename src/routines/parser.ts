@@ -15,6 +15,7 @@ import {
   type RoutineSchedule,
 } from '../persistence/routines-store.js';
 import { createLogger } from '../utils/logger.js';
+import { singleLine } from '../utils/format.js';
 
 const log = createLogger('routines');
 
@@ -66,8 +67,9 @@ export function validateParsedRoutine(
   if (typeof raw.error === 'string' && raw.error) {
     return { ok: false, error: raw.error };
   }
-  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
-  const prompt = typeof raw.prompt === 'string' ? raw.prompt.trim() : '';
+  // singleLine, not trim: model-authored, rendered verbatim on the card.
+  const name = typeof raw.name === 'string' ? singleLine(raw.name) : '';
+  const prompt = typeof raw.prompt === 'string' ? singleLine(raw.prompt) : '';
   const preset = raw.preset as RoutineSchedule['preset'];
   if (!name) return { ok: false, error: 'could not derive a routine name' };
   if (!prompt) return { ok: false, error: 'could not tell what the routine should do' };

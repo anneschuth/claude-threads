@@ -15,6 +15,7 @@
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../utils/logger.js';
+import { singleLine } from '../utils/format.js';
 import { PlatformListStore, STORES_CONFIG_DIR } from './platform-list-store.js';
 
 const log = createLogger('routines');
@@ -150,7 +151,10 @@ export class RoutinesStore extends PlatformListStore<Routine> {
     const result = await this.addItem(platformId, maxRoutines, 'routine', () => {
       const scheduleError = validateSchedule(routine.schedule);
       if (scheduleError) return scheduleError;
-      const name = routine.name.trim().slice(0, 80);
+      // The name renders in lists, cards and fire announcements — collapse
+      // to one line at the authoritative gate. The prompt is task text for
+      // the fired session; multi-line stays legal there.
+      const name = singleLine(routine.name).slice(0, 80);
       const prompt = routine.prompt.trim().slice(0, 2000);
       if (!name || !prompt) return 'name and prompt are required';
       return {

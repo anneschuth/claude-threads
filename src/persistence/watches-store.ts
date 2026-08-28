@@ -14,6 +14,7 @@
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { createLogger } from '../utils/logger.js';
+import { singleLine } from '../utils/format.js';
 import { PlatformListStore, STORES_CONFIG_DIR } from './platform-list-store.js';
 
 const log = createLogger('watches');
@@ -74,7 +75,10 @@ export function validateKeywords(raw: unknown): string[] | string {
   const cleaned = [...new Set(
     raw
       .filter((k): k is string => typeof k === 'string')
-      .map((k) => k.trim().toLowerCase())
+      // singleLine, not trim: keywords are model-derived and rendered
+      // verbatim on the human-approval card — an inner newline could smuggle
+      // multi-line markdown past the card's single-line framing.
+      .map((k) => singleLine(k).toLowerCase())
       .filter((k) => k.length > 0 && k.length <= MAX_KEYWORD_LENGTH),
   )];
   if (cleaned.length < MIN_KEYWORDS) return 'at least one usable keyword is required';
@@ -95,7 +99,7 @@ export class WatchesStore extends PlatformListStore<Watch> {
     w.keywords = Array.isArray(w.keywords)
       ? w.keywords
         .filter((k): k is string => typeof k === 'string')
-        .map((k) => k.trim().toLowerCase())
+        .map((k) => singleLine(k).toLowerCase())
         .filter((k) => k.length > 0)
       : [];
   }
@@ -115,8 +119,11 @@ export class WatchesStore extends PlatformListStore<Watch> {
    */
   async add(platformId: string, watch: NewWatch, maxWatches = DEFAULT_MAX_WATCHES): Promise<{ ok: true; watch: Watch } | { ok: false; error: string }> {
     const result = await this.addItem(platformId, maxWatches, 'watch', () => {
-      const name = watch.name.trim().slice(0, 80);
-      const condition = watch.condition.trim().slice(0, 500);
+      // name/condition render in lists, cards and fire announcements —
+      // collapse to one line at the authoritative gate. The prompt is task
+      // text for the fired session; multi-line stays legal there.
+      const name = singleLine(watch.name).slice(0, 80);
+      const condition = singleLine(watch.condition).slice(0, 500);
       const prompt = watch.prompt.trim().slice(0, 2000);
       if (!name || !condition || !prompt) return 'name, condition and prompt are required';
       const keywords = validateKeywords(watch.keywords);

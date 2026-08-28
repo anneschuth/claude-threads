@@ -13,6 +13,7 @@
 import { parseJsonViaHaiku } from '../claude/llm-json.js';
 import { validateKeywords } from '../persistence/watches-store.js';
 import { createLogger } from '../utils/logger.js';
+import { singleLine } from '../utils/format.js';
 
 const log = createLogger('watches');
 
@@ -56,9 +57,11 @@ export function validateParsedWatch(raw: Record<string, unknown>): ParseWatchRes
   if (typeof raw.error === 'string' && raw.error) {
     return { ok: false, error: raw.error };
   }
-  const name = typeof raw.name === 'string' ? raw.name.trim() : '';
-  const condition = typeof raw.condition === 'string' ? raw.condition.trim() : '';
-  const prompt = typeof raw.prompt === 'string' ? raw.prompt.trim() : '';
+  // singleLine, not trim: these are model-authored and rendered verbatim on
+  // the human-approval card — inner newlines must not restyle it.
+  const name = typeof raw.name === 'string' ? singleLine(raw.name) : '';
+  const condition = typeof raw.condition === 'string' ? singleLine(raw.condition) : '';
+  const prompt = typeof raw.prompt === 'string' ? singleLine(raw.prompt) : '';
   if (!name || !condition || !prompt) {
     return { ok: false, error: 'could not extract a name, condition and task from the request' };
   }
