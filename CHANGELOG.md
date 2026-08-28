@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.30.1] - 2026-08-28
 
 ### Security
 - **The card-injection guard now also covers the haiku-parsed `!watch`/`!routine` paths and the store-level gates.** 1.30.0 collapsed watch *keywords*; model-authored names, conditions and prompts from the natural-language parsers — and the stores' own name/condition normalization, the gate no caller can bypass — now go through the same shared `singleLine` helper (`utils/format.ts`), which replaces the two inline copies of the whitespace-collapse regex.
