@@ -2063,8 +2063,10 @@ export async function handleExit(
     ctx.ops.unregisterWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Clean up session from maps and notify keep-alive
-  removeFromRegistry(session, ctx, code === 0 ? 'exit' : `exit:${code}`);
+  // Clean up session from maps and notify keep-alive. A signal death
+  // (code null) is a clean end like code 0 — matching closeThreadLogger and
+  // the unpersist branch below, so no path can label it 'exit:null'.
+  removeFromRegistry(session, ctx, code === 0 || code === null ? 'exit' : `exit:${code}`);
 
   // Only unpersist for normal exits
   if (code === 0 || code === null) {
