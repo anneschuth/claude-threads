@@ -22,8 +22,39 @@ import { logSilentError } from './utils/error-handler/index.js';
 import { dcmThreadId, isDcmThreadId, resolveAckReaction, resolveApprovals, resolveDirectChannelMode, type DirectChannelModeConfig } from './platform/utils.js';
 import { auditLog } from './persistence/audit-log.js';
 import { createLogger } from './utils/logger.js';
+import { shouldPostResumeRefusal } from './session/refusal-limiter.js';
 
 const ackLog = createLogger('ack');
+
+/**
+ * Machine-generated status posts from claude-threads itself (any instance,
+ * any version). When several bots share a server, one bot's status output
+ * must never read as a request to another — a refusal that @-mentioned a
+ * fellow bot once produced an unbounded two-bot loop (#491). Matching is
+ * anchored to the exact emoji + phrase shapes the bot emits (with either
+ * platform's bold markers), so a human message that merely *starts* with one
+ * of these emoji still gets through.
+ */
+const BOLD = String.raw`(?:\*{1,2}|_{1,2})?`;
+const STATUS_POST_PATTERNS: RegExp[] = [
+  // Authorization refusals — the addressee may render as @name, `name`, or a
+  // raw <@U…> token depending on platform and version.
+  /^⚠️\s+\S+ is not authorized\b/u,
+  new RegExp(`^⚠️\\s+${BOLD}Too busy${BOLD} -`, 'u'),
+  new RegExp(`^⏱️\\s+${BOLD}Session (?:timed out|idle)${BOLD}`, 'u'),
+  new RegExp(`^🛑\\s+${BOLD}Session cancelled${BOLD}`, 'u'),
+  new RegExp(`^🔴\\s+${BOLD}EMERGENCY SHUTDOWN${BOLD}`, 'u'),
+  new RegExp(`^🔄\\s+${BOLD}Session resumed${BOLD}`, 'u'),
+];
+
+/**
+ * Whether a message is one of claude-threads' own status posts (#491).
+ * Exported for tests.
+ */
+export function isClaudeThreadsStatusPost(message: string): boolean {
+  const trimmed = message.trim();
+  return STATUS_POST_PATTERNS.some((re) => re.test(trimmed));
+}
 
 /**
  * Logger interface for message handler
@@ -126,6 +157,14 @@ export async function handleMessage(
   const formatter = client.getFormatter();
 
   try {
+    // Another claude-threads instance's status output is machine output,
+    // never a request — dropping it here breaks bot-to-bot loops (#491)
+    // regardless of which refusal or notice shape triggered them.
+    if (isClaudeThreadsStatusPost(message)) {
+      logger?.debug?.(`Ignoring claude-threads status post from @${username}`);
+      return;
+    }
+
     // Check for !kill command (emergency shutdown)
     const lowerMessage = message.trim().toLowerCase();
     if (
@@ -332,11 +371,18 @@ export async function handleMessage(
         const ownerScoped =
           resolveApprovals(client.approvals, isDcmThreadId(threadRoot)) === 'owner';
         if (!allowedUsers.has(username) && (ownerScoped || !client.isUserAllowed(username))) {
-          // Not allowed - could request approval but that would require the session to be active
-          await client.createPost(
-            `⚠️ ${formatter.formatUserMention(username)} is not authorized to resume this session`,
-            threadRoot
-          );
+          // Not allowed - could request approval but that would require the
+          // session to be active. The refusal deliberately does NOT @-mention
+          // the refused user (inline code reads the same to a human and
+          // notifies nobody) and is rate-limited per (thread, user): a message
+          // whose purpose is "stop talking to me" must not be the one shape
+          // guaranteed to wake another bot into replying (#491).
+          if (shouldPostResumeRefusal(platformId, threadRoot, username)) {
+            await client.createPost(
+              `⚠️ ${formatter.formatCode(username)} is not authorized to resume this session`,
+              threadRoot
+            );
+          }
           return;
         }
       }
@@ -397,7 +443,11 @@ export async function handleMessage(
       // other bots' posts through) two bots could warn at each other in an
       // endless loop.
       if (client.isBotMentioned(message)) {
-        await client.createPost(`⚠️ ${formatter.formatUserMention(username)} is not authorized`, threadRoot);
+        // No @-mention and rate-limited, for the same loop-safety reasons as
+        // the resume refusal above (#491).
+        if (shouldPostResumeRefusal(platformId, threadRoot, username)) {
+          await client.createPost(`⚠️ ${formatter.formatCode(username)} is not authorized`, threadRoot);
+        }
       }
       return;
     }

@@ -2,11 +2,9 @@
  * Tests for the decision bridge — real sockets, both halves.
  */
 
-import { describe, it, expect } from 'bun:test';
-import { createConnection } from 'node:net';
+import { describe, it, expect, mock } from 'bun:test';
 import {
   DecisionBridgeServer,
-  MAX_BRIDGE_LINE_LENGTH,
   requestBridgeDecision,
   requestAgentAction,
   bridgeSocketPath,
@@ -131,41 +129,6 @@ describe('DecisionBridge', () => {
     await expect(requestBridgeDecision(path, PLAN_REQUEST, 500)).rejects.toThrow();
   });
 
-  it('destroys a connection whose line exceeds the buffer cap without responding', async () => {
-    // Regression: without the cap a newline-less stream grows the bot's line
-    // buffer without bound. The handler must never run for such a stream.
-    let handled = 0;
-    const server = await DecisionBridgeServer.create(async () => {
-      handled++;
-      return { behavior: 'allow' };
-    });
-    try {
-      const closed = await new Promise<boolean>((resolve, reject) => {
-        const socket = createConnection(server.path);
-        const timer = setTimeout(() => {
-          socket.destroy();
-          resolve(false);
-        }, 3000);
-        socket.on('connect', () => {
-          // Two oversized chunks, no newline anywhere.
-          socket.write('x'.repeat(MAX_BRIDGE_LINE_LENGTH));
-          socket.write('x'.repeat(1024));
-        });
-        socket.on('close', () => {
-          clearTimeout(timer);
-          resolve(true);
-        });
-        socket.on('error', () => {
-          /* reset by the server's destroy is the expected path */
-        });
-        void reject;
-      });
-      expect(closed).toBe(true);
-      expect(handled).toBe(0);
-    } finally {
-      await server.close();
-    }
-  });
 });
 
 describe('DecisionBridge - agent actions', () => {
@@ -258,6 +221,47 @@ describe('DecisionBridge - client disconnect aborts the handler', () => {
       const { rm } = await import('node:fs/promises');
       const { join } = await import('node:path');
       await rm(join(path, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('DecisionBridge - oversize request cap', () => {
+  it('drops a connection that streams more than the request cap without a newline', async () => {
+    const handler = mock(async () => ({ behavior: 'allow' as const }));
+    const server = await DecisionBridgeServer.create(handler);
+    try {
+      const { createConnection } = await import('node:net');
+      // Flood past MAX_BRIDGE_REQUEST_BYTES with no newline, THEN a newline.
+      // With the cap the server severs the connection mid-flood, so no
+      // response can ever arrive; without it the completed giant line would
+      // come back as a "Malformed bridge request" deny. (Bun's client does
+      // not reliably surface the peer destroy while its own write buffer is
+      // full, so the assertion is response-silence, not a close event.)
+      const gotResponse = await new Promise<boolean>((resolve) => {
+        const socket = createConnection(server.path, () => {
+          socket.write('x'.repeat(2 * 1024 * 1024));
+          socket.write('\n');
+        });
+        const timer = setTimeout(() => {
+          socket.destroy();
+          resolve(false);
+        }, 2000);
+        socket.on('data', () => {
+          clearTimeout(timer);
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => {});
+      });
+      expect(gotResponse).toBe(false);
+      expect(handler).not.toHaveBeenCalled();
+
+      // The server survives the flood: a well-formed request on a fresh
+      // connection still round-trips.
+      const decision = await requestBridgeDecision(server.path, PLAN_REQUEST, 2000);
+      expect(decision.behavior).toBe('allow');
+    } finally {
+      await server.close();
     }
   });
 });

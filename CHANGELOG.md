@@ -8,8 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Security
-- **Watch keywords can no longer smuggle multi-line markdown onto the human-approval card.** `validateKeywords` collapsed case and edges but kept inner newlines, bypassing the single-line guard the card relies on; keywords — and haiku-parsed names/conditions/prompts, plus the store-level name/condition gates — now go through one shared `singleLine` that also covers U+0085 (NEL), which JS `\s` misses.
-- **The decision bridge caps its per-request line buffer at 1 MB** — a newline-less stream from a misbehaving client can no longer grow the bot's memory without bound (the connection is dropped without a response).
+- **The card-injection guard now also covers the haiku-parsed `!watch`/`!routine` paths and the store-level gates.** 1.30.0 collapsed watch *keywords*; model-authored names, conditions and prompts from the natural-language parsers — and the stores' own name/condition normalization, the gate no caller can bypass — now go through the same shared `singleLine` helper (`utils/format.ts`), which replaces the two inline copies of the whitespace-collapse regex.
+
+## [1.30.0] - 2026-08-28
 
 ### Added
 - **Agent tools — Claude can now use the bot's own features from inside a session.** Six new MCP tools, executed in the bot process over the session's decision bridge:
@@ -18,6 +19,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Loop prevention:** sessions started by routine/watch fires are marked `unattended` (persisted across restarts); such sessions cannot propose new routines or watches **or write channel memory** — the tools aren't offered there, and the bot refuses regardless (a prompt-injected fire must not seed future sessions' context).
   - **Approval is owner-gated for agent proposals:** an `!invite`d guest can react on the card, but only the session owner or a platform-allowlisted user may decide it — an unauthorized reaction is refused *without consuming the proposal* (and warned about once, not per toggle), so a guest can neither approve nor veto. Card text Claude authors is collapsed to a single line so it cannot restyle the approval card, and a proposal never displaces a pending human confirmation.
   - Tool availability follows the platform's `memory`/`routines`/`watches` config (advisory env gates on the MCP child; authoritative re-checks in the bot). Destructive operations (forget, pause, delete, manual run) are never exposed to Claude.
+
+### Fixed
+- **Bot-to-bot loops are broken at every link (#491).** Two claude-threads bots on one server could lock into an unbounded refusal loop (observed in the wild: 1,941 messages in 37 minutes) because the "not authorized to resume" refusal @-mentioned the bot it was refusing. Three independent fixes, any one of which stops that incident: refusals render the refused user as inline code instead of an @-mention (reads the same, notifies nobody); refusals are rate-limited to once per (thread, user) per 5 minutes instead of once per message; and claude-threads now recognizes another instance's own status posts (refusals, timeout/idle notices, cancellations, emergency shutdowns, resume announcements) and never treats them as a request — even when they carry a mention. A human message that merely starts with one of the status emojis still gets through. Thanks to @theprsi for the excellent incident analysis.
+- A signal death of the Claude process (exit code `null`) can no longer be labeled `exit:null` on the registry-removal path — it's a clean end like code 0, matching every sibling teardown site. (Independently found by @Jadefalkner.)
+
+### Security
+- **Watch prefilter keywords are collapsed to single-line** before rendering into the human-approval card — an embedded newline could otherwise smuggle multi-line markdown past the card's single-line guard (second-pass review follow-up to the agent tools).
+- **The decision bridge drops connections that stream more than 1MB without a newline** instead of buffering indefinitely — closes the cheapest local memory-exhaustion path against the bot process.
+- The single-line sanitizers (memory entries, agent card text, watch keywords) now also collapse U+0085 (NEL), which JS `\s` does not cover.
 
 ## [1.29.3] - 2026-08-28
 

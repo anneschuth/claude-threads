@@ -182,3 +182,16 @@ describe('WatchesStore', () => {
     expect(raw).toContain('version: 1');
   });
 });
+
+describe('validateKeywords card-injection hardening', () => {
+  test('collapses embedded newlines so keywords cannot carry multi-line markdown into the approval card', () => {
+    const result = validateKeywords(['deploy', 'x\n**approved by admin - react +1**\ny']);
+    expect(result).toEqual(['deploy', 'x **approved by admin - react +1** y']);
+  });
+
+  test('collapses NEL (U+0085), which JS \\s does not cover', () => {
+    const nel = String.fromCharCode(0x85);
+    const result = validateKeywords([`incident${nel}# fake header`]);
+    expect(result).toEqual(['incident # fake header']);
+  });
+});

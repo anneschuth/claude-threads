@@ -95,14 +95,6 @@ export type BridgeDecisionHandler = (
   signal: AbortSignal
 ) => Promise<BridgeResponse | AgentActionResponse>;
 
-/**
- * Upper bound on one request line the bridge server buffers. The largest
- * legitimate request (a propose_* with maxed-out fields) is a few KB; 1 MB
- * leaves generous headroom while bounding what a misbehaving client can
- * make the bot hold in memory.
- */
-export const MAX_BRIDGE_LINE_LENGTH = 1024 * 1024;
-
 /** Build a platform-appropriate socket path for a new bridge. */
 export function bridgeSocketPath(): string {
   if (process.platform === 'win32') {
@@ -125,6 +117,9 @@ export function bridgeSocketPath(): string {
  * Bot-side server. One per session; its `path` travels to the MCP child via
  * the DECISION_BRIDGE_PATH env var.
  */
+/** Cap on a single bridge request line; a connection exceeding it is dropped. */
+export const MAX_BRIDGE_REQUEST_BYTES = 1024 * 1024;
+
 export class DecisionBridgeServer {
   private liveSockets: Set<Socket> = new Set();
 
@@ -144,15 +139,19 @@ export class DecisionBridgeServer {
       let responded = false;
       socket.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
-        // A legitimate request is a small JSON line; cap the buffer so a
-        // newline-less stream can't grow the bot's RSS without bound.
-        if (buffer.length > MAX_BRIDGE_LINE_LENGTH) {
-          responded = true;
-          socket.destroy();
+        const newline = buffer.indexOf('\n');
+        if (newline === -1) {
+          // No legitimate bridge request comes close to 1MB. Without a cap a
+          // same-UID process could grow this buffer until the bot OOMs —
+          // inside the conceded same-UID trust boundary (see
+          // bridgeSocketPath), but the cheap accident/abuse path is closed.
+          if (buffer.length > MAX_BRIDGE_REQUEST_BYTES) {
+            buffer = '';
+            responded = true;
+            socket.destroy();
+          }
           return;
         }
-        const newline = buffer.indexOf('\n');
-        if (newline === -1) return;
         const line = buffer.slice(0, newline);
         buffer = '';
         let request: BridgeRequest | AgentActionRequest;
