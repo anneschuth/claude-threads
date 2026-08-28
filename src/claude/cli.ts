@@ -9,6 +9,7 @@ import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
 import { getClaudePath } from './version-check.js';
 import { OUTBOUND_ENV } from '../mcp/outbound-env.js';
+import { AGENT_FEATURES_ENV } from '../mcp/agent-features-env.js';
 import { detectRateLimit, cooldownDeadline, parseRateLimitEvent, type RateLimitHit } from './rate-limit-detector.js';
 import type { PermissionMode } from '../config/types.js';
 
@@ -166,6 +167,26 @@ export interface ClaudeCliOptions {
    * failure mode buildRestartCliOptions exists to prevent for uploadDir.
    */
   memory: { autoMemoryDir: string } | null;
+  /**
+   * Which agent-initiated feature tools the session's MCP server should
+   * offer (see src/mcp/agent-features-env.ts). Advisory tool-registration
+   * gates only — the bot re-checks authoritatively on every bridge request.
+   *
+   * REQUIRED like `memory`, and for the same reason: every spawn site must
+   * decide, so a respawn path (!cd, !permissions, worktrees) can't silently
+   * widen or drop the gates. Pass `null` to offer no agent tools (dry-run /
+   * fixture spawns with no session context).
+   */
+  agentFeatures: {
+    memoryChannel: boolean;
+    routines: boolean;
+    watches: boolean;
+    /** True for unattended runs (routine/watch fires): suppresses propose_*
+     *  and remember_fact. */
+    unattended: boolean;
+    /** True for direct-channel-mode sessions: suppresses propose_*. */
+    dcm: boolean;
+  } | null;
 }
 
 /** Minimal subset of ClaudeAccount that `ClaudeCli` needs. */
@@ -353,6 +374,8 @@ export function buildPermissionArgs(opts: {
   sessionOwnerUsername?: string;
   /** Decision-bridge socket path; surfaced as DECISION_BRIDGE_PATH. */
   decisionBridgePath?: string;
+  /** Agent-feature tool gates for the MCP child; see ClaudeCliOptions. */
+  agentFeatures?: ClaudeCliOptions['agentFeatures'];
   inline?: boolean; // for tests
 }): { args: string[]; tempFile: string | null } {
   const args: string[] = [];
@@ -396,6 +419,17 @@ export function buildPermissionArgs(opts: {
     // forward the operator's timeout override or the knob is unreachable.
     if (process.env.DECISION_BRIDGE_TIMEOUT_MS) {
       mcpEnv.DECISION_BRIDGE_TIMEOUT_MS = process.env.DECISION_BRIDGE_TIMEOUT_MS;
+    }
+    // Agent-feature tool gates: advisory registration hints for the MCP
+    // child (the bot re-checks per request). Only meaningful alongside a
+    // bridge — without one the agent tools have no path to the stores.
+    const features = opts.agentFeatures;
+    if (features) {
+      if (features.memoryChannel) mcpEnv[AGENT_FEATURES_ENV.MEMORY_CHANNEL_ENABLED] = '1';
+      if (features.routines) mcpEnv[AGENT_FEATURES_ENV.ROUTINES_ENABLED] = '1';
+      if (features.watches) mcpEnv[AGENT_FEATURES_ENV.WATCHES_ENABLED] = '1';
+      if (features.unattended) mcpEnv[AGENT_FEATURES_ENV.UNATTENDED] = '1';
+      if (features.dcm) mcpEnv[AGENT_FEATURES_ENV.DCM] = '1';
     }
   }
   if (opts.platformConfig.appToken) {
@@ -624,6 +658,7 @@ export class ClaudeCli extends EventEmitter {
       outboundFiles: this.options.outboundFiles,
       sessionOwnerUsername: this.options.sessionOwnerUsername,
       decisionBridgePath: this.options.decisionBridgePath,
+      agentFeatures: this.options.agentFeatures,
     });
     args.push(...permResult.args);
     this.mcpConfigTempFile = permResult.tempFile;

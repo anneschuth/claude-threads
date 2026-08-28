@@ -27,7 +27,16 @@ function makeSession(overrides: Record<string, unknown> = {}): Session {
 }
 
 describe('buildRestartCliOptions', () => {
-  const deps = { chromeEnabled: false, permissionTimeoutMs: 120000, account: undefined };
+  const deps = {
+    chromeEnabled: false,
+    permissionTimeoutMs: 120000,
+    account: undefined,
+    ops: {
+      getPlatformMemoryConfig: () => ({ enabled: true, repoLayer: true, channelLayer: true, distillation: true }),
+      isRoutinesEnabled: () => true,
+      isWatchesEnabled: () => true,
+    },
+  };
 
   it('carries the decision-bridge path across respawns', () => {
     // The bridge is session-scoped: losing its path on !cd/!permissions
@@ -43,10 +52,32 @@ describe('buildRestartCliOptions', () => {
     const options = buildRestartCliOptions(makeSession(), deps);
     expect(options.decisionBridgePath).toBeUndefined();
   });
+
+  it('carries the agent-feature gates, including the unattended flag (respawn parity)', () => {
+    // A respawn (!cd, !permissions, worktrees) that dropped agentFeatures
+    // would silently re-offer propose_* to an unattended session.
+    const options = buildRestartCliOptions(makeSession({ unattended: true }), deps);
+    expect(options.agentFeatures).toEqual({
+      memoryChannel: true,
+      routines: true,
+      watches: true,
+      unattended: true,
+      dcm: false,
+    });
+  });
 });
 
 describe('buildRestartCliOptions — DCM approvals scoping', () => {
-  const deps = { chromeEnabled: false, permissionTimeoutMs: 120000, account: undefined };
+  const deps = {
+    chromeEnabled: false,
+    permissionTimeoutMs: 120000,
+    account: undefined,
+    ops: {
+      getPlatformMemoryConfig: () => ({ enabled: true, repoLayer: true, channelLayer: true, distillation: true }),
+      isRoutinesEnabled: () => true,
+      isWatchesEnabled: () => true,
+    },
+  };
 
   function scopedSession(threadId: string, approvals?: 'owner' | 'all_users') {
     return makeSession({

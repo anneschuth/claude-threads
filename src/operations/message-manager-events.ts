@@ -99,6 +99,8 @@ export interface MessageManagerEventMap {
     /** The user whose reaction decided the confirmation (👍/👎). */
     decidedBy: string;
     postId: string;
+    /** True when Claude proposed this via the propose_routine MCP tool. */
+    proposedByAgent?: boolean;
   };
 
   /**
@@ -112,6 +114,8 @@ export interface MessageManagerEventMap {
     /** The user whose reaction decided the confirmation (👍/👎). */
     decidedBy: string;
     postId: string;
+    /** True when Claude proposed this via the propose_watch MCP tool. */
+    proposedByAgent?: boolean;
   };
 
   /**

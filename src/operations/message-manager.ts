@@ -796,9 +796,17 @@ export class MessageManager {
     this.promptExecutor.setPendingRoutinePrompt(prompt);
   }
 
+  hasPendingRoutinePrompt(): boolean {
+    return this.promptExecutor.hasPendingRoutinePrompt();
+  }
+
   /** Set the pending watch-creation confirmation (one per session). */
   setPendingWatchPrompt(prompt: PendingWatchPrompt): void {
     this.promptExecutor.setPendingWatchPrompt(prompt);
+  }
+
+  hasPendingWatchPrompt(): boolean {
+    return this.promptExecutor.hasPendingWatchPrompt();
   }
 
   // ---------------------------------------------------------------------------

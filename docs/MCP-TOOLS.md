@@ -109,3 +109,48 @@ Sends a direct message to a member of the bot's channel. Use it when the user as
 ---
 
 _claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._
+
+## Agent feature tools (memory, routines, watches)
+
+Six tools let Claude use the bot's own features from inside a session. They are registered only when the corresponding platform feature is enabled (and never without a decision bridge); each call executes **in the bot process** over the session's decision bridge, where the stores, their locks, caps, and the audit log live — the env-var gates on the MCP child are advisory, the bot re-checks everything per call.
+
+### remember_fact
+
+Saves one durable team fact to the channel's shared persistent memory, with an `agent` provenance label (visible in `!memory`).
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `text` | string | One durable, team-relevant sentence (max 500 chars after normalization). |
+
+**Guardrail:** No human prompt (precedent: end-of-session distillation already writes ungated) — instead every write is **announced in the thread** ("🧠 Claude saved a channel memory: … remove with `!memory forget <n>`"), audit-logged, capped at **5 writes per session** (only actual saves consume a slot), deduped against existing entries, and can **never displace a user-written entry** (agent entries may only supersede distilled/agent ones). Eviction under the file cap drops agent entries alongside distilled ones, before any user entry. Over-cap text is refused (never silently truncated). Refused when the platform's channel memory layer is disabled — and in **unattended sessions** (routine/watch fires): those act on untrusted triggering content, so they must not write directly into every future session's context (the exclusion-framed distiller remains their only memory path). In **direct channel mode** the tool stays available (parity with `!remember`, which DCM also allows) — note that the save announcement then lands in the direct channel while the memory it writes is shared channel-wide.
+
+### list_memory
+
+Lists the channel's memory entries (index, date, source, text — newest-last; when capped at 100 the **newest** entries are kept and indices stay aligned with `!memory forget <n>`). Read-only; refused when channel memory is disabled.
+
+### propose_routine
+
+Proposes a scheduled recurring task. **Creates nothing**: it posts the same confirmation card `!routine` uses — badged "🕘 Claude proposes routine …" — and returns immediately with `status: proposed_awaiting_human_approval`. Only a human 👍 on the card saves the routine, and because Claude's proposals skip the owner gate `!routine` applies at request time, the **approval itself is owner-gated**: only the session owner or a platform-allowlisted user may approve (an `!invite`d guest's 👍 is refused at save time). The saved routine's `createdBy` is the **session owner**, so per-fire re-authorization keeps working.
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `name` | string | Short routine name. |
+| `prompt` | string | The task each run performs. |
+| `schedule` | object | `{ preset: hourly\|daily\|weekdays\|weekly, time?, weekday?, timezone? }` — validated with the same rules as `!routine`; timezone defaults to the bot host's. |
+
+**Guardrail:** Refused when routines are disabled, in direct channel mode (the tool is not even registered there — DCM can list but never create), and — critically — in **unattended sessions** (routine/watch fires): an unattended run proposing new unattended work would be a self-replication loop, so the tool is neither registered there nor honored bot-side. Over-length fields are refused rather than truncated. An unauthorized participant's reaction on the card is refused **without consuming the proposal** — the owner's later reaction still decides it. `limits.maxRoutines` is enforced at save time as always.
+
+### propose_watch
+
+Proposes an event trigger, same contract as `propose_routine`: card + human 👍, nothing saved by the tool itself, refused in unattended sessions and DCM.
+
+| Input | Type | Description |
+|-------|------|-------------|
+| `name` | string | Short watch name. |
+| `condition` | string | Natural-language firing condition. |
+| `prompt` | string | The task each fire performs. |
+| `keywords` | string[] | Prefilter keywords (normalized/deduped like `!watch`). |
+
+### list_routines / list_watches
+
+Read-only listings (name, schedule/condition, enabled, creator, last run/fire). Refused when the feature is disabled for the platform.

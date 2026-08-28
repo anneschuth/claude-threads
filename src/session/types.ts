@@ -273,6 +273,21 @@ export interface Session {
   // with a `claudeAccounts` pool). Undefined in single-account mode.
   claudeAccountId?: string;
 
+  /**
+   * True for unattended runs (routine fires, watch fires). Gates the
+   * agent-initiated propose_routine/propose_watch MCP tools OFF for this
+   * session — an unattended session proposing new unattended work would be
+   * a self-replication loop. Persisted so resume keeps the gate.
+   */
+  unattended?: boolean;
+
+  /**
+   * Count of agent-initiated remember_fact writes this process-lifetime of
+   * the session (capped; see src/operations/agent-actions/handler.ts).
+   * Deliberately not persisted: the cap bounds burst abuse, not history.
+   */
+  agentMemoryWrites?: number;
+
   // Interactive state (collaboration - not Claude events)
   planApproved: boolean;
 

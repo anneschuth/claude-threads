@@ -78,7 +78,7 @@ async function runFlow(flow: Flow): Promise<void> {
   let mcpArgs: string[] = [];
   if (flow.withBridge) {
     bridge = await DecisionBridgeServer.create(async (req) => {
-      console.log(`[capture]   bridge request: ${req.kind} (${req.toolName})`);
+      console.log(`[capture]   bridge request: ${req.kind} (${'toolName' in req ? req.toolName : req.action})`);
       if (flow.bridgeDecide === 'deny') {
         return { behavior: 'deny', message: 'User denied via capture harness' };
       }

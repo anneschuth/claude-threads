@@ -4,6 +4,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import {
   handlePermissionWith,
+  handleAgentToolWith,
   handleSendFileWith,
   handleReadPostWith,
   handleReactToPostWith,
@@ -430,6 +431,35 @@ describe('handlePermissionWith', () => {
     expect(result.behavior).toBe('allow');
     expect(api.createdPosts).toHaveLength(0); // No approval message posted to thread.
     expect(api.waitForReactionCalls).toHaveLength(0); // No reaction wait.
+  });
+});
+
+describe('handleAgentToolWith', () => {
+  it('forwards the action over the bridge and passes the response through', async () => {
+    const calls: unknown[] = [];
+    const result = await handleAgentToolWith('remember_fact', { text: 'a fact' }, {
+      bridgePath: '/tmp/b.sock',
+      request: async (path, req, timeout) => {
+        calls.push([path, req, timeout]);
+        return { ok: true, result: { status: 'saved' } };
+      },
+    });
+    expect(result).toEqual({ ok: true, result: { status: 'saved' } });
+    expect(calls).toEqual([[
+      '/tmp/b.sock',
+      { kind: 'agent_action', action: 'remember_fact', input: { text: 'a fact' } },
+      15_000,
+    ]]);
+  });
+
+  it('degrades a bridge failure to { ok: false } instead of throwing', async () => {
+    const result = await handleAgentToolWith('propose_routine', {}, {
+      bridgePath: '/tmp/b.sock',
+      request: async () => { throw new Error('socket gone'); },
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toContain('socket gone');
+    expect(result.reason).toContain('propose_routine');
   });
 });
 

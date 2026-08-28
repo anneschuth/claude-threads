@@ -7,7 +7,7 @@
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import { post } from '../post-helpers/index.js';
-import { MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap } from '../../memory/store.js';
+import { MAX_ENTRY_LENGTH, sanitizeEntryText, entryTextExceedsCap, entrySourceLabel } from '../../memory/store.js';
 import { auditCommand, requireSessionOwner } from './guards.js';
 import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
@@ -111,7 +111,9 @@ export async function showMemory(
   const lines = entries.map((e, i) => {
     // Author as inline code, NOT formatUserMention: a live @mention would
     // ping every entry author each time anyone views the listing.
-    const source = e.source === 'user' ? formatter.formatCode(`@${e.addedBy ?? 'unknown'}`) : formatter.formatItalic('distilled');
+    const source = e.source === 'user'
+      ? formatter.formatCode(entrySourceLabel(e))
+      : formatter.formatItalic(entrySourceLabel(e));
     return `${i + 1}. [${e.addedAt}] (${source}) ${e.text}`;
   });
   const intro = `🧠 ${formatter.formatBold(`Channel memory (${entries.length} ${entries.length === 1 ? 'entry' : 'entries'})`)} — shared by all threads in this channel:`;

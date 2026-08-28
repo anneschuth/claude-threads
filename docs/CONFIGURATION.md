@@ -498,6 +498,27 @@ in a channel with untrusted members accordingly, and be especially deliberate
 about combining watches with `skipPermissions: true`, which lets the fired
 session act without human tool approval.
 
+### Agent tools (memory / routines / watches from inside a session)
+
+When a feature above is enabled, Claude's own tool list inside a session
+gains matching MCP tools (see `docs/MCP-TOOLS.md` § Agent feature tools):
+
+- `remember_fact` / `list_memory` — Claude can save one durable team fact to
+  channel memory (announced in the thread, `agent`-labeled in `!memory`,
+  capped at 5 per session, never displaces a user entry) and list what is
+  stored. Follows the `memory` option's channel layer.
+- `propose_routine` / `propose_watch` / `list_routines` / `list_watches` —
+  Claude can **propose** a routine or watch: the same confirmation card as
+  `!routine` / `!watch` is posted (badged "Claude proposes…"), and **nothing
+  is saved without a human 👍**. Proposals are refused in unattended
+  sessions (routine/watch fires) so automated runs can never schedule more
+  automated runs. Follows the `routines` / `watches` options.
+
+There is no separate toggle: disabling a feature removes its agent tools,
+and every call is re-checked in the bot process regardless of what the
+session's MCP server offers. Destructive operations (forget, pause, delete,
+manual run) are never exposed to Claude.
+
 ## Claude Accounts (optional, multi-account mode)
 
 By default every session spawns `claude` with the bot's own `process.env`, so they all share one subscription's token budget. Add a `claudeAccounts` block to spread load across multiple accounts. Omit the block entirely to stay in single-account mode (unchanged behavior).

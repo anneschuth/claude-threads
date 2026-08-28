@@ -32,7 +32,7 @@ describe('ClaudeCli', () => {
     test('creates instance with required options', () => {
       const options: ClaudeCliOptions = {
         workingDir: '/test/dir',
-        memory: null,
+        memory: null, agentFeatures: null,
       };
       const cli = new ClaudeCli(options);
       expect(cli).toBeDefined();
@@ -49,7 +49,7 @@ describe('ClaudeCli', () => {
         chrome: true,
         appendSystemPrompt: 'test prompt',
         logSessionId: 'log-session-id',
-        memory: null,
+        memory: null, agentFeatures: null,
       };
       const cli = new ClaudeCli(options);
       expect(cli).toBeDefined();
@@ -57,97 +57,97 @@ describe('ClaudeCli', () => {
 
     test('sets debug mode from environment', () => {
       process.env.DEBUG = '1';
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.debug).toBe(true);
     });
   });
 
   describe('isRunning', () => {
     test('returns false when not started', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.isRunning()).toBe(false);
     });
   });
 
   describe('getStatusFilePath', () => {
     test('returns null before start', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.getStatusFilePath()).toBeNull();
     });
   });
 
   describe('getStatusData', () => {
     test('returns null when no status file path', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.getStatusData()).toBeNull();
     });
   });
 
   describe('getLastStderr', () => {
     test('returns empty string initially', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.getLastStderr()).toBe('');
     });
   });
 
   describe('isPermanentFailure', () => {
     test('returns false with empty stderr', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.isPermanentFailure()).toBe(false);
     });
   });
 
   describe('getPermanentFailureReason', () => {
     test('returns null with empty stderr', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.getPermanentFailureReason()).toBeNull();
     });
   });
 
   describe('kill', () => {
     test('resolves immediately when not running', async () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       await cli.kill(); // Should not throw
     });
   });
 
   describe('interrupt', () => {
     test('returns false when not running', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(cli.interrupt()).toBe(false);
     });
   });
 
   describe('sendMessage', () => {
     test('throws when not running', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(() => cli.sendMessage('test')).toThrow('Not running');
     });
   });
 
   describe('sendToolResult', () => {
     test('throws when not running', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       expect(() => cli.sendToolResult('tool-id', 'result')).toThrow('Not running');
     });
   });
 
   describe('start', () => {
     test('throws when permissionMode is not bypass but platformConfig is missing', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', permissionMode: 'default', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', permissionMode: 'default', memory: null, agentFeatures: null });
       expect(() => cli.start()).toThrow('platformConfig is required');
     });
   });
 
   describe('status file operations', () => {
     test('startStatusWatch does nothing without status file path', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       // Should not throw
       cli.startStatusWatch();
     });
 
     test('stopStatusWatch does nothing without status file path', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       // Should not throw
       cli.stopStatusWatch();
     });
@@ -170,7 +170,7 @@ describe('ClaudeCli', () => {
       (cli as unknown as { maybeEmitRateLimit: (t: string) => void }).maybeEmitRateLimit(text);
 
     test('emits on first hit, dedupes identical repeats', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       const hits: unknown[] = [];
       cli.on('rate-limit', (h) => hits.push(h));
 
@@ -182,7 +182,7 @@ describe('ClaudeCli', () => {
     });
 
     test('re-emits when a later hit extends the cooldown deadline', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       const hits: unknown[] = [];
       cli.on('rate-limit', (h) => hits.push(h));
 
@@ -193,7 +193,7 @@ describe('ClaudeCli', () => {
     });
 
     test('does not re-emit when a later hit would not advance the deadline', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       const hits: unknown[] = [];
       cli.on('rate-limit', (h) => hits.push(h));
 
@@ -204,7 +204,7 @@ describe('ClaudeCli', () => {
     });
 
     test('ignores non-rate-limit text', () => {
-      const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+      const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       const hits: unknown[] = [];
       cli.on('rate-limit', (h) => hits.push(h));
 
@@ -291,8 +291,8 @@ describe('ClaudeCli', () => {
     test('ClaudeCli wires decisionBridgePath through to MCP_TOOL_TIMEOUT', () => {
       // Pin the private buildChildEnv() wiring, not just the pure function:
       // deleting the opts pass-through must fail this test.
-      const withBridge = new ClaudeCli({ workingDir: '/test', decisionBridgePath: '/tmp/b.sock', memory: null });
-      const without = new ClaudeCli({ workingDir: '/test', memory: null });
+      const withBridge = new ClaudeCli({ workingDir: '/test', decisionBridgePath: '/tmp/b.sock', memory: null, agentFeatures: null });
+      const without = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
       const call = (cli: ClaudeCli) =>
         (cli as unknown as { buildChildEnv(): NodeJS.ProcessEnv }).buildChildEnv();
       const hadParent = process.env.MCP_TOOL_TIMEOUT;
@@ -613,6 +613,55 @@ describe('buildPermissionArgs', () => {
     expect(env.DECISION_BRIDGE_TIMEOUT_MS).toBeUndefined();
   });
 
+  it('emits the agent-feature gates only for enabled features (and only with a bridge)', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: { memoryChannel: true, routines: false, watches: true, unattended: true, dcm: false },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBe('1');
+    expect(env.CT_ROUTINES_ENABLED).toBeUndefined();
+    expect(env.CT_WATCHES_ENABLED).toBe('1');
+    expect(env.CT_UNATTENDED).toBe('1');
+  });
+
+  it('emits NO agent-feature gates without a bridge (no path to the stores)', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      agentFeatures: { memoryChannel: true, routines: true, watches: true, unattended: false, dcm: false },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBeUndefined();
+    expect(env.CT_ROUTINES_ENABLED).toBeUndefined();
+    expect(env.CT_WATCHES_ENABLED).toBeUndefined();
+  });
+
+  it('emits CT_DCM for direct-channel-mode sessions', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: { memoryChannel: false, routines: true, watches: true, unattended: false, dcm: true },
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_DCM).toBe('1');
+  });
+
+  it('agentFeatures: null emits no gates even with a bridge', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      decisionBridgePath: '/tmp/bridge-X.sock',
+      agentFeatures: null,
+    });
+    const env = getMcpEnv(args);
+    expect(env.CT_MEMORY_CHANNEL_ENABLED).toBeUndefined();
+    expect(env.CT_UNATTENDED).toBeUndefined();
+  });
+
   it("omits the upload-related env vars entirely when no roots provided", () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
     const env = getMcpEnv(args);
@@ -681,7 +730,7 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
     (cli as unknown as { maybeEmitRateLimitHit: (h: unknown) => void }).maybeEmitRateLimitHit(hit);
 
   test('a reset-less hit is suppressed while a precise structured deadline is cooling', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: unknown[] = [];
     cli.on('rate-limit', (h) => hits.push(h));
 
@@ -700,7 +749,7 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
   });
 
   test('reset-less repeats during a reset-less cooldown still re-emit and extend', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: unknown[] = [];
     cli.on('rate-limit', (h) => hits.push(h));
 
@@ -714,7 +763,7 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
   });
 
   test('a reset-less hit after the structured deadline expired emits normally', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: unknown[] = [];
     cli.on('rate-limit', (h) => hits.push(h));
 
@@ -732,7 +781,7 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
   });
 
   test('parseOutput wires structured rate_limit_event rejections to the rate-limit emitter', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: Array<{ resetAtEpochMs?: number }> = [];
     cli.on('rate-limit', (h) => hits.push(h as { resetAtEpochMs?: number }));
     const parse = (line: string) =>
@@ -767,7 +816,7 @@ describe('rate-limit emit guard - structured/reset-less interplay', () => {
     // that same event — error-flavored results are exactly the events that
     // carry rate-limit signals — nor be silently eaten by the JSON-parse
     // catch for partial lines.
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: unknown[] = [];
     cli.on('rate-limit', (h) => hits.push(h));
     cli.on('event', () => { throw new Error('listener boom (persist failed)'); });
@@ -792,7 +841,7 @@ describe('rate-limit emit guard - suppressed explicit hit keeps its explicitness
     (cli as unknown as { maybeEmitRateLimitHit: (h: unknown) => void }).maybeEmitRateLimitHit(hit);
 
   test('opposite arrival order: text guess first, precise reset second, reset-less repeat third', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const hits: unknown[] = [];
     cli.on('rate-limit', (h) => hits.push(h));
 
@@ -865,14 +914,14 @@ describe('buildClaudeChildEnv — auto-memory kill switch', () => {
     expect(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBeUndefined();
   });
 
-  test('ClaudeCli wires memory: null through to the kill switch', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: null });
+  test('ClaudeCli wires memory: null, agentFeatures: null through to the kill switch', () => {
+    const cli = new ClaudeCli({ workingDir: '/test', memory: null, agentFeatures: null });
     const env = (cli as unknown as { buildChildEnv(): NodeJS.ProcessEnv }).buildChildEnv();
     expect(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBe('1');
   });
 
   test('ClaudeCli does not set the kill switch when memory is configured', () => {
-    const cli = new ClaudeCli({ workingDir: '/test', memory: { autoMemoryDir: '/mem' } });
+    const cli = new ClaudeCli({ workingDir: '/test', memory: { autoMemoryDir: '/mem' }, agentFeatures: null });
     const env = (cli as unknown as { buildChildEnv(): NodeJS.ProcessEnv }).buildChildEnv();
     expect(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBeUndefined();
   });

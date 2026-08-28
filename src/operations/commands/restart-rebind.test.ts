@@ -151,6 +151,8 @@ function makePermCtx(): SessionContext {
       handleExit: mock(async () => {}),
       getClaudeAccount: mock(() => undefined),
       getPlatformMemoryConfig: mock(() => ({ enabled: false, repoLayer: false, channelLayer: false, distillation: false })),
+      isRoutinesEnabled: mock(() => true),
+      isWatchesEnabled: mock(() => true),
     } as unknown as SessionContext['ops'],
   };
 }

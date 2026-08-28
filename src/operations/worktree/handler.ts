@@ -437,6 +437,8 @@ export async function createAndSwitchToWorktree(
     githubEmailsStore: { get(platformId: string, username: string): string | undefined };
     memoryStore: MemoryStore;
     getPlatformMemoryConfig: (platformId: string) => ResolvedMemoryConfig;
+    isRoutinesEnabled: (platformId: string) => boolean;
+    isWatchesEnabled: (platformId: string) => boolean;
     registerPost: (postId: string, threadId: string) => void;
     updateStickyMessage: () => Promise<void>;
     registerWorktreeUser?: (worktreePath: string, sessionId: string) => void;
@@ -526,6 +528,8 @@ export async function createAndSwitchToWorktree(
           ...buildRestartCliOptions(session, {
             chromeEnabled: options.chromeEnabled,
             permissionTimeoutMs: options.permissionTimeoutMs,
+            // options structurally satisfies AgentFeatureOps.
+            ops: options,
           }),
           workingDir: existing.path,
           permissionMode: effectivePermissionMode({
@@ -705,6 +709,8 @@ export async function createAndSwitchToWorktree(
         ...buildRestartCliOptions(session, {
           chromeEnabled: options.chromeEnabled,
           permissionTimeoutMs: options.permissionTimeoutMs,
+          // options structurally satisfies AgentFeatureOps.
+          ops: options,
         }),
         workingDir: worktreePath,
         permissionMode: effectivePermissionMode({

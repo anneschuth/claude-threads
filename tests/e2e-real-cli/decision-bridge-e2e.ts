@@ -28,8 +28,8 @@ const decisionDelayMs = Number.isFinite(parsedDelay) ? parsedDelay : 0;
 
 const seen: BridgeRequest[] = [];
 const bridge = await DecisionBridgeServer.create(async (req) => {
-  seen.push(req);
-  console.log(`[bridge] request: ${req.kind} (${req.toolName})${decisionDelayMs ? `, deciding in ${decisionDelayMs}ms` : ''}`);
+  seen.push(req as BridgeRequest);
+  console.log(`[bridge] request: ${req.kind} (${'toolName' in req ? req.toolName : req.action})${decisionDelayMs ? `, deciding in ${decisionDelayMs}ms` : ''}`);
   if (decisionDelayMs) await new Promise(r => setTimeout(r, decisionDelayMs));
   if (req.kind === 'plan_approval') {
     return { behavior: 'allow', updatedInput: req.input };

@@ -56,6 +56,8 @@ import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js
 import { scheduleDistillation } from '../memory/distiller.js';
 import { auditLog } from '../persistence/audit-log.js';
 import { compositeSessionId } from './registry.js';
+import { sessionAgentFeatures } from '../claude/restart-options.js';
+import { handleAgentAction } from '../operations/agent-actions/handler.js';
 
 const log = createLogger('lifecycle');
 const sessionLog = createSessionLog(log);
@@ -113,9 +115,26 @@ export function isSessionStartInFlight(sessionId: string): boolean {
  * store write is try/caught into the visible-failure path: an fs error at
  * 👍-time must not become a process-killing unhandled rejection.
  */
-async function handleCreationConfirmation(
+/**
+ * Effective unattended flag for a resumed session. The flag is
+ * security-load-bearing (it gates the agent memory-write and propose_*
+ * tools), and sessions persisted by a pre-agent-tools bot have no
+ * `unattended` field — failing OPEN there would re-arm exactly the
+ * sessions the gate targets during an upgrade. Fall back to the
+ * unattended prompt prefix both runners stamp on their synthetic first
+ * prompt (stable since the features shipped).
+ */
+export function _resumedUnattended(state: PersistedSession): boolean {
+  if (state.unattended !== undefined) return state.unattended;
+  return /^\[(Scheduled routine|Watch) "/.test(state.firstPrompt ?? '');
+}
+
+// Exported for tests (underscore convention, cf. _inFlightSessionStarts):
+// the agent-proposal approval gate below is a security boundary and needs
+// direct red-green coverage.
+export async function _handleCreationConfirmation(
   session: Session,
-  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string },
+  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean },
   flavor: {
     /** Audit tool name and user-facing noun ('routine' | 'watch'). */
     tool: string;
@@ -129,7 +148,34 @@ async function handleCreationConfirmation(
     savedText(formatter: ReturnType<Session['platform']['getFormatter']>, position: number, name: string): string;
   },
 ): Promise<void> {
-  const { approved, parsed, requestedBy, decidedBy, postId } = payload;
+  const { approved, parsed, requestedBy, decidedBy, postId, proposedByAgent } = payload;
+  // Agent proposals skip the owner gate the `!routine`/`!watch` commands
+  // apply at REQUEST time (Claude has no requesting user to gate), so the
+  // equivalent gate applies at APPROVAL time: only the session owner or a
+  // platform-allowlisted user may approve — a temporarily `!invite`d guest
+  // passes the reaction-router's participant check but must not be able to
+  // stand up unattended work running as the owner.
+  if (proposedByAgent && approved &&
+      decidedBy !== session.startedBy && !session.platform.isUserAllowed(decidedBy)) {
+    auditLog(session.platformId, {
+      threadId: session.threadId,
+      sessionId: session.sessionId,
+      actor: decidedBy,
+      kind: 'command',
+      tool: flavor.tool,
+      detail: `unauthorized-approval: ${parsed.name} (proposed by Claude in @${requestedBy}'s session)`,
+    });
+    const fmt = session.platform.getFormatter();
+    await withErrorHandling(
+      () => session.platform.updatePost(
+        postId,
+        `⚠️ Only ${fmt.formatUserMention(session.startedBy)} or allowed users can approve a ${flavor.tool} Claude proposed — nothing was saved.`,
+      ),
+      { action: `Update ${flavor.tool} confirmation post`, session },
+    );
+    sessionLog(session).warn(`${flavor.logPrefix} agent proposal "${parsed.name}": unauthorized approval by @${decidedBy} refused`);
+    return;
+  }
   // The actor is the user whose REACTION decided the confirmation — the
   // requester is carried in the detail. Matches plan approvals, which audit
   // the reacting user; an auditor asking "who approved this unattended
@@ -140,7 +186,7 @@ async function handleCreationConfirmation(
     actor: decidedBy,
     kind: 'command',
     tool: flavor.tool,
-    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name} (requested by @${requestedBy})`,
+    detail: `${approved ? 'created' : 'discarded'}: ${parsed.name} (${proposedByAgent ? `proposed by Claude in @${requestedBy}'s session` : `requested by @${requestedBy}`})`,
   });
   session.threadLogger?.logCommand(flavor.tool, approved ? 'created' : 'discarded', decidedBy);
   if (!approved) {
@@ -413,11 +459,22 @@ function findPersistedByThreadId(
  * MCP child's env) while the Session/MessageManager are created after.
  */
 async function createSessionDecisionBridge(
-  ref: { current?: Session }
+  ref: { current?: Session },
+  ctx: SessionContext
 ): Promise<DecisionBridgeServer | null> {
   try {
     return await DecisionBridgeServer.create(async (request, signal) => {
-      const messageManager = ref.current?.messageManager;
+      const session = ref.current;
+      // Agent-initiated feature actions (remember_fact, propose_routine, …)
+      // execute bot-side where the stores and their gates live — they never
+      // go through the MessageManager's decision plumbing.
+      if (request.kind === 'agent_action') {
+        if (!session) {
+          return { ok: false, reason: 'session is not ready yet' };
+        }
+        return handleAgentAction(session, ctx, request, signal);
+      }
+      const messageManager = session?.messageManager;
       if (!messageManager) {
         // Drop the connection instead of denying: a deny would be final,
         // while a dropped connection makes the MCP server fall back to its
@@ -532,7 +589,7 @@ function createMessageManager(
   });
 
   messageManager.events.on('routine-prompt:complete', (payload) =>
-    handleCreationConfirmation(session, payload, {
+    _handleCreationConfirmation(session, payload, {
       tool: 'routine',
       logPrefix: '🕘 Routine',
       fileNoun: 'routines',
@@ -551,7 +608,7 @@ function createMessageManager(
     }));
 
   messageManager.events.on('watch-prompt:complete', (payload) =>
-    handleCreationConfirmation(session, payload, {
+    _handleCreationConfirmation(session, payload, {
       tool: 'watch',
       logPrefix: '👁️ Watch',
       fileNoun: 'watches',
@@ -741,7 +798,7 @@ export function resolveSessionHeaderMode(
  *                           When starting mid-thread, this is the @mention message, not the thread root.
  */
 export async function startSession(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean; unattended?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -780,7 +837,7 @@ export async function startSession(
 }
 
 async function startSessionImpl(
-  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean },
+  options: { prompt: string; files?: PlatformFile[]; skipWorktreePrompt?: boolean; autoIncludeContext?: boolean; unattended?: boolean },
   username: string,
   displayName: string | undefined,
   replyToPostId: string | undefined,
@@ -1004,7 +1061,7 @@ async function startSessionImpl(
   // the session's MessageManager exists — the handler dereferences it lazily
   // through the ref box (the Session object itself is created further down).
   const bridgeSessionRef: { current?: Session } = {};
-  const decisionBridge = await createSessionDecisionBridge(bridgeSessionRef);
+  const decisionBridge = await createSessionDecisionBridge(bridgeSessionRef, ctx);
 
   const cliOptions: ClaudeCliOptions = {
     workingDir,
@@ -1029,6 +1086,10 @@ async function startSessionImpl(
     memory: await resolveSessionMemory(
       ctx.state.memoryStore, memoryConfig, platformId, workingDir,
     ),
+    agentFeatures: sessionAgentFeatures(
+      { platformId, threadId: actualThreadId, unattended: options.unattended },
+      ctx.ops,
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1047,6 +1108,7 @@ async function startSessionImpl(
     platform,
     claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    unattended: options.unattended || undefined,
     startedBy: username,
     startedByDisplayName: displayName,
     startedAt: new Date(),
@@ -1397,7 +1459,7 @@ async function resumeSessionImpl(
 
   // Decision bridge for the resumed session (see startSession for rationale)
   const resumeBridgeRef: { current?: Session } = {};
-  const resumeBridge = await createSessionDecisionBridge(resumeBridgeRef);
+  const resumeBridge = await createSessionDecisionBridge(resumeBridgeRef, ctx);
 
   const cliOptions: ClaudeCliOptions = {
     workingDir: state.workingDir,
@@ -1423,6 +1485,10 @@ async function resumeSessionImpl(
       ctx.state.memoryStore, memoryConfig, state.platformId, state.workingDir,
       activeWorktreeRepoRoot(state.workingDir, state.worktreeInfo),
     ),
+    agentFeatures: sessionAgentFeatures(
+      { platformId: state.platformId, threadId: state.threadId, unattended: _resumedUnattended(state) },
+      ctx.ops,
+    ),
   };
   let claude: ClaudeCli;
   try {
@@ -1441,6 +1507,7 @@ async function resumeSessionImpl(
     platform,
     claudeSessionId: state.claudeSessionId,
     claudeAccountId: claudeAccount?.id,
+    unattended: _resumedUnattended(state) || undefined,
     startedBy: state.startedBy,
     startedByDisplayName: state.startedByDisplayName,
     startedAt: new Date(state.startedAt),
