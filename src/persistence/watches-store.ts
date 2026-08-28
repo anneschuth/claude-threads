@@ -74,7 +74,10 @@ export function validateKeywords(raw: unknown): string[] | string {
   const cleaned = [...new Set(
     raw
       .filter((k): k is string => typeof k === 'string')
-      .map((k) => k.trim().toLowerCase())
+      // Collapse ALL whitespace (NEL U+0085 included — JS \s excludes it) to single spaces: keywords are
+      // rendered into the human-approval card, so an embedded newline could
+      // smuggle multi-line markdown past the card's single-line guard.
+      .map((k) => k.replace(/[\s\u0085]+/g, ' ').trim().toLowerCase())
       .filter((k) => k.length > 0 && k.length <= MAX_KEYWORD_LENGTH),
   )];
   if (cleaned.length < MIN_KEYWORDS) return 'at least one usable keyword is required';
@@ -95,7 +98,7 @@ export class WatchesStore extends PlatformListStore<Watch> {
     w.keywords = Array.isArray(w.keywords)
       ? w.keywords
         .filter((k): k is string => typeof k === 'string')
-        .map((k) => k.trim().toLowerCase())
+        .map((k) => k.replace(/[\s\u0085]+/g, ' ').trim().toLowerCase())
         .filter((k) => k.length > 0)
       : [];
   }

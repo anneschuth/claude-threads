@@ -194,7 +194,7 @@ function normalizeForDedupe(text: string): string {
 
 /** Collapse to a single line (newlines become `; `, whitespace runs collapse). */
 function collapseEntryText(text: string): string {
-  return text.replace(/\s*[\r\n]+\s*/g, '; ').replace(/\s+/g, ' ').trim();
+  return text.replace(/\s*[\r\n\u0085]+\s*/g, '; ').replace(/[\s\u0085]+/g, ' ').trim();
 }
 
 /** Collapse to a single line and cap the length. */

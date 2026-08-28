@@ -37,6 +37,7 @@ import {
 } from '../utils/emoji.js';
 import { normalizeEmojiName } from '../platform/utils.js';
 import { isAuthorizedForSession, sessionAllowedUserSet } from './authorization.js';
+import { shouldPostResumeRefusal } from './refusal-limiter.js';
 import * as lifecycle from './lifecycle.js';
 import * as commands from '../operations/commands/index.js';
 import * as worktreeModule from '../operations/worktree/index.js';
@@ -166,9 +167,13 @@ async function tryResumeFromReaction(
       ? sessionAllowedUsers.has(username)
       : isAuthorizedForSession({ username, platform, sessionAllowedUsers }));
   if (!platform || !resumeAuthorized) {
-    if (platform) {
+    // No @-mention (inline code reads the same and notifies nobody) and
+    // rate-limited per (thread, user) — a refusal that mentioned another
+    // claude-threads bot once produced an unbounded reply loop (#491).
+    if (platform && shouldPostResumeRefusal(platformId, persistedSession.threadId, username)) {
+      const fmt = platform.getFormatter();
       await platform.createPost(
-        `⚠️ @${username} is not authorized to resume this session`,
+        `⚠️ ${fmt.formatCode(username)} is not authorized to resume this session`,
         persistedSession.threadId,
       );
     }

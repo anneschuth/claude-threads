@@ -536,3 +536,10 @@ describe('supersede authorization (who may replace whose entries)', () => {
     expect(entries.some((e) => e.source === 'user' && e.addedBy === 'anne')).toBe(true);
   });
 });
+
+describe('sanitizeEntryText NEL hardening', () => {
+  test('collapses NEL (U+0085) like a newline — JS \\s does not cover it', () => {
+    const nel = String.fromCharCode(0x85);
+    expect(sanitizeEntryText(`a${nel}# fake header`)).toBe('a; # fake header');
+  });
+});
