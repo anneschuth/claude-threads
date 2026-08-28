@@ -103,6 +103,12 @@ export function bridgeSocketPath(): string {
     return `\\\\.\\pipe\\ctb-${randomUUID()}`;
   }
   // Fresh 0700 directory (mkdtemp guarantees the mode) + short socket name.
+  // The 0700 mode shuts out other users, not other sessions: every session's
+  // bridge runs under the bot's own UID, so a session that can run arbitrary
+  // local processes could reach a sibling session's socket. That is the same
+  // trust boundary as the memory/store files themselves (same UID, same
+  // reach), so the real containment for untrusted sessions stays the CLI
+  // permission mode — not this path.
   const dir = mkdtempSync(join(tmpdir(), 'ctb-'));
   return join(dir, 'b.sock');
 }

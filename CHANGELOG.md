@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Approval is owner-gated for agent proposals:** an `!invite`d guest can react on the card, but only the session owner or a platform-allowlisted user may decide it — an unauthorized reaction is refused *without consuming the proposal* (and warned about once, not per toggle), so a guest can neither approve nor veto. Card text Claude authors is collapsed to a single line so it cannot restyle the approval card, and a proposal never displaces a pending human confirmation.
   - Tool availability follows the platform's `memory`/`routines`/`watches` config (advisory env gates on the MCP child; authoritative re-checks in the bot). Destructive operations (forget, pause, delete, manual run) are never exposed to Claude.
 
+## [1.29.3] - 2026-08-28
+
+Re-release of 1.29.2 — no code changes. The 1.29.2 npm publish failed the same
+way as 1.29.1 (npm masked-auth E404): the NPM_TOKEN repository secret had
+expired. The token has been rotated and this version ships what 1.29.2 was
+meant to ship, plus the release.yml retry fix (#496).
+
 ## [1.29.2] - 2026-08-24
 
 Re-release of 1.29.1 — no code changes. The 1.29.1 npm publish step failed
