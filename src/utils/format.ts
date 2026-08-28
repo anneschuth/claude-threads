@@ -162,3 +162,13 @@ export function truncateAtWord(str: string, maxLength: number): string {
   // Fall back to hard truncation
   return truncated + '…';
 }
+
+/**
+ * Collapse model-controlled text to one line for human-approval cards: every
+ * whitespace run (newlines included) becomes a single space, so embedded
+ * markdown can never restyle a card or bury its badge. U+0085 (NEL) is named
+ * explicitly — JS `\s` excludes it, yet some renderers break lines on it.
+ */
+export function singleLine(text: string): string {
+  return text.replace(/[\s\u0085]+/g, ' ').trim();
+}

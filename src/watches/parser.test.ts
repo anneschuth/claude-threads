@@ -63,6 +63,19 @@ describe('validateParsedWatch', () => {
     expect(validateParsedWatch({ ...good, keywords: [123, null] as unknown as string[] }).ok).toBe(false);
   });
 
+  test('collapses newlines in name/condition/prompt (card-injection guard)', () => {
+    const result = validateParsedWatch({
+      ...good,
+      name: 'Incident\n**APPROVED**\ntriage',
+      condition: 'a\u0085b',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.parsed.name).toBe('Incident **APPROVED** triage');
+      expect(result.parsed.condition).toBe('a b');
+    }
+  });
+
   test('normalizes keyword case and whitespace', () => {
     const result = validateParsedWatch({ ...good, keywords: ['  INCIDENT ', 'Outage'] });
     expect(result.ok).toBe(true);

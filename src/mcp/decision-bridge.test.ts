@@ -128,6 +128,7 @@ describe('DecisionBridge', () => {
     await server.close();
     await expect(requestBridgeDecision(path, PLAN_REQUEST, 500)).rejects.toThrow();
   });
+
 });
 
 describe('DecisionBridge - agent actions', () => {
