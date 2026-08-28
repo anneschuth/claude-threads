@@ -260,7 +260,8 @@ const PROPOSED = 'proposed_awaiting_human_approval';
  * dismiss" must not be able to restyle the card or bury its badge.
  */
 function singleLine(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+  // NEL (U+0085) is a line break to some renderers but not to JS \s.
+  return text.replace(/[\s\u0085]+/g, ' ').trim();
 }
 
 async function proposeRoutine(

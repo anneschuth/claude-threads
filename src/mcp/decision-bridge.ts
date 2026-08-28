@@ -117,6 +117,9 @@ export function bridgeSocketPath(): string {
  * Bot-side server. One per session; its `path` travels to the MCP child via
  * the DECISION_BRIDGE_PATH env var.
  */
+/** Cap on a single bridge request line; a connection exceeding it is dropped. */
+export const MAX_BRIDGE_REQUEST_BYTES = 1024 * 1024;
+
 export class DecisionBridgeServer {
   private liveSockets: Set<Socket> = new Set();
 
@@ -137,7 +140,18 @@ export class DecisionBridgeServer {
       socket.on('data', (chunk) => {
         buffer += chunk.toString('utf8');
         const newline = buffer.indexOf('\n');
-        if (newline === -1) return;
+        if (newline === -1) {
+          // No legitimate bridge request comes close to 1MB. Without a cap a
+          // same-UID process could grow this buffer until the bot OOMs —
+          // inside the conceded same-UID trust boundary (see
+          // bridgeSocketPath), but the cheap accident/abuse path is closed.
+          if (buffer.length > MAX_BRIDGE_REQUEST_BYTES) {
+            buffer = '';
+            responded = true;
+            socket.destroy();
+          }
+          return;
+        }
         const line = buffer.slice(0, newline);
         buffer = '';
         let request: BridgeRequest | AgentActionRequest;

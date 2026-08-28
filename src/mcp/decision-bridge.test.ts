@@ -2,7 +2,7 @@
  * Tests for the decision bridge — real sockets, both halves.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it, expect, mock } from 'bun:test';
 import {
   DecisionBridgeServer,
   requestBridgeDecision,
@@ -220,6 +220,47 @@ describe('DecisionBridge - client disconnect aborts the handler', () => {
       const { rm } = await import('node:fs/promises');
       const { join } = await import('node:path');
       await rm(join(path, '..'), { recursive: true, force: true });
+    }
+  });
+});
+
+describe('DecisionBridge - oversize request cap', () => {
+  it('drops a connection that streams more than the request cap without a newline', async () => {
+    const handler = mock(async () => ({ behavior: 'allow' as const }));
+    const server = await DecisionBridgeServer.create(handler);
+    try {
+      const { createConnection } = await import('node:net');
+      // Flood past MAX_BRIDGE_REQUEST_BYTES with no newline, THEN a newline.
+      // With the cap the server severs the connection mid-flood, so no
+      // response can ever arrive; without it the completed giant line would
+      // come back as a "Malformed bridge request" deny. (Bun's client does
+      // not reliably surface the peer destroy while its own write buffer is
+      // full, so the assertion is response-silence, not a close event.)
+      const gotResponse = await new Promise<boolean>((resolve) => {
+        const socket = createConnection(server.path, () => {
+          socket.write('x'.repeat(2 * 1024 * 1024));
+          socket.write('\n');
+        });
+        const timer = setTimeout(() => {
+          socket.destroy();
+          resolve(false);
+        }, 2000);
+        socket.on('data', () => {
+          clearTimeout(timer);
+          socket.destroy();
+          resolve(true);
+        });
+        socket.on('error', () => {});
+      });
+      expect(gotResponse).toBe(false);
+      expect(handler).not.toHaveBeenCalled();
+
+      // The server survives the flood: a well-formed request on a fresh
+      // connection still round-trips.
+      const decision = await requestBridgeDecision(server.path, PLAN_REQUEST, 2000);
+      expect(decision.behavior).toBe('allow');
+    } finally {
+      await server.close();
     }
   });
 });
