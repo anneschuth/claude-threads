@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.31.1] - 2026-08-29
+
+### Security
+- **Regression guard for the cross-platform resume scoping (1.31.0).** The `resumePausedSession` sink is now covered by a test that fails if the `platformId` scope is removed — a message on one platform must never resume a session persisted under another platform whose thread id collides. The fix shipped correct in 1.31.0 but without this guard.
+
+### Fixed
+- **A rejected branch name can no longer break its own error message.** An invalid `!worktree <name>` whose name contains a backtick or newline is sanitized for display, so it stays inside its markdown code span in the error post.
+- **A downgraded "✅ Invite to session" reaction is no longer silent.** When a non-owner participant's ✅ is downgraded to a one-shot allow (only the owner may grant standing membership), the bot now says so, instead of leaving the reactor to assume the invite succeeded.
+
 ## [1.31.0] - 2026-08-29
 
 ### Added

@@ -1306,6 +1306,35 @@ describe('authorization gate at sinks (#388)', () => {
 
       expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
     });
+
+    it('does not resume a session from another platform (cross-platform threadId collision)', async () => {
+      // SECURITY regression: a session lives under platform-a. A message
+      // arrives on platform-b whose threadId collides. The resume sink must be
+      // scoped to the message's platform — without scoping, platform-b's
+      // message would resume platform-a's session (importing its allowlist,
+      // working dir, worktree and Claude account), and the authorization check
+      // would run against platform-a's allowlist instead of platform-b's.
+      const platformA = createMockPlatform({
+        isUserAllowed: mock((u: string) => u === 'alice') as any,
+        getPost: mock(() => Promise.resolve({ id: 'shared-thread' })) as any,
+      });
+      const ctx = createMockSessionContext(new Map());
+      (ctx.state.platforms as Map<string, PlatformClient>).set('platform-a', platformA);
+      (ctx.state.sessionStore.load as any).mockReturnValue(
+        new Map([[
+          'platform-a:shared-thread',
+          persistedState({ threadId: 'shared-thread', platformId: 'platform-a' }),
+        ]]),
+      );
+
+      // Alice is authorized on platform-a; the message arrives on platform-b.
+      await lifecycle.resumePausedSession('shared-thread', 'continue', undefined, ctx, 'alice', 'platform-b');
+
+      // Scoped out: no session resolves for platform-b, so nothing is resumed.
+      // (Without the platformId scope, platform-a's session would be found and
+      // resumed here — acquireClaudeAccount would be called.)
+      expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+    });
   });
 });
 

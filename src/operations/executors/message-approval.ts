@@ -190,6 +190,13 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
           ctx.logger.info(
             `Message approval invite (✅) from @${user} downgraded to allow-once: only the session owner may invite`
           );
+          // Tell the reactor their invite was declined and only a one-shot
+          // allow was granted, so a guest who reacted ✅ doesn't wrongly believe
+          // they added the user to the session.
+          await ctx.createPost(
+            `ℹ️ Only the session owner can invite ${ctx.formatter.formatUserMention(pending.fromUser)} to the session — allowing this one message instead.`,
+            { type: 'system' },
+          );
           const handled = await this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
           ctx.logger.debug(`MessageApprovalExecutor: outcome=allow (invite downgraded), handled=${handled}`);
           return handled;

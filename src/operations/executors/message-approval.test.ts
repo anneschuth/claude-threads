@@ -249,6 +249,9 @@ describe('MessageApprovalExecutor', () => {
       // Downgraded: message allowed once, but NO standing invite granted.
       expect(messageApprovalCompleted!.decision).toBe('allow');
       expect(messageApprovalCompleted!.fromUser).toBe('mallory');
+      // The reactor is told the invite was declined (not left to assume it worked).
+      const posts = [...(platform as unknown as { posts: Map<string, { content: string }> }).posts.values()];
+      expect(posts.some((p) => p.content.includes('Only the session owner can invite'))).toBe(true);
     });
 
     it('honors ✅ invite from the session owner', async () => {
