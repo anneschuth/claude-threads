@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.31.0] - 2026-08-29
 
 ### Added
 - **Watches and routines now carry an explicit approval posture, chosen at creation.** The confirmation card offers 👍 *save* (each fired run asks for in-thread approval before every tool action) or ✅ *save + run autonomously* (no approval prompts) alongside 👎 *discard*. The choice is persisted per item (`requireApproval`) and enforced at fire time: an approval-required fire runs with interactive permissions even on a `skipPermissions` platform, so a watch triggered by attacker-influenceable channel content cannot silently execute tools with no human in the loop. The safe posture is the default — existing watches/routines and agent-proposed items always require approval (the autonomous option is never offered for agent proposals). Choosing the autonomous posture is owner-gated: a non-owner participant's ✅ is downgraded to approvals-required.
