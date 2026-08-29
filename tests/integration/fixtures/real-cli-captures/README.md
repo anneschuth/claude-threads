@@ -1,9 +1,28 @@
 # Real Claude CLI reference captures
 
 Verbatim stream-json event streams recorded from the **real** Claude CLI
-(2.1.225–2.1.226 — each file's `_meta` line records its exact version), one
+(2.1.251 — each file's `_meta` line records its exact version), one
 JSONL file per flow. Each file starts with a `_meta` line
 recording the CLI version, argv, and the prompts that drove the flow.
+
+**Dialect drift found in the 2.1.251 re-capture** (vs 2.1.225–2.1.226), all
+verified benign for the bot:
+
+- New top-level `autocompact_state` event (context-window/threshold info) —
+  hits the transformer's default case, ignored.
+- New `system` subtype `task_summary` (a short label for the turn) — falls
+  through the events handler's explicit subtype checks, ignored.
+- The post-compact `user` events echoing the continuation summary and
+  `<local-command-stdout>Compacted</local-command-stdout>` are no longer
+  emitted; the bot never consumed them (compaction posts ride
+  `system/status` + `compact_boundary`, unchanged).
+
+The mock does not emit the two new shapes — they are optional noise the bot
+ignores, and the mock's job is the surface the bot *consumes*.
+
+Note for re-capturing on a root sandbox: the CLI refuses
+`--dangerously-skip-permissions` as root; run the capture with
+`IS_SANDBOX=1` in the environment.
 
 These captures are the **ground truth** for the integration mock CLI
 (`../mock-claude/runner.ts`): every event shape the mock emits was written
