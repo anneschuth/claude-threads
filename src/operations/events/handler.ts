@@ -250,7 +250,7 @@ export function handleEventPreProcessing(
       );
     }
 
-    // Handle compaction events. Captured sequence (real CLI 2.1.226, see
+    // Handle compaction events. Captured sequence (real CLI 2.1.251, see
     // tests/integration/fixtures/real-cli-captures/compact.jsonl):
     //   status "compacting" → status {compact_result: "success"} →
     //   system/compact_boundary {compact_metadata}
@@ -463,7 +463,7 @@ async function awaitCompactionStartPost(session: Session): Promise<void> {
 /**
  * Handle compaction failure - resolve the compaction post so it doesn't sit
  * at "Compacting context..." forever. A failed compact emits NO
- * compact_boundary (verified against CLI 2.1.226, compact-failed.jsonl):
+ * compact_boundary (verified against CLI 2.1.251, compact-failed.jsonl):
  * only a status event with
  * compact_result: "failed" and a compact_error.
  */

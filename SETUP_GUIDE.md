@@ -361,14 +361,14 @@ platforms:
 ### General Issues
 
 #### "Claude CLI not found"
-- **Install** Claude Code CLI: `npm install -g @anthropic-ai/claude-code@2.1.226`
+- **Install** Claude Code CLI: `npm install -g @anthropic-ai/claude-code@2.1.251`
 - **Verify** it's in PATH: `which claude`
 - **Set** custom path if needed: `CLAUDE_PATH=/path/to/claude claude-threads`
 
 #### "Incompatible Claude CLI version" / "⚠️ untested"
 - **Check** your version: `claude --version`
 - The bot only refuses to start when the CLI is **too old** (below 2.0.74) or a **new major** (3.x+). A newer 2.x than the verified range runs normally with an "⚠️ untested" warning at startup and next to the version in the channel — install the latest verified version to clear it.
-- **Install** the latest verified version: `npm install -g @anthropic-ai/claude-code@2.1.226`
+- **Install** the latest verified version: `npm install -g @anthropic-ai/claude-code@2.1.251`
 - **Skip check** (not recommended): `claude-threads --skip-version-check`
 
 #### Can't find config file

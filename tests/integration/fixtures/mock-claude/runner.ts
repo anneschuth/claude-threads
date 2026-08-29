@@ -48,7 +48,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const SCENARIOS_DIR = join(__dirname, 'scenarios');
 
 /** Version reported for --version; inside the verified range. */
-const MOCK_CLI_VERSION = '2.1.226';
+const MOCK_CLI_VERSION = '2.1.251';
 
 // ============================================================================
 // Argv — the bot passes these; parse what shapes the event stream
