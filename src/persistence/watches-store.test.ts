@@ -153,6 +153,21 @@ describe('WatchesStore', () => {
     expect(w.enabled).toBe(true);
     expect(w.consecutiveFailures).toBe(0);
     expect(w.keywords).toEqual([]);
+    // Fail-safe posture: a hand-edited/older watch with no recorded choice
+    // requires approval rather than running autonomously.
+    expect(w.requireApproval).toBe(true);
+  });
+
+  test('defaults requireApproval to true (safe) and preserves an explicit false', async () => {
+    const dflt = await store.add('mm', newWatch({ name: 'default-posture' }));
+    if (!dflt.ok) throw new Error('add failed');
+    expect(dflt.watch.requireApproval).toBe(true);
+
+    const autonomous = await store.add('mm', { ...newWatch({ name: 'autonomous' }), requireApproval: false });
+    if (!autonomous.ok) throw new Error('add failed');
+    expect(autonomous.watch.requireApproval).toBe(false);
+    // Survives a round-trip through the file.
+    expect(store.get('mm', autonomous.watch.id)?.requireApproval).toBe(false);
   });
 
   test('normalizes hand-edited keywords (prefilter lowercases only the message)', () => {

@@ -287,6 +287,13 @@ like memory. A routine = `{name, prompt, schedule, createdBy}` stored in
 | `src/routines/runner.ts` | `fireRoutine`: bot posts the thread root itself, then `startSession` as the creator — a normal session (platform permission mode, pool, memory, distillation). |
 | `src/routines/parser.ts` | NL → schedule via one haiku `quickQuery`, strict-JSON extraction + revalidation. Nothing saves without a human 👍 (PromptExecutor routine prompt → `routine-prompt:complete` → lifecycle listener writes the store). |
 
+Each routine carries a persisted `requireApproval` posture chosen at creation
+(👍 = interactive approval per action, ✅ = autonomous). The fired session sets
+`forceInteractivePermissions` when `requireApproval` is true, so a run acts
+under interactive permissions even on a `skipPermissions` platform. Safe
+default: `undefined`/older data → `true`; agent proposals never offer the
+autonomous option.
+
 Commands: `!routine <natural language>` (owner-gated create), `!routines`
 (list), `!routines pause|resume|delete <n>` (owner-gated), `!routines run <n>`.
 Config: per-platform `routines: false` disables; `limits.maxRoutines` caps
@@ -309,6 +316,15 @@ machinery, and all haiku one-shots share `extractJsonObject`
 | `src/watches/evaluator.ts` | `WatchEvaluator` — two-stage matching: free keyword prefilter over every otherwise-ignored channel message, then one haiku confirm per candidate (fail-closed). Guardrails checked before any model call: per-watch cooldown, daily cap, confirm-concurrency cap. At most one watch fires per message. Auto-disable after 3 failed fires / deauthorized creator. `evaluate` never throws (fire-and-forget from message handling). |
 | `src/watches/runner.ts` | `fireWatch`: `startSession` anchored on the **triggering message's thread** as the creator, with `autoIncludeContext: true` (skips the interactive context prompt; the thread is the event). Post-verifies registration (no phantom 'ok'). |
 | `src/watches/parser.ts` | NL → `{name, condition, prompt, keywords}` via one haiku `quickQuery`; keywords must cover synonyms + both languages for non-English requests. Nothing saves without a human 👍 (PromptExecutor watch prompt → `watch-prompt:complete` → lifecycle listener writes the store). |
+
+Each watch carries a persisted `requireApproval` posture chosen at creation
+(👍 = interactive approval per action, ✅ = autonomous, only for triggers the
+creator fully trusts — a watch fires on attacker-influenceable channel
+content). The fire path passes `forceApproval` into `runUnattendedSession`,
+forcing interactive permissions even under a `skipPermissions` platform. Safe
+default: `undefined`/older data → `true`; agent proposals never offer the
+autonomous option. **Distillation is skipped for unattended fires** so a
+prompt-injected fire cannot persist attacker-derived facts into channel memory.
 
 Hook point: `src/message-handler.ts` — `session.evaluateWatches(...)` fires
 only where a message would otherwise be dropped (after the session,

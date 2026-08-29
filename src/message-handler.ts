@@ -322,7 +322,7 @@ export async function handleMessage(
 
     // Check for paused session that can be resumed
     // Use registry to check for persisted session directly
-    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
+    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot, platformId) !== undefined;
     if (hasPausedSession) {
       // A message opening by addressing someone else is a side conversation.
       if (leadingOtherUserMention(client, message)) {
@@ -338,7 +338,7 @@ export async function handleMessage(
       if (pausedParsed) {
         if (pausedParsed.command === 'stop') {
           // Clean up the paused session instead of resuming it
-          const persistedSession = session.getPersistedSession(threadRoot);
+          const persistedSession = session.getPersistedSession(threadRoot, platformId);
           if (persistedSession) {
             const allowedUsers = sessionAllowedUserSet(persistedSession);
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
@@ -349,7 +349,7 @@ export async function handleMessage(
                 tool: 'stop',
                 detail: 'paused session cancelled',
               });
-              session.cancelPausedSession(threadRoot);
+              session.cancelPausedSession(threadRoot, platformId);
               await client.createPost(
                 `🛑 ${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`,
                 threadRoot
@@ -365,7 +365,7 @@ export async function handleMessage(
       // approvals mode `owner`, message-based resume is scoped to session
       // participants, matching the reaction-based resume gate in
       // reaction-router.ts — the platform allowlist alone is not enough.
-      const persistedSession = session.getPersistedSession(threadRoot);
+      const persistedSession = session.getPersistedSession(threadRoot, platformId);
       if (persistedSession) {
         const allowedUsers = sessionAllowedUserSet(persistedSession);
         const ownerScoped =

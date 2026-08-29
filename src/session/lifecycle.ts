@@ -134,7 +134,7 @@ export function _resumedUnattended(state: PersistedSession): boolean {
 // direct red-green coverage.
 export async function _handleCreationConfirmation(
   session: Session,
-  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean },
+  payload: { approved: boolean; parsed: { name: string }; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean; requireApproval?: boolean },
   flavor: {
     /** Audit tool name and user-facing noun ('routine' | 'watch'). */
     tool: string;
@@ -596,7 +596,7 @@ function createMessageManager(
       save: async () => {
         const result = await ctx.state.routinesStore.add(
           session.platformId,
-          { name: payload.parsed.name, prompt: payload.parsed.prompt, schedule: payload.parsed.schedule, createdBy: payload.requestedBy },
+          { name: payload.parsed.name, prompt: payload.parsed.prompt, schedule: payload.parsed.schedule, createdBy: payload.requestedBy, requireApproval: payload.requireApproval ?? true },
           ctx.config.maxRoutines,
         );
         if (!result.ok) return result;
@@ -615,7 +615,7 @@ function createMessageManager(
       save: async () => {
         const result = await ctx.state.watchesStore.add(
           session.platformId,
-          { name: payload.parsed.name, condition: payload.parsed.condition, prompt: payload.parsed.prompt, keywords: payload.parsed.keywords, createdBy: payload.requestedBy },
+          { name: payload.parsed.name, condition: payload.parsed.condition, prompt: payload.parsed.prompt, keywords: payload.parsed.keywords, createdBy: payload.requestedBy, requireApproval: payload.requireApproval ?? true },
           ctx.config.maxWatches,
         );
         if (!result.ok) return result;

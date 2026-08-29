@@ -69,6 +69,9 @@ export function createMockPlatform(): MockExecutorPlatform {
     unpinPost: mock(async () => {}),
     addReaction: mock(async () => {}),
     removeReaction: mock(async () => {}),
+    // Default to permissive so existing tests treat any reactor as authorized;
+    // tests that exercise authorization gates pass a custom platform.
+    isUserAllowed: mock((_username: string) => true),
     posts,
   } as unknown as MockExecutorPlatform;
 }

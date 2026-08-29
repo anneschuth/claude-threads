@@ -967,6 +967,7 @@ export async function requestMessageApproval(
     postId: approvalPost.id,
     originalMessage: message,
     fromUser: username,
+    sessionOwner: session.startedBy,
   });
 }
 

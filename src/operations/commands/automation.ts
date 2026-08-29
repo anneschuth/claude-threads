@@ -8,6 +8,7 @@
 import type { Session } from '../../session/types.js';
 import type { SessionContext } from '../session-context/index.js';
 import { post, postInteractiveAndRegister } from '../post-helpers/index.js';
+import { APPROVAL_EMOJIS, ALLOW_ALL_EMOJIS, DENIAL_EMOJIS } from '../../utils/emoji.js';
 import { describeSchedule } from '../../persistence/routines-store.js';
 import { parseRoutineRequest, hostTimezone, type ParsedRoutineRequest } from '../../routines/parser.js';
 import { parseWatchRequest, type ParsedWatchRequest } from '../../watches/parser.js';
@@ -108,13 +109,22 @@ export async function postRoutineConfirmation(
   const heading = opts.proposedByAgent
     ? `🕘 ${formatter.formatBold(`Claude proposes routine "${parsed.name}"`)} — approve?`
     : `🕘 ${formatter.formatBold(`Create routine "${parsed.name}"?`)}`;
+  // Human creations may choose an autonomous posture; agent proposals never
+  // do (an autonomous unattended item must be a deliberate human choice).
+  const offerAutonomous = !opts.proposedByAgent;
+  const reactions = offerAutonomous
+    ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+    : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]];
+  const choiceLine = offerAutonomous
+    ? '👍 save (Claude asks approval before each action) · ✅ save + run autonomously (no approval prompts) · 👎 discard'
+    : 'React 👍 to save or 👎 to discard.';
   const confirmPost = await postInteractiveAndRegister(
     session,
     `${heading}\n` +
     `${formatter.formatBold('Schedule:')} ${describeSchedule(parsed.schedule)}\n` +
     `${formatter.formatBold('Task:')} ${parsed.prompt}${opts.extraNote ?? ''}\n\n` +
-    `${formatter.formatItalic('Each run starts a full Claude session in a new thread. React 👍 to save or 👎 to discard.')}`,
-    ['+1', '-1'],
+    `${formatter.formatItalic(`Each run starts a full Claude session in a new thread. ${choiceLine}`)}`,
+    reactions,
     (postId, threadId) => ctx.ops.registerPost(postId, threadId),
   );
 
@@ -371,6 +381,16 @@ export async function postWatchConfirmation(
   const heading = opts.proposedByAgent
     ? `\u{1F441}\uFE0F ${formatter.formatBold(`Claude proposes watch "${parsed.name}"`)} — approve?`
     : `\u{1F441}\uFE0F ${formatter.formatBold(`Create watch "${parsed.name}"?`)}`;
+  // Human creations may choose an autonomous posture; agent proposals never do.
+  const offerAutonomous = !opts.proposedByAgent;
+  const reactions = offerAutonomous
+    ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+    : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]];
+  // A watch fires on channel content anyone can post, so spell out the
+  // security tradeoff of the autonomous option.
+  const choiceLine = offerAutonomous
+    ? '👍 save (Claude asks approval before each action) · ✅ save + run autonomously — no approval prompts; only for triggers you fully trust · 👎 discard'
+    : 'React \u{1F44D} to save or \u{1F44E} to discard.';
   const confirmPost = await postInteractiveAndRegister(
     session,
     `${heading}\n` +
@@ -378,8 +398,8 @@ export async function postWatchConfirmation(
     `${formatter.formatBold('Task:')} ${parsed.prompt}\n` +
     `${formatter.formatBold('Prefilter keywords:')} ${parsed.keywords.map((k) => formatter.formatCode(k)).join(', ')}\n` +
     `${formatter.formatItalic('Only messages containing one of these keywords are considered; a semantic check then confirms each match before firing.')}\n\n` +
-    `${formatter.formatItalic('Each fire starts a full Claude session in the triggering thread (per-watch cooldown and daily cap apply). React \u{1F44D} to save or \u{1F44E} to discard.')}`,
-    ['+1', '-1'],
+    `${formatter.formatItalic(`Each fire starts a full Claude session in the triggering thread (per-watch cooldown and daily cap apply). ${choiceLine}`)}`,
+    reactions,
     (postId, threadId) => ctx.ops.registerPost(postId, threadId),
   );
 

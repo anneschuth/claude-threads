@@ -224,8 +224,8 @@ export class SessionRegistry {
    * promise in the timeout message. Sessions permanently deleted by
    * `cleanHistory()` are gone from the file and won't be found here.
    */
-  getPersistedByThreadId(threadId: string): PersistedSession | undefined {
-    return this.sessionStore.findByThreadIdAnyState(threadId);
+  getPersistedByThreadId(threadId: string, platformId?: string): PersistedSession | undefined {
+    return this.sessionStore.findByThreadIdAnyState(threadId, platformId);
   }
 
   /**

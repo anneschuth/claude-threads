@@ -104,6 +104,15 @@ export interface PendingMessageApproval {
   postId: string;
   originalMessage: string;
   fromUser: string;
+  /**
+   * The session owner (`startedBy`) at the time the approval was requested.
+   * Used to gate the "✅ Invite to session" decision: granting standing
+   * session membership is an owner privilege (parity with the owner-gated
+   * `!invite` command), so a non-owner participant's ✅ is downgraded to a
+   * one-shot allow. Optional for backward-compat with approvals persisted by
+   * older versions (a missing value falls back to platform-allowlist only).
+   */
+  sessionOwner?: string;
 }
 
 /**

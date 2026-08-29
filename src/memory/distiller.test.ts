@@ -10,6 +10,7 @@ import {
   buildDistillationPrompt,
   parseDistillationOutput,
   distillThread,
+  scheduleDistillation,
   MIN_THREAD_MESSAGES,
   MAX_FACTS_PER_SESSION,
 } from './distiller.js';
@@ -92,5 +93,61 @@ describe('distillThread', () => {
     const added = await distillThread(store, 'mm', 't1', platform as never);
     expect(added).toBe(0);
     expect(store.listChannelEntries('mm')).toHaveLength(0);
+  });
+});
+
+describe('scheduleDistillation unattended guard', () => {
+  let root: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'ct-distill-sched-'));
+    store = new MemoryStore(root);
+  });
+
+  afterEach(() => {
+    rmSync(root, { recursive: true, force: true });
+  });
+
+  function buildFixture(unattended: boolean) {
+    let threadHistoryReads = 0;
+    const session = {
+      platformId: 'mm',
+      threadId: 't-root',
+      unattended,
+      platform: {
+        getThreadHistory: async () => {
+          threadHistoryReads++;
+          return [];
+        },
+      },
+    };
+    const ctx = {
+      ops: {
+        getPlatformMemoryConfig: () => ({
+          enabled: true,
+          channelLayer: true,
+          distillation: true,
+        }),
+      },
+      state: { memoryStore: store },
+    };
+    return { session, ctx, reads: () => threadHistoryReads };
+  }
+
+  test('unattended session never reads thread history to distill', async () => {
+    const { session, ctx, reads } = buildFixture(true);
+    scheduleDistillation(session as never, ctx as never, 'exit');
+    // scheduleDistillation is fire-and-forget; give any (wrongly) scheduled
+    // async work a chance to run before asserting it did NOT run.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reads()).toBe(0);
+  });
+
+  test('attended session proceeds to read thread history', async () => {
+    const { session, ctx, reads } = buildFixture(false);
+    scheduleDistillation(session as never, ctx as never, 'exit');
+    await new Promise((r) => setTimeout(r, 20));
+    expect(reads()).toBe(1);
   });
 });

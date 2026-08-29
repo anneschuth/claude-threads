@@ -817,5 +817,57 @@ describe('SessionManager', () => {
       expect(written.tasksMinimized).toBe(false);
       expect(written.pendingContextPrompt).toBeUndefined();
     });
+
+    test('caps oversized free-text fields so sessions.json cannot be inflated', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+
+      const huge = 'x'.repeat(500_000);
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-huge', {
+        firstPrompt: huge,
+        queuedPrompt: huge,
+      });
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: 't', content: huge, isMinimized: false, isCompleted: false },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: 't', content: huge, isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      (manager as any).persistSession(session);
+      const written = savedCalls[0].data as Record<string, string>;
+
+      // Each capped field is bounded (100k + short marker), not the raw 500k.
+      for (const field of ['firstPrompt', 'queuedPrompt', 'lastTasksContent']) {
+        expect(written[field].length).toBeLessThanOrEqual(100_020);
+        expect(written[field].endsWith('…[truncated]')).toBe(true);
+      }
+    });
+
+    test('leaves normal-sized free-text fields byte-identical', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-normal', {
+        firstPrompt: 'a normal prompt',
+      });
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: null, content: null, isMinimized: false, isCompleted: false },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: null, content: null, isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      (manager as any).persistSession(session);
+      const written = savedCalls[0].data as Record<string, unknown>;
+      expect(written.firstPrompt).toBe('a normal prompt');
+    });
   });
 });

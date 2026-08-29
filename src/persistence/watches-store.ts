@@ -56,6 +56,17 @@ export interface Watch {
   createdBy: string;
   createdAt: string;
   enabled: boolean;
+  /**
+   * Whether a fired session must ask for per-action approval in-thread
+   * (interactive permissions) even when the platform is configured
+   * `skipPermissions: true`. Chosen explicitly by the human at creation time.
+   * SECURITY: a watch fires on attacker-influenceable channel content, so the
+   * safe default is `true` — an autonomous (`false`) watch runs tool actions
+   * with no human in the loop and should be reserved for fully-trusted
+   * triggers. Optional for backward-compat with watches persisted before this
+   * field existed; `applyItemDefaults` fills the safe default on read.
+   */
+  requireApproval?: boolean;
   lastFiredAt?: string;
   lastFireStatus?: WatchFireStatus;
   /** Rolling daily fire counter (local server date), for the daily cap. */
@@ -93,6 +104,9 @@ export class WatchesStore extends PlatformListStore<Watch> {
   protected applyItemDefaults(w: Watch): void {
     w.enabled = w.enabled ?? true;
     w.consecutiveFailures = w.consecutiveFailures ?? 0;
+    // Fail safe: a watch with no recorded posture (older data, or a hand-edited
+    // file) requires approval rather than running autonomously.
+    w.requireApproval = w.requireApproval ?? true;
     // Normalize like validateKeywords: the file is documented as
     // hand-editable, and the prefilter lowercases only the message — a
     // hand-added 'Deploy' would otherwise be silently dead.
@@ -134,6 +148,8 @@ export class WatchesStore extends PlatformListStore<Watch> {
         condition,
         prompt,
         keywords,
+        // Default to the safe posture unless the creator explicitly opted out.
+        requireApproval: watch.requireApproval ?? true,
         id: randomUUID().slice(0, 8),
         createdAt: new Date().toISOString(),
         enabled: true,

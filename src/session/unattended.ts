@@ -42,6 +42,14 @@ export async function runUnattendedSession(opts: {
   prompt: string;
   /** Force auto-inclusion of thread context (watch fires; see offerContextPrompt). */
   autoIncludeContext?: boolean;
+  /**
+   * When true, the fired session runs with interactive permissions even if the
+   * platform is configured `skipPermissions: true` — every tool action then
+   * needs a human 👍 in the thread. This is the watch/routine's per-item
+   * `requireApproval` posture: an unattended run acting on untrusted content
+   * must not silently execute tools unless the creator explicitly opted out.
+   */
+  forceApproval?: boolean;
 }): Promise<'ok' | 'skipped' | 'unauthorized'> {
   const { ctx, platformId, createdBy, label, log } = opts;
 
@@ -89,6 +97,11 @@ export async function runUnattendedSession(opts: {
     platformId,
     ctx,
     undefined,
+    // Per-item approval posture: force interactive permissions (persisted via
+    // Session.forceInteractivePermissions) so tool actions require a human 👍
+    // even under a skipPermissions platform. No-op on platforms already
+    // running interactive. Omitted (undefined) when the creator chose autonomous.
+    opts.forceApproval ? { forceInteractivePermissions: true } : undefined,
   );
 
   // startSession reports admission failures by posting, not throwing —

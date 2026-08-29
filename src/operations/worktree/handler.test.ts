@@ -20,6 +20,9 @@ const mockGetWorktreeDir = mock(() => '/repo-worktrees/feature-branch');
 const mockRemoveWorktree = mock(() => Promise.resolve());
 const mockIsValidWorktreePath = mock((path: string) => path.includes('/.claude-threads/worktrees/'));
 const mockWriteWorktreeMetadata = mock(() => Promise.resolve());
+// Default permissive; a specific test drives it false to exercise the
+// createAndSwitchToWorktree branch-validation chokepoint.
+const mockIsValidBranchName = mock((_name: string) => true);
 
 mock.module('../../git/worktree.js', () => ({
   isGitRepository: mockIsGitRepository,
@@ -31,7 +34,7 @@ mock.module('../../git/worktree.js', () => ({
   listWorktrees: mock(() => Promise.resolve([])),
   removeWorktree: mockRemoveWorktree,
   hasUncommittedChanges: mock(() => Promise.resolve(false)),
-  isValidBranchName: mock(() => true),
+  isValidBranchName: mockIsValidBranchName,
   isValidWorktreePath: mockIsValidWorktreePath,
   writeWorktreeMetadata: mockWriteWorktreeMetadata,
 }));
@@ -210,6 +213,8 @@ describe('Worktree Module', () => {
     mockFindWorktreeByBranch.mockReset();
     mockCreateWorktree.mockReset();
     mockNewClaudeCliSendMessage.mockReset();
+    mockIsValidBranchName.mockReset();
+    mockIsValidBranchName.mockImplementation(() => true);
 
     // Set default return values
     mockIsGitRepository.mockImplementation(() => Promise.resolve(true));
@@ -788,6 +793,24 @@ describe('Worktree Module', () => {
 
         // Should attempt to create worktree (or find existing)
         expect(mockGetRepositoryRoot).toHaveBeenCalled();
+      });
+
+      it('rejects an invalid/injection branch name before touching git', async () => {
+        // Regression: the in-session `!worktree <name>` path reaches
+        // createAndSwitchToWorktree directly, so branch validation must live
+        // here (not only on the interactive prompt path). A shell-metacharacter
+        // name must never reach `git worktree add`.
+        mockIsValidBranchName.mockImplementation((name: string) => !/[&|;$`(){}<>!'"#%\s]/.test(name));
+        const session = createMockSession({ startedBy: 'testuser' });
+        const options = createMockOptions();
+
+        await worktree.createAndSwitchToWorktree(session, 'buildfix&calc.exe&', 'testuser', options);
+
+        // Rejected up front: no git work attempted, a warning was posted.
+        expect(mockCreateWorktree).not.toHaveBeenCalled();
+        expect(session.platform.createPost).toHaveBeenCalled();
+        const warning = (session.platform.createPost as ReturnType<typeof mock>).mock.calls[0]?.[0] as string;
+        expect(warning).toContain('Invalid branch name');
       });
 
       it("rejects an allowlisted non-participant under approvals: 'owner'", async () => {

@@ -51,5 +51,7 @@ export function fireRoutine(
     prompt:
       `[Scheduled routine "${routine.name}" — started automatically on its schedule, not by a live user. ` +
       `Complete the task and post the result in this thread.]\n\n${routine.prompt}`,
+    // Safe default (true) unless the creator explicitly chose autonomous.
+    forceApproval: routine.requireApproval ?? true,
   });
 }
