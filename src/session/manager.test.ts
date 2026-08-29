@@ -178,13 +178,13 @@ describe('SessionManager', () => {
 
   describe('getSessionStartPostId', () => {
     test('returns undefined for unknown thread', () => {
-      expect(manager.getSessionStartPostId('unknown-thread')).toBeUndefined();
+      expect(manager.getSessionStartPostId('unknown-thread', 'test-platform')).toBeUndefined();
     });
   });
 
   describe('isUserAllowedInSession', () => {
     test('returns false for unknown thread with unknown user', () => {
-      expect(manager.isUserAllowedInSession('unknown-thread', 'random-user')).toBe(false);
+      expect(manager.isUserAllowedInSession('unknown-thread', 'random-user', 'test-platform')).toBe(false);
     });
   });
 
@@ -327,7 +327,7 @@ describe('SessionManager', () => {
   describe('resumePausedSession', () => {
     test('handles unknown thread gracefully', async () => {
       // This will try to find a persisted session which doesn't exist
-      await manager.resumePausedSession('unknown-thread', 'message', undefined, 'someuser');
+      await manager.resumePausedSession('unknown-thread', 'message', undefined, 'someuser', 'test-platform');
       // Should not throw - method handles missing session internally
     });
   });
@@ -597,21 +597,21 @@ describe('SessionManager', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'alice')).toBe(true);
+      expect(manager.isUserAllowedInSession('thread-X', 'alice', 'test-platform')).toBe(true);
     });
 
     test('returns true for globally-allowed user', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'admin')).toBe(true);
+      expect(manager.isUserAllowedInSession('thread-X', 'admin', 'test-platform')).toBe(true);
     });
 
     test('returns false for random user not invited', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'mallory')).toBe(false);
+      expect(manager.isUserAllowedInSession('thread-X', 'mallory', 'test-platform')).toBe(false);
     });
   });
 

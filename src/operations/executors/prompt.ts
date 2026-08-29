@@ -559,14 +559,22 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     // unattended item is a deliberate human choice, so a ✅ on an agent
     // proposal is treated as the safe "approvals required" save.
     if (this.state.pendingRoutinePrompt?.postId === postId) {
-      const agentProposed = this.state.pendingRoutinePrompt.proposedByAgent === true;
+      const pending = this.state.pendingRoutinePrompt;
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Routine prompt reaction from @${user}: approve (approvals required)`);
         return this.handleRoutinePromptResponse(postId, true, true, user, ctx);
       }
       if (isAllowAllEmoji(emoji)) {
-        ctx.logger.debug(`Routine prompt reaction from @${user}: approve (autonomous=${!agentProposed})`);
-        return this.handleRoutinePromptResponse(postId, true, agentProposed, user, ctx);
+        // Choosing the autonomous posture is an owner privilege: only the
+        // requester (owner, for human cards) or a platform-allowlisted user may
+        // remove the per-action approval prompts. A non-owner participant's ✅
+        // is downgraded to approvals-required. Agent proposals never go
+        // autonomous (their `requestedBy` is the owner, but the owner gate at
+        // decision time already blocks a guest; the safe posture holds here too).
+        const autonomousAuthorized = pending.proposedByAgent !== true &&
+          (user === pending.requestedBy || ctx.platform.isUserAllowed(user));
+        ctx.logger.debug(`Routine prompt reaction from @${user}: approve (autonomous=${autonomousAuthorized})`);
+        return this.handleRoutinePromptResponse(postId, true, !autonomousAuthorized, user, ctx);
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Routine prompt reaction from @${user}: discard`);
@@ -577,14 +585,18 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     }
 
     if (this.state.pendingWatchPrompt?.postId === postId) {
-      const agentProposed = this.state.pendingWatchPrompt.proposedByAgent === true;
+      const pending = this.state.pendingWatchPrompt;
       if (isApprovalEmoji(emoji)) {
         ctx.logger.debug(`Watch prompt reaction from @${user}: approve (approvals required)`);
         return this.handleWatchPromptResponse(postId, true, true, user, ctx);
       }
       if (isAllowAllEmoji(emoji)) {
-        ctx.logger.debug(`Watch prompt reaction from @${user}: approve (autonomous=${!agentProposed})`);
-        return this.handleWatchPromptResponse(postId, true, agentProposed, user, ctx);
+        // Owner-gated autonomous posture (see the routine branch above): a
+        // non-owner participant's ✅ is downgraded to approvals-required.
+        const autonomousAuthorized = pending.proposedByAgent !== true &&
+          (user === pending.requestedBy || ctx.platform.isUserAllowed(user));
+        ctx.logger.debug(`Watch prompt reaction from @${user}: approve (autonomous=${autonomousAuthorized})`);
+        return this.handleWatchPromptResponse(postId, true, !autonomousAuthorized, user, ctx);
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Watch prompt reaction from @${user}: discard`);

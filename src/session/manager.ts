@@ -1240,8 +1240,8 @@ export class SessionManager extends EventEmitter {
     return this.registry.getPersistedByThreadId(threadId, platformId) !== undefined;
   }
 
-  async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string): Promise<void> {
-    await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username);
+  async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string, platformId: string): Promise<void> {
+    await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username, platformId);
   }
 
   getPersistedSession(threadId: string, platformId?: string): PersistedSession | undefined {
@@ -1706,14 +1706,18 @@ export class SessionManager extends EventEmitter {
    * @param threadId - The thread ID to look up
    * @returns The post ID where the session started, or undefined if not found
    */
-  getSessionStartPostId(threadId: string): string | undefined {
+  getSessionStartPostId(threadId: string, platformId?: string): string | undefined {
     // First check active sessions
     const session = this.findSessionByThreadId(threadId);
     if (session?.sessionStartPostId) {
       return session.sessionStartPostId;
     }
-    // Then check persisted sessions (for resume scenarios)
-    const persisted = this.registry.getPersistedByThreadId(threadId);
+    // Then check persisted sessions (for resume scenarios). Scope by platform
+    // when the caller knows it, so a thread id that collides across platforms
+    // cannot return another platform's session (platformId is the store's hard
+    // privacy boundary). Only a read of a post id, so the param is optional for
+    // the handful of test-only callers.
+    const persisted = this.registry.getPersistedByThreadId(threadId, platformId);
     return persisted?.sessionStartPostId ?? undefined;
   }
 
@@ -1743,11 +1747,13 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  isUserAllowedInSession(threadId: string, username: string): boolean {
+  isUserAllowedInSession(threadId: string, username: string, platformId: string): boolean {
     const session = this.findSessionByThreadId(threadId);
     if (!session) {
-      // Check persisted session
-      const persisted = this.getPersistedSession(threadId);
+      // Check persisted session, scoped to the message's platform so a
+      // cross-platform thread-id collision cannot authorize a user against
+      // another platform's persisted allowlist.
+      const persisted = this.getPersistedSession(threadId, platformId);
       if (persisted) {
         return persisted.sessionAllowedUsers.includes(username) ||
                this.platforms.get(persisted.platformId)?.isUserAllowed(username) || false;

@@ -217,7 +217,7 @@ export async function handleMessage(
       // track it (if from an approved user) and don't interrupt Claude.
       const sideMentionActive = leadingOtherUserMention(client, message);
       if (sideMentionActive) {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
+        if (session.isUserAllowedInSession(threadRoot, username, platformId)) {
           session.addSideConversation(threadRoot, {
             fromUser: username,
             mentionedUser: sideMentionActive,
@@ -236,7 +236,7 @@ export async function handleMessage(
       // Parse command using shared parser
       const parsed = parseCommand(content);
       if (parsed) {
-        const isAllowed = session.isUserAllowedInSession(threadRoot, username);
+        const isAllowed = session.isUserAllowedInSession(threadRoot, username, platformId);
 
         // Build executor context
         const ctx: CommandExecutorContext = {
@@ -283,7 +283,7 @@ export async function handleMessage(
       // consumed even in quiet mode. Mirrors how commands bypass the gate.
       if (session.hasPendingWorktreePrompt(threadRoot)) {
         // Only session owner can respond
-        if (session.isUserAllowedInSession(threadRoot, username)) {
+        if (session.isUserAllowedInSession(threadRoot, username, platformId)) {
           const handled = await session.handleWorktreeBranchResponse(
             threadRoot,
             content,
@@ -304,7 +304,7 @@ export async function handleMessage(
       }
 
       // Check if user is allowed in this session
-      if (!session.isUserAllowedInSession(threadRoot, username)) {
+      if (!session.isUserAllowedInSession(threadRoot, username, platformId)) {
         // Request approval for their message
         if (content) await session.requestMessageApproval(threadRoot, username, content);
         return;
@@ -402,7 +402,7 @@ export async function handleMessage(
 
       if (content || files?.length) {
         ackReceipt(client, post.id);
-        await session.resumePausedSession(threadRoot, content, files, username);
+        await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }
       return;
     }

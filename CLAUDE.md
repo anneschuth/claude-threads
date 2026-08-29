@@ -284,7 +284,7 @@ like memory. A routine = `{name, prompt, schedule, createdBy}` stored in
 |------|------|
 | `src/persistence/routines-store.ts` | Store + `validateSchedule` (presets hourly/daily/weekdays/weekly — hourly is the floor, sub-hourly is unrepresentable). |
 | `src/routines/scheduler.ts` | `RoutineScheduler` (1-min tick, SessionMonitor pattern) + pure due-ness: wall-clock windows in the routine's timezone via Intl (DST-safe), period anchoring (one fire per hour/day/week), missed windows skipped. Auto-disable after 3 consecutive failures or a deauthorized creator. |
-| `src/routines/runner.ts` | `fireRoutine`: bot posts the thread root itself, then `startSession` as the creator — a normal session (platform permission mode, pool, memory, distillation). |
+| `src/routines/runner.ts` | `fireRoutine`: bot posts the thread root itself, then `startSession` as the creator — a normal session (pool, memory) but marked `unattended`, so it forces interactive permissions when `requireApproval` and (like watch fires) is **skipped by end-of-session distillation**. |
 | `src/routines/parser.ts` | NL → schedule via one haiku `quickQuery`, strict-JSON extraction + revalidation. Nothing saves without a human 👍 (PromptExecutor routine prompt → `routine-prompt:complete` → lifecycle listener writes the store). |
 
 Each routine carries a persisted `requireApproval` posture chosen at creation

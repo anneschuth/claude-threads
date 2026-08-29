@@ -432,15 +432,21 @@ export function handleRateLimit(session: Session, hit: RateLimitHit, ctx: Sessio
 }
 
 /**
- * Helper to find a persisted session by raw threadId.
- * Persisted sessions are keyed by composite sessionId, so we need to iterate.
+ * Helper to find a persisted session by raw threadId, scoped to a platform.
+ * Persisted sessions are keyed by composite `platformId:threadId`, so we
+ * iterate. SECURITY: the platform scope is required here — this feeds the
+ * resume path, which imports a session's allowlist, working dir, worktree and
+ * Claude account and delivers a live message into it. Without scoping, a
+ * thread id that collides across platforms could resume another platform's
+ * session (platformId is the store's hard privacy boundary).
  */
 function findPersistedByThreadId(
   persisted: Map<string, PersistedSession>,
-  threadId: string
+  threadId: string,
+  platformId: string
 ): PersistedSession | undefined {
   for (const session of persisted.values()) {
-    if (session.threadId === threadId) {
+    if (session.threadId === threadId && session.platformId === platformId) {
       return session;
     }
   }
@@ -1807,11 +1813,12 @@ export async function resumePausedSession(
   message: string,
   files: PlatformFile[] | undefined,
   ctx: SessionContext,
-  username: string
+  username: string,
+  platformId: string
 ): Promise<void> {
-  // Find persisted session by raw threadId
+  // Find persisted session by raw threadId, scoped to the message's platform.
   const persisted = ctx.state.sessionStore.load();
-  const state = findPersistedByThreadId(persisted, threadId);
+  const state = findPersistedByThreadId(persisted, threadId, platformId);
   if (!state) {
     log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
     return;
