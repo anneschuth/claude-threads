@@ -482,12 +482,19 @@ export class SessionStore {
    * @param threadId - Thread ID within any platform
    * @returns Session data if found (including soft-deleted), undefined otherwise
    */
-  findByThreadIdAnyState(threadId: string): PersistedSession | undefined {
+  findByThreadIdAnyState(threadId: string, platformId?: string): PersistedSession | undefined {
     const data = this.loadRaw();
     for (const session of Object.values(data.sessions)) {
-      if (session.threadId === threadId) {
-        return session;
-      }
+      if (session.threadId !== threadId) continue;
+      // SECURITY: when the caller knows which platform the thread belongs to,
+      // scope to it. platformId is the store's hard privacy boundary (composite
+      // keys are `platformId:threadId`); without this, a thread id on platform
+      // B that happens to equal one persisted under platform A would resume A's
+      // session — its allowlist, working dir, worktree and Claude account —
+      // from B. Real platform ids don't collide today (Mattermost 26-char ids
+      // vs Slack dotted-ts), so this is defense-in-depth for the invariant.
+      if (platformId !== undefined && session.platformId !== platformId) continue;
+      return session;
     }
     return undefined;
   }

@@ -1063,6 +1063,93 @@ describe('PromptExecutor — routine-creation confirmation', () => {
   });
 });
 
+describe('PromptExecutor — creation posture (approvals vs autonomous)', () => {
+  function setup(proposedByAgent = false) {
+    const platform = createMockPlatform();
+    (platform as unknown as { isUserAllowed: (u: string) => boolean }).isUserAllowed =
+      (u: string) => u === 'anne';
+    const ctx = createTestContext(platform);
+    const events = createMessageManagerEvents();
+    const routine: Array<{ approved: boolean; requireApproval?: boolean }> = [];
+    const watch: Array<{ approved: boolean; requireApproval?: boolean }> = [];
+    events.on('routine-prompt:complete', ({ approved, requireApproval }) => routine.push({ approved, requireApproval }));
+    events.on('watch-prompt:complete', ({ approved, requireApproval }) => watch.push({ approved, requireApproval }));
+    const executor = new PromptExecutor({ sessionId: 'test:s', threadId: 't', events } as any);
+    executor.setPendingRoutinePrompt({
+      postId: 'post-r',
+      parsed: { name: 'R', prompt: 'p', schedule: { preset: 'hourly' as const, timezone: 'UTC' } },
+      requestedBy: 'anne',
+      proposedByAgent: proposedByAgent || undefined,
+    });
+    executor.setPendingWatchPrompt({
+      postId: 'post-w',
+      parsed: { name: 'W', condition: 'c', prompt: 'p', keywords: ['k'] },
+      requestedBy: 'anne',
+      proposedByAgent: proposedByAgent || undefined,
+    } as any);
+    return { executor, ctx, routine, watch };
+  }
+
+  it('👍 saves with approvals required (requireApproval=true)', async () => {
+    const { executor, ctx, routine, watch } = setup();
+    await executor.handleReaction('post-r', '+1', 'anne', 'added', ctx);
+    await executor.handleReaction('post-w', '+1', 'anne', 'added', ctx);
+    expect(routine).toEqual([{ approved: true, requireApproval: true }]);
+    expect(watch).toEqual([{ approved: true, requireApproval: true }]);
+  });
+
+  it('✅ saves as autonomous (requireApproval=false) for human creations', async () => {
+    const { executor, ctx, routine, watch } = setup();
+    await executor.handleReaction('post-r', 'white_check_mark', 'anne', 'added', ctx);
+    await executor.handleReaction('post-w', 'white_check_mark', 'anne', 'added', ctx);
+    expect(routine).toEqual([{ approved: true, requireApproval: false }]);
+    expect(watch).toEqual([{ approved: true, requireApproval: false }]);
+  });
+
+  it('✅ on an agent-proposed card never grants autonomy (requireApproval stays true)', async () => {
+    const { executor, ctx, routine, watch } = setup(true);
+    await executor.handleReaction('post-r', 'white_check_mark', 'anne', 'added', ctx);
+    await executor.handleReaction('post-w', 'white_check_mark', 'anne', 'added', ctx);
+    expect(routine).toEqual([{ approved: true, requireApproval: true }]);
+    expect(watch).toEqual([{ approved: true, requireApproval: true }]);
+  });
+
+  it('✅ from a non-owner guest is downgraded to approvals-required', async () => {
+    // Choosing the autonomous (no-approval) posture is an owner privilege. A
+    // guest admitted by the reaction router must not be able to remove the
+    // approval prompts from the owner's item.
+    const { executor, ctx, routine, watch } = setup(); // isUserAllowed = only 'anne'
+    await executor.handleReaction('post-r', 'white_check_mark', 'guest', 'added', ctx);
+    await executor.handleReaction('post-w', 'white_check_mark', 'guest', 'added', ctx);
+    expect(routine).toEqual([{ approved: true, requireApproval: true }]);
+    expect(watch).toEqual([{ approved: true, requireApproval: true }]);
+  });
+
+  it('✅ from a platform-allowlisted non-owner may grant autonomy', async () => {
+    const platform = createMockPlatform();
+    (platform as unknown as { isUserAllowed: (u: string) => boolean }).isUserAllowed =
+      (u: string) => u === 'admin';
+    const ctx = createTestContext(platform);
+    const events = createMessageManagerEvents();
+    const routine: Array<{ approved: boolean; requireApproval?: boolean }> = [];
+    events.on('routine-prompt:complete', ({ approved, requireApproval }) => routine.push({ approved, requireApproval }));
+    const executor = new PromptExecutor({ sessionId: 'test:s', threadId: 't', events } as any);
+    executor.setPendingRoutinePrompt({
+      postId: 'post-r',
+      parsed: { name: 'R', prompt: 'p', schedule: { preset: 'hourly' as const, timezone: 'UTC' } },
+      requestedBy: 'anne',
+    });
+    await executor.handleReaction('post-r', 'white_check_mark', 'admin', 'added', ctx);
+    expect(routine).toEqual([{ approved: true, requireApproval: false }]);
+  });
+
+  it('👎 discards regardless of posture', async () => {
+    const { executor, ctx, routine } = setup();
+    await executor.handleReaction('post-r', '-1', 'anne', 'added', ctx);
+    expect(routine).toEqual([{ approved: false, requireApproval: true }]);
+  });
+});
+
 describe('PromptExecutor — agent-proposal decision gate', () => {
   function setup() {
     const platform = createMockPlatform();

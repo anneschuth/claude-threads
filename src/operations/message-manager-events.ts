@@ -101,6 +101,11 @@ export interface MessageManagerEventMap {
     postId: string;
     /** True when Claude proposed this via the propose_routine MCP tool. */
     proposedByAgent?: boolean;
+    /**
+     * Approval posture chosen at confirmation: true → fired runs require
+     * in-thread per-action approval (safe default); false → autonomous.
+     */
+    requireApproval?: boolean;
   };
 
   /**
@@ -116,6 +121,11 @@ export interface MessageManagerEventMap {
     postId: string;
     /** True when Claude proposed this via the propose_watch MCP tool. */
     proposedByAgent?: boolean;
+    /**
+     * Approval posture chosen at confirmation: true → fired runs require
+     * in-thread per-action approval (safe default); false → autonomous.
+     */
+    requireApproval?: boolean;
   };
 
   /**

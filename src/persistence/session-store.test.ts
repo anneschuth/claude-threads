@@ -224,11 +224,30 @@ describe('SessionStore', () => {
       expect(store.findByThreadIdAnyState('thread-b')).toBeUndefined();
     });
 
-    it('searches across platforms (returns first match)', () => {
+    it('searches across platforms when no platformId is given (returns first match)', () => {
       const mm = createTestSession({ platformId: 'mattermost-main', threadId: 'shared-id' });
       store.save('mattermost-main:shared-id', mm);
       const found = store.findByThreadIdAnyState('shared-id');
       expect(found?.platformId).toBe('mattermost-main');
+    });
+
+    it('scopes to the given platformId (does not cross the platform boundary)', () => {
+      // Two sessions on different platforms share a thread id. A caller that
+      // knows the message's platform must resolve only that platform's session,
+      // never leak the other platform's allowlist/working-dir/account.
+      const mm = createTestSession({ platformId: 'mattermost-main', threadId: 'shared-id' });
+      const slack = createTestSession({ platformId: 'slack-ws', threadId: 'shared-id' });
+      store.save('mattermost-main:shared-id', mm);
+      store.save('slack-ws:shared-id', slack);
+
+      expect(store.findByThreadIdAnyState('shared-id', 'slack-ws')?.platformId).toBe('slack-ws');
+      expect(store.findByThreadIdAnyState('shared-id', 'mattermost-main')?.platformId).toBe('mattermost-main');
+    });
+
+    it('returns undefined when the thread exists only under a different platform', () => {
+      const mm = createTestSession({ platformId: 'mattermost-main', threadId: 'shared-id' });
+      store.save('mattermost-main:shared-id', mm);
+      expect(store.findByThreadIdAnyState('shared-id', 'slack-ws')).toBeUndefined();
     });
   });
 

@@ -4,7 +4,8 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { MessageApprovalExecutor } from './message-approval.js';
-import { createTestContext } from '../../test-utils/executor-harness.js';
+import { createTestContext, createMockPlatform } from '../../test-utils/executor-harness.js';
+import type { PlatformClient } from '../../platform/index.js';
 import type { ExecutorContext, PendingMessageApproval } from './types.js';
 import { createMessageManagerEvents } from '../message-manager-events.js';
 
@@ -222,6 +223,70 @@ describe('MessageApprovalExecutor', () => {
 
       expect(handled).toBe(true);
       expect(messageApprovalCompleted!.decision).toBe('deny');
+    });
+
+    it('downgrades ✅ invite to allow-once when the reactor is not the owner or platform-allowlisted', async () => {
+      // Regression: a temporarily-invited guest (a session participant, so the
+      // reaction router admits them) must not be able to grant *standing*
+      // membership to a third party via the "✅ Invite to session" reaction —
+      // that is an owner privilege, matching the owner-gated `!invite` command.
+      const platform = createMockPlatform();
+      // Reactor is NOT the session owner and NOT platform-allowlisted.
+      platform.isUserAllowed = ((u: string) => u === 'owner') as PlatformClient['isUserAllowed'];
+      const gatedCtx = createTestContext(platform);
+
+      const approval: PendingMessageApproval = {
+        postId: 'post-123',
+        fromUser: 'mallory',
+        originalMessage: 'let me in',
+        sessionOwner: 'owner',
+      };
+      executor.setPendingMessageApproval(approval);
+
+      const handled = await executor.handleReaction('post-123', 'white_check_mark', 'guest', 'added', gatedCtx);
+
+      expect(handled).toBe(true);
+      // Downgraded: message allowed once, but NO standing invite granted.
+      expect(messageApprovalCompleted!.decision).toBe('allow');
+      expect(messageApprovalCompleted!.fromUser).toBe('mallory');
+    });
+
+    it('honors ✅ invite from the session owner', async () => {
+      const platform = createMockPlatform();
+      platform.isUserAllowed = ((u: string) => u === 'someone-else') as PlatformClient['isUserAllowed'];
+      const gatedCtx = createTestContext(platform);
+
+      const approval: PendingMessageApproval = {
+        postId: 'post-123',
+        fromUser: 'mallory',
+        originalMessage: 'let me in',
+        sessionOwner: 'owner',
+      };
+      executor.setPendingMessageApproval(approval);
+
+      const handled = await executor.handleReaction('post-123', 'white_check_mark', 'owner', 'added', gatedCtx);
+
+      expect(handled).toBe(true);
+      expect(messageApprovalCompleted!.decision).toBe('invite');
+    });
+
+    it('honors ✅ invite from a platform-allowlisted user', async () => {
+      const platform = createMockPlatform();
+      platform.isUserAllowed = ((u: string) => u === 'admin') as PlatformClient['isUserAllowed'];
+      const gatedCtx = createTestContext(platform);
+
+      const approval: PendingMessageApproval = {
+        postId: 'post-123',
+        fromUser: 'mallory',
+        originalMessage: 'let me in',
+        sessionOwner: 'owner',
+      };
+      executor.setPendingMessageApproval(approval);
+
+      const handled = await executor.handleReaction('post-123', 'white_check_mark', 'admin', 'added', gatedCtx);
+
+      expect(handled).toBe(true);
+      expect(messageApprovalCompleted!.decision).toBe('invite');
     });
 
     it('ignores removed reactions', async () => {

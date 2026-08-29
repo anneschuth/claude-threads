@@ -5,9 +5,10 @@
  */
 
 import { spawn, spawnSync } from 'child_process';
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { homedir } from 'os';
+import { writeFileAtomic } from '../persistence/atomic-file.js';
 import { createLogger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
 import type { PersistedUpdateState, RuntimeSettings, UpdateInfo } from './types.js';
@@ -143,9 +144,14 @@ export function saveUpdateState(state: PersistedUpdateState): void {
   try {
     const dir = dirname(STATE_PATH);
     if (!existsSync(dir)) {
-      mkdirSync(dir, { recursive: true });
+      // Owner-only dir, matching the rest of the bot's on-disk stores.
+      mkdirSync(dir, { recursive: true, mode: 0o700 });
     }
-    writeFileSync(STATE_PATH, JSON.stringify(state, null, 2), 'utf-8');
+    // Owner-only (0600) atomic write. update-state.json holds runtime settings
+    // (permission mode, feature flags) that a local unprivileged user should
+    // not be able to read or tamper with; keep it in lockstep with the 0600
+    // policy every other store follows.
+    writeFileAtomic(STATE_PATH, JSON.stringify(state, null, 2));
     log.debug('Update state saved');
   } catch (err) {
     log.warn(`Failed to save update state: ${err}`);
@@ -158,7 +164,8 @@ export function saveUpdateState(state: PersistedUpdateState): void {
 export function clearUpdateState(): void {
   try {
     if (existsSync(STATE_PATH)) {
-      writeFileSync(STATE_PATH, '{}', 'utf-8');
+      // Re-write owner-only so a pre-existing 0644 file is corrected to 0600.
+      writeFileAtomic(STATE_PATH, '{}');
     }
   } catch (err) {
     log.warn(`Failed to clear update state: ${err}`);

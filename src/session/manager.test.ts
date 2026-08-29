@@ -178,13 +178,13 @@ describe('SessionManager', () => {
 
   describe('getSessionStartPostId', () => {
     test('returns undefined for unknown thread', () => {
-      expect(manager.getSessionStartPostId('unknown-thread')).toBeUndefined();
+      expect(manager.getSessionStartPostId('unknown-thread', 'test-platform')).toBeUndefined();
     });
   });
 
   describe('isUserAllowedInSession', () => {
     test('returns false for unknown thread with unknown user', () => {
-      expect(manager.isUserAllowedInSession('unknown-thread', 'random-user')).toBe(false);
+      expect(manager.isUserAllowedInSession('unknown-thread', 'random-user', 'test-platform')).toBe(false);
     });
   });
 
@@ -327,7 +327,7 @@ describe('SessionManager', () => {
   describe('resumePausedSession', () => {
     test('handles unknown thread gracefully', async () => {
       // This will try to find a persisted session which doesn't exist
-      await manager.resumePausedSession('unknown-thread', 'message', undefined, 'someuser');
+      await manager.resumePausedSession('unknown-thread', 'message', undefined, 'someuser', 'test-platform');
       // Should not throw - method handles missing session internally
     });
   });
@@ -597,21 +597,21 @@ describe('SessionManager', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'alice')).toBe(true);
+      expect(manager.isUserAllowedInSession('thread-X', 'alice', 'test-platform')).toBe(true);
     });
 
     test('returns true for globally-allowed user', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'admin')).toBe(true);
+      expect(manager.isUserAllowedInSession('thread-X', 'admin', 'test-platform')).toBe(true);
     });
 
     test('returns false for random user not invited', () => {
       injectSession(manager, platform as unknown as PlatformClient, 'thread-X', {
         sessionAllowedUsers: new Set(['alice']),
       });
-      expect(manager.isUserAllowedInSession('thread-X', 'mallory')).toBe(false);
+      expect(manager.isUserAllowedInSession('thread-X', 'mallory', 'test-platform')).toBe(false);
     });
   });
 
@@ -816,6 +816,58 @@ describe('SessionManager', () => {
       expect(written.tasksCompleted).toBe(false);
       expect(written.tasksMinimized).toBe(false);
       expect(written.pendingContextPrompt).toBeUndefined();
+    });
+
+    test('caps oversized free-text fields so sessions.json cannot be inflated', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+
+      const huge = 'x'.repeat(500_000);
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-huge', {
+        firstPrompt: huge,
+        queuedPrompt: huge,
+      });
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: 't', content: huge, isMinimized: false, isCompleted: false },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: 't', content: huge, isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      (manager as any).persistSession(session);
+      const written = savedCalls[0].data as Record<string, string>;
+
+      // Each capped field is bounded (100k + short marker), not the raw 500k.
+      for (const field of ['firstPrompt', 'queuedPrompt', 'lastTasksContent']) {
+        expect(written[field].length).toBeLessThanOrEqual(100_020);
+        expect(written[field].endsWith('…[truncated]')).toBe(true);
+      }
+    });
+
+    test('leaves normal-sized free-text fields byte-identical', () => {
+      const savedCalls: Array<{ sessionId: string; data: unknown }> = [];
+      (manager as any).sessionStore.save = (sessionId: string, data: unknown) => {
+        savedCalls.push({ sessionId, data });
+      };
+      const session = injectSession(manager, platform as unknown as PlatformClient, 'thread-normal', {
+        firstPrompt: 'a normal prompt',
+      });
+      session.messageManager = {
+        serialize: () => ({
+          taskList: { postId: null, content: null, isMinimized: false, isCompleted: false },
+          contextPrompt: null,
+        }),
+        getTaskListState: () => ({ postId: null, content: null, isMinimized: false, isCompleted: false }),
+        getPendingContextPrompt: () => null,
+      } as any;
+
+      (manager as any).persistSession(session);
+      const written = savedCalls[0].data as Record<string, unknown>;
+      expect(written.firstPrompt).toBe('a normal prompt');
     });
   });
 });

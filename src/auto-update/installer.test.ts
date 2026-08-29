@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
-import { existsSync, unlinkSync, readFileSync } from 'fs';
+import { existsSync, unlinkSync, readFileSync, statSync } from 'fs';
 import { resolve } from 'path';
 import { homedir } from 'os';
 import {
@@ -89,6 +89,16 @@ describe('auto-update/installer', () => {
       };
 
       expect(() => saveUpdateState(testState)).not.toThrow();
+    });
+
+    it('writes the state file owner-only (0600)', () => {
+      // Regression: update-state.json holds runtime settings (permission mode,
+      // feature flags) and must follow the same 0600 policy as every other
+      // store, not the default 0644.
+      if (process.platform === 'win32') return; // POSIX mode bits only
+      saveUpdateState({ previousVersion: '1.0.0', justUpdated: true });
+      const mode = statSync(STATE_PATH).mode & 0o777;
+      expect(mode).toBe(0o600);
     });
   });
 

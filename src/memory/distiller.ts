@@ -101,6 +101,19 @@ export function scheduleDistillation(
   if (!memoryConfig.enabled || !memoryConfig.channelLayer || !memoryConfig.distillation) {
     return;
   }
+  // SECURITY: unattended (routine/watch-fired) sessions must not write channel
+  // memory. Their thread is seeded by whatever message triggered the fire —
+  // fully attacker-controlled on Mattermost, and reachable by any channel
+  // member — so distilling it would let a prompt-injected fire persist
+  // attacker-derived "facts" into every FUTURE session's system prompt. This
+  // mirrors the identical guard on the direct `remember_fact` agent action
+  // (see `agent-actions/handler.ts`); the two write paths must stay in lockstep.
+  if (session.unattended) {
+    log.debug(
+      `Skipping distillation for unattended session ${session.platformId}:${session.threadId}`,
+    );
+    return;
+  }
   // Direct channel mode: the synthetic session id is not a thread root, so
   // there is no thread history to distill — getThreadHistory would fail and
   // the fire-and-forget catch would swallow it silently. Skip loudly instead.

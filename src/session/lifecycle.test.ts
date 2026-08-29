@@ -1282,7 +1282,7 @@ describe('authorization gate at sinks (#388)', () => {
     it('does not resume for an unauthorized user (no Claude account acquired)', async () => {
       const ctx = contextWithPersisted(persistedState());
 
-      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn');
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn', 'test-platform');
 
       // resumeSession (reached only past the gate) acquires a Claude account.
       expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
@@ -1291,7 +1291,7 @@ describe('authorization gate at sinks (#388)', () => {
     it('proceeds past the gate for the session owner', async () => {
       const ctx = contextWithPersisted(persistedState());
 
-      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
 
       // Owner clears the gate, so resumeSession runs and acquires an account.
       expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
@@ -1302,7 +1302,7 @@ describe('authorization gate at sinks (#388)', () => {
         persistedState({ sessionAllowedUsers: ['alice', 'invited'] }),
       );
 
-      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'invited');
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'invited', 'test-platform');
 
       expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
     });
@@ -1423,7 +1423,7 @@ describe('userAttribution flag seeding', () => {
   it('seeds userAttribution from persisted state on resume', async () => {
     const ctx = resumeCtx({ userAttribution: true });
 
-    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
 
     const added = (ctx.ops.emitSessionAdd as any).mock.calls[0]?.[0] as Session;
     expect(added.userAttribution).toBe(true);
@@ -1432,7 +1432,7 @@ describe('userAttribution flag seeding', () => {
   it('reads absent persisted userAttribution as false (pre-flag sessions.json)', async () => {
     const ctx = resumeCtx({});
 
-    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice');
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
 
     const added = (ctx.ops.emitSessionAdd as any).mock.calls[0]?.[0] as Session;
     expect(added.userAttribution).toBe(false);
@@ -1473,7 +1473,7 @@ describe('resumePausedSession sender attribution (regression)', () => {
     const mockSession = createMockSession({ messageManager: mockMsgManager as any });
     (ctx.ops.findSessionByThreadId as any).mockReturnValue(mockSession);
 
-    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob');
+    await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob', 'test-platform');
 
     expect(mockMsgManager.handleUserMessage).toHaveBeenCalledTimes(1);
     const sender = (mockMsgManager.handleUserMessage as any).mock.calls[0][2];

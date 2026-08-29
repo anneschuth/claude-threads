@@ -217,7 +217,7 @@ export async function handleMessage(
       // track it (if from an approved user) and don't interrupt Claude.
       const sideMentionActive = leadingOtherUserMention(client, message);
       if (sideMentionActive) {
-        if (session.isUserAllowedInSession(threadRoot, username)) {
+        if (session.isUserAllowedInSession(threadRoot, username, platformId)) {
           session.addSideConversation(threadRoot, {
             fromUser: username,
             mentionedUser: sideMentionActive,
@@ -236,7 +236,7 @@ export async function handleMessage(
       // Parse command using shared parser
       const parsed = parseCommand(content);
       if (parsed) {
-        const isAllowed = session.isUserAllowedInSession(threadRoot, username);
+        const isAllowed = session.isUserAllowedInSession(threadRoot, username, platformId);
 
         // Build executor context
         const ctx: CommandExecutorContext = {
@@ -283,7 +283,7 @@ export async function handleMessage(
       // consumed even in quiet mode. Mirrors how commands bypass the gate.
       if (session.hasPendingWorktreePrompt(threadRoot)) {
         // Only session owner can respond
-        if (session.isUserAllowedInSession(threadRoot, username)) {
+        if (session.isUserAllowedInSession(threadRoot, username, platformId)) {
           const handled = await session.handleWorktreeBranchResponse(
             threadRoot,
             content,
@@ -304,7 +304,7 @@ export async function handleMessage(
       }
 
       // Check if user is allowed in this session
-      if (!session.isUserAllowedInSession(threadRoot, username)) {
+      if (!session.isUserAllowedInSession(threadRoot, username, platformId)) {
         // Request approval for their message
         if (content) await session.requestMessageApproval(threadRoot, username, content);
         return;
@@ -322,7 +322,7 @@ export async function handleMessage(
 
     // Check for paused session that can be resumed
     // Use registry to check for persisted session directly
-    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot) !== undefined;
+    const hasPausedSession = session.registry.getPersistedByThreadId(threadRoot, platformId) !== undefined;
     if (hasPausedSession) {
       // A message opening by addressing someone else is a side conversation.
       if (leadingOtherUserMention(client, message)) {
@@ -338,7 +338,7 @@ export async function handleMessage(
       if (pausedParsed) {
         if (pausedParsed.command === 'stop') {
           // Clean up the paused session instead of resuming it
-          const persistedSession = session.getPersistedSession(threadRoot);
+          const persistedSession = session.getPersistedSession(threadRoot, platformId);
           if (persistedSession) {
             const allowedUsers = sessionAllowedUserSet(persistedSession);
             if (allowedUsers.has(username) || client.isUserAllowed(username)) {
@@ -349,7 +349,7 @@ export async function handleMessage(
                 tool: 'stop',
                 detail: 'paused session cancelled',
               });
-              session.cancelPausedSession(threadRoot);
+              session.cancelPausedSession(threadRoot, platformId);
               await client.createPost(
                 `🛑 ${formatter.formatBold('Session cancelled')} by ${formatter.formatUserMention(username)}`,
                 threadRoot
@@ -365,7 +365,7 @@ export async function handleMessage(
       // approvals mode `owner`, message-based resume is scoped to session
       // participants, matching the reaction-based resume gate in
       // reaction-router.ts — the platform allowlist alone is not enough.
-      const persistedSession = session.getPersistedSession(threadRoot);
+      const persistedSession = session.getPersistedSession(threadRoot, platformId);
       if (persistedSession) {
         const allowedUsers = sessionAllowedUserSet(persistedSession);
         const ownerScoped =
@@ -402,7 +402,7 @@ export async function handleMessage(
 
       if (content || files?.length) {
         ackReceipt(client, post.id);
-        await session.resumePausedSession(threadRoot, content, files, username);
+        await session.resumePausedSession(threadRoot, content, files, username, platformId);
       }
       return;
     }

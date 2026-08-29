@@ -172,6 +172,28 @@ export class MessageApprovalExecutor extends BaseExecutor<MessageApprovalState> 
         return handled;
       }
       if (isAllowAllEmoji(emoji)) {
+        // "✅ Invite to session" grants standing membership — an owner
+        // privilege, matching the owner-gated `!invite` command. The reaction
+        // router has already confirmed `user` is at least a session
+        // participant, but a temporarily-invited guest is a participant who
+        // must NOT be able to invite further users. Port `requireSessionOwner`'s
+        // first gate here: only the session owner or a platform-allowlisted
+        // user may invite. Anyone else's ✅ is downgraded to a one-shot allow
+        // (the message still goes through once; no permanent membership is
+        // granted). A missing `sessionOwner` (older persisted approval) falls
+        // back to platform-allowlist only.
+        const pending = this.state.pendingMessageApproval;
+        const isInviteAuthorized =
+          (pending.sessionOwner !== undefined && user === pending.sessionOwner) ||
+          ctx.platform.isUserAllowed(user);
+        if (!isInviteAuthorized) {
+          ctx.logger.info(
+            `Message approval invite (✅) from @${user} downgraded to allow-once: only the session owner may invite`
+          );
+          const handled = await this.handleMessageApprovalResponse(postId, 'allow', user, ctx);
+          ctx.logger.debug(`MessageApprovalExecutor: outcome=allow (invite downgraded), handled=${handled}`);
+          return handled;
+        }
         ctx.logger.debug(`Message approval reaction from @${user}: invite`);
         const handled = await this.handleMessageApprovalResponse(postId, 'invite', user, ctx);
         ctx.logger.debug(`MessageApprovalExecutor: outcome=invite, handled=${handled}`);

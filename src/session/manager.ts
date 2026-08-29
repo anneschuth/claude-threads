@@ -730,6 +730,21 @@ export class SessionManager extends EventEmitter {
   // Persistence
   // ---------------------------------------------------------------------------
 
+  /**
+   * Bound a free-text field before it enters sessions.json. The whole file is
+   * rewritten (JSON.stringify) on every mutation, so an unbounded user prompt
+   * would inflate every subsequent atomic rewrite. The cap is deliberately
+   * generous — far above any real prompt — so it only trims pathological
+   * multi-megabyte input and never a genuine message. A short marker records
+   * that truncation happened.
+   */
+  private static readonly MAX_PERSISTED_TEXT = 100_000;
+  private static capPersistedText(value: string | undefined | null): string | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (value.length <= SessionManager.MAX_PERSISTED_TEXT) return value;
+    return value.slice(0, SessionManager.MAX_PERSISTED_TEXT) + '…[truncated]';
+  }
+
   private persistSession(session: Session): void {
     try {
       this.persistSessionUnsafe(session);
@@ -780,7 +795,7 @@ export class SessionManager extends EventEmitter {
       sessionStartPostId: session.sessionStartPostId,
       // Task state from MessageManager serialize() (single source of truth).
       tasksPostId: taskListSnapshot?.postId ?? null,
-      lastTasksContent: taskListSnapshot?.content ?? null,
+      lastTasksContent: SessionManager.capPersistedText(taskListSnapshot?.content) ?? null,
       tasksCompleted: taskListSnapshot?.isCompleted ?? false,
       tasksMinimized: taskListSnapshot?.isMinimized ?? false,
       taskTrackerState: taskTrackerSnapshot,
@@ -788,10 +803,10 @@ export class SessionManager extends EventEmitter {
       isWorktreeOwner: session.isWorktreeOwner,
       pendingWorktreePrompt: session.pendingWorktreePrompt,
       worktreePromptDisabled: session.worktreePromptDisabled,
-      queuedPrompt: session.queuedPrompt,
+      queuedPrompt: SessionManager.capPersistedText(session.queuedPrompt),
       queuedByUsername: session.queuedByUsername,
       queuedFiles: session.queuedFiles,
-      firstPrompt: session.firstPrompt,
+      firstPrompt: SessionManager.capPersistedText(session.firstPrompt),
       pendingContextPrompt: contextPromptSnapshot,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
@@ -1218,27 +1233,27 @@ export class SessionManager extends EventEmitter {
    * Check if a thread has a paused (persisted but not active) session.
    * Delegates to registry.getPersistedByThreadId() internally.
    */
-  hasPausedSession(threadId: string): boolean {
+  hasPausedSession(threadId: string, platformId?: string): boolean {
     // If there's an active session, it's not paused
     if (this.registry.findByThreadId(threadId)) return false;
     // Check for persisted session
-    return this.registry.getPersistedByThreadId(threadId) !== undefined;
+    return this.registry.getPersistedByThreadId(threadId, platformId) !== undefined;
   }
 
-  async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string): Promise<void> {
-    await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username);
+  async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string, platformId: string): Promise<void> {
+    await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username, platformId);
   }
 
-  getPersistedSession(threadId: string): PersistedSession | undefined {
-    return this.registry.getPersistedByThreadId(threadId);
+  getPersistedSession(threadId: string, platformId?: string): PersistedSession | undefined {
+    return this.registry.getPersistedByThreadId(threadId, platformId);
   }
 
   /**
    * Cancel a paused (persisted but not active) session by soft-deleting it.
    * Used when !stop is issued in a thread with a paused session.
    */
-  cancelPausedSession(threadId: string): void {
-    const persisted = this.registry.getPersistedByThreadId(threadId);
+  cancelPausedSession(threadId: string, platformId?: string): void {
+    const persisted = this.registry.getPersistedByThreadId(threadId, platformId);
     if (persisted) {
       const sessionId = `${persisted.platformId}:${persisted.threadId}`;
       this.sessionStore.softDelete(sessionId);
@@ -1691,14 +1706,18 @@ export class SessionManager extends EventEmitter {
    * @param threadId - The thread ID to look up
    * @returns The post ID where the session started, or undefined if not found
    */
-  getSessionStartPostId(threadId: string): string | undefined {
+  getSessionStartPostId(threadId: string, platformId?: string): string | undefined {
     // First check active sessions
     const session = this.findSessionByThreadId(threadId);
     if (session?.sessionStartPostId) {
       return session.sessionStartPostId;
     }
-    // Then check persisted sessions (for resume scenarios)
-    const persisted = this.registry.getPersistedByThreadId(threadId);
+    // Then check persisted sessions (for resume scenarios). Scope by platform
+    // when the caller knows it, so a thread id that collides across platforms
+    // cannot return another platform's session (platformId is the store's hard
+    // privacy boundary). Only a read of a post id, so the param is optional for
+    // the handful of test-only callers.
+    const persisted = this.registry.getPersistedByThreadId(threadId, platformId);
     return persisted?.sessionStartPostId ?? undefined;
   }
 
@@ -1728,11 +1747,13 @@ export class SessionManager extends EventEmitter {
     }
   }
 
-  isUserAllowedInSession(threadId: string, username: string): boolean {
+  isUserAllowedInSession(threadId: string, username: string, platformId: string): boolean {
     const session = this.findSessionByThreadId(threadId);
     if (!session) {
-      // Check persisted session
-      const persisted = this.getPersistedSession(threadId);
+      // Check persisted session, scoped to the message's platform so a
+      // cross-platform thread-id collision cannot authorize a user against
+      // another platform's persisted allowlist.
+      const persisted = this.getPersistedSession(threadId, platformId);
       if (persisted) {
         return persisted.sessionAllowedUsers.includes(username) ||
                this.platforms.get(persisted.platformId)?.isUserAllowed(username) || false;

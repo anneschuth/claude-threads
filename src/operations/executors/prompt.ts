@@ -8,7 +8,7 @@
  * - Processing user responses via reactions
  */
 
-import { isApprovalEmoji, isDenialEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
+import { isApprovalEmoji, isDenialEmoji, isAllowAllEmoji, getNumberEmojiIndex } from '../../utils/emoji.js';
 import { completePendingPrompt } from './pending-prompt.js';
 import type {
   ExecutorContext,
@@ -358,9 +358,10 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
     pending: { postId: string; parsed: P; requestedBy: string; proposedByAgent?: boolean } | null,
     label: string,
     clear: () => void,
-    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean }) => void,
+    emit: (payload: { approved: boolean; parsed: P; requestedBy: string; decidedBy: string; postId: string; proposedByAgent?: boolean; requireApproval: boolean }) => void,
     postId: string,
     approved: boolean,
+    requireApproval: boolean,
     username: string,
     ctx: ExecutorContext,
   ): Promise<boolean> {
@@ -398,7 +399,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
         ? `✅ ${ctx.formatter.formatBold(`${label} "${parsed.name}" confirmed`)} by ${ctx.formatter.formatUserMention(username)} — saving...`
         : `❌ ${ctx.formatter.formatBold(`${label} "${parsed.name}" discarded`)} by ${ctx.formatter.formatUserMention(username)}`,
       clear,
-      emit: ({ parsed, requestedBy }) => emit({ approved, parsed, requestedBy, decidedBy: username, postId, proposedByAgent: pending?.proposedByAgent }),
+      emit: ({ parsed, requestedBy }) => emit({ approved, parsed, requestedBy, decidedBy: username, postId, proposedByAgent: pending?.proposedByAgent, requireApproval }),
     });
   }
 
@@ -409,6 +410,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   handleRoutinePromptResponse(
     postId: string,
     approved: boolean,
+    requireApproval: boolean,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
@@ -417,7 +419,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       'Routine',
       () => { this.state.pendingRoutinePrompt = null; },
       (payload) => this.events?.emit('routine-prompt:complete', payload),
-      postId, approved, username, ctx,
+      postId, approved, requireApproval, username, ctx,
     );
   }
 
@@ -444,6 +446,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
   handleWatchPromptResponse(
     postId: string,
     approved: boolean,
+    requireApproval: boolean,
     username: string,
     ctx: ExecutorContext
   ): Promise<boolean> {
@@ -452,7 +455,7 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       'Watch',
       () => { this.state.pendingWatchPrompt = null; },
       (payload) => this.events?.emit('watch-prompt:complete', payload),
-      postId, approved, username, ctx,
+      postId, approved, requireApproval, username, ctx,
     );
   }
 
@@ -548,28 +551,56 @@ export class PromptExecutor extends BaseExecutor<PromptState> {
       return false;
     }
 
-    // Check pending routine-creation confirmation
+    // Check pending routine-creation confirmation.
+    //   👍  save, approvals required (safe default)
+    //   ✅  save, run autonomously (no per-action approval) — human creations only
+    //   👎  discard
+    // Agent-proposed items never offer the autonomous option: an autonomous
+    // unattended item is a deliberate human choice, so a ✅ on an agent
+    // proposal is treated as the safe "approvals required" save.
     if (this.state.pendingRoutinePrompt?.postId === postId) {
+      const pending = this.state.pendingRoutinePrompt;
       if (isApprovalEmoji(emoji)) {
-        ctx.logger.debug(`Routine prompt reaction from @${user}: approve`);
-        return this.handleRoutinePromptResponse(postId, true, user, ctx);
+        ctx.logger.debug(`Routine prompt reaction from @${user}: approve (approvals required)`);
+        return this.handleRoutinePromptResponse(postId, true, true, user, ctx);
+      }
+      if (isAllowAllEmoji(emoji)) {
+        // Choosing the autonomous posture is an owner privilege: only the
+        // requester (owner, for human cards) or a platform-allowlisted user may
+        // remove the per-action approval prompts. A non-owner participant's ✅
+        // is downgraded to approvals-required. Agent proposals never go
+        // autonomous (their `requestedBy` is the owner, but the owner gate at
+        // decision time already blocks a guest; the safe posture holds here too).
+        const autonomousAuthorized = pending.proposedByAgent !== true &&
+          (user === pending.requestedBy || ctx.platform.isUserAllowed(user));
+        ctx.logger.debug(`Routine prompt reaction from @${user}: approve (autonomous=${autonomousAuthorized})`);
+        return this.handleRoutinePromptResponse(postId, true, !autonomousAuthorized, user, ctx);
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Routine prompt reaction from @${user}: discard`);
-        return this.handleRoutinePromptResponse(postId, false, user, ctx);
+        return this.handleRoutinePromptResponse(postId, false, true, user, ctx);
       }
       ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for routine prompt, ignoring`);
       return false;
     }
 
     if (this.state.pendingWatchPrompt?.postId === postId) {
+      const pending = this.state.pendingWatchPrompt;
       if (isApprovalEmoji(emoji)) {
-        ctx.logger.debug(`Watch prompt reaction from @${user}: approve`);
-        return this.handleWatchPromptResponse(postId, true, user, ctx);
+        ctx.logger.debug(`Watch prompt reaction from @${user}: approve (approvals required)`);
+        return this.handleWatchPromptResponse(postId, true, true, user, ctx);
+      }
+      if (isAllowAllEmoji(emoji)) {
+        // Owner-gated autonomous posture (see the routine branch above): a
+        // non-owner participant's ✅ is downgraded to approvals-required.
+        const autonomousAuthorized = pending.proposedByAgent !== true &&
+          (user === pending.requestedBy || ctx.platform.isUserAllowed(user));
+        ctx.logger.debug(`Watch prompt reaction from @${user}: approve (autonomous=${autonomousAuthorized})`);
+        return this.handleWatchPromptResponse(postId, true, !autonomousAuthorized, user, ctx);
       }
       if (isDenialEmoji(emoji)) {
         ctx.logger.debug(`Watch prompt reaction from @${user}: discard`);
-        return this.handleWatchPromptResponse(postId, false, user, ctx);
+        return this.handleWatchPromptResponse(postId, false, true, user, ctx);
       }
       ctx.logger.debug(`PromptExecutor: emoji ${emoji} not valid for watch prompt, ignoring`);
       return false;

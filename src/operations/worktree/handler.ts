@@ -446,6 +446,19 @@ export async function createAndSwitchToWorktree(
 ): Promise<void> {
   if (!await requireSessionOwner(session, username, 'manage worktrees')) return;
 
+  // SECURITY: validate the branch name at this chokepoint, not just on the
+  // interactive prompt path. The in-session `!worktree <name>` command reaches
+  // here directly (bypassing `handleWorktreeBranchResponse`'s check), so an
+  // unvalidated branch would otherwise flow into `git worktree add`. Rejecting
+  // git-illegal and shell-metacharacter names here closes both git flag
+  // injection (a leading `-`) and — on Windows, where the spawn wrapper adds
+  // `shell:true` — cmd.exe command injection.
+  if (!isValidBranchName(branch)) {
+    await postError(session, `Invalid branch name: \`${branch}\`. Please provide a valid git branch name.`);
+    sessionLog(session).warn(`🌿 Rejected invalid branch name: ${branch}`);
+    return;
+  }
+
   // Check if we're in a git repo
   const isRepo = await isGitRepository(session.workingDir);
   if (!isRepo) {

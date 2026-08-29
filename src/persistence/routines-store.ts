@@ -62,6 +62,15 @@ export interface Routine {
   createdBy: string;
   createdAt: string;
   enabled: boolean;
+  /**
+   * Whether each run must ask for per-action approval in-thread (interactive
+   * permissions) even when the platform is configured `skipPermissions: true`.
+   * Chosen explicitly by the human at creation. Routine prompts are
+   * creator-authored (less exposed than watches), but the same posture applies
+   * so an autonomous run is a deliberate choice. Optional for backward-compat;
+   * `applyItemDefaults` fills the safe default (`true`) on read.
+   */
+  requireApproval?: boolean;
   lastRunAt?: string;
   lastRunStatus?: RoutineRunStatus;
   consecutiveFailures: number;
@@ -132,6 +141,8 @@ export class RoutinesStore extends PlatformListStore<Routine> {
   protected applyItemDefaults(r: Routine): void {
     r.enabled = r.enabled ?? true;
     r.consecutiveFailures = r.consecutiveFailures ?? 0;
+    // Fail safe: a routine with no recorded posture requires approval.
+    r.requireApproval = r.requireApproval ?? true;
   }
 
   protected warn(message: string): void {
@@ -161,6 +172,8 @@ export class RoutinesStore extends PlatformListStore<Routine> {
         ...routine,
         name,
         prompt,
+        // Default to the safe posture unless the creator explicitly opted out.
+        requireApproval: routine.requireApproval ?? true,
         id: randomUUID().slice(0, 8),
         createdAt: new Date().toISOString(),
         enabled: true,
