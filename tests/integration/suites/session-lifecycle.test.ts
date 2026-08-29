@@ -328,25 +328,39 @@ describe.skipIf(SKIP)('Session Lifecycle', () => {
         // Wait for session to end (result event processed)
         await waitForSessionEnded(bot.sessionManager, rootPost.id, { timeout: 5000 });
 
-        // Wait for bot post count to stabilize (ensures all buffered content is flushed)
-        const initialBotPostCount = await waitForStableBotPostCount(ctx, rootPost.id, {
+        // Let the ended session's output settle in the read API before acting.
+        await waitForStableBotPostCount(ctx, rootPost.id, {
           timeout: 5000,
           stableFor: 500,
         });
 
-        // Send a message to someone else in the thread (not @mentioning the bot)
-        // Using a message that clearly does NOT mention the bot
-        await sendFollowUp(ctx, rootPost.id, 'Hey team, what do you think about this?');
+        // Send a message to someone else in the thread (not @mentioning the bot).
+        // Keep the created post so we can compare against its creation time.
+        const sideConvo = await sendFollowUp(ctx, rootPost.id, 'Hey team, what do you think about this?');
 
-        // Wait for bot post count to stabilize again (check for unwanted responses)
-        const afterBotPostCount = await waitForStableBotPostCount(ctx, rootPost.id, {
+        // Give the bot a window to (wrongly) respond, if it were going to.
+        await waitForStableBotPostCount(ctx, rootPost.id, {
           timeout: 2000,
           stableFor: 500,
         });
 
-        // Bot should not have started a new session or responded to non-mention
+        // Bot should not have started a new session or responded to the non-mention.
         expect(bot.sessionManager.isInSessionThread(rootPost.id)).toBe(false);
-        expect(afterBotPostCount).toBe(initialBotPostCount);
+
+        // Correct-by-construction check, immune to Mattermost's read-visibility lag:
+        // a genuine bot *response* to the side conversation would be created AFTER
+        // it, whereas any post from the just-ended session was created BEFORE it.
+        // So assert no bot post exists that was created after the side-conversation
+        // message. (The previous `afterCount === initialCount` assertion flaked when
+        // a post from the ended session became readable via the API just after the
+        // baseline window closed — a test read-timing race, not a resume bug: the
+        // ended session is soft-deleted and `resumePausedSession` reads `load()`,
+        // which excludes soft-deleted sessions, so the reply is a genuine no-op.)
+        const postsAfter = await getThreadPosts(ctx, rootPost.id);
+        const botRepliesAfterSideConvo = postsAfter.filter(
+          (p) => ctx.botUserIds.includes(p.userId) && p.createAt > sideConvo.createAt,
+        );
+        expect(botRepliesAfterSideConvo).toEqual([]);
       });
     });
 
