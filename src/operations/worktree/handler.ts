@@ -54,6 +54,17 @@ const log = createLogger('worktree');
 const sessionLog = createSessionLog(log);
 
 /**
+ * Make a rejected branch name safe to show inside a markdown code span. The
+ * name failed validation precisely because it contains something unusual — a
+ * backtick would otherwise break out of the `code` span in the error post, and
+ * a newline would break the line. Strip both for display only (the rejection
+ * itself already happened on the raw value).
+ */
+function displayBranchName(name: string): string {
+  return name.replace(/[`\r\n]/g, '').slice(0, 100);
+}
+
+/**
  * Parse git worktree errors and return a user-friendly message.
  * Common errors include:
  * - Branch already checked out in another worktree
@@ -331,7 +342,7 @@ export async function handleWorktreeBranchResponse(
 
   // Validate branch name
   if (!isValidBranchName(branchName)) {
-    await postError(session, `Invalid branch name: \`${branchName}\`. Please provide a valid git branch name.`);
+    await postError(session, `Invalid branch name: \`${displayBranchName(branchName)}\`. Please provide a valid git branch name.`);
     sessionLog(session).warn(`🌿 Invalid branch name: ${branchName}`);
     return true; // We handled it, but need another response
   }
@@ -454,7 +465,7 @@ export async function createAndSwitchToWorktree(
   // injection (a leading `-`) and — on Windows, where the spawn wrapper adds
   // `shell:true` — cmd.exe command injection.
   if (!isValidBranchName(branch)) {
-    await postError(session, `Invalid branch name: \`${branch}\`. Please provide a valid git branch name.`);
+    await postError(session, `Invalid branch name: \`${displayBranchName(branch)}\`. Please provide a valid git branch name.`);
     sessionLog(session).warn(`🌿 Rejected invalid branch name: ${branch}`);
     return;
   }
