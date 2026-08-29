@@ -594,7 +594,7 @@ The version is checked at startup against a three-tier policy
 | CLI version | Behavior |
 |-------------|----------|
 | Below `2.0.74` (hard floor) | Error message and **exit** — the bot can't work at all |
-| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.226) | Runs normally |
+| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.251) | Runs normally |
 | Newer 2.x above the verified range | **Warn-and-run**: startup warning + "⚠️ untested" marker in the sticky message and session headers. A new CLI minor must not take every bot down until a claude-threads release ships |
 | A new major (3.x+) | Error message and **exit** — different contract, warn-and-run would be reckless |
 
@@ -605,7 +605,7 @@ next to the CLI version in the sticky message and session headers.
 
 To install the latest verified version:
 ```bash
-npm install -g @anthropic-ai/claude-code@2.1.226
+npm install -g @anthropic-ai/claude-code@2.1.251
 ```
 
 The Claude CLI version is displayed:

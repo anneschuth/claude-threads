@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.30.2] - 2026-08-29
+
+### Changed
+- **Latest verified Claude CLI: 2.1.251** (from 2.1.226). The full verification battery ran against it: all 17 reference event streams re-captured (`tests/integration/fixtures/real-cli-captures/`), structural dialect diff against the 2.1.226 captures, and the decision-bridge e2e. Dialect drift found and verified benign: a new top-level `autocompact_state` event and a new `system/task_summary` subtype (both ignored by the bot), and the post-compact `user` echo events are no longer emitted (the bot never consumed them). Deployments on current CLIs no longer show the "⚠️ untested" warning.
+
 ## [1.30.1] - 2026-08-28
 
 ### Security
