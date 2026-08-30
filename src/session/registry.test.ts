@@ -226,7 +226,7 @@ describe('SessionRegistry', () => {
       expect(found).toBeUndefined();
     });
 
-    it('searches across multiple platforms', () => {
+    it('searches across multiple platforms when no platformId is given', () => {
       const session1 = createMockSession({ platformId: 'p1', threadId: 't1' });
       const session2 = createMockSession({ platformId: 'p2', threadId: 't2' });
 
@@ -235,6 +235,26 @@ describe('SessionRegistry', () => {
 
       expect(registry.findByThreadId('t1')).toBe(session1);
       expect(registry.findByThreadId('t2')).toBe(session2);
+    });
+
+    it('scopes to the given platformId (does not cross the platform boundary)', () => {
+      // SECURITY: two platforms with a colliding thread id. A lookup that knows
+      // the message's platform must resolve only that platform's active session,
+      // never the other's (platformId is the store's privacy boundary).
+      const onP1 = createMockSession({ platformId: 'p1', threadId: 'shared' });
+      const onP2 = createMockSession({ platformId: 'p2', threadId: 'shared' });
+      registry.register(onP1);
+      registry.register(onP2);
+
+      expect(registry.findByThreadId('shared', 'p1')).toBe(onP1);
+      expect(registry.findByThreadId('shared', 'p2')).toBe(onP2);
+    });
+
+    it('returns undefined when the thread is active only on a different platform', () => {
+      const onP1 = createMockSession({ platformId: 'p1', threadId: 'shared' });
+      registry.register(onP1);
+
+      expect(registry.findByThreadId('shared', 'p2')).toBeUndefined();
     });
   });
 

@@ -528,11 +528,12 @@ describe('SessionManager', () => {
     mgr: SessionManager,
     platform: PlatformClient,
     threadId: string,
-    overrides: Record<string, unknown> = {}
+    overrides: Record<string, unknown> = {},
+    platformId = 'test-platform'
   ) {
-    const sessionId = `test-platform:${threadId}`;
+    const sessionId = `${platformId}:${threadId}`;
     const session: any = {
-      platformId: 'test-platform',
+      platformId,
       threadId,
       sessionId,
       claudeSessionId: `claude-${threadId}`,
@@ -612,6 +613,28 @@ describe('SessionManager', () => {
         sessionAllowedUsers: new Set(['alice']),
       });
       expect(manager.isUserAllowedInSession('thread-X', 'mallory', 'test-platform')).toBe(false);
+    });
+
+    test('scopes the active-session check to the platform (cross-platform thread-id collision)', () => {
+      // SECURITY: two platforms host an active session on the same thread id,
+      // each with its own allowlist. The active-session authorization must be
+      // scoped to the message's platform — a user allowed on platform A's
+      // session must NOT be authorized when the query is scoped to platform B.
+      injectSession(manager, platform as unknown as PlatformClient, 'shared', {
+        sessionAllowedUsers: new Set(['alice']),
+      }); // default platformId 'test-platform'
+      injectSession(manager, platform as unknown as PlatformClient, 'shared', {
+        sessionAllowedUsers: new Set(['bob']),
+      }, 'other-platform');
+
+      // Each user is authorized only on their own platform's session.
+      expect(manager.isUserAllowedInSession('shared', 'alice', 'test-platform')).toBe(true);
+      expect(manager.isUserAllowedInSession('shared', 'bob', 'other-platform')).toBe(true);
+      // The boundary: alice (allowed on test-platform) is NOT authorized when
+      // the query is scoped to other-platform. Without the scoping, the unscoped
+      // first-match lookup would wrongly authorize her here.
+      expect(manager.isUserAllowedInSession('shared', 'alice', 'other-platform')).toBe(false);
+      expect(manager.isUserAllowedInSession('shared', 'bob', 'test-platform')).toBe(false);
     });
   });
 
