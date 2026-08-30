@@ -382,8 +382,12 @@ confirmation says so.
 
 **Managing:**
 
-- `!routines` — numbered list with schedule, creator, and last-run status
+- `!routines` — numbered list with schedule, creator, last-run status, and
+  the approval posture (👍 approvals · ✅ autonomous)
 - `!routines pause|resume|delete <n>` — owner-gated
+- `!routines approval <n> on|off` — owner-gated; flip the approval posture
+  after creation. `on` restores per-action approval, `off` makes each run
+  autonomous (no approval prompts, even on a `skipPermissions` platform)
 - `!routines run <n>` — fire now, outside the schedule (platform-allowed
   users only — not temporarily `!invite`d guests; does not consume the
   period's scheduled fire)
@@ -452,8 +456,12 @@ all three, and **nothing is saved until someone reacts 👍**.
 
 **Managing:**
 
-- `!watches` — numbered list with condition, creator, and last-fire status
+- `!watches` — numbered list with condition, creator, last-fire status, and
+  the approval posture (👍 approvals · ✅ autonomous)
 - `!watches pause|resume|delete <n>` — owner-gated
+- `!watches approval <n> on|off` — owner-gated; flip the approval posture
+  after creation. `off` makes each fire autonomous — reserve it for triggers
+  you fully trust, since a watch fires on channel content anyone can post
 - (No manual `run` — watches are event-driven; use `!routines run` for
   on-demand work.)
 

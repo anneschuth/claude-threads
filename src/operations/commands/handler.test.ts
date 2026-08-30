@@ -1332,15 +1332,57 @@ describe('routine commands', () => {
     expect(ctx.state.routinesStore.list('test-platform')).toHaveLength(0);
   });
 
+  it('shows the approval posture per row, and it tracks the stored value', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+    const routine = await seedRoutine(ctx); // default posture: approval-required
+
+    await commands.manageRoutines(session, undefined, 'testuser', ctx);
+    let listing = (session.platform.createPost as any).mock.calls
+      .map((c: any[]) => c[0]).find((m: string) => m.includes('Routines (1)'));
+    expect(listing).toContain('👍 approvals');
+    expect(listing).not.toContain('✅ autonomous');
+
+    // Flip to autonomous in the store → the marker follows.
+    await ctx.state.routinesStore.update('test-platform', routine.id, { requireApproval: false });
+    (session.platform.createPost as any).mockClear();
+    await commands.manageRoutines(session, undefined, 'testuser', ctx);
+    listing = (session.platform.createPost as any).mock.calls
+      .map((c: any[]) => c[0]).find((m: string) => m.includes('Routines (1)'));
+    expect(listing).toContain('✅ autonomous');
+  });
+
+  it('!routines approval <n> on|off flips the posture and is owner-gated', async () => {
+    const session = createMockSession();
+    const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
+    const routine = await seedRoutine(ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.requireApproval).toBe(true);
+
+    // A non-owner cannot make a routine autonomous.
+    await commands.manageRoutines(session, 'approval 1 off', 'stranger', ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.requireApproval).toBe(true);
+
+    // The owner can flip it off (autonomous) and back on.
+    await commands.manageRoutines(session, 'approval 1 off', 'testuser', ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.requireApproval).toBe(false);
+    await commands.manageRoutines(session, 'approval 1 on', 'testuser', ctx);
+    expect(ctx.state.routinesStore.get('test-platform', routine.id)?.requireApproval).toBe(true);
+
+    const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
+    expect(calls.some((m: string) => m.includes('run autonomously'))).toBe(true);
+  });
+
   it('reports unknown indices and bad subcommands', async () => {
     const session = createMockSession();
     const ctx = createRoutinesCtx(new Map([[session.sessionId, session]]));
 
     await commands.manageRoutines(session, 'pause 7', 'testuser', ctx);
     await commands.manageRoutines(session, 'frobnicate 1', 'testuser', ctx);
+    await commands.manageRoutines(session, 'approval 9 off', 'testuser', ctx); // unknown index on the approval path
 
     const calls = (session.platform.createPost as any).mock.calls.map((c: any[]) => c[0]);
     expect(calls.some((m: string) => m.includes('No routine 7'))).toBe(true);
+    expect(calls.some((m: string) => m.includes('No routine 9'))).toBe(true);
     expect(calls.some((m: string) => m.includes('Usage'))).toBe(true);
   });
 });
@@ -1561,6 +1603,42 @@ describe('watch commands', () => {
 
     await commands.manageWatches(session, 'delete 1', 'testuser', ctx);
     expect(ctx.state.watchesStore.list('test-platform')).toHaveLength(0);
+  });
+
+  it('shows the approval posture per row, and it tracks the stored value', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    const watch = await seedWatch(ctx); // default posture: approval-required
+
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+    let listing = (session.platform.createPost as any).mock.calls
+      .map((c: any[]) => c[0]).find((m: string) => m.includes('Watches (1)'));
+    expect(listing).toContain('👍 approvals');
+    expect(listing).not.toContain('✅ autonomous');
+
+    await ctx.state.watchesStore.update('test-platform', watch.id, { requireApproval: false });
+    (session.platform.createPost as any).mockClear();
+    await commands.manageWatches(session, undefined, 'testuser', ctx);
+    listing = (session.platform.createPost as any).mock.calls
+      .map((c: any[]) => c[0]).find((m: string) => m.includes('Watches (1)'));
+    expect(listing).toContain('✅ autonomous');
+  });
+
+  it('!watches approval <n> on|off flips the posture and is owner-gated', async () => {
+    const session = createMockSession();
+    const ctx = createWatchesCtx(new Map([[session.sessionId, session]]));
+    const watch = await seedWatch(ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.requireApproval).toBe(true);
+
+    // A watch fires on attacker-influenceable content, so a guest must not be
+    // able to strip its approval requirement.
+    await commands.manageWatches(session, 'approval 1 off', 'stranger', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.requireApproval).toBe(true);
+
+    await commands.manageWatches(session, 'approval 1 off', 'testuser', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.requireApproval).toBe(false);
+    await commands.manageWatches(session, 'approval 1 on', 'testuser', ctx);
+    expect(ctx.state.watchesStore.get('test-platform', watch.id)?.requireApproval).toBe(true);
   });
 
   it('reports unknown indices and bad subcommands', async () => {

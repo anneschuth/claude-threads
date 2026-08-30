@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **The approval posture of a routine or watch is now visible and changeable after creation.** `!routines` / `!watches` listings show each item's posture inline (👍 approvals · ✅ autonomous), and a new owner-gated `!routines approval <n> on|off` / `!watches approval <n> on|off` flips it — `off` makes an item run autonomously, `on` restores per-action approval. Turning a watch autonomous is the same sensitive choice the creation card gates behind the owner and an explicit ✅, so the flip command is owner-gated too; the safe approvals-required posture stays the default for older data.
+
 ### Security
 - **Active-session thread-id lookups are now scoped by `platformId`**, completing the cross-platform privacy boundary that 1.31.0/1.31.1 established for the persisted store. `SessionRegistry.findByThreadId` takes an optional `platformId` and resolves O(1) against the composite key when given; the message router (`handleMessage`) and the in-session authorization check (`isUserAllowedInSession`) now pass it, so a thread id that collides across platforms can no longer resolve to — or authorize a user against — another platform's *active* session, and the router and auth check always agree on which session a message belongs to. Defense-in-depth: real Mattermost (26-char) and Slack (dotted-ts) ids don't collide today.
 
