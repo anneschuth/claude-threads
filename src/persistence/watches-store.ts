@@ -162,7 +162,7 @@ export class WatchesStore extends PlatformListStore<Watch> {
   }
 
   /** Merge a partial update into one watch. Returns the updated watch or undefined. */
-  override update(platformId: string, id: string, patch: Partial<Pick<Watch, 'enabled' | 'lastFiredAt' | 'lastFireStatus' | 'firesToday' | 'consecutiveFailures'>>): Promise<Watch | undefined> {
+  override update(platformId: string, id: string, patch: Partial<Pick<Watch, 'enabled' | 'requireApproval' | 'lastFiredAt' | 'lastFireStatus' | 'firesToday' | 'consecutiveFailures'>>): Promise<Watch | undefined> {
     return super.update(platformId, id, patch);
   }
 }

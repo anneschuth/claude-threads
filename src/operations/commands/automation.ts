@@ -138,13 +138,24 @@ export async function postRoutineConfirmation(
 }
 
 /**
+ * One-glance approval-posture marker for a list row. Autonomous items run
+ * tool actions with no human in the loop (on attacker-influenceable channel
+ * content, for watches), so make that posture the one that stands out.
+ * Undefined posture (older data that never passed `applyItemDefaults`) reads
+ * as the safe approval-required default — matching how the fire path treats it.
+ */
+function postureMarker(item: { requireApproval?: boolean }): string {
+  return item.requireApproval === false ? ' · ✅ autonomous' : ' · 👍 approvals';
+}
+
+/**
  * Shared implementation of the `!routines` / `!watches` management commands:
  * numbered list, pause/resume/delete (owner-gated), plus flavor-specific
  * extra actions (routines' `run`, which is platform-allowlist-gated
  * instead). One policy for parsing, index lookup, gating, logging and audit;
  * the flavors carry only wording and store wiring.
  */
-async function manageListItems<T extends { id: string; name: string; createdBy: string; enabled: boolean }>(
+async function manageListItems<T extends { id: string; name: string; createdBy: string; enabled: boolean; requireApproval?: boolean }>(
   session: Session,
   args: string | undefined,
   username: string,
@@ -163,7 +174,7 @@ async function manageListItems<T extends { id: string; name: string; createdBy: 
     /** Per-item line body after the "N. " numbering. */
     describe(item: T, formatter: ReturnType<Session['platform']['getFormatter']>): string;
     list(): T[];
-    update(id: string, patch: { enabled?: boolean; consecutiveFailures?: number }): Promise<unknown>;
+    update(id: string, patch: { enabled?: boolean; requireApproval?: boolean; consecutiveFailures?: number }): Promise<unknown>;
     remove(id: string): Promise<unknown>;
     /**
      * Actions exempt from the owner gate but requiring the platform
@@ -197,9 +208,40 @@ async function manageListItems<T extends { id: string; name: string; createdBy: 
       'info',
       `${flavor.emoji} ${formatter.formatBold(`${plural} (${items.length})`)} — ${flavor.headlineSuffix}\n\n` +
       `${lines.join('\n')}\n\n` +
-      `${formatter.formatItalic(`Manage with ${'`' + cmd + ' ' + flavor.actions + ' <n>`'}.`)}`,
+      `${formatter.formatItalic(`Manage with ${'`' + cmd + ' ' + flavor.actions + ' <n>`'}; set approval posture with ${'`' + cmd + ' approval <n> on|off`'}.`)}`,
     );
     session.threadLogger?.logCommand(flavor.command, 'list', username);
+    return;
+  }
+
+  // `approval <n> on|off` — flip the per-item approval posture. Kept out of
+  // the uniform `<action> <n>` alternation because it carries a third token.
+  // Owner-gated like pause/resume/delete: turning approval OFF makes an item
+  // run autonomously, the same sensitive choice the creation card gates
+  // behind the owner + an explicit ✅.
+  const approvalMatch = trimmed.match(/^approval\s+(\d+)\s+(on|off)$/i);
+  if (approvalMatch) {
+    const [, indexArg, mode] = approvalMatch;
+    const item = flavor.list()[parseInt(indexArg, 10) - 1];
+    if (!item) {
+      await post(session, 'warning', `${flavor.emoji} No ${flavor.noun.toLowerCase()} ${indexArg}. See ${formatter.formatCode(cmd)}.`);
+      return;
+    }
+    if (!await requireSessionOwner(session, username, `manage ${flavor.command}`)) {
+      return;
+    }
+    const requireApproval = mode.toLowerCase() === 'on';
+    await flavor.update(item.id, { requireApproval });
+    await post(
+      session,
+      'success',
+      requireApproval
+        ? `👍 ${flavor.noun} ${formatter.formatBold(item.name)} will ask for approval before each action.`
+        : `✅ ${flavor.noun} ${formatter.formatBold(item.name)} will run autonomously — no approval prompts. Only leave this on for triggers you fully trust.`,
+    );
+    sessionLog(session).info(`${flavor.emoji} @${username}: ${cmd} approval ${indexArg} ${mode.toLowerCase()} ("${item.name}")`);
+    auditCommand(session, flavor.command, `approval ${indexArg} ${mode.toLowerCase()}`, username);
+    session.threadLogger?.logCommand(flavor.command, `approval ${indexArg} ${mode.toLowerCase()}`, username);
     return;
   }
 
@@ -208,7 +250,7 @@ async function manageListItems<T extends { id: string; name: string; createdBy: 
     await post(
       session,
       'warning',
-      `${flavor.emoji} Usage: ${formatter.formatCode(cmd)} or ${formatter.formatCode(`${cmd} ${flavor.actions} <n>`)}`,
+      `${flavor.emoji} Usage: ${formatter.formatCode(cmd)}, ${formatter.formatCode(`${cmd} ${flavor.actions} <n>`)} or ${formatter.formatCode(`${cmd} approval <n> on|off`)}`,
     );
     return;
   }
@@ -277,7 +319,7 @@ export async function manageRoutines(
     describe: (r, formatter) => {
       const status = r.enabled ? '' : ' — ⏸️ paused';
       const last = r.lastRunAt ? ` · last run ${formatIsoMinute(r.lastRunAt)} (${r.lastRunStatus})` : '';
-      return `${formatter.formatBold(r.name)} — ${describeSchedule(r.schedule)} · by ${formatter.formatCode('@' + r.createdBy)}${status}${last}`;
+      return `${formatter.formatBold(r.name)} — ${describeSchedule(r.schedule)} · by ${formatter.formatCode('@' + r.createdBy)}${postureMarker(r)}${status}${last}`;
     },
     list: () => ctx.state.routinesStore.list(platformId),
     update: (id, patch) => ctx.state.routinesStore.update(platformId, id, patch),
@@ -435,7 +477,7 @@ export async function manageWatches(
     describe: (w, formatter) => {
       const status = w.enabled ? '' : ' — ⏸️ paused';
       const last = w.lastFiredAt ? ` · last fired ${formatIsoMinute(w.lastFiredAt)} (${w.lastFireStatus})` : '';
-      return `${formatter.formatBold(w.name)} — fires when ${w.condition} · by ${formatter.formatCode('@' + w.createdBy)}${status}${last}`;
+      return `${formatter.formatBold(w.name)} — fires when ${w.condition} · by ${formatter.formatCode('@' + w.createdBy)}${postureMarker(w)}${status}${last}`;
     },
     list: () => ctx.state.watchesStore.list(platformId),
     update: (id, patch) => ctx.state.watchesStore.update(platformId, id, patch),

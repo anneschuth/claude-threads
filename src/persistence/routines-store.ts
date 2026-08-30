@@ -186,7 +186,7 @@ export class RoutinesStore extends PlatformListStore<Routine> {
   }
 
   /** Merge a partial update into one routine. Returns the updated routine or undefined. */
-  override update(platformId: string, id: string, patch: Partial<Pick<Routine, 'enabled' | 'lastRunAt' | 'lastRunStatus' | 'consecutiveFailures'>>): Promise<Routine | undefined> {
+  override update(platformId: string, id: string, patch: Partial<Pick<Routine, 'enabled' | 'requireApproval' | 'lastRunAt' | 'lastRunStatus' | 'consecutiveFailures'>>): Promise<Routine | undefined> {
     return super.update(platformId, id, patch);
   }
 }

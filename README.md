@@ -126,9 +126,9 @@ Type `!help` in any session thread:
 | `!remember <text>`                          | Save a note to the channel's shared memory                                               |
 | `!memory`                                   | Show channel memory (`forget <n\|text>` removes entries)                                 |
 | `!routine <schedule, task>`                 | Schedule a recurring routine in natural language (confirmed with 👍)                     |
-| `!routines`                                 | List routines (`pause\|resume\|delete\|run <n>` to manage)                               |
+| `!routines`                                 | List routines (`pause\|resume\|delete\|run <n>`, `approval <n> on\|off` to manage)       |
 | `!watch <when ..., task>`                   | Create an event trigger in natural language (confirmed with 👍)                          |
-| `!watches`                                  | List event triggers (`pause\|resume\|delete <n>` to manage)                             |
+| `!watches`                                  | List event triggers (`pause\|resume\|delete <n>`, `approval <n> on\|off` to manage)      |
 | `!update`                                   | Show auto-update status (`!update now` / `!update defer`)                                |
 | `!bug <desc>`                               | Report a bug with context (creates a GitHub issue)                                       |
 | `!approve`                                  | Approve pending plan (alternative to 👍; also `!yes`)                                    |
