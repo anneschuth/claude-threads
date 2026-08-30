@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **Active-session thread-id lookups are now scoped by `platformId`**, completing the cross-platform privacy boundary that 1.31.0/1.31.1 established for the persisted store. `SessionRegistry.findByThreadId` takes an optional `platformId` and resolves O(1) against the composite key when given; the message router (`handleMessage`) and the in-session authorization check (`isUserAllowedInSession`) now pass it, so a thread id that collides across platforms can no longer resolve to — or authorize a user against — another platform's *active* session, and the router and auth check always agree on which session a message belongs to. Defense-in-depth: real Mattermost (26-char) and Slack (dotted-ts) ids don't collide today.
+
 ## [1.31.1] - 2026-08-29
 
 ### Security

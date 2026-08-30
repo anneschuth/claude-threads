@@ -211,7 +211,7 @@ export async function handleMessage(
 
     // Follow-up in active thread
     // Use registry to check for active session directly
-    const activeSession = session.registry.findByThreadId(threadRoot);
+    const activeSession = session.registry.findByThreadId(threadRoot, platformId);
     if (activeSession) {
       // A message opening by addressing someone else is a side conversation:
       // track it (if from an approved user) and don't interrupt Claude.

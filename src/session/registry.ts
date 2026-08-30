@@ -75,10 +75,21 @@ export class SessionRegistry {
   }
 
   /**
-   * Find active session by thread ID alone (searches all platforms).
-   * Use when platformId is not readily available.
+   * Find an active session by thread ID.
+   *
+   * When the caller knows the platform, pass `platformId`: the lookup then
+   * resolves O(1) against the composite key and is scoped to that platform.
+   * platformId is the session store's privacy boundary, so a thread id that
+   * collides across platforms must not resolve to another platform's active
+   * session — security-relevant callers (the message router, the in-session
+   * authorization check) always pass it. Without a `platformId` this falls
+   * back to an unscoped scan across all platforms, kept for the callers that
+   * genuinely don't have one to hand.
    */
-  findByThreadId(threadId: string): Session | undefined {
+  findByThreadId(threadId: string, platformId?: string): Session | undefined {
+    if (platformId !== undefined) {
+      return this.find(platformId, threadId);
+    }
     for (const session of this.sessions.values()) {
       if (session.threadId === threadId) {
         return session;

@@ -1234,8 +1234,9 @@ export class SessionManager extends EventEmitter {
    * Delegates to registry.getPersistedByThreadId() internally.
    */
   hasPausedSession(threadId: string, platformId?: string): boolean {
-    // If there's an active session, it's not paused
-    if (this.registry.findByThreadId(threadId)) return false;
+    // If there's an active session, it's not paused (scoped to platform when
+    // known, consistent with the persisted lookup below).
+    if (this.registry.findByThreadId(threadId, platformId)) return false;
     // Check for persisted session
     return this.registry.getPersistedByThreadId(threadId, platformId) !== undefined;
   }
@@ -1748,7 +1749,12 @@ export class SessionManager extends EventEmitter {
   }
 
   isUserAllowedInSession(threadId: string, username: string, platformId: string): boolean {
-    const session = this.findSessionByThreadId(threadId);
+    // Scope the active-session lookup to the message's platform too (not just
+    // the persisted branch below): a thread id colliding across platforms must
+    // not authorize a user against another platform's active session, and this
+    // must resolve the SAME session the message router did (message-handler
+    // also scopes its findByThreadId by platformId).
+    const session = this.registry.find(platformId, threadId);
     if (!session) {
       // Check persisted session, scoped to the message's platform so a
       // cross-platform thread-id collision cannot authorize a user against
