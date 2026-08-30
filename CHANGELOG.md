@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.31.2] - 2026-08-30
+
 ### Added
 - **The approval posture of a routine or watch is now visible and changeable after creation.** `!routines` / `!watches` listings show each item's posture inline (👍 approvals · ✅ autonomous), and a new owner-gated `!routines approval <n> on|off` / `!watches approval <n> on|off` flips it — `off` makes an item run autonomously, `on` restores per-action approval. Turning a watch autonomous is the same sensitive choice the creation card gates behind the owner and an explicit ✅, so the flip command is owner-gated too; the safe approvals-required posture stays the default for older data.
 
