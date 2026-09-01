@@ -10,7 +10,7 @@
 import { createHash } from 'crypto';
 import { readFile, readdir, stat, writeFile } from 'fs/promises';
 import { execFile } from 'child_process';
-import { homedir, platform } from 'os';
+import { homedir, platform, userInfo } from 'os';
 import path from 'path';
 import { promisify } from 'util';
 import { createLogger } from '../utils/logger.js';
@@ -147,15 +147,51 @@ export async function discoverProfiles(home = homedir()): Promise<Profile[]> {
   return profiles.sort((a, b) => a.name.localeCompare(b.name));
 }
 
+/**
+ * ⚠️ The account on Claude Code's Keychain items is the OS username, NOT the
+ * service string. A generic password is identified by account AND service, so
+ * writing with the wrong account makes `-U` add a second item instead of
+ * updating: Claude Code then keeps reading its old, already-rotated-away
+ * refresh token, and that seat is dead until someone logs in by hand.
+ */
+export function keychainReadArgs(service: string): string[] {
+  return ['find-generic-password', '-s', service, '-a', userInfo().username, '-w'];
+}
+
+export function keychainWriteArgs(service: string, blob: string): string[] {
+  // -U updates the existing item rather than adding a duplicate.
+  return [
+    'add-generic-password',
+    '-U',
+    '-s',
+    service,
+    '-a',
+    userInfo().username,
+    '-w',
+    blob,
+  ];
+}
+
+/**
+ * ⚠️ Rebuild a `security` failure from exit code and stderr only — NEVER let
+ * the original through.
+ *
+ * The blob is passed as `-w <blob>`, so both tokens sit in argv, and execFile
+ * puts the whole argv into its error message. That message is rendered into a
+ * Slack post verbatim, which would publish the seat's credentials to a channel.
+ */
+export function keychainFailure(err: unknown): Error {
+  const { code, stderr } = (err ?? {}) as { code?: number | string; stderr?: string };
+  const detail = String(stderr ?? '').trim();
+  return new Error(
+    `keychain write failed (exit ${code ?? 'unknown'})${detail ? `: ${detail}` : ''}`
+  );
+}
+
 /** Raw credentials blob for one profile: Keychain on macOS, file on Linux. */
 async function readCredentialsBlob(configDir: string): Promise<string> {
   if (platform() === 'darwin') {
-    const { stdout } = await execFileAsync('security', [
-      'find-generic-password',
-      '-s',
-      keychainAccountFor(configDir),
-      '-w',
-    ]);
+    const { stdout } = await execFileAsync('security', keychainReadArgs(keychainAccountFor(configDir)));
     return stdout;
   }
   return readFile(path.join(configDir, '.credentials.json'), 'utf8');
@@ -163,26 +199,35 @@ async function readCredentialsBlob(configDir: string): Promise<string> {
 
 async function writeCredentialsBlob(configDir: string, blob: string): Promise<void> {
   if (platform() === 'darwin') {
-    // -U updates the existing item rather than adding a duplicate.
-    await execFileAsync('security', [
-      'add-generic-password',
-      '-U',
-      '-s',
-      keychainAccountFor(configDir),
-      '-a',
-      keychainAccountFor(configDir),
-      '-w',
-      blob,
-    ]);
+    try {
+      await execFileAsync('security', keychainWriteArgs(keychainAccountFor(configDir), blob));
+    } catch (err) {
+      throw keychainFailure(err);
+    }
     return;
   }
   await writeFile(path.join(configDir, '.credentials.json'), blob, { mode: 0o600 });
 }
 
+/**
+ * The whole credentials document, so a refresh can put back everything it did
+ * not change rather than a freshly built object missing any sibling keys.
+ */
+async function readCredentialsDocument(
+  configDir: string
+): Promise<Record<string, unknown> & { claudeAiOauth?: OAuthCredentials }> {
+  const raw = await readCredentialsBlob(configDir);
+  try {
+    return JSON.parse(raw) as Record<string, unknown> & { claudeAiOauth?: OAuthCredentials };
+  } catch {
+    // Deliberately generic: a parser echoing the offending text would put a
+    // token fragment into the Slack post.
+    throw new Error('credentials file is not valid JSON');
+  }
+}
+
 export async function readCredentials(configDir: string): Promise<OAuthCredentials> {
-  const parsed = JSON.parse(await readCredentialsBlob(configDir)) as {
-    claudeAiOauth?: OAuthCredentials;
-  };
+  const parsed = await readCredentialsDocument(configDir);
   if (!parsed?.claudeAiOauth) {
     throw new Error('credentials found but they carry no OAuth block');
   }
@@ -271,7 +316,11 @@ export async function resolveToken(configDir: string): Promise<string> {
 
     case 'refreshable': {
       const refreshed = await refreshCredentials(creds);
-      await writeCredentialsBlob(configDir, JSON.stringify({ claudeAiOauth: refreshed }));
+      // Put back the whole document, not a freshly built one: any sibling key
+      // Claude Code keeps beside claudeAiOauth would otherwise be dropped.
+      const document = await readCredentialsDocument(configDir);
+      document.claudeAiOauth = refreshed;
+      await writeCredentialsBlob(configDir, JSON.stringify(document));
       log.info(`refreshed access token for ${profileNameFor(configDir)}`);
       return refreshed.accessToken as string;
     }
@@ -284,29 +333,6 @@ export async function resolveToken(configDir: string): Promise<string> {
       );
     }
   }
-}
-
-/**
- * Pull the access token out of a credentials blob, refusing a stale one.
- * Callers that can refresh should use `credentialState` first.
- */
-export function parseCredentials(blob: string, now: Date): string {
-  const oauth = (
-    JSON.parse(blob) as { claudeAiOauth?: { accessToken?: string; expiresAt?: number } }
-  )?.claudeAiOauth;
-
-  if (!oauth?.accessToken) {
-    throw new Error('credentials found but they carry no OAuth access token');
-  }
-
-  if (typeof oauth.expiresAt === 'number' && oauth.expiresAt < now.getTime()) {
-    const hours = Math.round((now.getTime() - oauth.expiresAt) / 3_600_000);
-    throw new Error(
-      `access token expired ${hours}h ago — run \`claude\` in that profile to refresh it`
-    );
-  }
-
-  return oauth.accessToken;
 }
 
 export interface OAuthCredentials {
@@ -328,7 +354,8 @@ export type CredentialState = 'fresh' | 'refreshable' | 'logged_out';
  */
 export function credentialState(creds: OAuthCredentials, now: Date): CredentialState {
   const accessValid =
-    typeof creds.expiresAt !== 'number' || creds.expiresAt > now.getTime();
+    creds.accessToken !== undefined &&
+    (typeof creds.expiresAt !== 'number' || creds.expiresAt > now.getTime());
   if (accessValid) return 'fresh';
 
   if (!creds.refreshToken) return 'logged_out';

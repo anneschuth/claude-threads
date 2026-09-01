@@ -50,5 +50,13 @@ async function readProfile(profile: Profile, version: string): Promise<ProfileUs
 export async function collectUsage(all: boolean): Promise<ProfileUsage[]> {
   const version = await claudeVersion();
   const profiles = all ? await discoverProfiles() : [currentProfile()];
-  return Promise.all(profiles.map((p) => readProfile(p, version)));
+
+  // Sequential, not Promise.all: several stale profiles would otherwise fire
+  // concurrent `security` writes at the macOS Keychain, which is unhappy about
+  // that. A handful of profiles is not worth the parallelism.
+  const results: ProfileUsage[] = [];
+  for (const profile of profiles) {
+    results.push(await readProfile(profile, version));
+  }
+  return results;
 }

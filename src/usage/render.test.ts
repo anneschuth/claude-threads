@@ -77,13 +77,13 @@ describe('renderUsage', () => {
 describe('renderProfiles', () => {
   it('shows the full account email beside the profile name, unredacted', () => {
     const out = renderProfiles(
-      [{ profile: 'vvs', email: 'williamshiwie2n@gmail.com', limits }],
+      [{ profile: 'vvs', email: 'user@example.test', limits }],
       { now: NOW, timeZone: TZ }
     );
 
     // Knowing WHICH account a seat is logged in as is the whole point when
     // several profiles sit on one machine; a partial address answers nothing.
-    expect(out).toContain('vvs (williamshiwie2n@gmail.com)');
+    expect(out).toContain('vvs (user@example.test)');
   });
 
   it('still heads a profile whose email could not be read', () => {

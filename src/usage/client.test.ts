@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { mkdtemp, mkdir, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
-import { parseLimits, profileNameFor, keychainAccountFor, discoverProfiles, parseCredentials, credentialState } from './client.js';
+import { parseLimits, profileNameFor, keychainAccountFor, discoverProfiles, credentialState } from './client.js';
 
 describe('parseLimits', () => {
   it('maps the three limit kinds, naming the scoped one by model', () => {
@@ -103,38 +103,6 @@ describe('discoverProfiles', () => {
     const names = (await discoverProfiles(home)).map((p) => p.name);
 
     expect(names).toEqual(['default', 'vvs']);
-  });
-});
-
-describe('parseCredentials', () => {
-  const NOW = new Date('2026-09-02T00:00:00Z');
-  const blob = (o: Record<string, unknown>) => JSON.stringify({ claudeAiOauth: o });
-
-  it('returns the access token when it is still valid', () => {
-    const token = parseCredentials(
-      blob({ accessToken: 'sk-live', expiresAt: NOW.getTime() + 3_600_000 }),
-      NOW
-    );
-    expect(token).toBe('sk-live');
-  });
-
-  it('says how long ago the token expired instead of letting the call 401', () => {
-    // Measured on the agent box: a seat nobody had run for two days answered
-    // 401, which reads like a credential problem rather than a stale one.
-    // expiresAt is right there in the file, so say the useful thing.
-    expect(() =>
-      parseCredentials(blob({ accessToken: 'sk-old', expiresAt: NOW.getTime() - 52 * 3_600_000 }), NOW)
-    ).toThrow(/expired 52h ago/);
-  });
-
-  it('reports credentials that carry no token at all', () => {
-    expect(() => parseCredentials(blob({ expiresAt: NOW.getTime() + 1000 }), NOW)).toThrow(
-      /no OAuth access token/
-    );
-  });
-
-  it('accepts a credential with no expiry rather than assuming the worst', () => {
-    expect(parseCredentials(blob({ accessToken: 'sk-noexp' }), NOW)).toBe('sk-noexp');
   });
 });
 
