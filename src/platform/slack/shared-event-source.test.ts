@@ -273,6 +273,29 @@ describe('lifecycle and safety', () => {
 
     expect(seen).toEqual(['connected']);
   });
+
+  it('re-arms the mirror even when the socket close throws synchronously', () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+
+    spyOn(
+      parent as unknown as { forceCloseConnection: () => Promise<void> },
+      'forceCloseConnection'
+    ).mockImplementation(() => {
+      throw new Error('close blew up');
+    });
+
+    // The failure must still propagate — but it must not also leave the parent
+    // permanently mute towards its secondaries.
+    expect(() => parent.disconnect()).toThrow('close blew up');
+
+    const seen: string[] = [];
+    secondary.on('connected', () => seen.push('connected'));
+    parent.emit('connected');
+
+    expect(seen).toEqual(['connected']);
+  });
 });
 
 describe('reconnect recovery', () => {

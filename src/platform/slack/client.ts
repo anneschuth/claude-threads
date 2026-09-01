@@ -197,13 +197,20 @@ export class SlackClient extends BasePlatformClient {
       this.sharedEventSource.unregisterChannelClient(this.channelId, this);
     }
     // Base teardown calls removeAllListeners() synchronously and then returns
-    // the socket-close promise, which can stay pending. Re-arm here rather
-    // than after awaiting it: without the mirror, a parent that reconnects
-    // while the close is still settling emits 'connected' into nothing and
-    // its secondaries miss it permanently.
-    const closed = super.disconnect();
-    this.installStateMirror();
-    return closed;
+    // the socket-close promise, which can stay pending. Re-arm before that
+    // promise settles: without the mirror, a parent that reconnects while the
+    // close is still in flight emits 'connected' into nothing and its
+    // secondaries miss it permanently.
+    //
+    // Synchronous try/finally, not async: the base promise is returned
+    // unchanged (a synchronous throw stays synchronous) and the mirror is
+    // re-armed on the throwing path too — a failed close must not also leave
+    // the parent permanently mute.
+    try {
+      return super.disconnect();
+    } finally {
+      this.installStateMirror();
+    }
   }
 
   // ============================================================================
