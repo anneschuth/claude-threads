@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-09-01
+
+### Added
+- **Slack: shared event source — one Socket Mode connection per app** (#502, thanks @kaza). Slack round-robins Socket Mode envelopes across all of an app's open connections, so a second `SlackClient` on the same app token silently steals events from the first. Now exactly one client (the parent) owns the socket; other clients register as secondaries and receive their channels' events injected by the parent — Web API calls stay independent per instance. The parent mirrors connection state onto secondaries (idempotently re-armed across disconnects), and on reconnect, missed-message recovery runs for the parent and every registered secondary. Zero behavior change for existing single-channel configs; this is the mechanism that unblocks DM auto-discovery on Slack and other multi-channel consumers.
+
 ## [1.31.2] - 2026-08-30
 
 ### Added
