@@ -94,15 +94,7 @@ export class SlackClient extends BasePlatformClient {
   constructor(platformConfig: SlackPlatformConfig, sharedEventSource?: SlackClient) {
     super();
     this.sharedEventSource = sharedEventSource;
-    // A secondary's only event feed is the parent's socket, so the parent's
-    // connection state IS the secondary's connection state — mirror it.
-    for (const state of ['connected', 'disconnected', 'reconnecting'] as const) {
-      this.on(state, (...args: unknown[]) => {
-        for (const secondary of this.channelClients.values()) {
-          secondary.emit(state, ...args);
-        }
-      });
-    }
+    this.installStateMirror();
     this.platformId = platformConfig.id;
     this.displayName = platformConfig.displayName;
     this.botToken = platformConfig.botToken;
@@ -120,6 +112,40 @@ export class SlackClient extends BasePlatformClient {
   // ============================================================================
   // Shared event source plumbing
   // ============================================================================
+
+  /**
+   * A secondary's only event feed is the parent's socket, so the parent's
+   * connection state IS the secondary's connection state — mirror it.
+   *
+   * Re-armed after `disconnect()`, whose base teardown detaches every
+   * listener including this one.
+   */
+  private installStateMirror(): void {
+    for (const state of ['connected', 'disconnected', 'reconnecting'] as const) {
+      this.on(state, (...args: unknown[]) => {
+        for (const secondary of this.channelClients.values()) {
+          secondary.emit(state, ...args);
+        }
+      });
+    }
+  }
+
+  /**
+   * The parent's socket is every secondary's feed too, so a reconnect means
+   * each of them missed messages as well. `super` clears `isReconnecting`
+   * (after recovering this client's own), so capture it first.
+   */
+  protected override onConnectionEstablished(): void {
+    const wasReconnecting = this.isReconnecting;
+    super.onConnectionEstablished();
+    if (!wasReconnecting) return;
+
+    for (const secondary of this.channelClients.values()) {
+      secondary.recoverMissedMessages().catch((err) => {
+        log.warn(`Failed to recover missed messages for ${secondary.platformId}: ${err}`);
+      });
+    }
+  }
 
   /**
    * Parent-side: route events for `channelId` into a secondary client.
@@ -154,13 +180,20 @@ export class SlackClient extends BasePlatformClient {
     this.handleSlackEvent(event);
   }
 
-  override disconnect(): Promise<void> {
+  override async disconnect(): Promise<void> {
     // A secondary must stop receiving injected events when it goes away;
     // the base teardown is still safe to run (it has no socket to close).
     if (this.sharedEventSource) {
       this.sharedEventSource.unregisterChannelClient(this.channelId, this);
     }
-    return super.disconnect();
+    try {
+      await super.disconnect();
+    } finally {
+      // Base teardown calls removeAllListeners(), which takes the state mirror
+      // with it. Without re-arming, a parent that goes intentional-disconnect
+      // → reconnect never tells its secondaries about a connection again.
+      this.installStateMirror();
+    }
   }
 
   // ============================================================================
@@ -423,23 +456,10 @@ export class SlackClient extends BasePlatformClient {
           if (envelope.type === 'hello') {
             clearTimeout(connectionTimeout);
             this.socketConnected = true;
+            // Recovery for this channel and for every secondary happens in
+            // onConnectionEstablished — a block here would run after the base
+            // has already cleared isReconnecting, i.e. never.
             this.onConnectionEstablished();
-
-            // Recover missed messages if reconnecting — for this channel and
-            // for every registered secondary, whose only feed is this socket
-            // (each recovery no-ops without its own lastProcessedTs).
-            if (this.isReconnecting) {
-              if (this.lastProcessedTs) {
-                this.recoverMissedMessages().catch((err) => {
-                  log.warn(`Failed to recover missed messages: ${err}`);
-                });
-              }
-              for (const secondary of this.channelClients.values()) {
-                secondary.recoverMissedMessages().catch((err) => {
-                  log.warn(`Failed to recover missed messages for ${secondary.platformId}: ${err}`);
-                });
-              }
-            }
 
             doResolve();
           }

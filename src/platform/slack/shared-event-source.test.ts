@@ -44,6 +44,30 @@ function messageEvent(channel: string, text = 'hello', ts = '111.222') {
   return { type: 'message', channel, ts, user: 'U-HUMAN', text };
 }
 
+/** Let queued microtasks (e.g. getUser().then(...)) run before asserting. */
+const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+// The shared-event-source contract lives on protected/private members; these
+// reach them deliberately rather than widening the production API for tests.
+function setSocketConnected(client: SlackClient, value: boolean): void {
+  (client as unknown as { socketConnected: boolean }).socketConnected = value;
+}
+
+function setReconnecting(client: SlackClient, value: boolean): void {
+  (client as unknown as { isReconnecting: boolean }).isReconnecting = value;
+}
+
+function fireConnectionEstablished(client: SlackClient): void {
+  (client as unknown as { onConnectionEstablished: () => void }).onConnectionEstablished();
+}
+
+function stubRecovery(client: SlackClient) {
+  return spyOn(
+    client as unknown as { recoverMissedMessages: () => Promise<void> },
+    'recoverMissedMessages'
+  ).mockResolvedValue(undefined);
+}
+
 beforeEach(() => {
   fetchResponder = (url) => {
     if (String(url).endsWith('auth.test')) return ok({ user_id: 'U-BOT', url: 'https://team.slack.com/' });
@@ -63,13 +87,32 @@ describe('secondary connect()', () => {
     secondary.on('connected', () => { connected = true; });
     await secondary.connect();
 
-    expect(connected).toBe(true);
+    // The parent's socket is not live yet, so the secondary must NOT claim to
+    // be connected — its only feed does not exist. The state mirror delivers
+    // 'connected' when the parent's hello arrives.
+    expect(connected).toBe(false);
     expect(harness.calls.some((c) => c.url.includes('apps.connections.open'))).toBe(false);
 
     // Registration is live: parent routes an event for the secondary's channel.
     const inject = spyOn(secondary, '_injectSlackEvent');
     parent._injectSlackEvent(messageEvent('C-TASK'));
     expect(inject).toHaveBeenCalledTimes(1);
+
+    // ...and the deferred 'connected' lands with the parent's.
+    parent.emit('connected');
+    expect(connected).toBe(true);
+  });
+
+  it("emits 'connected' immediately when the parent's socket is already live", async () => {
+    const parent = makeParent();
+    setSocketConnected(parent, true);
+    const secondary = makeSecondary(parent, 'C-TASK');
+
+    let connected = false;
+    secondary.on('connected', () => { connected = true; });
+    await secondary.connect();
+
+    expect(connected).toBe(true);
   });
 });
 
@@ -170,9 +213,66 @@ describe('lifecycle and safety', () => {
     expect(received.message).toContain('through the pipe');
 
     // Dedup still applies on the injected path: same ts again → no second emit.
+    // The emission is deferred through getUser().then(...), so flush the
+    // microtask queue first — asserting synchronously passes even with the
+    // dedup guard removed.
     const emitSpy = spyOn(secondary, 'emit');
     parent._injectSlackEvent(messageEvent('C-TASK', 'through the pipe'));
+    await flush();
     expect(emitSpy.mock.calls.filter((c) => c[0] === 'message')).toHaveLength(0);
+  });
+
+  it('keeps mirroring parent state after the parent disconnects and reconnects', async () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+
+    // Base teardown detaches every listener, the state mirror included.
+    await parent.disconnect();
+    parent.prepareForReconnect();
+
+    const seen: string[] = [];
+    secondary.on('connected', () => seen.push('connected'));
+    parent.emit('connected');
+
+    expect(seen).toEqual(['connected']);
+  });
+});
+
+describe('reconnect recovery', () => {
+  it('recovers missed messages for every registered secondary', async () => {
+    const parent = makeParent();
+    const first = makeSecondary(parent, 'C-ONE');
+    const second = makeSecondary(parent, 'C-TWO');
+    parent.registerChannelClient('C-ONE', first);
+    parent.registerChannelClient('C-TWO', second);
+
+    const firstRecovery = stubRecovery(first);
+    const secondRecovery = stubRecovery(second);
+
+    // A reconnect: the parent's socket dropped and came back, so every
+    // secondary missed whatever arrived in the gap — their only feed is here.
+    setReconnecting(parent, true);
+    fireConnectionEstablished(parent);
+
+    expect(firstRecovery).toHaveBeenCalledTimes(1);
+    expect(secondRecovery).toHaveBeenCalledTimes(1);
+
+    await parent.disconnect();
+  });
+
+  it('does not recover for secondaries on a first connect', async () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+    const recovery = stubRecovery(secondary);
+
+    setReconnecting(parent, false);
+    fireConnectionEstablished(parent);
+
+    expect(recovery).not.toHaveBeenCalled();
+
+    await parent.disconnect();
   });
 });
 
