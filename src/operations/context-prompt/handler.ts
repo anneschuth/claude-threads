@@ -111,6 +111,18 @@ function getContextPromptFilesForSession(session: Session): PlatformFile[] | und
 }
 
 /**
+ * Take (return and forget) the original PlatformFiles parked behind a
+ * session's context prompt. The reaction-completion listener in
+ * lifecycle.ts needs them: MessageManager only carries simplified refs
+ * (id, name), which cannot be downloaded or transcribed.
+ */
+export function takeContextPromptFiles(session: Session): PlatformFile[] | undefined {
+  const files = contextPromptFiles.get(session.sessionId);
+  contextPromptFiles.delete(session.sessionId);
+  return files;
+}
+
+/**
  * Pending context prompt state
  */
 export interface PendingContextPrompt {

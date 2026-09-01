@@ -45,8 +45,13 @@ export interface Transcript {
   text: string;
 }
 
-/** Extensions that are audio even when a platform reports a generic MIME type. */
-const AUDIO_EXTENSIONS = new Set(['m4a', 'mp3', 'ogg', 'opus', 'wav', 'aac', 'flac']);
+/**
+ * Extensions that are audio even when a platform reports a generic MIME type.
+ * `webm` is included because Slack's own audio clips are `voice.webm`; a
+ * WebM *video* that reaches this fallback gets its soundtrack transcribed,
+ * which is harmless.
+ */
+const AUDIO_EXTENSIONS = new Set(['m4a', 'mp3', 'ogg', 'opus', 'wav', 'aac', 'flac', 'webm']);
 const GENERIC_MIME_TYPES = new Set(['', 'application/octet-stream', 'binary/octet-stream']);
 
 /**

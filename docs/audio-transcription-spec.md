@@ -98,12 +98,19 @@ tests.
   `offerContextPrompt` and builds only on the fallback path. Behaviour for
   direct-channel-mode sessions (the fallback path) is unchanged.
 
-Known, pre-existing, out of scope: in thread mode the *deferred* context
-prompt (user picks a reaction) and the worktree-prompt skip adapters drop
-queued files (`lifecycle.ts` context-selection handler, `reaction-router.ts`,
-`manager.ts` worktree skip). A voice note attached to the very first
-@-mention in a busy thread can be lost on those paths today, transcription
-or not. Direct-channel-mode task channels never take them.
+- **The deferred context prompt keeps its files.** When the user answers
+  the "include thread context?" prompt with a reaction, the completion event
+  carries only simplified file refs; the original `PlatformFile[]` were
+  parked in the context-prompt module. The lifecycle listener now takes them
+  from there (`takeContextPromptFiles`) and builds with them, posting the
+  usual skipped-file and transcript feedback. Before, attachments on that
+  path survived only because the pre-built file header rode along in the
+  queued prompt text, which the once-only build removed. Regression test in
+  `lifecycle.test.ts`.
+
+Known, pre-existing, out of scope: the worktree-prompt skip adapters
+(`reaction-router.ts`, `manager.ts` worktree skip) still drop queued files.
+Direct-channel-mode task channels never take that path.
 
 ## Tests
 

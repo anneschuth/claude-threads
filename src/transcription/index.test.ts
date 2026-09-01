@@ -38,6 +38,7 @@ describe('isTranscribable', () => {
   test('accepts an audio extension when the platform reported only a generic MIME type', () => {
     expect(isTranscribable('application/octet-stream', 'note.m4a')).toBe(true);
     expect(isTranscribable('', 'clip.OGG')).toBe(true);
+    expect(isTranscribable('application/octet-stream', 'voice.webm')).toBe(true);
   });
 
   test('a generic MIME type without an audio extension is not transcribed', () => {

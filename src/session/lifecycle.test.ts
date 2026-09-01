@@ -6,6 +6,7 @@ import { join } from 'node:path';
 
 import * as lifecycle from './lifecycle.js';
 import * as metadataSuggestions from './metadata-suggestions.js';
+import { offerContextPrompt as offerContextPromptReal } from '../operations/context-prompt/handler.js';
 import type { Session } from './types.js';
 import { createSessionTimers, createSessionLifecycle, createResumedLifecycle } from './types.js';
 import type { PlatformClient } from '../platform/index.js';
@@ -2079,6 +2080,88 @@ describe('startSession builds attachments once', () => {
       );
     } finally {
       await teardown(sessions);
+    }
+  });
+});
+
+// =============================================================================
+// Context-prompt reaction route keeps the queued attachments
+// =============================================================================
+
+describe('context-prompt reaction route keeps queued attachments', () => {
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
+  async function waitFor(condition: () => boolean, attempts = 50): Promise<void> {
+    for (let i = 0; i < attempts && !condition(); i++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+
+  it('files parked behind a context prompt are built, and their transcript echoed, when the user picks an option', async () => {
+    const platform = createMockPlatform({
+      isUserAllowed: mock(() => true) as any,
+      getMcpConfig: mock(() => ({ type: 'mattermost', url: 'https://chat.example.com', token: 't', channelId: 'c', allowedUsers: ['alice'] })) as any,
+      // Enough thread history that offerContextPrompt posts the prompt and parks the files
+      getThreadHistory: mock(() => Promise.resolve([
+        { id: 'm1', userId: 'u', username: 'bob', message: 'one', createAt: 1 },
+        { id: 'm2', userId: 'u', username: 'bob', message: 'two', createAt: 2 },
+        { id: 'm3', userId: 'u', username: 'bob', message: 'three', createAt: 3 },
+      ])) as any,
+    });
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+    (ctx.config as { workingDir: string }).workingDir = '/tmp';
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+    const files = [{ id: 'F1', name: 'voice.webm', size: 3, mimeType: 'audio/webm' }];
+
+    await lifecycle.startSession({ prompt: 'listen', files }, 'alice', 'Alice', 'thread-deferred', 'test-platform', ctx, 'msg-trigger');
+    const session = sessions.get('test-platform:thread-deferred')!;
+    try {
+      // Park the files exactly as production does: the real offerContextPrompt
+      // with thread history posts the prompt and keeps the PlatformFile[] aside.
+      const posted = await offerContextPromptReal(session, 'listen', files, {
+        registerPost: ctx.ops.registerPost,
+        startTyping: ctx.ops.startTyping,
+        persistSession: ctx.ops.persistSession,
+        injectMetadataReminder: (message) => message,
+        buildMessageContent: (text, s, f) => ctx.ops.buildMessageContent(text, s.platform, '/tmp', f),
+      }, 'msg-trigger', 'alice');
+      expect(posted).toBe(true);
+
+      (ctx.ops.buildMessageContent as any).mockClear();
+      (ctx.ops.buildMessageContent as any).mockImplementation(() => Promise.resolve({
+        content: 'built',
+        skipped: [],
+        transcripts: [{ name: 'voice.webm', provider: 'elevenlabs', text: 'hello from the deferred path' }],
+      }));
+
+      // The user reacts: the prompt executor emits completion with simplified refs only.
+      session.messageManager!.events.emit('context-prompt:complete', {
+        selection: 0,
+        queuedPrompt: 'listen',
+        queuedByUsername: 'alice',
+        queuedFiles: [{ id: 'F1', name: 'voice.webm' }],
+        threadMessageCount: 3,
+      });
+      await waitFor(() => (platform.createPost as any).mock.calls.some((c: unknown[]) => String(c[0]).startsWith('🎙️')));
+
+      expect(ctx.ops.buildMessageContent).toHaveBeenCalledTimes(1);
+      const [, , , filesArg] = (ctx.ops.buildMessageContent as any).mock.calls[0];
+      expect(filesArg).toBe(files);
+      expect(platform.createPost).toHaveBeenCalledWith('🎙️ **Transcript of voice.webm:**\n> hello from the deferred path', 'thread-deferred');
+    } finally {
+      await session.claude.kill().catch(() => {});
+      session.messageManager?.dispose();
+      await session.decisionBridge?.close().catch(() => {});
     }
   });
 });

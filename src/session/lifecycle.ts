@@ -52,6 +52,7 @@ import {
   postSkippedFilesFeedback,
   postTranscriptFeedback,
 } from '../operations/streaming/handler.js';
+import { takeContextPromptFiles } from '../operations/context-prompt/handler.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
 import { scheduleDistillation } from '../memory/distiller.js';
@@ -668,18 +669,24 @@ function createMessageManager(
     // Inject metadata reminder periodically
     messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
 
-    // Build content with files (if any)
-    // Note: queuedFiles from MessageManager are simplified refs (id, name)
-    // For now, send without files - the full PlatformFile[] would need to be
-    // stored separately if file support is needed here
+    // Build content with the files that were queued behind the prompt. The
+    // event only carries simplified refs (id, name) from MessageManager; the
+    // original PlatformFile[] were parked in the context-prompt module when
+    // the prompt was posted. Before this, attachments on a mid-thread start
+    // survived only because the pre-built file header rode along in
+    // queuedPrompt — startSession now queues the raw prompt, so the files
+    // have to travel here explicitly.
+    const queuedFiles = takeContextPromptFiles(session);
     const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
-    const { content } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, undefined);
+    const { content, skipped, transcripts } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, queuedFiles);
 
     // Send the message to Claude
     if (session.claude.isRunning()) {
       session.claude.sendMessage(content);
       ctx.ops.startTyping(session);
     }
+    await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+    await postTranscriptFeedback(session.platform, session.threadId, transcripts);
 
     // Update activity and persist
     session.lastActivityAt = new Date();
