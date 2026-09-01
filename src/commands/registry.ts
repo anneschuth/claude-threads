@@ -348,6 +348,18 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   // populated availableSlashCommands.
   // ---------------------------------------------------------------------------
   {
+    command: 'usage',
+    description: 'Subscription quota: the session and weekly windows for this profile',
+    args: '[all]',
+    category: 'system',
+    audience: 'both',
+    worksInFirstMessage: true,
+    claudeNotes: 'Quota windows, not this session\'s cost — see !cost for that',
+    subcommands: [
+      { name: 'all', description: 'Every Claude profile on this machine', worksInFirstMessage: true },
+    ],
+  },
+  {
     command: 'context',
     description: 'Show context usage',
     category: 'passthrough',

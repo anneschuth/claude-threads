@@ -104,6 +104,22 @@ const handleUpdate: CommandHandler = async (ctx, args) => {
 /**
  * Handle !stop command.
  */
+/**
+ * Handle !usage / !usage all.
+ *
+ * Posts directly rather than going through the session manager: quota is a
+ * property of the seat, not of a session, and the question is most often asked
+ * before starting one.
+ */
+const handleUsage: CommandHandler = async (ctx, args) => {
+  const all = args?.trim().toLowerCase() === 'all';
+  const { collectUsage, renderProfiles } = await import('../usage/index.js');
+
+  const rendered = renderProfiles(await collectUsage(all));
+  await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);
+  return { handled: true };
+};
+
 const handleStop: CommandHandler = async (ctx) => {
   if (ctx.commandContext === 'first-message') {
     return { handled: false }; // !stop doesn't work in first message
@@ -587,6 +603,7 @@ function createPassthroughHandler(slashCommand: string): CommandHandler {
 handlers.set('help', handleHelp);
 handlers.set('release-notes', handleReleaseNotes);
 handlers.set('update', handleUpdate);
+handlers.set('usage', handleUsage);
 handlers.set('stop', handleStop);
 handlers.set('escape', handleEscape);
 handlers.set('approve', handleApprove);
