@@ -1982,3 +1982,103 @@ describe('session end audit causes', () => {
     expectSingleEndCause('kill');
   });
 });
+
+// =============================================================================
+// Attachments are built once on the start path (docs/audio-transcription-spec.md)
+// =============================================================================
+
+describe('startSession builds attachments once', () => {
+  // Same harness as the decision-bridge tests: point ClaudeCli.start() at a
+  // harmless executable so startSession runs to the send/queue branch.
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
+  function harness() {
+    const platform = createMockPlatform({
+      isUserAllowed: mock(() => true) as any,
+      getMcpConfig: mock(() => ({
+        type: 'mattermost',
+        url: 'https://chat.example.com',
+        token: 't',
+        channelId: 'c',
+        allowedUsers: ['alice'],
+      })) as any,
+    });
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+    (ctx.config as { workingDir: string }).workingDir = '/tmp';
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+    return { platform, sessions, ctx };
+  }
+
+  async function teardown(sessions: Map<string, Session>) {
+    for (const session of sessions.values()) {
+      await session.claude.kill().catch(() => {});
+      session.messageManager?.dispose();
+      await session.decisionBridge?.close().catch(() => {});
+    }
+  }
+
+  it('a thread start hands the raw prompt and files to offerContextPrompt without building content first', async () => {
+    const { sessions, ctx } = harness();
+    const files = [{ id: 'F1', name: 'voice.webm', size: 3, mimeType: 'audio/webm' }];
+
+    await lifecycle.startSession(
+      { prompt: 'listen to this', files },
+      'alice',
+      'Alice',
+      'thread-voice',
+      'test-platform',
+      ctx,
+      'msg-trigger',
+    );
+
+    try {
+      expect(ctx.ops.buildMessageContent).not.toHaveBeenCalled();
+      expect(ctx.ops.offerContextPrompt).toHaveBeenCalledTimes(1);
+      const [, queuedPrompt, queuedFiles] = (ctx.ops.offerContextPrompt as any).mock.calls[0];
+      expect(queuedPrompt).toBe('listen to this');
+      expect(queuedFiles).toBe(files);
+    } finally {
+      await teardown(sessions);
+    }
+  });
+
+  it('a direct-channel start builds content exactly once and echoes the transcript into the channel', async () => {
+    const { platform, sessions, ctx } = harness();
+    const dcmThreadId = 'dcm:test-platform';
+    (ctx.ops.buildMessageContent as any).mockImplementation(() => Promise.resolve({
+      content: 'built once',
+      skipped: [],
+      transcripts: [{ name: 'voice.webm', provider: 'elevenlabs', text: 'rerun the backfill' }],
+    }));
+
+    await lifecycle.startSession(
+      { prompt: 'listen to this', files: [{ id: 'F1', name: 'voice.webm', size: 3, mimeType: 'audio/webm' }] },
+      'alice',
+      'Alice',
+      dcmThreadId,
+      'test-platform',
+      ctx,
+    );
+
+    try {
+      expect(ctx.ops.buildMessageContent).toHaveBeenCalledTimes(1);
+      expect(ctx.ops.offerContextPrompt).not.toHaveBeenCalled();
+      expect(platform.createPost).toHaveBeenCalledWith(
+        '🎙️ **Transcript of voice.webm:**\n> rerun the backfill',
+        dcmThreadId,
+      );
+    } finally {
+      await teardown(sessions);
+    }
+  });
+});

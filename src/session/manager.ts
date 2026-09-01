@@ -35,6 +35,7 @@ import { SessionMonitor } from '../operations/monitor/index.js';
 
 // Import extracted modules
 import * as streaming from '../operations/streaming/index.js';
+import type { Transcriber } from '../transcription/index.js';
 import * as events from '../operations/events/index.js';
 import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
@@ -435,7 +436,7 @@ export class SessionManager extends EventEmitter {
       },
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      buildMessageContent: (t, p, uploadDir, f) => streaming.buildMessageContent(t, p, uploadDir, f, this.debug),
+      buildMessageContent: (t, p, uploadDir, f) => streaming.buildMessageContent(t, p, uploadDir, f, this.debug, this.transcriber),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -631,7 +632,7 @@ export class SessionManager extends EventEmitter {
       injectMetadataReminder: (msg, session) => maybeInjectMetadataReminder(msg, session),
       buildMessageContent: (text, session, files) => {
         const uploadDir = streaming.getSessionUploadDir(session.platformId, session.threadId);
-        return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug);
+        return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug, this.transcriber);
       },
     };
   }
@@ -884,6 +885,13 @@ export class SessionManager extends EventEmitter {
   // ---------------------------------------------------------------------------
 
   /** Set custom description and footer for the sticky channel message. */
+  /** Speech-to-text for inbound audio attachments; unset = audio is a plain file. */
+  private transcriber?: Transcriber;
+
+  setTranscriber(transcriber: Transcriber | undefined): void {
+    this.transcriber = transcriber;
+  }
+
   setStickyMessageCustomization(description?: string, footer?: string): void {
     this.customDescription = description;
     this.customFooter = footer;
@@ -1563,7 +1571,7 @@ export class SessionManager extends EventEmitter {
       offerContextPrompt: (s, q, f, e, sender, autoInclude) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender, autoInclude),
       buildMessageContent: (text, s, files) => {
         const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
-        return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug);
+        return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug, this.transcriber);
       },
       generateWorkSummary: (s) => commands.generateWorkSummary(s),
       getThreadMessagesForContext: (s, limit, excludePostId) => contextPrompt.getThreadMessagesForContext(s, limit, excludePostId),

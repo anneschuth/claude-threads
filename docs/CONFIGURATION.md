@@ -110,6 +110,27 @@ stickyMessage:
 | `description` | Line shown below the sticky title | none |
 | `footer` | Content shown before the default "Mention me to start a session" line | none |
 
+### Transcription (`transcription`)
+
+Speech-to-text for inbound audio attachments, so a voice note is a message and not just a `.webm` on disk. Applies to every platform. Without this block, audio files are saved and listed like any other attachment.
+
+```yaml
+transcription:
+  provider: elevenlabs
+  apiKey: your-elevenlabs-key
+  model: scribe_v2
+  languageCode: hrv
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `provider` | Speech-to-text provider. Only `elevenlabs` (Scribe) today; the field is the seam for others. | required |
+| `apiKey` | Provider API key. Keep it in this `0600` file, never in a repo. | required |
+| `model` | Provider model id | `scribe_v2` |
+| `languageCode` | Language hint, passed through verbatim (ElevenLabs accepts ISO-639-1 and ISO-639-3). Omit to auto-detect. | auto-detect |
+
+What happens: every `audio/*` attachment (or a file with an audio extension when the platform only reported a generic type) is transcribed after it is saved. Claude receives the usual file list **and** a `[Transcript of voice.webm (elevenlabs):]` block, and the bot posts the transcript back into the thread as a quote so everyone can see what Claude heard. A transcription failure is reported like a skipped file — the audio file itself still reaches Claude. A bad `provider` or missing `apiKey` fails the boot. Details: [`docs/audio-transcription-spec.md`](audio-transcription-spec.md).
+
 ## Platform Settings
 
 ### Mattermost

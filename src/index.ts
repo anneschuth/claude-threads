@@ -25,6 +25,7 @@ import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
+import { createTranscriber } from './transcription/index.js';
 import { SessionStore } from './persistence/session-store.js';
 import { configureAuditLog } from './persistence/audit-log.js';
 import { checkForUpdates } from './update-notifier.js';
@@ -637,6 +638,14 @@ async function startWithoutDaemon() {
   // Set sticky message customization from config
   if (config.stickyMessage) {
     session.setStickyMessageCustomization(config.stickyMessage.description, config.stickyMessage.footer);
+  }
+
+  // Speech-to-text for inbound audio attachments. createTranscriber throws on
+  // a bad block, so a misconfigured provider fails the boot, not the first
+  // voice note. See docs/audio-transcription-spec.md.
+  if (config.transcription) {
+    session.setTranscriber(createTranscriber(config.transcription));
+    ui.addLog({ level: 'info', component: 'transcription', message: `🎙️ Audio attachments are transcribed via ${config.transcription.provider}` });
   }
 
   // Set reference for toggle callbacks

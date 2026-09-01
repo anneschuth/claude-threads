@@ -13,6 +13,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
+import { isTranscribable, type Transcriber, type Transcript } from '../../transcription/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { sanitizeFilename, dedupeFilename, formatBytes } from '../../utils/safe-filename.js';
 
@@ -53,6 +54,12 @@ export interface BuiltMessageContent {
   content: string;
   /** Files that could not be saved — callers should surface these to the user. */
   skipped: SkippedFile[];
+  /**
+   * Transcripts of audio attachments (docs/audio-transcription-spec.md).
+   * Present only when a transcriber ran; callers echo these into the thread
+   * via postTranscriptFeedback() so everyone sees what Claude heard.
+   */
+  transcripts?: Transcript[];
 }
 
 // ---------------------------------------------------------------------------
@@ -203,6 +210,7 @@ export async function buildMessageContent(
   uploadDir: string,
   files?: PlatformFile[],
   debug: boolean = false,
+  transcriber?: Transcriber,
 ): Promise<BuiltMessageContent> {
   if (!files || files.length === 0) {
     return { content: text, skipped: [] };
@@ -218,9 +226,73 @@ export async function buildMessageContent(
     f => `- ${f.absolutePath} (${sanitizeForPrompt(f.mimeType) || 'application/octet-stream'}, ${formatBytes(f.size)})`,
   );
   const header = `${FILE_LIST_HEADER}\n${fileLines.join('\n')}`;
-  const content = text.trim().length > 0 ? `${header}\n\n${text}` : header;
 
-  return { content, skipped };
+  const transcripts = transcriber ? await transcribeAudio(transcriber, saved, skipped) : [];
+  const transcriptBlocks = transcripts.map(
+    t => `[Transcript of ${sanitizeForPrompt(t.name)} (${t.provider}):]\n${sanitizeTranscript(t.text)}`,
+  );
+
+  const parts = [header, ...transcriptBlocks];
+  if (text.trim().length > 0) parts.push(text);
+
+  return { content: parts.join('\n\n'), skipped, transcripts };
+}
+
+/**
+ * Run the transcriber over every saved audio file, in order. A failure is
+ * appended to `skipped` (so the user sees it) and does not stop the message —
+ * the file itself is still listed in the prompt.
+ */
+async function transcribeAudio(
+  transcriber: Transcriber,
+  saved: SavedFile[],
+  skipped: SkippedFile[],
+): Promise<Transcript[]> {
+  const transcripts: Transcript[] = [];
+  for (const file of saved) {
+    if (!isTranscribable(file.mimeType, file.originalName)) continue;
+    try {
+      const text = await transcriber.transcribe({
+        path: file.absolutePath,
+        mimeType: file.mimeType,
+        name: file.originalName,
+      });
+      transcripts.push({ name: file.originalName, provider: transcriber.provider, text });
+      log.info(`Transcribed ${file.originalName} via ${transcriber.provider} (${text.length} chars)`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(`Transcription of ${file.originalName} failed: ${message}`);
+      skipped.push({
+        name: file.originalName,
+        reason: `Transcription failed: ${message}`,
+        suggestion: 'The audio file itself was still handed to Claude',
+      });
+    }
+  }
+  return transcripts;
+}
+
+/** Keep newlines (speech has pauses) but drop other control characters. */
+function sanitizeTranscript(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/[\x00-\x09\x0B-\x1F\x7F]/g, '');
+}
+
+/**
+ * Echo each transcript into the thread as a quote so teammates (and the
+ * audit trail) see what Claude heard. No-op for an empty list.
+ */
+export async function postTranscriptFeedback(
+  platform: PlatformClient,
+  threadId: string,
+  transcripts: Transcript[] | undefined,
+): Promise<void> {
+  if (!transcripts || transcripts.length === 0) return;
+  const formatter = platform.getFormatter();
+  for (const t of transcripts) {
+    const quoted = t.text.split('\n').map(line => formatter.formatBlockquote(line)).join('\n');
+    await platform.createPost(`🎙️ ${formatter.formatBold(`Transcript of ${t.name}:`)}\n${quoted}`, threadId);
+  }
 }
 
 /**
