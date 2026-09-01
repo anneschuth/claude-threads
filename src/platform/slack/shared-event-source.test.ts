@@ -237,6 +237,42 @@ describe('lifecycle and safety', () => {
 
     expect(seen).toEqual(['connected']);
   });
+
+  it('re-arms the mirror before the socket close settles', () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+
+    const seen: string[] = [];
+    secondary.on('connected', () => seen.push('connected'));
+
+    // Base teardown drops the listeners synchronously but the socket close is
+    // a promise that can stay pending. A reconnect landing inside that window
+    // must not emit into a mirror-less parent — the secondaries would miss it
+    // permanently. Deliberately not awaited: that IS the window.
+    const closing = parent.disconnect();
+    parent.emit('connected');
+
+    expect(seen).toEqual(['connected']);
+    return closing;
+  });
+
+  it('does not stack mirror listeners when disconnects overlap', async () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+
+    // Both calls clear the listeners before either re-arms; a non-idempotent
+    // install leaves two mirrors, so every later event reaches the secondary
+    // twice.
+    await Promise.all([parent.disconnect(), parent.disconnect()]);
+
+    const seen: string[] = [];
+    secondary.on('connected', () => seen.push('connected'));
+    parent.emit('connected');
+
+    expect(seen).toEqual(['connected']);
+  });
 });
 
 describe('reconnect recovery', () => {

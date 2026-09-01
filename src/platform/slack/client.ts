@@ -117,16 +117,26 @@ export class SlackClient extends BasePlatformClient {
    * A secondary's only event feed is the parent's socket, so the parent's
    * connection state IS the secondary's connection state — mirror it.
    *
-   * Re-armed after `disconnect()`, whose base teardown detaches every
-   * listener including this one.
+   * Stable handler identities, so re-arming is idempotent: overlapping
+   * `disconnect()` calls each clear the listeners and each re-arm, and a
+   * fresh closure per install would leave the mirror stacked and every
+   * later event duplicated into the secondaries.
    */
-  private installStateMirror(): void {
-    for (const state of ['connected', 'disconnected', 'reconnecting'] as const) {
-      this.on(state, (...args: unknown[]) => {
+  private readonly stateMirrors = (['connected', 'disconnected', 'reconnecting'] as const).map(
+    (state) => ({
+      state,
+      handler: (...args: unknown[]) => {
         for (const secondary of this.channelClients.values()) {
           secondary.emit(state, ...args);
         }
-      });
+      },
+    })
+  );
+
+  private installStateMirror(): void {
+    for (const { state, handler } of this.stateMirrors) {
+      this.off(state, handler);
+      this.on(state, handler);
     }
   }
 
@@ -180,20 +190,20 @@ export class SlackClient extends BasePlatformClient {
     this.handleSlackEvent(event);
   }
 
-  override async disconnect(): Promise<void> {
+  override disconnect(): Promise<void> {
     // A secondary must stop receiving injected events when it goes away;
     // the base teardown is still safe to run (it has no socket to close).
     if (this.sharedEventSource) {
       this.sharedEventSource.unregisterChannelClient(this.channelId, this);
     }
-    try {
-      await super.disconnect();
-    } finally {
-      // Base teardown calls removeAllListeners(), which takes the state mirror
-      // with it. Without re-arming, a parent that goes intentional-disconnect
-      // → reconnect never tells its secondaries about a connection again.
-      this.installStateMirror();
-    }
+    // Base teardown calls removeAllListeners() synchronously and then returns
+    // the socket-close promise, which can stay pending. Re-arm here rather
+    // than after awaiting it: without the mirror, a parent that reconnects
+    // while the close is still settling emits 'connected' into nothing and
+    // its secondaries miss it permanently.
+    const closed = super.disconnect();
+    this.installStateMirror();
+    return closed;
   }
 
   // ============================================================================
