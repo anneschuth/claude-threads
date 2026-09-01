@@ -15,9 +15,12 @@ Behaviour, in order:
 1. `saveFilesToUploadDir` runs unchanged — the file lands on disk and its
    path is still listed in the `[Attached files from chat …]` header.
 2. Every saved file whose `mimeType` starts with `audio/` — or whose
-   extension is a known audio one (`m4a mp3 ogg opus wav aac flac`) when the
-   platform reported only a generic type — is sent to the configured
-   transcriber. Files are transcribed sequentially.
+   extension is a known audio one (`m4a mp3 ogg opus wav aac flac webm`) when
+   the platform reported only a generic type — is sent to the configured
+   transcriber. `webm` is on the list because Slack's own clips are
+   `voice.webm`; a WebM *video* that reaches this fallback gets its soundtrack
+   transcribed, which costs a fraction of a cent and is harmless. Properly
+   typed `video/*` is still excluded. Files are transcribed sequentially.
 3. The prompt gains one block per transcript, after the file list and before
    the user's own text:
 

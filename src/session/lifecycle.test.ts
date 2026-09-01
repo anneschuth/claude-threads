@@ -2165,3 +2165,65 @@ describe('context-prompt reaction route keeps queued attachments', () => {
     }
   });
 });
+
+describe('context-prompt reaction route survives a failed feedback post', () => {
+  let prevClaudePath: string | undefined;
+  beforeEach(() => {
+    prevClaudePath = process.env.CLAUDE_PATH;
+    process.env.CLAUDE_PATH = ['/bin/sh', '/usr/bin/sh', '/bin/cat', '/usr/bin/cat']
+      .find(p => existsSync(p)) ?? '/bin/sh';
+  });
+  afterEach(() => {
+    if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+    else process.env.CLAUDE_PATH = prevClaudePath;
+  });
+
+  async function waitFor(condition: () => boolean, attempts = 50): Promise<void> {
+    for (let i = 0; i < attempts && !condition(); i++) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  }
+
+  it('a rejected transcript echo is reported in the thread and the session state still advances', async () => {
+    const platform = createMockPlatform({
+      isUserAllowed: mock(() => true) as any,
+      getMcpConfig: mock(() => ({ type: 'mattermost', url: 'https://chat.example.com', token: 't', channelId: 'c', allowedUsers: ['alice'] })) as any,
+      // The transcript echo fails (rate limit, network); every other post succeeds
+      createPost: mock((text: string) => text.startsWith('🎙️')
+        ? Promise.reject(new Error('slack says no: ratelimited'))
+        : Promise.resolve({ id: 'post-1', message: '', userId: 'bot' })) as any,
+    });
+    const sessions = new Map<string, Session>();
+    const ctx = createMockSessionContext(sessions);
+    (ctx.config as { workingDir: string }).workingDir = '/tmp';
+    (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+
+    await lifecycle.startSession({ prompt: 'listen' }, 'alice', 'Alice', 'thread-flaky', 'test-platform', ctx, 'msg-trigger');
+    const session = sessions.get('test-platform:thread-flaky')!;
+    try {
+      (ctx.ops.persistSession as any).mockClear();
+      (ctx.ops.buildMessageContent as any).mockImplementation(() => Promise.resolve({
+        content: 'built',
+        skipped: [],
+        transcripts: [{ name: 'voice.webm', provider: 'elevenlabs', text: 'hello' }],
+      }));
+
+      session.messageManager!.events.emit('context-prompt:complete', {
+        selection: 0,
+        queuedPrompt: 'listen',
+        queuedByUsername: 'alice',
+        queuedFiles: undefined,
+        threadMessageCount: 3,
+      });
+      await waitFor(() => (ctx.ops.persistSession as any).mock.calls.length > 0);
+
+      const posts = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(posts.some((p: string) => p.includes('Send queued message after context prompt failed') && p.includes('ratelimited'))).toBe(true);
+      expect(ctx.ops.persistSession).toHaveBeenCalled();
+    } finally {
+      await session.claude.kill().catch(() => {});
+      session.messageManager?.dispose();
+      await session.decisionBridge?.close().catch(() => {});
+    }
+  });
+});

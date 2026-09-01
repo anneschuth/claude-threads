@@ -66,7 +66,8 @@ export class ElevenLabsTranscriber implements Transcriber {
     });
 
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
+      // A body that cannot even be read is itself part of the diagnosis.
+      const body = await response.text().catch((err: unknown) => `<body unreadable: ${String(err)}>`);
       throw new Error(`ElevenLabs HTTP ${response.status}: ${describeErrorBody(body)}`);
     }
 

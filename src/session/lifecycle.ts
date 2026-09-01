@@ -678,15 +678,24 @@ function createMessageManager(
     // have to travel here explicitly.
     const queuedFiles = takeContextPromptFiles(session);
     const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
-    const { content, skipped, transcripts } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, queuedFiles);
 
-    // Send the message to Claude
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(content);
-      ctx.ops.startTyping(session);
+    // This listener runs on a plain EventEmitter: a rejection here is nobody's
+    // to await and would surface as an unhandled rejection after the prompt
+    // state and the parked files are already consumed. Report it in the
+    // thread instead — the failure stays visible, the daemon stays up.
+    try {
+      const { content, skipped, transcripts } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, queuedFiles);
+
+      // Send the message to Claude
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(content);
+        ctx.ops.startTyping(session);
+      }
+      await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+      await postTranscriptFeedback(session.platform, session.threadId, transcripts);
+    } catch (err) {
+      await logAndNotify(err, { action: 'Send queued message after context prompt', session });
     }
-    await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-    await postTranscriptFeedback(session.platform, session.threadId, transcripts);
 
     // Update activity and persist
     session.lastActivityAt = new Date();

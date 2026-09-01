@@ -89,6 +89,20 @@ describe('ElevenLabsTranscriber', () => {
     await expect(attempt).rejects.toThrow(/empty transcript/);
   });
 
+  test('names the read failure when the error body itself cannot be read', async () => {
+    const path = await writeAudioFixture();
+    const unreadable = (async () => ({
+      ok: false,
+      status: 500,
+      text: async () => { throw new Error('socket hang up'); },
+    })) as unknown as typeof fetch;
+    const transcriber = new ElevenLabsTranscriber({ provider: 'elevenlabs', apiKey: 'k' }, unreadable);
+
+    const attempt = transcriber.transcribe({ path, mimeType: 'audio/webm', name: 'voice.webm' });
+
+    await expect(attempt).rejects.toThrow('ElevenLabs HTTP 500: <body unreadable: Error: socket hang up>');
+  });
+
   test('reports itself as the elevenlabs provider', () => {
     const transcriber = new ElevenLabsTranscriber({ provider: 'elevenlabs', apiKey: 'k' }, fakeFetch({ status: 200, body: {} }).fn);
 
