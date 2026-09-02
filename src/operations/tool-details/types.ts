@@ -15,6 +15,8 @@ export interface ToolDetailsSink {
   turnEnded(ctx: ExecutorContext): Promise<void>;
   /** A link the summary line can carry, once known; `null` when there is none. */
   link(): string | null;
+  /** Session restart mid-turn: forget this turn's queue and context. */
+  reset(): void;
 }
 
 /** `toolDetails: none` — the stream is dropped. */
@@ -22,4 +24,5 @@ export const noneSink: ToolDetailsSink = {
   append: async () => undefined,
   turnEnded: async () => undefined,
   link: () => null,
+  reset: () => undefined,
 };

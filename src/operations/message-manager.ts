@@ -1433,6 +1433,7 @@ export class MessageManager {
     this.toolStartTimes.clear();
     this.taskTracker.clear();
     this.contentExecutor.reset();
+    this.toolActivityExecutor?.reset();
     this.taskListExecutor.reset();
     this.questionApprovalExecutor.reset();
     this.messageApprovalExecutor.reset();

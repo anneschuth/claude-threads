@@ -92,4 +92,16 @@ describe('thread sink', () => {
 
     expect(created.map((c) => c.root)).toEqual(['turn-a', 'turn-b']);
   });
+
+  it('reset forgets the turn in progress: nothing queued survives, nothing is posted later', async () => {
+    const { ctx, created, warnings } = fakeContext('root-5');
+    const sink = createThreadSink({ contextFor: () => null, makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }) });
+
+    await sink.append(start('t1', 'Read a'), ctx);
+    sink.reset();
+    await sink.turnEnded(ctx);
+
+    expect(created).toHaveLength(0);
+    expect(warnings).toHaveLength(0);
+  });
 });

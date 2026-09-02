@@ -289,7 +289,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       ctx.logger.warn(`Content too long (${content.length}), truncating`);
       content = truncateMessageSafely(
         content,
-        MAX_POST_LENGTH,
+        MAX_POST_LENGTH - reserve,
         ctx.formatter.formatItalic('... (truncated)')
       );
     }

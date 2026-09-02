@@ -59,5 +59,11 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
       detailsCtx = null;
     },
     link: () => null,
+    reset() {
+      queued = [];
+      executor?.reset();
+      executor = null;
+      detailsCtx = null;
+    },
   };
 }

@@ -80,6 +80,12 @@ export class ToolActivityExecutor {
     this.stats = fresh();
   }
 
+  /** Session restart: the turn in progress is gone, and so is its counter. */
+  reset(): void {
+    this.stats = fresh();
+    this.options.sink.reset();
+  }
+
   private renderHeader(now: number, ctx: ExecutorContext): void {
     if (this.options.mode !== 'summary') return;
     this.options.onHeader(renderToolSummary(this.stats, now, this.options.sink.link(), ctx.formatter));

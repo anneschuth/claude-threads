@@ -1194,6 +1194,18 @@ describe('ContentExecutor', () => {
       expect(platform.createPost).toHaveBeenNthCalledWith(2, '🔧 3 tools\n\nturn two', 'thread-123');
     });
 
+    it('a body over the platform limit is truncated to leave room for the header (CodeRabbit)', async () => {
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 2 s');
+      await executor.executeAppend(createAppendContentOp('test', 'x'.repeat(16_050)), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const created = (platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string);
+      const updated = (platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string);
+      expect([...created, ...updated].every((text) => text.length <= 16_000)).toBe(true);
+      expect(created[0].startsWith('🔧 1 tool · 2 s')).toBe(true);
+    });
+
     it('without a header nothing changes', async () => {
       const ctx = getContext();
       await executor.executeAppend(createAppendContentOp('test', 'Hello'), ctx);

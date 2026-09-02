@@ -10,12 +10,14 @@ const ctx = { formatter, sessionId: 's' } as unknown as ExecutorContext;
 function recordingSink(link: string | null = null) {
   const appended: ToolActivityEvent[] = [];
   let ended = 0;
+  let resets = 0;
   const sink: ToolDetailsSink = {
     append: async (op) => { appended.push(op); },
     turnEnded: async () => { ended++; },
     link: () => link,
+    reset: () => { resets++; },
   };
-  return { sink, appended, ended: () => ended };
+  return { sink, appended, ended: () => ended, resets: () => resets };
 }
 
 describe('renderToolSummary', () => {
@@ -75,5 +77,16 @@ describe('ToolActivityExecutor', () => {
     await noneSink.append(createToolActivityOp('s', { kind: 'start', toolUseId: 't', name: 'n', display: 'd' }) as ToolActivityEvent, ctx);
     await noneSink.turnEnded(ctx);
     expect(noneSink.link()).toBeNull();
+  });
+
+  it('reset clears the counter and resets the sink', async () => {
+    const { sink, resets } = recordingSink();
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => undefined });
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 't1', name: 'Read', display: 'Read x' }), ctx);
+
+    exec.reset();
+
+    expect(exec.getStats().started).toBe(0);
+    expect(resets()).toBe(1);
   });
 });

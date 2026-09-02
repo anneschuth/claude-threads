@@ -21,7 +21,6 @@ import {
   type PermissionMode,
   type OverheadVisibility,
   resolveToolActivity,
-  DEFAULT_TOOL_ACTIVITY,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -748,7 +747,9 @@ async function startWithoutDaemon() {
         overhead: {
           sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
           stickyMessage: 'hidden',
-          tools: DEFAULT_TOOL_ACTIVITY,
+          // A derived DM config spreads its parent, so the parent's tool
+          // settings carry over unless the DM entry overrides them.
+          tools: resolveToolActivity(dmConfig.toolActivity, dmConfig.toolDetails, `dm[${dmConfig.id}]`),
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,
