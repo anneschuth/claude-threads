@@ -6,6 +6,7 @@
 import { homedir } from 'os';
 import {
   accountEmail,
+  accountPlan,
   claudeVersion,
   discoverProfiles,
   fetchUsage,
@@ -30,15 +31,17 @@ async function readProfile(profile: Profile, version: string): Promise<ProfileUs
   // The account is looked up even when the read fails: "log in again" is not
   // actionable unless it says which account.
   const email = await accountEmail(profile.configDir);
+  const plan = await accountPlan(profile.configDir);
   try {
     const token = await resolveToken(profile.configDir, profile.name);
-    return { profile: profile.name, email, limits: await fetchUsage(token, version) };
+    return { profile: profile.name, email, plan, limits: await fetchUsage(token, version) };
   } catch (err) {
     // One unreadable seat must not take the others down with it, and it is
     // reported rather than dropped — a missing row reads as "fine".
     return {
       profile: profile.name,
       email,
+      plan,
       error: err instanceof Error ? err.message : String(err),
     };
   }

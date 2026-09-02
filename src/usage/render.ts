@@ -28,6 +28,8 @@ export interface ProfileUsage {
    * it is, and a partial address answers the question no better than none.
    */
   email?: string;
+  /** Plan badge, e.g. "Max 20×" — which seat is four times the other matters. */
+  plan?: string;
   limits?: UsageLimit[];
   /** Set instead of `limits` when this profile could not be read. */
   error?: string;
@@ -134,7 +136,8 @@ export function renderProfiles(profiles: ProfileUsage[], options: RenderOptions 
         : renderUsage(p.limits ?? [], options);
       // The email belongs on the failing rows too — "log in again" is useless
       // if you don't know which account you're logging in as.
-      const header = p.email ? `${p.profile} (${p.email})` : p.profile;
+      const detail = [p.email, p.plan].filter(Boolean).join(' · ');
+      const header = detail ? `${p.profile} (${detail})` : p.profile;
       return `${header}\n${'─'.repeat(header.length)}\n${body}`;
     })
     .join('\n\n');

@@ -15,6 +15,7 @@ import path from 'path';
 import { promisify } from 'util';
 import { createLogger } from '../utils/logger.js';
 import type { UsageLimit, UsageLimitKind } from './render.js';
+import { planLabel } from './plan.js';
 
 const log = createLogger('usage');
 const execFileAsync = promisify(execFile);
@@ -234,6 +235,16 @@ export async function readCredentials(configDir: string): Promise<OAuthCredentia
   return parsed.claudeAiOauth;
 }
 
+/** The plan a seat is on, read from the same credential as everything else. */
+export async function accountPlan(configDir: string): Promise<string | undefined> {
+  try {
+    return planLabel(await readCredentials(configDir));
+  } catch {
+    // A seat we cannot read still gets a row; it just has no badge.
+    return undefined;
+  }
+}
+
 /** The account a profile is logged in as, for the "go log in" message. */
 export async function accountEmail(configDir: string): Promise<string | undefined> {
   try {
@@ -353,6 +364,10 @@ export interface OAuthCredentials {
   expiresAt?: number;
   refreshTokenExpiresAt?: number;
   scopes?: string[];
+  /** Coarse plan, e.g. "max". */
+  subscriptionType?: string;
+  /** Plan tier carrying the multiplier, e.g. "default_claude_max_20x". */
+  rateLimitTier?: string;
 }
 
 export type CredentialState = 'fresh' | 'refreshable' | 'logged_out';
