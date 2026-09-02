@@ -119,7 +119,8 @@ function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   try {
     const parsed = new URL(value);
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
+    // A base that paths get appended to: no query, no fragment.
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '' && parsed.search === '' && parsed.hash === '';
   } catch {
     return false;
   }

@@ -103,6 +103,8 @@ describe('file sink', () => {
 
   it('ANSI escape sequences are stripped', () => {
     expect(stripAnsi('\x1b[32mok\x1b[0m and \x1b[1;31mred\x1b[m')).toBe('ok and red');
+    // OSC 8 hyperlink (BEL-terminated) and an ST-terminated title (Codex review)
+    expect(stripAnsi('\x1b]8;;https://x\x07link\x1b]8;;\x07 \x1b]0;title\x1b\\end')).toBe('link end');
   });
 
   it('a write failure is reported once in the channel and the sink stops, the reply is unaffected', async () => {

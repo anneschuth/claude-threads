@@ -21,8 +21,12 @@ export interface FileSinkDeps {
 }
 
 // Built from the escape char's code: a literal control character in a regex
-// literal trips no-control-regex, and rightly so.
-const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;?]*[ -/]*[@-~]`, 'g');
+// literal trips no-control-regex, and rightly so. CSI sequences (colours,
+// cursor moves) and OSC sequences (terminal hyperlinks, titles), ended by
+// BEL or ESC \.
+const ESC = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+const ANSI = new RegExp(`${ESC}\\[[0-9;?]*[ -/]*[@-~]|${ESC}\\][^${BEL}${ESC}]*(?:${BEL}|${ESC}\\\\)`, 'g');
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, '');

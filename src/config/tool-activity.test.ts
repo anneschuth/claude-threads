@@ -29,6 +29,7 @@ describe('resolveToolActivity', () => {
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'agents.example.com' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'ftp://agents.example.com/x' })).toThrow('p.toolDetailsUrl');
+    expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://agents.example.com/x?y=1' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { dir: '' })).toThrow('p.toolDetailsDir');
   });
 
