@@ -45,6 +45,7 @@ export {
   isOverheadVisibility,
   resolveOverheadVisibility,
   DEFAULT_TOOL_ACTIVITY,
+  DEFAULT_TOOL_DETAILS_DIR,
   resolveToolActivity,
 } from './types.js';
 

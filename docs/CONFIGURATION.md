@@ -302,6 +302,7 @@ platforms:
 | `toolDetails` | Where the full tool stream goes when `toolActivity` is not `full` |
 |---|---|
 | `thread` | posted as replies in a thread under the turn's post (in a thread-mode session, after the reply in the same thread: Slack has no nested threads) |
+| `file` | written as one HTML page per turn to `toolDetailsDir/<platform>/<session>/<turn>.html` (default dir `~/.claude-threads/tool-details`), with an `index.html` per session. Set `toolDetailsUrl` to the URL that serves that directory and the summary line links to the page. The daemon only writes; **serve the directory behind auth**, the pages hold command lines and outputs |
 | `none` | dropped |
 
 Permission prompts, plan approvals, questions, task lists and errors post as before in every mode. `toolDetails` with `full`, or `thread` with `hidden`, is a startup config error.

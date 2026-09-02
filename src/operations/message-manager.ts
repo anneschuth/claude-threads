@@ -16,6 +16,8 @@ import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
 import { ToolActivityExecutor } from './executors/tool-activity.js';
 import { createThreadSink } from './tool-details/thread.js';
+import { createFileSink } from './tool-details/file.js';
+import { homedir } from 'os';
 import { noneSink } from './tool-details/types.js';
 import { isDcmThreadId } from '../platform/utils.js';
 import type { ToolActivitySettings } from '../config/types.js';
@@ -322,7 +324,14 @@ export class MessageManager {
             // No task-list bump callbacks: a details post must never repurpose the task list.
             makeExecutor: () => new ContentExecutor({ registerPost: options.registerPost, updateLastMessage: () => undefined }),
           })
-        : noneSink;
+        : this.toolActivity.details === 'file'
+          ? createFileSink({
+              dir: (this.toolActivity.dir ?? '~/.claude-threads/tool-details').replace(/^~(?=$|\/)/, homedir()),
+              urlBase: this.toolActivity.url,
+              platformId: options.session.platformId,
+              sessionId: this.sessionId,
+            })
+          : noneSink;
       this.toolActivityExecutor = new ToolActivityExecutor({
         mode: this.toolActivity.activity,
         sink,

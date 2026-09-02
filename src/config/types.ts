@@ -70,16 +70,21 @@ export const TOOL_ACTIVITY_VALUES = ['full', 'summary', 'hidden'] as const;
 /** `full`: every tool inline (today). `summary`: one live line per turn. `hidden`: nothing. */
 export type ToolActivityMode = (typeof TOOL_ACTIVITY_VALUES)[number];
 
-export const TOOL_DETAILS_VALUES = ['thread', 'none'] as const;
+export const TOOL_DETAILS_VALUES = ['thread', 'file', 'none'] as const;
 /** Where the full tool stream goes when `toolActivity` is not `full`. */
 export type ToolDetailsMode = (typeof TOOL_DETAILS_VALUES)[number];
 
 export interface ToolActivitySettings {
   activity: ToolActivityMode;
   details: ToolDetailsMode;
+  /** `file` only: where the pages are written. */
+  dir?: string;
+  /** `file` only: the URL that serves `dir`; without it the summary line carries no link. */
+  url?: string;
 }
 
 export const DEFAULT_TOOL_ACTIVITY: ToolActivitySettings = { activity: 'full', details: 'none' };
+export const DEFAULT_TOOL_DETAILS_DIR = '~/.claude-threads/tool-details';
 
 /**
  * Normalize the per-platform `toolActivity` / `toolDetails` pair. Undefined
@@ -91,7 +96,26 @@ export function resolveToolActivity(
   activity: unknown,
   details: unknown,
   fieldPath: string,
+  fileOptions: { dir?: unknown; url?: unknown } = {},
 ): ToolActivitySettings {
+  const resolved = resolveActivityAndDetails(activity, details, fieldPath);
+  const { dir, url } = fileOptions;
+  if (resolved.details !== 'file') {
+    if (dir !== undefined || url !== undefined) {
+      throw new Error(`Invalid ${fieldPath}.toolDetailsDir / toolDetailsUrl: only meaningful with toolDetails file`);
+    }
+    return resolved;
+  }
+  if (dir !== undefined && (typeof dir !== 'string' || dir.trim() === '')) {
+    throw new Error(`Invalid ${fieldPath}.toolDetailsDir: expected a non-empty path`);
+  }
+  if (url !== undefined && (typeof url !== 'string' || !/^https?:\/\//.test(url))) {
+    throw new Error(`Invalid ${fieldPath}.toolDetailsUrl: expected an http(s) URL`);
+  }
+  return { ...resolved, dir: (dir as string | undefined) ?? DEFAULT_TOOL_DETAILS_DIR, url: url as string | undefined };
+}
+
+function resolveActivityAndDetails(activity: unknown, details: unknown, fieldPath: string): ToolActivitySettings {
   const act = activity === undefined || activity === null ? 'full' : activity;
   if (!(TOOL_ACTIVITY_VALUES as readonly unknown[]).includes(act)) {
     throw new Error(`Invalid ${fieldPath}.toolActivity: expected one of ${TOOL_ACTIVITY_VALUES.join(', ')}, got ${JSON.stringify(activity)}`);
@@ -501,10 +525,19 @@ export interface PlatformInstanceConfig {
   toolActivity?: ToolActivityMode;
   /**
    * Where the full tool stream goes when `toolActivity` is not `full`:
-   * `thread` (replies under the turn's post; the default for `summary`) or
-   * `none`. Not accepted with `full`.
+   * `thread` (replies under the turn's post; the default for `summary`),
+   * `file` (one HTML page per turn, see `toolDetailsDir` / `toolDetailsUrl`)
+   * or `none`. Not accepted with `full`.
    */
   toolDetails?: ToolDetailsMode;
+  /** `toolDetails: file` only. Where the pages go; default `~/.claude-threads/tool-details`. */
+  toolDetailsDir?: string;
+  /**
+   * `toolDetails: file` only. The URL that serves `toolDetailsDir`; the
+   * summary line links to `<url>/<platform>/<session>/<turn>.html`. Serve it
+   * behind auth: the pages hold command lines and outputs.
+   */
+  toolDetailsUrl?: string;
   /**
    * Persistent memory for this platform instance (default: fully enabled).
    * See `MemoryOption` for the accepted shapes and layer semantics.

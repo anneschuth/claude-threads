@@ -187,4 +187,5 @@ VVS runs `summary` + `file` behind Caddy with auth on
 
 ## Lessons learned
 
-(none yet)
+- CodeRabbit's CLI dropped its WebSocket twice on the PR 1 diff (2026-09-02); the
+  `--light` run is what finished. Codex and Gemini reviewed the full diff.

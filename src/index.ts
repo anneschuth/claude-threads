@@ -697,6 +697,7 @@ async function startWithoutDaemon() {
           platformConfig.toolActivity,
           platformConfig.toolDetails,
           `platforms[${platformConfig.id}]`,
+          { dir: platformConfig.toolDetailsDir, url: platformConfig.toolDetailsUrl },
         ),
       },
       memory: resolveMemoryConfig(
