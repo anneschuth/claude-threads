@@ -65,6 +65,8 @@ export class SlackClient extends BasePlatformClient {
   private botUserId: string | null = null;
   /** This app's id, learned from the socket (`hello`, then every events_api envelope). */
   private appId: string | null = null;
+  /** This installation's workspace, from auth.test. */
+  private teamId: string | null = null;
   private botUser: SlackUser | null = null;
   private teamUrl: string | null = null;
 
@@ -573,14 +575,21 @@ export class SlackClient extends BasePlatformClient {
    * Slack stamps every API-posted message with the posting app's `bot_id` and
    * `app_id`, including one posted with a *person's* user token of this app
    * (an integration relaying what the person said). That message is the
-   * person's: `user` is a human, `app_id` is ours. Everything else with a
-   * `bot_id` — our own replies, other apps, classic bots without a user — is
-   * bot-authored and ignored. Until the app id is known, the old rule holds.
+   * person's: `user` is set, `app_id` is ours, `team` is ours. Everything
+   * else with a `bot_id` — our own replies, other apps, classic bots without
+   * a user, and a bot copy of this same app in another workspace sharing a
+   * Slack Connect channel — is bot-authored and ignored. Until app and team
+   * ids are known, the old rule holds.
    */
-  private isBotAuthored(message: { user?: string; bot_id?: string; app_id?: string }): boolean {
+  private isBotAuthored(message: { user?: string; bot_id?: string; app_id?: string; team?: string }): boolean {
     if (message.user === this.botUserId) return true;
     if (!message.bot_id) return false;
-    const isOurUserTokenPost = Boolean(this.appId && message.app_id === this.appId && message.user);
+    const isOurUserTokenPost = Boolean(
+      this.appId && message.app_id === this.appId && this.teamId && message.team === this.teamId && message.user
+    );
+    if (isOurUserTokenPost) {
+      wsLogger.debug(`Accepting post by ${message.user} made through this app's user token`);
+    }
     return !isOurUserTokenPost;
   }
 
@@ -600,6 +609,7 @@ export class SlackClient extends BasePlatformClient {
     item_user?: string;
     bot_id?: string;
     app_id?: string;
+    team?: string;
     files?: SlackFile[];
   }): void {
     // Shared event source: this socket may carry events for channels owned by
@@ -813,6 +823,7 @@ export class SlackClient extends BasePlatformClient {
   private async fetchBotUser(): Promise<void> {
     const response = await this.api<AuthTestResponse>('POST', 'auth.test');
     this.botUserId = response.user_id;
+    this.teamId = response.team_id ?? null;
     this.teamUrl = response.url.replace(/\/$/, ''); // Remove trailing slash
 
     // Also fetch full user info

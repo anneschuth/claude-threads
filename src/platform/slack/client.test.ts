@@ -116,7 +116,7 @@ function makeClient(overrides: Partial<SlackPlatformConfig> = {}): SlackClient {
 
 async function primeBotUser(client: SlackClient, userId = 'U-BOT') {
   fetchResponder = (url) => {
-    if (url.endsWith('auth.test')) return ok({ user_id: userId, url: 'https://team.slack.com/' });
+    if (url.endsWith('auth.test')) return ok({ user_id: userId, team_id: 'T-OURS', url: 'https://team.slack.com/' });
     if (url.includes('users.info')) {
       return ok({ user: { id: userId, name: 'claude', real_name: 'Claude', profile: {} } });
     }
@@ -461,6 +461,7 @@ describe('SlackClient bot-authored filter', () => {
   // when it is posted with a person's user token. Only the person's own
   // messages and posts made through this app's user token should reach Claude.
   const OUR_APP = 'A-OURS';
+  const OUR_TEAM = 'T-OURS';
 
   function hello(client: SlackClient, appId = OUR_APP) {
     (client as any).handleSocketModeEvent({ type: 'hello', connection_info: { app_id: appId } });
@@ -473,7 +474,7 @@ describe('SlackClient bot-authored filter', () => {
   }
 
   async function inject(client: SlackClient, event: Record<string, unknown>) {
-    client._injectSlackEvent({ type: 'message', channel: 'C123', ts: '1.1', text: 'hi', ...event } as any);
+    client._injectSlackEvent({ type: 'message', channel: 'C123', ts: '1.1', text: 'hi', team: OUR_TEAM, ...event } as any);
     await new Promise((r) => setTimeout(r, 0));
   }
 
@@ -496,7 +497,7 @@ describe('SlackClient bot-authored filter', () => {
     (client as any).handleSocketModeEvent({
       type: 'events_api',
       envelope_id: 'e1',
-      payload: { api_app_id: OUR_APP, event: { type: 'message', channel: 'C123', ts: '1.2', text: 'hi', user: 'U-ALMIR', bot_id: 'B-PER-AUTH', app_id: OUR_APP } },
+      payload: { api_app_id: OUR_APP, event: { type: 'message', channel: 'C123', ts: '1.2', text: 'hi', user: 'U-ALMIR', bot_id: 'B-PER-AUTH', app_id: OUR_APP, team: OUR_TEAM } },
     });
     await new Promise((r) => setTimeout(r, 0));
 
@@ -525,6 +526,17 @@ describe('SlackClient bot-authored filter', () => {
     expect(seen).toEqual([]);
   });
 
+  it('a bot copy of this same app in another workspace (Slack Connect) stays ignored', async () => {
+    const client = makeClient();
+    await primeBotUser(client);
+    hello(client);
+    const seen = collectMessages(client);
+
+    await inject(client, { user: 'U-BOT-REMOTE', bot_id: 'B-REMOTE', app_id: OUR_APP, team: 'T-REMOTE' });
+
+    expect(seen).toEqual([]);
+  });
+
   it('a bot post without a user stays ignored, and so does everything with a bot_id before the app id is known', async () => {
     const client = makeClient();
     await primeBotUser(client);
@@ -546,9 +558,10 @@ describe('SlackClient bot-authored filter', () => {
       if (url.includes('conversations.history')) {
         return ok({
           messages: [
-            { type: 'message', ts: '1.1', text: 'relayed', user: 'U-ALMIR', bot_id: 'B-PER-AUTH', app_id: OUR_APP },
-            { type: 'message', ts: '1.2', text: 'reply', user: 'U-BOT', bot_id: 'B-OURS', app_id: OUR_APP },
-            { type: 'message', ts: '1.3', text: 'ci', user: 'U-GITHUB-BOT', bot_id: 'B-GITHUB', app_id: 'A-GITHUB' },
+            { type: 'message', ts: '1.1', text: 'relayed', user: 'U-ALMIR', bot_id: 'B-PER-AUTH', app_id: OUR_APP, team: OUR_TEAM },
+            { type: 'message', ts: '1.2', text: 'reply', user: 'U-BOT', bot_id: 'B-OURS', app_id: OUR_APP, team: OUR_TEAM },
+            { type: 'message', ts: '1.3', text: 'ci', user: 'U-GITHUB-BOT', bot_id: 'B-GITHUB', app_id: 'A-GITHUB', team: OUR_TEAM },
+            { type: 'message', ts: '1.4', text: 'remote copy', user: 'U-BOT-REMOTE', bot_id: 'B-REMOTE', app_id: OUR_APP, team: 'T-REMOTE' },
           ],
         });
       }

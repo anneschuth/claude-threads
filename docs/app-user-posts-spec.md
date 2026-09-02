@@ -13,12 +13,15 @@ that carries a `bot_id`, so such a post never reaches Claude, silently.
 With this change the client treats a message as bot-authored only when
 
 - its `user` is the bot's own user (the daemon's replies), or
-- it carries a `bot_id` and is **not** from this app with a human `user`.
+- it carries a `bot_id` and is **not** a post from this app, from this
+  workspace, with a `user`.
 
 So a post relayed through this app's own user token is handled exactly like
 the person typing it: same session routing, same allow-list, same everything.
-Other apps' bot posts, classic bot posts without a `user`, and the daemon's
-own replies stay ignored, as before.
+Other apps' bot posts, classic bot posts without a `user`, the daemon's own
+replies, and a bot copy of this same app installed in another workspace that
+shares a Slack Connect channel (same `app_id`, other `team`) stay ignored,
+as before.
 
 The rule is applied in the three places the filter lives: live events,
 missed-message recovery after a reconnect, and thread history with
@@ -42,7 +45,8 @@ check with no log line. Seen 2026-09-02, message
 
 ## How
 
-- The client learns its own app id from the Socket Mode `hello`
+- The client learns its workspace from `auth.test` (`team_id`, already
+  called for the bot user) and its own app id from the Socket Mode `hello`
   (`connection_info.app_id`) and, belt and braces, from every `events_api`
   envelope (`payload.api_app_id`). Secondary clients on a shared socket get
   it handed over with each injected event. No new config, no new API call.
@@ -50,7 +54,7 @@ check with no log line. Seen 2026-09-02, message
   `user === botUserId || bot_id` checks.
 - `app_id` is added to the `SlackEvent` and `SlackMessage` types; it was
   already on the wire.
-- Until the app id is known (only possible before the first `hello`), the
+- Until app and team ids are known (only possible before the first `hello`), the
   old rule applies: anything with a `bot_id` is ignored. Conservative, and
   the window is the connection handshake.
 
@@ -63,7 +67,8 @@ one stable identity.
 
 | Decision | Why |
 |---|---|
-| No config flag | with `app_id` checked, only this app's own user tokens qualify; nothing to opt out of |
+| No config flag | with `app_id` and `team` checked, only this installation's own user tokens qualify; nothing to opt out of |
+| `team` must match too (Codex review) | Slack Connect lets the same app be installed on both sides of a shared channel; the other copy's bot shares our `app_id` but not our `team`, and two daemons answering each other is the one loop this must never open |
 | Learn the app id from the socket, not config | zero setup; every install already receives it |
 | Old behaviour until the app id is known | never widen the filter on a guess |
 
