@@ -1,6 +1,6 @@
 # Posts made through the app's own user token are the person's messages
 
-Upstream discussion: anneschuth/claude-threads#TBD.
+Upstream discussion: anneschuth/claude-threads#526.
 
 ## What it does
 
