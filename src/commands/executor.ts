@@ -115,7 +115,17 @@ const handleUsage: CommandHandler = async (ctx, args) => {
   const all = args?.trim().toLowerCase() === 'all';
   const { collectUsage, renderProfiles } = await import('../usage/index.js');
 
-  const rendered = renderProfiles(await collectUsage(all));
+  // Report the seats the router is actually deciding between. Without the
+  // pool, `!usage all` would list ~/.claude-* directories the bot has stopped
+  // using and none of the accounts burning tokens.
+  const rendered = renderProfiles(
+    await collectUsage({
+      all,
+      accounts: ctx.sessionManager.getClaudeAccounts(),
+      sessionAccountId: ctx.sessionManager.getPersistedSession(ctx.threadId, ctx.client.platformId)
+        ?.claudeAccountId,
+    })
+  );
   await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);
   return { handled: true };
 };

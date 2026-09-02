@@ -299,6 +299,23 @@ export async function refreshCredentials(creds: OAuthCredentials): Promise<OAuth
   };
 }
 
+
+/**
+ * The one message that has to say WHICH seat to fix.
+ *
+ * `label` is what the caller knows the seat as — a pool account's id, say.
+ * Without it the name is derived from the directory, and every pooled account
+ * lives in `<home>/.claude`, so they would all be reported as "default".
+ */
+export function loggedOutMessage(
+  configDir: string,
+  label: string | undefined,
+  email: string | undefined
+): string {
+  const who = email ? ` as ${email}` : '';
+  return `logged out — run \`claude\` in ${label ?? profileNameFor(configDir)} and log in${who}`;
+}
+
 /**
  * A usable access token for one profile, refreshing when that is all it takes.
  *
@@ -306,7 +323,7 @@ export async function refreshCredentials(creds: OAuthCredentials): Promise<OAuth
  * so it is handled silently. A human is only asked to do something when the
  * refresh token is gone too.
  */
-export async function resolveToken(configDir: string): Promise<string> {
+export async function resolveToken(configDir: string, label?: string): Promise<string> {
   const creds = await readCredentials(configDir);
 
   switch (credentialState(creds, new Date())) {
@@ -321,17 +338,12 @@ export async function resolveToken(configDir: string): Promise<string> {
       const document = await readCredentialsDocument(configDir);
       document.claudeAiOauth = refreshed;
       await writeCredentialsBlob(configDir, JSON.stringify(document));
-      log.info(`refreshed access token for ${profileNameFor(configDir)}`);
+      log.info(`refreshed access token for ${label ?? profileNameFor(configDir)}`);
       return refreshed.accessToken as string;
     }
 
-    case 'logged_out': {
-      const email = await accountEmail(configDir);
-      const who = email ? ` as ${email}` : '';
-      throw new Error(
-        `logged out — run \`claude\` in ${profileNameFor(configDir)} and log in${who}`
-      );
-    }
+    case 'logged_out':
+      throw new Error(loggedOutMessage(configDir, label, await accountEmail(configDir)));
   }
 }
 

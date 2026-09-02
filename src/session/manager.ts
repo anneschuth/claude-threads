@@ -159,6 +159,7 @@ export class SessionManager extends EventEmitter {
 
   // Claude account pool (single-account mode when empty)
   private readonly accountPool: AccountPool;
+  private readonly claudeAccounts: ClaudeAccount[];
   // On-demand /usage probe coalescing: the in-flight cycle (shared by concurrent
   // session starts) and the epoch ms it last completed (for the TTL skip).
   private usageRefreshInFlight: Promise<void> | null = null;
@@ -204,6 +205,7 @@ export class SessionManager extends EventEmitter {
     this.watchesStore = new WatchesStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
+    this.claudeAccounts = claudeAccounts ?? [];
 
     // Create background tasks (started in initialize())
     this.sessionMonitor = new SessionMonitor({
@@ -1246,6 +1248,14 @@ export class SessionManager extends EventEmitter {
 
   async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string, platformId: string): Promise<void> {
     await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username, platformId);
+  }
+
+  /**
+   * The configured Claude account pool; empty in single-account mode. Exposed
+   * so `!usage` reports the same seats the router is choosing between.
+   */
+  getClaudeAccounts(): ClaudeAccount[] {
+    return this.claudeAccounts;
   }
 
   getPersistedSession(threadId: string, platformId?: string): PersistedSession | undefined {

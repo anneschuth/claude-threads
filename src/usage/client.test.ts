@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { mkdtemp, mkdir, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import path from 'path';
-import { parseLimits, profileNameFor, keychainAccountFor, discoverProfiles, credentialState } from './client.js';
+import { parseLimits, profileNameFor, keychainAccountFor, discoverProfiles, credentialState, loggedOutMessage } from './client.js';
 
 describe('parseLimits', () => {
   it('maps the three limit kinds, naming the scoped one by model', () => {
@@ -134,5 +134,25 @@ describe('credentialState', () => {
 
   it('is logged out when there is no refresh token at all', () => {
     expect(credentialState({ accessToken: 'a', expiresAt: h(-1) }, NOW)).toBe('logged_out');
+  });
+});
+
+describe('loggedOutMessage', () => {
+  it('names the seat by the label the caller knows it as', () => {
+    // In pool mode the credentials live at <account.home>/.claude, so a name
+    // derived from the directory is "default" for EVERY account — useless in
+    // the one message whose whole job is saying which seat to go fix.
+    expect(loggedOutMessage('/home/herder/accounts/work/.claude', 'Work seat', 'a@b.com'))
+      .toBe('logged out — run `claude` in Work seat and log in as a@b.com');
+  });
+
+  it('falls back to the directory-derived profile name when there is no label', () => {
+    expect(loggedOutMessage('/home/almir/.claude-vvs', undefined, 'a@b.com'))
+      .toBe('logged out — run `claude` in vvs and log in as a@b.com');
+  });
+
+  it('omits the account when it could not be read', () => {
+    expect(loggedOutMessage('/home/almir/.claude-vvs', undefined, undefined))
+      .toBe('logged out — run `claude` in vvs and log in');
   });
 });
