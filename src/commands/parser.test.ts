@@ -5,6 +5,7 @@
 import { describe, test, expect } from 'bun:test';
 import {
   parseCommand,
+  parseCommandWithRemainder,
   parseClaudeCommand,
   isClaudeAllowedCommand,
   removeCommandFromText,
@@ -383,5 +384,41 @@ describe('channel memory commands', () => {
   test('parses !memory forget with text and !memory forget all', () => {
     expect(parseCommand('!memory forget the deploy fact')?.args).toBe('forget the deploy fact');
     expect(parseCommand('!memory forget all')?.args).toBe('forget all');
+  });
+});
+
+describe('parseCommandWithRemainder — first-message routing', () => {
+  test('recognises !usage so it is answered instead of forwarded to Claude', () => {
+    // Without a pattern here the parser returns null and the bridge forwards
+    // "!usage" to Claude as an ordinary prompt: the command silently never
+    // runs. `worksInFirstMessage: true` in the registry cannot save it — the
+    // executor only consults that flag once the parser has produced a command.
+    expect(parseCommandWithRemainder('!usage')).toEqual({
+      command: 'usage',
+      args: undefined,
+      match: '!usage',
+      remainder: undefined,
+    });
+  });
+
+  test('keeps the "all" argument on the first-message path', () => {
+    // The immediate-pattern list used to hardcode args: undefined, so
+    // "!usage all" would have degraded to the current profile only — a worse
+    // failure than not running, because it looks like it worked.
+    expect(parseCommandWithRemainder('!usage all')).toEqual({
+      command: 'usage',
+      args: 'all',
+      match: '!usage all',
+      remainder: undefined,
+    });
+  });
+
+  test('still returns no args for immediate commands that take none', () => {
+    expect(parseCommandWithRemainder('!help')).toEqual({
+      command: 'help',
+      args: undefined,
+      match: '!help',
+      remainder: undefined,
+    });
   });
 });
