@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-09-02
+
+### Added
+- **Slack: posts made through the app's own user token count as the person's message** (#527, thanks @kaza). Tooling that posts into the channel via the app's user token (same `app_id` + team, acting user set) previously looked bot-authored and was ignored; such posts now command the bot as the acting user. Authorship is decided only from server-authoritative envelope identity (`app_id` learned from the `hello` frame and per-envelope `api_app_id`) — content-based spoofing cannot trigger it, and events that don't match fail closed to today's behavior. Closes #526.
+
 ## [1.32.1] - 2026-09-02
 
 ### Changed
