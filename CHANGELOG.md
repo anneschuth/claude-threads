@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-09-02
+
+### Security
+- **fast-uri floored at 4.1.4** (transitive via `ajv`), clearing four fresh high-severity advisories (host confusion and SSRF classes, GHSA-5jgf-p345-68v8 and siblings). Override floor raised from `>=4.1.2`; no direct dependency changes.
+
+### Added
+- **Slack: posts made through the app's own user token count as the person's message** (#527, thanks @kaza). Tooling that posts into the channel via the app's user token (same `app_id` + team, acting user set) previously looked bot-authored and was ignored; such posts now command the bot as the acting user. Authorship is decided only from server-authoritative envelope identity (`app_id` learned from the `hello` frame and per-envelope `api_app_id`) — content-based spoofing cannot trigger it, and events that don't match fail closed to today's behavior. Closes #526.
+
 ## [1.32.1] - 2026-09-02
 
 ### Changed
