@@ -25,20 +25,30 @@ export interface AccountTarget {
 /**
  * The accounts `!usage` should report.
  *
- * `onlyId` narrows to the account a session is bound to. An id that is not in
- * the pool falls back to the whole pool rather than an empty answer — a config
- * that changed under a persisted session should not silently report nothing.
+ * `onlyId` narrows to the account a session is bound to. An id that is no
+ * longer in the pool produces one explanatory row: widening to the whole pool
+ * would be indistinguishable from `!usage all` and would bury a real
+ * misconfiguration under a plausible answer.
  */
 export function accountTargets(
-  accounts: ClaudeAccount[] | undefined,
+  accounts: readonly ClaudeAccount[] | undefined,
   onlyId?: string
 ): AccountTarget[] {
   if (!accounts?.length) return [];
 
-  const selected =
-    onlyId && accounts.some((a) => a.id === onlyId)
-      ? accounts.filter((a) => a.id === onlyId)
-      : accounts;
+  if (onlyId && !accounts.some((a) => a.id === onlyId)) {
+    // Reporting the whole pool here would be indistinguishable from
+    // `!usage all` and would hide the stale binding behind a plausible
+    // aggregate. Say what is actually wrong instead.
+    return [
+      {
+        name: onlyId,
+        note: 'this thread is bound to an account that is no longer configured',
+      },
+    ];
+  }
+
+  const selected = onlyId ? accounts.filter((a) => a.id === onlyId) : accounts;
 
   return selected.map((account) => {
     const name = account.displayName ?? account.id;

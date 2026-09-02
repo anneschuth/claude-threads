@@ -37,10 +37,12 @@ export function planLabel(creds: {
       return known[2] ? `${plan} ${known[2]}×` : plan;
     }
 
-    // Unfamiliar tier. Prefer the coarse type if we have one — it is at least
-    // certainly true — otherwise show the tier rather than hiding it.
-    if (creds.subscriptionType?.trim()) return titleCase(creds.subscriptionType.trim());
-    return titleCase(bare).replace(/(\d+)x\b/i, '$1×');
+    // Unfamiliar tier. The coarse type is at least certainly true. With no
+    // type there is NO badge: prettifying the raw tier would both invent a
+    // multiplier out of a string we did not recognise ("team_premium_20x" is
+    // not necessarily 20×) and publish an unvalidated credential field into a
+    // Slack message.
+    return creds.subscriptionType?.trim() ? titleCase(creds.subscriptionType.trim()) : undefined;
   }
 
   return creds.subscriptionType?.trim() ? titleCase(creds.subscriptionType.trim()) : undefined;

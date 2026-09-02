@@ -20,8 +20,17 @@ describe('planLabel', () => {
     expect(planLabel({ subscriptionType: 'team', rateLimitTier: 'something_new_entirely' })).toBe('Team');
   });
 
-  it('shows an unfamiliar tier verbatim when there is no type to fall back on', () => {
-    expect(planLabel({ rateLimitTier: 'enterprise_custom_7x' })).toBe('Enterprise custom 7×');
+  it('shows no badge for an unfamiliar tier rather than inventing a multiplier', () => {
+    // "team_premium_20x" is not necessarily 20× of anything we understand, and
+    // the raw field would be published into Slack unvalidated. No badge beats
+    // a confident wrong one.
+    expect(planLabel({ rateLimitTier: 'enterprise_custom_7x' })).toBeUndefined();
+    expect(planLabel({ rateLimitTier: 'default_claude_max_20x_trial' })).toBeUndefined();
+    expect(planLabel({ rateLimitTier: 'team_premium_20x' })).toBeUndefined();
+  });
+
+  it('still prefers the coarse type when the tier is unfamiliar', () => {
+    expect(planLabel({ subscriptionType: 'team', rateLimitTier: 'team_premium_20x' })).toBe('Team');
   });
 
   it('says nothing rather than guessing when the credential carries neither', () => {

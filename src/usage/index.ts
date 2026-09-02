@@ -51,7 +51,7 @@ export interface CollectOptions {
   /** Every seat, rather than just the one this session uses. */
   all: boolean;
   /** The configured account pool, when the bot is running one. */
-  accounts?: ClaudeAccount[];
+  accounts?: readonly ClaudeAccount[];
   /** The pool account this thread is bound to, if it has one. */
   sessionAccountId?: string;
 }

@@ -122,8 +122,7 @@ const handleUsage: CommandHandler = async (ctx, args) => {
     await collectUsage({
       all,
       accounts: ctx.sessionManager.getClaudeAccounts(),
-      sessionAccountId: ctx.sessionManager.getPersistedSession(ctx.threadId, ctx.client.platformId)
-        ?.claudeAccountId,
+      sessionAccountId: ctx.sessionManager.getPersistedSession(ctx.threadId)?.claudeAccountId,
     })
   );
   await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);

@@ -43,12 +43,15 @@ describe('accountTargets', () => {
     expect(targets.map((t) => t.name)).toEqual(['personal']);
   });
 
-  it('returns everything when the bound account is not in the pool', () => {
-    // A stale account id from a config that has since changed must not
-    // silently produce an empty answer.
+  it('names a stale binding instead of quietly widening to the whole pool', () => {
+    // Returning every account here reads exactly like `!usage all`, so the
+    // stale binding would never be noticed.
     const targets = accountTargets(POOL, 'deleted-account');
 
-    expect(targets.map((t) => t.name)).toEqual(['Work seat', 'personal', 'metered']);
+    expect(targets).toHaveLength(1);
+    expect(targets[0].name).toBe('deleted-account');
+    expect(targets[0].note).toMatch(/no longer configured/i);
+    expect(targets[0].configDir).toBeUndefined();
   });
 
   it('has nothing to offer when no pool is configured', () => {
