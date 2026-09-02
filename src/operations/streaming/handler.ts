@@ -271,8 +271,11 @@ export function startTyping(session: Session): void {
  * Stop sending typing indicators.
  */
 export function stopTyping(session: Session): void {
-  if (session.timers.typingTimer) {
-    clearInterval(session.timers.typingTimer);
-    session.timers.typingTimer = null;
-  }
+  if (!session.timers.typingTimer) return;
+
+  clearInterval(session.timers.typingTimer);
+  session.timers.typingTimer = null;
+  // The timer was only ever half of it: an indicator that persists until
+  // replaced has to be taken down explicitly.
+  session.platform.clearTyping(session.threadId);
 }

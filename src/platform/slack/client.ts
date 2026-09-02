@@ -1319,6 +1319,28 @@ export class SlackClient extends BasePlatformClient {
     });
   }
 
+  /**
+   * Take the working status down. Slack's status persists until something
+   * replaces it, so a finished session would otherwise keep claiming to work.
+   * An empty status is the documented way to clear one.
+   */
+  clearTyping(threadId?: string): void {
+    const anchor = statusAnchor(threadId, this.lastProcessedTs);
+    if (!anchor) return;
+
+    // Forget the throttle too, so the next turn shows a status immediately
+    // rather than waiting out the heartbeat window.
+    this.statusSentAt.delete(anchor);
+
+    this.api('POST', 'assistant.threads.setStatus', {
+      channel_id: this.channelId,
+      thread_ts: anchor,
+      status: '',
+    }).catch((err) => {
+      log.debug(`clearing status failed for ${anchor}: ${err}`);
+    });
+  }
+
   /** Keep the throttle map from growing with every thread the bot ever saw. */
   private pruneStatusAnchors(now: number): void {
     if (this.statusSentAt.size <= MAX_STATUS_ANCHORS) return;
