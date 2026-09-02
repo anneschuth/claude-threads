@@ -5,8 +5,16 @@ import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError
 import { BasePlatformClient } from '../base-client.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 import { uploadFileSlack } from './upload.js';
+import { statusAnchor, dueForRefresh, STATUS_REFRESH_MS } from './status.js';
 
 const log = createLogger('slack');
+
+/** Rendered as "<App name> is working…" beneath the app name in Slack. */
+const STATUS_TEXT = 'is working…';
+/** Slack rotates these while the status is up; max 10. */
+const STATUS_LOADING_MESSAGES = ['is working…', 'still working…', 'thinking it through…'];
+/** Cap on remembered throttle anchors before stale ones are pruned. */
+const MAX_STATUS_ANCHORS = 64;
 
 import type {
   SlackSocketModeEvent,
@@ -80,6 +88,9 @@ export class SlackClient extends BasePlatformClient {
   private rateLimitRetryAfter = 0;
 
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+
+  /** When a working-status was last asserted, per anchoring message ts. */
+  private readonly statusSentAt = new Map<string, number>();
 
   private readonly formatter = new SlackFormatter();
 
@@ -1277,14 +1288,43 @@ export class SlackClient extends BasePlatformClient {
   // ============================================================================
 
   /**
-   * Send typing indicator.
+   * Show that the bot is working.
    *
-   * Note: Slack doesn't have a typing indicator API for bots.
-   * This is a no-op but matches the PlatformClient interface.
+   * Slack has no typing indicator for bots — the closest equivalent is
+   * `assistant.threads.setStatus`, which renders a live "<App> is …" line
+   * under the app name and needs only `chat:write`. It replaces itself and
+   * clears when the bot posts, so there is nothing to tear down.
+   *
+   * Fire-and-forget: a status is a nicety, and failing to show one must never
+   * interfere with the work it is describing.
    */
-  sendTyping(_threadId?: string): void {
-    // Slack doesn't support typing indicators for bots
-    // This is intentionally a no-op
+  sendTyping(threadId?: string): void {
+    const anchor = statusAnchor(threadId, this.lastProcessedTs);
+    if (!anchor) return;
+
+    const now = Date.now();
+    if (!dueForRefresh(this.statusSentAt.get(anchor), now)) return;
+    this.statusSentAt.set(anchor, now);
+    this.pruneStatusAnchors(now);
+
+    this.api('POST', 'assistant.threads.setStatus', {
+      channel_id: this.channelId,
+      thread_ts: anchor,
+      status: STATUS_TEXT,
+      loading_messages: STATUS_LOADING_MESSAGES,
+    }).catch((err) => {
+      // Includes workspaces where the method is unavailable. Log once at debug
+      // and carry on rather than retrying a cosmetic call.
+      log.debug(`setStatus failed for ${anchor}: ${err}`);
+    });
+  }
+
+  /** Keep the throttle map from growing with every thread the bot ever saw. */
+  private pruneStatusAnchors(now: number): void {
+    if (this.statusSentAt.size <= MAX_STATUS_ANCHORS) return;
+    for (const [anchor, sentAt] of this.statusSentAt) {
+      if (now - sentAt > STATUS_REFRESH_MS * 10) this.statusSentAt.delete(anchor);
+    }
   }
 
   // ============================================================================
