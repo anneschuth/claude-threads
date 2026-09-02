@@ -32,9 +32,14 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-/** A path segment that survives any filesystem; ':' in session ids is the usual offender. */
-function safeSegment(value: string): string {
-  return value.replace(/[^A-Za-z0-9._-]/g, '_') || '_';
+/**
+ * A path segment that survives any filesystem and cannot escape or collide:
+ * everything outside [A-Za-z0-9-] becomes `_XX` (hex), so the mapping is
+ * injective and `.`/`..` cannot occur. ':' in session ids is the usual case.
+ */
+export function safeSegment(value: string): string {
+  const encoded = value.replace(/[^A-Za-z0-9-]/g, (c) => `_${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  return encoded || '_';
 }
 
 const STYLE = 'body{font:14px/1.5 ui-monospace,monospace;max-width:60rem;margin:2rem auto;padding:0 1rem}pre{white-space:pre-wrap;margin:0;padding:.4rem .6rem;border-left:3px solid #ccc}pre.end{color:#666;border-color:#eee}h1{font-size:1.1rem}';
@@ -45,7 +50,7 @@ function page(title: string, body: string): string {
 
 export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
   const sessionDir = join(deps.dir, safeSegment(deps.platformId), safeSegment(deps.sessionId));
-  // safeSegment leaves only [A-Za-z0-9._-], so the segments need no URL encoding.
+  // safeSegment leaves only [A-Za-z0-9_-], so the segments need no URL encoding.
   const urlDir = deps.urlBase
     ? `${deps.urlBase.replace(/\/+$/, '')}/${safeSegment(deps.platformId)}/${safeSegment(deps.sessionId)}`
     : null;
@@ -58,15 +63,18 @@ export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
   const stamp = () => (deps.now?.() ?? new Date()).toISOString();
 
   /** Writes what was captured when the write was queued: a reset or a new turn must not change a pending page (Gemini review). */
+  // The pages hold command lines and outputs: private to the daemon's user,
+  // whatever the umask; the operator's web server runs as that user or is
+  // granted access deliberately.
   async function writeTurn(targetTurn: number, body: string, done: boolean): Promise<void> {
-    await mkdir(sessionDir, { recursive: true });
+    await mkdir(sessionDir, { recursive: true, mode: 0o700 });
     const title = `Turn ${targetTurn}${done ? '' : ' (running)'} — ${deps.sessionId}`;
-    await writeFile(join(sessionDir, `${targetTurn}.html`), page(title, body));
+    await writeFile(join(sessionDir, `${targetTurn}.html`), page(title, body), { mode: 0o600 });
   }
 
   async function writeIndex(): Promise<void> {
     const rows = finished.map((f) => `<li><a href="${f.turn}.html">Turn ${f.turn}</a> — ${f.tools} tool${f.tools === 1 ? '' : 's'} · ${escapeHtml(f.at)}</li>`);
-    await writeFile(join(sessionDir, 'index.html'), page(`Tool details — ${deps.sessionId}`, `<ul>${rows.join('')}</ul>`));
+    await writeFile(join(sessionDir, 'index.html'), page(`Tool details — ${deps.sessionId}`, `<ul>${rows.join('')}</ul>`), { mode: 0o600 });
   }
 
   /** Writes are sequential; the first failure is reported once and stops the sink. */

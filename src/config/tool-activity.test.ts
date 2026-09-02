@@ -27,6 +27,8 @@ describe('resolveToolActivity', () => {
     expect(resolveToolActivity('hidden', 'file', 'p', { dir: '/srv/details', url: 'https://agents.example.com/tool-details' }))
       .toEqual({ activity: 'hidden', details: 'file', dir: '/srv/details', url: 'https://agents.example.com/tool-details' });
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'agents.example.com' })).toThrow('p.toolDetailsUrl');
+    expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://' })).toThrow('p.toolDetailsUrl');
+    expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'ftp://agents.example.com/x' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { dir: '' })).toThrow('p.toolDetailsDir');
   });
 

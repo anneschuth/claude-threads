@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { mkdtemp, readFile, rm, readdir } from 'fs/promises';
+import { mkdtemp, readFile, rm, readdir, stat } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { createFileSink, stripAnsi } from './file.js';
+import { createFileSink, safeSegment, stripAnsi } from './file.js';
 import { createToolActivityOp } from '../types.js';
 import type { ExecutorContext } from '../executors/types.js';
 import type { ToolActivityEvent } from './types.js';
@@ -31,11 +31,11 @@ describe('file sink', () => {
     const sink = createFileSink({ dir, urlBase: 'https://agents.example.com/tool-details', platformId: 'slack-vvs', sessionId: 'slack-vvs:1.23' });
 
     await sink.append(start('t1', 'Bash `ls -la <dir>`'), ctx);
-    expect(sink.link()).toBe('https://agents.example.com/tool-details/slack-vvs/slack-vvs_1.23/1.html');
+    expect(sink.link()).toBe('https://agents.example.com/tool-details/slack-vvs/slack-vvs_3A1_2E23/1.html');
     await sink.append(end('t1'), ctx);
     await sink.turnEnded(ctx);
 
-    const page = await readFile(join(dir, 'slack-vvs', 'slack-vvs_1.23', '1.html'), 'utf8');
+    const page = await readFile(join(dir, 'slack-vvs', 'slack-vvs_3A1_2E23', '1.html'), 'utf8');
     expect(page).toContain('Bash `ls -la &lt;dir&gt;`');
     expect(page).toContain('↳ ✓ (5s)');
     expect(page).not.toContain('<dir>');
@@ -80,6 +80,25 @@ describe('file sink', () => {
     const second = await readFile(join(dir, 'p', 's', '2.html'), 'utf8');
     expect(second).toContain('Read after reset');
     expect(second).not.toContain('Read before reset');
+  });
+
+  it('path segments are injective and cannot escape: distinct ids never share a directory, dot segments cannot occur', () => {
+    expect(safeSegment('a:b')).not.toBe(safeSegment('a/b'));
+    expect(safeSegment('..')).toBe('_2E_2E');
+    expect(safeSegment('.')).toBe('_2E');
+    expect(safeSegment('plain-id')).toBe('plain-id');
+    expect(safeSegment('')).toBe('_');
+  });
+
+  it('pages and their directory are private to the daemon user', async () => {
+    const { ctx } = ctxWith();
+    const sink = createFileSink({ dir, platformId: 'p', sessionId: 's' });
+    await sink.append(start('t1', 'Read a'), ctx);
+    await sink.turnEnded(ctx);
+
+    expect((await stat(join(dir, 'p', 's'))).mode & 0o777).toBe(0o700);
+    expect((await stat(join(dir, 'p', 's', '1.html'))).mode & 0o777).toBe(0o600);
+    expect((await stat(join(dir, 'p', 's', 'index.html'))).mode & 0o777).toBe(0o600);
   });
 
   it('ANSI escape sequences are stripped', () => {

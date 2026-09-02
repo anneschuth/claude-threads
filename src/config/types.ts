@@ -109,10 +109,20 @@ export function resolveToolActivity(
   if (dir !== undefined && (typeof dir !== 'string' || dir.trim() === '')) {
     throw new Error(`Invalid ${fieldPath}.toolDetailsDir: expected a non-empty path`);
   }
-  if (url !== undefined && (typeof url !== 'string' || !/^https?:\/\//.test(url))) {
-    throw new Error(`Invalid ${fieldPath}.toolDetailsUrl: expected an http(s) URL`);
+  if (url !== undefined && !isHttpUrl(url)) {
+    throw new Error(`Invalid ${fieldPath}.toolDetailsUrl: expected an http(s) URL with a host`);
   }
   return { ...resolved, dir: (dir as string | undefined) ?? DEFAULT_TOOL_DETAILS_DIR, url: url as string | undefined };
+}
+
+function isHttpUrl(value: unknown): value is string {
+  if (typeof value !== 'string') return false;
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
+  } catch {
+    return false;
+  }
 }
 
 function resolveActivityAndDetails(activity: unknown, details: unknown, fieldPath: string): ToolActivitySettings {
