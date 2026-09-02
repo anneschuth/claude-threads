@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.32.1] - 2026-09-02
+
+### Changed
+- **Dependency updates.** Production: hono 4.13.5, zod 4.5.4, js-yaml 4.3.2, express-rate-limit 8.7.0 (#522); dev-dependency group refreshed (#521). Validated with the full unit and Slack integration suites.
+
 ## [1.32.0] - 2026-09-01
 
 ### Added
