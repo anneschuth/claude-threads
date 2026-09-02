@@ -340,8 +340,12 @@ export class MessageManager {
    * the session thread itself. Null until that post exists.
    */
   private toolDetailsContext(): ExecutorContext | null {
-    const root = isDcmThreadId(this.threadId) ? this.contentExecutor.getHeaderPostId() : this.threadId;
-    if (!root) return null;
+    // Either way the details wait for the reply post: in direct channel mode
+    // because they hang under it, in a thread session so they follow it
+    // rather than precede it (Codex review).
+    const replyPost = this.contentExecutor.getHeaderPostId();
+    if (!replyPost) return null;
+    const root = isDcmThreadId(this.threadId) ? replyPost : this.threadId;
     const base = this.getExecutorContext();
     return {
       ...base,

@@ -1127,6 +1127,18 @@ describe('tool activity: summary and hidden modes', () => {
     expect(ops.filter((op) => op.type === 'append_content').every((op) => (op as { isToolOutput?: boolean }).isToolOutput)).toBe(true);
   });
 
+  it('legacy top-level tool_use / tool_result events follow the mode too (Codex review)', () => {
+    const ctx = make('hidden');
+
+    const startOps = transformEvent({ type: 'tool_use', tool_use: { id: 'legacy1', name: 'Bash', input: { command: 'ls' } } } as ClaudeEvent, ctx);
+    const endOps = transformEvent({ type: 'tool_result', tool_result: { tool_use_id: 'legacy1', is_error: false } } as ClaudeEvent, ctx);
+
+    expect(startOps.map((op) => op.type)).toEqual(['tool_activity']);
+    expect(startOps[0]).toMatchObject({ kind: 'start', toolUseId: 'legacy1', name: 'Bash' });
+    expect(endOps.map((op) => op.type)).toEqual(['tool_activity', 'flush']);
+    expect(endOps[0]).toMatchObject({ kind: 'end', toolUseId: 'legacy1', ok: true });
+  });
+
   it('special tools (task list, questions) keep their own ops in summary mode', () => {
     const ctx = make('summary');
 

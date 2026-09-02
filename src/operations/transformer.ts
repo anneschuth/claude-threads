@@ -416,7 +416,11 @@ function transformToolUse(
   });
 
   if (result.display && !result.hidden) {
-    return [createAppendContentOp(ctx.sessionId, result.display, true)];
+    return [
+      toolsInline(ctx)
+        ? createAppendContentOp(ctx.sessionId, result.display, true)
+        : createToolActivityOp(ctx.sessionId, { kind: 'start', toolUseId: tool.id || '', name: tool.name, display: result.display }),
+    ];
   }
 
   return [];
@@ -443,8 +447,10 @@ function transformToolResult(
     is_error?: boolean;
   };
 
+  const toolUseId = result.tool_use_id || '';
+  const isError = result.is_error === true;
   return [
-    createResultIndicatorOp(result.tool_use_id || '', result.is_error === true, ctx),
+    toolsInline(ctx) ? createResultIndicatorOp(toolUseId, isError, ctx) : createToolEndOp(toolUseId, isError, ctx),
     // Tool results are a natural break point - suggest flush
     createFlushOp(ctx.sessionId, 'tool_complete'),
   ];

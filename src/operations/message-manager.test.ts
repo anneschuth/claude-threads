@@ -1266,6 +1266,9 @@ describe('MessageManager tool activity (summary / hidden)', () => {
     const details = calls.find(([content]) => content.includes('Bash'));
     expect(details).toBeDefined();
     expect(details?.[1]).toBe('thread-123');
+    // The reply post comes first even though the tool was the first event.
+    expect(calls[0][0].startsWith('🔧')).toBe(true);
+    expect(calls.indexOf(details as [string, string])).toBeGreaterThan(0);
     expect(details?.[0]).toContain('↳ ✓');
     const detailsId = `post_${calls.indexOf(details as [string, string]) + 1}`;
     expect((registeredPosts.get(detailsId) as { type: string }).type).toBe('tool_details');
