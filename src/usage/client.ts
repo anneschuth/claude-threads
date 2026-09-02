@@ -29,6 +29,13 @@ const USAGE_URL = 'https://api.anthropic.com/api/oauth/usage';
 const OAUTH_BETA = 'oauth-2025-04-20';
 
 /**
+ * Both outbound calls are bounded. `!usage all` reads seats sequentially, so
+ * one stalled request would hang the whole command and the bot would simply
+ * look dead — no error, no output.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/**
  * Refresh endpoint, client id and default scopes, read out of the Claude Code
  * client itself (`TOKEN_URL` / `CLIENT_ID` in its bundled config) rather than
  * guessed — the bundle also carries a Claude Design client id and a staging
@@ -245,16 +252,38 @@ export async function accountPlan(configDir: string): Promise<string | undefined
   }
 }
 
+/**
+ * Where a seat's `.claude.json` may live, most likely first.
+ *
+ * ⚠️ Two layouts. With `CLAUDE_CONFIG_DIR` it sits INSIDE the config dir
+ * (`~/.claude-vvs/.claude.json`). With a plain `$HOME` — which is how pooled
+ * accounts are addressed — it is a SIBLING of `.claude`
+ * (`<home>/.claude.json`). Checking only the first leaves every pooled account
+ * with no email and no plan badge, silently, because both readers swallow a
+ * miss.
+ */
+export function metadataCandidates(configDir: string): string[] {
+  const inside = path.join(configDir, '.claude.json');
+  const sibling = path.join(path.dirname(configDir), '.claude.json');
+  return inside === sibling ? [inside] : [inside, sibling];
+}
+
+async function readMetadata(
+  configDir: string
+): Promise<{ oauthAccount?: { emailAddress?: string } } | undefined> {
+  for (const candidate of metadataCandidates(configDir)) {
+    try {
+      return JSON.parse(await readFile(candidate, 'utf8'));
+    } catch {
+      // Missing or unreadable here just means "try the other layout".
+    }
+  }
+  return undefined;
+}
+
 /** The account a profile is logged in as, for the "go log in" message. */
 export async function accountEmail(configDir: string): Promise<string | undefined> {
-  try {
-    const parsed = JSON.parse(await readFile(path.join(configDir, '.claude.json'), 'utf8')) as {
-      oauthAccount?: { emailAddress?: string };
-    };
-    return parsed.oauthAccount?.emailAddress;
-  } catch {
-    return undefined;
-  }
+  return (await readMetadata(configDir))?.oauthAccount?.emailAddress;
 }
 
 /**
@@ -272,6 +301,7 @@ export async function refreshCredentials(creds: OAuthCredentials): Promise<OAuth
 
   const response = await fetch(TOKEN_URL, {
     method: 'POST',
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       grant_type: 'refresh_token',
@@ -400,6 +430,7 @@ export function credentialState(creds: OAuthCredentials, now: Date): CredentialS
 /** Ask the usage endpoint for one token. */
 export async function fetchUsage(token: string, claudeVersion: string): Promise<UsageLimit[]> {
   const response = await fetch(USAGE_URL, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     headers: {
       Authorization: `Bearer ${token}`,
       'User-Agent': `claude-code/${claudeVersion}`,
