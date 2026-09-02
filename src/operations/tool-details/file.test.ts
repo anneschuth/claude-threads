@@ -66,6 +66,22 @@ describe('file sink', () => {
     expect(await readFile(join(dir, 'p', 's', '1.html'), 'utf8')).toContain('Read a');
   });
 
+  it('a reset while a write is pending leaves that write on its own turn and body (Gemini review)', async () => {
+    const { ctx } = ctxWith();
+    const sink = createFileSink({ dir, platformId: 'p', sessionId: 's' });
+
+    const pending = sink.append(start('t1', 'Read before reset'), ctx);
+    sink.reset();
+    await pending;
+    await sink.append(start('t2', 'Read after reset'), ctx);
+    await sink.turnEnded(ctx);
+
+    expect(await readFile(join(dir, 'p', 's', '1.html'), 'utf8')).toContain('Read before reset');
+    const second = await readFile(join(dir, 'p', 's', '2.html'), 'utf8');
+    expect(second).toContain('Read after reset');
+    expect(second).not.toContain('Read before reset');
+  });
+
   it('ANSI escape sequences are stripped', () => {
     expect(stripAnsi('\x1b[32mok\x1b[0m and \x1b[1;31mred\x1b[m')).toBe('ok and red');
   });

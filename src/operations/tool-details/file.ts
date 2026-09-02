@@ -45,8 +45,9 @@ function page(title: string, body: string): string {
 
 export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
   const sessionDir = join(deps.dir, safeSegment(deps.platformId), safeSegment(deps.sessionId));
+  // safeSegment leaves only [A-Za-z0-9._-], so the segments need no URL encoding.
   const urlDir = deps.urlBase
-    ? `${deps.urlBase.replace(/\/+$/, '')}/${encodeURIComponent(safeSegment(deps.platformId))}/${encodeURIComponent(safeSegment(deps.sessionId))}`
+    ? `${deps.urlBase.replace(/\/+$/, '')}/${safeSegment(deps.platformId)}/${safeSegment(deps.sessionId)}`
     : null;
   let turn = 1;
   let lines: string[] = [];
@@ -56,10 +57,11 @@ export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
 
   const stamp = () => (deps.now?.() ?? new Date()).toISOString();
 
-  async function writeTurn(done: boolean): Promise<void> {
+  /** Writes what was captured when the write was queued: a reset or a new turn must not change a pending page (Gemini review). */
+  async function writeTurn(targetTurn: number, body: string, done: boolean): Promise<void> {
     await mkdir(sessionDir, { recursive: true });
-    const title = `Turn ${turn}${done ? '' : ' (running)'} — ${deps.sessionId}`;
-    await writeFile(join(sessionDir, `${turn}.html`), page(title, lines.join('\n')));
+    const title = `Turn ${targetTurn}${done ? '' : ' (running)'} — ${deps.sessionId}`;
+    await writeFile(join(sessionDir, `${targetTurn}.html`), page(title, body));
   }
 
   async function writeIndex(): Promise<void> {
@@ -84,17 +86,21 @@ export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
     async append(op: ToolActivityEvent, ctx) {
       const text = escapeHtml(stripAnsi(op.display));
       lines.push(op.kind === 'start' ? `<pre class="tool">${text}</pre>` : `<pre class="end">${text}</pre>`);
-      await enqueue(ctx, () => writeTurn(false));
+      const targetTurn = turn;
+      const body = lines.join('\n');
+      await enqueue(ctx, () => writeTurn(targetTurn, body, false));
     },
     async turnEnded(ctx) {
+      const targetTurn = turn;
+      const body = lines.join('\n');
       const tools = lines.filter((l) => l.startsWith('<pre class="tool"')).length;
-      await enqueue(ctx, async () => {
-        await writeTurn(true);
-        finished.push({ turn, tools, at: stamp() });
-        await writeIndex();
-      });
       turn++;
       lines = [];
+      await enqueue(ctx, async () => {
+        await writeTurn(targetTurn, body, true);
+        finished.push({ turn: targetTurn, tools, at: stamp() });
+        await writeIndex();
+      });
     },
     link: () => (failed || !urlDir ? null : `${urlDir}/${turn}.html`),
     reset() {
