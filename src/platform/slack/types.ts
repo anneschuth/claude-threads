@@ -6,6 +6,8 @@ export interface SlackSocketModeEvent {
   retry_attempt?: number;
   retry_reason?: string;
   payload?: SlackEventPayload;
+  /** Present on `hello`. */
+  connection_info?: { app_id?: string };
 }
 
 export interface SlackEventPayload {
@@ -33,6 +35,7 @@ export interface SlackEvent {
   event_ts?: string;
   channel_type?: string;
   bot_id?: string;
+  app_id?: string;
   files?: SlackFile[];
 }
 
@@ -70,6 +73,7 @@ export interface SlackMessage {
   ts: string;
   user?: string;
   bot_id?: string;
+  app_id?: string;
   text: string;
   thread_ts?: string;
   reply_count?: number;
