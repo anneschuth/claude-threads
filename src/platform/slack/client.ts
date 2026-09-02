@@ -580,7 +580,8 @@ export class SlackClient extends BasePlatformClient {
   private isBotAuthored(message: { user?: string; bot_id?: string; app_id?: string }): boolean {
     if (message.user === this.botUserId) return true;
     if (!message.bot_id) return false;
-    return !(this.appId && message.app_id === this.appId && message.user);
+    const isOurUserTokenPost = Boolean(this.appId && message.app_id === this.appId && message.user);
+    return !isOurUserTokenPost;
   }
 
   /**
