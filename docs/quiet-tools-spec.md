@@ -83,23 +83,36 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
   owns the per-turn counter `{ started, finished, failed, firstStartAt, lastEndAt }`
   and renders the summary line. On each op it asks the content executor to
   re-render the post header (debounced through the existing 500 ms flush).
-  The turn ends on the `result` event (existing `flush`/`closeCurrentPost`
-  path); the last render is the final line and the counter resets.
-- **Content executor**: gains an optional `header` (one line) rendered above
-  `currentPostContent` on every flush. The header is part of the post but not
-  of `pendingContent`, so splitting and length checks stay as they are (the
-  header is short and counted in the combined length).
+  The transformer emits an explicit `{ kind: 'turn_end' }` op from the
+  `result` event (inferring it from a flush reason would couple the executor
+  to flush internals); the last render is the final line, the sink's
+  `turnEnded()` runs, and the counter resets.
+- **Content executor**: gains an optional `header` (one line) that belongs
+  to the **first post of the turn only**. The executor remembers
+  `turnFirstPostId` and that post's body; a header update re-renders that
+  post as `header + body` even after streaming has moved on to a
+  continuation post. Continuation posts never carry the header, so a split
+  cannot bake a stale receipt into one post and a fresh one into the next
+  (Gemini plan review). The header is not part of `pendingContent`, so
+  splitting and length checks are unchanged apart from counting its length
+  on the first post.
 - **Details sinks** (`src/operations/tool-details/`), one interface:
   `ToolDetailsSink { append(op): void; turnEnded(): Promise<void>; linkFor(turn): string | null }`.
   - `thread`: a second `ContentExecutor` whose context posts with
-    `rootId = currentPostId` of the main executor; it streams the `display`
-    strings exactly like the reply. It starts lazily on the first tool of a
-    turn, after the main post exists (if it does not yet, the first render
-    creates it: the summary header alone).
-  - `file`: appends escaped `<pre>` blocks to the turn file and rewrites
+    `rootId = turnFirstPostId` of the main executor in direct-channel mode
+    (the reply is a channel post, the details thread hangs under it), and
+    `rootId = the session's threadId` in thread mode (Slack has no nested
+    threads; `thread_ts` of a reply is rejected with `invalid_thread_ts`), so
+    there the details interleave as peers after the reply. It streams the
+    `display` strings exactly like the reply and starts lazily on the first
+    tool of a turn; if the main post does not exist yet, the first header
+    render creates it.
+  - `file`: appends escaped `<pre>` blocks to the turn file (ANSI escape
+    sequences stripped first; tool output is full of them) and rewrites
     `index.html`; deterministic path so the link exists from the first tool.
-    Writes are sequential per session and errors propagate to the session
-    error path (fail loud; a details file that silently stopped would lie).
+    Writes are sequential per session. A write error is **reported once in
+    the channel as a system error and the sink stops for the session**; the
+    reply itself keeps streaming. Not silent, not fatal to the answer.
   - `none`: no-op.
 
 ### Config (`src/config/types.ts`)
@@ -129,6 +142,9 @@ VVS runs `summary` + `file` behind Caddy with auth on
   entry (no orphan `↳`).
 - ToolActivityExecutor: counter and line text through start/end/error/turn
   end; the line with and without a link.
+- content executor: header stays on the first post of the turn across a split;
+  the continuation post has none; a header update after the split edits the
+  first post, not the current one.
 - content executor: header rendered above content, survives a split, counted
   in length checks.
 - thread sink: posts under the main post's id, lazy start, thread-mode
@@ -146,6 +162,8 @@ VVS runs `summary` + `file` behind Caddy with auth on
 | Details as a second content executor | the streaming, splitting and rate behaviour already exist there; a new poster would reimplement them badly |
 | `file` writes HTML, not markdown | the point is a browser; markdown in a browser is raw text |
 | No HTTP server in the daemon | one more listener, auth, TLS; the operator already has a web server |
+| Flat fields, not a nested `tools:` block (Gemini suggested nesting) | the sibling dials `sessionHeader` / `stickyMessage` / `lifecycle` are flat and `toolActivity` is the name agreed in #505; PR 1 adds two fields, the dir/url pair only comes with PR 2 |
+| Resolved settings ride on the same per-platform record as the other dials (Gemini wanted a separate type) | one map, one wiring path, already threaded through `SessionManager`; a second type for two fields is plumbing for its own sake |
 
 ## Open
 
