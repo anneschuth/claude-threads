@@ -20,6 +20,8 @@ import {
   type PlatformInstanceConfig,
   type PermissionMode,
   type OverheadVisibility,
+  resolveToolActivity,
+  DEFAULT_TOOL_ACTIVITY,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -692,6 +694,11 @@ async function startWithoutDaemon() {
           platformConfig.stickyMessage,
           `platforms[${platformConfig.id}].stickyMessage`,
         ),
+        tools: resolveToolActivity(
+          platformConfig.toolActivity,
+          platformConfig.toolDetails,
+          `platforms[${platformConfig.id}]`,
+        ),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
@@ -741,6 +748,7 @@ async function startWithoutDaemon() {
         overhead: {
           sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
           stickyMessage: 'hidden',
+          tools: DEFAULT_TOOL_ACTIVITY,
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,

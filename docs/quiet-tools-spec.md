@@ -36,9 +36,11 @@ platforms:
 | `none` | the summary only |
 
 Default: `full` / `none`, so an existing config behaves exactly as before.
-`summary` without `toolDetails` means `thread`. `toolDetails` with `full`
-is a config error (`resolve…` throws with the path, like the other
-per-platform fields).
+`summary` without `toolDetails` means `thread`. Config errors, thrown with
+the field path at startup like the other per-platform fields: `toolDetails`
+with `full`; `hidden` with `thread` (hidden has no post of its own to hang
+a thread on; use `summary`, or `file`); `toolDetailsDir` / `toolDetailsUrl`
+with anything but `file`.
 
 Untouched in every mode: permission prompts, plan approvals, questions, task
 lists, `send_file`, the bug button, session errors. Those are not tool
@@ -87,8 +89,14 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
   `result` event (inferring it from a flush reason would couple the executor
   to flush internals); the last render is the final line, the sink's
   `turnEnded()` runs, and the counter resets.
-- **Content executor**: gains an optional `header` (one line) that belongs
-  to the **first post of the turn only**. The executor remembers
+- **Content executor**: every write to a post goes through one
+  `renderPost(postId, body)` path (today `flush`, `handleSplit` and the
+  task-list repurpose branch each write directly; Codex plan review), which
+  prepends the header when `postId` is the turn's first post. A header
+  update with nothing pending still renders: it edits the first post, or
+  creates it header-only when the turn has no post yet. Length and height
+  decisions for the first post use `header + body`. Gains an optional
+  `header` (one line) that belongs to the **first post of the turn only**. The executor remembers
   `turnFirstPostId` and that post's body; a header update re-renders that
   post as `header + body` even after streaming has moved on to a
   continuation post. Continuation posts never carry the header, so a split
@@ -98,7 +106,11 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
   on the first post.
 - **Details sinks** (`src/operations/tool-details/`), one interface:
   `ToolDetailsSink { append(op): void; turnEnded(): Promise<void>; linkFor(turn): string | null }`.
-  - `thread`: a second `ContentExecutor` whose context posts with
+  - `thread`: a second `ContentExecutor` **without** the task-list bump
+    callbacks (they would let a details post repurpose the task-list post)
+    and with its own `createPost` that registers posts as `tool_details`
+    and does **not** touch `updateLastMessage` (a details post must never
+    become the session's "latest reply"). Its context posts with
     `rootId = turnFirstPostId` of the main executor in direct-channel mode
     (the reply is a channel post, the details thread hangs under it), and
     `rootId = the session's threadId` in thread mode (Slack has no nested
@@ -138,8 +150,9 @@ VVS runs `summary` + `file` behind Caddy with auth on
 ## Tests (first)
 
 - transformer: each mode × (tool_use, server_tool_use, tool_result ok/error,
-  special tool) → which ops come out; `hidden` leaves no `toolStartTimes`
-  entry (no orphan `↳`).
+  special tool) → which ops come out; in both quiet modes no
+  `append_content` op carries tool text, and the start time is consumed by
+  the end op (so `elapsedMs` exists and no `↳` line can orphan).
 - ToolActivityExecutor: counter and line text through start/end/error/turn
   end; the line with and without a link.
 - content executor: header stays on the first post of the turn across a split;
@@ -161,6 +174,7 @@ VVS runs `summary` + `file` behind Caddy with auth on
 | Summary line at the top of the post, not the bottom | it is the receipt for the whole turn and must not move as text streams in |
 | Details as a second content executor | the streaming, splitting and rate behaviour already exist there; a new poster would reimplement them badly |
 | `file` writes HTML, not markdown | the point is a browser; markdown in a browser is raw text |
+| Keep an explicit `turn_end` op rather than finalising from the existing `StatusUpdateOp` (Codex suggested the latter) | `turn_end` is emitted *before* the final flush, so the final summary line lands in the same edit as the last text; the status op comes after the flush and would cost one more edit of the first post per turn |
 | No HTTP server in the daemon | one more listener, auth, TLS; the operator already has a web server |
 | Flat fields, not a nested `tools:` block (Gemini suggested nesting) | the sibling dials `sessionHeader` / `stickyMessage` / `lifecycle` are flat and `toolActivity` is the name agreed in #505; PR 1 adds two fields, the dir/url pair only comes with PR 2 |
 | Resolved settings ride on the same per-platform record as the other dials (Gemini wanted a separate type) | one map, one wiring path, already threaded through `SessionManager`; a second type for two fields is plumbing for its own sake |
