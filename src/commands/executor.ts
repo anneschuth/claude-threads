@@ -104,6 +104,39 @@ const handleUpdate: CommandHandler = async (ctx, args) => {
 /**
  * Handle !stop command.
  */
+/**
+ * Handle !usage / !usage all.
+ *
+ * Posts directly rather than going through the session manager: quota is a
+ * property of the seat, not of a session, and the question is most often asked
+ * before starting one.
+ */
+const handleUsage: CommandHandler = async (ctx, args) => {
+  const all = args?.trim().toLowerCase() === 'all';
+  const { collectUsage, renderProfiles } = await import('../usage/index.js');
+
+  // Report the seats the router is actually deciding between. Without the
+  // pool, `!usage all` would list ~/.claude-* directories the bot has stopped
+  // using and none of the accounts burning tokens.
+  const rendered = renderProfiles(
+    await collectUsage({
+      all,
+      accounts: ctx.sessionManager.getClaudeAccounts(),
+      // Scoped to the platform: platformId is the session store's privacy
+      // boundary, and an unscoped thread-id lookup could bind this row to
+      // another platform's session — reporting a seat this thread does not
+      // run on, which is a plausible answer to a different question.
+      sessionAccountId: ctx.sessionManager.getPersistedSession(
+        ctx.threadId,
+        ctx.client.platformId
+      )?.claudeAccountId,
+    }),
+    { showEmails: ctx.sessionManager.getUsageShowEmails() }
+  );
+  await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);
+  return { handled: true };
+};
+
 const handleStop: CommandHandler = async (ctx) => {
   if (ctx.commandContext === 'first-message') {
     return { handled: false }; // !stop doesn't work in first message
@@ -587,6 +620,7 @@ function createPassthroughHandler(slashCommand: string): CommandHandler {
 handlers.set('help', handleHelp);
 handlers.set('release-notes', handleReleaseNotes);
 handlers.set('update', handleUpdate);
+handlers.set('usage', handleUsage);
 handlers.set('stop', handleStop);
 handlers.set('escape', handleEscape);
 handlers.set('approve', handleApprove);

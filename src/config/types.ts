@@ -334,6 +334,21 @@ export interface ClaudeAccount {
   displayName?: string;
 }
 
+/** Options for the `!usage` command. */
+export interface UsageConfig {
+  /**
+   * Print each seat's login email address in `!usage` output. Default `false`.
+   *
+   * ⚠️ Off by default deliberately. The quota bars say nothing about who owns
+   * a seat; the address does, and `!usage` answers in a channel that several
+   * people can read and that anyone in it can trigger. Operators running a
+   * pool of their own seats generally want it on — it is the only thing that
+   * says WHICH account a row is about when directory names do not — but that
+   * is a decision to make, not to inherit.
+   */
+  showEmails?: boolean;
+}
+
 export interface Config {
   version: number;
   workingDir: string;
@@ -368,6 +383,8 @@ export interface Config {
   stickyMessage?: StickyMessageCustomization; // Optional sticky message customization
   /** Optional Claude account pool. When omitted, bot runs in single-account mode. */
   claudeAccounts?: ClaudeAccount[];
+  /** `!usage` output options. */
+  usage?: UsageConfig;
   platforms: PlatformInstanceConfig[];
 }
 

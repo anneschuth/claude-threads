@@ -227,11 +227,17 @@ const STACKABLE_PATTERNS: Array<[string, RegExp, number, number]> = [
 
 /**
  * Patterns for immediate first-message commands (no stacking, return immediately).
+ *
+ * The optional third element is the capture group holding the command's
+ * argument. Without it a command that takes one degrades silently on this
+ * path — `!usage all` would parse as bare `!usage` and quietly answer a
+ * different question, which is worse than not running at all.
  */
-const IMMEDIATE_PATTERNS: Array<[string, RegExp]> = [
+const IMMEDIATE_PATTERNS: Array<[string, RegExp, number?]> = [
   ['help', /^!help\s*$/i],
   ['release-notes', /^!(?:release-notes|changelog)\s*$/i],
   ['update', /^!update\s*$/i],
+  ['usage', /^!usage(?:\s+(all))?\s*$/i, 1],
 ];
 
 /**
@@ -247,12 +253,12 @@ const IMMEDIATE_PATTERNS: Array<[string, RegExp]> = [
  */
 export function parseCommandWithRemainder(text: string): ParsedCommandWithRemainder | null {
   // Try immediate patterns first
-  for (const [command, pattern] of IMMEDIATE_PATTERNS) {
+  for (const [command, pattern, argGroup] of IMMEDIATE_PATTERNS) {
     const match = text.match(pattern);
     if (match) {
       return {
         command,
-        args: undefined,
+        args: argGroup !== undefined ? match[argGroup] : undefined,
         match: match[0],
         remainder: undefined,
       };

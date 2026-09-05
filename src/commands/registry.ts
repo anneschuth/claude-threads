@@ -348,6 +348,19 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
   // populated availableSlashCommands.
   // ---------------------------------------------------------------------------
   {
+    command: 'usage',
+    description: 'Subscription quota: the session and weekly windows for this profile',
+    args: '[all]',
+    category: 'system',
+    audience: 'both',
+    worksInFirstMessage: true,
+    isImmediate: true,  // Answers from the account pool without starting a session
+    claudeNotes: 'Quota windows, not this session\'s cost — see !cost for that',
+    subcommands: [
+      { name: 'all', description: 'Every account this bot is configured with', worksInFirstMessage: true },
+    ],
+  },
+  {
     command: 'context',
     description: 'Show context usage',
     category: 'passthrough',
