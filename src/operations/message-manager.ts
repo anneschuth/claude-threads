@@ -144,6 +144,8 @@ export class MessageManager {
   private postTracker: PostTracker;
   private contentBreaker: DefaultContentBreaker;
   private readonly turnMarker: TurnMarkerSettings;
+  /** A scheduled (timer) flush that is still writing; the result flush waits for it. */
+  private flushInFlight: Promise<void> | null = null;
   /** Turns completed by this manager; part of the marker payload. Resets with the manager. */
   private turn = 0;
 
@@ -451,7 +453,8 @@ export class MessageManager {
    * Handle flush operation
    */
   private async handleFlushOp(op: FlushOp, ctx: ExecutorContext): Promise<void> {
-    // Cancel any pending scheduled flush
+    // Cancel any pending scheduled flush, and let one already writing finish
+    if (this.flushInFlight) await this.flushInFlight.catch(() => undefined);
     this.cancelScheduledFlush();
 
     // Execute the flush
@@ -494,10 +497,15 @@ export class MessageManager {
   private scheduleFlush(ctx: ExecutorContext): void {
     if (this.flushTimer) return;
 
-    this.flushTimer = setTimeout(async () => {
+    this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
       const flushOp = createFlushOp(this.sessionId, 'soft_threshold');
-      await this.contentExecutor.executeFlush(flushOp, ctx);
+      // Tracked so a result flush cannot overlap a write still in progress
+      // (Codex review: the marker would land on the wrong post).
+      const running = this.contentExecutor.executeFlush(flushOp, ctx).finally(() => {
+        if (this.flushInFlight === running) this.flushInFlight = null;
+      });
+      this.flushInFlight = running;
     }, this.flushDelayMs);
   }
 

@@ -31,7 +31,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
-  PostMetadata,
+  PostWriteOptions,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
@@ -993,7 +993,7 @@ export class SlackClient extends BasePlatformClient {
   async createPost(
     message: string,
     threadId?: string,
-    options?: { unfurl?: boolean; metadata?: PostMetadata }
+    options?: PostWriteOptions & { unfurl?: boolean }
   ): Promise<PlatformPost> {
     // A synthetic DCM thread id is not a real message ts — resolve it to a
     // top-level channel post (direct channel mode).
@@ -1036,7 +1036,7 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Update an existing post/message.
    */
-  async updatePost(postId: string, message: string, options?: { metadata?: PostMetadata }): Promise<PlatformPost> {
+  async updatePost(postId: string, message: string, options?: PostWriteOptions): Promise<PlatformPost> {
     // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
     const truncatedMessage = this.truncateMessageIfNeeded(message);
 

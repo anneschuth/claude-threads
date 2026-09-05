@@ -25,6 +25,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostWriteOptions,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
@@ -335,8 +336,8 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   // Update a message (for streaming updates)
-  // `_options` (post metadata) is a Slack concept; accepted and dropped here.
-  async updatePost(postId: string, message: string, _options?: unknown): Promise<PlatformPost> {
+  // Post metadata is a Slack concept; accepted here and dropped.
+  async updatePost(postId: string, message: string, _options?: PostWriteOptions): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
       message,

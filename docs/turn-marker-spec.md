@@ -81,14 +81,16 @@ Without either, the old quiet rule. No configuration on the reader's side.
 ## Tests (first)
 
 - config: defaults, `metadata` on Mattermost rejected, emoji with `off`
-  rejected, custom emoji accepted.
+  ignored, a malformed emoji rejected, custom emoji accepted.
 - transformer: the result flush op carries `resultOk` true/false.
 - message manager: `metadata` re-sends the last post's text with the
   payload after the result flush, once, and only then; `reaction` adds the
   emoji; `off` does nothing; a turn with no post marks nothing; a marker
   failure leaves the reply alone; the turn counter increments; `ok` false
   on an error result; a split turn marks the continuation (the current
-  post), not the first part.
+  post), not the first part; a soft flush still writing is awaited before
+  the result flush (Codex code review: otherwise the marker can land on a
+  post that a slower earlier write then supersedes).
 - slack client: `chat.update` / `chat.postMessage` body carries `metadata`
   when given, not otherwise.
 
@@ -101,6 +103,8 @@ Without either, the old quiet rule. No configuration on the reader's side.
 | `reaction` default emoji 🏁 `checkered_flag` | rare in real conversations, reads as "finished" without words |
 | `metadata` refused on Mattermost at config time | rather than silently marking nothing |
 | Payload is small and flat: session, turn, ok | Slack caps metadata size; readers need identity and outcome, not the answer |
+| Emoji names validated lowercase only (Gemini code review suggested allowing uppercase) | Slack and Mattermost create custom emoji names lowercase; an uppercase name in config can only be a typo |
+| One extra `chat.update` per turn is accepted (Gemini code review called it redundant) | see the plan-review decision above: the alternative marks the wrong post under splits and reuse |
 | `ok` from the result event, not from the text | the daemon has the fact; parsing "error" from the reply would be the guess this replaces |
 
 ## Lessons learned

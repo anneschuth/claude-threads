@@ -1273,6 +1273,30 @@ describe('MessageManager turn marker', () => {
     expect(marked[0][2]?.metadata?.event_payload.turn).toBe(2);
   });
 
+  it('a soft flush still writing is awaited before the result flush, so the marker lands on the one post (Codex review)', async () => {
+    let release: () => void = () => undefined;
+    let createCalls = 0;
+    (platform.createPost as ReturnType<typeof mock>).mockImplementation(async (content: string) => {
+      createCalls++;
+      if (createCalls === 1) await new Promise<void>((r) => { release = r; });
+      return { id: `post_${createCalls}`, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
+    });
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined, updateLastMessage: () => undefined, turnMarker: { mode: 'metadata' }, flushDelayMs: 1,
+    });
+    await m.handleEvent(text);
+    await new Promise((r) => setTimeout(r, 10)); // the timer fired; createPost is now in flight
+    const resultHandled = m.handleEvent(result);
+    await new Promise((r) => setTimeout(r, 10));
+    release();
+    await resultHandled;
+
+    expect(createCalls).toBe(1);
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>).filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[0])).toEqual(['post_1']);
+  });
+
   it('a marker failure is logged and leaves the reply alone', async () => {
     (platform.addReaction as ReturnType<typeof mock>).mockImplementationOnce(async () => { throw new Error('Slack API error: already_reacted'); });
     const r = withMarker({ mode: 'reaction' });
