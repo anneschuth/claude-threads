@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.33.1] - 2026-09-05
+
+### Fixed
+- **A `!stop` in a direct-channel-mode channel no longer makes it permanently deaf** (#538, thanks @kaza). The paused-session gate and the resume sink disagreed about soft-deleted sessions, so a tombstoned record claimed every message and dropped it. Tombstones now carry an end reason: a user-stopped session stays ended (the next message starts a fresh session), while a stale-swept one is revived — honoring the "send a new message to continue" promise — with the tombstone cleared only after the resume authorization gate. Also closes the reaction-resume door on stopped sessions, and `!help` now answers in a paused thread instead of vanishing. Fixes #537.
+- **Direct-channel-mode sessions are no longer tombstoned by the boot-time stale sweep** (#530, thanks @kaza). One quiet hour used to brick the channel silently. Fixes #499.
+- **Pooled accounts selected by `home` now clear inherited `CLAUDE_CONFIG_DIR`** (#540, thanks @kaza), which outranks the `HOME` override — a daemon started under its own profile silently billed every pooled session to its own seat and probed its own quota per pool entry. Also clears `CLAUDE_SECURESTORAGE_CONFIG_DIR` and inherited bearer credentials; API-key and single-account modes unaffected. Fixes both session spawning and the usage probe. Fixes #539.
+
 ## [1.33.0] - 2026-09-02
 
 ### Security
