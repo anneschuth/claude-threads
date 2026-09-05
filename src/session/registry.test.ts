@@ -587,11 +587,12 @@ describe('SessionRegistry', () => {
       expect(result).toBeUndefined();
     });
 
-    it('returns soft-deleted sessions too (reply-resume after restart)', () => {
+    it('returns STALE soft-deleted sessions (reply-resume after restart)', () => {
       // Regression: a paused session that cleanStale() soft-deleted at bot
       // startup must still be reachable by threadId so a user reply in the
       // thread can resume it (same guarantee the 🔄 reaction already has).
       const softDeleted: PersistedSession = {
+        endReason: 'stale',
         platformId: 'platform-x',
         threadId: 'target-thread',
         claudeSessionId: 'claude-1',
@@ -621,6 +622,84 @@ describe('SessionRegistry', () => {
       registry = new SessionRegistry(mockStore);
 
       expect(registry.getPersistedByThreadId('target-thread')).toBe(softDeleted);
+    });
+
+    it('hides STOPPED soft-deleted sessions so the thread starts fresh', () => {
+      // The counterpart to the test above, and the fix for a channel that
+      // `!stop` made permanently deaf. This lookup is the gate into the
+      // paused-session branch, and that branch CLAIMS the message — so a
+      // record it returns must be one the resume sink can actually revive.
+      // A stopped session is not: it has already been distilled as ended.
+      // Hiding it lets the message fall through to the new-session path,
+      // which is what `!stop` means to whoever typed it.
+      const stopped: PersistedSession = {
+        endReason: 'stopped',
+        platformId: 'platform-x',
+        threadId: 'target-thread',
+        claudeSessionId: 'claude-1',
+        startedBy: 'user',
+        startedAt: new Date().toISOString(),
+        sessionNumber: 1,
+        workingDir: '/test',
+        sessionAllowedUsers: [],
+        forceInteractivePermissions: false,
+        respondOnlyWhenMentioned: false,
+        sessionStartPostId: null,
+        tasksPostId: null,
+        lastTasksContent: null,
+        lastActivityAt: new Date().toISOString(),
+        planApproved: false,
+        isPaused: false,
+        cleanedAt: new Date().toISOString(),
+      };
+
+      mockStore = createMockSessionStore({
+        load: mock(() => new Map()),
+        findByThreadIdAnyState: mock((id: string) =>
+          id === 'target-thread' ? stopped : undefined
+        ),
+      });
+      registry = new SessionRegistry(mockStore);
+
+      expect(registry.getPersistedByThreadId('target-thread')).toBeUndefined();
+    });
+
+    it('reads a reasonless legacy tombstone as stopped', () => {
+      // Records written before `endReason` existed carry no reason. Reading
+      // them as stopped costs at most one fresh session; reading them as
+      // stale would resurrect conversations their owners ended. `isPaused` is
+      // not a usable substitute — shutdown persists still-active sessions
+      // with `isPaused: false`, so cleanStale() ages those into `false +
+      // cleanedAt` records that ARE revivable.
+      const legacy: PersistedSession = {
+        platformId: 'platform-x',
+        threadId: 'target-thread',
+        claudeSessionId: 'claude-1',
+        startedBy: 'user',
+        startedAt: new Date().toISOString(),
+        sessionNumber: 1,
+        workingDir: '/test',
+        sessionAllowedUsers: [],
+        forceInteractivePermissions: false,
+        respondOnlyWhenMentioned: false,
+        sessionStartPostId: null,
+        tasksPostId: null,
+        lastTasksContent: null,
+        lastActivityAt: new Date().toISOString(),
+        planApproved: false,
+        isPaused: true,
+        cleanedAt: new Date().toISOString(),
+      };
+
+      mockStore = createMockSessionStore({
+        load: mock(() => new Map()),
+        findByThreadIdAnyState: mock((id: string) =>
+          id === 'target-thread' ? legacy : undefined
+        ),
+      });
+      registry = new SessionRegistry(mockStore);
+
+      expect(registry.getPersistedByThreadId('target-thread')).toBeUndefined();
     });
   });
 

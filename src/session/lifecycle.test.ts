@@ -1335,6 +1335,109 @@ describe('authorization gate at sinks (#388)', () => {
       // resumed here — acquireClaudeAccount would be called.)
       expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
     });
+
+    // -----------------------------------------------------------------------
+    // Regression: the trapped-thread bug.
+    //
+    // `registry.getPersistedByThreadId()` deliberately returns SOFT-DELETED
+    // records so a plain reply can revive a session `cleanStale()` tombstoned
+    // at startup (see registry.test.ts, "returns soft-deleted sessions too").
+    // That gate is what routes a message into the paused-session branch.
+    //
+    // But this sink resolved its state through `load()`, which SKIPS records
+    // with `cleanedAt`. So the two lookups disagreed: the gate said "a paused
+    // session lives here", the sink said "No persisted session found" and
+    // returned — silently. The thread was then unreachable in both
+    // directions: the paused branch owns the message, so the new-session path
+    // never runs either.
+    //
+    // In a DCM channel, where the channel IS the session, that is terminal:
+    // `!stop` soft-deletes the record and nothing can ever start a session in
+    // that channel again. Observed 2026-09-05 and reproduced on demand.
+    // -----------------------------------------------------------------------
+    function contextWithTombstone(state: Record<string, unknown>) {
+      const platform = createMockPlatform({
+        isUserAllowed: mock((u: string) => u === 'alice') as any,
+        getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
+      });
+      const ctx = createMockSessionContext(new Map());
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+      // The real store's asymmetry, mocked exactly: load() hides it, the
+      // raw scan still returns it.
+      (ctx.state.sessionStore.load as any).mockReturnValue(new Map());
+      (ctx.state.sessionStore.findByThreadIdAnyState as any).mockImplementation(
+        (threadId: string, platformId?: string) =>
+          threadId === state.threadId && (platformId === undefined || platformId === state.platformId)
+            ? state
+            : undefined,
+      );
+      return ctx;
+    }
+
+    it('resumes a soft-deleted record instead of dropping the message', async () => {
+      const ctx = contextWithTombstone(
+        persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' }),
+      );
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
+
+      // Before the fix this returned at "No persisted session found".
+      expect(ctx.ops.acquireClaudeAccount).toHaveBeenCalled();
+    });
+
+    it('clears the tombstone it resurrected, so the record stops being half-dead', async () => {
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
+      const ctx = contextWithTombstone(state);
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
+
+      // Leaving `cleanedAt` set would put the record straight back into the
+      // state where load() hides it — reviving the thread for exactly one
+      // message and then trapping it again on the next restart.
+      expect((state as { cleanedAt?: string }).cleanedAt).toBeUndefined();
+    });
+
+    it('writes the revived record back to the store, not just the object', async () => {
+      // Clearing the field in memory is not enough: a restart before the next
+      // save would reload the tombstone from disk and trap the thread again.
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
+      const ctx = contextWithTombstone(state);
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
+
+      const saved = (ctx.state.sessionStore.save as any).mock.calls
+        .find(([id]: [string]) => id === 'test-platform:thread-paused');
+      expect(saved).toBeDefined();
+      expect(saved[1].cleanedAt).toBeUndefined();
+      // The pair is written together and must be cleared together, or the
+      // record keeps a reason for an ending that no longer happened.
+      expect(saved[1].endReason).toBeUndefined();
+    });
+
+    it('does not revive the tombstone for a refused user', async () => {
+      // The write-back sits after the #388 gate on purpose: a refused resume
+      // must not launder a soft-deleted session back into the visible set.
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
+      const ctx = contextWithTombstone(state);
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn', 'test-platform');
+
+      expect((state as { cleanedAt?: string }).cleanedAt).toBeDefined();
+      expect(ctx.state.sessionStore.save).not.toHaveBeenCalled();
+    });
+
+    it('still refuses an unauthorized user when the record is soft-deleted', async () => {
+      // Resurrecting a tombstone must not become a way around the #388
+      // identity gate: the authorization check runs on the same state either
+      // way.
+      const ctx = contextWithTombstone(
+        persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' }),
+      );
+
+      await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn', 'test-platform');
+
+      expect(ctx.ops.acquireClaudeAccount).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -1478,7 +1581,18 @@ describe('resumePausedSession sender attribution (regression)', () => {
       isUserAllowed: mock((u: string) => u === 'alice') as any,
       getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
     });
-    const ctx = createMockSessionContext(new Map());
+    // resumeSession's internal ClaudeCli.start() throws in this mock
+    // environment (no real platformConfig), so the session it builds gets
+    // rolled back out of the registry before resumePausedSession looks it
+    // up. Seed the sessions map under the COMPOSITE key with a mock session
+    // (and a mock messageManager) so handleUserMessage's call args are
+    // observable — that map, keyed `platformId:threadId`, is the same seam
+    // resumePausedSession queries to find the session to message.
+    const mockMsgManager = createMockMessageManager();
+    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
+    const ctx = createMockSessionContext(
+      new Map([['test-platform:thread-paused', mockSession]]),
+    );
     (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
     (ctx.state.sessionStore.load as any).mockReturnValue(
       new Map([['test-platform:thread-paused', {
@@ -1490,17 +1604,6 @@ describe('resumePausedSession sender attribution (regression)', () => {
         sessionAllowedUsers: ['alice', 'bob'],
       }]]),
     );
-
-    // resumeSession's internal ClaudeCli.start() throws in this mock
-    // environment (no real platformConfig), so the session it builds gets
-    // rolled back out of the registry before resumePausedSession looks it
-    // up. Wire findSessionByThreadId directly to a mock session (with a
-    // mock messageManager) so handleUserMessage's call args are
-    // observable — this is the same seam resumePausedSession itself
-    // queries to find the session to message.
-    const mockMsgManager = createMockMessageManager();
-    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
-    (ctx.ops.findSessionByThreadId as any).mockReturnValue(mockSession);
 
     await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob', 'test-platform');
 

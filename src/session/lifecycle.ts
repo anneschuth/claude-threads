@@ -23,6 +23,7 @@ import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
+import { isRevivable } from '../persistence/session-store.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
 import { VERSION } from '../version.js';
@@ -429,28 +430,6 @@ export function handleRateLimit(session: Session, hit: RateLimitHit, ctx: Sessio
     `⚠️ Claude account \`${session.claudeAccountId}\` hit a rate limit. ` +
       `New sessions will use another account until it resets (~${minutes}min).`
   );
-}
-
-/**
- * Helper to find a persisted session by raw threadId, scoped to a platform.
- * Persisted sessions are keyed by composite `platformId:threadId`, so we
- * iterate. SECURITY: the platform scope is required here — this feeds the
- * resume path, which imports a session's allowlist, working dir, worktree and
- * Claude account and delivers a live message into it. Without scoping, a
- * thread id that collides across platforms could resume another platform's
- * session (platformId is the store's hard privacy boundary).
- */
-function findPersistedByThreadId(
-  persisted: Map<string, PersistedSession>,
-  threadId: string,
-  platformId: string
-): PersistedSession | undefined {
-  for (const session of persisted.values()) {
-    if (session.threadId === threadId && session.platformId === platformId) {
-      return session;
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -1817,10 +1796,28 @@ export async function resumePausedSession(
   platformId: string
 ): Promise<void> {
   // Find persisted session by raw threadId, scoped to the message's platform.
-  const persisted = ctx.state.sessionStore.load();
-  const state = findPersistedByThreadId(persisted, threadId, platformId);
+  //
+  // This MUST use the same any-state lookup the paused-session gate in
+  // message-handler uses (`registry.getPersistedByThreadId`), not `load()`.
+  // `load()` skips soft-deleted records; the gate does not. When the two
+  // disagreed, a soft-deleted record routed every message into the paused
+  // branch and then died here on "No persisted session found" — and because
+  // the paused branch owns the message, the new-session path never ran
+  // either. The thread was unreachable in both directions.
+  //
+  // In direct channel mode, where the channel IS the session, that made the
+  // whole channel permanently deaf the moment `!stop` soft-deleted its record.
+  const state = ctx.state.sessionStore.findByThreadIdAnyState(threadId, platformId);
   if (!state) {
     log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
+    return;
+  }
+
+  // The gate upstream already hides stopped records, but this is a public sink
+  // and the rule belongs where the resurrection actually happens. Any-state
+  // means any state — including one whose conversation is over.
+  if (!isRevivable(state)) {
+    log.debug(`Not resuming stopped session ${threadId.substring(0, 8)}... — it ended`);
     return;
   }
 
@@ -1841,13 +1838,42 @@ export async function resumePausedSession(
     log.warn(`auth.denied.resume: @${username || 'unknown'} not authorized to resume ${shortId}...`);
     return;
   }
+  // A record we are about to revive must stop being a tombstone, or `load()`
+  // hides it again and the thread is trapped on the next lookup that uses it.
+  // Clearing it here — after the authorization gate, so a refused resume
+  // cannot launder a soft-deleted session back into the visible set — makes
+  // the revival stick.
+  if (state.cleanedAt) {
+    log.info(`🪦 Reviving soft-deleted session ${shortId}... (resumed by @${username})`);
+    delete state.cleanedAt;
+    // Both fields, or the record carries a reason for an ending that no longer
+    // happened. `resolveEndReason` reads it as undefined without `cleanedAt`,
+    // so this is hygiene rather than a bug — but the pair is written together
+    // and has to be cleared together, or the next reader has to know that.
+    delete state.endReason;
+    // Written back here rather than left to the resume's own persistence: the
+    // tombstone has to be off DISK, not just off this object, or a restart
+    // before the next save puts the thread straight back in the trap.
+    ctx.state.sessionStore.save(compositeSessionId(state.platformId, state.threadId), state);
+  }
+
   log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session
   await resumeSession(state, ctx, username);
 
-  // Wait a moment for the session to be ready, then send the message
-  const session = ctx.ops.findSessionByThreadId(threadId);
+  // Wait a moment for the session to be ready, then send the message.
+  //
+  // Resolved by COMPOSITE key, not by raw thread id. `findSessionByThreadId`
+  // scans every platform and returns the first match, so if another platform
+  // already had a live session under the same raw thread id, this message and
+  // its attachments would be handed to that session's messageManager —
+  // straight past its authorization gate. platformId is the store's hard
+  // privacy boundary; the lookup that delivers the message has to honour it
+  // too, not just the one that finds the record.
+  const session = (ctx.state.sessions as Map<string, Session>).get(
+    compositeSessionId(state.platformId, state.threadId)
+  );
   if (session && session.claude.isRunning() && session.messageManager) {
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
