@@ -52,6 +52,7 @@ platforms:
 | `threadLogs` | Thread logging (see below) | enabled |
 | `stickyMessage` | Sticky message text customization (see below) | none |
 | `claudeAccounts` | Multi-account pool (see below) | single-account mode |
+| `usage.showEmails` | Print each seat's login email in `!usage` output | `false` |
 
 ### Resource Limits (`limits`)
 
@@ -630,3 +631,27 @@ The bot prevents system sleep while sessions are active (uses `caffeinate` on ma
 ---
 
 _claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._
+
+## `!usage` output
+
+`!usage` reports the subscription windows for the seat the thread is running
+on; `!usage all` reports every account in the `claudeAccounts` pool. The
+numbers come from the same `/usage` probe the account router uses, so what you
+read and what routes can never disagree — it runs zero turns and costs $0.
+
+```yaml
+usage:
+  showEmails: true    # default false
+```
+
+`showEmails` adds each seat's login address to its row. Off by default: the
+quota bars say nothing about who owns a seat, the address does, and `!usage`
+answers into a channel several people can read and anyone in it can trigger.
+
+Turn it on when the pool is your own seats and directory names like `primary`
+and `backup` do not tell you which account is which — that is the case it
+exists for. The plan badge (`Max 20×`) is shown either way; it explains why one
+seat's week is four times another's and identifies nobody.
+
+Both the address and the badge are read from the profile's `.claude.json`.
+Nothing in `!usage` opens `.credentials.json` or the macOS Keychain.

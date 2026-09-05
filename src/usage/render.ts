@@ -13,9 +13,15 @@ export type UsageLimitKind = 'session' | 'weekly_all' | 'weekly_scoped';
 
 export interface UsageLimit {
   kind: UsageLimitKind;
-  /** Whole percent of the window consumed, as the API reports it. */
+  /** Whole percent of the window consumed, as Claude Code reports it. */
   percent: number;
-  resetsAt: Date;
+  /**
+   * Reset hint, verbatim from `/usage` (e.g. "Nov 5 at 3pm"). A string, not a
+   * Date: the CLI prints a human phrase and no machine timestamp, and parsing
+   * prose into a Date only to format it back would invent a precision — and a
+   * time zone — that the source never had.
+   */
+  resetsAt?: string;
   /** Display name of the scoped model, for `weekly_scoped` only. */
   model?: string;
 }
@@ -36,10 +42,14 @@ export interface ProfileUsage {
 }
 
 export interface RenderOptions {
-  now?: Date;
-  /** IANA zone; defaults to the host's. */
-  timeZone?: string;
   barWidth?: number;
+  /**
+   * Print each seat's login email. Off by default: these addresses are new
+   * information in a channel several people can read, and a bot that posts
+   * them because nobody opted out is the wrong default. `usage.showEmails` in
+   * config.yaml turns it on.
+   */
+  showEmails?: boolean;
 }
 
 const DEFAULT_BAR_WIDTH = 24;
@@ -70,44 +80,8 @@ export function bar(percent: number, width = DEFAULT_BAR_WIDTH): string {
   return '█'.repeat(filled) + '░'.repeat(width - filled);
 }
 
-function parts(date: Date, timeZone: string) {
-  const fmt = new Intl.DateTimeFormat('en-US', {
-    timeZone,
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  });
-  const out: Record<string, string> = {};
-  for (const p of fmt.formatToParts(date)) out[p.type] = p.value;
-  return out;
-}
-
-/**
- * "11:50pm" when the window resets later the same local day, "Sep 2 at 3am"
- * otherwise — a bare time on a different day is the kind of thing that reads
- * fine and means the wrong day. Minutes are dropped when they are :00, which
- * is what the weekly windows almost always are.
- */
-export function formatReset(resetsAt: Date, now: Date, timeZone: string): string {
-  const at = parts(resetsAt, timeZone);
-  const today = parts(now, timeZone);
-
-  const minutes = at.minute === '00' ? '' : `:${at.minute}`;
-  const clock = `${at.hour}${minutes}${(at.dayPeriod ?? 'AM').toLowerCase()}`;
-
-  const sameDay =
-    at.year === today.year && at.month === today.month && at.day === today.day;
-
-  return sameDay ? clock : `${at.month} ${at.day} at ${clock}`;
-}
-
 /** The three blocks for one profile, without any profile heading. */
 export function renderUsage(limits: UsageLimit[], options: RenderOptions = {}): string {
-  const now = options.now ?? new Date();
-  const timeZone = options.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const width = options.barWidth ?? DEFAULT_BAR_WIDTH;
 
   const ordered = KIND_ORDER.map((kind) => limits.find((l) => l.kind === kind)).filter(
@@ -119,7 +93,7 @@ export function renderUsage(limits: UsageLimit[], options: RenderOptions = {}): 
       [
         heading(limit),
         `${bar(limit.percent, width)} ${String(limit.percent).padStart(3)}% used`,
-        `Resets ${formatReset(limit.resetsAt, now, timeZone)} (${timeZone})`,
+        ...(limit.resetsAt ? [`Resets ${limit.resetsAt}`] : []),
       ].join('\n')
     )
     .join('\n\n');
@@ -136,7 +110,9 @@ export function renderProfiles(profiles: ProfileUsage[], options: RenderOptions 
         : renderUsage(p.limits ?? [], options);
       // The email belongs on the failing rows too — "log in again" is useless
       // if you don't know which account you're logging in as.
-      const detail = [p.email, p.plan].filter(Boolean).join(' · ');
+      const detail = [options.showEmails ? p.email : undefined, p.plan]
+        .filter(Boolean)
+        .join(' · ');
       const header = detail ? `${p.profile} (${detail})` : p.profile;
       return `${header}\n${'─'.repeat(header.length)}\n${body}`;
     })

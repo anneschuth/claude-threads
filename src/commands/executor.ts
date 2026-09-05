@@ -123,7 +123,8 @@ const handleUsage: CommandHandler = async (ctx, args) => {
       all,
       accounts: ctx.sessionManager.getClaudeAccounts(),
       sessionAccountId: ctx.sessionManager.getPersistedSession(ctx.threadId)?.claudeAccountId,
-    })
+    }),
+    { showEmails: ctx.sessionManager.getUsageShowEmails() }
   );
   await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);
   return { handled: true };
