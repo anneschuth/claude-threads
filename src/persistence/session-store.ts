@@ -34,6 +34,54 @@ export interface PersistedContextPrompt {
 }
 
 /**
+ * Why a session was soft-deleted. `cleanedAt` alone cannot say: it is stamped
+ * both when a session is deliberately ended and when a long-idle one is aged
+ * out, and those two want opposite behaviour on the next message.
+ *
+ * - `'stopped'` — the conversation is over. `!stop`, a kill, a normal exit.
+ *   `killSession` has already distilled it into channel memory as ended, so
+ *   reviving it would distill the same conversation a second time at its next
+ *   death. The next message must start a FRESH session.
+ * - `'stale'` — nothing ended it; it was aged out of the visible set by
+ *   `cleanStale()`. A reply in the thread is meant to bring it back, which is
+ *   why the paused-session gate looks past `cleanedAt` at all.
+ *
+ * Records written before this field existed carry no reason; see
+ * `resolveEndReason` for how they are read.
+ */
+export type EndReason = 'stopped' | 'stale';
+
+/**
+ * The end reason of a soft-deleted record, inferred for records written before
+ * `endReason` existed.
+ *
+ * ⚠️ The legacy fallback is `'stopped'`, and deliberately so: it is the safe
+ * default in both directions. Reading a stale record as stopped costs one
+ * fresh session; reading a stopped record as stale resurrects a conversation
+ * the user ended and double-counts its distillation. `isPaused` looks like a
+ * better discriminator and is not one — shutdown persists still-active
+ * sessions with `isPaused: false`, and `cleanStale()` then ages those out into
+ * `false + cleanedAt` records that are perfectly revivable.
+ */
+export function resolveEndReason(session: PersistedSession): EndReason | undefined {
+  if (!session.cleanedAt) return undefined;
+  return session.endReason ?? 'stopped';
+}
+
+/**
+ * Whether a persisted record should still answer messages in its thread —
+ * either it is live, or it is a stale tombstone a reply is meant to revive.
+ *
+ * This is THE predicate the paused-session gate and the resume sink must
+ * share. When they disagreed, a record visible to one and hidden from the
+ * other made its thread unreachable in both directions: the gate claimed the
+ * message, the sink dropped it, and the new-session path never ran.
+ */
+export function isRevivable(session: PersistedSession): boolean {
+  return resolveEndReason(session) !== 'stopped';
+}
+
+/**
  * Persisted session state for resuming after bot restart
  */
 export interface PersistedSession {
@@ -90,6 +138,7 @@ export interface PersistedSession {
   resumeFailCount?: number;                      // Count of consecutive resume failures
   // History retention (soft delete)
   cleanedAt?: string;                            // ISO date when session was soft-deleted (kept for history)
+  endReason?: EndReason;                         // WHY it was soft-deleted — see EndReason
   // Multi-account support
   /**
    * Claude account id the session was started under, if the bot is configured
@@ -262,10 +311,13 @@ export class SessionStore {
    * Soft-delete a session (mark as cleaned but keep for history)
    * @param sessionId - Composite key "platformId:threadId"
    */
-  softDelete(sessionId: string): void {
+  softDelete(sessionId: string, reason: EndReason): void {
     const data = this.loadRaw();
     if (data.sessions[sessionId]) {
       data.sessions[sessionId].cleanedAt = new Date().toISOString();
+      // Required, not optional: a tombstone with no reason is the ambiguity
+      // that made `!stop` and "aged out" indistinguishable in the first place.
+      data.sessions[sessionId].endReason = reason;
       this.writeAtomic(data);
 
       const shortId = sessionId.substring(0, 20);
@@ -291,6 +343,9 @@ export class SessionStore {
       if (now - lastActivity > maxAgeMs) {
         staleIds.push(sessionId);
         session.cleanedAt = new Date().toISOString();
+        // Aged out, not ended — a reply in the thread is still meant to bring
+        // this one back. See EndReason.
+        session.endReason = 'stale';
       }
     }
 

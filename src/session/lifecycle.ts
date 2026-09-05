@@ -1848,8 +1848,18 @@ export async function resumePausedSession(
   // Resume the session
   await resumeSession(state, ctx, username);
 
-  // Wait a moment for the session to be ready, then send the message
-  const session = ctx.ops.findSessionByThreadId(threadId);
+  // Wait a moment for the session to be ready, then send the message.
+  //
+  // Resolved by COMPOSITE key, not by raw thread id. `findSessionByThreadId`
+  // scans every platform and returns the first match, so if another platform
+  // already had a live session under the same raw thread id, this message and
+  // its attachments would be handed to that session's messageManager —
+  // straight past its authorization gate. platformId is the store's hard
+  // privacy boundary; the lookup that delivers the message has to honour it
+  // too, not just the one that finds the record.
+  const session = (ctx.state.sessions as Map<string, Session>).get(
+    compositeSessionId(state.platformId, state.threadId)
+  );
   if (session && session.claude.isRunning() && session.messageManager) {
     // Increment message counter and delegate to MessageManager
     session.messageCount++;

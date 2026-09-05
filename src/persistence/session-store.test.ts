@@ -207,7 +207,7 @@ describe('SessionStore', () => {
       });
       const sessionId = 'mattermost-main:thread-xyz';
       store.save(sessionId, session);
-      store.softDelete(sessionId);
+      store.softDelete(sessionId, 'stopped');
 
       // load() hides it — that's by design for auto-resume on startup.
       expect(store.load().size).toBe(0);
@@ -259,7 +259,7 @@ describe('SessionStore', () => {
       store.save(sessionId, session);
       expect(store.load().size).toBe(1);
 
-      store.softDelete(sessionId);
+      store.softDelete(sessionId, 'stopped');
 
       // Should not appear in load() (active sessions)
       expect(store.load().size).toBe(0);
@@ -306,7 +306,7 @@ describe('SessionStore', () => {
       });
 
       store.save('test-platform:old-thread', session);
-      store.softDelete('test-platform:old-thread');
+      store.softDelete('test-platform:old-thread', 'stopped');
 
       // Should not soft-delete again
       const staleIds = store.cleanStale(60 * 60 * 1000);
@@ -322,7 +322,7 @@ describe('SessionStore', () => {
       store.save('test-platform:thread-1', session1);
       store.save('test-platform:thread-2', session2);
 
-      store.softDelete('test-platform:thread-1');
+      store.softDelete('test-platform:thread-1', 'stopped');
 
       const history = store.getHistory('test-platform');
       expect(history.length).toBe(1);
@@ -336,10 +336,10 @@ describe('SessionStore', () => {
       store.save('test-platform:thread-1', session1);
       store.save('test-platform:thread-2', session2);
 
-      store.softDelete('test-platform:thread-1');
+      store.softDelete('test-platform:thread-1', 'stopped');
       // Small delay to ensure different cleanedAt timestamps
       await new Promise(resolve => setTimeout(resolve, 10));
-      store.softDelete('test-platform:thread-2');
+      store.softDelete('test-platform:thread-2', 'stopped');
 
       const history = store.getHistory('test-platform');
       expect(history.length).toBe(2);
@@ -354,8 +354,8 @@ describe('SessionStore', () => {
       store.save('platform-a:thread-1', session1);
       store.save('platform-b:thread-2', session2);
 
-      store.softDelete('platform-a:thread-1');
-      store.softDelete('platform-b:thread-2');
+      store.softDelete('platform-a:thread-1', 'stopped');
+      store.softDelete('platform-b:thread-2', 'stopped');
 
       const historyA = store.getHistory('platform-a');
       expect(historyA.length).toBe(1);
@@ -417,7 +417,7 @@ describe('SessionStore', () => {
         lastActivityAt: new Date(Date.now() - 5000).toISOString(), // 5 seconds ago
       });
       store.save('test-platform:completed-thread', completedSession);
-      store.softDelete('test-platform:completed-thread');
+      store.softDelete('test-platform:completed-thread', 'stopped');
 
       // Small delay
       await new Promise(resolve => setTimeout(resolve, 10));

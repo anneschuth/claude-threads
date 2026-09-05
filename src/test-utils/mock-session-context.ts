@@ -14,11 +14,24 @@ import type { SessionContext } from '../operations/session-context/index.js';
  * own factory through a thin local wrapper.
  */
 export function createMockSessionContext(makePlatform: () => import('../platform/index.js').PlatformClient, sessions: Map<string, Session> = new Map()): SessionContext {
-  // `load()` is the store's visible set; the any-state scan is a superset of
-  // it. Deriving the default from `load` keeps every existing test — which
-  // only stubs `load` — working unchanged. A test that needs the two to
-  // DISAGREE (a soft-deleted record, which `load()` hides but the raw scan
-  // still returns) overrides `findByThreadIdAnyState` explicitly.
+  // One raw map behind both lookups, modelled on the real store: `load()`
+  // returns the visible subset (soft-deleted records filtered out), the
+  // any-state scan returns everything.
+  //
+  // ⚠️ Deriving the any-state scan FROM `load()` would be the tempting
+  // shortcut and is the one thing this mock must not do: the two lookups
+  // could then never disagree, and "the two lookups disagreed" is precisely
+  // the bug class that made a thread unreachable in both directions. A mock
+  // that cannot express the bug cannot catch its return.
+  // Tests seed this store by stubbing `load()`, so the any-state scan derives
+  // from it: a record a test made visible is also findable raw, which is true
+  // of the real store too.
+  //
+  // ⚠️ What this default CANNOT express is the two lookups disagreeing — a
+  // soft-deleted record that `load()` hides and the raw scan still returns.
+  // That divergence is the whole bug class, so any test about it MUST override
+  // `findByThreadIdAnyState` explicitly rather than trust this default (see
+  // `contextWithTombstone` in lifecycle.test.ts).
   const load = mock(() => new Map());
   const findByThreadIdAnyState = mock((threadId: string, platformId?: string) => {
     for (const persisted of load().values()) {

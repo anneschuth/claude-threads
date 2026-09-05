@@ -1578,7 +1578,18 @@ describe('resumePausedSession sender attribution (regression)', () => {
       isUserAllowed: mock((u: string) => u === 'alice') as any,
       getPost: mock(() => Promise.resolve({ id: 'thread-paused' })) as any,
     });
-    const ctx = createMockSessionContext(new Map());
+    // resumeSession's internal ClaudeCli.start() throws in this mock
+    // environment (no real platformConfig), so the session it builds gets
+    // rolled back out of the registry before resumePausedSession looks it
+    // up. Seed the sessions map under the COMPOSITE key with a mock session
+    // (and a mock messageManager) so handleUserMessage's call args are
+    // observable — that map, keyed `platformId:threadId`, is the same seam
+    // resumePausedSession queries to find the session to message.
+    const mockMsgManager = createMockMessageManager();
+    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
+    const ctx = createMockSessionContext(
+      new Map([['test-platform:thread-paused', mockSession]]),
+    );
     (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
     (ctx.state.sessionStore.load as any).mockReturnValue(
       new Map([['test-platform:thread-paused', {
@@ -1590,17 +1601,6 @@ describe('resumePausedSession sender attribution (regression)', () => {
         sessionAllowedUsers: ['alice', 'bob'],
       }]]),
     );
-
-    // resumeSession's internal ClaudeCli.start() throws in this mock
-    // environment (no real platformConfig), so the session it builds gets
-    // rolled back out of the registry before resumePausedSession looks it
-    // up. Wire findSessionByThreadId directly to a mock session (with a
-    // mock messageManager) so handleUserMessage's call args are
-    // observable — this is the same seam resumePausedSession itself
-    // queries to find the session to message.
-    const mockMsgManager = createMockMessageManager();
-    const mockSession = createMockSession({ messageManager: mockMsgManager as any });
-    (ctx.ops.findSessionByThreadId as any).mockReturnValue(mockSession);
 
     await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'bob', 'test-platform');
 

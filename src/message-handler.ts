@@ -359,14 +359,30 @@ export async function handleMessage(
           return;
         }
 
-        // Every other command used to be consumed here in silence. That is
-        // the wrong default for the commands that need no session at all:
-        // `!help` above all, which is exactly what someone reaches for when a
-        // thread has stopped answering — and which answered with nothing,
-        // making a stuck thread look like a dead bot. Run them through the
-        // executor in its session-less mode; commands that genuinely require
-        // a live session report `handled: false` and fall through to the drop
-        // below.
+        // Every other command is consumed here. In silence, it was the wrong
+        // default for the commands that need no session at all: `!help` above
+        // all, which is exactly what someone reaches for when a thread has
+        // stopped answering — and which answered with nothing, making a stuck
+        // thread look like a dead bot.
+        //
+        // ⚠️ Gated on the platform allowlist FIRST, mirroring the new-session
+        // path, which checks `isUserAllowed` before it reaches the executor.
+        // Without this, the paused branch would be the one place a
+        // non-allowlisted user could run first-message commands — and
+        // `worksInFirstMessage` is not a synonym for harmless: it covers
+        // `!worktree list` and `!worktree switch`, which post repository
+        // branches and absolute paths. Several handlers never consult
+        // `ctx.isAllowed` themselves, so passing it is not a substitute for
+        // refusing here.
+        if (!client.isUserAllowed(username)) {
+          logger?.debug?.(
+            `!${pausedParsed.command} from unauthorized @${username} in paused thread ${threadRoot} — dropped`
+          );
+          return;
+        }
+
+        // Commands that genuinely require a live session report
+        // `handled: false` and fall through to the drop below.
         const immediateCtx: CommandExecutorContext = {
           commandContext: 'first-message',
           threadId: threadRoot,
@@ -374,7 +390,7 @@ export async function handleMessage(
           client,
           sessionManager: session,
           formatter,
-          isAllowed: client.isUserAllowed(username),
+          isAllowed: true, // refused above; every handler here has cleared the allowlist
           files: post.metadata?.files,
         };
         const immediate = await executeCommand(pausedParsed.command, pausedParsed.args, immediateCtx);
@@ -509,6 +525,28 @@ export async function handleMessage(
       isAllowed: true, // Already verified authorization above
       files,
     };
+
+    // A session-only command typed on its own starts nothing.
+    //
+    // `parseCommandWithRemainder` below only recognises the first-message
+    // commands, so anything else — `!stop`, `!escape`, `!approve` — falls
+    // straight through and becomes the opening PROMPT of a brand-new session.
+    // `!stop` is the one that bites: once a stopped thread routes here (which
+    // is the point of the `EndReason` split), typing `!stop` again would
+    // answer a request to stop by starting.
+    //
+    // Scoped to the command being the whole message. "!stop the deploy" is
+    // someone talking, and still reaches Claude as a prompt.
+    const firstMessageCommand = parseCommand(prompt);
+    if (firstMessageCommand && !firstMessageCommand.args?.trim()) {
+      const def = COMMAND_REGISTRY.find(c => c.command === firstMessageCommand.command);
+      if (def && !def.worksInFirstMessage) {
+        logger?.debug?.(
+          `!${firstMessageCommand.command} needs an active session; ${threadRoot} has none — dropped`
+        );
+        return;
+      }
+    }
 
     // Process commands that can appear at the start of the first message
     let continueProcessing = true;
