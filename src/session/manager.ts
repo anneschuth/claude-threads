@@ -243,7 +243,8 @@ export class SessionManager extends EventEmitter {
     this.watchEvaluator = new WatchEvaluator({
       store: this.watchesStore,
       isWatchesEnabled: (pid) => this.platformWatches.get(pid) ?? true,
-      fireWatch: (pid, watch, post, author) => fireWatch(watch, pid, post, author, this.getContext()),
+      fireWatch: (pid, watch, post, author, matched) =>
+        fireWatch(watch, pid, post, author, this.getContext(), matched),
       notifyDisabled: async (pid, watch, reason) => {
         const platform = this.platforms.get(pid);
         if (!platform) return;
@@ -1386,6 +1387,13 @@ export class SessionManager extends EventEmitter {
    */
   async transcribeForWatch(platformId: string, post: PlatformPost): Promise<string> {
     if (this.platformWatches.get(platformId) === false) return '';
+
+    // ⚠️ Not just "is the feature on" — is there anything to fire. The flag
+    // defaults to enabled, so without this every ignored voice note in every
+    // channel would be uploaded to a paid vendor to be matched against an
+    // empty list of watches. A channel that has never created a watch, or
+    // whose watches are all paused, must cost nothing.
+    if (!this.watchesStore.list(platformId).some((w) => w.enabled)) return '';
     const transcriber = this.transcriberFor(platformId);
     const files = post.metadata?.files;
     if (!transcriber || !files?.length) return '';

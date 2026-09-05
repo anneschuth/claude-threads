@@ -23,10 +23,26 @@ describe('resolveTranscriptionEnabled', () => {
     expect(resolveTranscriptionEnabled(false)).toBe(false);
   });
 
-  it('falls back to enabled on a value it cannot read, and says so', () => {
-    // Consistent with the other per-platform feature flags: a typo must not
-    // silently disable a feature — it warns and keeps the documented default.
-    expect(resolveTranscriptionEnabled('no')).toBe(true);
-    expect(resolveTranscriptionEnabled(0)).toBe(true);
+  it('fails CLOSED on a value it cannot read', () => {
+    // Deliberately unlike the other per-platform flags, which fall back to
+    // enabled. Those govern whether the bot does something for you; this one
+    // governs whether a channel's audio is uploaded to a third party.
+    // `transcription: "false"` — a quoted boolean, the likeliest way to get
+    // this wrong in YAML — must not be read as consent.
+    expect(resolveTranscriptionEnabled('false')).toBe(false);
+    expect(resolveTranscriptionEnabled('no')).toBe(false);
+    expect(resolveTranscriptionEnabled(0)).toBe(false);
+  });
+});
+
+describe('createTranscriber validation', () => {
+  it('treats a whitespace-only key as missing', async () => {
+    // It would otherwise pass the boot check and fail on the first voice
+    // note, which is exactly what validating in a factory is meant to avoid.
+    const { createTranscriber } = await import('./index.js');
+
+    expect(() => createTranscriber({ provider: 'elevenlabs', apiKey: '   ' })).toThrow(
+      'transcription.apiKey is required',
+    );
   });
 });

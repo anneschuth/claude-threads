@@ -14,7 +14,10 @@ export function createTranscriber(config: TranscriptionConfig): Transcriber {
   if (config.provider !== 'elevenlabs') {
     throw new Error(`transcription.provider must be "elevenlabs", got "${String(config.provider)}"`);
   }
-  if (!config.apiKey || typeof config.apiKey !== 'string') {
+  // Whitespace counts as missing: a key that is `" "` fails the boot here
+  // rather than at the first voice note, which is the whole point of
+  // validating in a factory.
+  if (typeof config.apiKey !== 'string' || config.apiKey.trim() === '') {
     throw new Error('transcription.apiKey is required');
   }
   return new ElevenLabsTranscriber(config);

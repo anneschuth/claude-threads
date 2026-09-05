@@ -248,8 +248,16 @@ export async function buildMessageContent(
  * loud, which is precisely the difference between a transcript being a real
  * input and being a courtesy for the human reader.
  *
- * No duplicate vendor call: this path and `buildMessageContent` are mutually
- * exclusive for a given post.
+ * No duplicate vendor call, for two separate reasons — the second matters
+ * because the first is easy to misread:
+ *
+ * 1. This runs only where the bot ignores the message, so
+ *    `buildMessageContent` is never reached for that post.
+ * 2. If a watch then FIRES, the session it starts is not a replay of the
+ *    post: `src/watches/runner.ts` builds its own prompt and passes no files
+ *    at all, so `buildMessageContent` returns at its empty-files guard. The
+ *    audio is sent to the vendor exactly once even on the path where the
+ *    transcript did something.
  */
 export async function transcribeForEvaluation(
   transcriber: Transcriber,
@@ -263,8 +271,23 @@ export async function transcribeForEvaluation(
   const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, audio, false);
   if (saved.length === 0) return '';
 
-  const transcripts = await transcribeAudio(transcriber, saved, skipped);
-  return transcripts.map((t) => t.text).join('\n');
+  try {
+    const transcripts = await transcribeAudio(transcriber, saved, skipped);
+    return transcripts.map((t) => t.text).join('\n');
+  } finally {
+    // ⚠️ Delete what we downloaded, always. Uploads are normally reaped when
+    // the session that owns them ends — but this path runs where the bot
+    // IGNORES the message, so most of the time no session is ever created and
+    // nothing would ever reap them. Every ignored voice note in a busy channel
+    // would otherwise stay on disk forever.
+    await Promise.all(
+      saved.map((f) =>
+        rm(f.absolutePath, { force: true }).catch((err: unknown) =>
+          log.debug(`Could not remove evaluation upload ${f.absolutePath}: ${String(err)}`),
+        ),
+      ),
+    );
+  }
 }
 
 /**

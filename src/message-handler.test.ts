@@ -2662,6 +2662,21 @@ describe('handleMessage - a voice note is evaluated as its words', () => {
     expect((session.evaluateWatches as any).mock.calls[0][3]).toBe('ship it');
   });
 
+  test('an outsider cannot spend the transcription quota', async () => {
+    // Evaluating a watch is free and has always run for anyone in the
+    // channel. Transcribing is a paid vendor call, so it needs the gate the
+    // free operation never did — otherwise any member of an invited channel
+    // could drop a hundred voice notes and bill them to the operator.
+    (session.transcribeForWatch as any).mockResolvedValue('should never be reached');
+    const outsider: PlatformUser = { id: 'u9', username: 'random-person', displayName: 'Nope' };
+
+    await handleMessage(client, session, voiceNote, outsider, options);
+
+    expect(session.transcribeForWatch).not.toHaveBeenCalled();
+    // The watch still sees the post, exactly as it did before this change.
+    expect(session.evaluateWatches).toHaveBeenCalledTimes(1);
+  });
+
   test('a caption and its transcript both reach the evaluator', async () => {
     // Someone can type and speak in one message; a watch must see both, or
     // whichever half it was not watching for silently stops mattering.

@@ -156,12 +156,22 @@ export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): bool
  * Normalize the per-platform `transcription` field. Undefined → enabled, so a
  * configured provider applies everywhere by default; `false` opts one platform
  * out. Inert when no top-level `transcription:` block exists.
+ *
+ * ⚠️ Unlike the other feature flags, an UNREADABLE value fails closed. The
+ * others govern whether the bot does something for you; this one governs
+ * whether a channel's audio is uploaded to a third party. `transcription:
+ * "false"` — a quoted boolean, the most likely way to get this wrong in YAML —
+ * must not be read as consent. Undefined still means enabled: that is the
+ * documented default and an operator who configured a provider chose it.
  */
 export function resolveTranscriptionEnabled(value: unknown, fieldPath?: string): boolean {
-  return resolveBooleanFeature(value, fieldPath ?? 'transcription', {
-    default: true,
-    verb: 'transcription stays enabled',
-  });
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'boolean') return value;
+  console.warn(
+    `Invalid ${fieldPath ?? 'transcription'}: ${JSON.stringify(value)} — expected true or false. ` +
+      `Transcription is DISABLED for this platform: a value we cannot read is not consent to upload its audio.`,
+  );
+  return false;
 }
 
 /**

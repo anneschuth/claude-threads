@@ -15,9 +15,6 @@ const DEFAULT_API_URL = 'https://api.elevenlabs.io/v1';
 const DEFAULT_MODEL = 'scribe_v2';
 /** A voice note is seconds long; a whole meeting is minutes. Generous either way. */
 const REQUEST_TIMEOUT_MS = 120_000;
-/** Cap on a message we DID recognise, so a hostile `detail` can't flood a channel. */
-const ERROR_MESSAGE_CAP = 200;
-
 /**
  * ElevenLabs errors look like `{"detail":{"status":"invalid_api_key","message":"…"}}`.
  * Surface the human message when it is there.
@@ -31,23 +28,29 @@ const ERROR_MESSAGE_CAP = 200;
  */
 function describeErrorBody(body: string): string {
   try {
-    const parsed = JSON.parse(body) as { detail?: { status?: unknown; message?: unknown } | string };
-    if (typeof parsed.detail === 'string') return cap(parsed.detail);
-    const status = typeof parsed.detail?.status === 'string' ? parsed.detail.status : undefined;
-    const message = typeof parsed.detail?.message === 'string' ? parsed.detail.message : undefined;
-    if (status && message) return cap(`${message} (${status})`);
-    if (message || status) return cap((message ?? status) as string);
+    const parsed = JSON.parse(body) as { detail?: { status?: unknown } | string };
+    const status = typeof parsed.detail === 'object' && typeof parsed.detail?.status === 'string'
+      ? parsed.detail.status
+      : undefined;
+    // The `status` CODE only, never the free-text `message` beside it. The
+    // code is an identifier from a fixed vocabulary (`invalid_api_key`,
+    // `audio_too_long`) and is the actionable half; the message is prose the
+    // vendor composes and can carry the request, a key fragment or an
+    // internal id. Rebuilt, not echoed.
+    if (status && SAFE_STATUS.test(status)) return status.replace(/_/g, ' ');
   } catch {
     // Not JSON. Nothing is swallowed — the caller still receives an Error
     // carrying the HTTP status; only the body is withheld from the channel.
   }
-  return 'the provider returned an error in a shape we do not recognise';
+  return 'the provider returned an error we could not classify';
 }
 
-function cap(text: string): string {
-  const trimmed = text.trim();
-  return trimmed.length > ERROR_MESSAGE_CAP ? `${trimmed.slice(0, ERROR_MESSAGE_CAP)}…` : trimmed;
-}
+/**
+ * A status we are willing to repeat: short, and shaped like an identifier
+ * rather than prose. A vendor that starts putting sentences in this field
+ * does not get to publish them into a channel by surprise.
+ */
+const SAFE_STATUS = /^[a-z][a-z0-9_]{0,48}$/;
 
 export class ElevenLabsTranscriber implements Transcriber {
   readonly provider = 'elevenlabs';
