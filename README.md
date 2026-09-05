@@ -210,6 +210,14 @@ This table is current as of August 2026. All of these products move quickly — 
 - **[Security Model](https://github.com/anneschuth/claude-threads/blob/main/SECURITY.md)** - Authorization matrix and vulnerability reporting
 - **[Changelog](https://github.com/anneschuth/claude-threads/blob/main/CHANGELOG.md)** - Detailed release history
 
+## Integrations
+
+Projects built beside claude-threads that talk to it through the channel, never through the daemon:
+
+- **[claude-threads-voice-desk](https://github.com/kaza/claude-threads-voice-desk)** - A live voice call with the agent: a Gemini Live front desk posts what you say into the Slack task channel as you and reads the reply back. Needs 1.33+ (posts made through the app's own user token reach Claude, #527).
+
+If you build one, add it here.
+
 ## Updates
 
 ```bash
