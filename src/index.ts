@@ -20,6 +20,7 @@ import {
   type PlatformInstanceConfig,
   type PermissionMode,
   type OverheadVisibility,
+  resolveTurnMarker,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -692,6 +693,12 @@ async function startWithoutDaemon() {
           platformConfig.stickyMessage,
           `platforms[${platformConfig.id}].stickyMessage`,
         ),
+        turnMarker: resolveTurnMarker(
+          platformConfig.turnMarker,
+          platformConfig.turnMarkerEmoji,
+          platformConfig.type,
+          `platforms[${platformConfig.id}]`,
+        ),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
@@ -741,6 +748,8 @@ async function startWithoutDaemon() {
         overhead: {
           sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
           stickyMessage: 'hidden',
+          // A derived DM config spreads its parent, so the parent's marker carries over.
+          turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,

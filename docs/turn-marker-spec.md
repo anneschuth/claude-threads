@@ -46,25 +46,28 @@ pauses the turn). The daemon knows the truth to the millisecond.
   `turnMarkerEmoji?: string` on `PlatformInstanceConfig`; resolved with the
   other per-platform dials into `PlatformOverhead.turnMarker: { mode, emoji }`
   (`resolveTurnMarker(mode, emoji, platformType, path)`; `metadata` on a
-  non-Slack platform is a startup config error with the field path; an emoji
-  with `metadata`/`off` is one too). Wired like `sessionHeader` through
+  non-Slack platform is a startup config error with the field path, because
+  silently marking nothing would be worse; an emoji with another mode is
+  simply ignored — Gemini plan review: YAML anchors and commented-out modes
+  make that a common, harmless state). Wired like `sessionHeader` through
   `index.ts` → `SessionManager` → `MessageManager` options.
 - **The result event carries its outcome**: `transformResult` sets
   `resultOk` on the `flush` op it emits (`FlushOp.resultOk?: boolean`, only
   with `reason: 'result'`). No new op.
-- **Metadata rides on the final flush** (`ContentExecutor`): the platform's
-  `updatePost` / `createPost` gain an optional `{ metadata }`; when the
-  executor flushes with `reason: 'result'` and a metadata marker is set, the
-  write that lands the last text carries it. If nothing is pending at the
-  result (the text was already flushed), the executor re-sends the current
-  post text with the metadata — one extra edit, only in that case. Slack's
-  `chat.update` requires text, which is why the marker cannot be a
-  text-less call. Mattermost ignores metadata (its `updatePost` signature
-  accepts and drops the option; `metadata` is rejected at config time there).
-- **Reaction after the final flush** (`MessageManager`, in the `result`
-  flush branch): `platform.addReaction(lastPostId, emoji)`. An
-  `already_reacted` is not an error; any other failure is logged and does
-  not touch the reply.
+- **One marker write after the final flush** (`MessageManager`, in the
+  `result` flush branch, after `executeFlush`): the content executor's
+  `currentPostId` / `currentPostContent` name the turn's last reply post and
+  its exact text (both plan reviews: piggybacking on "the final write" is
+  fragile because splits, task-post reuse, empty flushes and failed writes
+  all move that write; a dedicated write after the flush is not).
+  - `metadata`: `platform.updatePost(postId, currentPostContent, { metadata })`
+    — Slack's `chat.update` needs text, so the text is re-sent unchanged.
+    The platform's `createPost` / `updatePost` gain an optional
+    `{ metadata }` (Mattermost accepts and drops it).
+  - `reaction`: `platform.addReaction(postId, emoji)`; Slack's
+    `already_reacted` is not an error.
+  - No post (the turn produced only a task list, a question, an approval):
+    nothing to mark. A marker failure is logged and never touches the reply.
 - **The turn counter** lives in the `MessageManager` (`turn` increments on
   each `result`), reset with the manager.
 
@@ -80,13 +83,12 @@ Without either, the old quiet rule. No configuration on the reader's side.
 - config: defaults, `metadata` on Mattermost rejected, emoji with `off`
   rejected, custom emoji accepted.
 - transformer: the result flush op carries `resultOk` true/false.
-- content executor: final flush with a metadata marker passes it to the
-  platform write; nothing pending at result → one re-send with metadata;
-  no marker → no metadata anywhere; the marker never lands on a
-  non-final flush.
-- message manager: `reaction` adds the emoji to the last post after the
-  result flush, once; `off` does nothing; a turn with no post marks nothing;
-  the turn counter increments; `ok` false on an error result.
+- message manager: `metadata` re-sends the last post's text with the
+  payload after the result flush, once, and only then; `reaction` adds the
+  emoji; `off` does nothing; a turn with no post marks nothing; a marker
+  failure leaves the reply alone; the turn counter increments; `ok` false
+  on an error result; a split turn marks the continuation (the current
+  post), not the first part.
 - slack client: `chat.update` / `chat.postMessage` body carries `metadata`
   when given, not otherwise.
 
@@ -94,7 +96,8 @@ Without either, the old quiet rule. No configuration on the reader's side.
 
 | Decision | Why |
 |---|---|
-| Metadata on the final flush, not a separate edit | `chat.update` needs text; the final flush already sends it, so the marker costs nothing in the common case |
+| One dedicated marker write after the final flush, not piggybacked on it (both plan reviews) | the "final write" moves with splits, task-post reuse, empty flushes and failed writes; one extra `chat.update` per turn is the price of never marking the wrong post |
+| `(session, turn)` is not a cross-restart unique key | the counter is per manager and resets with it; readers dedupe by post id, which is what voice-desk does |
 | `reaction` default emoji 🏁 `checkered_flag` | rare in real conversations, reads as "finished" without words |
 | `metadata` refused on Mattermost at config time | rather than silently marking nothing |
 | Payload is small and flat: session, turn, ok | Slack caps metadata size; readers need identity and outcome, not the answer |

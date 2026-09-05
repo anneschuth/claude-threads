@@ -1215,3 +1215,71 @@ describe('decision bridge abort handling', () => {
     expect(manager.resolveBridgeQuestion([{ header: 'X', answer: 'y' }])).toBe(false);
   });
 });
+
+describe('MessageManager turn marker', () => {
+  let platform: PlatformClient;
+  let session: Session;
+  beforeEach(() => { platform = createMockPlatform(); session = createMockSession(platform); });
+
+  function withMarker(turnMarker: { mode: 'reaction' | 'metadata' | 'off'; emoji?: string }) {
+    return new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined, updateLastMessage: () => undefined, turnMarker,
+    });
+  }
+  const text = { type: 'assistant', message: { content: [{ type: 'text', text: 'Two files.' }] } } as never;
+  const result = { type: 'result', subtype: 'success', result: {} } as never;
+  const failed = { type: 'result', subtype: 'error_during_execution', is_error: true } as never;
+
+  it('metadata: after the result flush the last post is re-sent once with the payload', async () => {
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const updates = (platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>;
+    const marked = updates.filter((c) => c[2]?.metadata);
+    expect(marked).toHaveLength(1);
+    expect(marked[0][0]).toBe('post_1');
+    expect(marked[0][1]).toBe('Two files.');
+    expect(marked[0][2]?.metadata).toEqual({ event_type: 'claude_threads_turn_complete', event_payload: { session: 'test:session-1', turn: 1, ok: true } });
+    expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+  });
+
+  it('reaction: the emoji lands on the last post; an error result says ok false in metadata mode', async () => {
+    const r = withMarker({ mode: 'reaction', emoji: 'checkered_flag' });
+    await r.handleEvent(text);
+    await r.handleEvent(result);
+    expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toEqual([['post_1', 'checkered_flag']]);
+
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(text);
+    await m.handleEvent(failed);
+    const last = (platform.updatePost as ReturnType<typeof mock>).mock.calls.at(-1) as [string, string, { metadata: { event_payload: { ok: boolean; turn: number } } }];
+    expect(last[2].metadata.event_payload.ok).toBe(false);
+  });
+
+  it('off, or a turn with no reply post, marks nothing; the counter still counts turns', async () => {
+    const off = withMarker({ mode: 'off' });
+    await off.handleEvent(text);
+    await off.handleEvent(result);
+    expect((platform.updatePost as ReturnType<typeof mock>).mock.calls.some((c) => (c as unknown[])[2])).toBe(false);
+
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(result); // nothing was posted this turn
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>).filter((c) => c[2]?.metadata);
+    expect(marked).toHaveLength(1);
+    expect(marked[0][2]?.metadata?.event_payload.turn).toBe(2);
+  });
+
+  it('a marker failure is logged and leaves the reply alone', async () => {
+    (platform.addReaction as ReturnType<typeof mock>).mockImplementationOnce(async () => { throw new Error('Slack API error: already_reacted'); });
+    const r = withMarker({ mode: 'reaction' });
+    await r.handleEvent(text);
+    await expect(r.handleEvent(result)).resolves.toBeUndefined();
+    (platform.addReaction as ReturnType<typeof mock>).mockImplementationOnce(async () => { throw new Error('Slack API error: ratelimited'); });
+    await r.handleEvent(text);
+    await expect(r.handleEvent(result)).resolves.toBeUndefined();
+  });
+});

@@ -335,7 +335,8 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   // Update a message (for streaming updates)
-  async updatePost(postId: string, message: string): Promise<PlatformPost> {
+  // `_options` (post metadata) is a Slack concept; accepted and dropped here.
+  async updatePost(postId: string, message: string, _options?: unknown): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
       message,
