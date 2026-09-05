@@ -224,6 +224,14 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   abstract sendTyping(threadId?: string): void;
 
   /**
+   * Drop any indicator `sendTyping` put up. Defaults to nothing, which is
+   * correct for platforms whose indicator expires on its own.
+   */
+  clearTyping(_threadId?: string): void {
+    // Intentionally empty — see the interface.
+  }
+
+  /**
    * Get a clickable link to a thread.
    */
   abstract getThreadLink(threadId: string, lastMessageId?: string, lastMessageTs?: string): string;

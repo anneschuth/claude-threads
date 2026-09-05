@@ -301,6 +301,18 @@ export interface PlatformClient extends EventEmitter {
    */
   sendTyping(threadId?: string): void;
 
+  /**
+   * Drop any indicator `sendTyping` put up.
+   *
+   * Platforms whose indicator expires on its own (a websocket typing frame)
+   * need do nothing. Platforms where it persists until replaced — Slack's
+   * working status — must clear it here, or a finished session keeps claiming
+   * to be busy.
+   *
+   * @param threadId - Optional thread ID
+   */
+  clearTyping(threadId?: string): void;
+
   // ============================================================================
   // Files (Optional - may not be supported by all platforms)
   // ============================================================================

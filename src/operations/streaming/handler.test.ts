@@ -18,6 +18,7 @@ import { createMockFormatter } from '../../test-utils/mock-formatter.js';
 function createMockPlatform() {
   return {
     sendTyping: mock(() => {}),
+    clearTyping: mock(() => {}),
     getFormatter: mock(() => createMockFormatter()),
   } as unknown as PlatformClient;
 }
@@ -102,6 +103,23 @@ describe('stopTyping', () => {
     stopTyping(session);
 
     expect(session.timers.typingTimer).toBeNull();
+  });
+
+  test('tells the platform to drop the indicator, not just the local timer', () => {
+    // A websocket typing frame expires by itself, so stopping the timer was
+    // always enough. A Slack working-status does not: it persists until
+    // something replaces it, so a session that ended would keep showing
+    // "is working…" forever.
+    startTyping(session);
+    stopTyping(session);
+
+    expect(platform.clearTyping).toHaveBeenCalledWith('thread1');
+  });
+
+  test('does not ask the platform to clear a status it never started', () => {
+    stopTyping(session);
+
+    expect(platform.clearTyping).not.toHaveBeenCalled();
   });
 
   test('does nothing if not typing', () => {
