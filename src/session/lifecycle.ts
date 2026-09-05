@@ -2235,10 +2235,35 @@ export async function cleanupIdleSessions(
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
+      const waitingOnHuman =
+        session.isProcessing &&
+        (session.messageManager?.hasPendingApproval() === true ||
+          session.messageManager?.hasPendingQuestions() === true);
+      sessionLog(session).info(
+        waitingOnHuman
+          ? `⏰ Session stopped after ${Math.round(idleMs / 60000)}min waiting on a human decision`
+          : session.isProcessing
+            ? `⏰ Session stopped responding - no events for ${Math.round(idleMs / 60000)}min with a turn open`
+            : `⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`
+      );
 
       const timeoutFormatter = session.platform.getFormatter();
-      const timeoutMessage = `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
+      // A session reaped while `isProcessing` was never idle: it had an open
+      // turn. Claiming inactivity there is false and sends the user looking in
+      // the wrong place, so the cases get different text (#548). Three of them:
+      // the turn is blocked on a human decision (the bot is waiting on *them*),
+      // the turn went silent on its own (wedged CLI, dropped API connection, one
+      // long-running tool), or the session was genuinely idle between turns.
+      //
+      // The pending check covers plan approvals and questions, which the bot
+      // holds in-process. An ordinary MCP permission prompt is owned by the MCP
+      // child and is not visible here, so that case still reads as silence —
+      // see #533 for the bridge line that would close the gap.
+      const timeoutMessage = waitingOnHuman
+        ? `${timeoutFormatter.formatBold('Session still waiting')} for a reply - no answer for ${Math.round(idleMs / 60000)} minutes, so the turn was stopped\n\n💡 React with 🔄 to resume, or send a new message to continue.`
+        : session.isProcessing
+          ? `${timeoutFormatter.formatBold('Session stopped responding')} - no output for ${Math.round(idleMs / 60000)} minutes while a turn was still running\n\n💡 React with 🔄 to resume, or send a new message to continue.`
+          : `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
       // Update existing warning post or create a new one
       if (session.lifecyclePostId) {
@@ -2280,7 +2305,19 @@ export async function cleanupIdleSessions(
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       const warningFormatter = session.platform.getFormatter();
-      const warningMessage = `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
+      // Same distinction as the timeout branch (#548): with a turn open this
+      // is not idleness, it is silence from a turn that should be producing
+      // events. Naming it that way is the difference between "you forgot
+      // about me" and "something may be wrong".
+      const warnWaiting =
+        session.isProcessing &&
+        (session.messageManager?.hasPendingApproval() === true ||
+          session.messageManager?.hasPendingQuestions() === true);
+      const warningMessage = warnWaiting
+        ? `${warningFormatter.formatBold('Session still waiting')} for a reply - will stop in ~${remainingMins} minutes without one`
+        : session.isProcessing
+          ? `${warningFormatter.formatBold('No output for a while')} - a turn is still running; will stop in ~${remainingMins} minutes if nothing arrives`
+          : `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(

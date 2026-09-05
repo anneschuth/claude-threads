@@ -2858,6 +2858,14 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
     ['⚠️ *Too busy* - 5 sessions active. Please try again later.'],
     ['⏱️ **Session timed out** after 30 minutes of inactivity'],
     ['⏱️ *Session idle* - will timeout in ~5 minutes without activity'],
+    // #548 variants: a stalled or decision-blocked turn reports differently
+    // from a genuinely idle one, and every variant must stay invisible.
+    ['⏱️ **Session stopped responding** - no output for 31 minutes while a turn was still running'],
+    ['⏱️ *Session stopped responding* - no output for 31 minutes while a turn was still running'],
+    ['⏱️ **Session still waiting** for a reply - no answer for 31 minutes, so the turn was stopped'],
+    ['⏱️ **No output for a while** - a turn is still running; will stop in ~4 minutes if nothing arrives'],
+    ['⏱️ *No output for a while* - a turn is still running; will stop in ~4 minutes if nothing arrives'],
+    ['⏱️ **Session still waiting** for a reply - will stop in ~4 minutes without one'],
     ['🛑 **Session cancelled** by @someone'],
     ['🔴 **EMERGENCY SHUTDOWN** initiated by @someone - killing 2 active sessions'],
     ['🔄 **Session resumed** by @someone'],
@@ -2872,6 +2880,13 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
     ['🛑 stop the presses, but read this first'],
     ['is not authorized to resume this session'],
     ['something ⚠️ @bot is not authorized'],
+    // #548: the new status phrases are far more natural as human sentences
+    // than "Session timed out" ever was, so each pattern is anchored on the
+    // clause that follows, not just the opening words.
+    ['⏱️ No output for a while — is the build stuck?'],
+    ['⏱️ **No output for a while** anyone know why?'],
+    ['⏱️ Session still waiting? seems wrong'],
+    ['⏱️ Session stopped responding, should I kill it?'],
   ])('lets ordinary messages through: %s', (message) => {
     expect(isClaudeThreadsStatusPost(message)).toBe(false);
   });
