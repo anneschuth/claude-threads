@@ -147,6 +147,73 @@ describe('ReactionRouter.handleReaction', () => {
       };
     }
 
+    test('🔄 on a STOPPED session does not resurrect it', async () => {
+      // The other door into resume. This path finds the record by post id, so
+      // it never passes the paused-session gate that hides stopped records
+      // from messages — and a stopped session keeps its sessionStartPostId and
+      // lifecyclePostId, so its old posts still carry a 🔄 that looks live.
+      // Without the check, `!stop` could be undone by reacting to any message
+      // from before it, reviving a conversation already distilled as ended.
+      const createPost = mock(() => Promise.resolve({ id: 'p' }));
+      const platform = {
+        isUserAllowed: mock((u: string) => u === 'alice'),
+        createPost,
+        getFormatter: mock(() => ({ formatBold: (s: string) => s })),
+      } as unknown as PlatformClient;
+      const deps = makeDeps(null, {
+        sessionStore: {
+          findByPostId: mock(() => ({
+            ...persistedFixture(),
+            cleanedAt: new Date().toISOString(),
+            endReason: 'stopped' as const,
+          })),
+        } as unknown as SessionStore,
+        platforms: new Map([['test', platform]]),
+      });
+
+      // alice IS authorized — the refusal here is about the session being
+      // over, not about who is asking.
+      await handleReaction(deps, 'test', 'header-post', 'arrows_counterclockwise', 'alice', 'added');
+
+      // The revivability check comes before the already-active lookup, so an
+      // untouched `hasById` proves the resume path was abandoned rather than
+      // merely failing further down for some unrelated reason.
+      expect(deps.registry.hasById).not.toHaveBeenCalled();
+      expect(createPost).not.toHaveBeenCalled();
+    });
+
+    test('🔄 on a STALE tombstone still resumes it', async () => {
+      // The counterpart: aged out by cleanStale(), nothing ended it, and the
+      // timeout post's "send a new message to continue" promise applies to the
+      // reaction too. Hiding these would trade one bug for another.
+      const createPost = mock(() => Promise.resolve({ id: 'p' }));
+      const platform = {
+        isUserAllowed: mock((u: string) => u === 'alice'),
+        createPost,
+        getFormatter: mock(() => ({ formatBold: (s: string) => s })),
+      } as unknown as PlatformClient;
+      const deps = makeDeps(null, {
+        sessionStore: {
+          findByPostId: mock(() => ({
+            ...persistedFixture(),
+            cleanedAt: new Date().toISOString(),
+            endReason: 'stale' as const,
+          })),
+        } as unknown as SessionStore,
+        platforms: new Map([['test', platform]]),
+      });
+
+      await handleReaction(deps, 'test', 'header-post', 'arrows_counterclockwise', 'alice', 'added');
+
+      // Reached the resume path rather than being filtered out: no
+      // "not authorized" refusal, and the store lookup was consulted.
+      expect(deps.sessionStore.findByPostId).toHaveBeenCalled();
+      const refusals = createPost.mock.calls.filter(
+        ([m]: unknown[]) => typeof m === 'string' && m.includes('not authorized'),
+      );
+      expect(refusals).toHaveLength(0);
+    });
+
     test('rejects an unauthorized resumer with a not-authorized post', async () => {
       const createPost = mock(() => Promise.resolve({ id: 'p' }));
       const platform = {

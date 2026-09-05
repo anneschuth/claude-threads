@@ -9,7 +9,7 @@ import type { Session } from '../../session/types.js';
 import { isDcmThreadId } from '../../platform/utils.js';
 import type { ThreadMessage, PlatformFile } from '../../platform/index.js';
 import type { PendingContextPrompt as ExecutorPendingContextPrompt, ContextPromptFile } from '../executors/types.js';
-import { postSkippedFilesFeedback, type BuiltMessageContent } from '../streaming/handler.js';
+import { postSkippedFilesFeedback, postTranscriptFeedback, type BuiltMessageContent } from '../streaming/handler.js';
 import { formatUserTurn, shouldAttribute } from '../user-attribution/index.js';
 import { NUMBER_EMOJIS, DENIAL_EMOJIS, getNumberEmojiIndex, isDenialEmoji } from '../../utils/emoji.js';
 import { withErrorHandling } from '../../utils/error-handler/index.js';
@@ -108,6 +108,18 @@ function clearPendingContextPromptInManager(session: Session): void {
  */
 function getContextPromptFilesForSession(session: Session): PlatformFile[] | undefined {
   return contextPromptFiles.get(session.sessionId);
+}
+
+/**
+ * Take (return and forget) the original PlatformFiles parked behind a
+ * session's context prompt. The reaction-completion listener in
+ * lifecycle.ts needs them: MessageManager only carries simplified refs
+ * (id, name), which cannot be downloaded or transcribed.
+ */
+export function takeContextPromptFiles(session: Session): PlatformFile[] | undefined {
+  const files = contextPromptFiles.get(session.sessionId);
+  contextPromptFiles.delete(session.sessionId);
+  return files;
 }
 
 /**
@@ -414,12 +426,13 @@ async function sendWithContext(
   }
   session.messageCount++;
   messageToSend = ctx.injectMetadataReminder(messageToSend, session);
-  const { content, skipped } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
+  const { content, skipped, transcripts } = await ctx.buildMessageContent(messageToSend, session, queuedFiles);
   if (session.claude.isRunning()) {
     session.claude.sendMessage(content);
     ctx.startTyping(session);
   }
   await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+  await postTranscriptFeedback(session.platform, session.threadId, transcripts);
 }
 
 /**

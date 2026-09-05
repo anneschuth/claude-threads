@@ -13,6 +13,7 @@ import {
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
   resolveWatchesEnabled,
+  resolveTranscriptionEnabled,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
   type MattermostPlatformConfig,
@@ -25,6 +26,7 @@ import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
 import { MattermostClient, SlackClient, type PlatformClient, type PlatformPost, type PlatformUser } from './platform/index.js';
 import { SessionManager } from './session/index.js';
+import { createTranscriber } from './transcription/index.js';
 import { SessionStore } from './persistence/session-store.js';
 import { configureAuditLog } from './persistence/audit-log.js';
 import { checkForUpdates } from './update-notifier.js';
@@ -639,6 +641,14 @@ async function startWithoutDaemon() {
     session.setStickyMessageCustomization(config.stickyMessage.description, config.stickyMessage.footer);
   }
 
+  // Speech-to-text for inbound audio attachments. createTranscriber throws on
+  // a bad block, so a misconfigured provider fails the boot, not the first
+  // voice note. See docs/audio-transcription-spec.md.
+  if (config.transcription) {
+    session.setTranscriber(createTranscriber(config.transcription));
+    ui.addLog({ level: 'info', component: 'transcription', message: `🎙️ Audio attachments are transcribed via ${config.transcription.provider}` });
+  }
+
   // Set reference for toggle callbacks
   sessionManager = session;
 
@@ -705,6 +715,10 @@ async function startWithoutDaemon() {
         platformConfig.watches,
         `platforms[${platformConfig.id}].watches`,
       ),
+      transcriptionEnabled: resolveTranscriptionEnabled(
+        platformConfig.transcription,
+        `platforms[${platformConfig.id}].transcription`,
+      ),
     });
 
     // Wire up platform events
@@ -753,6 +767,12 @@ async function startWithoutDaemon() {
         watchesEnabled: resolveWatchesEnabled(
           dmConfig.watches,
           `dm[${dmConfig.id}].watches`,
+        ),
+        // A derived DM instance inherits the parent's setting: the consent
+        // that matters was given when the parent channel was configured.
+        transcriptionEnabled: resolveTranscriptionEnabled(
+          dmConfig.transcription,
+          `dm[${dmConfig.id}].transcription`,
         ),
       });
       wirePlatformEvents(dmConfig.id, dmClient, session, ui, dmConfig.directChannelMode);

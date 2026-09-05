@@ -67,6 +67,7 @@ function createMockSessionManager() {
     },
     getPersistedSession: mock(() => undefined),
     killAllSessions: mock(async () => {}),
+    transcribeForWatch: mock(async () => ''),
     cancelSession: mock(async () => {}),
     interruptSession: mock(async () => {}),
     inviteUser: mock(async () => {}),
@@ -800,6 +801,182 @@ describe('handleMessage', () => {
 
       expect(session.resumePausedSession).not.toHaveBeenCalled();
       expect(session.cancelPausedSession).toHaveBeenCalledWith('thread1', 'test-platform');
+    });
+
+    test('a stopped thread starts a FRESH session, it does not resume', async () => {
+      // The end-to-end shape of the bug, from the operator's side. After
+      // `!stop` the record is a 'stopped' tombstone, which the paused-session
+      // gate now hides — so the next message must reach the new-session path.
+      //
+      // Getting this wrong in either direction is bad: leave the record
+      // visible and the thread is trapped (the original bug); revive it and
+      // `!stop` silently undoes itself, resurrecting a conversation that has
+      // already been distilled into channel memory as ended.
+      (session.registry.getPersistedByThreadId as any).mockReturnValue(undefined);
+      (session.getPersistedSession as any).mockReturnValue(undefined);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot pick this back up',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(session.startSession).toHaveBeenCalled();
+    });
+
+    test('a bare !stop on a stopped thread is a no-op, not a new prompt', async () => {
+      // Once stopped tombstones route to the new-session path, `!stop` reaches
+      // it too. It is not `worksInFirstMessage`, so without the guard it falls
+      // through and starts a session whose opening prompt is the literal text
+      // "!stop" — a bot that answers a request to stop by starting.
+      (session.registry.getPersistedByThreadId as any).mockReturnValue(undefined);
+      (session.getPersistedSession as any).mockReturnValue(undefined);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !stop',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.startSession).not.toHaveBeenCalled();
+    });
+
+    test('a non-allowlisted user gets no commands in a paused thread', async () => {
+      // The paused branch must not become the one place an outsider can run
+      // first-message commands. `worksInFirstMessage` covers `!worktree list`
+      // and `!worktree switch`, which post repository branches and absolute
+      // paths, and several handlers never consult `ctx.isAllowed` themselves —
+      // so the refusal has to happen before the executor, exactly as the
+      // new-session path does it.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!help',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const outsider: PlatformUser = { id: 'u9', username: 'random-person', displayName: 'Nope' };
+
+      await handleMessage(client, session, post, outsider, options);
+
+      // `!help` is the mildest thing behind that gate and the easiest to
+      // observe; the same refusal is what keeps `!worktree list` and
+      // `!worktree switch` — which post branch names and absolute paths —
+      // from answering an outsider here.
+      expect(client.createPost).not.toHaveBeenCalled();
+    });
+
+    test('!help still answers in a paused thread', async () => {
+      // Regression: every command except !stop was consumed here in silence.
+      // !help needs no session at all, and it is the first thing anyone tries
+      // when a thread stops answering — so the one command that could explain
+      // the situation was also the one guaranteed to say nothing, making a
+      // stuck thread look like a bot that had gone deaf.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!help',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      const helpText = (client.createPost as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(helpText).toContain('!stop');
+    });
+
+    test('!worktree remove is dropped, not silently reported as done', async () => {
+      // `worksInFirstMessage` is not "needs no session". !worktree remove
+      // carries that flag and still calls active-session-only methods: routed
+      // through the first-message executor in a paused thread it finds no
+      // session, does nothing, and returns handled — succeeding at nothing,
+      // quietly, which is the exact shape of failure this branch exists to
+      // stop producing.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree remove some-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).not.toHaveBeenCalled();
+      const logged = (options.logger!.debug as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(logged).toContain('worktree');
+      expect(logged).toContain('paused');
+    });
+
+    test('!stop the deploy stays a prompt, not a command', async () => {
+      // The no-op guard is scoped to a bare command. Someone typing "!stop the
+      // deploy" is talking, and must still reach Claude.
+      (session.registry.getPersistedByThreadId as any).mockReturnValue(undefined);
+      (session.getPersistedSession as any).mockReturnValue(undefined);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !stop the deploy',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.startSession).toHaveBeenCalled();
+    });
+
+    test('a session-only command is dropped, but says so in the log', async () => {
+      // The other half: commands that genuinely need a live session still
+      // cannot run — but the drop is recorded, so the next person debugging a
+      // quiet thread sees a reason instead of nothing at all.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!escape',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(session.interruptSession).not.toHaveBeenCalled();
+      const logged = (options.logger!.debug as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(logged).toContain('escape');
+      expect(logged).toContain('paused');
     });
 
     test('other commands in paused session do not resume', async () => {
@@ -2434,6 +2611,91 @@ describe('handleMessage - legacy paused-session resume', () => {
   });
 });
 
+describe('handleMessage - a voice note is evaluated as its words', () => {
+  let client: ReturnType<typeof createMockPlatform>;
+  let session: ReturnType<typeof createMockSessionManager>;
+  let options: MessageHandlerOptions;
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+    options = { platformId: 'test-platform' };
+  });
+
+  const voiceNote: PlatformPost = {
+    id: 'post1',
+    platformId: 'test',
+    channelId: 'channel1',
+    userId: 'user1',
+    message: '',
+    rootId: '',
+    createAt: Date.now(),
+    metadata: { files: [{ id: 'f1', name: 'voice.webm', mimeType: 'audio/webm' }] },
+  } as unknown as PlatformPost;
+  const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+  test('the transcript, not the empty message, is what the evaluator sees', async () => {
+    // A watch on "deploy" has to fire when somebody SAYS deploy. Without this
+    // the evaluator receives '' and a file beside it, so voice notes are
+    // invisible to every watch in the channel — the transcript would be a
+    // courtesy for human readers and nothing more.
+    (session.transcribeForWatch as any).mockResolvedValue('please deploy the trader');
+
+    await handleMessage(client, session, voiceNote, user, options);
+
+    expect(session.evaluateWatches).toHaveBeenCalledTimes(1);
+    const evaluated = (session.evaluateWatches as any).mock.calls[0][3];
+    expect(evaluated).toContain('please deploy the trader');
+  });
+
+  test('a typed message is unchanged when there is nothing spoken', async () => {
+    (session.transcribeForWatch as any).mockResolvedValue('');
+
+    await handleMessage(
+      client,
+      session,
+      { ...voiceNote, message: 'ship it', metadata: undefined } as PlatformPost,
+      user,
+      options,
+    );
+
+    expect((session.evaluateWatches as any).mock.calls[0][3]).toBe('ship it');
+  });
+
+  test('an outsider cannot spend the transcription quota', async () => {
+    // Evaluating a watch is free and has always run for anyone in the
+    // channel. Transcribing is a paid vendor call, so it needs the gate the
+    // free operation never did — otherwise any member of an invited channel
+    // could drop a hundred voice notes and bill them to the operator.
+    (session.transcribeForWatch as any).mockResolvedValue('should never be reached');
+    const outsider: PlatformUser = { id: 'u9', username: 'random-person', displayName: 'Nope' };
+
+    await handleMessage(client, session, voiceNote, outsider, options);
+
+    expect(session.transcribeForWatch).not.toHaveBeenCalled();
+    // The watch still sees the post, exactly as it did before this change.
+    expect(session.evaluateWatches).toHaveBeenCalledTimes(1);
+  });
+
+  test('a caption and its transcript both reach the evaluator', async () => {
+    // Someone can type and speak in one message; a watch must see both, or
+    // whichever half it was not watching for silently stops mattering.
+    (session.transcribeForWatch as any).mockResolvedValue('and restart the node');
+
+    await handleMessage(
+      client,
+      session,
+      { ...voiceNote, message: 'as discussed' } as PlatformPost,
+      user,
+      options,
+    );
+
+    const evaluated = (session.evaluateWatches as any).mock.calls[0][3];
+    expect(evaluated).toContain('as discussed');
+    expect(evaluated).toContain('and restart the node');
+  });
+});
+
 describe('handleMessage - watch evaluation hook', () => {
   let client: PlatformClient & { posts: Map<string, string> };
   let session: ReturnType<typeof createMockSessionManager>;
@@ -2596,6 +2858,14 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
     ['⚠️ *Too busy* - 5 sessions active. Please try again later.'],
     ['⏱️ **Session timed out** after 30 minutes of inactivity'],
     ['⏱️ *Session idle* - will timeout in ~5 minutes without activity'],
+    // #548 variants: a stalled or decision-blocked turn reports differently
+    // from a genuinely idle one, and every variant must stay invisible.
+    ['⏱️ **Session stopped responding** - no output for 31 minutes while a turn was still running'],
+    ['⏱️ *Session stopped responding* - no output for 31 minutes while a turn was still running'],
+    ['⏱️ **Session still waiting** for a reply - no answer for 31 minutes, so the turn was stopped'],
+    ['⏱️ **No output for a while** - a turn is still running; will stop in ~4 minutes if nothing arrives'],
+    ['⏱️ *No output for a while* - a turn is still running; will stop in ~4 minutes if nothing arrives'],
+    ['⏱️ **Session still waiting** for a reply - will stop in ~4 minutes without one'],
     ['🛑 **Session cancelled** by @someone'],
     ['🔴 **EMERGENCY SHUTDOWN** initiated by @someone - killing 2 active sessions'],
     ['🔄 **Session resumed** by @someone'],
@@ -2610,6 +2880,13 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
     ['🛑 stop the presses, but read this first'],
     ['is not authorized to resume this session'],
     ['something ⚠️ @bot is not authorized'],
+    // #548: the new status phrases are far more natural as human sentences
+    // than "Session timed out" ever was, so each pattern is anchored on the
+    // clause that follows, not just the opening words.
+    ['⏱️ No output for a while — is the build stuck?'],
+    ['⏱️ **No output for a while** anyone know why?'],
+    ['⏱️ Session still waiting? seems wrong'],
+    ['⏱️ Session stopped responding, should I kill it?'],
   ])('lets ordinary messages through: %s', (message) => {
     expect(isClaudeThreadsStatusPost(message)).toBe(false);
   });

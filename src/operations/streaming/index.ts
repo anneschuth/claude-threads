@@ -7,6 +7,7 @@
 
 export {
   buildMessageContent,
+  transcribeForEvaluation,
   cleanupSessionUploads,
   getSessionUploadDir,
   startTyping,

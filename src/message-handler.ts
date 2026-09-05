@@ -27,6 +27,20 @@ import { shouldPostResumeRefusal } from './session/refusal-limiter.js';
 const ackLog = createLogger('ack');
 
 /**
+ * Commands the paused-session branch may answer without a live session.
+ *
+ * Deliberately an explicit list rather than `worksInFirstMessage`: that flag
+ * means "may appear before a session exists", which is a different question.
+ * `!worktree remove` / `cleanup` / `off` carry it and still call
+ * active-session-only methods — dispatched in a paused thread they find
+ * nothing, do nothing, and report success.
+ *
+ * Every entry here has to produce its answer from something other than a
+ * session: the command registry, the changelog, the account pool.
+ */
+const PAUSED_SAFE_COMMANDS: ReadonlySet<string> = new Set(['help', 'release-notes', 'usage']);
+
+/**
  * Machine-generated status posts from claude-threads itself (any instance,
  * any version). When several bots share a server, one bot's status output
  * must never read as a request to another — a refusal that @-mentioned a
@@ -41,7 +55,13 @@ const STATUS_POST_PATTERNS: RegExp[] = [
   // raw <@U…> token depending on platform and version.
   /^⚠️\s+\S+ is not authorized\b/u,
   new RegExp(`^⚠️\\s+${BOLD}Too busy${BOLD} -`, 'u'),
+  // Keep in sync with cleanupIdleSessions in src/session/lifecycle.ts: a
+  // stalled or decision-blocked turn reports differently from a genuinely
+  // idle one (#548), and every variant must stay invisible to other bots.
   new RegExp(`^⏱️\\s+${BOLD}Session (?:timed out|idle)${BOLD}`, 'u'),
+  new RegExp(`^⏱️\\s+${BOLD}Session stopped responding${BOLD} - no output for `, 'u'),
+  new RegExp(`^⏱️\\s+${BOLD}Session still waiting${BOLD} for a reply - `, 'u'),
+  new RegExp(`^⏱️\\s+${BOLD}No output for a while${BOLD} - a turn is still running;`, 'u'),
   new RegExp(`^🛑\\s+${BOLD}Session cancelled${BOLD}`, 'u'),
   new RegExp(`^🔴\\s+${BOLD}EMERGENCY SHUTDOWN${BOLD}`, 'u'),
   new RegExp(`^🔄\\s+${BOLD}Session resumed${BOLD}`, 'u'),
@@ -356,8 +376,68 @@ export async function handleMessage(
               );
             }
           }
+          return;
         }
-        // All commands in paused state are consumed (not passed as prompts)
+
+        // Every other command is consumed here. In silence, it was the wrong
+        // default for the commands that need no session at all: `!help` above
+        // all, which is exactly what someone reaches for when a thread has
+        // stopped answering — and which answered with nothing, making a stuck
+        // thread look like a dead bot.
+        //
+        // ⚠️ Gated on the platform allowlist FIRST, mirroring the new-session
+        // path, which checks `isUserAllowed` before it reaches the executor.
+        // Without this, the paused branch would be the one place a
+        // non-allowlisted user could run first-message commands — and
+        // `worksInFirstMessage` is not a synonym for harmless: it covers
+        // `!worktree list` and `!worktree switch`, which post repository
+        // branches and absolute paths. Several handlers never consult
+        // `ctx.isAllowed` themselves, so passing it is not a substitute for
+        // refusing here.
+        if (!client.isUserAllowed(username)) {
+          logger?.debug?.(
+            `!${pausedParsed.command} from unauthorized @${username} in paused thread ${threadRoot} — dropped`
+          );
+          return;
+        }
+
+        // ⚠️ An explicit allowlist, NOT `worksInFirstMessage`. The two are not
+        // the same question: `worksInFirstMessage` means "can appear before a
+        // session exists", and `!worktree remove` / `cleanup` / `off` qualify
+        // while still calling active-session-only methods. Dispatched here they
+        // would find no session, do nothing, and return `handled: true` — a
+        // silent no-op that also skips the diagnostic log below, which is the
+        // exact failure this branch is being fixed for.
+        //
+        // These three answer from nothing: help renders the registry,
+        // release-notes reads the changelog, usage probes the account pool.
+        if (!PAUSED_SAFE_COMMANDS.has(pausedParsed.command)) {
+          logger?.debug?.(
+            `!${pausedParsed.command} from @${username} needs an active session; thread ${threadRoot} is paused — dropped`
+          );
+          return;
+        }
+
+        const immediateCtx: CommandExecutorContext = {
+          commandContext: 'first-message',
+          threadId: threadRoot,
+          username,
+          client,
+          sessionManager: session,
+          formatter,
+          isAllowed: true, // refused above; every handler here has cleared the allowlist
+          files: post.metadata?.files,
+        };
+        const immediate = await executeCommand(pausedParsed.command, pausedParsed.args, immediateCtx);
+        if (immediate.handled) return;
+
+        // Consumed, but never silently: a command that vanishes with no reply
+        // and no log is indistinguishable from a bot that has stopped
+        // receiving events, and sends whoever is debugging it down the wrong
+        // path entirely.
+        logger?.debug?.(
+          `!${pausedParsed.command} from @${username} needs an active session; thread ${threadRoot} is paused — dropped`
+        );
         return;
       }
 
@@ -422,7 +502,24 @@ export async function handleMessage(
       // session fired on the message's REAL thread root would be unreachable
       // — replies and !stop in its thread would never route to it.
       if (!dcm.enabled) {
-        session.evaluateWatches(platformId, post, username, message);
+        // A voice note reaches here as an empty string with a file beside it.
+        // Transcribe first, so a watch on "deploy" fires when someone SAYS
+        // deploy — the transcript is user input like any typed message and
+        // goes through the same path, rather than around it. Returns '' fast
+        // unless this platform has watches and transcription enabled and the
+        // post actually carries audio.
+        // ⚠️ Allowlist FIRST, and this gate is about money rather than
+        // secrecy. Evaluating a watch is free, so the line below has always
+        // run for anyone in the channel; transcribing is a paid call to an
+        // external vendor. Without this, any member of an invited channel —
+        // allowlisted or not — could drop a hundred voice notes and spend the
+        // operator's transcription quota. Their typed messages still reach
+        // the evaluator exactly as before; only the vendor call is withheld.
+        const spoken = client.isUserAllowed(username)
+          ? await session.transcribeForWatch(platformId, post)
+          : '';
+        const evaluated = spoken ? [message, spoken].filter(Boolean).join('\n') : message;
+        session.evaluateWatches(platformId, post, username, evaluated);
       }
       return;
     }
@@ -480,6 +577,28 @@ export async function handleMessage(
       isAllowed: true, // Already verified authorization above
       files,
     };
+
+    // A session-only command typed on its own starts nothing.
+    //
+    // `parseCommandWithRemainder` below only recognises the first-message
+    // commands, so anything else — `!stop`, `!escape`, `!approve` — falls
+    // straight through and becomes the opening PROMPT of a brand-new session.
+    // `!stop` is the one that bites: once a stopped thread routes here (which
+    // is the point of the `EndReason` split), typing `!stop` again would
+    // answer a request to stop by starting.
+    //
+    // Scoped to the command being the whole message. "!stop the deploy" is
+    // someone talking, and still reaches Claude as a prompt.
+    const firstMessageCommand = parseCommand(prompt);
+    if (firstMessageCommand && !firstMessageCommand.args?.trim()) {
+      const def = COMMAND_REGISTRY.find(c => c.command === firstMessageCommand.command);
+      if (def && !def.worksInFirstMessage) {
+        logger?.debug?.(
+          `!${firstMessageCommand.command} needs an active session; ${threadRoot} has none — dropped`
+        );
+        return;
+      }
+    }
 
     // Process commands that can appear at the start of the first message
     let continueProcessing = true;

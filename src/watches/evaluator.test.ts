@@ -142,14 +142,14 @@ describe('WatchEvaluator pipeline', () => {
   }
 
   function makeEvaluator(opts: Partial<WatchEvaluatorOptions> = {}) {
-    const fires: Array<{ watchId: string; postId: string }> = [];
+    const fires: Array<{ watchId: string; postId: string; matched?: string }> = [];
     const notices: string[] = [];
     const confirms: string[] = [];
     const evaluator = new WatchEvaluator({
       store,
       isWatchesEnabled: () => true,
-      fireWatch: async (_pid, watch, post) => {
-        fires.push({ watchId: watch.id, postId: post.id });
+      fireWatch: async (_pid, watch, post, _author, matched) => {
+        fires.push({ watchId: watch.id, postId: post.id, matched });
         return 'ok';
       },
       notifyDisabled: async (_pid, watch, reason) => {
@@ -173,7 +173,12 @@ describe('WatchEvaluator pipeline', () => {
     await evaluator.evaluate('mm', { id: 'p1' }, 'bob', 'we have an incident in prod');
 
     expect(confirms).toHaveLength(1);
-    expect(fires).toEqual([{ watchId: watch.id, postId: 'p1' }]);
+    // The matched text travels with the fire. `autoIncludeContext` pulls the
+    // thread's messages, and a voice note's platform message text is EMPTY —
+    // its words exist only as a transcript made moments earlier. Without this
+    // the watch fires and Claude is asked to act on something it cannot read.
+    expect(fires).toEqual([{ watchId: watch.id, postId: 'p1', matched: expect.any(String) }]);
+    expect(fires[0].matched).toBeTruthy();
     const updated = store.get('mm', watch.id)!;
     expect(updated.lastFireStatus).toBe('ok');
     expect(updated.lastFiredAt).toBeDefined();

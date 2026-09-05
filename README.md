@@ -57,6 +57,7 @@
 - **Routines** - `!routine every weekday at 9am, summarize open threads` schedules recurring work; runs post as new threads in the channel, confirmed before saving and managed with `!routines` ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#routines-routines-default-enabled))
 - **Watches** - `!watch when someone reports an incident, triage it` reacts to matching channel messages: a free keyword prefilter plus a semantic check fire a session right in the triggering thread ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#watches-watches-default-enabled))
 - **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
+- **Voice notes** - With `transcription:` configured (ElevenLabs Scribe), an audio clip is transcribed before Claude sees it and the transcript is echoed into the thread; see [Configuration](docs/CONFIGURATION.md#transcription-transcription)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
 - **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
 - **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat
@@ -209,6 +210,14 @@ This table is current as of August 2026. All of these products move quickly — 
 - **[MCP Tools Reference](https://github.com/anneschuth/claude-threads/blob/main/docs/MCP-TOOLS.md)** - The nine tools Claude gets in chat, with their guardrails
 - **[Security Model](https://github.com/anneschuth/claude-threads/blob/main/SECURITY.md)** - Authorization matrix and vulnerability reporting
 - **[Changelog](https://github.com/anneschuth/claude-threads/blob/main/CHANGELOG.md)** - Detailed release history
+
+## Integrations
+
+Projects built beside claude-threads that talk to it through the channel, never through the daemon:
+
+- **[claude-threads-voice-desk](https://github.com/kaza/claude-threads-voice-desk)** - A live voice call with the agent: a Gemini Live front desk posts what you say into the Slack task channel as you and reads the reply back. Needs 1.33+ (posts made through the app's own user token reach Claude, #527).
+
+If you build one, add it here.
 
 ## Updates
 

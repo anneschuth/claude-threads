@@ -23,6 +23,7 @@ import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
+import { isRevivable } from '../persistence/session-store.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
 import { VERSION } from '../version.js';
@@ -50,7 +51,9 @@ import {
   cleanupSessionUploads,
   getSessionUploadDir,
   postSkippedFilesFeedback,
+  postTranscriptFeedback,
 } from '../operations/streaming/handler.js';
+import { takeContextPromptFiles } from '../operations/context-prompt/handler.js';
 import { detectWorktreeInfo } from '../git/worktree.js';
 import { resolveSessionMemory, activeWorktreeRepoRoot } from '../memory/store.js';
 import { scheduleDistillation } from '../memory/distiller.js';
@@ -432,28 +435,6 @@ export function handleRateLimit(session: Session, hit: RateLimitHit, ctx: Sessio
 }
 
 /**
- * Helper to find a persisted session by raw threadId, scoped to a platform.
- * Persisted sessions are keyed by composite `platformId:threadId`, so we
- * iterate. SECURITY: the platform scope is required here — this feeds the
- * resume path, which imports a session's allowlist, working dir, worktree and
- * Claude account and delivers a live message into it. Without scoping, a
- * thread id that collides across platforms could resume another platform's
- * session (platformId is the store's hard privacy boundary).
- */
-function findPersistedByThreadId(
-  persisted: Map<string, PersistedSession>,
-  threadId: string,
-  platformId: string
-): PersistedSession | undefined {
-  for (const session of persisted.values()) {
-    if (session.threadId === threadId && session.platformId === platformId) {
-      return session;
-    }
-  }
-  return undefined;
-}
-
-/**
  * Create the per-session decision bridge (plan approvals and question answers
  * flowing back through the MCP permission server — see
  * src/mcp/decision-bridge.ts). Returns null when the socket can't be created;
@@ -667,17 +648,32 @@ function createMessageManager(
     // Inject metadata reminder periodically
     messageToSend = maybeInjectMetadataReminder(messageToSend, session, ctx, session);
 
-    // Build content with files (if any)
-    // Note: queuedFiles from MessageManager are simplified refs (id, name)
-    // For now, send without files - the full PlatformFile[] would need to be
-    // stored separately if file support is needed here
+    // Build content with the files that were queued behind the prompt. The
+    // event only carries simplified refs (id, name) from MessageManager; the
+    // original PlatformFile[] were parked in the context-prompt module when
+    // the prompt was posted. Before this, attachments on a mid-thread start
+    // survived only because the pre-built file header rode along in
+    // queuedPrompt — startSession now queues the raw prompt, so the files
+    // have to travel here explicitly.
+    const queuedFiles = takeContextPromptFiles(session);
     const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
-    const { content } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, undefined);
 
-    // Send the message to Claude
-    if (session.claude.isRunning()) {
-      session.claude.sendMessage(content);
-      ctx.ops.startTyping(session);
+    // This listener runs on a plain EventEmitter: a rejection here is nobody's
+    // to await and would surface as an unhandled rejection after the prompt
+    // state and the parked files are already consumed. Report it in the
+    // thread instead — the failure stays visible, the daemon stays up.
+    try {
+      const { content, skipped, transcripts } = await ctx.ops.buildMessageContent(messageToSend, session.platform, uploadDir, queuedFiles);
+
+      // Send the message to Claude
+      if (session.claude.isRunning()) {
+        session.claude.sendMessage(content);
+        ctx.ops.startTyping(session);
+      }
+      await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+      await postTranscriptFeedback(session.platform, session.threadId, transcripts);
+    } catch (err) {
+      await logAndNotify(err, { action: 'Send queued message after context prompt', session });
     }
 
     // Update activity and persist
@@ -1245,11 +1241,6 @@ async function startSessionImpl(
     ctx.ops.registerWorktreeUser(session.worktreeInfo.worktreePath, session.sessionId);
   }
 
-  // Build message content
-  const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
-  const { content, skipped } = await ctx.ops.buildMessageContent(options.prompt, session.platform, uploadDir, options.files);
-  const messageText = content;
-
   // Check if this is a mid-thread start (replyToPostId means we're replying in an existing thread)
   // Offer context prompt if there are previous messages in the thread.
   // Use triggeringPostId (the actual @mention message) to exclude from
@@ -1275,13 +1266,21 @@ async function startSessionImpl(
     // event the session must see — excluding the thread root here previously
     // fired "triage the incident" sessions that never saw the incident.
     const excludePostId = options.autoIncludeContext ? undefined : (triggeringPostId || replyToPostId);
-    await ctx.ops.offerContextPrompt(session, messageText, options.files, excludePostId, username, options.autoIncludeContext);
-    // Either path inside offerContextPrompt sends or queues. Surface any
-    // skipped-file warnings and return — the fallback claude.sendMessage()
-    // below would be a duplicate.
-    await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
+    // Hand over the RAW prompt and files: every send path inside
+    // offerContextPrompt builds the message content itself (sendWithContext →
+    // buildMessageContent) and posts its own skipped-file / transcript
+    // feedback. Building here as well used to download every attachment
+    // twice and prepend the file-list header twice — and would transcribe a
+    // voice note twice. Either path inside offerContextPrompt sends or
+    // queues, so return: the fallback claude.sendMessage() below would be a
+    // duplicate.
+    await ctx.ops.offerContextPrompt(session, options.prompt, options.files, excludePostId, username, options.autoIncludeContext);
     return;
   }
+
+  // Build message content (once — see the note above)
+  const uploadDir = getSessionUploadDir(session.platformId, session.threadId);
+  const { content, skipped, transcripts } = await ctx.ops.buildMessageContent(options.prompt, session.platform, uploadDir, options.files);
 
   // No replyToPostId — defensive path for callers that don't pass a thread
   // root. In practice handleMessage always supplies one (post.rootId ||
@@ -1291,8 +1290,9 @@ async function startSessionImpl(
   session.messageCount++;
   claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
 
-  // Surface any skipped attachments to the user
+  // Surface any skipped attachments to the user, then echo voice-note transcripts
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
+  await postTranscriptFeedback(session.platform, actualThreadId, transcripts);
 
   // NOTE: We don't persist here. We wait for Claude to actually respond before persisting.
   // This prevents persisting sessions where Claude dies before saving its conversation,
@@ -1817,10 +1817,28 @@ export async function resumePausedSession(
   platformId: string
 ): Promise<void> {
   // Find persisted session by raw threadId, scoped to the message's platform.
-  const persisted = ctx.state.sessionStore.load();
-  const state = findPersistedByThreadId(persisted, threadId, platformId);
+  //
+  // This MUST use the same any-state lookup the paused-session gate in
+  // message-handler uses (`registry.getPersistedByThreadId`), not `load()`.
+  // `load()` skips soft-deleted records; the gate does not. When the two
+  // disagreed, a soft-deleted record routed every message into the paused
+  // branch and then died here on "No persisted session found" — and because
+  // the paused branch owns the message, the new-session path never ran
+  // either. The thread was unreachable in both directions.
+  //
+  // In direct channel mode, where the channel IS the session, that made the
+  // whole channel permanently deaf the moment `!stop` soft-deleted its record.
+  const state = ctx.state.sessionStore.findByThreadIdAnyState(threadId, platformId);
   if (!state) {
     log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
+    return;
+  }
+
+  // The gate upstream already hides stopped records, but this is a public sink
+  // and the rule belongs where the resurrection actually happens. Any-state
+  // means any state — including one whose conversation is over.
+  if (!isRevivable(state)) {
+    log.debug(`Not resuming stopped session ${threadId.substring(0, 8)}... — it ended`);
     return;
   }
 
@@ -1841,13 +1859,42 @@ export async function resumePausedSession(
     log.warn(`auth.denied.resume: @${username || 'unknown'} not authorized to resume ${shortId}...`);
     return;
   }
+  // A record we are about to revive must stop being a tombstone, or `load()`
+  // hides it again and the thread is trapped on the next lookup that uses it.
+  // Clearing it here — after the authorization gate, so a refused resume
+  // cannot launder a soft-deleted session back into the visible set — makes
+  // the revival stick.
+  if (state.cleanedAt) {
+    log.info(`🪦 Reviving soft-deleted session ${shortId}... (resumed by @${username})`);
+    delete state.cleanedAt;
+    // Both fields, or the record carries a reason for an ending that no longer
+    // happened. `resolveEndReason` reads it as undefined without `cleanedAt`,
+    // so this is hygiene rather than a bug — but the pair is written together
+    // and has to be cleared together, or the next reader has to know that.
+    delete state.endReason;
+    // Written back here rather than left to the resume's own persistence: the
+    // tombstone has to be off DISK, not just off this object, or a restart
+    // before the next save puts the thread straight back in the trap.
+    ctx.state.sessionStore.save(compositeSessionId(state.platformId, state.threadId), state);
+  }
+
   log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session
   await resumeSession(state, ctx, username);
 
-  // Wait a moment for the session to be ready, then send the message
-  const session = ctx.ops.findSessionByThreadId(threadId);
+  // Wait a moment for the session to be ready, then send the message.
+  //
+  // Resolved by COMPOSITE key, not by raw thread id. `findSessionByThreadId`
+  // scans every platform and returns the first match, so if another platform
+  // already had a live session under the same raw thread id, this message and
+  // its attachments would be handed to that session's messageManager —
+  // straight past its authorization gate. platformId is the store's hard
+  // privacy boundary; the lookup that delivers the message has to honour it
+  // too, not just the one that finds the record.
+  const session = (ctx.state.sessions as Map<string, Session>).get(
+    compositeSessionId(state.platformId, state.threadId)
+  );
   if (session && session.claude.isRunning() && session.messageManager) {
     // Increment message counter and delegate to MessageManager
     session.messageCount++;
@@ -2188,10 +2235,35 @@ export async function cleanupIdleSessions(
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
+      const waitingOnHuman =
+        session.isProcessing &&
+        (session.messageManager?.hasPendingApproval() === true ||
+          session.messageManager?.hasPendingQuestions() === true);
+      sessionLog(session).info(
+        waitingOnHuman
+          ? `⏰ Session stopped after ${Math.round(idleMs / 60000)}min waiting on a human decision`
+          : session.isProcessing
+            ? `⏰ Session stopped responding - no events for ${Math.round(idleMs / 60000)}min with a turn open`
+            : `⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`
+      );
 
       const timeoutFormatter = session.platform.getFormatter();
-      const timeoutMessage = `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
+      // A session reaped while `isProcessing` was never idle: it had an open
+      // turn. Claiming inactivity there is false and sends the user looking in
+      // the wrong place, so the cases get different text (#548). Three of them:
+      // the turn is blocked on a human decision (the bot is waiting on *them*),
+      // the turn went silent on its own (wedged CLI, dropped API connection, one
+      // long-running tool), or the session was genuinely idle between turns.
+      //
+      // The pending check covers plan approvals and questions, which the bot
+      // holds in-process. An ordinary MCP permission prompt is owned by the MCP
+      // child and is not visible here, so that case still reads as silence —
+      // see #533 for the bridge line that would close the gap.
+      const timeoutMessage = waitingOnHuman
+        ? `${timeoutFormatter.formatBold('Session still waiting')} for a reply - no answer for ${Math.round(idleMs / 60000)} minutes, so the turn was stopped\n\n💡 React with 🔄 to resume, or send a new message to continue.`
+        : session.isProcessing
+          ? `${timeoutFormatter.formatBold('Session stopped responding')} - no output for ${Math.round(idleMs / 60000)} minutes while a turn was still running\n\n💡 React with 🔄 to resume, or send a new message to continue.`
+          : `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
       // Update existing warning post or create a new one
       if (session.lifecyclePostId) {
@@ -2233,7 +2305,19 @@ export async function cleanupIdleSessions(
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       const warningFormatter = session.platform.getFormatter();
-      const warningMessage = `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
+      // Same distinction as the timeout branch (#548): with a turn open this
+      // is not idleness, it is silence from a turn that should be producing
+      // events. Naming it that way is the difference between "you forgot
+      // about me" and "something may be wrong".
+      const warnWaiting =
+        session.isProcessing &&
+        (session.messageManager?.hasPendingApproval() === true ||
+          session.messageManager?.hasPendingQuestions() === true);
+      const warningMessage = warnWaiting
+        ? `${warningFormatter.formatBold('Session still waiting')} for a reply - will stop in ~${remainingMins} minutes without one`
+        : session.isProcessing
+          ? `${warningFormatter.formatBold('No output for a while')} - a turn is still running; will stop in ~${remainingMins} minutes if nothing arrives`
+          : `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(

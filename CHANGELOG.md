@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A session that stalls mid-turn is no longer reported as idle** (#548, found by @kaza while reviewing #533). The idle reaper decides from `lastActivityAt` alone, with no check on whether a turn is open. That clock is fed by every Claude event, so a streaming turn keeps it warm — but a turn that goes silent (a wedged CLI, a dropped API connection, one long-running tool call) was reaped with *"Session timed out after N minutes of inactivity"*, which is false and sends the user looking in the wrong place. The timeout and pre-timeout warning now distinguish three cases: a turn blocked on a plan approval or question says the bot is waiting on *you*, a turn that went silent reports lost output, and a genuinely idle session reads exactly as before. All variants are registered with the #491 bot-to-bot loop guard, so one bot's status post still can never read as a request to another.
+
+## [1.33.1] - 2026-09-05
+
+### Fixed
+- **A `!stop` in a direct-channel-mode channel no longer makes it permanently deaf** (#538, thanks @kaza). The paused-session gate and the resume sink disagreed about soft-deleted sessions, so a tombstoned record claimed every message and dropped it. Tombstones now carry an end reason: a user-stopped session stays ended (the next message starts a fresh session), while a stale-swept one is revived — honoring the "send a new message to continue" promise — with the tombstone cleared only after the resume authorization gate. Also closes the reaction-resume door on stopped sessions, and `!help` now answers in a paused thread instead of vanishing. Fixes #537.
+- **Direct-channel-mode sessions are no longer tombstoned by the boot-time stale sweep** (#530, thanks @kaza). One quiet hour used to brick the channel silently. Fixes #499.
+- **Pooled accounts selected by `home` now clear inherited `CLAUDE_CONFIG_DIR`** (#540, thanks @kaza), which outranks the `HOME` override — a daemon started under its own profile silently billed every pooled session to its own seat and probed its own quota per pool entry. Also clears `CLAUDE_SECURESTORAGE_CONFIG_DIR` and inherited bearer credentials; API-key and single-account modes unaffected. Fixes both session spawning and the usage probe. Fixes #539.
+
+## [1.33.0] - 2026-09-02
+
+### Security
+- **fast-uri floored at 4.1.4** (transitive via `ajv`), clearing four fresh high-severity advisories (host confusion and SSRF classes, GHSA-5jgf-p345-68v8 and siblings). Override floor raised from `>=4.1.2`; no direct dependency changes.
+
+### Added
+- **Slack: posts made through the app's own user token count as the person's message** (#527, thanks @kaza). Tooling that posts into the channel via the app's user token (same `app_id` + team, acting user set) previously looked bot-authored and was ignored; such posts now command the bot as the acting user. Authorship is decided only from server-authoritative envelope identity (`app_id` learned from the `hello` frame and per-envelope `api_app_id`) — content-based spoofing cannot trigger it, and events that don't match fail closed to today's behavior. Closes #526.
+
 ## [1.32.1] - 2026-09-02
 
 ### Changed
