@@ -356,8 +356,37 @@ export async function handleMessage(
               );
             }
           }
+          return;
         }
-        // All commands in paused state are consumed (not passed as prompts)
+
+        // Every other command used to be consumed here in silence. That is
+        // the wrong default for the commands that need no session at all:
+        // `!help` above all, which is exactly what someone reaches for when a
+        // thread has stopped answering — and which answered with nothing,
+        // making a stuck thread look like a dead bot. Run them through the
+        // executor in its session-less mode; commands that genuinely require
+        // a live session report `handled: false` and fall through to the drop
+        // below.
+        const immediateCtx: CommandExecutorContext = {
+          commandContext: 'first-message',
+          threadId: threadRoot,
+          username,
+          client,
+          sessionManager: session,
+          formatter,
+          isAllowed: client.isUserAllowed(username),
+          files: post.metadata?.files,
+        };
+        const immediate = await executeCommand(pausedParsed.command, pausedParsed.args, immediateCtx);
+        if (immediate.handled) return;
+
+        // Consumed, but never silently: a command that vanishes with no reply
+        // and no log is indistinguishable from a bot that has stopped
+        // receiving events, and sends whoever is debugging it down the wrong
+        // path entirely.
+        logger?.debug?.(
+          `!${pausedParsed.command} from @${username} needs an active session; thread ${threadRoot} is paused — dropped`
+        );
         return;
       }
 

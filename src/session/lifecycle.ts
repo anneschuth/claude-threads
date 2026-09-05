@@ -432,28 +432,6 @@ export function handleRateLimit(session: Session, hit: RateLimitHit, ctx: Sessio
 }
 
 /**
- * Helper to find a persisted session by raw threadId, scoped to a platform.
- * Persisted sessions are keyed by composite `platformId:threadId`, so we
- * iterate. SECURITY: the platform scope is required here — this feeds the
- * resume path, which imports a session's allowlist, working dir, worktree and
- * Claude account and delivers a live message into it. Without scoping, a
- * thread id that collides across platforms could resume another platform's
- * session (platformId is the store's hard privacy boundary).
- */
-function findPersistedByThreadId(
-  persisted: Map<string, PersistedSession>,
-  threadId: string,
-  platformId: string
-): PersistedSession | undefined {
-  for (const session of persisted.values()) {
-    if (session.threadId === threadId && session.platformId === platformId) {
-      return session;
-    }
-  }
-  return undefined;
-}
-
-/**
  * Create the per-session decision bridge (plan approvals and question answers
  * flowing back through the MCP permission server — see
  * src/mcp/decision-bridge.ts). Returns null when the socket can't be created;
@@ -1817,8 +1795,18 @@ export async function resumePausedSession(
   platformId: string
 ): Promise<void> {
   // Find persisted session by raw threadId, scoped to the message's platform.
-  const persisted = ctx.state.sessionStore.load();
-  const state = findPersistedByThreadId(persisted, threadId, platformId);
+  //
+  // This MUST use the same any-state lookup the paused-session gate in
+  // message-handler uses (`registry.getPersistedByThreadId`), not `load()`.
+  // `load()` skips soft-deleted records; the gate does not. When the two
+  // disagreed, a soft-deleted record routed every message into the paused
+  // branch and then died here on "No persisted session found" — and because
+  // the paused branch owns the message, the new-session path never ran
+  // either. The thread was unreachable in both directions.
+  //
+  // In direct channel mode, where the channel IS the session, that made the
+  // whole channel permanently deaf the moment `!stop` soft-deleted its record.
+  const state = ctx.state.sessionStore.findByThreadIdAnyState(threadId, platformId);
   if (!state) {
     log.debug(`No persisted session found for ${threadId.substring(0, 8)}...`);
     return;
@@ -1841,6 +1829,20 @@ export async function resumePausedSession(
     log.warn(`auth.denied.resume: @${username || 'unknown'} not authorized to resume ${shortId}...`);
     return;
   }
+  // A record we are about to revive must stop being a tombstone, or `load()`
+  // hides it again and the thread is trapped on the next lookup that uses it.
+  // Clearing it here — after the authorization gate, so a refused resume
+  // cannot launder a soft-deleted session back into the visible set — makes
+  // the revival stick.
+  if (state.cleanedAt) {
+    log.info(`🪦 Reviving soft-deleted session ${shortId}... (resumed by @${username})`);
+    delete state.cleanedAt;
+    // Written back here rather than left to the resume's own persistence: the
+    // tombstone has to be off DISK, not just off this object, or a restart
+    // before the next save puts the thread straight back in the trap.
+    ctx.state.sessionStore.save(compositeSessionId(state.platformId, state.threadId), state);
+  }
+
   log.info(`🔄 Resuming paused session ${shortId}... for new message`);
 
   // Resume the session

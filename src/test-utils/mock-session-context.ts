@@ -14,6 +14,22 @@ import type { SessionContext } from '../operations/session-context/index.js';
  * own factory through a thin local wrapper.
  */
 export function createMockSessionContext(makePlatform: () => import('../platform/index.js').PlatformClient, sessions: Map<string, Session> = new Map()): SessionContext {
+  // `load()` is the store's visible set; the any-state scan is a superset of
+  // it. Deriving the default from `load` keeps every existing test — which
+  // only stubs `load` — working unchanged. A test that needs the two to
+  // DISAGREE (a soft-deleted record, which `load()` hides but the raw scan
+  // still returns) overrides `findByThreadIdAnyState` explicitly.
+  const load = mock(() => new Map());
+  const findByThreadIdAnyState = mock((threadId: string, platformId?: string) => {
+    for (const persisted of load().values()) {
+      const s = persisted as { threadId: string; platformId: string };
+      if (s.threadId !== threadId) continue;
+      if (platformId !== undefined && s.platformId !== platformId) continue;
+      return persisted;
+    }
+    return undefined;
+  });
+
   return {
     config: {
       workingDir: '/test',
@@ -34,8 +50,9 @@ export function createMockSessionContext(makePlatform: () => import('../platform
         cleanStale: mock(() => []),
         saveStickyPostId: mock(() => {}),
         getStickyPostId: mock(() => null),
-        load: mock(() => new Map()),
+        load,
         findByPostId: mock(() => undefined),
+        findByThreadIdAnyState,
       } as unknown as SessionContext['state']['sessionStore'],
       githubEmailsStore: {
         get: mock(() => undefined),

@@ -802,6 +802,54 @@ describe('handleMessage', () => {
       expect(session.cancelPausedSession).toHaveBeenCalledWith('thread1', 'test-platform');
     });
 
+    test('!help still answers in a paused thread', async () => {
+      // Regression: every command except !stop was consumed here in silence.
+      // !help needs no session at all, and it is the first thing anyone tries
+      // when a thread stops answering — so the one command that could explain
+      // the situation was also the one guaranteed to say nothing, making a
+      // stuck thread look like a bot that had gone deaf.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!help',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      const helpText = (client.createPost as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(helpText).toContain('!stop');
+    });
+
+    test('a session-only command is dropped, but says so in the log', async () => {
+      // The other half: commands that genuinely need a live session still
+      // cannot run — but the drop is recorded, so the next person debugging a
+      // quiet thread sees a reason instead of nothing at all.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!escape',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.resumePausedSession).not.toHaveBeenCalled();
+      expect(session.interruptSession).not.toHaveBeenCalled();
+      const logged = (options.logger!.debug as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(logged).toContain('escape');
+      expect(logged).toContain('paused');
+    });
+
     test('other commands in paused session do not resume', async () => {
       const post: PlatformPost = {
         id: 'post1',
