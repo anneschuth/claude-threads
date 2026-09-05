@@ -244,17 +244,25 @@ export function buildClaudeChildEnv(
     // account we thought we were using.
     delete env.ANTHROPIC_API_KEY;
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
-    // ⚠️ And CLAUDE_CONFIG_DIR, for the same reason and more sharply: it
-    // OUTRANKS HOME. A daemon started with CLAUDE_CONFIG_DIR set — which is
+    // A third bearer credential in the same class as those two, and just as
+    // able to authenticate on its own.
+    delete env.ANTHROPIC_AUTH_TOKEN;
+    // ⚠️ And the two location overrides, for the same reason and more sharply:
+    // they OUTRANK HOME. A daemon started with CLAUDE_CONFIG_DIR set — which is
     // how a bot running under its own profile is started — would hand every
     // pooled account that same config dir, so every session would run on the
     // BOT's seat while being labelled with the pooled account's id. The pool
     // would look like it was spreading load and would not be.
     delete env.CLAUDE_CONFIG_DIR;
+    delete env.CLAUDE_SECURESTORAGE_CONFIG_DIR;
   } else if (account?.apiKey) {
     env.ANTHROPIC_API_KEY = account.apiKey;
-    // Clear an inherited OAuth token so API key billing wins.
+    // Clear the inherited bearer credentials so API key billing wins. Both of
+    // them: either one authenticates by itself and takes precedence over the
+    // key we just set, so clearing only one leaves the account we asked for
+    // silently overridden by the one we inherited.
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    delete env.ANTHROPIC_AUTH_TOKEN;
   }
 
   return env;

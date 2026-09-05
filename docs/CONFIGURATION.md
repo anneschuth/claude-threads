@@ -554,6 +554,14 @@ claudeAccounts:
 | `apiKey` | One of | Anthropic API key. Billed against that key; session history stays under the bot's default `HOME`. |
 | `displayName` | No | Human-readable label in UI (defaults to `id`) |
 
+⚠️ An account with `home` owns the **whole** Claude profile, not just its
+credentials: user settings, hooks and global MCP configuration are read from
+that home too. Anything the daemon inherited that could point elsewhere — an
+API key, a bearer token, `CLAUDE_CONFIG_DIR` — is cleared for that child, or
+the account you selected would be silently overridden by the one the daemon
+runs as. Daemon-level hooks and settings therefore do **not** carry into a
+pooled account; put them in the account's own home.
+
 Exactly one of `home` or `apiKey` should be set per account. Persisted sessions record which account they ran under and resume on the same one.
 
 ## Environment Variables
