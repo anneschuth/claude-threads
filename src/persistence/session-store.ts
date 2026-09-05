@@ -287,6 +287,12 @@ export class SessionStore {
       // Skip already soft-deleted sessions
       if (session.cleanedAt) continue;
 
+      // DCM sessions are channel-scoped tasks: the channel's archive/teardown
+      // owns their lifecycle, not idle age. Tombstoning one after a quiet hour
+      // makes the whole channel permanently unresponsive (every message dies
+      // on "No persisted session found").
+      if (session.threadId.startsWith('dcm:')) continue;
+
       const lastActivity = new Date(session.lastActivityAt).getTime();
       if (now - lastActivity > maxAgeMs) {
         staleIds.push(sessionId);

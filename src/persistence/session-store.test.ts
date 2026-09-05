@@ -299,6 +299,42 @@ describe('SessionStore', () => {
       expect(history[0].threadId).toBe('old-thread');
     });
 
+    it('never tombstones a DCM session, however idle (fixes #499)', () => {
+      // A thread session and a channel session, both well past the age limit.
+      // The thread one is aged out as always; the DCM one must survive.
+      //
+      // The asymmetry is the point. A tombstoned thread session costs nothing
+      // — the next message opens a new thread and starts fresh. A DCM session
+      // IS its channel, so tombstoning it leaves nowhere else to go: every
+      // later message dies in `resumePausedSession` on "No persisted session
+      // found" (a DEBUG line, no reply), and the channel is unusable until
+      // someone edits sessions.json on the host. Idle age is the wrong owner
+      // for that lifecycle; the channel's own archive/teardown is the right
+      // one.
+      const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      const threadSession = createTestSession({
+        threadId: 'idle-thread',
+        lastActivityAt: twoHoursAgo,
+      });
+      const channelSession = createTestSession({
+        threadId: 'dcm:slack-vvs--ch-C0BV9SBB6R2',
+        lastActivityAt: twoHoursAgo,
+      });
+
+      store.save('test-platform:idle-thread', threadSession);
+      store.save('test-platform:dcm:slack-vvs--ch-C0BV9SBB6R2', channelSession);
+
+      const staleIds = store.cleanStale(60 * 60 * 1000); // 1 hour
+
+      expect(staleIds).toEqual(['test-platform:idle-thread']);
+
+      // The channel session is still live, not merely still on disk: `load()`
+      // is what the resume path reads, and it is the lookup the bug hid it from.
+      const live = store.load();
+      expect(live.has('test-platform:dcm:slack-vvs--ch-C0BV9SBB6R2')).toBe(true);
+      expect(live.has('test-platform:idle-thread')).toBe(false);
+    });
+
     it('skips already soft-deleted sessions', () => {
       const session = createTestSession({
         threadId: 'old-thread',
