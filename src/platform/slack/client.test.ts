@@ -10,6 +10,7 @@ import { describe, it, expect } from 'bun:test';
 import { getEmojiName } from '../utils.js';
 import { SlackClient } from './client.js';
 import type { SlackPlatformConfig } from '../../config/types.js';
+import { setLogHandler } from '../../utils/logger.js';
 
 describe('Slack Client Emoji Handling', () => {
   describe('getEmojiName conversion for reactions', () => {
@@ -453,5 +454,57 @@ describe('SlackClient API methods', () => {
   it('downloadFile throws when no download URL is available', async () => {
     fetchResponder = () => ok({ file: { id: 'F1', name: 'x', size: 0, mimetype: '' } });
     await expect(makeClient().downloadFile('F1')).rejects.toThrow(/No download URL/);
+  });
+});
+
+describe('SlackClient working status degrades silently (#525 review)', () => {
+  /**
+   * `assistant.threads.setStatus` is documented as AI-assistant-threads-only
+   * and works in ordinary channels today. If Slack ever tightens that, or a
+   * workspace lacks the method, `api()` would warn-log every unexpected
+   * `ok:false` — once per 20s heartbeat per active session, forever. The
+   * expectedErrors list is what makes the documented failure silent, which is
+   * what the fire-and-forget shape promises.
+   */
+  const withWarnSpy = async (fn: () => Promise<void> | void): Promise<string[]> => {
+    const warnings: string[] = [];
+    setLogHandler((level, _component, message) => {
+      if (level === 'warn') warnings.push(message);
+    });
+    try {
+      await fn();
+      // Let the fire-and-forget .catch() settle before restoring.
+      await new Promise((r) => setTimeout(r, 0));
+    } finally {
+      setLogHandler(null);
+    }
+    return warnings;
+  };
+
+  it.each([
+    'method_not_supported_for_channel_type',
+    'missing_scope',
+    'invalid_thread_ts',
+    'channel_not_found',
+  ])('does not warn when setStatus is unavailable: %s', async (code) => {
+    fetchResponder = () => notOk(code);
+    const client = makeClient();
+
+    const warnings = await withWarnSpy(() => {
+      client.sendTyping('1700000000.000100');
+    });
+
+    expect(warnings).toEqual([]);
+  });
+
+  it('still warns on a genuinely unexpected setStatus error', async () => {
+    fetchResponder = () => notOk('internal_error');
+    const client = makeClient();
+
+    const warnings = await withWarnSpy(() => {
+      client.sendTyping('1700000000.000200');
+    });
+
+    expect(warnings.join('\n')).toContain('assistant.threads.setStatus');
   });
 });

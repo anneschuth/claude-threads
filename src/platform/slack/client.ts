@@ -1298,6 +1298,21 @@ export class SlackClient extends BasePlatformClient {
    * Fire-and-forget: a status is a nicety, and failing to show one must never
    * interfere with the work it is describing.
    */
+  /**
+   * Slack error codes that mean "this workspace or channel does not offer the
+   * status method", not "something went wrong". `assistant.threads.setStatus`
+   * is documented as AI-assistant-threads-only and works in ordinary channels
+   * today; if Slack ever tightens that, every active session would otherwise
+   * warn-log roughly every 20 seconds, indefinitely. Degrading silently is the
+   * whole point of the fire-and-forget shape.
+   */
+  private static readonly STATUS_EXPECTED_ERRORS = [
+    'method_not_supported_for_channel_type',
+    'missing_scope',
+    'invalid_thread_ts',
+    'channel_not_found',
+  ];
+
   sendTyping(threadId?: string): void {
     const anchor = statusAnchor(threadId, this.lastProcessedTs);
     if (!anchor) return;
@@ -1307,12 +1322,18 @@ export class SlackClient extends BasePlatformClient {
     this.statusSentAt.set(anchor, now);
     this.pruneStatusAnchors(now);
 
-    this.api('POST', 'assistant.threads.setStatus', {
-      channel_id: this.channelId,
-      thread_ts: anchor,
-      status: STATUS_TEXT,
-      loading_messages: STATUS_LOADING_MESSAGES,
-    }).catch((err) => {
+    this.api(
+      'POST',
+      'assistant.threads.setStatus',
+      {
+        channel_id: this.channelId,
+        thread_ts: anchor,
+        status: STATUS_TEXT,
+        loading_messages: STATUS_LOADING_MESSAGES,
+      },
+      0,
+      SlackClient.STATUS_EXPECTED_ERRORS
+    ).catch((err) => {
       // Includes workspaces where the method is unavailable. Log once at debug
       // and carry on rather than retrying a cosmetic call.
       log.debug(`setStatus failed for ${anchor}: ${err}`);
@@ -1332,11 +1353,17 @@ export class SlackClient extends BasePlatformClient {
     // rather than waiting out the heartbeat window.
     this.statusSentAt.delete(anchor);
 
-    this.api('POST', 'assistant.threads.setStatus', {
-      channel_id: this.channelId,
-      thread_ts: anchor,
-      status: '',
-    }).catch((err) => {
+    this.api(
+      'POST',
+      'assistant.threads.setStatus',
+      {
+        channel_id: this.channelId,
+        thread_ts: anchor,
+        status: '',
+      },
+      0,
+      SlackClient.STATUS_EXPECTED_ERRORS
+    ).catch((err) => {
       log.debug(`clearing status failed for ${anchor}: ${err}`);
     });
   }
