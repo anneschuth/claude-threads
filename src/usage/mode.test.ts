@@ -44,14 +44,12 @@ describe('collectUsage mode selection', () => {
     expect(rows[0].error).toMatch(/no longer configured/i);
   });
 
-  it('falls back to discovery when the pool is empty or absent', async () => {
-    // Not asserting which profiles exist — only that it did NOT take the pool
-    // path, which would have produced the pool's ids.
-    for (const accounts of [[], undefined]) {
-      const rows = await collectUsage({ all: true, accounts });
-      expect(rows.map((r) => r.profile)).not.toContain('alpha');
-    }
-  });
+  // The no-pool path is deliberately NOT exercised here: it spawns a real
+  // `claude -p "/usage"` probe, which would make this suite depend on a CLI
+  // being installed and logged in. `accountTargets` returning no targets is
+  // the branch decision itself, and accounts.test.ts pins it — everything
+  // after that point is one probe of the account this process already runs
+  // as, with no directory scan anywhere in it.
 });
 
 describe('the plan badge reaches the rendered output', () => {

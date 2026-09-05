@@ -20,6 +20,12 @@ import type { ProfileUsage, UsageLimit } from './render.js';
 import { accountTargets } from './accounts.js';
 import type { ClaudeAccount } from '../config/types.js';
 
+/**
+ * Per-seat cap on a single probe. The router uses the same bound for the same
+ * call; a slow seat should cost one row, not the whole command.
+ */
+const USAGE_PROBE_TIMEOUT_MS = 10_000;
+
 export { renderProfiles } from './render.js';
 export type { ProfileUsage } from './render.js';
 
@@ -51,7 +57,15 @@ export function toLimits(usage: AccountUsage): UsageLimit[] {
     limits.push({
       kind: 'weekly_scoped',
       percent: usage.weekPerModelPct,
-      resetsAt: usage.weekResetsAt ?? undefined,
+      // ⚠️ No reset hint, deliberately. The probe reports one weekly reset,
+      // for the all-models window; the per-model window is a separate bucket
+      // and its reset was never observed. Borrowing the all-models timestamp
+      // would print a specific hour that nothing measured — worse than the
+      // omitted line, because it reads as fact.
+      //
+      // No `model` either: the probe keeps the highest per-model percentage
+      // and discards which model it came from, so the row is headed
+      // "Current week (scoped)". Naming a model here would be a guess.
     });
   }
 
@@ -72,7 +86,11 @@ export function toLimits(usage: AccountUsage): UsageLimit[] {
 async function readSeat(name: string, configDir: string, home?: string): Promise<ProfileUsage> {
   const email = await accountEmail(configDir);
   const plan = await accountPlan(configDir);
-  const usage = await probeAccountUsage({ id: name, home });
+  // Bounded well below the probe's 30s default: `!usage all` reads seats one
+  // at a time, so an unbounded stall would be multiplied by the pool size and
+  // the bot would simply look dead. Matches the bound the account router
+  // already uses for the same probe.
+  const usage = await probeAccountUsage({ id: name, home }, { timeoutMs: USAGE_PROBE_TIMEOUT_MS });
 
   if (!usage) {
     // The probe returns null for a logged-out seat, an API-key account, and an

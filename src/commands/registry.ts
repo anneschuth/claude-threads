@@ -354,9 +354,10 @@ export const COMMAND_REGISTRY: CommandDefinition[] = [
     category: 'system',
     audience: 'both',
     worksInFirstMessage: true,
+    isImmediate: true,  // Answers from the account pool without starting a session
     claudeNotes: 'Quota windows, not this session\'s cost — see !cost for that',
     subcommands: [
-      { name: 'all', description: 'Every Claude profile on this machine', worksInFirstMessage: true },
+      { name: 'all', description: 'Every account this bot is configured with', worksInFirstMessage: true },
     ],
   },
   {

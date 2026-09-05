@@ -55,3 +55,23 @@ describe('toLimits', () => {
     expect(without.every((l) => l.resetsAt === undefined)).toBe(true);
   });
 });
+
+describe('the scoped weekly row claims nothing it did not observe', () => {
+  it('carries no reset hint, because the probe only reports the all-models one', () => {
+    // Borrowing the all-models reset would print a specific hour for a window
+    // nobody measured. An omitted line is honest; a wrong hour reads as fact.
+    const scoped = toLimits(usage()).find((l) => l.kind === 'weekly_scoped');
+
+    expect(scoped?.percent).toBe(62);
+    expect(scoped?.resetsAt).toBeUndefined();
+  });
+
+  it('names no model, because the probe keeps only the highest percentage', () => {
+    // parseUsageOutput takes max() across the per-model lines and discards
+    // which model won. Naming one here would be a guess with a real chance of
+    // pointing at the wrong model entirely.
+    const scoped = toLimits(usage()).find((l) => l.kind === 'weekly_scoped');
+
+    expect(scoped?.model).toBeUndefined();
+  });
+});

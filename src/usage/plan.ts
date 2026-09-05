@@ -1,11 +1,11 @@
 /**
  * Turning the credential's plan fields into something worth reading.
  *
- * Both come straight out of `.credentials.json` — no extra call. Measured on
- * real seats: `subscriptionType` is the coarse plan ("max"), and
- * `rateLimitTier` carries the multiplier ("default_claude_max_20x"). The
- * multiplier is the part that matters, because "Max" alone doesn't tell you
- * whether a weekly window is four times bigger than the seat next to it.
+ * Pure: the caller supplies the two fields, `profiles.ts` reads them out of
+ * `.claude.json`. Measured on real seats: the coarse plan ("max") and the
+ * multiplier tier ("default_claude_max_20x"). The multiplier is the part that
+ * matters, because "Max" alone doesn't tell you whether a weekly window is
+ * four times bigger than the seat next to it.
  */
 
 /** Strip the vendor prefix these tiers are wrapped in. */
@@ -17,7 +17,7 @@ function titleCase(text: string): string {
 }
 
 /**
- * A human label for the plan, or `undefined` when the credential says nothing.
+ * A human label for the plan, or `undefined` when the metadata says nothing.
  *
  * Never invents a multiplier: an unrecognised tier degrades to the coarse
  * subscription type, and failing that is shown verbatim. A wrong "20×" would
@@ -40,7 +40,7 @@ export function planLabel(creds: {
     // Unfamiliar tier. The coarse type is at least certainly true. With no
     // type there is NO badge: prettifying the raw tier would both invent a
     // multiplier out of a string we did not recognise ("team_premium_20x" is
-    // not necessarily 20×) and publish an unvalidated credential field into a
+    // not necessarily 20×) and publish an unvalidated metadata field into a
     // Slack message.
     return creds.subscriptionType?.trim() ? titleCase(creds.subscriptionType.trim()) : undefined;
   }

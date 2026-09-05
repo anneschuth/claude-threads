@@ -59,3 +59,15 @@ describe('accountTargets', () => {
     expect(accountTargets(undefined)).toEqual([]);
   });
 });
+
+describe('no pool configured', () => {
+  it('offers no targets, so the caller reports the running account', () => {
+    // The branch that replaced the `~/.claude*` scan. Empty targets is what
+    // sends `collectUsage` to "the account this process already runs as" —
+    // ONE row, not a row per human seat on the box. Both shapes of "no pool"
+    // have to agree, or `!usage all` would scan in one of them.
+    expect(accountTargets([], undefined)).toEqual([]);
+    expect(accountTargets(undefined, undefined)).toEqual([]);
+    expect(accountTargets([], 'some-session-account')).toEqual([]);
+  });
+});

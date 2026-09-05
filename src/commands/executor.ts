@@ -122,7 +122,14 @@ const handleUsage: CommandHandler = async (ctx, args) => {
     await collectUsage({
       all,
       accounts: ctx.sessionManager.getClaudeAccounts(),
-      sessionAccountId: ctx.sessionManager.getPersistedSession(ctx.threadId)?.claudeAccountId,
+      // Scoped to the platform: platformId is the session store's privacy
+      // boundary, and an unscoped thread-id lookup could bind this row to
+      // another platform's session — reporting a seat this thread does not
+      // run on, which is a plausible answer to a different question.
+      sessionAccountId: ctx.sessionManager.getPersistedSession(
+        ctx.threadId,
+        ctx.client.platformId
+      )?.claudeAccountId,
     }),
     { showEmails: ctx.sessionManager.getUsageShowEmails() }
   );

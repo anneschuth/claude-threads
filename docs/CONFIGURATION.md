@@ -655,3 +655,10 @@ seat's week is four times another's and identifies nobody.
 
 Both the address and the badge are read from the profile's `.claude.json`.
 Nothing in `!usage` opens `.credentials.json` or the macOS Keychain.
+
+⚠️ The flag gates the address read from that metadata — it does not sanitize
+labels you chose yourself. A `claudeAccounts` entry whose `id` or `displayName`
+is an email address is printed as the row heading whether or not `showEmails`
+is on, because it is the name the account router uses and a row that cannot be
+matched to a routing decision is worse than useless. Name pool accounts
+`primary` / `backup`, not by address.
