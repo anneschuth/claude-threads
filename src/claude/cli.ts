@@ -244,6 +244,13 @@ export function buildClaudeChildEnv(
     // account we thought we were using.
     delete env.ANTHROPIC_API_KEY;
     delete env.CLAUDE_CODE_OAUTH_TOKEN;
+    // ⚠️ And CLAUDE_CONFIG_DIR, for the same reason and more sharply: it
+    // OUTRANKS HOME. A daemon started with CLAUDE_CONFIG_DIR set — which is
+    // how a bot running under its own profile is started — would hand every
+    // pooled account that same config dir, so every session would run on the
+    // BOT's seat while being labelled with the pooled account's id. The pool
+    // would look like it was spreading load and would not be.
+    delete env.CLAUDE_CONFIG_DIR;
   } else if (account?.apiKey) {
     env.ANTHROPIC_API_KEY = account.apiKey;
     // Clear an inherited OAuth token so API key billing wins.
