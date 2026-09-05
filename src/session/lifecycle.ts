@@ -23,6 +23,7 @@ import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
 import { ClaudeCli } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
+import { isRevivable } from '../persistence/session-store.js';
 import type { PersistedSession } from '../persistence/session-store.js';
 import { createThreadLogger } from '../persistence/thread-logger.js';
 import { VERSION } from '../version.js';
@@ -1812,6 +1813,14 @@ export async function resumePausedSession(
     return;
   }
 
+  // The gate upstream already hides stopped records, but this is a public sink
+  // and the rule belongs where the resurrection actually happens. Any-state
+  // means any state — including one whose conversation is over.
+  if (!isRevivable(state)) {
+    log.debug(`Not resuming stopped session ${threadId.substring(0, 8)}... — it ended`);
+    return;
+  }
+
   const shortId = threadId.substring(0, 8);
 
   // Fail-closed authorization gate (#388). Resume previously ran purely from
@@ -1837,6 +1846,11 @@ export async function resumePausedSession(
   if (state.cleanedAt) {
     log.info(`🪦 Reviving soft-deleted session ${shortId}... (resumed by @${username})`);
     delete state.cleanedAt;
+    // Both fields, or the record carries a reason for an ending that no longer
+    // happened. `resolveEndReason` reads it as undefined without `cleanedAt`,
+    // so this is hygiene rather than a bug — but the pair is written together
+    // and has to be cleared together, or the next reader has to know that.
+    delete state.endReason;
     // Written back here rather than left to the resume's own persistence: the
     // tombstone has to be off DISK, not just off this object, or a restart
     // before the next save puts the thread straight back in the trap.

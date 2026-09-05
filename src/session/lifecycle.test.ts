@@ -1376,7 +1376,7 @@ describe('authorization gate at sinks (#388)', () => {
 
     it('resumes a soft-deleted record instead of dropping the message', async () => {
       const ctx = contextWithTombstone(
-        persistedState({ isPaused: true, cleanedAt: new Date().toISOString() }),
+        persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' }),
       );
 
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
@@ -1386,7 +1386,7 @@ describe('authorization gate at sinks (#388)', () => {
     });
 
     it('clears the tombstone it resurrected, so the record stops being half-dead', async () => {
-      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString() });
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
       const ctx = contextWithTombstone(state);
 
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
@@ -1400,7 +1400,7 @@ describe('authorization gate at sinks (#388)', () => {
     it('writes the revived record back to the store, not just the object', async () => {
       // Clearing the field in memory is not enough: a restart before the next
       // save would reload the tombstone from disk and trap the thread again.
-      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString() });
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
       const ctx = contextWithTombstone(state);
 
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'alice', 'test-platform');
@@ -1409,12 +1409,15 @@ describe('authorization gate at sinks (#388)', () => {
         .find(([id]: [string]) => id === 'test-platform:thread-paused');
       expect(saved).toBeDefined();
       expect(saved[1].cleanedAt).toBeUndefined();
+      // The pair is written together and must be cleared together, or the
+      // record keeps a reason for an ending that no longer happened.
+      expect(saved[1].endReason).toBeUndefined();
     });
 
     it('does not revive the tombstone for a refused user', async () => {
       // The write-back sits after the #388 gate on purpose: a refused resume
       // must not launder a soft-deleted session back into the visible set.
-      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString() });
+      const state = persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' });
       const ctx = contextWithTombstone(state);
 
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn', 'test-platform');
@@ -1428,7 +1431,7 @@ describe('authorization gate at sinks (#388)', () => {
       // identity gate: the authorization check runs on the same state either
       // way.
       const ctx = contextWithTombstone(
-        persistedState({ isPaused: true, cleanedAt: new Date().toISOString() }),
+        persistedState({ isPaused: true, cleanedAt: new Date().toISOString(), endReason: 'stale' }),
       );
 
       await lifecycle.resumePausedSession('thread-paused', 'continue', undefined, ctx, 'jonas.gn', 'test-platform');

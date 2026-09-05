@@ -27,6 +27,20 @@ import { shouldPostResumeRefusal } from './session/refusal-limiter.js';
 const ackLog = createLogger('ack');
 
 /**
+ * Commands the paused-session branch may answer without a live session.
+ *
+ * Deliberately an explicit list rather than `worksInFirstMessage`: that flag
+ * means "may appear before a session exists", which is a different question.
+ * `!worktree remove` / `cleanup` / `off` carry it and still call
+ * active-session-only methods — dispatched in a paused thread they find
+ * nothing, do nothing, and report success.
+ *
+ * Every entry here has to produce its answer from something other than a
+ * session: the command registry, the changelog, the account pool.
+ */
+const PAUSED_SAFE_COMMANDS: ReadonlySet<string> = new Set(['help', 'release-notes', 'usage']);
+
+/**
  * Machine-generated status posts from claude-threads itself (any instance,
  * any version). When several bots share a server, one bot's status output
  * must never read as a request to another — a refusal that @-mentioned a
@@ -381,8 +395,23 @@ export async function handleMessage(
           return;
         }
 
-        // Commands that genuinely require a live session report
-        // `handled: false` and fall through to the drop below.
+        // ⚠️ An explicit allowlist, NOT `worksInFirstMessage`. The two are not
+        // the same question: `worksInFirstMessage` means "can appear before a
+        // session exists", and `!worktree remove` / `cleanup` / `off` qualify
+        // while still calling active-session-only methods. Dispatched here they
+        // would find no session, do nothing, and return `handled: true` — a
+        // silent no-op that also skips the diagnostic log below, which is the
+        // exact failure this branch is being fixed for.
+        //
+        // These three answer from nothing: help renders the registry,
+        // release-notes reads the changelog, usage probes the account pool.
+        if (!PAUSED_SAFE_COMMANDS.has(pausedParsed.command)) {
+          logger?.debug?.(
+            `!${pausedParsed.command} from @${username} needs an active session; thread ${threadRoot} is paused — dropped`
+          );
+          return;
+        }
+
         const immediateCtx: CommandExecutorContext = {
           commandContext: 'first-message',
           threadId: threadRoot,

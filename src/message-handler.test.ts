@@ -906,6 +906,54 @@ describe('handleMessage', () => {
       expect(helpText).toContain('!stop');
     });
 
+    test('!worktree remove is dropped, not silently reported as done', async () => {
+      // `worksInFirstMessage` is not "needs no session". !worktree remove
+      // carries that flag and still calls active-session-only methods: routed
+      // through the first-message executor in a paused thread it finds no
+      // session, does nothing, and returns handled — succeeding at nothing,
+      // quietly, which is the exact shape of failure this branch exists to
+      // stop producing.
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '!worktree remove some-branch',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.removeWorktreeCommand).not.toHaveBeenCalled();
+      const logged = (options.logger!.debug as any).mock.calls.map(([m]: [string]) => m).join('\n');
+      expect(logged).toContain('worktree');
+      expect(logged).toContain('paused');
+    });
+
+    test('!stop the deploy stays a prompt, not a command', async () => {
+      // The no-op guard is scoped to a bare command. Someone typing "!stop the
+      // deploy" is talking, and must still reach Claude.
+      (session.registry.getPersistedByThreadId as any).mockReturnValue(undefined);
+      (session.getPersistedSession as any).mockReturnValue(undefined);
+
+      const post: PlatformPost = {
+        id: 'post1',
+        platformId: 'test',
+        channelId: 'channel1',
+        userId: 'user1',
+        message: '@claude-bot !stop the deploy',
+        rootId: 'thread1',
+        createAt: Date.now(),
+      };
+      const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+      await handleMessage(client, session, post, user, options);
+
+      expect(session.startSession).toHaveBeenCalled();
+    });
+
     test('a session-only command is dropped, but says so in the log', async () => {
       // The other half: commands that genuinely need a live session still
       // cannot run — but the drop is recorded, so the next person debugging a
