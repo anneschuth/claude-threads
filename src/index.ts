@@ -702,6 +702,10 @@ async function startWithoutDaemon() {
           platformConfig.stickyMessage,
           `platforms[${platformConfig.id}].stickyMessage`,
         ),
+        lifecycle: resolveOverheadVisibility(
+          platformConfig.lifecycle,
+          `platforms[${platformConfig.id}].lifecycle`,
+        ),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
