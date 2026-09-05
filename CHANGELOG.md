@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-09-05
+
+### Added
+- **Slack sessions show a working status instead of nothing** (#525, thanks @kaza). `sendTyping()` was a no-op on Slack, so a Slack session showed no sign of life between the ack reaction and the first output while Mattermost had a typing indicator all along. `assistant.threads.setStatus` fills it in, needs no new scope and no manifest change, and is torn down when the turn ends — a status persists until something replaces it, unlike a self-expiring websocket frame, so `clearTyping()` joins the platform contract. Slack documents the method as AI-assistant-threads-only; it works in ordinary channels, and the degradation path is silent if that ever changes.
+
 ### Fixed
+- **Idle Slack connections are no longer killed once a minute** (#532, thanks @kaza). The 60-second heartbeat counted only text frames, and an idle Socket Mode connection carries nothing but protocol-level pings — so the heartbeat concluded every healthy idle connection was dead, tore it down and reconnected, forever. Each teardown is a window in which a message can be missed. Fixed on Bun and Node 20; Node 22+/undici exposes no frame-level ping visibility at all and remains open in #498.
 - **A session that stalls mid-turn is no longer reported as idle** (#548, found by @kaza while reviewing #533). The idle reaper decides from `lastActivityAt` alone, with no check on whether a turn is open. That clock is fed by every Claude event, so a streaming turn keeps it warm — but a turn that goes silent (a wedged CLI, a dropped API connection, one long-running tool call) was reaped with *"Session timed out after N minutes of inactivity"*, which is false and sends the user looking in the wrong place. The timeout and pre-timeout warning now distinguish three cases: a turn blocked on a plan approval or question says the bot is waiting on *you*, a turn that went silent reports lost output, and a genuinely idle session reads exactly as before. All variants are registered with the #491 bot-to-bot loop guard, so one bot's status post still can never read as a request to another.
 
 ## [1.33.1] - 2026-09-05
