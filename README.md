@@ -57,6 +57,7 @@
 - **Routines** - `!routine every weekday at 9am, summarize open threads` schedules recurring work; runs post as new threads in the channel, confirmed before saving and managed with `!routines` ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#routines-routines-default-enabled))
 - **Watches** - `!watch when someone reports an incident, triage it` reacts to matching channel messages: a free keyword prefilter plus a semantic check fire a session right in the triggering thread ([docs](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#watches-watches-default-enabled))
 - **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
+- **Voice notes** - With `transcription:` configured (ElevenLabs Scribe), an audio clip is transcribed before Claude sees it and the transcript is echoed into the thread; see [Configuration](docs/CONFIGURATION.md#transcription-transcription)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
 - **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
 - **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat

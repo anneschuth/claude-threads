@@ -110,6 +110,39 @@ stickyMessage:
 | `description` | Line shown below the sticky title | none |
 | `footer` | Content shown before the default "Mention me to start a session" line | none |
 
+### Transcription (`transcription`)
+
+Speech-to-text for inbound audio attachments, so a voice note is a message and not just a `.webm` on disk. Applies to every platform. Without this block, audio files are saved and listed like any other attachment.
+
+```yaml
+transcription:
+  provider: elevenlabs
+  apiKey: your-elevenlabs-key
+  model: scribe_v2
+  languageCode: hrv
+```
+
+| Setting | Description | Default |
+|---------|-------------|---------|
+| `provider` | Speech-to-text provider. Only `elevenlabs` (Scribe) today; the field is the seam for others. | required |
+| `apiKey` | Provider API key. Keep it in this `0600` file, never in a repo. | required |
+| `model` | Provider model id | `scribe_v2` |
+| `languageCode` | Language hint, passed through verbatim (ElevenLabs accepts ISO-639-1 and ISO-639-3). Omit to auto-detect. | auto-detect |
+
+Per-platform opt-out:
+
+```yaml
+platforms:
+  - id: legal
+    transcription: false    # this channel's audio never leaves the box
+```
+
+The provider and its key are a property of the **deployment** — one vendor account per daemon — so they live at the top level. Whether a given channel's audio should be sent to that vendor is a property of the **channel**, which is what `transcription: false` answers. It gates every path that could reach the vendor, including watch evaluation.
+
+⚠️ **A transcript is user input, not narration.** It reaches Claude as message text and is evaluated by watches exactly as a typed message is — deliberately, so a watch on "deploy" fires when somebody says "deploy" out loud rather than only when they type it. The usual prompt-injection caution therefore applies in full: a voice note can say "ignore your instructions" as easily as a typed message can, and anyone who can post audio in the channel can attempt it. Treat the audio surface as exactly as trusted as the text one, because it is.
+
+What happens: every `audio/*` attachment (or a file with an audio extension when the platform only reported a generic type) is transcribed after it is saved. Claude receives the usual file list **and** a `[Transcript of voice.webm (elevenlabs):]` block, and the bot posts the transcript back into the thread as a quote so everyone can see what Claude heard. A transcription failure is reported like a skipped file — the audio file itself still reaches Claude. A bad `provider` or missing `apiKey` fails the boot. Details: [`docs/audio-transcription-spec.md`](audio-transcription-spec.md).
+
 ## Platform Settings
 
 ### Mattermost

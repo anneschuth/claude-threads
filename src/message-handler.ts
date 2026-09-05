@@ -496,7 +496,24 @@ export async function handleMessage(
       // session fired on the message's REAL thread root would be unreachable
       // — replies and !stop in its thread would never route to it.
       if (!dcm.enabled) {
-        session.evaluateWatches(platformId, post, username, message);
+        // A voice note reaches here as an empty string with a file beside it.
+        // Transcribe first, so a watch on "deploy" fires when someone SAYS
+        // deploy — the transcript is user input like any typed message and
+        // goes through the same path, rather than around it. Returns '' fast
+        // unless this platform has watches and transcription enabled and the
+        // post actually carries audio.
+        // ⚠️ Allowlist FIRST, and this gate is about money rather than
+        // secrecy. Evaluating a watch is free, so the line below has always
+        // run for anyone in the channel; transcribing is a paid call to an
+        // external vendor. Without this, any member of an invited channel —
+        // allowlisted or not — could drop a hundred voice notes and spend the
+        // operator's transcription quota. Their typed messages still reach
+        // the evaluator exactly as before; only the vendor call is withheld.
+        const spoken = client.isUserAllowed(username)
+          ? await session.transcribeForWatch(platformId, post)
+          : '';
+        const evaluated = spoken ? [message, spoken].filter(Boolean).join('\n') : message;
+        session.evaluateWatches(platformId, post, username, evaluated);
       }
       return;
     }

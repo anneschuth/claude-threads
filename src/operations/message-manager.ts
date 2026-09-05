@@ -66,7 +66,7 @@ import {
 } from './types.js';
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
-import { postSkippedFilesFeedback, type BuiltMessageContent, type SkippedFile } from './streaming/handler.js';
+import { postSkippedFilesFeedback, postTranscriptFeedback, type BuiltMessageContent, type SkippedFile } from './streaming/handler.js';
 import { formatUserTurn, shouldAttribute } from './user-attribution/index.js';
 import { formatSideConversationsForClaude } from './side-conversation/index.js';
 
@@ -1154,17 +1154,20 @@ export class MessageManager {
     // files once and returns both content and any files it had to skip.
     let content: string = outgoing;
     let skippedFiles: SkippedFile[] = [];
+    let transcripts: BuiltMessageContent['transcripts'];
     if (this.buildMessageContentCallback) {
       const built = await this.buildMessageContentCallback(outgoing, this.platform, files);
       content = built.content;
       skippedFiles = built.skipped;
+      transcripts = built.transcripts;
     }
 
     // Send to Claude
     this.session.claude.sendMessage(content);
 
-    // Post feedback for skipped files
+    // Post feedback for skipped files, then echo any voice-note transcripts
     await postSkippedFilesFeedback(this.platform, this.threadId, skippedFiles);
+    await postTranscriptFeedback(this.platform, this.threadId, transcripts);
 
     // Update activity time
     this.session.lastActivityAt = new Date();

@@ -163,7 +163,7 @@ export interface WatchEvaluatorOptions {
    * status; 'unauthorized' disables the watch (creator lost authorization),
    * 'skipped' (e.g. MAX_SESSIONS) does not touch cooldown or failure streak.
    */
-  fireWatch(platformId: string, watch: Watch, post: { id: string; rootId?: string }, author: string): Promise<WatchFireStatus | 'unauthorized'>;
+  fireWatch(platformId: string, watch: Watch, post: { id: string; rootId?: string }, author: string, matched: string): Promise<WatchFireStatus | 'unauthorized'>;
   /** Post a channel notice when a watch is auto-disabled. Best-effort. */
   notifyDisabled(platformId: string, watch: Watch, reason: string): Promise<void>;
   cooldownMs: number;
@@ -273,7 +273,7 @@ export class WatchEvaluator {
             continue;
           }
 
-          await this.fire(platformId, fresh, post, author, recheck);
+          await this.fire(platformId, fresh, post, author, recheck, message);
           return; // at most one watch fires per message (earliest-created wins)
         } finally {
           this.watchInFlight.delete(watch.id);
@@ -292,10 +292,11 @@ export class WatchEvaluator {
     post: { id: string; rootId?: string },
     author: string,
     now: Date,
+    matched: string,
   ): Promise<void> {
     let status: WatchFireStatus | 'unauthorized';
     try {
-      status = await this.opts.fireWatch(platformId, watch, post, author);
+      status = await this.opts.fireWatch(platformId, watch, post, author, matched);
     } catch (err) {
       log.warn(`Watch "${watch.name}" (${platformId}) fire failed: ${(err as Error).message}`);
       status = 'failed';
