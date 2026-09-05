@@ -1,4 +1,4 @@
-import { WebSocket } from '../../utils/websocket.js';
+import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
@@ -460,12 +460,11 @@ export class SlackClient extends BasePlatformClient {
       };
 
       // Slack keeps idle Socket Mode connections alive with protocol-level ping
-      // frames (~10s cadence) — they never reach onmessage. Bun's WebSocket
-      // surfaces them as 'ping' events; count them as activity, or the 60s
-      // heartbeat executes every healthy idle connection (observed 2026-08-25).
-      (this.ws as unknown as EventTarget).addEventListener?.('ping', () => {
-        this.updateLastMessageTime();
-      });
+      // frames (~10s cadence) — they never reach onmessage. Without counting
+      // them the 60s heartbeat executes every healthy idle connection
+      // (observed 2026-08-25). Covers Bun and Node 20; see the helper for why
+      // Node 22+/undici cannot be covered here (#498).
+      countPingsAsActivity(this.ws, () => this.updateLastMessageTime());
 
       this.ws.onmessage = (event) => {
         this.updateLastMessageTime();
