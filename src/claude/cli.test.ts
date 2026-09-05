@@ -926,3 +926,91 @@ describe('buildClaudeChildEnv — auto-memory kill switch', () => {
     expect(env.CLAUDE_CODE_DISABLE_AUTO_MEMORY).toBeUndefined();
   });
 });
+
+describe('buildClaudeChildEnv: an account selected by HOME owns the whole selection', () => {
+  it('drops an inherited CLAUDE_CONFIG_DIR, which would otherwise outrank HOME', () => {
+    // The daemon runs under its own profile, so CLAUDE_CONFIG_DIR is set in
+    // its environment — and CLAUDE_CONFIG_DIR beats HOME. Left in place, every
+    // pooled account spawns against the BOT's seat while carrying the pooled
+    // account's id: every session billed to one account, and the pool's own
+    // usage probe reporting that account's quota under every other name.
+    const env = buildClaudeChildEnv(
+      { HOME: '/home/bot', CLAUDE_CONFIG_DIR: '/home/bot/.claude-vvs' },
+      { id: 'pooled', home: '/home/bot/accounts/primary' }
+    );
+
+    expect(env.HOME).toBe('/home/bot/accounts/primary');
+    expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+  });
+
+  it('clears every inherited credential and location override, not just some', () => {
+    // Measured against the shipped CLI: ANTHROPIC_AUTH_TOKEN authenticates on
+    // its own, and CLAUDE_SECURESTORAGE_CONFIG_DIR relocates stored
+    // credentials the same way CLAUDE_CONFIG_DIR relocates the profile.
+    // Clearing a subset is the same bug with a smaller blast radius: the
+    // account we asked for, silently overridden by one we inherited.
+    const env = buildClaudeChildEnv(
+      {
+        HOME: '/home/bot',
+        CLAUDE_CONFIG_DIR: '/home/bot/.claude-vvs',
+        CLAUDE_SECURESTORAGE_CONFIG_DIR: '/home/bot/.claude-vvs',
+        ANTHROPIC_API_KEY: 'sk-inherited',
+        ANTHROPIC_AUTH_TOKEN: 'inherited-bearer',
+        CLAUDE_CODE_OAUTH_TOKEN: 'inherited-oauth',
+      },
+      { id: 'pooled', home: '/home/bot/accounts/primary' }
+    );
+
+    expect(env.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CODE_OAUTH_TOKEN).toBeUndefined();
+    expect(env.CLAUDE_CONFIG_DIR).toBeUndefined();
+    expect(env.CLAUDE_SECURESTORAGE_CONFIG_DIR).toBeUndefined();
+  });
+
+  it('does not let an inherited bearer token outrank the API key it was given', () => {
+    // ANTHROPIC_AUTH_TOKEN authenticates by itself and wins over a key set
+    // beside it, so an API-key account would have been billed to whatever the
+    // daemon inherited.
+    const env = buildClaudeChildEnv(
+      { HOME: '/home/bot', ANTHROPIC_AUTH_TOKEN: 'inherited-bearer' },
+      { id: 'billed', apiKey: 'sk-ant-test' }
+    );
+
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-test');
+    expect(env.ANTHROPIC_AUTH_TOKEN).toBeUndefined();
+  });
+
+  it('leaves the parent environment untouched', () => {
+    // buildClaudeChildEnv copies before deleting; a delete that reached the
+    // parent would log the DAEMON out.
+    const parent = { HOME: '/home/bot', CLAUDE_CONFIG_DIR: '/home/bot/.claude-vvs' };
+    buildClaudeChildEnv(parent, { id: 'pooled', home: '/home/bot/accounts/primary' });
+
+    expect(parent.HOME).toBe('/home/bot');
+    expect(parent.CLAUDE_CONFIG_DIR).toBe('/home/bot/.claude-vvs');
+  });
+
+  it('leaves CLAUDE_CONFIG_DIR alone when no account overrides HOME', () => {
+    // Single-account mode: the bot's own profile IS the seat, so clearing the
+    // config dir would send the session to the wrong one.
+    const env = buildClaudeChildEnv({
+      HOME: '/home/bot',
+      CLAUDE_CONFIG_DIR: '/home/bot/.claude-vvs',
+    });
+
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/home/bot/.claude-vvs');
+  });
+
+  it('leaves it alone for an API-key account too', () => {
+    // An API-key account is selected by ANTHROPIC_API_KEY, not by HOME, so it
+    // has no config dir of its own to point at.
+    const env = buildClaudeChildEnv(
+      { HOME: '/home/bot', CLAUDE_CONFIG_DIR: '/home/bot/.claude-vvs' },
+      { id: 'billed', apiKey: 'sk-ant-test' }
+    );
+
+    expect(env.CLAUDE_CONFIG_DIR).toBe('/home/bot/.claude-vvs');
+    expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-test');
+  });
+});
