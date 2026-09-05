@@ -2235,10 +2235,21 @@ export async function cleanupIdleSessions(
 
     // Check for timeout
     if (idleMs > timeoutMs) {
-      sessionLog(session).info(`⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`);
+      sessionLog(session).info(
+        session.isProcessing
+          ? `⏰ Session stopped responding - no events for ${Math.round(idleMs / 60000)}min with a turn open`
+          : `⏰ Session timed out after ${Math.round(idleMs / 60000)}min idle`
+      );
 
       const timeoutFormatter = session.platform.getFormatter();
-      const timeoutMessage = `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
+      // A session reaped while `isProcessing` was never idle: it had an open
+      // turn and simply stopped producing events (a wedged CLI, a dropped API
+      // connection, a single long-running tool). Claiming inactivity there is
+      // false and sends the user looking in the wrong place, so the two cases
+      // get different text. See #548.
+      const timeoutMessage = session.isProcessing
+        ? `${timeoutFormatter.formatBold('Session stopped responding')} - no output for ${Math.round(idleMs / 60000)} minutes while a turn was still running\n\n💡 React with 🔄 to resume, or send a new message to continue.`
+        : `${timeoutFormatter.formatBold('Session timed out')} after ${Math.round(idleMs / 60000)} minutes of inactivity\n\n💡 React with 🔄 to resume, or send a new message to continue.`;
 
       // Update existing warning post or create a new one
       if (session.lifecyclePostId) {
@@ -2280,7 +2291,13 @@ export async function cleanupIdleSessions(
     if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       const warningFormatter = session.platform.getFormatter();
-      const warningMessage = `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
+      // Same distinction as the timeout branch (#548): with a turn open this
+      // is not idleness, it is silence from a turn that should be producing
+      // events. Naming it that way is the difference between "you forgot
+      // about me" and "something may be wrong".
+      const warningMessage = session.isProcessing
+        ? `${warningFormatter.formatBold('No output for a while')} - a turn is still running; will stop in ~${remainingMins} minutes if nothing arrives`
+        : `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
 
       // Create the warning post and store its ID for later updates
       const warningPost = await withErrorHandling(
