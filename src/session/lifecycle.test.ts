@@ -362,6 +362,25 @@ describe('Lifecycle Module', () => {
         expect(text).not.toContain('Session idle');
       });
 
+      it('names a pending decision rather than blaming the CLI', async () => {
+        const session = createMockSession({
+          lastActivityAt: new Date(Date.now() - 40 * 60 * 1000),
+          isProcessing: true,
+        });
+        // Plan approvals and questions are held in-process, so the reaper can
+        // tell "waiting on you" apart from "went silent". (An MCP permission
+        // prompt lives in the MCP child and is still invisible here — #533.)
+        (session.messageManager as unknown as { hasPendingApproval: () => boolean }).hasPendingApproval =
+          () => true;
+        const ctx = createMockSessionContext(new Map([['test-platform:thread-123', session]]));
+
+        await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+        const text = postedText(session);
+        expect(text).toContain('still waiting');
+        expect(text).not.toContain('stopped responding');
+      });
+
       it('the pre-timeout warning still says idle between turns', async () => {
         const session = createMockSession({
           lastActivityAt: new Date(Date.now() - 26 * 60 * 1000),

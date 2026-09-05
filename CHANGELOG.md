@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Fixed
-- **A session that stalls mid-turn is no longer reported as idle** (#548, found by @kaza while reviewing #533). The idle reaper decides from `lastActivityAt` alone, with no check on whether a turn is open. That clock is fed by every Claude event, so a streaming turn keeps it warm — but a turn that goes silent (a wedged CLI, a dropped API connection, one long-running tool call) was reaped with *"Session timed out after N minutes of inactivity"*, which is false and sends the user looking in the wrong place. The timeout and pre-timeout warning now distinguish the two cases: an open turn reports lost output, a genuinely idle session reads exactly as before.
+- **A session that stalls mid-turn is no longer reported as idle** (#548, found by @kaza while reviewing #533). The idle reaper decides from `lastActivityAt` alone, with no check on whether a turn is open. That clock is fed by every Claude event, so a streaming turn keeps it warm — but a turn that goes silent (a wedged CLI, a dropped API connection, one long-running tool call) was reaped with *"Session timed out after N minutes of inactivity"*, which is false and sends the user looking in the wrong place. The timeout and pre-timeout warning now distinguish three cases: a turn blocked on a plan approval or question says the bot is waiting on *you*, a turn that went silent reports lost output, and a genuinely idle session reads exactly as before. All variants are registered with the #491 bot-to-bot loop guard, so one bot's status post still can never read as a request to another.
 
 ## [1.33.1] - 2026-09-05
 

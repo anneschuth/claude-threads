@@ -55,7 +55,11 @@ const STATUS_POST_PATTERNS: RegExp[] = [
   // raw <@U…> token depending on platform and version.
   /^⚠️\s+\S+ is not authorized\b/u,
   new RegExp(`^⚠️\\s+${BOLD}Too busy${BOLD} -`, 'u'),
-  new RegExp(`^⏱️\\s+${BOLD}Session (?:timed out|idle)${BOLD}`, 'u'),
+  // Keep in sync with cleanupIdleSessions in src/session/lifecycle.ts: a
+  // stalled or decision-blocked turn reports differently from a genuinely
+  // idle one (#548), and every variant must stay invisible to other bots.
+  new RegExp(`^⏱️\\s+${BOLD}Session (?:timed out|idle|stopped responding|still waiting)${BOLD}`, 'u'),
+  new RegExp(`^⏱️\\s+${BOLD}No output for a while${BOLD}`, 'u'),
   new RegExp(`^🛑\\s+${BOLD}Session cancelled${BOLD}`, 'u'),
   new RegExp(`^🔴\\s+${BOLD}EMERGENCY SHUTDOWN${BOLD}`, 'u'),
   new RegExp(`^🔄\\s+${BOLD}Session resumed${BOLD}`, 'u'),
