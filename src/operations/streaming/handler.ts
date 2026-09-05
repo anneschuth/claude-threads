@@ -239,6 +239,35 @@ export async function buildMessageContent(
 }
 
 /**
+ * Transcribe a post's audio attachments WITHOUT building a prompt.
+ *
+ * The watch evaluator runs on the one path where the bot has decided to
+ * ignore a message, so `buildMessageContent` never sees it — and a voice note
+ * would reach the evaluator as an empty string with a file beside it. A
+ * channel watching for "deploy" would not fire on someone saying "deploy" out
+ * loud, which is precisely the difference between a transcript being a real
+ * input and being a courtesy for the human reader.
+ *
+ * No duplicate vendor call: this path and `buildMessageContent` are mutually
+ * exclusive for a given post.
+ */
+export async function transcribeForEvaluation(
+  transcriber: Transcriber,
+  platform: PlatformClient,
+  uploadDir: string,
+  files: PlatformFile[],
+): Promise<string> {
+  const audio = files.filter((f) => isTranscribable(f.mimeType ?? '', f.name ?? ''));
+  if (audio.length === 0) return '';
+
+  const { saved, skipped } = await saveFilesToUploadDir(platform, uploadDir, audio, false);
+  if (saved.length === 0) return '';
+
+  const transcripts = await transcribeAudio(transcriber, saved, skipped);
+  return transcripts.map((t) => t.text).join('\n');
+}
+
+/**
  * Run the transcriber over every saved audio file, in order. A failure is
  * appended to `skipped` (so the user sees it) and does not stop the message —
  * the file itself is still listed in the prompt.

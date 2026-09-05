@@ -273,6 +273,7 @@ export class SessionManager extends EventEmitter {
       memory?: ResolvedMemoryConfig;
       routinesEnabled?: boolean;
       watchesEnabled?: boolean;
+      transcriptionEnabled?: boolean;
     },
   ): void {
     this.platforms.set(platformId, client);
@@ -283,6 +284,7 @@ export class SessionManager extends EventEmitter {
     this.platformMemory.set(platformId, options?.memory ?? DEFAULT_MEMORY_CONFIG);
     this.platformRoutines.set(platformId, options?.routinesEnabled ?? true);
     this.platformWatches.set(platformId, options?.watchesEnabled ?? true);
+    this.platformTranscription.set(platformId, options?.transcriptionEnabled ?? true);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
     client.on('reaction', (reaction, user) => {
       if (user) {
@@ -436,7 +438,8 @@ export class SessionManager extends EventEmitter {
       },
       startTyping: (s) => this.startTyping(s),
       stopTyping: (s) => this.stopTyping(s),
-      buildMessageContent: (t, p, uploadDir, f) => streaming.buildMessageContent(t, p, uploadDir, f, this.debug, this.transcriber),
+      buildMessageContent: (t, p, uploadDir, f) =>
+        streaming.buildMessageContent(t, p, uploadDir, f, this.debug, this.transcriberFor(p.platformId)),
 
       // Persistence
       persistSession: (s) => this.persistSession(s),
@@ -632,7 +635,7 @@ export class SessionManager extends EventEmitter {
       injectMetadataReminder: (msg, session) => maybeInjectMetadataReminder(msg, session),
       buildMessageContent: (text, session, files) => {
         const uploadDir = streaming.getSessionUploadDir(session.platformId, session.threadId);
-        return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug, this.transcriber);
+        return streaming.buildMessageContent(text, session.platform, uploadDir, files, this.debug, this.transcriberFor(session.platform.platformId));
       },
     };
   }
@@ -890,6 +893,20 @@ export class SessionManager extends EventEmitter {
   /** Set custom description and footer for the sticky channel message. */
   /** Speech-to-text for inbound audio attachments; unset = audio is a plain file. */
   private transcriber?: Transcriber;
+  private platformTranscription: Map<string, boolean> = new Map();
+
+  /**
+   * The transcriber for one platform, or undefined where the channel opted
+   * out with `transcription: false`.
+   *
+   * The provider is a property of the deployment and the consent is a
+   * property of the channel, so the gate lives here rather than inside the
+   * transcriber: a channel whose audio must not leave the box says so once,
+   * and every path that could send a file to the vendor goes through this.
+   */
+  private transcriberFor(platformId: string): Transcriber | undefined {
+    return this.platformTranscription.get(platformId) === false ? undefined : this.transcriber;
+  }
 
   setTranscriber(transcriber: Transcriber | undefined): void {
     this.transcriber = transcriber;
@@ -1359,6 +1376,40 @@ export class SessionManager extends EventEmitter {
    * would otherwise ignore; must never throw (the evaluator guards itself,
    * this wrapper is belt-and-braces).
    */
+  /**
+   * The words in a post's voice notes, for the watch evaluator.
+   *
+   * Returns '' unless this platform has BOTH watches and transcription
+   * enabled and the post actually carries audio — so a channel that opted out
+   * of transcription never sends a file to the vendor on this path either,
+   * and a channel with no watches pays nothing.
+   */
+  async transcribeForWatch(platformId: string, post: PlatformPost): Promise<string> {
+    if (this.platformWatches.get(platformId) === false) return '';
+    const transcriber = this.transcriberFor(platformId);
+    const files = post.metadata?.files;
+    if (!transcriber || !files?.length) return '';
+
+    const platform = this.platforms.get(platformId);
+    if (!platform) return '';
+
+    try {
+      return await streaming.transcribeForEvaluation(
+        transcriber,
+        platform,
+        streaming.getSessionUploadDir(platformId, post.rootId || post.id),
+        files,
+      );
+    } catch (err) {
+      // A watch that does not fire is the failure mode here, not a broken
+      // message: the post is being ignored either way. Logged, never thrown —
+      // this runs on the path where the bot has already decided to say
+      // nothing.
+      log.warn(`Watch transcription failed for ${platformId}: ${err instanceof Error ? err.message : String(err)}`);
+      return '';
+    }
+  }
+
   evaluateWatches(platformId: string, post: { id: string; rootId?: string; userId?: string }, author: string, message: string): void {
     const evaluator = this.watchEvaluator;
     if (!evaluator) return;
@@ -1577,7 +1628,7 @@ export class SessionManager extends EventEmitter {
       offerContextPrompt: (s, q, f, e, sender, autoInclude) => contextPrompt.offerContextPrompt(s, q, f, this.getContextPromptHandler(), e, sender, autoInclude),
       buildMessageContent: (text, s, files) => {
         const uploadDir = streaming.getSessionUploadDir(s.platformId, s.threadId);
-        return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug, this.transcriber);
+        return streaming.buildMessageContent(text, s.platform, uploadDir, files, this.debug, this.transcriberFor(s.platform.platformId));
       },
       generateWorkSummary: (s) => commands.generateWorkSummary(s),
       getThreadMessagesForContext: (s, limit, excludePostId) => contextPrompt.getThreadMessagesForContext(s, limit, excludePostId),

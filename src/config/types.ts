@@ -153,6 +153,18 @@ export function resolveRoutinesEnabled(value: unknown, fieldPath?: string): bool
 }
 
 /**
+ * Normalize the per-platform `transcription` field. Undefined → enabled, so a
+ * configured provider applies everywhere by default; `false` opts one platform
+ * out. Inert when no top-level `transcription:` block exists.
+ */
+export function resolveTranscriptionEnabled(value: unknown, fieldPath?: string): boolean {
+  return resolveBooleanFeature(value, fieldPath ?? 'transcription', {
+    default: true,
+    verb: 'transcription stays enabled',
+  });
+}
+
+/**
  * Shared normalization for boolean feature flags: undefined/null and the
  * default pass through; the other boolean flips; anything else warns and
  * falls back to the default — features that are safe when idle default on,
@@ -462,6 +474,19 @@ export interface PlatformInstanceConfig {
    * `false` disables message evaluation and the !watch/!watches commands.
    */
   watches?: boolean;
+  /**
+   * Transcribe inbound audio attachments in this platform's channels
+   * (default: enabled wherever the top-level `transcription:` block is
+   * configured; a no-op without it).
+   *
+   * The provider and its key are a property of the DEPLOYMENT — one vendor
+   * account per daemon — so they live at the top level. Whether a given
+   * channel should have its voice notes sent to that vendor at all is a
+   * property of the CHANNEL, which is what this opts out of: a channel whose
+   * audio must not leave the box can say so without disabling transcription
+   * for every other channel.
+   */
+  transcription?: boolean;
   // Platform-specific fields (TypeScript allows extra properties)
   [key: string]: unknown;
 }

@@ -67,6 +67,7 @@ function createMockSessionManager() {
     },
     getPersistedSession: mock(() => undefined),
     killAllSessions: mock(async () => {}),
+    transcribeForWatch: mock(async () => ''),
     cancelSession: mock(async () => {}),
     interruptSession: mock(async () => {}),
     inviteUser: mock(async () => {}),
@@ -2607,6 +2608,76 @@ describe('handleMessage - legacy paused-session resume', () => {
     expect(session.resumePausedSession).toHaveBeenCalledTimes(1);
     const posted = [...client.posts.values()].join('\n');
     expect(posted).not.toContain('not authorized');
+  });
+});
+
+describe('handleMessage - a voice note is evaluated as its words', () => {
+  let client: ReturnType<typeof createMockPlatform>;
+  let session: ReturnType<typeof createMockSessionManager>;
+  let options: MessageHandlerOptions;
+
+  beforeEach(() => {
+    client = createMockPlatform();
+    session = createMockSessionManager();
+    options = { platformId: 'test-platform' };
+  });
+
+  const voiceNote: PlatformPost = {
+    id: 'post1',
+    platformId: 'test',
+    channelId: 'channel1',
+    userId: 'user1',
+    message: '',
+    rootId: '',
+    createAt: Date.now(),
+    metadata: { files: [{ id: 'f1', name: 'voice.webm', mimeType: 'audio/webm' }] },
+  } as unknown as PlatformPost;
+  const user: PlatformUser = { id: 'user1', username: 'allowed-user', displayName: 'User' };
+
+  test('the transcript, not the empty message, is what the evaluator sees', async () => {
+    // A watch on "deploy" has to fire when somebody SAYS deploy. Without this
+    // the evaluator receives '' and a file beside it, so voice notes are
+    // invisible to every watch in the channel — the transcript would be a
+    // courtesy for human readers and nothing more.
+    (session.transcribeForWatch as any).mockResolvedValue('please deploy the trader');
+
+    await handleMessage(client, session, voiceNote, user, options);
+
+    expect(session.evaluateWatches).toHaveBeenCalledTimes(1);
+    const evaluated = (session.evaluateWatches as any).mock.calls[0][3];
+    expect(evaluated).toContain('please deploy the trader');
+  });
+
+  test('a typed message is unchanged when there is nothing spoken', async () => {
+    (session.transcribeForWatch as any).mockResolvedValue('');
+
+    await handleMessage(
+      client,
+      session,
+      { ...voiceNote, message: 'ship it', metadata: undefined } as PlatformPost,
+      user,
+      options,
+    );
+
+    expect((session.evaluateWatches as any).mock.calls[0][3]).toBe('ship it');
+  });
+
+  test('a caption and its transcript both reach the evaluator', async () => {
+    // Someone can type and speak in one message; a watch must see both, or
+    // whichever half it was not watching for silently stops mattering.
+    (session.transcribeForWatch as any).mockResolvedValue('and restart the node');
+
+    await handleMessage(
+      client,
+      session,
+      { ...voiceNote, message: 'as discussed' } as PlatformPost,
+      user,
+      options,
+    );
+
+    const evaluated = (session.evaluateWatches as any).mock.calls[0][3];
+    expect(evaluated).toContain('as discussed');
+    expect(evaluated).toContain('and restart the node');
   });
 });
 

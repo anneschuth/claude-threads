@@ -496,7 +496,15 @@ export async function handleMessage(
       // session fired on the message's REAL thread root would be unreachable
       // — replies and !stop in its thread would never route to it.
       if (!dcm.enabled) {
-        session.evaluateWatches(platformId, post, username, message);
+        // A voice note reaches here as an empty string with a file beside it.
+        // Transcribe first, so a watch on "deploy" fires when someone SAYS
+        // deploy — the transcript is user input like any typed message and
+        // goes through the same path, rather than around it. Returns '' fast
+        // unless this platform has watches and transcription enabled and the
+        // post actually carries audio.
+        const spoken = await session.transcribeForWatch(platformId, post);
+        const evaluated = spoken ? [message, spoken].filter(Boolean).join('\n') : message;
+        session.evaluateWatches(platformId, post, username, evaluated);
       }
       return;
     }
