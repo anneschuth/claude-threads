@@ -313,7 +313,7 @@ const FLOWS: Flow[] = [
     description: 'Task tool subagent: parent_tool_use_id sidechain events',
     args: ['--dangerously-skip-permissions'],
     steps: [
-      { text: 'Use the Task tool to launch a subagent with this exact prompt: "Reply with the word SUBAGENT-HELLO and nothing else." Wait for it, then reply exactly: SUBAGENT-DONE' },
+      { text: 'Use the Agent tool (load it with ToolSearch first if it is deferred; do not use TaskCreate) to launch a subagent with this exact prompt: "Reply with the word SUBAGENT-HELLO and nothing else." Wait for it, then reply exactly: SUBAGENT-DONE' },
     ],
     timeoutMs: 240_000,
   },

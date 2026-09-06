@@ -29,6 +29,40 @@ These captures are the **ground truth** for the integration mock CLI
 against them. When the mock and a capture disagree, the capture wins — fix
 the mock.
 
+## Re-verified against 2.1.263 (2026-09-06)
+
+All flows were re-captured with 2.1.263 on a developer machine and compared
+structurally against the files here: event type and subtype sequence,
+content-block types, tool names, top-level keys. Every shape the bot consumes
+held: the bridge round trips ("User has approved your plan", "Your questions
+have been answered"), the deny shapes, `compact_boundary` with
+`compact_metadata` after a successful compact and its absence after a failed
+one, `error_max_turns`, `aborted_streaming` on SIGINT, TaskCreate ids
+resolving through the result text, and `parent_tool_use_id` on subagent
+sidechain events. The manual decision-bridge e2e passed on the same version.
+
+The files were deliberately not replaced. The differences that did show up
+are environmental, not dialect. The same three flows captured with 2.1.251
+and 2.1.263 on that machine were identical to each other, and both differed
+from the committed files in ways that follow from the recording environment:
+`thinking` blocks and `system/thinking_tokens` come and go with the account's
+thinking setting; `active_goal`, `post_turn_summary`, `commands_changed`,
+`task_summary` and `autocompact_state` are noise the bot ignores; `system/init`
+lists every claude.ai connector the recording account has attached, which does
+not belong in a public fixture. `startup_timing` left `system/init` and
+`memory_paths` arrived; `result` traded `time_origin_ms`,
+`time_to_request_from_spawn_ms` and `warm_spare_claimed` for
+`first_content_frame_ms`. The bot reads none of those keys.
+
+Two things to know before the next re-capture:
+
+- Tool schemas are deferred. `ToolSearch` is in the tool list and `Agent`,
+  `ExitPlanMode` and `AskUserQuestion` are not, so a prompt has to name the
+  tool precisely. The subagent flow now says "Agent tool"; the old "Task tool"
+  wording sent haiku to `TaskCreate` and produced a capture without a subagent.
+- Record on an account without claude.ai connectors, or expect their tool
+  names in `system/init`.
+
 ## Flows
 
 | Capture | What it proves |
