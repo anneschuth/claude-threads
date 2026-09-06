@@ -2901,6 +2901,10 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
    * millisecond, the regression took seconds) so this fails on real
    * backtracking rather than on a slow CI runner.
    */
+  // Explicit timeout: in the broken state the greedy form takes ~7.4 s, which
+  // would also blow bun's 5 s default and report as a runner timeout on top of
+  // the assertion. A generous per-test bound keeps a future regression legible
+  // as the assertion failure it is.
   test('stays linear on a long non-matching message', () => {
     const cases = [
       `⚠️ ${'a'.repeat(80_000)}`,
@@ -2913,5 +2917,5 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
       expect(isClaudeThreadsStatusPost(message)).toBe(false);
     }
     expect(performance.now() - started).toBeLessThan(250);
-  });
+  }, 30_000);
 });

@@ -60,6 +60,10 @@ const STATUS_POST_PATTERNS: RegExp[] = [
   // inbound message on the event loop, so a single long token cost ~150 ms at
   // Mattermost's 16k post limit and 3.7 s at 80k. Lazy matches exactly the
   // same strings — the addressee is one whitespace-free token — in ~0 ms.
+  //
+  // Measured under JSC (Bun), which is what we ship on. V8 optimizes the
+  // greedy form away, so re-measuring this under Node shows nothing — that is
+  // the engine hiding it, not the problem being absent.
   /^⚠️\s+\S+? is not authorized\b/u,
   new RegExp(`^⚠️\\s+${BOLD}Too busy${BOLD} -`, 'u'),
   // Keep in sync with cleanupIdleSessions in src/session/lifecycle.ts: a
