@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.34.2] - 2026-09-06
+
+### Fixed
+- **Bundled dependencies are patched again** (#559). Four advisories (`qs`, `body-parser`, `ajv`, and dev-only `@humanfs/node`) had been fixed in `package-lock.json` by Dependabot but never reached `bun.lock`, which is what CI installs and what `bun build` inlines into `dist/`, so 1.34.1 shipped the vulnerable versions. The lockfile-sync workflow ran a plain `bun install` on Dependabot PRs, which keeps any old entry that still satisfies its range; it now regenerates `bun.lock` from `package-lock.json`. Direct dependencies move along to what the npm lockfile already had (`@modelcontextprotocol/sdk` 1.30, `ink` 6.8, `zod` 4.5). ink's optional peer `react-devtools-core`, which bun used to install implicitly, is now an explicit devDependency so the bundle builds the same as before.
+- **Sessions survive a `systemctl restart` under the default `KillMode`** (#556, thanks @Jadefalkner). systemd's default `control-group` mode delivers SIGTERM to the Claude children at the same instant as to the bot, and their exit events arrived during the 50 ms the shutdown handler yields to let the terminal UI paint. The lifecycle flag that marks those exits as "shutdown, preserve for resume" was set only after that yield, so each exit counted as a resume failure and three restarts in a row dropped the session (`Exceeded 3 resume failures`). The flag is now set before the first `await`. Also: the test helper that sets SUID/SGID bits resolves `chmod` via `PATH` instead of `/bin/chmod`, so the unit tests pass on NixOS.
+
+### Changed
+- **Verified against Claude CLI 2.1.263** (#561). Every capture flow re-recorded and compared structurally with the 2.1.251 fixtures: no drift in any event shape the bot consumes; the decision-bridge e2e passes. The capture harness's subagent flow now names the `Agent` tool, since deferred tool schemas make the old "Task tool" wording land on `TaskCreate`.
+
 ## [1.34.1] - 2026-09-06
 
 ### Fixed

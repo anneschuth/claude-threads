@@ -12,8 +12,8 @@
  * This helper:
  *   1. Tries `fs.chmod` (works on Node, may silently strip on Bun).
  *   2. Verifies the result via `fs.stat`.
- *   3. If the requested mode bits didn't land, shells out to `/bin/chmod`
- *      (which goes through the kernel directly, bypassing the runtime).
+ *   3. If the requested mode bits didn't land, shells out to `chmod` from
+ *      `PATH` (which goes through the kernel directly, bypassing the runtime).
  *   4. If THAT also fails, throws so the test fails noisily — better a red
  *      test than a silent green that's testing nothing.
  *
