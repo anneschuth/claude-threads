@@ -421,6 +421,11 @@ export interface Session {
    * field always names what the next turn actually uses. In-memory only.
    */
   currentModel?: string;
+  /**
+   * "name (status), ..." of the MCP servers the CLI reported in its last
+   * system/init event; used to log the set once per change. In-memory only.
+   */
+  mcpServersSummary?: string;
 
   // Last message posted to the thread (for jump-to-bottom links)
   lastMessageId?: string;

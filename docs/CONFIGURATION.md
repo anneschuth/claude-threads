@@ -24,6 +24,12 @@ platforms:
     allowedUsers: [alice, bob]
     permissionMode: default
     memory: true                  # persistent memory (default on; see Memory below)
+    strictMcpConfig: true         # sessions only see the bot's MCP servers (default; see MCP servers below)
+    mcpServers:                   # extra MCP servers for this platform's sessions
+      github:
+        command: npx
+        args: [-y, "@modelcontextprotocol/server-github"]
+        env: { GITHUB_TOKEN: ghp-your-token }
 
   # Slack
   - id: slack-eng
@@ -52,6 +58,7 @@ platforms:
 | `threadLogs` | Thread logging (see below) | enabled |
 | `stickyMessage` | Sticky message text customization (see below) | none |
 | `claudeAccounts` | Multi-account pool (see below) | single-account mode |
+| `mcpServers` | MCP servers every platform's sessions get, on top of the bot's own (see [MCP servers](#mcp-servers-mcpservers-strictmcpconfig)) | none |
 
 ### Resource Limits (`limits`)
 
@@ -297,6 +304,37 @@ The `permissionMode` field controls how the bot handles a session's tool-use req
 | `bypass` | No prompts and no classifier. Every tool-use is allowed. Equivalent to `--dangerously-skip-permissions`. This is what the legacy `skipPermissions: true` maps to. |
 
 A running session can switch mode at any time with `!permissions <mode>`; that override is not persisted across a bot restart.
+
+### MCP servers (`mcpServers`, `strictMcpConfig`)
+
+A session only sees the MCP servers the bot hands the Claude CLI: its own permission server plus whatever you declare under `mcpServers`. The CLI is started with `--strict-mcp-config`, so the servers it would otherwise pick up on its own stay out: the user-level servers of the account the bot runs under, that account's claude.ai connectors (Gmail, Google Drive, Calendar, ...), and any `.mcp.json` in the working directory.
+
+That default exists because a bot run under a personal account used to hand every session in the channel the operator's mailbox. Anyone on `allowedUsers` could ask for it, and a message approved through the message-approval flow or a watch firing on channel content could reach it without anyone meaning to.
+
+Declare the servers you want, either for all platforms at the top level or per platform (the platform entry wins on a name clash):
+
+```yaml
+mcpServers:                       # top level: every platform
+  docs:
+    type: http                    # or sse
+    url: https://mcp.example.com/
+    headers: { Authorization: "Bearer ..." }
+
+platforms:
+  - id: mattermost-main
+    # ... credentials ...
+    mcpServers:                   # this platform only
+      github:
+        command: npx              # stdio server: command, optional args and env
+        args: [-y, "@modelcontextprotocol/server-github"]
+        env: { GITHUB_TOKEN: ghp-your-token }
+```
+
+A stdio server needs `command` (with optional `args` and `env`); a remote one needs `type: http` or `type: sse` and a `url` (with optional `headers`). The name `claude-threads-mcp` is reserved for the bot's own server. A malformed entry stops the bot at startup with the field path in the message, rather than dropping the server silently. Secrets in `env` and `headers` travel in the same owner-only tempfile as the bot's platform token, not on the command line.
+
+Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`), and warns when one did not connect. That line is the place to look when a declared server's tools do not show up.
+
+To go back to inheriting everything the account and the repo provide, set `strictMcpConfig: false` on that platform. Do that only for a platform whose users you would trust with the account's connectors, because there is no finer switch: it is all or nothing per platform. Claude.ai connectors cannot be declared in `mcpServers`; they are bound to the account, so `strictMcpConfig: false` is the only way to give a bot access to them.
 
 ### Quieting the bot's overhead messages
 

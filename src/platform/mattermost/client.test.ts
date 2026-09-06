@@ -111,6 +111,8 @@ describe('MattermostClient pure helpers', () => {
       channelId: 'cc',
       allowedUsers: ['u'],
       outboundFiles: undefined,
+      mcpServers: undefined,
+      strictMcpConfig: undefined,
     });
   });
 

@@ -393,6 +393,7 @@ describe('materializeMcpConfig', () => {
     if (result.mode !== 'file') throw new Error('expected file mode');
     const parsed = JSON.parse(readFileSync(result.path, 'utf8')) as McpConfigBlob;
     const server = parsed.mcpServers['claude-threads-mcp'];
+    if (server.type !== 'stdio') throw new Error('expected the bot server to be stdio');
     expect(server.env.PLATFORM_TOKEN).toBe('SECRET-TOKEN');
     rmSync(result.path);
   });
@@ -479,6 +480,75 @@ describe('buildPermissionArgs', () => {
     expect(args).toContain('mcp__claude-threads-mcp__permission_prompt');
     expect(args).not.toContain('--permission-mode');
     expect(args).not.toContain('--dangerously-skip-permissions');
+  });
+
+  // -------------------------------------------------------------------------
+  // MCP server scope (#560): strict by default, operator servers in the blob
+  // -------------------------------------------------------------------------
+  const blobOf = (args: string[]): McpConfigBlob =>
+    JSON.parse(args[args.indexOf('--mcp-config') + 1]) as McpConfigBlob;
+
+  it('passes --strict-mcp-config by default so inherited servers and connectors stay out', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
+    expect(args).toContain('--strict-mcp-config');
+  });
+
+  it('bypass with a platform is strict too (the blob is still built there)', () => {
+    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
+    expect(args).toContain('--strict-mcp-config');
+  });
+
+  it('strictMcpConfig: false omits the flag (explicit opt-in to inheritance)', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      platformConfig: { ...baseOpts.platformConfig, strictMcpConfig: false },
+    });
+    expect(args).not.toContain('--strict-mcp-config');
+  });
+
+  it('declared stdio servers ride in the blob, normalized, with their env off argv', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      platformConfig: {
+        ...baseOpts.platformConfig,
+        mcpServers: { github: { command: 'npx', args: ['-y', 'gh-mcp'], env: { GITHUB_TOKEN: 'SECRET-GH' } }, bare: { command: 'my-mcp' } },
+      },
+    });
+    const blob = blobOf(args);
+    expect(blob.mcpServers.github).toEqual({ type: 'stdio', command: 'npx', args: ['-y', 'gh-mcp'], env: { GITHUB_TOKEN: 'SECRET-GH' } });
+    expect(blob.mcpServers.bare).toEqual({ type: 'stdio', command: 'my-mcp', args: [], env: {} });
+    expect(blob.mcpServers['claude-threads-mcp']).toBeDefined();
+    const argvWithoutBlob = args.filter((_, i) => args[i - 1] !== '--mcp-config');
+    expect(argvWithoutBlob.join(' ')).not.toContain('SECRET-GH');
+  });
+
+  it('declared remote servers pass through with their headers', () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      platformConfig: {
+        ...baseOpts.platformConfig,
+        mcpServers: { docs: { type: 'http', url: 'https://mcp.example.test/', headers: { Authorization: 'Bearer x' } } },
+      },
+    });
+    expect(blobOf(args).mcpServers.docs).toEqual({ type: 'http', url: 'https://mcp.example.test/', headers: { Authorization: 'Bearer x' } });
+  });
+
+  it("a declared server cannot replace the bot's own permission server", () => {
+    const { args } = buildPermissionArgs({
+      ...baseOpts,
+      permissionMode: 'default',
+      platformConfig: {
+        ...baseOpts.platformConfig,
+        mcpServers: { 'claude-threads-mcp': { command: '/evil/server' } },
+      },
+    });
+    const bot = blobOf(args).mcpServers['claude-threads-mcp'];
+    if (bot.type !== 'stdio') throw new Error('expected stdio');
+    expect(bot.command).not.toBe('/evil/server');
+    expect(bot.args).toEqual(['/path/to/mcp-server.js']);
   });
 
   it('runs a built .js MCP server under node', () => {

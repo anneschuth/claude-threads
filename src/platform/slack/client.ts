@@ -1,4 +1,5 @@
 import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
+import type { McpServerConfig } from '../../config/types.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
@@ -92,6 +93,8 @@ export class SlackClient extends BasePlatformClient {
   private rateLimitRetryAfter = 0;
 
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  private mcpServers?: Record<string, McpServerConfig>;
+  private strictMcpConfig?: boolean;
 
   /** When a working-status was last asserted, per anchoring message ts. */
   private readonly statusSentAt = new Map<string, number>();
@@ -119,6 +122,8 @@ export class SlackClient extends BasePlatformClient {
     this.allowedUsers = platformConfig.allowedUsers;
     this.apiUrl = platformConfig.apiUrl || 'https://slack.com/api';
     this.outboundFiles = platformConfig.outboundFiles;
+    this.mcpServers = platformConfig.mcpServers;
+    this.strictMcpConfig = platformConfig.strictMcpConfig;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
@@ -947,6 +952,8 @@ export class SlackClient extends BasePlatformClient {
       allowedUsers: this.allowedUsers,
       appToken: this.appToken, // Required for Socket Mode in permission server
       outboundFiles: this.outboundFiles,
+      mcpServers: this.mcpServers,
+      strictMcpConfig: this.strictMcpConfig,
     };
   }
 

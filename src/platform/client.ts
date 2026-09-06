@@ -1,4 +1,5 @@
 import { EventEmitter } from 'events';
+import type { McpServerConfig } from '../config/types.js';
 import type { ResolvedDirectChannelMode, ApprovalsMode } from './utils.js';
 import type {
   PlatformUser,
@@ -148,6 +149,8 @@ export interface PlatformClient extends EventEmitter {
     allowedUsers: string[];
     appToken?: string;
     outboundFiles?: { enabled?: boolean; maxBytes?: number };
+    mcpServers?: Record<string, McpServerConfig>;
+    strictMcpConfig?: boolean;
   };
 
   /**

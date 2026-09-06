@@ -29,6 +29,7 @@ import type {
   ThreadMessage,
 } from './types.js';
 import type { PlatformFormatter } from './formatter.js';
+import type { McpServerConfig } from '../config/types.js';
 
 const log = createLogger('base-client');
 
@@ -42,6 +43,10 @@ export interface BaseMcpConfig {
   token: string;
   channelId: string;
   allowedUsers: string[];
+  /** Operator-declared MCP servers for the `--mcp-config` blob (resolved at startup). */
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Pass `--strict-mcp-config` (default true; see PlatformInstanceConfig). */
+  strictMcpConfig?: boolean;
 }
 
 /**

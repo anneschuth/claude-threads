@@ -116,6 +116,12 @@ worktreeMode: prompt
 respondOnlyWhenMentioned: false   # New threads only reply when @mentioned (per-thread !mentions overrides)
 userAttribution: true             # Prefix user turns with [@username]: so Claude can tell speakers apart (default on; only applied once a thread has >1 participant)
 
+# Optional: MCP servers every platform's sessions get, on top of the bot's own.
+# Sessions see ONLY these (the CLI runs with --strict-mcp-config, default), never
+# the account's user-level servers / claude.ai connectors or the repo's .mcp.json.
+mcpServers:
+  docs: { type: http, url: https://mcp.example.com/ }
+
 # Optional: Customize the sticky channel message
 stickyMessage:
   description: "Porygon — Mixpanel analytics bot"    # Shown below the title
@@ -132,6 +138,9 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
+    strictMcpConfig: true            # default; false re-inherits the account's servers and connectors (#560)
+    mcpServers:                      # per-platform servers, merged over the top-level map
+      github: { command: npx, args: [-y, "@modelcontextprotocol/server-github"], env: { GITHUB_TOKEN: ghp-x } }
 
   # Slack configuration
   - id: slack-workspace

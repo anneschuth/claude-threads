@@ -333,6 +333,25 @@ describe('handleEventPreProcessing', () => {
     expect(session.availableSlashCommands?.has('review')).toBe(true);
   });
 
+  test('records the MCP server set from init and only re-records on change', () => {
+    expect(session.mcpServersSummary).toBeUndefined();
+    const init = {
+      type: 'system',
+      subtype: 'init',
+      mcp_servers: [{ name: 'claude-threads-mcp', status: 'connected' }, { name: 'github', status: 'failed' }],
+    };
+    handleEventPreProcessing(session, init, ctx);
+    expect(session.mcpServersSummary).toBe('claude-threads-mcp (connected), github (failed)');
+
+    // Same set again (init is re-emitted per turn): nothing changes.
+    handleEventPreProcessing(session, init, ctx);
+    expect(session.mcpServersSummary).toBe('claude-threads-mcp (connected), github (failed)');
+
+    // Strict mode with nothing but the bot's own server, or none at all.
+    handleEventPreProcessing(session, { type: 'system', subtype: 'init', mcp_servers: [] }, ctx);
+    expect(session.mcpServersSummary).toBe('none');
+  });
+
   test('handles slash_commands with leading slashes', () => {
     const initEvent = {
       type: 'system',

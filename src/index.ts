@@ -20,7 +20,7 @@ import {
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
   type PermissionMode,
-  type OverheadVisibility,
+  type OverheadVisibility, resolveMcpServers, resolveStrictMcpConfig
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -685,6 +685,22 @@ async function startWithoutDaemon() {
       platformType: typedConfig.type as 'mattermost' | 'slack',
       enabled: isEnabled,
     });
+
+    // MCP servers this platform's sessions may use: the bot's own plus what
+    // the operator declared (top-level merged with per-platform). Resolved
+    // once here, before the client is built, so derived DM instances that
+    // spread this config inherit the validated values. A malformed entry
+    // throws: a declared server that silently vanished would be worse than
+    // a startup error.
+    platformConfig.mcpServers = resolveMcpServers(
+      config.mcpServers,
+      platformConfig.mcpServers,
+      `platforms[${platformConfig.id}].mcpServers`,
+    );
+    platformConfig.strictMcpConfig = resolveStrictMcpConfig(
+      platformConfig.strictMcpConfig,
+      `platforms[${platformConfig.id}].strictMcpConfig`,
+    );
 
     // Create platform client using factory
     const client = createPlatformClient(platformConfig);

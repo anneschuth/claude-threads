@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Sessions no longer inherit the account's MCP servers and claude.ai connectors** (#560). **Breaking.** The Claude CLI is now started with `--strict-mcp-config`, so a session only sees the bot's own permission server plus the servers declared under the new `mcpServers` key (top-level or per platform; stdio or http/sse). Before, a bot run under a personal account handed every session in the channel that account's user-level MCP servers, its claude.ai connectors (Gmail, Drive, Calendar) and the repo's `.mcp.json`, and anyone on `allowedUsers` could use them. If your sessions relied on inherited servers, declare them in `mcpServers`, or set `strictMcpConfig: false` on the platform to get the old behavior back. Each session now logs the MCP servers the CLI reported at start and warns when one did not connect.
+
 ## [1.34.2] - 2026-09-06
 
 ### Fixed

@@ -1,4 +1,5 @@
 import { WebSocket } from '../../utils/websocket.js';
+import type { McpServerConfig } from '../../config/types.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
@@ -44,6 +45,8 @@ export class MattermostClient extends BasePlatformClient {
   private channelId: string;
   private directMessages: boolean;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  private mcpServers?: Record<string, McpServerConfig>;
+  private strictMcpConfig?: boolean;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
@@ -62,6 +65,8 @@ export class MattermostClient extends BasePlatformClient {
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
+    this.mcpServers = platformConfig.mcpServers;
+    this.strictMcpConfig = platformConfig.strictMcpConfig;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
@@ -755,6 +760,8 @@ export class MattermostClient extends BasePlatformClient {
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
       outboundFiles: this.outboundFiles,
+      mcpServers: this.mcpServers,
+      strictMcpConfig: this.strictMcpConfig,
     };
   }
 

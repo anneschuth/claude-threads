@@ -23,11 +23,18 @@ export type {
   PlatformOverhead,
   MemoryOption,
   ResolvedMemoryConfig,
+  McpServerConfig,
+  McpStdioServerConfig,
+  McpRemoteServerConfig,
 } from './types.js';
 export {
   DEFAULT_MEMORY_CONFIG,
   MEMORY_DISABLED,
   resolveMemoryConfig,
+  resolveMcpServers,
+  resolveStrictMcpConfig,
+  validateMcpServers,
+  BOT_MCP_SERVER_NAME,
   resolveRoutinesEnabled,
   resolveTranscriptionEnabled,
   resolveWatchesEnabled,

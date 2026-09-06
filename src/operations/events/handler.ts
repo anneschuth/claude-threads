@@ -230,7 +230,26 @@ export function handleEventPreProcessing(
       compact_metadata?: unknown;
       slash_commands?: string[];
       model?: string;
+      mcp_servers?: Array<{ name?: string; status?: string }>;
     };
+
+    // Log which MCP servers the CLI actually connected. init is re-emitted
+    // per turn, so only speak when the set changes. This is the operator's
+    // one visible check that strictMcpConfig / mcpServers did what they
+    // meant (#560) and that a declared server came up at all.
+    if (e.subtype === 'init' && Array.isArray(e.mcp_servers)) {
+      const summary = e.mcp_servers.map((s) => `${s.name ?? '?'} (${s.status ?? 'unknown'})`).join(', ') || 'none';
+      if (session.mcpServersSummary !== summary) {
+        session.mcpServersSummary = summary;
+        sessionLog(session).info(`MCP servers: ${summary}`);
+        const down = e.mcp_servers.filter((s) => s.status !== 'connected' && s.status !== 'pending');
+        if (down.length > 0) {
+          sessionLog(session).warn(
+            `MCP servers not connected: ${down.map((s) => `${s.name ?? '?'} (${s.status ?? 'unknown'})`).join(', ')}`,
+          );
+        }
+      }
+    }
 
     // Capture the current model from init events (re-emitted per turn, so a
     // /model switch is reflected on the very next turn — see captures).

@@ -216,6 +216,116 @@ export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): bool
 /**
  * Thread logging configuration
  */
+// =============================================================================
+// MCP servers (#560)
+// =============================================================================
+
+/** Name of the bot's own MCP server in every `--mcp-config` blob. Reserved. */
+export const BOT_MCP_SERVER_NAME = 'claude-threads-mcp';
+
+/** A local MCP server: a process the Claude CLI spawns over stdio. */
+export interface McpStdioServerConfig {
+  type?: 'stdio';
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
+/** A remote MCP server reached over streamable HTTP or SSE. */
+export interface McpRemoteServerConfig {
+  type: 'http' | 'sse';
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export type McpServerConfig = McpStdioServerConfig | McpRemoteServerConfig;
+
+/**
+ * Normalize the per-platform `strictMcpConfig` field. Undefined/`true` →
+ * the CLI only sees the servers in the bot's own `--mcp-config` blob (its
+ * permission server plus `mcpServers` declared in config.yaml). `false`
+ * restores the pre-#560 inheritance: the account's user-level servers and
+ * claude.ai connectors, and the repo's `.mcp.json`, all load too.
+ */
+export function resolveStrictMcpConfig(value: unknown, fieldPath?: string): boolean {
+  return resolveBooleanFeature(value, fieldPath ?? 'strictMcpConfig', {
+    default: true,
+    verb: 'inherited MCP servers stay excluded',
+  });
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' && value !== null && !Array.isArray(value) &&
+    Object.values(value as Record<string, unknown>).every((v) => typeof v === 'string')
+  );
+}
+
+/**
+ * Validate one `mcpServers` map. Throws on the first malformed entry: a
+ * server the operator declared and the bot silently dropped would be worse
+ * than a startup error, because the session would just lack the tools.
+ */
+export function validateMcpServers(value: unknown, fieldPath: string): Record<string, McpServerConfig> {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(
+      `Invalid ${fieldPath}: expected a map of server name → {command, args?, env?} or {type: http|sse, url, headers?}`,
+    );
+  }
+  const out: Record<string, McpServerConfig> = {};
+  for (const [name, raw] of Object.entries(value as Record<string, unknown>)) {
+    const path = `${fieldPath}.${name}`;
+    if (name === BOT_MCP_SERVER_NAME) {
+      throw new Error(`Invalid ${path}: "${BOT_MCP_SERVER_NAME}" is the bot's own server and cannot be redefined`);
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) {
+      throw new Error(`Invalid ${path}: server names may contain letters, digits, "_", "." and "-" only`);
+    }
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      throw new Error(`Invalid ${path}: expected an object`);
+    }
+    const s = raw as Record<string, unknown>;
+    const type = s.type ?? (typeof s.url === 'string' && s.command === undefined ? 'http' : 'stdio');
+    if (type === 'http' || type === 'sse') {
+      if (typeof s.url !== 'string' || s.url.length === 0) {
+        throw new Error(`Invalid ${path}: a ${type} server needs a url`);
+      }
+      if (s.headers !== undefined && !isStringRecord(s.headers)) {
+        throw new Error(`Invalid ${path}.headers: expected a map of strings`);
+      }
+      out[name] = { type, url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
+    } else if (type === 'stdio') {
+      if (typeof s.command !== 'string' || s.command.length === 0) {
+        throw new Error(`Invalid ${path}: a stdio server needs a command (or set type: http|sse with a url)`);
+      }
+      if (s.args !== undefined && !(Array.isArray(s.args) && s.args.every((a) => typeof a === 'string'))) {
+        throw new Error(`Invalid ${path}.args: expected a list of strings`);
+      }
+      if (s.env !== undefined && !isStringRecord(s.env)) {
+        throw new Error(`Invalid ${path}.env: expected a map of strings`);
+      }
+      out[name] = { type: 'stdio', command: s.command, args: (s.args as string[] | undefined) ?? [], env: (s.env as Record<string, string> | undefined) ?? {} };
+    } else {
+      throw new Error(`Invalid ${path}.type: expected stdio, http or sse, got ${JSON.stringify(s.type)}`);
+    }
+  }
+  return out;
+}
+
+/**
+ * The servers one platform instance passes to the CLI: the top-level
+ * `mcpServers` merged with the platform's own, the platform winning on a
+ * name clash. Both maps are validated; an empty result is fine.
+ */
+export function resolveMcpServers(
+  global: unknown,
+  platform: unknown,
+  fieldPath: string,
+): Record<string, McpServerConfig> {
+  return { ...validateMcpServers(global, 'mcpServers'), ...validateMcpServers(platform, fieldPath) };
+}
+
 export interface ThreadLogsConfig {
   enabled?: boolean;        // Default: true
   retentionDays?: number;   // Default: 30 - days to keep logs after session ends
@@ -397,6 +507,13 @@ export interface Config {
    * saved and listed like any other file. See docs/audio-transcription-spec.md.
    */
   transcription?: TranscriptionConfig;
+  /**
+   * MCP servers every platform instance passes to the Claude CLI, on top of
+   * the bot's own permission server. A platform's `mcpServers` entry with
+   * the same name wins. See `strictMcpConfig` on the platform for why these
+   * are the only servers a session sees.
+   */
+  mcpServers?: Record<string, McpServerConfig>;
   platforms: PlatformInstanceConfig[];
 }
 
@@ -484,6 +601,22 @@ export interface PlatformInstanceConfig {
    * `false` disables message evaluation and the !watch/!watches commands.
    */
   watches?: boolean;
+  /**
+   * Only let the CLI use the MCP servers the bot hands it: its own
+   * permission server plus `mcpServers` (default `true`). Without it the CLI
+   * also loads the account's user-level servers and claude.ai connectors
+   * (Gmail, Drive, ...) and the repo's `.mcp.json`, so every session in the
+   * channel got whatever the operator's account had attached (#560). Set
+   * `false` to restore that inheritance for a platform you trust with it.
+   */
+  strictMcpConfig?: boolean;
+  /**
+   * Extra MCP servers for this platform's sessions, merged over the top-level
+   * `mcpServers`. Keyed by server name; each entry is either a stdio server
+   * (`command`, optional `args`/`env`) or a remote one (`type: http|sse`,
+   * `url`, optional `headers`). The name `claude-threads-mcp` is reserved.
+   */
+  mcpServers?: Record<string, McpServerConfig>;
   /**
    * Transcribe inbound audio attachments in this platform's channels
    * (default: enabled wherever the top-level `transcription:` block is

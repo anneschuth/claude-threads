@@ -1,4 +1,5 @@
 import { ChildProcess } from 'child_process';
+import type { McpServerConfig } from '../config/types.js';
 import { crossSpawn } from '../utils/spawn.js';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
@@ -95,6 +96,17 @@ export interface PlatformMcpConfig {
    * config. When omitted the bot defaults to enabled with 100MB cap.
    */
   outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  /**
+   * Operator-declared MCP servers (config.yaml `mcpServers`, already
+   * validated) that ride in the same `--mcp-config` blob as the bot's own.
+   */
+  mcpServers?: Record<string, McpServerConfig>;
+  /**
+   * Pass `--strict-mcp-config` so the CLI ignores every MCP source but that
+   * blob. Default (undefined) is strict; only an explicit `false` inherits
+   * the account's servers and connectors and the repo's `.mcp.json` (#560).
+   */
+  strictMcpConfig?: boolean;
 }
 
 export interface ClaudeCliOptions {
@@ -330,13 +342,12 @@ function isErrorResultEvent(event: ClaudeEvent): boolean {
 /**
  * Shape of an MCP `--mcp-config` blob for the Claude CLI. Exported for tests.
  */
+export type McpBlobServer =
+  | { type: 'stdio'; command: string; args: string[]; env: Record<string, string> }
+  | { type: 'http' | 'sse'; url: string; headers?: Record<string, string> };
+
 export interface McpConfigBlob {
-  mcpServers: Record<string, {
-    type: 'stdio';
-    command: string;
-    args: string[];
-    env: Record<string, string>;
-  }>;
+  mcpServers: Record<string, McpBlobServer>;
 }
 
 /**
@@ -486,6 +497,17 @@ export function buildPermissionArgs(opts: {
     },
   };
 
+  // Operator-declared servers ride in the same blob (so their env/headers
+  // stay off argv too). The bot's own name is reserved: the config loader
+  // refuses it, and this guard keeps any caller that bypasses the loader
+  // from swapping out the permission server.
+  for (const [name, server] of Object.entries(opts.platformConfig.mcpServers ?? {})) {
+    if (name === 'claude-threads-mcp') continue;
+    mcpConfig.mcpServers[name] = 'url' in server
+      ? { type: server.type, url: server.url, ...(server.headers ? { headers: server.headers } : {}) }
+      : { type: 'stdio', command: server.command, args: server.args ?? [], env: server.env ?? {} };
+  }
+
   const materialized = materializeMcpConfig(mcpConfig, opts.sessionId, { inline: opts.inline });
   let tempFile: string | null = null;
   if (materialized.mode === 'file') {
@@ -493,6 +515,15 @@ export function buildPermissionArgs(opts: {
     args.push('--mcp-config', materialized.path);
   } else {
     args.push('--mcp-config', materialized.value);
+  }
+
+  // Only the servers in that blob. Without the flag the CLI also loads the
+  // account's user-level servers and claude.ai connectors and the repo's
+  // .mcp.json, so a bot run under a personal account handed every session
+  // the operator's Gmail and Drive (#560). Verified on 2.0.74 (the floor)
+  // and 2.1.263: plugins and skills still load, only MCP sources are cut.
+  if (opts.platformConfig.strictMcpConfig !== false) {
+    args.push('--strict-mcp-config');
   }
 
   // Mode-specific flags:
