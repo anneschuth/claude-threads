@@ -53,7 +53,14 @@ const BOLD = String.raw`(?:\*{1,2}|_{1,2})?`;
 const STATUS_POST_PATTERNS: RegExp[] = [
   // Authorization refusals — the addressee may render as @name, `name`, or a
   // raw <@U…> token depending on platform and version.
-  /^⚠️\s+\S+ is not authorized\b/u,
+  //
+  // `\S+?` is lazy deliberately (#551): greedy `\S+` made this quadratic,
+  // because every message that is NOT a refusal forces the engine to retry the
+  // `\s+`/`\S+` split at every position before failing. This runs on every
+  // inbound message on the event loop, so a single long token cost ~150 ms at
+  // Mattermost's 16k post limit and 3.7 s at 80k. Lazy matches exactly the
+  // same strings — the addressee is one whitespace-free token — in ~0 ms.
+  /^⚠️\s+\S+? is not authorized\b/u,
   new RegExp(`^⚠️\\s+${BOLD}Too busy${BOLD} -`, 'u'),
   // Keep in sync with cleanupIdleSessions in src/session/lifecycle.ts: a
   // stalled or decision-blocked turn reports differently from a genuinely

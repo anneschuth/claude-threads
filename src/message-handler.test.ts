@@ -2890,4 +2890,28 @@ describe('isClaudeThreadsStatusPost (#491)', () => {
   ])('lets ordinary messages through: %s', (message) => {
     expect(isClaudeThreadsStatusPost(message)).toBe(false);
   });
+
+  /**
+   * #551: the guard runs on every inbound message, on the event loop, before
+   * routing. A greedy `\S+` in the refusal pattern made a non-matching message
+   * quadratic in its length — ~150 ms at Mattermost's 16k post limit, 3.7 s at
+   * 80k — which any channel member could trigger with one long token.
+   *
+   * The bound is deliberately loose (the fixed form runs in well under a
+   * millisecond, the regression took seconds) so this fails on real
+   * backtracking rather than on a slow CI runner.
+   */
+  test('stays linear on a long non-matching message', () => {
+    const cases = [
+      `⚠️ ${'a'.repeat(80_000)}`,
+      `⚠️ ${'*'.repeat(80_000)}`,
+      `⏱️ ${'a'.repeat(80_000)}`,
+    ];
+
+    const started = performance.now();
+    for (const message of cases) {
+      expect(isClaudeThreadsStatusPost(message)).toBe(false);
+    }
+    expect(performance.now() - started).toBeLessThan(250);
+  });
 });
