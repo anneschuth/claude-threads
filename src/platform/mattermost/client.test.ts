@@ -113,6 +113,7 @@ describe('MattermostClient pure helpers', () => {
       outboundFiles: undefined,
       mcpServers: undefined,
       strictMcpConfig: undefined,
+      claudeAiConnectors: undefined,
     });
   });
 

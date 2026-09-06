@@ -45,8 +45,10 @@ export interface BaseMcpConfig {
   allowedUsers: string[];
   /** Operator-declared MCP servers for the `--mcp-config` blob (resolved at startup). */
   mcpServers?: Record<string, McpServerConfig>;
-  /** Pass `--strict-mcp-config` (default true; see PlatformInstanceConfig). */
+  /** Pass `--strict-mcp-config` (opt-in; see PlatformInstanceConfig). */
   strictMcpConfig?: boolean;
+  /** Allow the account's claude.ai connectors (default off; see PlatformInstanceConfig). */
+  claudeAiConnectors?: boolean;
 }
 
 /**

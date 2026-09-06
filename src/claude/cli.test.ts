@@ -488,23 +488,22 @@ describe('buildPermissionArgs', () => {
   const blobOf = (args: string[]): McpConfigBlob =>
     JSON.parse(args[args.indexOf('--mcp-config') + 1]) as McpConfigBlob;
 
-  it('passes --strict-mcp-config by default so inherited servers and connectors stay out', () => {
+  it('does not pass --strict-mcp-config by default (user-level, plugin and .mcp.json servers stay)', () => {
     const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'default' });
-    expect(args).toContain('--strict-mcp-config');
-  });
-
-  it('bypass with a platform is strict too (the blob is still built there)', () => {
-    const { args } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
-    expect(args).toContain('--strict-mcp-config');
-  });
-
-  it('strictMcpConfig: false omits the flag (explicit opt-in to inheritance)', () => {
-    const { args } = buildPermissionArgs({
-      ...baseOpts,
-      permissionMode: 'default',
-      platformConfig: { ...baseOpts.platformConfig, strictMcpConfig: false },
-    });
     expect(args).not.toContain('--strict-mcp-config');
+    const { args: bypassArgs } = buildPermissionArgs({ ...baseOpts, permissionMode: 'bypass' });
+    expect(bypassArgs).not.toContain('--strict-mcp-config');
+  });
+
+  it('strictMcpConfig: true passes the flag, in default and bypass mode alike', () => {
+    for (const permissionMode of ['default', 'bypass'] as const) {
+      const { args } = buildPermissionArgs({
+        ...baseOpts,
+        permissionMode,
+        platformConfig: { ...baseOpts.platformConfig, strictMcpConfig: true },
+      });
+      expect(args).toContain('--strict-mcp-config');
+    }
   });
 
   it('declared stdio servers ride in the blob, normalized, with their env off argv', () => {
@@ -937,9 +936,26 @@ describe('rate-limit emit guard - suppressed explicit hit keeps its explicitness
   });
 });
 
+describe('buildInlineSettings (claude.ai connectors, #560)', () => {
+  it('disables the claude.ai connectors by default, even with nothing else to set', () => {
+    expect(buildInlineSettings(undefined, null)).toEqual({ disableClaudeAiConnectors: true });
+    expect(buildInlineSettings(undefined, null, {})).toEqual({ disableClaudeAiConnectors: true });
+    expect(buildInlineSettings(undefined, null, { claudeAiConnectors: false })).toEqual({ disableClaudeAiConnectors: true });
+  });
+
+  it('leaves the connectors alone when the platform opted in', () => {
+    expect(buildInlineSettings(undefined, null, { claudeAiConnectors: true })).toBeNull();
+    const withMemory = buildInlineSettings(undefined, { autoMemoryDir: '/mem' }, { claudeAiConnectors: true })!;
+    expect(withMemory.disableClaudeAiConnectors).toBeUndefined();
+    expect(withMemory.autoMemoryDirectory).toBe('/mem');
+  });
+});
+
 describe('buildInlineSettings (memory + statusLine)', () => {
-  test('returns null when nothing needs settings (pre-memory behavior preserved)', () => {
-    expect(buildInlineSettings(undefined, null)).toBeNull();
+  test('returns null when nothing needs settings (connectors opted in, no memory, no statusLine)', () => {
+    // Without the opt-in the connectors kill switch alone yields a settings
+    // object; see the #560 block above.
+    expect(buildInlineSettings(undefined, null, { claudeAiConnectors: true })).toBeNull();
   });
 
   test('statusLine only when no memory', () => {

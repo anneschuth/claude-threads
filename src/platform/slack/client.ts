@@ -95,6 +95,7 @@ export class SlackClient extends BasePlatformClient {
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private mcpServers?: Record<string, McpServerConfig>;
   private strictMcpConfig?: boolean;
+  private claudeAiConnectors?: boolean;
 
   /** When a working-status was last asserted, per anchoring message ts. */
   private readonly statusSentAt = new Map<string, number>();
@@ -124,6 +125,7 @@ export class SlackClient extends BasePlatformClient {
     this.outboundFiles = platformConfig.outboundFiles;
     this.mcpServers = platformConfig.mcpServers;
     this.strictMcpConfig = platformConfig.strictMcpConfig;
+    this.claudeAiConnectors = platformConfig.claudeAiConnectors;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
@@ -954,6 +956,7 @@ export class SlackClient extends BasePlatformClient {
       outboundFiles: this.outboundFiles,
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
+      claudeAiConnectors: this.claudeAiConnectors,
     };
   }
 

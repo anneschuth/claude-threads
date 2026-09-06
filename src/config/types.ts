@@ -241,16 +241,32 @@ export interface McpRemoteServerConfig {
 export type McpServerConfig = McpStdioServerConfig | McpRemoteServerConfig;
 
 /**
- * Normalize the per-platform `strictMcpConfig` field. Undefined/`true` →
- * the CLI only sees the servers in the bot's own `--mcp-config` blob (its
- * permission server plus `mcpServers` declared in config.yaml). `false`
- * restores the pre-#560 inheritance: the account's user-level servers and
- * claude.ai connectors, and the repo's `.mcp.json`, all load too.
+ * Normalize the per-platform `strictMcpConfig` field. Default `false`: the
+ * CLI loads the operator's own MCP sources as it always did (user-level
+ * servers, plugin servers, the repo's `.mcp.json`) on top of the bot's blob.
+ * `true` is the opt-in hardening: only the blob (the permission server plus
+ * `mcpServers`). Claude.ai connectors are governed separately, see
+ * `resolveClaudeAiConnectors`.
  */
 export function resolveStrictMcpConfig(value: unknown, fieldPath?: string): boolean {
   return resolveBooleanFeature(value, fieldPath ?? 'strictMcpConfig', {
-    default: true,
-    verb: 'inherited MCP servers stay excluded',
+    default: false,
+    verb: 'the operator\'s MCP sources stay available',
+  });
+}
+
+/**
+ * Normalize the per-platform `claudeAiConnectors` field. Default `false`:
+ * the account's claude.ai connectors (Gmail, Google Drive, Calendar, ...)
+ * are disabled for the session via `disableClaudeAiConnectors` in the
+ * inline settings, so a bot run under a personal account does not hand the
+ * channel that person's mailbox (#560). `true` lets them through, for a
+ * platform whose users may act as that account.
+ */
+export function resolveClaudeAiConnectors(value: unknown, fieldPath?: string): boolean {
+  return resolveBooleanFeature(value, fieldPath ?? 'claudeAiConnectors', {
+    default: false,
+    verb: 'claude.ai connectors stay disabled',
   });
 }
 
@@ -602,12 +618,23 @@ export interface PlatformInstanceConfig {
    */
   watches?: boolean;
   /**
-   * Only let the CLI use the MCP servers the bot hands it: its own
-   * permission server plus `mcpServers` (default `true`). Without it the CLI
-   * also loads the account's user-level servers and claude.ai connectors
-   * (Gmail, Drive, ...) and the repo's `.mcp.json`, so every session in the
-   * channel got whatever the operator's account had attached (#560). Set
-   * `false` to restore that inheritance for a platform you trust with it.
+   * Let sessions use the claude.ai connectors of the account the bot runs
+   * under (Gmail, Google Drive, Calendar, ...). Default `false`: they are
+   * disabled per session, because a bot run under a personal account used
+   * to hand every session in the channel that person's mailbox (#560).
+   * `true` only for a platform whose users may act as that account. Needs a
+   * CLI that knows `disableClaudeAiConnectors`; older CLIs ignore the
+   * setting, and the session log warns when connectors show up anyway.
+   */
+  claudeAiConnectors?: boolean;
+  /**
+   * Opt-in hardening (default `false`): pass `--strict-mcp-config`, so the
+   * CLI uses only the servers in the bot's own blob (its permission server
+   * plus `mcpServers`) and ignores every other MCP source: the account's
+   * user-level servers, servers bundled with plugins, and the repo's
+   * `.mcp.json`. Off by default because those sources are what "your
+   * machine, your setup" promises; turn it on for a channel that should get
+   * exactly the declared set and nothing else.
    */
   strictMcpConfig?: boolean;
   /**

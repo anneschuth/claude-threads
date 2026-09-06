@@ -33,6 +33,7 @@ export {
   resolveMemoryConfig,
   resolveMcpServers,
   resolveStrictMcpConfig,
+  resolveClaudeAiConnectors,
   validateMcpServers,
   BOT_MCP_SERVER_NAME,
   resolveRoutinesEnabled,

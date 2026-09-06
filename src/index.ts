@@ -20,7 +20,7 @@ import {
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
   type PermissionMode,
-  type OverheadVisibility, resolveMcpServers, resolveStrictMcpConfig
+  type OverheadVisibility, resolveMcpServers, resolveStrictMcpConfig, resolveClaudeAiConnectors
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -700,6 +700,10 @@ async function startWithoutDaemon() {
     platformConfig.strictMcpConfig = resolveStrictMcpConfig(
       platformConfig.strictMcpConfig,
       `platforms[${platformConfig.id}].strictMcpConfig`,
+    );
+    platformConfig.claudeAiConnectors = resolveClaudeAiConnectors(
+      platformConfig.claudeAiConnectors,
+      `platforms[${platformConfig.id}].claudeAiConnectors`,
     );
 
     // Create platform client using factory

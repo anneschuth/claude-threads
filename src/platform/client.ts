@@ -151,6 +151,7 @@ export interface PlatformClient extends EventEmitter {
     outboundFiles?: { enabled?: boolean; maxBytes?: number };
     mcpServers?: Record<string, McpServerConfig>;
     strictMcpConfig?: boolean;
+    claudeAiConnectors?: boolean;
   };
 
   /**

@@ -257,7 +257,7 @@ This will reload your existing config and let you update settings.
 
 ### A note on the account the bot runs under
 
-The bot starts the Claude CLI with `--strict-mcp-config`, so sessions only get the MCP servers the bot itself configures (its permission server plus any `mcpServers` in `config.yaml`). The claude.ai connectors and user-level MCP servers of the account you run the bot under are not visible to sessions, even when you run it from your own laptop with your own login. If you do want a platform's sessions to use them, set `strictMcpConfig: false` on that platform, and keep in mind that everyone on its `allowedUsers` then gets them. See [MCP servers](docs/CONFIGURATION.md#mcp-servers-mcpservers-strictmcpconfig).
+Sessions use the MCP servers and plugins of the account the bot runs under, which is the point of running it on your own machine. The one exception is that account's claude.ai connectors (Gmail, Google Drive, Calendar, ...): those are disabled per session, so running the bot from your own laptop with your own login does not give the channel your mailbox. If you do want a platform's sessions to use them, set `claudeAiConnectors: true` on that platform, and keep in mind that everyone on its `allowedUsers` then gets them. See [MCP servers and claude.ai connectors](docs/CONFIGURATION.md#mcp-servers-and-claudeai-connectors-claudeaiconnectors-mcpservers-strictmcpconfig).
 
 ### Manual Configuration (Advanced)
 

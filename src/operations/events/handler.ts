@@ -248,6 +248,17 @@ export function handleEventPreProcessing(
             `MCP servers not connected: ${down.map((s) => `${s.name ?? '?'} (${s.status ?? 'unknown'})`).join(', ')}`,
           );
         }
+        // The connectors are disabled through the inline settings; a CLI
+        // that predates `disableClaudeAiConnectors` ignores that silently,
+        // and this is the only place the bot can see it happened.
+        const connectors = e.mcp_servers.filter((s) => (s.name ?? '').startsWith('claude.ai '));
+        if (connectors.length > 0 && session.platform.getMcpConfig().claudeAiConnectors !== true) {
+          sessionLog(session).warn(
+            `claude.ai connectors are active in this session although claudeAiConnectors is off: ` +
+            `${connectors.map((s) => s.name).join(', ')}. The Claude CLI is too old to honor ` +
+            `disableClaudeAiConnectors; upgrade it, or set strictMcpConfig: true on the platform.`,
+          );
+        }
       }
     }
 

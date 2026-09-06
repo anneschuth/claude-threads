@@ -47,6 +47,7 @@ export class MattermostClient extends BasePlatformClient {
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
   private mcpServers?: Record<string, McpServerConfig>;
   private strictMcpConfig?: boolean;
+  private claudeAiConnectors?: boolean;
   private userCache: Map<string, MattermostUser> = new Map();
   private botUserId: string | null = null;
   private readonly formatter = new MattermostFormatter();
@@ -67,6 +68,7 @@ export class MattermostClient extends BasePlatformClient {
     this.outboundFiles = platformConfig.outboundFiles;
     this.mcpServers = platformConfig.mcpServers;
     this.strictMcpConfig = platformConfig.strictMcpConfig;
+    this.claudeAiConnectors = platformConfig.claudeAiConnectors;
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
@@ -762,6 +764,7 @@ export class MattermostClient extends BasePlatformClient {
       outboundFiles: this.outboundFiles,
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
+      claudeAiConnectors: this.claudeAiConnectors,
     };
   }
 

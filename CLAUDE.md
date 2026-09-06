@@ -116,9 +116,9 @@ worktreeMode: prompt
 respondOnlyWhenMentioned: false   # New threads only reply when @mentioned (per-thread !mentions overrides)
 userAttribution: true             # Prefix user turns with [@username]: so Claude can tell speakers apart (default on; only applied once a thread has >1 participant)
 
-# Optional: MCP servers every platform's sessions get, on top of the bot's own.
-# Sessions see ONLY these (the CLI runs with --strict-mcp-config, default), never
-# the account's user-level servers / claude.ai connectors or the repo's .mcp.json.
+# Optional: MCP servers every platform's sessions get, on top of the bot's own
+# and the account's user-level / plugin / .mcp.json servers. The account's
+# claude.ai connectors are the one thing kept out by default (#560).
 mcpServers:
   docs: { type: http, url: https://mcp.example.com/ }
 
@@ -138,7 +138,8 @@ platforms:
     botName: claude-code
     allowedUsers: [alice, bob]
     skipPermissions: false
-    strictMcpConfig: true            # default; false re-inherits the account's servers and connectors (#560)
+    claudeAiConnectors: false        # default; true lets the account's Gmail/Drive/Calendar into sessions (#560)
+    strictMcpConfig: false           # default; true = only the bot's blob (permission server + mcpServers)
     mcpServers:                      # per-platform servers, merged over the top-level map
       github: { command: npx, args: [-y, "@modelcontextprotocol/server-github"], env: { GITHUB_TOKEN: ghp-x } }
 

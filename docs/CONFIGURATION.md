@@ -24,7 +24,7 @@ platforms:
     allowedUsers: [alice, bob]
     permissionMode: default
     memory: true                  # persistent memory (default on; see Memory below)
-    strictMcpConfig: true         # sessions only see the bot's MCP servers (default; see MCP servers below)
+    claudeAiConnectors: false     # keep the account's Gmail/Drive/Calendar out of sessions (default; see MCP servers below)
     mcpServers:                   # extra MCP servers for this platform's sessions
       github:
         command: npx
@@ -58,7 +58,7 @@ platforms:
 | `threadLogs` | Thread logging (see below) | enabled |
 | `stickyMessage` | Sticky message text customization (see below) | none |
 | `claudeAccounts` | Multi-account pool (see below) | single-account mode |
-| `mcpServers` | MCP servers every platform's sessions get, on top of the bot's own (see [MCP servers](#mcp-servers-mcpservers-strictmcpconfig)) | none |
+| `mcpServers` | MCP servers every platform's sessions get, on top of the bot's own (see [MCP servers and claude.ai connectors](#mcp-servers-and-claudeai-connectors-claudeaiconnectors-mcpservers-strictmcpconfig)) | none |
 
 ### Resource Limits (`limits`)
 
@@ -305,13 +305,17 @@ The `permissionMode` field controls how the bot handles a session's tool-use req
 
 A running session can switch mode at any time with `!permissions <mode>`; that override is not persisted across a bot restart.
 
-### MCP servers (`mcpServers`, `strictMcpConfig`)
+### MCP servers and claude.ai connectors (`claudeAiConnectors`, `mcpServers`, `strictMcpConfig`)
 
-A session only sees the MCP servers the bot hands the Claude CLI: its own permission server plus whatever you declare under `mcpServers`. The CLI is started with `--strict-mcp-config`, so the servers it would otherwise pick up on its own stay out: the user-level servers of the account the bot runs under, that account's claude.ai connectors (Gmail, Google Drive, Calendar, ...), and any `.mcp.json` in the working directory.
+Sessions run with the MCP servers the machine already has, as the README promises: the user-level servers of the account the bot runs under, servers bundled with installed plugins, and any `.mcp.json` in the working directory, plus the bot's own permission server. One thing is excluded by default: the account's **claude.ai connectors** (Gmail, Google Drive, Google Calendar, ...). A bot run under a personal account used to hand every session in the channel that person's mailbox; anyone on `allowedUsers` could ask for it, and a message let through by the approval flow or a watch firing on channel content could reach it without anyone meaning to. The bot now passes `disableClaudeAiConnectors` in the CLI's inline settings, which drops exactly those and nothing else.
 
-That default exists because a bot run under a personal account used to hand every session in the channel the operator's mailbox. Anyone on `allowedUsers` could ask for it, and a message approved through the message-approval flow or a watch firing on channel content could reach it without anyone meaning to.
+| Setting (per platform) | Default | Effect |
+|---|---|---|
+| `claudeAiConnectors` | `false` | `true` lets the account's claude.ai connectors into this platform's sessions. Only for a platform whose users may act as that account. The underlying CLI setting is honored on 2.1.251 and 2.1.263 (verified) and absent on 2.1.112 and older; a CLI without it ignores the setting, and the session log then warns that connectors are active anyway. |
+| `mcpServers` | none | Extra servers for this platform's sessions, merged over the top-level `mcpServers` (the platform wins on a name clash). See below. |
+| `strictMcpConfig` | `false` | `true` passes `--strict-mcp-config`: the session gets only the bot's own blob (its permission server plus `mcpServers`) and nothing from the account, plugins or the repo. Opt-in hardening for a channel that should see exactly the declared set. |
 
-Declare the servers you want, either for all platforms at the top level or per platform (the platform entry wins on a name clash):
+Declaring servers, at the top level for every platform or per platform:
 
 ```yaml
 mcpServers:                       # top level: every platform
@@ -330,11 +334,9 @@ platforms:
         env: { GITHUB_TOKEN: ghp-your-token }
 ```
 
-A stdio server needs `command` (with optional `args` and `env`); a remote one needs `type: http` or `type: sse` and a `url` (with optional `headers`). The name `claude-threads-mcp` is reserved for the bot's own server. A malformed entry stops the bot at startup with the field path in the message, rather than dropping the server silently. Secrets in `env` and `headers` travel in the same owner-only tempfile as the bot's platform token, not on the command line.
+A stdio server needs `command` (with optional `args` and `env`); a remote one needs `type: http` or `type: sse` and a `url` (with optional `headers`). The name `claude-threads-mcp` is reserved for the bot's own server. A malformed entry stops the bot at startup with the field path in the message, rather than dropping the server silently. Secrets in `env` and `headers` travel in the same owner-only tempfile as the bot's platform token, never on the command line.
 
-Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`), and warns when one did not connect. That line is the place to look when a declared server's tools do not show up.
-
-To go back to inheriting everything the account and the repo provide, set `strictMcpConfig: false` on that platform. Do that only for a platform whose users you would trust with the account's connectors, because there is no finer switch: it is all or nothing per platform. Claude.ai connectors cannot be declared in `mcpServers`; they are bound to the account, so `strictMcpConfig: false` is the only way to give a bot access to them.
+Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`) and warns when one did not connect. That line is the place to look when a declared server's tools do not show up, and it is where an old CLI's ignored `disableClaudeAiConnectors` becomes visible.
 
 ### Quieting the bot's overhead messages
 

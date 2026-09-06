@@ -5,6 +5,7 @@
 import { describe, expect, it, spyOn } from 'bun:test';
 import {
   BOT_MCP_SERVER_NAME,
+  resolveClaudeAiConnectors,
   resolveMcpServers,
   resolveStrictMcpConfig,
   validateMcpServers,
@@ -87,9 +88,9 @@ describe('resolveMcpServers', () => {
 });
 
 describe('resolveStrictMcpConfig', () => {
-  it('defaults to strict', () => {
-    expect(resolveStrictMcpConfig(undefined)).toBe(true);
-    expect(resolveStrictMcpConfig(null)).toBe(true);
+  it('is opt-in: defaults to false', () => {
+    expect(resolveStrictMcpConfig(undefined)).toBe(false);
+    expect(resolveStrictMcpConfig(null)).toBe(false);
   });
 
   it('honors an explicit boolean', () => {
@@ -97,12 +98,34 @@ describe('resolveStrictMcpConfig', () => {
     expect(resolveStrictMcpConfig(true)).toBe(true);
   });
 
-  it('warns and stays strict on garbage', () => {
+  it('warns and stays off on garbage', () => {
     const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      expect(resolveStrictMcpConfig('nope', 'platforms[mm].strictMcpConfig')).toBe(true);
+      expect(resolveStrictMcpConfig('nope', 'platforms[mm].strictMcpConfig')).toBe(false);
       expect(warn).toHaveBeenCalledTimes(1);
       expect(String(warn.mock.calls[0][0])).toContain('platforms[mm].strictMcpConfig');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
+describe('resolveClaudeAiConnectors', () => {
+  it('defaults to off', () => {
+    expect(resolveClaudeAiConnectors(undefined)).toBe(false);
+    expect(resolveClaudeAiConnectors(null)).toBe(false);
+  });
+
+  it('honors an explicit boolean', () => {
+    expect(resolveClaudeAiConnectors(true)).toBe(true);
+    expect(resolveClaudeAiConnectors(false)).toBe(false);
+  });
+
+  it('warns and stays off on garbage', () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      expect(resolveClaudeAiConnectors('yes', 'platforms[mm].claudeAiConnectors')).toBe(false);
+      expect(String(warn.mock.calls[0][0])).toContain('platforms[mm].claudeAiConnectors');
     } finally {
       warn.mockRestore();
     }
