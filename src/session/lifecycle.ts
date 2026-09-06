@@ -2010,8 +2010,17 @@ export async function handleExit(
     });
     // Notify user (session object still valid, just removed from map)
     const earlyExitFormatter = session.platform.getFormatter();
+    // The CLI refuses --strict-mcp-config next to an enterprise-managed MCP
+    // config. The startup check for that file is best-effort (the CLI has
+    // more sources than the file), so when it missed, say what happened
+    // instead of a bare exit code.
+    const lastStderr = typeof session.claude?.getLastStderr === 'function' ? session.claude.getLastStderr() : '';
+    const strictRefused = lastStderr.includes('You cannot use --strict-mcp-config');
+    const earlyExitText = strictRefused
+      ? `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond: the Claude CLI refuses ${earlyExitFormatter.formatCode('--strict-mcp-config')} because an enterprise-managed MCP config is present. Set ${earlyExitFormatter.formatCode('strictMcpConfig: false')} on this platform and restart the bot.`
+      : `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`;
     await withErrorHandling(
-      () => post(session, 'warning', `${earlyExitFormatter.formatBold('Session ended')} before Claude could respond (exit code ${code}). Please start a new session.`),
+      () => post(session, 'warning', earlyExitText),
       { action: 'Post early exit notification', session }
     );
     sessionLog(session).info(`⚠ Session ended early (exit code ${code})`);

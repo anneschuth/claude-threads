@@ -797,6 +797,25 @@ describe('updateSessionHeader (sessionHeaderMode)', () => {
     expect(body).toContain('Session ID');
   });
 
+  it('full mode shows the MCP row only when the posture deviates from the default (#560)', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession({ platform, sessionHeaderMode: 'full' });
+    const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+    const updatePost = platform.updatePost as ReturnType<typeof mock>;
+
+    await commands.updateSessionHeader(session, ctx);
+    expect(String(updatePost.mock.calls[0][1])).not.toContain('🔌');
+
+    (platform as unknown as { getMcpConfig: () => unknown }).getMcpConfig = () => ({
+      type: 'mattermost', url: 'x', token: 'y', channelId: 'c', allowedUsers: [], claudeAiConnectors: true, strictMcpConfig: true,
+    });
+    await commands.updateSessionHeader(session, ctx);
+    const body = String(updatePost.mock.calls[1][1]);
+    expect(body).toContain('🔌');
+    expect(body).toContain('claude.ai connectors');
+    expect(body).toContain('strict');
+  });
+
   it('full mode shows the quiet-mode row only when respondOnlyWhenMentioned is on (#402)', async () => {
     const platform = createMockPlatform();
 

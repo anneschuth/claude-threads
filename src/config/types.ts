@@ -303,8 +303,10 @@ export function validateMcpServers(value: unknown, fieldPath: string): Record<st
     if (name === BOT_MCP_SERVER_NAME) {
       throw new Error(`Invalid ${path}: "${BOT_MCP_SERVER_NAME}" is the bot's own server and cannot be redefined`);
     }
-    if (!/^[A-Za-z0-9][A-Za-z0-9_.-]*$/.test(name)) {
-      throw new Error(`Invalid ${path}: server names may contain letters, digits, "_", "." and "-" only`);
+    // The CLI folds other characters into "_" when it builds mcp__<server>__<tool>
+    // names, so two declared servers could collide; keep to what survives as-is.
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]*$/.test(name)) {
+      throw new Error(`Invalid ${path}: server names may contain letters, digits, "_" and "-" only`);
     }
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       throw new Error(`Invalid ${path}: expected an object`);

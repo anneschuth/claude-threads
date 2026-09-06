@@ -979,6 +979,19 @@ describe('buildInlineSettings (memory + statusLine)', () => {
   });
 });
 
+describe('buildClaudeChildEnv: claude.ai connectors kill switch (#560)', () => {
+  test('sets ENABLE_CLAUDEAI_MCP_SERVERS=false by default, overriding the parent env', () => {
+    expect(buildClaudeChildEnv({}, undefined).ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    expect(buildClaudeChildEnv({ ENABLE_CLAUDEAI_MCP_SERVERS: 'true' }, undefined, {}).ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+    expect(buildClaudeChildEnv({}, undefined, { claudeAiConnectors: false }).ENABLE_CLAUDEAI_MCP_SERVERS).toBe('false');
+  });
+
+  test('leaves the env alone when the platform opted in', () => {
+    expect(buildClaudeChildEnv({}, undefined, { claudeAiConnectors: true }).ENABLE_CLAUDEAI_MCP_SERVERS).toBeUndefined();
+    expect(buildClaudeChildEnv({ ENABLE_CLAUDEAI_MCP_SERVERS: 'true' }, undefined, { claudeAiConnectors: true }).ENABLE_CLAUDEAI_MCP_SERVERS).toBe('true');
+  });
+});
+
 describe('buildClaudeChildEnv — auto-memory kill switch', () => {
   test('disableAutoMemory sets CLAUDE_CODE_DISABLE_AUTO_MEMORY=1', () => {
     const env = buildClaudeChildEnv({}, undefined, { disableAutoMemory: true });

@@ -12,6 +12,7 @@
  */
 
 import { crossSpawn } from '../utils/spawn.js';
+import { buildClaudeChildEnv } from './cli.js';
 import { getClaudePath } from './version-check.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -95,7 +96,10 @@ export async function quickQuery(options: QuickQueryOptions): Promise<QuickQuery
 
     const proc = crossSpawn(claudePath, args, {
       cwd: workingDir || process.cwd(),
-      env: process.env,
+      // Same child env as a session: keeps the account's claude.ai connectors
+      // out of every one-shot (#560). A watch confirm runs on channel text
+      // an outsider wrote; it must not carry 74 Gmail/Drive tool schemas.
+      env: buildClaudeChildEnv(process.env),
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

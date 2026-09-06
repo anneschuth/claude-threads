@@ -256,10 +256,20 @@ export function handleEventPreProcessing(
         // and this is the only place the bot can see it happened.
         const connectors = e.mcp_servers.filter((s) => (s.name ?? '').startsWith('claude.ai '));
         if (connectors.length > 0 && session.platform.getMcpConfig().claudeAiConnectors !== true) {
+          const names = connectors.map((s) => s.name).join(', ');
           sessionLog(session).warn(
-            `claude.ai connectors are active in this session although claudeAiConnectors is off: ` +
-            `${connectors.map((s) => s.name).join(', ')}. The Claude CLI is too old to honor ` +
-            `disableClaudeAiConnectors; upgrade it, or set strictMcpConfig: true on the platform.`,
+            `claude.ai connectors are active although claudeAiConnectors is off: ${names}. ` +
+            `This Claude CLI ignores both disableClaudeAiConnectors and ENABLE_CLAUDEAI_MCP_SERVERS; upgrade it.`,
+          );
+          // The people this concerns read the thread, not the bot's log.
+          // Fire-and-forget: pre-processing is synchronous.
+          const f = session.platform.getFormatter();
+          void withErrorHandling(
+            () => post(session, 'warning',
+              `${f.formatBold('claude.ai connectors are active in this session')} (${names}) although ` +
+              `${f.formatCode('claudeAiConnectors')} is off for this platform. This Claude CLI version ignores the ` +
+              `switch; upgrade the CLI on the bot's machine.`),
+            { action: 'Post connector warning', session },
           );
         }
       }

@@ -111,4 +111,29 @@ describe('prompt transport (stdin, not argv)', () => {
     }
   });
 
+  test('spawns with the claude.ai connectors disabled in the child env (#560)', async () => {
+    const { mkdtempSync, writeFileSync, rmSync, chmodSync } = await import('fs');
+    const { tmpdir } = await import('os');
+    const { join } = await import('path');
+
+    const dir = mkdtempSync(join(tmpdir(), 'ct-quickquery-env-'));
+    const stub = join(dir, 'fake-claude');
+    writeFileSync(stub, `#!/usr/bin/env bash\ncat >/dev/null\nprintf '%s' "$ENABLE_CLAUDEAI_MCP_SERVERS"\n`, { mode: 0o755 });
+    chmodSync(stub, 0o755);
+
+    const prevPath = process.env.CLAUDE_PATH;
+    const prevFlag = process.env.ENABLE_CLAUDEAI_MCP_SERVERS;
+    process.env.CLAUDE_PATH = stub;
+    process.env.ENABLE_CLAUDEAI_MCP_SERVERS = 'true'; // the child must override the parent
+    try {
+      const result = await quickQuery({ prompt: 'x', model: 'haiku', timeout: 10000 });
+      expect(result.success).toBe(true);
+      expect(result.response).toBe('false');
+    } finally {
+      if (prevPath === undefined) delete process.env.CLAUDE_PATH; else process.env.CLAUDE_PATH = prevPath;
+      if (prevFlag === undefined) delete process.env.ENABLE_CLAUDEAI_MCP_SERVERS; else process.env.ENABLE_CLAUDEAI_MCP_SERVERS = prevFlag;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
 });

@@ -311,7 +311,7 @@ Sessions run with the MCP servers the machine already has, as the README promise
 
 | Setting (per platform) | Default | Effect |
 |---|---|---|
-| `claudeAiConnectors` | `false` | `true` lets the account's claude.ai connectors into this platform's sessions. Only for a platform whose users may act as that account. The underlying CLI setting is honored on 2.1.251 and 2.1.263 (verified) and absent on 2.1.112 and older; a CLI without it ignores the setting, and the session log then warns that connectors are active anyway. |
+| `claudeAiConnectors` | `false` | `true` lets the account's claude.ai connectors into this platform's sessions. Only for a platform whose users may act as that account. Done two ways: the `disableClaudeAiConnectors` setting (present from 2.1.251, verified there and on 2.1.263) and the `ENABLE_CLAUDEAI_MCP_SERVERS=false` env var on every child, which also covers older CLIs (verified on 2.1.112). Should connectors show up anyway, the session posts a warning in the thread. |
 | `mcpServers` | none | Extra servers for this platform's sessions, merged over the top-level `mcpServers` (the platform wins on a name clash). See below. |
 | `strictMcpConfig` | `false` | `true` passes `--strict-mcp-config`: the session gets only the bot's own blob (its permission server plus `mcpServers`) and nothing from the account, plugins or the repo. Opt-in hardening for a channel that should see exactly the declared set. |
 
@@ -342,7 +342,9 @@ Three things to know about stdio servers:
 - A declared server inherits the CLI's environment, including `ANTHROPIC_API_KEY` when the session runs on an API-key pool account. `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (see Environment Variables) makes the CLI strip those credentials from the servers it spawns.
 - On Windows, `npx` and other `.cmd` shims need `command: cmd` with `args: ["/c", "npx", ...]`.
 
-`strictMcpConfig: true` has one more consequence: on a machine with an enterprise-managed MCP config (`managed-mcp.json` under `/Library/Application Support/ClaudeCode`, `/etc/claude-code` or `C:\Program Files\ClaudeCode`) the CLI refuses the flag and exits. The bot checks for that file at startup and runs the platform without the flag, with a warning, because the organization's policy already decides which servers load there.
+`strictMcpConfig: true` has one more consequence: on a machine with an enterprise-managed MCP config (`managed-mcp.json` under `/Library/Application Support/ClaudeCode`, `/etc/claude-code` or `C:\Program Files\ClaudeCode`) the CLI refuses the flag and exits. The bot checks for that file at startup and runs the platform without the flag, with a warning, because the organization's policy already decides which servers load there. The check is best-effort (the CLI also takes managed MCP from managed settings and, on Windows, the registry); when it misses, the first session's early-exit message names the refusal and the `strictMcpConfig: false` way out.
+
+The same exclusion applies to the bot's own haiku one-shots (watch confirms, distillation, routine and watch parsing, title suggestions): they run with the connectors disabled as well.
 
 Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`) and warns when one did not connect. That line is the place to look when a declared server's tools do not show up, and it is where an old CLI's ignored `disableClaudeAiConnectors` becomes visible.
 

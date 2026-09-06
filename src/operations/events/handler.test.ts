@@ -352,6 +352,39 @@ describe('handleEventPreProcessing', () => {
     expect(session.mcpServersSummary).toBe('none');
   });
 
+  test('warns in the thread when claude.ai connectors are active but the platform has them off (#560)', async () => {
+    (session.platform as unknown as { getMcpConfig: () => unknown }).getMcpConfig = () => ({
+      type: 'mattermost', url: 'x', token: 'y', channelId: 'c', allowedUsers: [], claudeAiConnectors: false,
+    });
+    const createPost = session.platform.createPost as ReturnType<typeof mock>;
+    const before = createPost.mock.calls.length;
+
+    handleEventPreProcessing(session, {
+      type: 'system', subtype: 'init',
+      mcp_servers: [{ name: 'claude-threads-mcp', status: 'connected' }, { name: 'claude.ai Gmail', status: 'connected' }],
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 5)); // the post is fire-and-forget
+
+    const posted = createPost.mock.calls.slice(before).map((c) => String(c[0]));
+    expect(posted.some((m) => m.includes('claude.ai connectors are active') && m.includes('claude.ai Gmail'))).toBe(true);
+  });
+
+  test('stays quiet about connectors when the platform opted in', async () => {
+    (session.platform as unknown as { getMcpConfig: () => unknown }).getMcpConfig = () => ({
+      type: 'mattermost', url: 'x', token: 'y', channelId: 'c', allowedUsers: [], claudeAiConnectors: true,
+    });
+    const createPost = session.platform.createPost as ReturnType<typeof mock>;
+    const before = createPost.mock.calls.length;
+
+    handleEventPreProcessing(session, {
+      type: 'system', subtype: 'init', mcp_servers: [{ name: 'claude.ai Gmail', status: 'connected' }],
+    }, ctx);
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(createPost.mock.calls.length).toBe(before);
+    expect(session.mcpServersSummary).toBe('claude.ai Gmail (connected)');
+  });
+
   test('handles slash_commands with leading slashes', () => {
     const initEvent = {
       type: 'system',

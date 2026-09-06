@@ -21,11 +21,7 @@ import {
   type PlatformInstanceConfig,
   type PermissionMode,
   type OverheadVisibility,
-  resolveMcpServers,
-  resolveStrictMcpConfig,
-  resolveClaudeAiConnectors,
-  managedMcpConfigPresent,
-  managedMcpConfigPath,
+  resolvePlatformMcpPosture,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -380,26 +376,14 @@ async function startWithoutDaemon() {
   // is a plain startup error with the field path, like a bad
   // --permission-mode, not a throw from inside the platform loop. Derived DM
   // instances spread these entries, so they inherit the validated values.
-  for (const p of newConfig.platforms) {
-    try {
-      p.mcpServers = resolveMcpServers(newConfig.mcpServers, p.mcpServers, `platforms[${p.id}].mcpServers`);
-    } catch (err) {
-      console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
-      process.exit(1);
-    }
-    p.strictMcpConfig = resolveStrictMcpConfig(p.strictMcpConfig, `platforms[${p.id}].strictMcpConfig`);
-    p.claudeAiConnectors = resolveClaudeAiConnectors(p.claudeAiConnectors, `platforms[${p.id}].claudeAiConnectors`);
-    if (p.strictMcpConfig && managedMcpConfigPresent()) {
-      // The CLI refuses --strict-mcp-config next to an enterprise-managed
-      // MCP config and exits; every session would die at start. The org
-      // policy already governs MCP there, so run without the flag.
-      console.warn(
-        `platforms[${p.id}].strictMcpConfig ignored: an enterprise managed MCP config is present ` +
-        `(${managedMcpConfigPath()}) and the Claude CLI refuses --strict-mcp-config alongside it.`,
-      );
-      p.strictMcpConfig = false;
-    }
+  let mcpPostureWarnings: string[] = [];
+  try {
+    mcpPostureWarnings = resolvePlatformMcpPosture(newConfig.platforms, newConfig.mcpServers).warnings;
+  } catch (err) {
+    console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
+    process.exit(1);
   }
+  for (const w of mcpPostureWarnings) console.warn(w);
 
   const config = newConfig;
 
@@ -640,6 +624,11 @@ async function startWithoutDaemon() {
       },
     },
   });
+  // Startup warnings printed before Ink took the screen are easy to miss;
+  // repeat the MCP posture ones in the log panel.
+  for (const w of mcpPostureWarnings) {
+    ui.addLog({ level: 'warn', component: 'config', message: w });
+  }
 
   // Route all logger output through the UI
   setLogHandler((level, component, message, sessionId) => {
