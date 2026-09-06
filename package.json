@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/mcp-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
+    "build": "bun build src/index.ts --outdir dist --target node --external react-devtools-core && bun build src/mcp/mcp-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
     "start": "bun dist/index.js",
     "test": "bun test src/ --timeout 15000",
     "test:watch": "bun test src/ --watch --timeout 15000",
