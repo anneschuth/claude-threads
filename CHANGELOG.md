@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.34.1] - 2026-09-06
+
 ### Fixed
 - **A long message no longer stalls message handling** (#551). The bot-to-bot status-post guard runs on every inbound message, on the event loop, before routing — and its authorization-refusal pattern used a greedy `\S+`, so any message that was *not* a refusal made the engine retry the split at every position before failing. Measured quadratic: ~150 ms at Mattermost's 16k post limit, 3.7 s at 80k, triggerable by any channel member with one long token. The quantifier is now lazy, which matches exactly the same strings (the addressee is a single whitespace-free token) in well under a millisecond. Measured under JSC, the engine Bun uses; V8 optimizes the greedy form away, so the fault is invisible when re-measured under Node.
 
