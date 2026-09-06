@@ -46,8 +46,14 @@ jobs:
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Regenerate bun.lock from the updated manifest
-        run: bun install
+      - name: Regenerate bun.lock from package-lock.json
+        # A plain `bun install` keeps any existing bun.lock entry that still
+        # satisfies package.json, so a transitive bump (every security PR)
+        # never moved (#543 landed in package-lock.json only). Without a
+        # bun.lock present, bun migrates the resolutions from package-lock.json.
+        run: |
+          rm -f bun.lock
+          bun install
 
       - name: Commit bun.lock if it changed
         run: |
