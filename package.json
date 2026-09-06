@@ -11,7 +11,7 @@
   },
   "scripts": {
     "dev": "bun --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist --target node --external react-devtools-core && bun build src/mcp/mcp-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
+    "build": "bun build src/index.ts --outdir dist --target node && bun build src/mcp/mcp-server.ts --outdir dist/mcp --target node && bun build src/statusline/writer.ts --outdir dist/statusline --target node",
     "start": "bun dist/index.js",
     "test": "bun test src/ --timeout 15000",
     "test:watch": "bun test src/ --watch --timeout 15000",
@@ -102,6 +102,7 @@
     "knip": "6.33.0",
     "lint-staged": "^17.0.4",
     "prettier": "^3.9.5",
+    "react-devtools-core": "^7.0.1",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.64.0"
   },
