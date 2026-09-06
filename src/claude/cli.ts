@@ -1,5 +1,5 @@
 import { ChildProcess } from 'child_process';
-import { BOT_MCP_SERVER_NAME, type McpServerConfig } from '../config/types.js';
+import { BOT_MCP_SERVER_NAME, isRemoteMcpServer, type McpServerConfig } from '../config/types.js';
 import { crossSpawn } from '../utils/spawn.js';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
@@ -519,7 +519,7 @@ export function buildPermissionArgs(opts: {
   // from swapping out the permission server.
   for (const [name, server] of Object.entries(opts.platformConfig.mcpServers ?? {})) {
     if (name === BOT_MCP_SERVER_NAME) continue;
-    mcpConfig.mcpServers[name] = 'url' in server
+    mcpConfig.mcpServers[name] = isRemoteMcpServer(server)
       ? { type: server.type, url: server.url, ...(server.headers ? { headers: server.headers } : {}) }
       : { type: 'stdio', command: server.command, args: server.args ?? [], env: server.env ?? {} };
   }

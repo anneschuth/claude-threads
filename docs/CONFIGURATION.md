@@ -334,7 +334,15 @@ platforms:
         env: { GITHUB_TOKEN: ghp-your-token }
 ```
 
-A stdio server needs `command` (with optional `args` and `env`); a remote one needs `type: http` or `type: sse` and a `url` (with optional `headers`). The name `claude-threads-mcp` is reserved for the bot's own server. A malformed entry stops the bot at startup with the field path in the message, rather than dropping the server silently. Secrets in `env` and `headers` travel in the same owner-only tempfile as the bot's platform token, never on the command line.
+A stdio server needs `command` (with optional `args` and `env`); a remote one needs `type: http` or `type: sse` and a `url` (with optional `headers`). Keys outside those are rejected, as is an entry with both `command` and `url`. The name `claude-threads-mcp` is reserved for the bot's own server. A malformed entry stops the bot at startup with the field path in the message, rather than dropping the server silently. Secrets in `env` and `headers` travel in the same owner-only tempfile as the bot's platform token, never on the command line.
+
+Three things to know about stdio servers:
+
+- The CLI expands `${VAR}` in `args` and `env` from its own environment (verified on 2.1.263), so `env: { GITHUB_TOKEN: "${GITHUB_TOKEN}" }` keeps the token out of `config.yaml`. With a Claude account pool that environment is the pooled account's (`HOME` is overridden per session).
+- A declared server inherits the CLI's environment, including `ANTHROPIC_API_KEY` when the session runs on an API-key pool account. `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` (see Environment Variables) makes the CLI strip those credentials from the servers it spawns.
+- On Windows, `npx` and other `.cmd` shims need `command: cmd` with `args: ["/c", "npx", ...]`.
+
+`strictMcpConfig: true` has one more consequence: on a machine with an enterprise-managed MCP config (`managed-mcp.json` under `/Library/Application Support/ClaudeCode`, `/etc/claude-code` or `C:\Program Files\ClaudeCode`) the CLI refuses the flag and exits. The bot checks for that file at startup and runs the platform without the flag, with a warning, because the organization's policy already decides which servers load there.
 
 Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`) and warns when one did not connect. That line is the place to look when a declared server's tools do not show up, and it is where an old CLI's ignored `disableClaudeAiConnectors` becomes visible.
 

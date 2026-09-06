@@ -238,7 +238,10 @@ export function handleEventPreProcessing(
     // one visible check that strictMcpConfig / mcpServers did what they
     // meant (#560) and that a declared server came up at all.
     if (e.subtype === 'init' && Array.isArray(e.mcp_servers)) {
-      const summary = e.mcp_servers.map((s) => `${s.name ?? '?'} (${s.status ?? 'unknown'})`).join(', ') || 'none';
+      const summary = [...e.mcp_servers]
+        .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+        .map((s) => `${s.name ?? '?'} (${s.status ?? 'unknown'})`)
+        .join(', ') || 'none';
       if (session.mcpServersSummary !== summary) {
         session.mcpServersSummary = summary;
         sessionLog(session).info(`MCP servers: ${summary}`);

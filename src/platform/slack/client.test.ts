@@ -115,6 +115,24 @@ function makeClient(overrides: Partial<SlackPlatformConfig> = {}): SlackClient {
   return new SlackClient(makeConfig(overrides));
 }
 
+describe('SlackClient getMcpConfig', () => {
+  it('carries the MCP posture and declared servers through (#560)', () => {
+    const mcpServers = { docs: { type: 'http' as const, url: 'https://mcp.test/', headers: { A: 'b' } } };
+    const mcp = makeClient({ mcpServers, strictMcpConfig: true, claudeAiConnectors: true }).getMcpConfig();
+    expect(mcp.mcpServers).toEqual(mcpServers);
+    expect(mcp.strictMcpConfig).toBe(true);
+    expect(mcp.claudeAiConnectors).toBe(true);
+    expect(mcp.appToken).toBe('xapp-app-token');
+  });
+
+  it('leaves the posture undefined when the config has none (resolved upstream)', () => {
+    const mcp = makeClient().getMcpConfig();
+    expect(mcp.mcpServers).toBeUndefined();
+    expect(mcp.strictMcpConfig).toBeUndefined();
+    expect(mcp.claudeAiConnectors).toBeUndefined();
+  });
+});
+
 async function primeBotUser(client: SlackClient, userId = 'U-BOT') {
   fetchResponder = (url) => {
     if (url.endsWith('auth.test')) return ok({ user_id: userId, team_id: 'T-OURS', url: 'https://team.slack.com/' });

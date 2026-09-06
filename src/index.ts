@@ -20,7 +20,12 @@ import {
   type SlackPlatformConfig,
   type PlatformInstanceConfig,
   type PermissionMode,
-  type OverheadVisibility, resolveMcpServers, resolveStrictMcpConfig, resolveClaudeAiConnectors
+  type OverheadVisibility,
+  resolveMcpServers,
+  resolveStrictMcpConfig,
+  resolveClaudeAiConnectors,
+  managedMcpConfigPresent,
+  managedMcpConfigPath,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -369,6 +374,33 @@ async function startWithoutDaemon() {
     throw new Error('No platforms configured. Run with --setup to configure.');
   }
 
+  // MCP posture per platform (#560), resolved here, before the UI owns the
+  // screen and before any client exists: the top-level `mcpServers` merged
+  // with the platform's own, and the two booleans. A malformed server entry
+  // is a plain startup error with the field path, like a bad
+  // --permission-mode, not a throw from inside the platform loop. Derived DM
+  // instances spread these entries, so they inherit the validated values.
+  for (const p of newConfig.platforms) {
+    try {
+      p.mcpServers = resolveMcpServers(newConfig.mcpServers, p.mcpServers, `platforms[${p.id}].mcpServers`);
+    } catch (err) {
+      console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
+      process.exit(1);
+    }
+    p.strictMcpConfig = resolveStrictMcpConfig(p.strictMcpConfig, `platforms[${p.id}].strictMcpConfig`);
+    p.claudeAiConnectors = resolveClaudeAiConnectors(p.claudeAiConnectors, `platforms[${p.id}].claudeAiConnectors`);
+    if (p.strictMcpConfig && managedMcpConfigPresent()) {
+      // The CLI refuses --strict-mcp-config next to an enterprise-managed
+      // MCP config and exits; every session would die at start. The org
+      // policy already governs MCP there, so run without the flag.
+      console.warn(
+        `platforms[${p.id}].strictMcpConfig ignored: an enterprise managed MCP config is present ` +
+        `(${managedMcpConfigPath()}) and the Claude CLI refuses --strict-mcp-config alongside it.`,
+      );
+      p.strictMcpConfig = false;
+    }
+  }
+
   const config = newConfig;
 
   // Get the first platform's effective permission mode as the default
@@ -685,26 +717,6 @@ async function startWithoutDaemon() {
       platformType: typedConfig.type as 'mattermost' | 'slack',
       enabled: isEnabled,
     });
-
-    // MCP servers this platform's sessions may use: the bot's own plus what
-    // the operator declared (top-level merged with per-platform). Resolved
-    // once here, before the client is built, so derived DM instances that
-    // spread this config inherit the validated values. A malformed entry
-    // throws: a declared server that silently vanished would be worse than
-    // a startup error.
-    platformConfig.mcpServers = resolveMcpServers(
-      config.mcpServers,
-      platformConfig.mcpServers,
-      `platforms[${platformConfig.id}].mcpServers`,
-    );
-    platformConfig.strictMcpConfig = resolveStrictMcpConfig(
-      platformConfig.strictMcpConfig,
-      `platforms[${platformConfig.id}].strictMcpConfig`,
-    );
-    platformConfig.claudeAiConnectors = resolveClaudeAiConnectors(
-      platformConfig.claudeAiConnectors,
-      `platforms[${platformConfig.id}].claudeAiConnectors`,
-    );
 
     // Create platform client using factory
     const client = createPlatformClient(platformConfig);

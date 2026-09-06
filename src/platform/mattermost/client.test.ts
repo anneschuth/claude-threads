@@ -117,6 +117,15 @@ describe('MattermostClient pure helpers', () => {
     });
   });
 
+  it('getMcpConfig carries the MCP posture and declared servers through (#560)', () => {
+    const mcpServers = { gh: { type: 'stdio' as const, command: 'gh-mcp', args: ['--x'], env: { T: '1' } } };
+    const c = makeClient({ mcpServers, strictMcpConfig: true, claudeAiConnectors: true });
+    const mcp = c.getMcpConfig();
+    expect(mcp.mcpServers).toEqual(mcpServers);
+    expect(mcp.strictMcpConfig).toBe(true);
+    expect(mcp.claudeAiConnectors).toBe(true);
+  });
+
   it('getMcpConfig surfaces outboundFiles when configured', () => {
     const c = makeClient({
       url: 'https://x',

@@ -1142,6 +1142,18 @@ export async function updateSessionHeader(
     items.push(['🔑', 'Claude account', formatter.formatCode(label)]);
   }
 
+  // MCP posture (#560): only when it deviates from the default (connectors
+  // off, the machine's own servers on), so a channel can see that its
+  // sessions carry the account's connectors, or that they see only the
+  // bot's declared set.
+  {
+    const mcp = session.platform.getMcpConfig();
+    const posture: string[] = [];
+    if (mcp.claudeAiConnectors === true) posture.push(`claude.ai connectors ${formatter.formatBold('on')}`);
+    if (mcp.strictMcpConfig === true) posture.push('strict (declared servers only)');
+    if (posture.length > 0) items.push(['🔌', 'MCP', posture.join(', ')]);
+  }
+
   items.push(['🆔', 'Session ID', formatter.formatCode(session.claudeSessionId.substring(0, 8))]);
 
   // Show log file path (sanitized) - use sessionId for the filename

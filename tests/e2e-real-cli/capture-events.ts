@@ -66,6 +66,9 @@ const BASE_ARGS = [
   '--output-format', 'stream-json',
   '--verbose',
   '--model', 'claude-haiku-4-5-20251001',
+  // Production keeps the account's claude.ai connectors out of every session
+  // (#560); without this a capture lists the recording account's connectors.
+  '--settings', '{"disableClaudeAiConnectors":true}',
 ];
 
 const userEvent = (text: string) =>

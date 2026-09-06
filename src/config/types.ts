@@ -240,6 +240,14 @@ export interface McpRemoteServerConfig {
 
 export type McpServerConfig = McpStdioServerConfig | McpRemoteServerConfig;
 
+/** Discriminate on the normalized `type`, not on which keys happen to exist. */
+export function isRemoteMcpServer(server: McpServerConfig): server is McpRemoteServerConfig {
+  return server.type === 'http' || server.type === 'sse';
+}
+
+const STDIO_KEYS = new Set(['type', 'command', 'args', 'env']);
+const REMOTE_KEYS = new Set(['type', 'url', 'headers']);
+
 /**
  * Normalize the per-platform `strictMcpConfig` field. Default `false`: the
  * CLI loads the operator's own MCP sources as it always did (user-level
@@ -301,9 +309,18 @@ export function validateMcpServers(value: unknown, fieldPath: string): Record<st
     if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
       throw new Error(`Invalid ${path}: expected an object`);
     }
-    const s = raw as Record<string, unknown>;
-    const type = s.type ?? (typeof s.url === 'string' && s.command === undefined ? 'http' : 'stdio');
+    // YAML leaves `args:` / `env:` with nothing after the colon as null;
+    // treat that like an absent key instead of a type error.
+    const s = Object.fromEntries(Object.entries(raw as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined));
+    if (typeof s.command === 'string' && typeof s.url === 'string') {
+      throw new Error(`Invalid ${path}: has both command (stdio) and url (http/sse); keep one`);
+    }
+    const type = s.type ?? (typeof s.url === 'string' ? 'http' : 'stdio');
     if (type === 'http' || type === 'sse') {
+      const unknown = Object.keys(s).filter((k) => !REMOTE_KEYS.has(k));
+      if (unknown.length > 0) {
+        throw new Error(`Invalid ${path}: unknown key(s) ${unknown.join(', ')}; a ${type} server takes type, url, headers`);
+      }
       if (typeof s.url !== 'string' || s.url.length === 0) {
         throw new Error(`Invalid ${path}: a ${type} server needs a url`);
       }
@@ -312,6 +329,10 @@ export function validateMcpServers(value: unknown, fieldPath: string): Record<st
       }
       out[name] = { type, url: s.url, ...(s.headers ? { headers: s.headers } : {}) };
     } else if (type === 'stdio') {
+      const unknown = Object.keys(s).filter((k) => !STDIO_KEYS.has(k));
+      if (unknown.length > 0) {
+        throw new Error(`Invalid ${path}: unknown key(s) ${unknown.join(', ')}; a stdio server takes type, command, args, env`);
+      }
       if (typeof s.command !== 'string' || s.command.length === 0) {
         throw new Error(`Invalid ${path}: a stdio server needs a command (or set type: http|sse with a url)`);
       }

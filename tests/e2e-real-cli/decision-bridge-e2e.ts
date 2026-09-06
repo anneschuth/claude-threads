@@ -67,6 +67,7 @@ function runClaude(extraArgs: string[], prompt: string): Promise<string> {
   return new Promise((resolve) => {
     const proc = spawn('claude', [
       '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+      '--settings', '{"disableClaudeAiConnectors":true}', // as production (#560)
       '--mcp-config', `${dir}/e2e-mcp-config.json`,
       '--permission-prompt-tool', 'mcp__claude-threads-mcp__permission_prompt',
       '--model', 'claude-haiku-4-5-20251001',

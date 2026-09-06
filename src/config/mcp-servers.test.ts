@@ -65,6 +65,20 @@ describe('validateMcpServers', () => {
     expect(() => validateMcpServers({ a: { type: 'grpc', url: 'u' } }, 'mcpServers')).toThrow(/\.type/);
   });
 
+  it('rejects unknown keys, naming them, so a typo cannot pass as an empty option', () => {
+    expect(() => validateMcpServers({ a: { command: 'x', arg: ['y'] } }, 'mcpServers')).toThrow(/unknown key\(s\) arg/);
+    expect(() => validateMcpServers({ a: { command: 'x', cwd: '/tmp' } }, 'mcpServers')).toThrow(/unknown key\(s\) cwd/);
+    expect(() => validateMcpServers({ a: { type: 'http', url: 'u', command: 'rm' } }, 'mcpServers')).toThrow(/both command/);
+    expect(() => validateMcpServers({ a: { type: 'sse', url: 'u', timeout: 5 } }, 'mcpServers')).toThrow(/unknown key\(s\) timeout/);
+  });
+
+  it('treats a YAML null (an empty "args:" or "env:" line) as an absent key', () => {
+    expect(validateMcpServers({ a: { command: 'x', args: null, env: null } }, 'mcpServers').a).toEqual({
+      type: 'stdio', command: 'x', args: [], env: {},
+    });
+    expect(validateMcpServers({ a: { type: 'http', url: 'u', headers: null } }, 'mcpServers').a).toEqual({ type: 'http', url: 'u' });
+  });
+
   it('names the offending field path', () => {
     expect(() => validateMcpServers({ a: {} }, 'platforms[mm].mcpServers')).toThrow(/platforms\[mm\]\.mcpServers\.a/);
   });

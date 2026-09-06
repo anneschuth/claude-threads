@@ -196,6 +196,18 @@ export async function handlePluginInstall(
     `✅ Plugin installed: ${formatter.formatCode(pluginName)}\n🔄 Restarting Claude to load plugin...`
   );
 
+  // Under --strict-mcp-config the CLI loads a plugin's skills and commands but
+  // not the MCP servers it bundles, and reports nothing about it. Say so here
+  // rather than let a plugin whose value is its server look installed and dead.
+  if (session.platform.getMcpConfig().strictMcpConfig === true) {
+    await post(
+      session,
+      'warning',
+      `This platform runs with ${formatter.formatCode('strictMcpConfig: true')}: MCP servers bundled with the plugin will not load. ` +
+      `Declare them under ${formatter.formatCode('mcpServers')} or set ${formatter.formatCode('strictMcpConfig: false')}.`
+    );
+  }
+
   const cliOptions = await buildPluginRestartCliOptions(session, ctx);
 
   // Restart Claude CLI to pick up the new plugin

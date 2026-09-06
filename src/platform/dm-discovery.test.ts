@@ -32,4 +32,12 @@ describe('deriveDmPlatformConfig', () => {
     expect(cfg.directMessages).toBe(false);        // no recursive discovery
     expect(cfg.token).toBe('tok');                 // credentials inherited
   });
+
+  it('inherits the resolved MCP posture and declared servers (#560)', () => {
+    const mcpServers = { gh: { type: 'stdio' as const, command: 'gh-mcp', args: [], env: {} } };
+    const cfg = deriveDmPlatformConfig({ ...parent, mcpServers, strictMcpConfig: true, claudeAiConnectors: false }, 'dmchan', ['alice']);
+    expect(cfg.mcpServers).toEqual(mcpServers);
+    expect(cfg.strictMcpConfig).toBe(true);
+    expect(cfg.claudeAiConnectors).toBe(false);
+  });
 });
