@@ -63,6 +63,10 @@ export class SlackClient extends BasePlatformClient {
   private userCache: Map<string, SlackUser> = new Map();
   private usernameToIdCache: Map<string, string> = new Map();
   private botUserId: string | null = null;
+  /** This app's id, learned from the socket (`hello`, then every events_api envelope). */
+  private appId: string | null = null;
+  /** This installation's workspace, from auth.test. */
+  private teamId: string | null = null;
   private botUser: SlackUser | null = null;
   private teamUrl: string | null = null;
 
@@ -186,7 +190,8 @@ export class SlackClient extends BasePlatformClient {
   }
 
   /** Secondary-side: receive an event injected by the parent's socket. */
-  _injectSlackEvent(event: Parameters<SlackClient['handleSlackEvent']>[0]): void {
+  _injectSlackEvent(event: Parameters<SlackClient['handleSlackEvent']>[0], appId?: string | null): void {
+    if (appId) this.appId = appId;
     this.handleSlackEvent(event);
   }
 
@@ -555,10 +560,37 @@ export class SlackClient extends BasePlatformClient {
       return;
     }
 
+    if (envelope.type === 'hello' && envelope.connection_info?.app_id) {
+      this.appId = envelope.connection_info.app_id;
+    }
+
     // Handle events_api envelopes
     if (envelope.type === 'events_api' && envelope.payload?.event) {
+      if (envelope.payload.api_app_id) this.appId = envelope.payload.api_app_id;
       this.handleSlackEvent(envelope.payload.event);
     }
+  }
+
+  /**
+   * Slack stamps every API-posted message with the posting app's `bot_id` and
+   * `app_id`, including one posted with a *person's* user token of this app
+   * (an integration relaying what the person said). That message is the
+   * person's: `user` is set, `app_id` is ours, `team` is ours. Everything
+   * else with a `bot_id` — our own replies, other apps, classic bots without
+   * a user, and a bot copy of this same app in another workspace sharing a
+   * Slack Connect channel — is bot-authored and ignored. Until app and team
+   * ids are known, the old rule holds.
+   */
+  private isBotAuthored(message: { user?: string; bot_id?: string; app_id?: string; team?: string }): boolean {
+    if (message.user === this.botUserId) return true;
+    if (!message.bot_id) return false;
+    const isOurUserTokenPost = Boolean(
+      this.appId && message.app_id === this.appId && this.teamId && message.team === this.teamId && message.user
+    );
+    if (isOurUserTokenPost) {
+      wsLogger.debug(`Accepting post by ${message.user} made through this app's user token`);
+    }
+    return !isOurUserTokenPost;
   }
 
   /**
@@ -576,6 +608,8 @@ export class SlackClient extends BasePlatformClient {
     item?: { type: string; channel: string; ts: string };
     item_user?: string;
     bot_id?: string;
+    app_id?: string;
+    team?: string;
     files?: SlackFile[];
   }): void {
     // Shared event source: this socket may carry events for channels owned by
@@ -586,7 +620,7 @@ export class SlackClient extends BasePlatformClient {
     if (eventChannel && eventChannel !== this.channelId) {
       const secondary = this.channelClients.get(eventChannel);
       if (secondary) {
-        secondary._injectSlackEvent(event);
+        secondary._injectSlackEvent(event, this.appId);
         return;
       }
     }
@@ -594,8 +628,8 @@ export class SlackClient extends BasePlatformClient {
     // Handle message events
     // Note: file_share subtype is used when a user uploads a file with a message
     if (event.type === 'message' && (!event.subtype || event.subtype === 'file_share')) {
-      // Ignore messages from ourselves
-      if (event.user === this.botUserId || event.bot_id) {
+      // Ignore messages from ourselves and other bots
+      if (this.isBotAuthored(event)) {
         return;
       }
 
@@ -758,7 +792,7 @@ export class SlackClient extends BasePlatformClient {
 
       for (const message of sortedMessages) {
         // Skip bot messages
-        if (message.user === this.botUserId || message.bot_id) {
+        if (this.isBotAuthored(message)) {
           continue;
         }
 
@@ -789,6 +823,7 @@ export class SlackClient extends BasePlatformClient {
   private async fetchBotUser(): Promise<void> {
     const response = await this.api<AuthTestResponse>('POST', 'auth.test');
     this.botUserId = response.user_id;
+    this.teamId = response.team_id ?? null;
     this.teamUrl = response.url.replace(/\/$/, ''); // Remove trailing slash
 
     // Also fetch full user info
@@ -1159,7 +1194,7 @@ export class SlackClient extends BasePlatformClient {
           `conversations.replies?channel=${this.channelId}&ts=${threadId}&limit=1000${cursorParam}`
         );
         for (const msg of response.messages || []) {
-          if (options?.excludeBotMessages && (msg.user === this.botUserId || msg.bot_id)) continue;
+          if (options?.excludeBotMessages && this.isBotAuthored(msg)) continue;
           filtered.push(msg);
         }
         // Sliding window: each page arrives oldest-first, so after sorting,

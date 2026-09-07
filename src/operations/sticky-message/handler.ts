@@ -10,6 +10,7 @@ import type { Session } from '../../session/types.js';
 import { getSessionStatus } from '../../session/types.js';
 import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
 import { getPlatformIcon } from '../../platform/utils.js';
+import { isRevivable } from '../../persistence/session-store.js';
 import type { SessionStore, PersistedSession } from '../../persistence/session-store.js';
 import type { WorktreeMode, PermissionMode, OverheadVisibility } from '../../config/index.js';
 import { permissionModeDisplay } from '../../config/index.js';
@@ -353,8 +354,11 @@ function formatHistoryEntry(
   const topic = getHistorySessionTopic(session, formatter);
   const threadLink = formatter.formatLink(topic, getThreadLink(session.threadId));
   const displayName = session.startedByDisplayName || session.startedBy;
-  // Determine if this is a timed-out (resumable) session or a completed session
-  const isTimedOut = !session.cleanedAt && session.lifecyclePostId;
+  // Determine if this is a timed-out (resumable) session or a completed session.
+  // `isRevivable`, not `!cleanedAt`: a stale tombstone still has `cleanedAt`
+  // but message routing will happily bring it back, so rendering it with a ✓
+  // and no resume hint tells the reader the opposite of what the bot will do.
+  const isTimedOut = isRevivable(session) && session.lifecyclePostId;
   // Show when the user last worked on it, not when it was cleaned up
   const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);
