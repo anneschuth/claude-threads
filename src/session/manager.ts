@@ -825,8 +825,11 @@ export class SessionManager extends EventEmitter {
   }
 
   private unpersistSession(sessionId: string): void {
-    // Soft-delete instead of hard delete - keeps session in history for display
-    this.sessionStore.softDelete(sessionId);
+    // Soft-delete instead of hard delete - keeps session in history for display.
+    // `'stopped'`: this is the sink for a session that ENDED — !stop, a kill, a
+    // normal exit. killSession has already distilled it as finished, so the
+    // next message in that thread must start fresh rather than revive it.
+    this.sessionStore.softDelete(sessionId, 'stopped');
   }
 
   // ---------------------------------------------------------------------------
@@ -1257,7 +1260,10 @@ export class SessionManager extends EventEmitter {
     const persisted = this.registry.getPersistedByThreadId(threadId, platformId);
     if (persisted) {
       const sessionId = `${persisted.platformId}:${persisted.threadId}`;
-      this.sessionStore.softDelete(sessionId);
+      // `!stop` on a paused thread means the same thing as `!stop` on a live
+      // one: the conversation is over. Without the reason, the next message
+      // would revive the very session the user was just told was cancelled.
+      this.sessionStore.softDelete(sessionId, 'stopped');
     }
   }
 
