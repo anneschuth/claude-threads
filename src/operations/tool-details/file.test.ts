@@ -31,11 +31,11 @@ describe('file sink', () => {
     const sink = createFileSink({ dir, urlBase: 'https://agents.example.com/tool-details', platformId: 'slack-vvs', sessionId: 'slack-vvs:1.23' });
 
     await sink.append(start('t1', 'Bash `ls -la <dir>`'), ctx);
-    expect(sink.link()).toBe('https://agents.example.com/tool-details/slack-vvs/slack-vvs_3A1_2E23/1.html');
+    expect(sink.link()).toBe('https://agents.example.com/tool-details/slack-vvs/slack-vvs_003A1_002E23/1.html');
     await sink.append(end('t1'), ctx);
     await sink.turnEnded(ctx);
 
-    const page = await readFile(join(dir, 'slack-vvs', 'slack-vvs_3A1_2E23', '1.html'), 'utf8');
+    const page = await readFile(join(dir, 'slack-vvs', 'slack-vvs_003A1_002E23', '1.html'), 'utf8');
     expect(page).toContain('Bash `ls -la &lt;dir&gt;`');
     expect(page).toContain('↳ ✓ (5s)');
     expect(page).not.toContain('<dir>');
@@ -84,19 +84,21 @@ describe('file sink', () => {
 
   it('path segments are injective and cannot escape: distinct ids never share a directory, dot segments cannot occur', () => {
     expect(safeSegment('a:b')).not.toBe(safeSegment('a/b'));
-    expect(safeSegment('..')).toBe('_2E_2E');
-    expect(safeSegment('.')).toBe('_2E');
+    expect(safeSegment('..')).toBe('_002E_002E');
+    expect(safeSegment('.')).toBe('_002E');
     expect(safeSegment('plain-id')).toBe('plain-id');
     expect(safeSegment('')).toBe('_');
-    // Above 0xFF the old per-code-unit hex was variable width with no
-    // delimiter, so ' AC' and '€' both encoded to `_20AC` (Anne's review).
-    // Encoding per UTF-8 byte makes every escape exactly `_XX`.
-    expect(safeSegment(' AC')).toBe('_20AC');
-    expect(safeSegment('€')).toBe('_E2_82_AC');
+    // Variable-width hex had no delimiter, so ' AC' and '€' both encoded to
+    // `_20AC` (Anne's review). Four hex digits per code unit fixes it.
+    expect(safeSegment(' AC')).toBe('_0020AC');
+    expect(safeSegment('€')).toBe('_20AC');
     expect(safeSegment('€')).not.toBe(safeSegment(' AC'));
-    // Astral code points must not collapse to one replacement character.
-    expect(safeSegment('\u{1F600}')).toBe('_F0_9F_98_80');
+    expect(safeSegment('\u{1F600}')).toBe('_D83D_DE00');
     expect(safeSegment('\u{1F600}')).not.toBe(safeSegment('\u{1F601}'));
+    // Lone surrogates stay distinct. Encoding to UTF-8 instead would map
+    // every one of them to the same replacement bytes.
+    expect(safeSegment('\uD800')).toBe('_D800');
+    expect(safeSegment('\uD800')).not.toBe(safeSegment('\uDC00'));
   });
 
   it('pages and their directory are private to the daemon user', async () => {

@@ -222,10 +222,14 @@ Two PRs so each stands alone:
   under it: the *same* bug, one layer down. `abandonHeaderTurn()` releases
   the other half.
 - **"Injective" is a claim, and ASCII tests do not check it.** `safeSegment`
-  encoded per UTF-16 code unit with variable-width hex and no delimiter, so
-  `' AC'` and `'€'` both produced `_20AC`. Per UTF-8 byte fixes it — with the
-  regex's `u` flag, or an astral code point is matched as two lone surrogates
-  and every emoji encodes to the same replacement bytes.
+  used variable-width hex with no delimiter, so `' AC'` and `'€'` both
+  produced `_20AC`. The first fix — encode per UTF-8 byte — traded one
+  collision for a quieter one: `TextEncoder` maps *every* unpaired surrogate
+  to the same replacement bytes, so `'\uD800'` and `'\uDC00'` would have
+  collided on `_EF_BF_BD`. Fixed width per code unit (`_XXXX`) is what the
+  claim actually needs. Two reviewers found the second collision
+  independently; neither found it from the tests, which is the point — the
+  tests were still ASCII.
 - **The DM-discovery call site has now dropped per-platform settings three
   times** (memory/routines/watches, #529's, and this PR's details dir + URL).
   The derived config spreads its parent, so the fields are always *there*; it
