@@ -24,6 +24,7 @@ import { isDcmThreadId, resolveApprovals } from '../platform/utils.js';
 import type { Session } from './types.js';
 import type { ReactionAction } from '../operations/executors/types.js';
 import type { SessionRegistry } from './registry.js';
+import { isRevivable } from '../persistence/session-store.js';
 import type { SessionStore } from '../persistence/session-store.js';
 import type { ResolvedLimits } from '../config/index.js';
 import type { SessionContext } from '../operations/session-context/index.js';
@@ -144,6 +145,20 @@ async function tryResumeFromReaction(
 ): Promise<boolean> {
   const persistedSession = deps.sessionStore.findByPostId(platformId, postId);
   if (!persistedSession) return false;
+
+  // A stopped session stays stopped, whichever door you knock on. This lookup
+  // is by post id, so it never passes the paused-session gate that filters
+  // these out for messages — and a stopped record keeps its
+  // `sessionStartPostId` and `lifecyclePostId`, so its old posts still carry a
+  // live-looking 🔄. Without this check, `!stop` could be undone by reacting to
+  // a message from before it, resurrecting a conversation `killSession` has
+  // already distilled into channel memory as ended.
+  if (!isRevivable(persistedSession)) {
+    log.debug(
+      `Ignoring resume reaction on stopped session ${persistedSession.threadId.substring(0, 8)}...`
+    );
+    return false;
+  }
 
   // Already active? Nothing to resume.
   const sessionId = `${platformId}:${persistedSession.threadId}`;
