@@ -87,7 +87,12 @@ restart on a Claude respawn (`!cd`, a worktree switch,
 `!permissions interactive`): that is the same chat session, so the count
 carries on.
 
-Treat `turn` as ordering *within one run*, useful for spotting a gap, and
+The count is of turns that **happened**, not of turns that were successfully
+marked: a turn with no reply post, or one whose flush failed, still advances
+it and emits nothing. So a gap means a turn went missing — which is the point
+of counting at all.
+
+Treat `turn` as ordering *within one run*, useful for spotting that gap, and
 never as a unique key. `session` is the durable identity; readers that need
 exactly-once should dedupe by post id, which is what voice-desk does. A
 reader that wants durable turn numbers should count marked posts itself.

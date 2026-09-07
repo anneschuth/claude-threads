@@ -1287,6 +1287,28 @@ describe('MessageManager turn marker', () => {
     expect(overlapped).toBe(false);
   });
 
+  it('a turn whose flush fails still advances the count, so the loss shows as a gap', async () => {
+    // CodeRabbit: the counter tracks turns that HAPPENED — a turn with no
+    // reply post already increments without emitting a marker. A failed
+    // flush was the one case that silently reused the number, hiding the
+    // lost turn instead of leaving a gap the reader can see.
+    const m = withMarker({ mode: 'metadata' });
+    const real = (m as unknown as { contentExecutor: { executeFlush: (...a: unknown[]) => Promise<void> } }).contentExecutor;
+    const realFlush = real.executeFlush.bind(real);
+
+    real.executeFlush = async () => { throw new Error('platform down'); };
+    await m.handleEvent(text);
+    await m.handleEvent(result).catch(() => undefined);
+
+    real.executeFlush = realFlush;
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[2]!.metadata!.event_payload.turn)).toEqual([2]);
+  });
+
   it('a Claude respawn does not restart the count: the next turn is 3, not 1', async () => {
     // Maintainer review on #547 asked which behaviour this is, and for the
     // code to say so. Climbing is correct: `!cd` replaces the CLI process,
