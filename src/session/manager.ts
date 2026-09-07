@@ -1089,7 +1089,7 @@ export class SessionManager extends EventEmitter {
 
     for (const state of sessionsToResume) {
       try {
-        await lifecycle.resumeSession(state, this.getContext());
+        await lifecycle.resumeSession(state, this.getContext(), undefined, 'platform-enabled');
         log.info(`▶️ Resumed session ${state.threadId.substring(0, 8)}`);
       } catch (err) {
         log.warn(`Failed to resume session ${state.threadId}: ${err}`);
@@ -1244,7 +1244,7 @@ export class SessionManager extends EventEmitter {
       if (activeToResume.length > 0) {
         log.info(`🔄 Attempting to resume ${activeToResume.length} active session(s)...`);
         for (const state of activeToResume) {
-          await lifecycle.resumeSession(state, this.getContext());
+          await lifecycle.resumeSession(state, this.getContext(), undefined, 'boot');
         }
       }
     }

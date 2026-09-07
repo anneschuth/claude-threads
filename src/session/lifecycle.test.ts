@@ -1406,6 +1406,21 @@ describe('authorization gate at sinks (#388)', () => {
       expect(notice).toContain('continue where you left off');
     });
 
+    it('a platform re-enable does not blame a restart that never happened', async () => {
+      // `resumedBy` only says whether a chat identity was supplied. The daemon
+      // reaches resumeSession without one for TWO different reasons, and an
+      // operator toggling a platform back on in the UI is the second — the
+      // bot never stopped (Codex review).
+      const { ctx, platform } = bootContext();
+
+      await lifecycle.resumeSession(bootState({ threadId: 'thread-toggle' }) as never, ctx, undefined, 'platform-enabled');
+
+      const notice = notices(platform).at(-1) as string;
+      expect(notice).not.toContain('restart');
+      expect(notice).toContain('platform');
+      expect(notice).not.toContain('continue where you left off');
+    });
+
     it('says the same thing whether or not there is a pause post to edit', async () => {
       // The truth of "did anything continue" turns on WHY the resume happened,
       // not on whether a shutdown left a post behind. Both branches used the

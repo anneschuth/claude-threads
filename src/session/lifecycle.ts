@@ -1303,10 +1303,19 @@ async function startSessionImpl(
 /**
  * Resume a session from persisted state.
  */
+/**
+ * Why a resume happened, for the notice. `resumedBy` cannot answer this: it
+ * only says whether a chat identity was supplied, and the daemon reaches
+ * `resumeSession` for two different reasons without one — boot restore, and
+ * an operator re-enabling a platform from the UI (Codex review).
+ */
+export type ResumeTrigger = 'boot' | 'platform-enabled';
+
 export async function resumeSession(
   state: PersistedSession,
   ctx: SessionContext,
-  resumedBy?: string
+  resumedBy?: string,
+  trigger: ResumeTrigger = 'boot'
 ): Promise<void> {
   // Idempotency guard: a resume can be triggered from two sides at once
   // (startup resume-all and an incoming message via resumePausedSession).
@@ -1327,7 +1336,7 @@ export async function resumeSession(
       await inFlight.catch(() => {});
       return;
     }
-    const attempt = resumeSessionImpl(state, ctx, resumedBy);
+    const attempt = resumeSessionImpl(state, ctx, resumedBy, trigger);
     _inFlightSessionStarts.set(sessionKey, attempt);
     try {
       await attempt;
@@ -1336,13 +1345,14 @@ export async function resumeSession(
     }
     return;
   }
-  await resumeSessionImpl(state, ctx, resumedBy);
+  await resumeSessionImpl(state, ctx, resumedBy, trigger);
 }
 
 async function resumeSessionImpl(
   state: PersistedSession,
   ctx: SessionContext,
-  resumedBy?: string
+  resumedBy?: string,
+  trigger: ResumeTrigger = 'boot'
 ): Promise<void> {
   // Validate required fields - skip gracefully if critical data is missing
   if (!state.threadId || !state.platformId || !state.claudeSessionId || !state.workingDir) {
@@ -1670,15 +1680,22 @@ async function resumeSessionImpl(
     const sessionFormatter = session.platform.getFormatter();
     // What actually continues depends on WHY this resume happened, not on
     // whether a shutdown left a post to edit. A resume with a `resumedBy` was
-    // asked for by a person, and their message or reaction follows it — that
-    // work does continue. A resume without one is the daemon restoring
+    // asked for by a person: the message path delivers their message straight
+    // after, and the reaction path at least means someone is present and
+    // about to type. Inviting them to carry on is honest. A resume without one is the daemon restoring
     // sessions at boot: `isProcessing` starts false and nothing is sent to the
     // CLI, so a turn that was in flight when the bot stopped is simply gone.
     // Both branches used to promise continuation regardless (#533).
+    // A person who asked for this resume is about to act on it, so an
+    // invitation to carry on is the right thing to say. Nobody asked for the
+    // other two, and in both of them a turn that was in flight is simply
+    // gone: `isProcessing` starts false and nothing is sent to the CLI.
     const askedForByAPerson = resumedBy !== undefined;
     const outcome = askedForByAPerson
       ? 'Reconnected to Claude session. You can continue where you left off.'
-      : 'Conversation history is intact, but anything that was still running when the bot stopped did not survive the restart — send a message to pick it up.';
+      : trigger === 'platform-enabled'
+        ? 'Conversation history is intact, but anything that was still running when the platform was disabled has stopped — send a message to pick it up.'
+        : 'Conversation history is intact, but anything that was still running when the bot stopped did not survive the restart — send a message to pick it up.';
 
     if (session.lifecyclePostId) {
       const postId = session.lifecyclePostId;
@@ -1687,7 +1704,9 @@ async function resumeSessionImpl(
       // were here (Gemini review).
       const by = askedForByAPerson
         ? ` by ${sessionFormatter.formatUserMention(session.startedBy)}`
-        : ` after bot restart (v${VERSION})`;
+        : trigger === 'platform-enabled'
+          ? ' (platform re-enabled)'
+          : ` after bot restart (v${VERSION})`;
       const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')}${by}\n${sessionFormatter.formatItalic(outcome)}`;
       await withErrorHandling(
         () => session.platform.updatePost(postId, resumeMsg),
@@ -1698,7 +1717,8 @@ async function resumeSessionImpl(
       transitionTo(session, 'active');
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
-      const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic(outcome)}`;
+      const suffix = trigger === 'platform-enabled' ? ' (platform re-enabled)' : ` after bot restart (v${VERSION})`;
+      const restartMsg = `${sessionFormatter.formatBold('Session resumed')}${suffix}\n${sessionFormatter.formatItalic(outcome)}`;
       await post(session, 'resume', restartMsg);
     }
 
