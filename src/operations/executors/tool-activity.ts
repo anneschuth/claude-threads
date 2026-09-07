@@ -26,7 +26,9 @@ const fresh = (): ToolTurnStats => ({ started: 0, finished: 0, failed: 0, firstS
  * to put in a one-line summary; the part after the server is the action.
  */
 function shortToolName(name: string): string {
-  return parseMcpToolName(name)?.tool ?? name;
+  // `mcp__server__` parses with an empty tool part; an empty component would
+  // render as a dangling separator, so fall back to the wire name (Codex).
+  return parseMcpToolName(name)?.tool || name;
 }
 
 /** `🔧 12 tools · 40 s · Bash`, with `…` while tools are still running, `· 1 ❌` on failures, `· details` when linked. */
@@ -95,8 +97,14 @@ export class ToolActivityExecutor {
     this.stats = fresh();
   }
 
-  /** Session restart: the turn in progress is gone, and so is its counter. */
+  /**
+   * Session restart: the turn in progress is gone, and so is its counter.
+   * A turn with no tools has nothing to abandon, and saying so keeps this
+   * idempotent — the respawn path reaches it twice on a fresh-session
+   * restart, and a sink that numbers turns would otherwise skip one.
+   */
   reset(): void {
+    if (this.stats.started === 0) return;
     this.stats = fresh();
     this.options.sink.reset();
   }

@@ -213,3 +213,15 @@ Two PRs so each stands alone:
   the header post; a flush that writes the continuation post leaves the
   header running forever. Checking the flag after the flush covers every
   path, which comparing post ids at each call site would not.
+- **Half the turn state lived somewhere else.** Resetting the tool counter
+  left `turnOpen` / `headerPostId` set on the content executor, which clear
+  only on a `result` flush — and a respawn never produces one. The next
+  turn's summary then edited the abandoned reply and its details threaded
+  under it: the *same* bug, one layer down. `abandonHeaderTurn()` releases
+  the other half.
+- **A retry needs to know what was attempted, not what was confirmed.**
+  `headerBody` advanced only on a successful update, so a lost response left
+  it stale — and the new header re-render then overwrote the post with the
+  older body, deleting text the platform had already accepted. Since an
+  update replaces the whole post, recording the attempted body is right
+  whether or not it arrived.

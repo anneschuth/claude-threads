@@ -1214,6 +1214,38 @@ describe('ContentExecutor', () => {
       expect(platform.createPost).toHaveBeenCalledWith('Hello', 'thread-123');
     });
 
+    it('a failed write to the header post does not let the re-render roll it back to the pre-write body', async () => {
+      // Codex review: `headerBody` only advances on a SUCCESSFUL update, so a
+      // lost response (platform accepted, client threw) left it stale. The
+      // split's continuation then cleared the pending content, and the
+      // header re-render overwrote the post with the older, shorter body —
+      // deleting text that was already delivered.
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 1 s…');
+      await executor.executeAppend(createAppendContentOp('test', 'para one'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      let failed = false;
+      (platform as { updatePost: unknown }).updatePost = mock((id: string, content: string) => {
+        if (!failed && id === 'post_1') { failed = true; throw new Error('socket hang up'); }
+        return realUpdate(id, content);
+      });
+
+      // The last tool ends: the header goes final and is pending a render.
+      executor.setHeader('🔧 1 tool · 1 s');
+      const big = Array.from({ length: 400 }, (_, i) => `line ${i} ${'x'.repeat(30)}`).join('\n');
+      await executor.executeAppend(createAppendContentOp('test', big), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const post1Writes = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>)
+        .filter((c) => c[0] === 'post_1')
+        .map((c) => c[1]);
+      // The re-render must carry what the failed write attempted, not what
+      // the post held before it.
+      expect(post1Writes.at(-1)).toContain('line 0');
+    });
+
     it('a final header set after a split still reaches the header post when the closing text lands on the continuation', async () => {
       // Anne's #534 repro: reply splits → the last tool ends (header goes
       // final, dirty) → Claude's closing text arrives → the result flush

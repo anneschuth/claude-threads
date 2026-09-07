@@ -58,6 +58,23 @@ describe('ToolActivityExecutor', () => {
     expect(appended.map((op) => op.kind)).toEqual(['start', 'end']);
   });
 
+  it('reset is idempotent: a turn with no tools is not abandoned twice', async () => {
+    // The respawn path reaches reset() twice on a fresh-session restart
+    // (restartClaudeSession, then clearClaudeSessionState). A sink that
+    // numbers turns — the file sink does — would skip one per extra call.
+    const { sink, resets } = recordingSink();
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => {} });
+
+    exec.reset();
+    exec.reset();
+    expect(resets()).toBe(0);
+
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 't1', name: 'Bash', display: 'Bash ls' }), ctx);
+    exec.reset();
+    exec.reset();
+    expect(resets()).toBe(1);
+  });
+
   it('hidden: the sink still gets every line, the header is never rendered', async () => {
     const headers: string[] = [];
     const { sink, appended } = recordingSink();
