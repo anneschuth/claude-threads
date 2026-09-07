@@ -1668,9 +1668,21 @@ async function resumeSessionImpl(
     // If we have a lifecyclePostId, this was a timeout/shutdown - update that post
     // Otherwise create a new post (normal for old persisted sessions without lifecyclePostId)
     const sessionFormatter = session.platform.getFormatter();
+    // What actually continues depends on WHY this resume happened, not on
+    // whether a shutdown left a post to edit. A resume with a `resumedBy` was
+    // asked for by a person, and their message or reaction follows it — that
+    // work does continue. A resume without one is the daemon restoring
+    // sessions at boot: `isProcessing` starts false and nothing is sent to the
+    // CLI, so a turn that was in flight when the bot stopped is simply gone.
+    // Both branches used to promise continuation regardless (#533).
+    const askedForByAPerson = resumedBy !== undefined;
+    const outcome = askedForByAPerson
+      ? 'Reconnected to Claude session. You can continue where you left off.'
+      : 'Conversation history is intact, but anything that was still running when the bot stopped did not survive the restart — send a message to pick it up.';
+
     if (session.lifecyclePostId) {
       const postId = session.lifecyclePostId;
-      const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')} by ${sessionFormatter.formatUserMention(session.startedBy)}\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
+      const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')} by ${sessionFormatter.formatUserMention(session.startedBy)}\n${sessionFormatter.formatItalic(outcome)}`;
       await withErrorHandling(
         () => session.platform.updatePost(postId, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
@@ -1680,7 +1692,7 @@ async function resumeSessionImpl(
       transitionTo(session, 'active');
     } else {
       // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
-      const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic('Reconnected to Claude session. You can continue where you left off.')}`;
+      const restartMsg = `${sessionFormatter.formatBold('Session resumed')} after bot restart (v${VERSION})\n${sessionFormatter.formatItalic(outcome)}`;
       await post(session, 'resume', restartMsg);
     }
 

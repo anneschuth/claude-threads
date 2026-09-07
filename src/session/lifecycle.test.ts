@@ -1337,6 +1337,91 @@ describe('authorization gate at sinks (#388)', () => {
     });
   });
 
+  describe('the resume notice tells the truth about what continued', () => {
+    // A resume with no `resumedBy` was nobody's request: the daemon restarted
+    // and restored the session. `isProcessing` starts false and nothing is
+    // sent to the CLI, so a turn that was in flight when the bot stopped is
+    // simply gone — and the notice used to say "you can continue where you
+    // left off" regardless (#533).
+    let prevClaudePath: string | undefined;
+    beforeEach(() => {
+      prevClaudePath = process.env.CLAUDE_PATH;
+      process.env.CLAUDE_PATH = '/bin/echo';
+    });
+    afterEach(() => {
+      if (prevClaudePath === undefined) delete process.env.CLAUDE_PATH;
+      else process.env.CLAUDE_PATH = prevClaudePath;
+    });
+
+    function bootState(overrides?: Record<string, unknown>) {
+      return {
+        threadId: 'thread-boot',
+        platformId: 'test-platform',
+        claudeSessionId: 'claude-session-1',
+        workingDir: process.cwd(),
+        startedBy: 'alice',
+        sessionAllowedUsers: ['alice'],
+        ...overrides,
+      };
+    }
+
+    function bootContext() {
+      const platform = createMockPlatform({
+        isUserAllowed: mock(() => true) as any,
+        getPost: mock(() => Promise.resolve({ id: 'thread-boot' })) as any,
+        // Resume builds real CLI options from this; without allowedUsers it
+        // throws long before the notice.
+        getMcpConfig: mock(() => ({
+          type: 'mattermost', url: 'https://chat.example.com',
+          token: 't', channelId: 'c', allowedUsers: ['alice'],
+        })) as any,
+      });
+      const ctx = createMockSessionContext(new Map());
+      (ctx.state.platforms as Map<string, PlatformClient>).set('test-platform', platform);
+      return { ctx, platform };
+    }
+
+    const notices = (platform: PlatformClient) => [
+      ...(platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0])),
+      ...(platform.updatePost as any).mock.calls.map((c: unknown[]) => String(c[1])),
+    ].filter((t) => t.includes('Session resumed'));
+
+    it('a restart-triggered resume does not promise the interrupted work continued', async () => {
+      const { ctx, platform } = bootContext();
+
+      await lifecycle.resumeSession(bootState() as never, ctx);  // no resumedBy: the daemon did this
+
+      const notice = notices(platform).at(-1) as string;
+      expect(notice).toBeDefined();
+      expect(notice).not.toContain('continue where you left off');
+      expect(notice.toLowerCase()).toContain('did not survive');
+    });
+
+    it('a person-triggered resume still says the work continues, because their message follows', async () => {
+      const { ctx, platform } = bootContext();
+
+      await lifecycle.resumeSession(bootState({ threadId: 'thread-asked' }) as never, ctx, 'alice');
+
+      const notice = notices(platform).at(-1) as string;
+      expect(notice).toContain('continue where you left off');
+    });
+
+    it('says the same thing whether or not there is a pause post to edit', async () => {
+      // The truth of "did anything continue" turns on WHY the resume happened,
+      // not on whether a shutdown left a post behind. Both branches used the
+      // same wording before, and both were wrong for a restart.
+      const { ctx, platform } = bootContext();
+
+      await lifecycle.resumeSession(
+        bootState({ threadId: 'thread-paused-post', lifecyclePostId: 'post-9' }) as never,
+        ctx,
+      );
+
+      const notice = notices(platform).at(-1) as string;
+      expect(notice).not.toContain('continue where you left off');
+    });
+  });
+
   describe('resumePausedSession', () => {
     function persistedState(overrides?: Record<string, unknown>) {
       return {
