@@ -1258,6 +1258,35 @@ describe('MessageManager turn marker', () => {
     expect(last[2].metadata.event_payload.ok).toBe(false);
   });
 
+  it('a scheduled flush cannot start while the result flush waits for one in progress', async () => {
+    // Gemini review: `await flushInFlight` yields the event loop, so a
+    // pending timer could fire DURING the wait and start a second flush —
+    // and cancelling afterwards is a no-op on a timer that already ran. That
+    // reopens the very overlap the await exists to close: the marker lands on
+    // a post the late soft flush then supersedes.
+    const m = withMarker({ mode: 'metadata' });
+    (m as unknown as { flushDelayMs: number }).flushDelayMs = 1;
+
+    let active = 0;
+    let overlapped = false;
+    const real = (m as unknown as { contentExecutor: { executeFlush: (...a: unknown[]) => Promise<void> } }).contentExecutor;
+    const realFlush = real.executeFlush.bind(real);
+    real.executeFlush = async (...args: unknown[]) => {
+      active++;
+      if (active > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 5));
+      try { return await realFlush(...args); } finally { active--; }
+    };
+
+    await m.handleEvent(text);                    // arms a soft-flush timer
+    await new Promise((r) => setTimeout(r, 3));   // it fires: flushInFlight is now pending
+    await m.handleEvent(text);                    // arms a SECOND timer while it runs
+    await m.handleEvent(result);                  // result flush awaits the first...
+    await new Promise((r) => setTimeout(r, 40));  // ...and the second timer fires mid-await
+
+    expect(overlapped).toBe(false);
+  });
+
   it('a Claude respawn does not restart the count: the next turn is 3, not 1', async () => {
     // Maintainer review on #547 asked which behaviour this is, and for the
     // code to say so. Climbing is correct: `!cd` replaces the CLI process,

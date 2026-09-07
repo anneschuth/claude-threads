@@ -460,9 +460,15 @@ export class MessageManager {
    * Handle flush operation
    */
   private async handleFlushOp(op: FlushOp, ctx: ExecutorContext): Promise<void> {
-    // Cancel any pending scheduled flush, and let one already writing finish
-    if (this.flushInFlight) await this.flushInFlight.catch(() => undefined);
+    // Cancel any pending scheduled flush, and let one already writing finish.
+    // Cancel FIRST: `await` yields the event loop, so a timer armed while an
+    // earlier flush was still running would fire during the wait and start a
+    // second flush — and cancelling afterwards is a no-op on a timer that has
+    // already run. That reopens the overlap this await exists to close, and
+    // the marker lands on a post the late flush then supersedes (Gemini
+    // review).
     this.cancelScheduledFlush();
+    if (this.flushInFlight) await this.flushInFlight.catch(() => undefined);
 
     // Execute the flush
     await this.contentExecutor.executeFlush(op, ctx);
