@@ -112,6 +112,17 @@ const handleUpdate: CommandHandler = async (ctx, args) => {
  * before starting one.
  */
 const handleUsage: CommandHandler = async (ctx, args) => {
+  // Self-gating, unlike most handlers: the first-message and paused paths
+  // check the platform allowlist before dispatch, but the in-session path
+  // does not — so without this any channel member replying `!usage all`
+  // inside someone's thread spawns one `claude` per pooled seat (10s each)
+  // and gets the pool's account ids, plan badges and emails back.
+  // Handled either way: the command is consumed, never forwarded to Claude
+  // as a prompt.
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+
   const all = args?.trim().toLowerCase() === 'all';
   const { collectUsage, renderProfiles } = await import('../usage/index.js');
 

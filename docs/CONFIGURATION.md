@@ -639,6 +639,15 @@ on; `!usage all` reports every account in the `claudeAccounts` pool. The
 numbers come from the same `/usage` probe the account router uses, so what you
 read and what routes can never disagree — it runs zero turns and costs $0.
 
+In a thread with **no session yet** there is no seat to report, so plain
+`!usage` behaves like `!usage all` and lists the whole pool — the seats the
+router would be choosing between. Asking before starting a session is the
+common case, and "which seat has headroom" is the useful answer there.
+
+`!usage` is restricted to the platform's `allowedUsers`. It spawns one probe
+per pooled seat and names the accounts, so it is not something a passing
+channel member should be able to trigger inside someone else's thread.
+
 ```yaml
 usage:
   showEmails: true    # default false

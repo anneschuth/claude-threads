@@ -43,6 +43,17 @@ describe('accountTargets', () => {
     expect(targets.map((t) => t.name)).toEqual(['personal']);
   });
 
+  it('reports the whole pool for a thread with no session bound to it', () => {
+    // Plain `!usage` in a fresh thread is deliberately `!usage all`: there is
+    // no seat to report, and "the seats the router would choose between" is
+    // the useful answer to someone asking before they start. Documented in
+    // CONFIGURATION.md § `!usage` output, pinned here (maintainer review on
+    // #544) because it diverges from "the seat the thread runs on".
+    const targets = accountTargets(POOL, undefined);
+
+    expect(targets.map((t) => t.name)).toEqual(['Work seat', 'personal', 'metered']);
+  });
+
   it('names a stale binding instead of quietly widening to the whole pool', () => {
     // Returning every account here reads exactly like `!usage all`, so the
     // stale binding would never be noticed.
