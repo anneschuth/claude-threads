@@ -113,12 +113,17 @@ const handleUpdate: CommandHandler = async (ctx, args) => {
  */
 const handleUsage: CommandHandler = async (ctx, args) => {
   // Self-gating, unlike most handlers: the first-message and paused paths
-  // check the platform allowlist before dispatch, but the in-session path
-  // does not — so without this any channel member replying `!usage all`
-  // inside someone's thread spawns one `claude` per pooled seat (10s each)
-  // and gets the pool's account ids, plan badges and emails back.
-  // Handled either way: the command is consumed, never forwarded to Claude
-  // as a prompt.
+  // authorize before dispatch, but the in-session path does not — so without
+  // this any channel member replying `!usage all` inside someone's thread
+  // spawns one `claude` per pooled seat (10s each) and gets the pool's
+  // account ids, plan badges and emails back.
+  //
+  // `isAllowed` here is isUserAllowedInSession(): the platform allowlist OR a
+  // session invitee. An invitee is a collaborator the owner chose, so this
+  // reads as "authorized in this thread" rather than "on the allowlist" —
+  // documented that way in CONFIGURATION.md (Codex review caught the two
+  // diverging). Tightening it to `ctx.client.isUserAllowed` is one line if
+  // the pool should be narrower than the session.
   if (!ctx.isAllowed) {
     return { handled: true };
   }

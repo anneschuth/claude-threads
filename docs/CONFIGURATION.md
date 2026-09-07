@@ -644,9 +644,10 @@ In a thread with **no session yet** there is no seat to report, so plain
 router would be choosing between. Asking before starting a session is the
 common case, and "which seat has headroom" is the useful answer there.
 
-`!usage` is restricted to the platform's `allowedUsers`. It spawns one probe
-per pooled seat and names the accounts, so it is not something a passing
-channel member should be able to trigger inside someone else's thread.
+`!usage` is restricted to users authorized in the thread — the platform's
+`allowedUsers`, plus anyone invited to that session. It spawns one probe per
+pooled seat and names the accounts, so it is not something a passing channel
+member can trigger inside someone else's thread.
 
 ```yaml
 usage:

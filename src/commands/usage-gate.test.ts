@@ -53,6 +53,17 @@ describe('!usage authorization', () => {
     expect(createPost).not.toHaveBeenCalled();
   });
 
+  it('answers a session invitee, who is authorized in this thread', async () => {
+    // `ctx.isAllowed` on the in-session path is isUserAllowedInSession(): the
+    // platform allowlist OR someone the owner invited. Pinned because the two
+    // readings differ and the docs have to say which one this is (Codex).
+    const { ctx, getClaudeAccounts } = ctxWith(true);
+
+    await executeCommand('usage', undefined, ctx);
+
+    expect(getClaudeAccounts).toHaveBeenCalled();
+  });
+
   it('still answers an allowed user', async () => {
     const { ctx, getClaudeAccounts } = ctxWith(true);
 
