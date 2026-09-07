@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { resolvePlatformTools, resolveToolActivity } from './types.js';
+import type { PlatformInstanceConfig } from './types.js';
 
 describe('resolveToolActivity', () => {
   test('omitted means full with no details, exactly today\'s behaviour', () => {
@@ -44,9 +45,16 @@ describe('resolvePlatformTools', () => {
   // `toolDetails: file` produced DM instances writing to the DEFAULT directory
   // with no link on the summary line (Anne's review). This has been the same
   // class of bug three times, so both call sites now read the four fields off
-  // one config object instead of listing arguments.
+  // one config object instead of listing arguments — and the parameter is the
+  // whole PlatformInstanceConfig, so a stripped object does not compile.
+  const base: PlatformInstanceConfig = {
+    id: 'p', type: 'mattermost', displayName: 'P',
+    url: 'https://mm.test', token: 'tok', channelId: 'c', botName: 'bot',
+  } as PlatformInstanceConfig;
+
   test('reads all four tool fields off the config, so no call site can drop half', () => {
     expect(resolvePlatformTools({
+      ...base,
       toolActivity: 'summary',
       toolDetails: 'file',
       toolDetailsDir: '/srv/details',
@@ -60,8 +68,8 @@ describe('resolvePlatformTools', () => {
   });
 
   test('an absent tool config is still full/none, and field paths still name the entry', () => {
-    expect(resolvePlatformTools({}, 'dm[x]')).toEqual({ activity: 'full', details: 'none' });
-    expect(() => resolvePlatformTools({ toolActivity: 'summary', toolDetailsDir: '/x' }, 'dm[x]'))
+    expect(resolvePlatformTools(base, 'dm[x]')).toEqual({ activity: 'full', details: 'none' });
+    expect(() => resolvePlatformTools({ ...base, toolActivity: 'summary', toolDetailsDir: '/x' }, 'dm[x]'))
       .toThrow('dm[x].toolDetailsDir');
   });
 });

@@ -122,14 +122,14 @@ export function resolveToolActivity(
  * which is how DM instances ended up writing to the default details directory
  * with no link on the summary line (Anne's review on #535). Same class of bug
  * as #529's; one reader means no call site can drop half.
+ *
+ * It takes the whole `PlatformInstanceConfig` deliberately. With the four
+ * fields as an optional-property shape, `{}` and `{ toolActivity, toolDetails }`
+ * both type-check — which is exactly the bug — so the type would document the
+ * intent without enforcing it (Codex review).
  */
 export function resolvePlatformTools(
-  config: {
-    toolActivity?: unknown;
-    toolDetails?: unknown;
-    toolDetailsDir?: unknown;
-    toolDetailsUrl?: unknown;
-  },
+  config: PlatformInstanceConfig,
   fieldPath: string,
 ): ToolActivitySettings {
   return resolveToolActivity(config.toolActivity, config.toolDetails, fieldPath, {
