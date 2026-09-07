@@ -146,7 +146,14 @@ export class MessageManager {
   private readonly turnMarker: TurnMarkerSettings;
   /** A scheduled (timer) flush that is still writing; the result flush waits for it. */
   private flushInFlight: Promise<void> | null = null;
-  /** Turns completed by this manager; part of the marker payload. Resets with the manager. */
+  /**
+   * Turns completed by this manager; part of the marker payload. It climbs
+   * for the life of the manager and is deliberately NOT reset by a Claude
+   * respawn (`!cd`, a worktree switch, `!permissions interactive`): the chat
+   * session is the same one, and restarting the count would emit a
+   * `{session, turn}` pair the consumer has already seen. It is per-process,
+   * not persisted — see docs/turn-marker-spec.md § turn is not durable.
+   */
   private turn = 0;
 
   // Session reference for direct access to Claude CLI, logger, etc.
@@ -1415,7 +1422,8 @@ export class MessageManager {
    */
   reset(): void {
     this.cancelScheduledFlush();
-    this.turn = 0;
+    // `turn` is deliberately not reset here — see its declaration. reset()
+    // runs from dispose(), where the manager is being discarded anyway.
     this.toolStartTimes.clear();
     this.taskTracker.clear();
     this.contentExecutor.reset();

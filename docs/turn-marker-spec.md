@@ -78,6 +78,20 @@ pauses the turn). The daemon knows the truth to the millisecond.
 In reaction mode: a bot post carrying the marker emoji from the bot user.
 Without either, the old quiet rule. No configuration on the reader's side.
 
+### `turn` is not durable — only `session` is
+
+`turn` counts turns completed **by one MessageManager process**. It is not
+persisted, so a resumed session starts counting from 1 again and will repeat
+`{session, turn}` pairs it already emitted before the restart. It does *not*
+restart on a Claude respawn (`!cd`, a worktree switch,
+`!permissions interactive`): that is the same chat session, so the count
+carries on.
+
+Treat `turn` as ordering *within one run*, useful for spotting a gap, and
+never as a unique key. `session` is the durable identity; readers that need
+exactly-once should dedupe by post id, which is what voice-desk does. A
+reader that wants durable turn numbers should count marked posts itself.
+
 ## Tests (first)
 
 - config: defaults, `metadata` on Mattermost rejected, emoji with `off`
@@ -99,7 +113,8 @@ Without either, the old quiet rule. No configuration on the reader's side.
 | Decision | Why |
 |---|---|
 | One dedicated marker write after the final flush, not piggybacked on it (both plan reviews) | the "final write" moves with splits, task-post reuse, empty flushes and failed writes; one extra `chat.update` per turn is the price of never marking the wrong post |
-| `(session, turn)` is not a cross-restart unique key | the counter is per manager and resets with it; readers dedupe by post id, which is what voice-desk does |
+| `(session, turn)` is not a cross-restart unique key | the counter lives in the manager and is not persisted; readers dedupe by post id, which is what voice-desk does. Spelled out under **`turn` is not durable** rather than left to be inferred (maintainer review on #547) |
+| A Claude respawn does NOT restart the count | `!cd` and friends replace the CLI process, not the conversation; restarting would re-issue `{session, turn}` pairs the reader has already seen. The old `this.turn = 0` in `reset()` said the opposite and only ever ran from `dispose()`, where the manager is discarded anyway |
 | `reaction` default emoji 🏁 `checkered_flag` | rare in real conversations, reads as "finished" without words |
 | `metadata` refused on Mattermost at config time | rather than silently marking nothing |
 | Payload is small and flat: session, turn, ok | Slack caps metadata size; readers need identity and outcome, not the answer |

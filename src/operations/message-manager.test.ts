@@ -1258,6 +1258,24 @@ describe('MessageManager turn marker', () => {
     expect(last[2].metadata.event_payload.ok).toBe(false);
   });
 
+  it('a Claude respawn does not restart the count: the next turn is 3, not 1', async () => {
+    // Maintainer review on #547 asked which behaviour this is, and for the
+    // code to say so. Climbing is correct: `!cd` replaces the CLI process,
+    // not the conversation, so restarting would re-issue {session, turn}
+    // pairs the reader has already seen.
+    const m = withMarker({ mode: 'metadata' });
+    for (const ev of [text, result, text, result]) await m.handleEvent(ev);
+
+    m.clearClaudeSessionState();  // what the !cd / worktree respawn path calls
+
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[2]!.metadata!.event_payload.turn)).toEqual([1, 2, 3]);
+  });
+
   it('off, or a turn with no reply post, marks nothing; the counter still counts turns', async () => {
     const off = withMarker({ mode: 'off' });
     await off.handleEvent(text);
