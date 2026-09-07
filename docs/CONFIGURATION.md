@@ -296,7 +296,7 @@ platforms:
 | `toolActivity` | The reply |
 |---|---|
 | `full` | unchanged: every tool inline with its completion indicator |
-| `summary` | one live line at the top of the turn's post, `🔧 12 tools · 40 s`, updated as tools run; `· 1 ❌` when a tool failed. Claude's text follows |
+| `summary` | one live line at the top of the turn's post, `🔧 12 tools · 40 s · Bash`, updated as tools run; the name is the tool most recently started, so the line shows what the bot is doing; `· 1 ❌` when a tool failed. Claude's text follows |
 | `hidden` | nothing about tools at all |
 
 | `toolDetails` | Where the full tool stream goes when `toolActivity` is not `full` |

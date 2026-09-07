@@ -137,6 +137,10 @@ export async function restartClaudeSession(
     'Claude was restarted before a decision was made'
   );
 
+  // The turn in progress belongs to the process we just killed — resume or
+  // not. Its tool counter and details sink must not carry into the next turn.
+  session.messageManager?.clearTurnState();
+
   // A fresh CLI session (no resume) restarts task numbering at #1 — drop
   // the old session's accumulated task/tool state so ids can't collide.
   if (!cliOptions.resume) {

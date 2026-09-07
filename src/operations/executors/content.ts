@@ -243,6 +243,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       return; // Nothing else to flush
     }
     await this.flushPending(ctx);
+    // The header rides on ONE post, and this flush may have written a
+    // different one — a continuation post after a split, most often the
+    // result flush carrying Claude's closing text. Every path that does write
+    // the header post clears `headerDirty` (tryUpdatePost, createNewPost's
+    // adoption), so a still-dirty header here means the header post was left
+    // untouched and would keep a stale, still-running summary forever.
+    if (this.state.headerDirty) await this.renderHeaderOnly(ctx);
     // The turn is over: the next header starts a new one. The header itself
     // stays on its post.
     if (reason === 'result') this.state.turnOpen = false;

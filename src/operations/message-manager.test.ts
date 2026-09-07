@@ -1254,7 +1254,9 @@ describe('MessageManager tool activity (summary / hidden)', () => {
     const finalText = allTexts().at(-1) as string;
     expect(finalText.startsWith('🔧 1 tool · ')).toBe(true);
     expect(finalText).toContain('Two files.');
-    expect(finalText).not.toContain('Bash');
+    // The summary names the last tool (#505); the tool LINE itself is gone.
+    expect(finalText).not.toContain('💻');
+    expect(finalText).not.toContain('ls');
     expect(allTexts().some((t) => t.includes('↳'))).toBe(false);
   });
 
@@ -1263,7 +1265,8 @@ describe('MessageManager tool activity (summary / hidden)', () => {
     for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
 
     const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>;
-    const details = calls.find(([content]) => content.includes('Bash'));
+    // The reply post now names the last tool too, so match the tool LINE.
+    const details = calls.find(([content]) => content.includes('↳'));
     expect(details).toBeDefined();
     expect(details?.[1]).toBe('thread-123');
     // The reply post comes first even though the tool was the first event.
@@ -1272,7 +1275,9 @@ describe('MessageManager tool activity (summary / hidden)', () => {
     expect(details?.[0]).toContain('↳ ✓');
     const detailsId = `post_${calls.indexOf(details as [string, string]) + 1}`;
     expect((registeredPosts.get(detailsId) as { type: string }).type).toBe('tool_details');
-    expect(lastMessage?.message.includes('Bash')).toBe(false);
+    // The latest reply is the reply post (whose summary names Bash), never
+    // the details post — so look for the tool line, not the tool name.
+    expect(lastMessage?.message.includes('↳')).toBe(false);
   });
 
   it('hidden + none: neither the tools nor a summary appear', async () => {
@@ -1281,5 +1286,21 @@ describe('MessageManager tool activity (summary / hidden)', () => {
 
     expect(allTexts().some((t) => t.includes('Bash') || t.includes('🔧') || t.includes('↳'))).toBe(false);
     expect(allTexts().at(-1)).toContain('Two files.');
+  });
+
+  it('clearTurnState() drops the dead turn: the next turn counts from one again', async () => {
+    // Anne's #534 finding: a respawn mid-turn (!cd, !permissions interactive)
+    // kills the process whose tools the counter describes. Without this the
+    // next turn's header inherits the dead turn's count and start time.
+    const m = withToolActivity({ activity: 'summary', details: 'none' });
+    // Two tools of a turn that the respawn is about to kill.
+    await m.handleEvent(toolUse);
+    await m.handleEvent(toolUse);
+
+    m.clearTurnState();
+
+    for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+    const finalText = allTexts().at(-1) as string;
+    expect(finalText.startsWith('🔧 1 tool · ')).toBe(true);
   });
 });

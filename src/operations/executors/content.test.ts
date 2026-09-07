@@ -1213,5 +1213,30 @@ describe('ContentExecutor', () => {
 
       expect(platform.createPost).toHaveBeenCalledWith('Hello', 'thread-123');
     });
+
+    it('a final header set after a split still reaches the header post when the closing text lands on the continuation', async () => {
+      // Anne's #534 repro: reply splits → the last tool ends (header goes
+      // final, dirty) → Claude's closing text arrives → the result flush
+      // writes the CONTINUATION post, so nothing renders the header post and
+      // it shows a running header ("…") forever.
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 1 s…');
+      await executor.executeAppend(createAppendContentOp('test', 'para one'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      const big = Array.from({ length: 400 }, (_, i) => `line ${i} ${'x'.repeat(30)}`).join('\n');
+      await executor.executeAppend(createAppendContentOp('test', big), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      expect(executor.getState().currentPostId).toBe('post_2');
+
+      executor.setHeader('🔧 1 tool · 1 s');
+      await executor.executeAppend(createAppendContentOp('test', 'closing text'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const post1Writes = (platform.updatePost as ReturnType<typeof mock>).mock.calls
+        .filter((c) => c[0] === 'post_1')
+        .map((c) => c[1] as string);
+      expect(post1Writes.at(-1)?.startsWith('🔧 1 tool · 1 s\n\n')).toBe(true);
+      expect(post1Writes.at(-1)).not.toContain('…');
+    });
   });
 });
