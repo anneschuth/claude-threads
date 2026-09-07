@@ -115,6 +115,29 @@ export function resolveToolActivity(
   return { ...resolved, dir: (dir as string | undefined) ?? DEFAULT_TOOL_DETAILS_DIR, url: url as string | undefined };
 }
 
+/**
+ * The tool dials for one platform entry, read off the config object rather
+ * than passed as four arguments. A derived DM config spreads its parent, so a
+ * call site that lists only some of the fields silently drops the rest —
+ * which is how DM instances ended up writing to the default details directory
+ * with no link on the summary line (Anne's review on #535). Same class of bug
+ * as #529's; one reader means no call site can drop half.
+ */
+export function resolvePlatformTools(
+  config: {
+    toolActivity?: unknown;
+    toolDetails?: unknown;
+    toolDetailsDir?: unknown;
+    toolDetailsUrl?: unknown;
+  },
+  fieldPath: string,
+): ToolActivitySettings {
+  return resolveToolActivity(config.toolActivity, config.toolDetails, fieldPath, {
+    dir: config.toolDetailsDir,
+    url: config.toolDetailsUrl,
+  });
+}
+
 function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   try {

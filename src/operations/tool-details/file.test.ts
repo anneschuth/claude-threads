@@ -88,6 +88,15 @@ describe('file sink', () => {
     expect(safeSegment('.')).toBe('_2E');
     expect(safeSegment('plain-id')).toBe('plain-id');
     expect(safeSegment('')).toBe('_');
+    // Above 0xFF the old per-code-unit hex was variable width with no
+    // delimiter, so ' AC' and '€' both encoded to `_20AC` (Anne's review).
+    // Encoding per UTF-8 byte makes every escape exactly `_XX`.
+    expect(safeSegment(' AC')).toBe('_20AC');
+    expect(safeSegment('€')).toBe('_E2_82_AC');
+    expect(safeSegment('€')).not.toBe(safeSegment(' AC'));
+    // Astral code points must not collapse to one replacement character.
+    expect(safeSegment('\u{1F600}')).toBe('_F0_9F_98_80');
+    expect(safeSegment('\u{1F600}')).not.toBe(safeSegment('\u{1F601}'));
   });
 
   it('pages and their directory are private to the daemon user', async () => {

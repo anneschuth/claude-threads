@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Per-platform `toolActivity`: `summary` or `hidden` instead of the tool stream** (#534, thanks @kaza). `summary` replaces the inline `Bash …` / `↳ ✓` lines with one live line at the top of the turn's post — `🔧 12 tools · 40 s · Bash`, naming the tool most recently started so the line stays a liveness signal; `hidden` says nothing about tools at all. `toolDetails: thread` keeps the full rendering in a thread under the reply, `none` drops it. Defaults are unchanged (`full` / `none`). Permission prompts, plan approvals, questions, task lists and errors are untouched in every mode. Part of #505.
+- **`toolDetails: file`: one HTML page per turn, optionally linked from the summary line** (#535, thanks @kaza). The daemon writes `<toolDetailsDir>/<platformId>/<sessionId>/<turn>.html` plus an `index.html` per session (directories 0700, files 0600); serving the directory is the operator's job and **it must sit behind auth** — the pages hold command lines and outputs. With `toolDetailsUrl` the summary line carries a `details` link from the first tool on. A write failure is reported once in the channel and the sink stops for that session; the reply is unaffected. Part of #505.
 
 ## [1.33.1] - 2026-09-05
 

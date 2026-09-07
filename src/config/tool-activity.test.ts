@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import { resolveToolActivity } from './types.js';
+import { resolvePlatformTools, resolveToolActivity } from './types.js';
 
 describe('resolveToolActivity', () => {
   test('omitted means full with no details, exactly today\'s behaviour', () => {
@@ -36,5 +36,32 @@ describe('resolveToolActivity', () => {
   test('dir or url without file is a config error', () => {
     expect(() => resolveToolActivity('summary', 'thread', 'p', { url: 'https://x' })).toThrow('only meaningful with toolDetails file');
     expect(() => resolveToolActivity(undefined, undefined, 'p', { dir: '/x' })).toThrow('only meaningful with toolDetails file');
+  });
+});
+
+describe('resolvePlatformTools', () => {
+  // The DM-discovery call site passed only activity+details, so a parent with
+  // `toolDetails: file` produced DM instances writing to the DEFAULT directory
+  // with no link on the summary line (Anne's review). This has been the same
+  // class of bug three times, so both call sites now read the four fields off
+  // one config object instead of listing arguments.
+  test('reads all four tool fields off the config, so no call site can drop half', () => {
+    expect(resolvePlatformTools({
+      toolActivity: 'summary',
+      toolDetails: 'file',
+      toolDetailsDir: '/srv/details',
+      toolDetailsUrl: 'https://agents.example.com/tool-details',
+    }, 'dm[x]')).toEqual({
+      activity: 'summary',
+      details: 'file',
+      dir: '/srv/details',
+      url: 'https://agents.example.com/tool-details',
+    });
+  });
+
+  test('an absent tool config is still full/none, and field paths still name the entry', () => {
+    expect(resolvePlatformTools({}, 'dm[x]')).toEqual({ activity: 'full', details: 'none' });
+    expect(() => resolvePlatformTools({ toolActivity: 'summary', toolDetailsDir: '/x' }, 'dm[x]'))
+      .toThrow('dm[x].toolDetailsDir');
   });
 });

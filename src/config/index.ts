@@ -46,6 +46,7 @@ export {
   resolveOverheadVisibility,
   DEFAULT_TOOL_ACTIVITY,
   DEFAULT_TOOL_DETAILS_DIR,
+  resolvePlatformTools,
   resolveToolActivity,
 } from './types.js';
 

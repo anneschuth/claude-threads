@@ -36,13 +36,23 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+const UTF8 = new TextEncoder();
+
 /**
  * A path segment that survives any filesystem and cannot escape or collide:
- * everything outside [A-Za-z0-9-] becomes `_XX` (hex), so the mapping is
- * injective and `.`/`..` cannot occur. ':' in session ids is the usual case.
+ * everything outside [A-Za-z0-9-] becomes one `_XX` per UTF-8 byte, so the
+ * mapping is injective and `.`/`..` cannot occur. ':' in session ids is the
+ * usual case.
+ *
+ * Per BYTE, not per code unit: `charCodeAt(0).toString(16)` is variable width
+ * with no delimiter, so ' AC' and '€' both encoded to `_20AC` (Anne's review
+ * on #535). The `u` flag matters too — without it an astral code point is
+ * matched as two lone surrogates, and every emoji would encode to the same
+ * replacement bytes.
  */
 export function safeSegment(value: string): string {
-  const encoded = value.replace(/[^A-Za-z0-9-]/g, (c) => `_${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, '0')}`);
+  const encoded = value.replace(/[^A-Za-z0-9-]/gu, (c) =>
+    Array.from(UTF8.encode(c), (b) => `_${b.toString(16).toUpperCase().padStart(2, '0')}`).join(''));
   return encoded || '_';
 }
 
