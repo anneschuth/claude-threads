@@ -40,6 +40,9 @@ abstract class ReconnectHarness extends BasePlatformClient {
   pokeScheduleReconnect(): void {
     (this as unknown as { scheduleReconnect: () => void }).scheduleReconnect();
   }
+  pokeConnectionEstablished(): void {
+    (this as unknown as { onConnectionEstablished: () => void }).onConnectionEstablished();
+  }
   get hasPendingReconnect(): boolean {
     return (this as unknown as { reconnectTimeout: unknown }).reconnectTimeout !== null;
   }
@@ -67,6 +70,41 @@ describe('reconnection exhausted', () => {
     // One platform's dead socket must not take down sessions on healthy
     // platforms, and a library class must not decide the process's fate.
     expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('exit policy: emits once per exhaustion round, not once per trigger', () => {
+    // With `exit` the attempt counter is deliberately not reset, so every
+    // later trigger re-entered the exhausted branch. Slack produces two per
+    // round on its own (a close before `hello` fires onConnectionClosed AND
+    // rejects connect()), so shutdown was being asked for repeatedly
+    // (CodeRabbit review).
+    const client = new TestClient();
+    client.setReconnectPolicy('exit');
+    const onExhausted = mock(() => {});
+    client.on('reconnect-exhausted', onExhausted);
+
+    client.exhaust();
+    client.pokeScheduleReconnect();
+    client.pokeScheduleReconnect();
+
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+  });
+
+  it('exit policy: a new round can exhaust again after a successful connection', () => {
+    // The latch must not be permanent — a socket that recovers and later dies
+    // again has to be reported again.
+    const client = new TestClient();
+    client.setReconnectPolicy('exit');
+    const onExhausted = mock(() => {});
+    client.on('reconnect-exhausted', onExhausted);
+
+    client.exhaust();
+    expect(onExhausted).toHaveBeenCalledTimes(1);
+
+    client.pokeConnectionEstablished();  // the socket came back
+    client.exhaust();                    // ...and died again later
+
+    expect(onExhausted).toHaveBeenCalledTimes(2);
   });
 
   it('retry policy (the default): actually reconnects after the cool-down', async () => {

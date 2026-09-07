@@ -139,6 +139,14 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    */
   private cooldownActive = false;
   /**
+   * `reconnect-exhausted` has been emitted for the current round. With
+   * `exit` the attempt counter is deliberately NOT reset, so every later
+   * trigger would otherwise re-enter the exhausted branch and ask for
+   * shutdown again — and Slack produces two triggers per round on its own
+   * (CodeRabbit review). Cleared when a new round begins.
+   */
+  private exhaustedEmitted = false;
+  /**
    * How long `retry` waits before starting a fresh round of attempts. Long
    * enough not to hammer a provider that is genuinely down, short enough that
    * a laptop coming back from a tunnel reconnects without anyone noticing.
@@ -376,6 +384,7 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     wsLogger.debug('Preparing for reconnect (resetting intentional disconnect flag)');
     this.isIntentionalDisconnect = false;
     this.reconnectAttempts = 0;
+    this.exhaustedEmitted = false;
   }
 
   /**
@@ -454,10 +463,13 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
         // platform's dead socket must not kill sessions on healthy platforms,
         // and `process.exit` here would skip the graceful path entirely.
         // `index.ts` owns it.
-        log.error(
-          `${this.platformId}: reconnection attempts exhausted — handing over for supervisor restart`
-        );
-        this.emit('reconnect-exhausted', this.platformId);
+        if (!this.exhaustedEmitted) {
+          this.exhaustedEmitted = true;
+          log.error(
+            `${this.platformId}: reconnection attempts exhausted — handing over for supervisor restart`
+          );
+          this.emit('reconnect-exhausted', this.platformId);
+        }
         return;
       }
 
@@ -509,6 +521,8 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    */
   protected onConnectionEstablished(): void {
     this.reconnectAttempts = 0;
+    // A round that ended in a live socket: a later death is news again.
+    this.exhaustedEmitted = false;
     this.startHeartbeat();
     this.emit('connected');
 

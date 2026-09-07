@@ -112,7 +112,24 @@ export class SlackClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
-    this.setReconnectPolicy(resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`));
+    // Validated for every instance so a typo is still a startup error, but
+    // only a client that OWNS a socket can exhaust reconnection. A secondary
+    // on a shared event source never opens one (see connect()), so its own
+    // policy could never fire — set it and it would read as configured while
+    // doing nothing (CodeRabbit review). The parent's policy governs the
+    // shared socket, and its exhaustion is what reaches index.ts.
+    const policy = resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`);
+    if (sharedEventSource) {
+      if (platformConfig.reconnectPolicy !== undefined && policy !== sharedEventSource.reconnectPolicy) {
+        wsLogger.warn(
+          `${platformConfig.id}: reconnectPolicy "${policy}" is ignored — this channel shares ` +
+          `"${sharedEventSource.platformId}"'s Socket Mode connection, whose policy ` +
+          `"${sharedEventSource.reconnectPolicy}" governs reconnection for both.`
+        );
+      }
+    } else {
+      this.setReconnectPolicy(policy);
+    }
   }
 
   // ============================================================================
