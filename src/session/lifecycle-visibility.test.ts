@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import { shouldPostLifecycle, type LifecyclePost } from './lifecycle-visibility.js';
 
-const KINDS: LifecyclePost[] = ['idle-warning', 'timed-out', 'paused', 'abnormal-exit'];
+const KINDS: LifecyclePost[] = ['idle-warning', 'timed-out', 'paused', 'resumed', 'abnormal-exit'];
 
 describe('shouldPostLifecycle', () => {
   it('posts everything at full, which is today\'s behaviour', () => {
@@ -17,6 +17,7 @@ describe('shouldPostLifecycle', () => {
     expect(shouldPostLifecycle('minimal', 'idle-warning')).toBe(false);
     expect(shouldPostLifecycle('minimal', 'timed-out')).toBe(true);
     expect(shouldPostLifecycle('minimal', 'paused')).toBe(true);
+    expect(shouldPostLifecycle('minimal', 'resumed')).toBe(true);
     expect(shouldPostLifecycle('minimal', 'abnormal-exit')).toBe(true);
   });
 
@@ -28,6 +29,11 @@ describe('shouldPostLifecycle', () => {
     expect(shouldPostLifecycle('hidden', 'idle-warning')).toBe(false);
     expect(shouldPostLifecycle('hidden', 'timed-out')).toBe(false);
     expect(shouldPostLifecycle('hidden', 'paused')).toBe(false);
+    // At hidden the pause post is suppressed, so no lifecyclePostId is ever
+    // stored — and resume then fell into its "create a new post" branch and
+    // announced a bot restart that never happened. A hidden thread posted
+    // MORE on a pause/resume cycle than a full one (Anne's review on #529).
+    expect(shouldPostLifecycle('hidden', 'resumed')).toBe(false);
     expect(shouldPostLifecycle('hidden', 'abnormal-exit')).toBe(true);
   });
 

@@ -17,6 +17,12 @@ export type LifecyclePost =
   | 'timed-out'
   /** "Session paused. Send a new message to continue." */
   | 'paused'
+  /**
+   * "Session resumed after bot restart" — the NEW post resume makes when
+   * there is no pause/timeout post to edit. Editing an existing one is not
+   * this kind: it neither adds a post nor notifies.
+   */
+  | 'resumed'
   /** "[Exited: <code>]", posted only for a non-zero exit. */
   | 'abnormal-exit';
 
@@ -29,6 +35,12 @@ export type LifecyclePost =
  *   message brings the session straight back. The other notices report a state
  *   change that already occurred.
  * - `hidden` — no status posts.
+ *
+ * `resumed` matters most at `hidden`: with the pause post suppressed no
+ * `lifecyclePostId` is ever stored, so resume fell through to its "create a
+ * new post" branch and announced a bot restart that had not happened. A
+ * hidden thread posted MORE over a pause/resume cycle than a full one, and
+ * wrongly (Anne's review on #529).
  *
  * ⚠️ `abnormal-exit` survives every level, `hidden` included. It fires only on
  * a non-zero exit code, so it is a failure report rather than overhead.
