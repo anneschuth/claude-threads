@@ -296,7 +296,7 @@ platforms:
 | `toolActivity` | The reply |
 |---|---|
 | `full` | unchanged: every tool inline with its completion indicator |
-| `summary` | one live line at the top of the turn's post, `🔧 12 tools · 40 s`, updated as tools run; `· 1 ❌` when a tool failed. Claude's text follows |
+| `summary` | one live line at the top of the turn's post, `🔧 12 tools · 40 s · Bash`, updated as tools run; the name is the tool most recently started, so the line shows what the bot is doing; `· 1 ❌` when a tool failed. Claude's text follows |
 | `hidden` | nothing about tools at all |
 
 | `toolDetails` | Where the full tool stream goes when `toolActivity` is not `full` |
@@ -580,6 +580,14 @@ claudeAccounts:
 | `home` | One of | Alternate `$HOME` containing `.claude/.credentials.json` from a prior `HOME=<path> claude login`. For OAuth Pro/Max subscriptions. Session history also lives here, so resumed sessions pick the same account. |
 | `apiKey` | One of | Anthropic API key. Billed against that key; session history stays under the bot's default `HOME`. |
 | `displayName` | No | Human-readable label in UI (defaults to `id`) |
+
+⚠️ An account with `home` owns the **whole** Claude profile, not just its
+credentials: user settings, hooks and global MCP configuration are read from
+that home too. Anything the daemon inherited that could point elsewhere — an
+API key, a bearer token, `CLAUDE_CONFIG_DIR` — is cleared for that child, or
+the account you selected would be silently overridden by the one the daemon
+runs as. Daemon-level hooks and settings therefore do **not** carry into a
+pooled account; put them in the account's own home.
 
 Exactly one of `home` or `apiKey` should be set per account. Persisted sessions record which account they ran under and resume on the same one.
 

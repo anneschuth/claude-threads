@@ -82,6 +82,22 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     return this.state.headerPostId;
   }
 
+  /**
+   * Give up the current turn's header post. `turnOpen` and `headerPostId`
+   * otherwise clear only on a `result` flush, and a Claude respawn mid-turn
+   * never produces one — so the next turn's summary would edit the abandoned
+   * reply and its details would thread under it (Codex review). The post
+   * keeps whatever header it last rendered: the turn is dead, and rewriting
+   * it during a respawn is not worth a platform call.
+   */
+  abandonHeaderTurn(): void {
+    this.state.header = null;
+    this.state.headerDirty = false;
+    this.state.headerPostId = null;
+    this.state.headerBody = '';
+    this.state.turnOpen = false;
+  }
+
   /** What a post's text is, given its body: the header is prepended on the header post only. */
   private renderFor(postId: string | null, body: string): string {
     if (this.state.header && postId !== null && postId === this.state.headerPostId) {
@@ -166,6 +182,15 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       onSuccess();
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
+      // The write may still have landed — a lost response throws all the
+      // same. `headerBody` is what a later header render will restore, so it
+      // must track what was ATTEMPTED, not the last confirmed body: updates
+      // replace the whole post, so restoring the attempt is right whether it
+      // arrived or not, while restoring the older body deletes delivered
+      // text (Codex review). `headerDirty` stays set, so the retry happens.
+      if (postId === this.state.headerPostId) {
+        this.state.headerBody = content;
+      }
       ctx.logger.debug(`Update failed (${logTag}): ${err}`);
       const resolvedFailureDetails = typeof failureDetails === 'function'
         ? failureDetails(err)
@@ -243,6 +268,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       return; // Nothing else to flush
     }
     await this.flushPending(ctx);
+    // The header rides on ONE post, and this flush may have written a
+    // different one — a continuation post after a split, most often the
+    // result flush carrying Claude's closing text. Every path that does write
+    // the header post clears `headerDirty` (tryUpdatePost, createNewPost's
+    // adoption), so a still-dirty header here means the header post was left
+    // untouched and would keep a stale, still-running summary forever.
+    if (this.state.headerDirty) await this.renderHeaderOnly(ctx);
     // The turn is over: the next header starts a new one. The header itself
     // stays on its post.
     if (reason === 'result') this.state.turnOpen = false;

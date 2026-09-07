@@ -1431,11 +1431,25 @@ export class MessageManager {
    * keeps its task numbering.
    */
   clearClaudeSessionState(): void {
+    this.clearTurnState();
     this.toolStartTimes.clear();
     this.taskTracker.clear();
     // A fresh CLI session also means a fresh MCP child — any decision request
     // still pending from the old one can never be answered usefully.
     this.denyPendingBridgeRequests('Claude was restarted before a decision was made');
+  }
+
+  /**
+   * Abandon the turn in progress. Every Claude respawn kills the process whose
+   * turn the tool counter and its details sink describe, so both must start
+   * over — resume or not, unlike `clearClaudeSessionState()`, which a resume
+   * restart deliberately skips to keep its task numbering. Without this a `!cd`
+   * mid-turn bleeds the dead turn's count and start time into the next header,
+   * and threads the next turn's details under the previous turn's reply.
+   */
+  clearTurnState(): void {
+    this.toolActivityExecutor?.reset();
+    this.contentExecutor.abandonHeaderTurn();
   }
 
   /**

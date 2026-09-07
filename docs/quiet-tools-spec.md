@@ -15,32 +15,33 @@ Two per-platform settings, beside `sessionHeader` / `stickyMessage` /
 
 ```yaml
 platforms:
-  - id: slack-vvs
+  - id: assistant
     type: slack
     toolActivity: summary     # full (default) | summary | hidden
-    toolDetails: file         # thread (default with summary) | file | none
-    toolDetailsDir: /home/herder/.claude-threads/tool-details   # file only; this is the default
-    toolDetailsUrl: https://agents.vvs-capital.com/tool-details  # file only; no default → no link
+    toolDetails: thread       # thread (default with summary) | none
 ```
+
+`toolDetails: file`, with `toolDetailsDir` / `toolDetailsUrl`, arrives in
+PR 2 (see **Delivery**); this PR rejects those three at startup.
 
 | `toolActivity` | The reply post |
 |---|---|
 | `full` | unchanged: every tool inline with its `↳` indicator |
-| `summary` | one **live line at the top of the turn's post**, `🔧 12 tools · 40 s`, updated as tools start and finish; `· 1 ❌` appended when a tool failed; with `toolDetails: file` and a URL, the line links to the details page. Claude's text follows as today |
+| `summary` | one **live line at the top of the turn's post**, `🔧 12 tools · 40 s · Bash`, updated as tools start and finish; the name is the tool most recently started, so the line says what the bot is doing and not only how much it has done (@thejdubb02 in #505); `· 1 ❌` appended when a tool failed; with `toolDetails: file` and a URL (PR 2), the line links to the details page. Claude's text follows as today |
 | `hidden` | nothing about tools at all, and no `↳` orphans. What the maintainer agreed to in #505 |
 
 | `toolDetails` | Where the full rendering goes when `toolActivity` is not `full` |
 |---|---|
 | `thread` | posted as replies **in a thread under the turn's post**, streamed the same way the reply is (edit-in-place, split on length). In a thread-mode session the turn's post is already a thread reply and Slack has no nested threads, so the details land in the same thread after the reply; that is `full` with the tools moved below the answer, and documented as such |
-| `file` | appended to `<toolDetailsDir>/<platformId>/<sessionId>/<turn>.html`, one file per turn, plus `index.html` per session listing turns. Serving the directory is the operator's job. With `toolDetailsUrl` the summary line links to `<url>/<platformId>/<sessionId>/<turn>.html` |
+| `file` (PR 2) | appended to `<toolDetailsDir>/<platformId>/<sessionId>/<turn>.html`, one file per turn, plus `index.html` per session listing turns. Serving the directory is the operator's job. With `toolDetailsUrl` the summary line links to `<url>/<platformId>/<sessionId>/<turn>.html` |
 | `none` | the summary only |
 
 Default: `full` / `none`, so an existing config behaves exactly as before.
 `summary` without `toolDetails` means `thread`. Config errors, thrown with
 the field path at startup like the other per-platform fields: `toolDetails`
 with `full`; `hidden` with `thread` (hidden has no post of its own to hang
-a thread on; use `summary`, or `file`); `toolDetailsDir` / `toolDetailsUrl`
-with anything but `file`.
+a thread on; use `summary`, or — from PR 2 — `file`); `toolDetailsDir` /
+`toolDetailsUrl` with anything but `file`.
 
 Untouched in every mode: permission prompts, plan approvals, questions, task
 lists, `send_file`, the bug button, session errors. Those are not tool
@@ -50,13 +51,13 @@ Claude's business and shows only as the `❌` count.
 ## Why
 
 - Assistant use (#505): replies only, but the receipt stays one click away.
-- Our voice desk reads the reply post aloud once it settles; forty tool lines
-  in it are forty lines it must not read. `summary` is what makes the post
-  the answer.
-- `file` over a web server in the daemon: the daemon writes, Caddy (or
-  anything) serves, nothing new listens. ⚠️ Tool details contain command
-  lines and outputs. The directory must be served **behind auth**; the spec
-  says so, the README says so, and the default is no URL.
+- Anything that consumes the reply post as an answer — text-to-speech, a
+  digest, a downstream bot — has to skip forty tool lines to find it.
+  `summary` is what makes the post the answer.
+- `file` (PR 2) over a web server outside the daemon: the daemon writes, the
+  operator's existing server serves, nothing new listens. ⚠️ Tool details
+  contain command lines and outputs. The directory must be served **behind
+  auth**; the spec says so, the README says so, and the default is no URL.
 
 Considered and dropped: a git commit per tool call (a `Read` has no diff;
 forty commits a turn would wreck the repo the agent works in) and a
@@ -82,7 +83,8 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
 ### Executors
 
 - **`ToolActivityExecutor`** (new, `src/operations/executors/tool-activity.ts`)
-  owns the per-turn counter `{ started, finished, failed, firstStartAt, lastEndAt }`
+  owns the per-turn counter
+  `{ started, finished, failed, firstStartAt, lastEndAt, lastTool }`
   and renders the summary line. On each op it asks the content executor to
   re-render the post header (debounced through the existing 500 ms flush).
   The transformer emits an explicit `{ kind: 'turn_end' }` op from the
@@ -133,8 +135,16 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
 `toolDetailsUrl?`; resolved next to the overhead fields into
 `PlatformOverhead.tools: { activity, details, dir, url }` with the same
 `resolve…` validation and the same wiring through `src/index.ts` →
-`SessionManager` → `TransformContext` / executor options as `lifecycle`
-(see `pr/quiet-lifecycle` commit 364c371 for the pattern).
+`SessionManager` → `TransformContext` / executor options as `lifecycle`.
+
+### Turn boundaries
+
+A turn's counter and its details sink describe **one CLI process**. Every
+respawn — `!cd`, a worktree switch, `!permissions interactive` — kills that
+process mid-turn, so both must start over. `MessageManager.clearTurnState()`
+does exactly that and `restartClaudeSession` calls it unconditionally:
+`clearClaudeSessionState()` is not enough, because a resume restart
+deliberately skips it to keep its task numbering.
 
 ### Delivery
 
@@ -143,9 +153,6 @@ Two PRs so each stands alone:
 1. `pr/quiet-tools`: `full | summary | hidden`, `thread | none`, transformer
    op, executors, config, tests. (#505's tool half.)
 2. `pr/quiet-tools-file` stacked on it: the `file` sink and `toolDetailsUrl`.
-
-VVS runs `summary` + `file` behind Caddy with auth on
-`agents.vvs-capital.com/tool-details/`.
 
 ## Tests (first)
 
@@ -157,7 +164,10 @@ VVS runs `summary` + `file` behind Caddy with auth on
   end; the line with and without a link.
 - content executor: header stays on the first post of the turn across a split;
   the continuation post has none; a header update after the split edits the
-  first post, not the current one.
+  first post, not the current one; a final header set after a split still
+  reaches the header post when the closing text lands on the continuation.
+- respawn: `restartClaudeSession` clears the turn in progress whether or not
+  it resumes, and the next turn's counter starts at one.
 - content executor: header rendered above content, survives a split, counted
   in length checks.
 - thread sink: posts under the main post's id, lazy start, thread-mode
@@ -182,10 +192,38 @@ VVS runs `summary` + `file` behind Caddy with auth on
 
 ## Open
 
-- Q-001: does the summary line also name the last tool (`· Bash`)? Asked in
-  #505. Default: count and time only.
+(none)
+
+## Decided during review
+
+- Q-001: does the summary line also name the last tool (`· Bash`)? **Yes.**
+  @thejdubb02 asked for it in #505 and the maintainer agreed in #534: once
+  the stream is hidden this line is the only liveness signal, so it has to
+  say what the bot is doing. MCP names are shortened to the tool part —
+  `mcp__playwright__browser_navigate` renders as `browser_navigate`.
 
 ## Lessons learned
 
 - CodeRabbit's CLI dropped its WebSocket twice on the PR 1 diff (2026-09-02); the
   `--light` run is what finished. Codex and Gemini reviewed the full diff.
+- **A reset nobody calls is not a reset.** `ToolActivityExecutor.reset()`
+  existed from the first commit and had a test, but its only caller,
+  `MessageManager.reset()`, has no production caller — the respawn paths use
+  `clearClaudeSessionState()`. Tested and wired are different properties.
+- **A one-line header on a post that a split has already left behind needs
+  its own render pass.** Every write clears `headerDirty` only when it wrote
+  the header post; a flush that writes the continuation post leaves the
+  header running forever. Checking the flag after the flush covers every
+  path, which comparing post ids at each call site would not.
+- **Half the turn state lived somewhere else.** Resetting the tool counter
+  left `turnOpen` / `headerPostId` set on the content executor, which clear
+  only on a `result` flush — and a respawn never produces one. The next
+  turn's summary then edited the abandoned reply and its details threaded
+  under it: the *same* bug, one layer down. `abandonHeaderTurn()` releases
+  the other half.
+- **A retry needs to know what was attempted, not what was confirmed.**
+  `headerBody` advanced only on a successful update, so a lost response left
+  it stale — and the new header re-render then overwrote the post with the
+  older body, deleting text the platform had already accepted. Since an
+  update replaces the whole post, recording the attempted body is right
+  whether or not it arrived.

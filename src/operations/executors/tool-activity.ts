@@ -4,6 +4,7 @@
  */
 
 import type { PlatformFormatter } from '../../platform/index.js';
+import { parseMcpToolName } from '../tool-formatters/utils.js';
 import type { ToolActivityOp } from '../types.js';
 import type { ToolDetailsSink } from '../tool-details/types.js';
 import type { ExecutorContext } from './types.js';
@@ -14,11 +15,23 @@ export interface ToolTurnStats {
   failed: number;
   firstStartAt: number | null;
   lastEndAt: number | null;
+  /** Name of the most recently started tool — the turn's liveness signal. */
+  lastTool: string | null;
 }
 
-const fresh = (): ToolTurnStats => ({ started: 0, finished: 0, failed: 0, firstStartAt: null, lastEndAt: null });
+const fresh = (): ToolTurnStats => ({ started: 0, finished: 0, failed: 0, firstStartAt: null, lastEndAt: null, lastTool: null });
 
-/** `🔧 12 tools · 40 s`, with `…` while tools are still running, `· 1 ❌` on failures, `· details` when linked. */
+/**
+ * `mcp__playwright__browser_navigate` is the tool's wire name, not something
+ * to put in a one-line summary; the part after the server is the action.
+ */
+function shortToolName(name: string): string {
+  // `mcp__server__` parses with an empty tool part; an empty component would
+  // render as a dangling separator, so fall back to the wire name (Codex).
+  return parseMcpToolName(name)?.tool || name;
+}
+
+/** `🔧 12 tools · 40 s · Bash`, with `…` while tools are still running, `· 1 ❌` on failures, `· details` when linked. */
 export function renderToolSummary(
   stats: ToolTurnStats,
   now: number,
@@ -29,6 +42,9 @@ export function renderToolSummary(
   const until = running || stats.lastEndAt === null ? now : stats.lastEndAt;
   const seconds = stats.firstStartAt === null ? 0 : Math.max(0, Math.round((until - stats.firstStartAt) / 1000));
   const parts = [`🔧 ${stats.started} ${stats.started === 1 ? 'tool' : 'tools'}`, `${seconds} s${running ? '…' : ''}`];
+  // Once the stream is hidden this line is the only sign of what the bot is
+  // doing, not just how much it has done (@thejdubb02, #505).
+  if (stats.lastTool) parts.push(shortToolName(stats.lastTool));
   if (stats.failed > 0) parts.push(`${stats.failed} ❌`);
   if (link) parts.push(formatter.formatLink('details', link));
   return parts.join(' · ');
@@ -56,6 +72,7 @@ export class ToolActivityExecutor {
     if (op.kind === 'start') {
       this.stats.started++;
       this.stats.firstStartAt ??= now;
+      this.stats.lastTool = op.name;
       await this.options.sink.append(op, ctx);
       this.renderHeader(now, ctx);
     } else if (op.kind === 'end') {
@@ -80,8 +97,14 @@ export class ToolActivityExecutor {
     this.stats = fresh();
   }
 
-  /** Session restart: the turn in progress is gone, and so is its counter. */
+  /**
+   * Session restart: the turn in progress is gone, and so is its counter.
+   * A turn with no tools has nothing to abandon, and saying so keeps this
+   * idempotent — the respawn path reaches it twice on a fresh-session
+   * restart, and a sink that numbers turns would otherwise skip one.
+   */
   reset(): void {
+    if (this.stats.started === 0) return;
     this.stats = fresh();
     this.options.sink.reset();
   }

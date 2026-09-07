@@ -106,6 +106,7 @@ function createMockMessageManager(initialApproval?: { postId: string; type: stri
   let pendingQuestionSet = initialQuestionSet ?? null;
   return {
     clearClaudeSessionState: () => {},
+    clearTurnState: () => {},
     denyPendingBridgeRequests: () => {},
     resolveBridgePlan: () => false,
     getPendingApproval: () => pendingApproval,
@@ -972,6 +973,29 @@ describe('restartClaudeSession session-state clearing', () => {
       );
 
       expect(clearSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  // Anne's #534 finding: the tool-activity counter and its details sink
+  // describe the turn of the process being killed, so EVERY respawn must drop
+  // them — resume or not. Only clearClaudeSessionState() was wired, and it is
+  // skipped on resume restarts.
+  it.each([[false], [true]])('clears the turn in progress on respawn (resume: %p)', async (resume) => {
+    await withFakeClaudePath(async () => {
+      const session = createMockSession();
+      (session.claude as unknown as { kill: unknown }).kill = mock(() => Promise.resolve());
+      const clearTurn = mock(() => {});
+      (session.messageManager as unknown as { clearTurnState: unknown }).clearTurnState = clearTurn;
+      const ctx = createMockSessionContext(new Map([[session.sessionId, session]]));
+
+      await commands.restartClaudeSession(
+        session,
+        { workingDir: '/tmp', resume } as never,
+        ctx,
+        'test restart'
+      );
+
+      expect(clearTurn).toHaveBeenCalled();
     });
   });
 });

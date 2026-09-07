@@ -22,10 +22,22 @@ function recordingSink(link: string | null = null) {
 
 describe('renderToolSummary', () => {
   it('counts, times and marks running, failed and linked turns', () => {
-    const base = { started: 1, finished: 0, failed: 0, firstStartAt: 1000, lastEndAt: null };
+    const base = { started: 1, finished: 0, failed: 0, firstStartAt: 1000, lastEndAt: null, lastTool: null };
     expect(renderToolSummary(base, 3500, null, formatter)).toBe('🔧 1 tool · 3 s…');
     expect(renderToolSummary({ ...base, started: 12, finished: 12, failed: 1, lastEndAt: 41000 }, 99000, null, formatter)).toBe('🔧 12 tools · 40 s · 1 ❌');
     expect(renderToolSummary({ ...base, finished: 1, lastEndAt: 2000 }, 9000, 'https://x/t/1.html', formatter)).toBe('🔧 1 tool · 1 s · [details](https://x/t/1.html)');
+  });
+
+  // @thejdubb02 in #505, agreed by the maintainer in #534: once the stream is
+  // hidden this line is the only liveness signal, so it should say what the
+  // bot is doing, not only how much it has done.
+  it('carries the last tool name, MCP names shortened to the tool part', () => {
+    const base = { started: 12, finished: 12, failed: 0, firstStartAt: 1000, lastEndAt: 41000, lastTool: 'Bash' };
+    expect(renderToolSummary(base, 99000, null, formatter)).toBe('🔧 12 tools · 40 s · Bash');
+    expect(renderToolSummary({ ...base, failed: 1 }, 99000, null, formatter)).toBe('🔧 12 tools · 40 s · Bash · 1 ❌');
+    expect(renderToolSummary({ ...base, lastTool: 'mcp__playwright__browser_navigate' }, 99000, null, formatter))
+      .toBe('🔧 12 tools · 40 s · browser_navigate');
+    expect(renderToolSummary({ ...base, lastTool: null }, 99000, null, formatter)).toBe('🔧 12 tools · 40 s');
   });
 });
 
@@ -42,8 +54,25 @@ describe('ToolActivityExecutor', () => {
     now = 9000;
     await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
 
-    expect(headers).toEqual(['🔧 1 tool · 0 s…', '🔧 1 tool · 5 s · 1 ❌', '🔧 1 tool · 5 s · 1 ❌']);
+    expect(headers).toEqual(['🔧 1 tool · 0 s… · Bash', '🔧 1 tool · 5 s · Bash · 1 ❌', '🔧 1 tool · 5 s · Bash · 1 ❌']);
     expect(appended.map((op) => op.kind)).toEqual(['start', 'end']);
+  });
+
+  it('reset is idempotent: a turn with no tools is not abandoned twice', async () => {
+    // The respawn path reaches reset() twice on a fresh-session restart
+    // (restartClaudeSession, then clearClaudeSessionState). A sink that
+    // numbers turns — the file sink does — would skip one per extra call.
+    const { sink, resets } = recordingSink();
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => {} });
+
+    exec.reset();
+    exec.reset();
+    expect(resets()).toBe(0);
+
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 't1', name: 'Bash', display: 'Bash ls' }), ctx);
+    exec.reset();
+    exec.reset();
+    expect(resets()).toBe(1);
   });
 
   it('hidden: the sink still gets every line, the header is never rendered', async () => {
