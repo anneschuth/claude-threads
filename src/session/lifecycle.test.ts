@@ -1419,6 +1419,8 @@ describe('authorization gate at sinks (#388)', () => {
 
       const notice = notices(platform).at(-1) as string;
       expect(notice).not.toContain('continue where you left off');
+      // ...and it no longer credits a person who did not ask for it.
+      expect(notice).not.toContain('by @');
     });
   });
 

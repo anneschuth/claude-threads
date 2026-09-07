@@ -1682,7 +1682,13 @@ async function resumeSessionImpl(
 
     if (session.lifecyclePostId) {
       const postId = session.lifecyclePostId;
-      const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')} by ${sessionFormatter.formatUserMention(session.startedBy)}\n${sessionFormatter.formatItalic(outcome)}`;
+      // Attributed only when someone actually asked. On a boot resume the
+      // daemon did it, and crediting the session owner reads as though they
+      // were here (Gemini review).
+      const by = askedForByAPerson
+        ? ` by ${sessionFormatter.formatUserMention(session.startedBy)}`
+        : ` after bot restart (v${VERSION})`;
+      const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')}${by}\n${sessionFormatter.formatItalic(outcome)}`;
       await withErrorHandling(
         () => session.platform.updatePost(postId, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
