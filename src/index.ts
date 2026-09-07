@@ -72,6 +72,16 @@ function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
  */
 let activeDmRuntime: DmDiscoveryRuntime | undefined;
 
+/**
+ * Set once `main()` has built the graceful shutdown path. Module-level for the
+ * same reason `activeDmRuntime` is: `wirePlatformEvents` runs for platforms
+ * registered at runtime by DM auto-discovery, long after that loop would have
+ * run — wiring this per-client at startup would have left every derived DM
+ * platform emitting `reconnect-exhausted` to nobody, deaf and alive, which is
+ * the exact failure this feature exists to end.
+ */
+let onReconnectExhausted: ((platformId: string) => void) | undefined;
+
 function wirePlatformEvents(
   platformId: string,
   client: PlatformClient,
@@ -112,6 +122,18 @@ function wirePlatformEvents(
   client.on('error', (e) => {
     const message = e instanceof Error ? e.message : String(e);
     ui.addLog({ level: 'error', component: platformId, message });
+  });
+
+  // `reconnectPolicy: exit` — this platform has given up on its socket and
+  // wants the supervisor to restart us.
+  client.on('reconnect-exhausted', (id: string) => {
+    if (!onReconnectExhausted) {
+      // Before main() finished wiring: nothing can shut down gracefully yet,
+      // so say so rather than exit silently mid-startup.
+      ui.addLog({ level: 'error', component: '🔌', message: `Platform "${id}" exhausted reconnection during startup` });
+      return;
+    }
+    onReconnectExhausted(id);
   });
 }
 
@@ -1004,21 +1026,19 @@ async function startWithoutDaemon() {
     shutdown('Ctrl+C').finally(() => process.exit(0));
   };
 
-  // `reconnectPolicy: exit` — a platform has given up on its socket and wants
-  // the supervisor to restart us. The decision belongs here, not in the
-  // platform class: the graceful path persists state, posts to active
-  // sessions and restores the terminal first, and `log.error` alone would
-  // never render in the interactive UI before an exit on the same tick.
-  for (const client of platforms.values()) {
-    client.on('reconnect-exhausted', (platformId: string) => {
-      const reason = `Platform "${platformId}" could not reconnect. Exiting so the supervisor can restart with a fresh socket (reconnectPolicy: exit).`;
-      ui.addLog({ level: 'error', component: '🔌', message: reason });
-      // Straight to stderr as well: the Ink UI is async, and a hand-run bot
-      // would otherwise just see the screen clear with no explanation.
-      console.error(`\n${reason}\n`);
-      shutdown(`reconnect-exhausted:${platformId}`).finally(() => process.exit(1));
-    });
-  }
+  // The decision to end the process belongs here, not in the platform class:
+  // the graceful path persists state, notifies active sessions and restores
+  // the terminal first. `shutdown()` guards against re-entry, so two platforms
+  // exhausting at once still runs it once.
+  onReconnectExhausted = (platformId: string) => {
+    const reason = `Platform "${platformId}" could not reconnect. Exiting so the supervisor can restart with a fresh socket (reconnectPolicy: exit).`;
+    ui.addLog({ level: 'error', component: '🔌', message: reason });
+    // Straight to stderr as well: the Ink UI renders asynchronously, so an
+    // interactive user would otherwise watch the screen clear with no reason.
+    console.error(`\n${reason}\n`);
+    shutdown(`reconnect-exhausted:${platformId}`).finally(() => process.exit(1));
+  };
+
 
   // Remove any existing signal handlers (e.g., from 'when-exit' package)
   // and register our own to ensure graceful shutdown
