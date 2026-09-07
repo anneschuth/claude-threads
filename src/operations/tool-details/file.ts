@@ -6,7 +6,8 @@
  * the summary line links to the page. See docs/quiet-tools-spec.md.
  */
 
-import { mkdir, writeFile } from 'fs/promises';
+import { mkdir, readdir, writeFile } from 'fs/promises';
+import { readdirSync } from 'fs';
 import { join } from 'path';
 import type { ExecutorContext } from '../executors/types.js';
 import type { ToolActivityEvent, ToolDetailsSink } from './types.js';
@@ -37,10 +38,17 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * A path segment that survives any filesystem and cannot escape or collide:
- * everything outside [A-Za-z0-9-] becomes `_XXXX`, four hex digits per UTF-16
- * code unit, so the mapping is injective and `.`/`..` cannot occur. ':' in
- * session ids is the usual case.
+ * A path segment that cannot escape its directory: everything outside
+ * [A-Za-z0-9-] becomes `_XXXX`, four hex digits per UTF-16 code unit, so the
+ * mapping is injective and `.`/`..` cannot occur. ':' in session ids is the
+ * usual case.
+ *
+ * Injective *as a string mapping*. ASCII case is preserved, so on a
+ * case-insensitive filesystem two ids differing only in case still share a
+ * directory (Codex review). Platform ids are operator config and session ids
+ * are platform-issued, so this needs a deliberately hostile config to reach;
+ * escaping case would roughly double every segment for a collision nobody
+ * has. Stated rather than claimed away.
  *
  * The width is the whole point. Variable-width hex has no delimiter, so
  * `' AC'` and `'€'` both encoded to `_20AC` (Anne's review on #535). Fixed
@@ -59,13 +67,34 @@ function page(title: string, body: string): string {
   return `<!doctype html><meta charset="utf-8"><title>${escapeHtml(title)}</title><style>${STYLE}</style><h1>${escapeHtml(title)}</h1>\n${body}`;
 }
 
+const TURN_PAGE = /^(\d+)\.html$/;
+
+/** Highest `<n>.html` already written for this session, or 0 for a new one. */
+function highestTurnOnDisk(sessionDir: string): number {
+  let names: string[];
+  try {
+    names = readdirSync(sessionDir);
+  } catch {
+    return 0; // no directory yet: a session that has never written a page
+  }
+  return names.reduce((max, name) => {
+    const match = TURN_PAGE.exec(name);
+    return match ? Math.max(max, Number(match[1])) : max;
+  }, 0);
+}
+
 export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
   const sessionDir = join(deps.dir, safeSegment(deps.platformId), safeSegment(deps.sessionId));
   // safeSegment leaves only [A-Za-z0-9_-], so the segments need no URL encoding.
   const urlDir = deps.urlBase
     ? `${deps.urlBase.replace(/\/+$/, '')}/${safeSegment(deps.platformId)}/${safeSegment(deps.sessionId)}`
     : null;
-  let turn = 1;
+  // Resume builds a new sink for a session that already has pages on disk, so
+  // the numbering has to continue where the last one stopped — starting at 1
+  // overwrote the first page and dropped every earlier turn from the index
+  // (Codex review). Read once, synchronously, so `turn` is a plain number and
+  // the queue-time capture below stays exactly as it was.
+  let turn = highestTurnOnDisk(sessionDir) + 1;
   let lines: string[] = [];
   const finished: Array<{ turn: number; tools: number; at: string }> = [];
   let failed = false;
@@ -83,8 +112,26 @@ export function createFileSink(deps: FileSinkDeps): ToolDetailsSink {
     await writeFile(join(sessionDir, `${targetTurn}.html`), page(title, body), { mode: 0o600 });
   }
 
+  /**
+   * Listed from disk, not from `finished`: after a resume this sink knows only
+   * the turns it wrote itself, and rebuilding the index from those alone
+   * unlinked every earlier page. Turns from a previous process are listed
+   * without a tool count, which this sink has no way to recover.
+   */
   async function writeIndex(): Promise<void> {
-    const rows = finished.map((f) => `<li><a href="${f.turn}.html">Turn ${f.turn}</a> — ${f.tools} tool${f.tools === 1 ? '' : 's'} · ${escapeHtml(f.at)}</li>`);
+    const known = new Map(finished.map((f) => [f.turn, f]));
+    const turns = (await readdir(sessionDir).catch(() => [] as string[]))
+      .flatMap((name) => {
+        const match = TURN_PAGE.exec(name);
+        return match ? [Number(match[1])] : [];
+      })
+      .sort((a, b) => a - b);
+    const rows = turns.map((t) => {
+      const f = known.get(t);
+      return f
+        ? `<li><a href="${t}.html">Turn ${t}</a> — ${f.tools} tool${f.tools === 1 ? '' : 's'} · ${escapeHtml(f.at)}</li>`
+        : `<li><a href="${t}.html">Turn ${t}</a></li>`;
+    });
     await writeFile(join(sessionDir, 'index.html'), page(`Tool details — ${deps.sessionId}`, `<ul>${rows.join('')}</ul>`), { mode: 0o600 });
   }
 

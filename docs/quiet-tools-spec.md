@@ -230,6 +230,11 @@ Two PRs so each stands alone:
   claim actually needs. Two reviewers found the second collision
   independently; neither found it from the tests, which is the point — the
   tests were still ASCII.
+- **A per-session sink is not per-session state.** Every resume built a fresh
+  file sink for the same session id, and it started at turn 1 — overwriting
+  the first page and rebuilding the index from only the turns it had written,
+  which unlinked all the earlier ones. The turn counter now continues from
+  what is on disk and the index is listed from disk.
 - **The DM-discovery call site has now dropped per-platform settings three
   times** (memory/routines/watches, #529's, and this PR's details dir + URL).
   The derived config spreads its parent, so the fields are always *there*; it

@@ -82,6 +82,28 @@ describe('file sink', () => {
     expect(second).not.toContain('Read before reset');
   });
 
+  it('a resumed session continues the turn numbering instead of overwriting turn 1 (Codex review)', async () => {
+    // Every bot restart resumes sessions, and each resume builds a NEW sink
+    // for the same session id. Starting at turn 1 unconditionally overwrote
+    // the first page and dropped every earlier turn from the index.
+    const { ctx } = ctxWith();
+    const first = createFileSink({ dir, platformId: 'p', sessionId: 's' });
+    await first.append(start('t1', 'Read before restart'), ctx);
+    await first.turnEnded(ctx);
+
+    const resumed = createFileSink({ dir, platformId: 'p', sessionId: 's' });
+    await resumed.append(start('t2', 'Read after restart'), ctx);
+    await resumed.turnEnded(ctx);
+
+    expect(await readFile(join(dir, 'p', 's', '1.html'), 'utf8')).toContain('Read before restart');
+    const second = await readFile(join(dir, 'p', 's', '2.html'), 'utf8');
+    expect(second).toContain('Read after restart');
+    expect(second).not.toContain('Read before restart');
+    const index = await readFile(join(dir, 'p', 's', 'index.html'), 'utf8');
+    expect(index).toContain('href="1.html"');
+    expect(index).toContain('href="2.html"');
+  });
+
   it('path segments are injective and cannot escape: distinct ids never share a directory, dot segments cannot occur', () => {
     expect(safeSegment('a:b')).not.toBe(safeSegment('a/b'));
     expect(safeSegment('..')).toBe('_002E_002E');

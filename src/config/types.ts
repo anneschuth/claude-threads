@@ -141,9 +141,14 @@ export function resolvePlatformTools(
 function isHttpUrl(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   try {
+    // A base that paths get appended to: no query, no fragment. Checked on
+    // the RAW string, because `https://x/details?` and `https://x/details#`
+    // parse to an empty search/hash and would pass a property check — while
+    // the appended path lands inside the query or fragment and every link
+    // silently resolves to the base instead (Codex review).
+    if (/[?#]/.test(value)) return false;
     const parsed = new URL(value);
-    // A base that paths get appended to: no query, no fragment.
-    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '' && parsed.search === '' && parsed.hash === '';
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:') && parsed.hostname !== '';
   } catch {
     return false;
   }

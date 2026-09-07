@@ -31,6 +31,11 @@ describe('resolveToolActivity', () => {
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'ftp://agents.example.com/x' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://agents.example.com/x?y=1' })).toThrow('p.toolDetailsUrl');
+    // An EMPTY delimiter parses to an empty search/hash, so the property
+    // check passed it — and the appended path then lands inside the query or
+    // fragment, so the browser fetches the base and every link 404s (Codex).
+    expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://agents.example.com/x?' })).toThrow('p.toolDetailsUrl');
+    expect(() => resolveToolActivity('summary', 'file', 'p', { url: 'https://agents.example.com/x#' })).toThrow('p.toolDetailsUrl');
     expect(() => resolveToolActivity('summary', 'file', 'p', { dir: '' })).toThrow('p.toolDetailsDir');
   });
 
