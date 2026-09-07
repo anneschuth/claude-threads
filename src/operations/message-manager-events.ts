@@ -252,7 +252,13 @@ export class TypedEventEmitter extends EventEmitter {
    * @returns this (for chaining)
    */
   removeAllListeners(event?: MessageManagerEvent): this {
-    return super.removeAllListeners(event);
+    // Forward a no-arg call as a no-arg call. EventEmitter branches on
+    // arguments.length, so an explicit `undefined` reads as "remove listeners
+    // for the event named undefined" and clears nothing -- which silently left
+    // dispose() leaking every session's listeners.
+    return event === undefined
+      ? super.removeAllListeners()
+      : super.removeAllListeners(event);
   }
 
   /**
