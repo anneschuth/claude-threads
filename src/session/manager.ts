@@ -29,6 +29,7 @@ import { RoutineScheduler } from '../routines/scheduler.js';
 import { fireRoutine } from '../routines/runner.js';
 import { AccountPool } from '../claude/account-pool.js';
 import { probeAccountUsage } from '../claude/usage-probe.js';
+import { probeClaudeAiConnectors } from '../claude/connector-probe.js';
 import type { SessionInfo } from '../ui/types.js';
 import { CleanupScheduler } from '../cleanup/index.js';
 import { SessionMonitor } from '../operations/monitor/index.js';
@@ -160,6 +161,8 @@ export class SessionManager extends EventEmitter {
 
   // Claude account pool (single-account mode when empty)
   private readonly accountPool: AccountPool;
+  /** Connectors the account has but sessions do not get; set by noticeClaudeAiConnectors. */
+  private connectorsOff: number | null = null;
   // On-demand /usage probe coalescing: the in-flight cycle (shared by concurrent
   // session starts) and the epoch ms it last completed (for the TTL skip).
   private usageRefreshInFlight: Promise<void> | null = null;
@@ -874,9 +877,46 @@ export class SessionManager extends EventEmitter {
         description: this.customDescription,
         footer: this.customFooter,
         accountPoolStatus: this.accountPool.isEmpty ? undefined : this.accountPool.status(),
+        connectorsOff: this.connectorsOff ?? undefined,
       },
       overheadByPlatform,
     );
+  }
+
+  /**
+   * Find out, once, whether the bot's account(s) have claude.ai connectors
+   * that sessions will not get (#560), and say so where an operator looks:
+   * the log at startup, and a chip in the channel sticky. Stays quiet when a
+   * platform opted in with `claudeAiConnectors: true`, when no account has
+   * any, or when the probe could not tell. Never throws; fire-and-forget.
+   */
+  async noticeClaudeAiConnectors(): Promise<void> {
+    try {
+      const accounts: Array<ClaudeAccount | undefined> = this.accountPool.isEmpty ? [undefined] : [...this.accountPool.all];
+      const found = new Set<string>();
+      await Promise.all(accounts.map(async (acc) => {
+        const names = await probeClaudeAiConnectors(acc);
+        for (const n of names ?? []) found.add(n);
+      }));
+      if (found.size === 0) return;
+      const allowedOn = [...this.platforms.entries()]
+        .filter(([, client]) => client.getMcpConfig().claudeAiConnectors === true)
+        .map(([id]) => id);
+      const names = [...found].sort().join(', ');
+      if (allowedOn.length > 0) {
+        log.info(`claude.ai connectors (${names}) are available to sessions on: ${allowedOn.join(', ')}`);
+        return;
+      }
+      log.warn(
+        `This Claude account has claude.ai connectors (${names}). Sessions do not get them: ` +
+        `since 1.35.0 the bot disables them per session. To let a platform's sessions use them, set ` +
+        `claudeAiConnectors: true on that platform in config.yaml (everyone on its allowedUsers gets them).`,
+      );
+      this.connectorsOff = found.size;
+      await this.updateAllStickyMessages();
+    } catch (err) {
+      log.debug(`Connector notice skipped: ${err}`);
+    }
   }
 
   /**

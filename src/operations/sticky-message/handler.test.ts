@@ -15,6 +15,19 @@ const testConfig: StickyMessageConfig = {
   debug: false,
 };
 
+describe('buildStickyMessage: claude.ai connectors chip (#560)', () => {
+  it('shows how many connectors sessions do not get, and nothing when there are none', async () => {
+    setShuttingDown(false); // module state; another file's shutdown test may have left it on
+    const sessions = new Map<string, Session>();
+    const withThree = await buildStickyMessage(sessions, 'test-platform', { ...testConfig, connectorsOff: 3 }, mockFormatter, (t) => `/pl/${t}`);
+    expect(withThree).toContain('3 claude.ai connectors off');
+    const withOne = await buildStickyMessage(sessions, 'test-platform', { ...testConfig, connectorsOff: 1 }, mockFormatter, (t) => `/pl/${t}`);
+    expect(withOne).toContain('1 claude.ai connector off');
+    const none = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (t) => `/pl/${t}`);
+    expect(none).not.toContain('claude.ai connector');
+  });
+});
+
 // Create a mock platform client
 function createMockPlatform(platformId: string): PlatformClient {
   return {

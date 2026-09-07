@@ -169,6 +169,12 @@ export interface StickyMessageConfig {
    */
   accountPoolStatus?: AccountPoolStatus[];
   /**
+   * Number of claude.ai connectors the bot's account(s) have that sessions
+   * do not get (#560). Undefined/0 hides the chip; set once the startup
+   * probe found some and no platform opted in with `claudeAiConnectors`.
+   */
+  connectorsOff?: number;
+  /**
    * Per-platform overhead visibility for the sticky message.
    * - `'full'` (default): status bar + active sessions list, today's behavior.
    * - `'minimal'`: status bar only, no sessions list / description / footer.
@@ -450,6 +456,13 @@ async function buildStatusBar(
       label += min === max ? ` · ${max}% used` : ` · ${min}–${max}% used`;
     }
     items.push(formatter.formatCode(label));
+  }
+
+  // claude.ai connectors the account has but sessions do not get (#560):
+  // the one visible hint, in the channel, for an operator who relied on them.
+  if (config.connectorsOff && config.connectorsOff > 0) {
+    const n = config.connectorsOff;
+    items.push(formatter.formatCode(`🔌 ${n} claude.ai connector${n === 1 ? '' : 's'} off`));
   }
 
   // Permission mode chip: single source of truth in `permissionModeDisplay`.

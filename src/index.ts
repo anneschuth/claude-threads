@@ -997,6 +997,10 @@ async function startWithoutDaemon() {
   // Mark UI as ready
   ui.setReady();
 
+  // One free /usage probe per account: does it have claude.ai connectors
+  // that sessions will not get (#560)? Logs and a sticky chip if so.
+  void session.noticeClaudeAiConnectors();
+
   const shutdown = async (_signal: string) => {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;

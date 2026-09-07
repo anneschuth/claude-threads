@@ -346,6 +346,8 @@ Three things to know about stdio servers:
 
 The same exclusion applies to the bot's own haiku one-shots (watch confirms, distillation, routine and watch parsing, title suggestions): they run with the connectors disabled as well.
 
+If you relied on the connectors before 1.35.0, the bot tells you. At startup it runs one free `claude -p "/usage"` per account and reads the connectors from the CLI's init event; when an account has some and no platform allows them, the startup log names them with the `claudeAiConnectors: true` fix, and the channel sticky shows a `🔌 3 claude.ai connectors off` chip until you decide. With a platform opted in, the log lists which platforms have them instead.
+
 Each session logs the servers the CLI reported at start (`MCP servers: claude-threads-mcp (connected), github (failed)`) and warns when one did not connect. That line is the place to look when a declared server's tools do not show up, and it is where an old CLI's ignored `disableClaudeAiConnectors` becomes visible.
 
 ### Quieting the bot's overhead messages
