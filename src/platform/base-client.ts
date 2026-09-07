@@ -520,6 +520,11 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    * Call this from connect() after authentication is complete.
    */
   protected onConnectionEstablished(): void {
+    // Drop any pending reconnect — a `retry` cool-down most of all. The socket
+    // is up; letting that timer fire would call scheduleReconnect(), which
+    // force-closes before reconnecting, so recovering from an outage would
+    // kill the connection that recovered it (CodeRabbit review).
+    this.clearReconnectTimer();
     this.reconnectAttempts = 0;
     // A round that ended in a live socket: a later death is news again.
     this.exhaustedEmitted = false;

@@ -90,7 +90,7 @@ describe('reconnection exhausted', () => {
     expect(onExhausted).toHaveBeenCalledTimes(1);
   });
 
-  it('exit policy: a new round can exhaust again after a successful connection', () => {
+  it('exit policy: a new round can exhaust again after a successful connection', async () => {
     // The latch must not be permanent — a socket that recovers and later dies
     // again has to be reported again.
     const client = new TestClient();
@@ -98,13 +98,17 @@ describe('reconnection exhausted', () => {
     const onExhausted = mock(() => {});
     client.on('reconnect-exhausted', onExhausted);
 
-    client.exhaust();
-    expect(onExhausted).toHaveBeenCalledTimes(1);
+    try {
+      client.exhaust();
+      expect(onExhausted).toHaveBeenCalledTimes(1);
 
-    client.pokeConnectionEstablished();  // the socket came back
-    client.exhaust();                    // ...and died again later
+      client.pokeConnectionEstablished();  // the socket came back
+      client.exhaust();                    // ...and died again later
 
-    expect(onExhausted).toHaveBeenCalledTimes(2);
+      expect(onExhausted).toHaveBeenCalledTimes(2);
+    } finally {
+      await client.disconnect();  // stops the heartbeat pokeConnection... started
+    }
   });
 
   it('retry policy (the default): actually reconnects after the cool-down', async () => {
@@ -156,6 +160,29 @@ describe('reconnection exhausted', () => {
     await new Promise((r) => setTimeout(r, 60));
     expect(client.connectCalls).toBeGreaterThan(0);
     client.clearReconnectTimer();
+  });
+
+  it('a successful connection cancels a pending cool-down instead of tearing itself down', async () => {
+    // CodeRabbit: the cool-down timer outlived a reconnection that succeeded
+    // by another route (a heartbeat-driven retry landing first). It then
+    // fired on a HEALTHY socket, and scheduleReconnect() force-closes before
+    // reconnecting — so recovering from the outage killed the connection
+    // that recovered it.
+    const client = new TestClient();
+    client.setCooldownMs(20);
+
+    try {
+      client.exhaust();
+      expect(client.hasPendingReconnect).toBe(true);
+
+      client.pokeConnectionEstablished();   // the socket came back on its own
+      expect(client.hasPendingReconnect).toBe(false);
+
+      await new Promise((r) => setTimeout(r, 60));
+      expect(client.connectCalls).toBe(0);  // nothing tore it down
+    } finally {
+      await client.disconnect();            // stops the heartbeat this started
+    }
   });
 
   it('an intentional disconnect cancels a pending cool-down', async () => {
