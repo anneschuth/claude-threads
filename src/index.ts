@@ -1004,6 +1004,22 @@ async function startWithoutDaemon() {
     shutdown('Ctrl+C').finally(() => process.exit(0));
   };
 
+  // `reconnectPolicy: exit` — a platform has given up on its socket and wants
+  // the supervisor to restart us. The decision belongs here, not in the
+  // platform class: the graceful path persists state, posts to active
+  // sessions and restores the terminal first, and `log.error` alone would
+  // never render in the interactive UI before an exit on the same tick.
+  for (const client of platforms.values()) {
+    client.on('reconnect-exhausted', (platformId: string) => {
+      const reason = `Platform "${platformId}" could not reconnect. Exiting so the supervisor can restart with a fresh socket (reconnectPolicy: exit).`;
+      ui.addLog({ level: 'error', component: '🔌', message: reason });
+      // Straight to stderr as well: the Ink UI is async, and a hand-run bot
+      // would otherwise just see the screen clear with no explanation.
+      console.error(`\n${reason}\n`);
+      shutdown(`reconnect-exhausted:${platformId}`).finally(() => process.exit(1));
+    });
+  }
+
   // Remove any existing signal handlers (e.g., from 'when-exit' package)
   // and register our own to ensure graceful shutdown
   process.removeAllListeners('SIGINT');
