@@ -128,10 +128,14 @@ function wirePlatformEvents(
   // wants the supervisor to restart us.
   client.on('reconnect-exhausted', (id: string) => {
     if (!onReconnectExhausted) {
-      // Before main() finished wiring: nothing can shut down gracefully yet,
-      // so say so rather than exit silently mid-startup.
-      ui.addLog({ level: 'error', component: '🔌', message: `Platform "${id}" exhausted reconnection during startup` });
-      return;
+      // Before main() finished wiring there is nothing to shut down
+      // gracefully — but returning here would leave exactly the alive-and-deaf
+      // process the policy exists to prevent, so honour it the blunt way
+      // (Gemini review).
+      const msg = `Platform "${id}" exhausted reconnection during startup. Exiting.`;
+      ui.addLog({ level: 'error', component: '🔌', message: msg });
+      console.error(`\n${msg}\n`);
+      process.exit(1);
     }
     onReconnectExhausted(id);
   });
@@ -978,7 +982,21 @@ async function startWithoutDaemon() {
   // Mark UI as ready
   ui.setReady();
 
-  const shutdown = async (_signal: string) => {
+  // The in-flight shutdown, so a second caller AWAITS it rather than getting
+  // an already-resolved promise and exiting mid-teardown. The old early
+  // `return` made `shutdown().finally(() => process.exit())` fire immediately
+  // on the second call — before persistence, before sessions were notified.
+  // Two platforms exhausting at once, or SIGINT then SIGTERM, both hit it
+  // (Codex review).
+  let shutdownInFlight: Promise<void> | null = null;
+
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shutdownInFlight) return shutdownInFlight;
+    shutdownInFlight = runShutdown(signal);
+    return shutdownInFlight;
+  };
+
+  const runShutdown = async (_signal: string) => {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
     isShuttingDown = true;

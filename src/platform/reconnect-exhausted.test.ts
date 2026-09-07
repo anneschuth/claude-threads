@@ -18,7 +18,8 @@ abstract class ReconnectHarness extends BasePlatformClient {
   connectCalls = 0;
 
   async connect(): Promise<void> { this.connectCalls++; }
-  async disconnect(): Promise<void> { /* no socket in this harness */ }
+  // Delegates: the base implementation is what cancels a pending cool-down.
+  async disconnect(): Promise<void> { await super.disconnect(); }
   protected async forceCloseConnection(): Promise<void> { /* no socket in this harness */ }
 
   /** Drive the private state the way an exhausted reconnect loop would. */
@@ -28,6 +29,20 @@ abstract class ReconnectHarness extends BasePlatformClient {
     (this as unknown as { scheduleReconnect: () => void }).scheduleReconnect();
   }
   get attempts(): number { return (this as unknown as { reconnectAttempts: number }).reconnectAttempts; }
+  /**
+   * Shorten the cool-down AND the first backoff step, so the test does not
+   * wait a real minute plus a real second.
+   */
+  setCooldownMs(ms: number): void {
+    (this as unknown as { RECONNECT_COOLDOWN_MS: number }).RECONNECT_COOLDOWN_MS = ms;
+    (this as unknown as { reconnectDelay: number }).reconnectDelay = 1;
+  }
+  pokeScheduleReconnect(): void {
+    (this as unknown as { scheduleReconnect: () => void }).scheduleReconnect();
+  }
+  get hasPendingReconnect(): boolean {
+    return (this as unknown as { reconnectTimeout: unknown }).reconnectTimeout !== null;
+  }
 }
 
 const TestClient = ReconnectHarness as unknown as new () => ReconnectHarness;
@@ -54,8 +69,12 @@ describe('reconnection exhausted', () => {
     expect(exitSpy).not.toHaveBeenCalled();
   });
 
-  it('retry policy (the default): resets the counter and keeps trying, without exiting or emitting', () => {
+  it('retry policy (the default): actually reconnects after the cool-down', async () => {
+    // Codex review: the first version of this test asserted the counter reset
+    // and cancelled the timer, which stayed green with the whole cool-down
+    // block deleted. It has to prove a connection is attempted.
     const client = new TestClient();
+    client.setCooldownMs(20);
     const onExhausted = mock(() => {});
     client.on('reconnect-exhausted', onExhausted);
     const exitSpy = mock(() => undefined as never);
@@ -64,15 +83,59 @@ describe('reconnection exhausted', () => {
 
     try {
       client.exhaust();
+      expect(client.attempts).toBe(0);      // reset, ready for a fresh round
+      expect(client.connectCalls).toBe(0);  // but not yet — it is cooling down
+
+      // Cool-down elapses, then the first backoff step of the new round.
+      await new Promise((r) => setTimeout(r, 60));
+      expect(client.connectCalls).toBeGreaterThan(0);
     } finally {
       (process as unknown as { exit: unknown }).exit = realExit;
+      client.clearReconnectTimer();
     }
 
     expect(exitSpy).not.toHaveBeenCalled();
     expect(onExhausted).not.toHaveBeenCalled();
-    // The counter is back to zero, so the next round starts over rather than
-    // falling straight back into exhaustion.
-    expect(client.attempts).toBe(0);
+  });
+
+  it('a second trigger during the cool-down does not shorten it', async () => {
+    // Codex review: `scheduleReconnect` clears the pending timer at the top,
+    // so without explicit cool-down state a duplicate trigger replaced the
+    // 60s wait with a 1s attempt-1 backoff. Slack reaches this naturally — a
+    // close before `hello` both fires onConnectionClosed and rejects
+    // connect(), whose catch schedules again.
+    const client = new TestClient();
+    client.setCooldownMs(40);
+
+    client.exhaust();
+    client.pokeScheduleReconnect();  // the duplicate trigger
+    client.pokeScheduleReconnect();
+
+    // Well past a 1s-equivalent short-circuit would have been, still waiting.
+    await new Promise((r) => setTimeout(r, 20));
+    expect(client.connectCalls).toBe(0);
+
+    await new Promise((r) => setTimeout(r, 60));
+    expect(client.connectCalls).toBeGreaterThan(0);
     client.clearReconnectTimer();
+  });
+
+  it('an intentional disconnect cancels a pending cool-down', async () => {
+    // Gemini review: the cool-down timer would otherwise hold the event loop
+    // open through shutdown and then reconnect a deliberately closed client.
+    const client = new TestClient();
+    client.setCooldownMs(20);
+
+    client.exhaust();
+    expect(client.hasPendingReconnect).toBe(true);
+
+    await client.disconnect();
+
+    // The timer is gone, not merely neutered: the reconnect callback already
+    // bails on an intentional disconnect, so `connectCalls` alone cannot tell
+    // a cancelled timer from a live one still holding the event loop open.
+    expect(client.hasPendingReconnect).toBe(false);
+    await new Promise((r) => setTimeout(r, 60));
+    expect(client.connectCalls).toBe(0);
   });
 });

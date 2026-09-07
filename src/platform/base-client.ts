@@ -129,6 +129,16 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
   /** What to do when the attempts run out. See ReconnectPolicy. */
   protected reconnectPolicy: ReconnectPolicy = DEFAULT_RECONNECT_POLICY;
   /**
+   * A `retry` cool-down is waiting. Tracked explicitly because
+   * `scheduleReconnect()` clears the pending timer at the top: without this,
+   * any second trigger during the wait would replace the 60s cool-down with a
+   * 1s attempt-1 backoff and the promised wait would silently evaporate.
+   * Slack reaches that naturally — a close before `hello` both fires
+   * `onConnectionClosed()` and rejects `connect()`, whose catch schedules
+   * again (Codex review).
+   */
+  private cooldownActive = false;
+  /**
    * How long `retry` waits before starting a fresh round of attempts. Long
    * enough not to hammer a provider that is genuinely down, short enough that
    * a laptop coming back from a tunnel reconnects without anyone noticing.
@@ -341,11 +351,10 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     wsLogger.info('Disconnecting (intentional)');
     this.isIntentionalDisconnect = true;
     this.stopHeartbeat();
-    // Cancel any pending reconnect timeout to prevent reconnection after intentional disconnect
-    if (this.reconnectTimeout) {
-      clearTimeout(this.reconnectTimeout);
-      this.reconnectTimeout = null;
-    }
+    // Cancel any pending reconnect, including a `retry` cool-down: its timer
+    // would otherwise hold the event loop open through shutdown and then
+    // reconnect a client that was deliberately closed (Gemini review).
+    this.clearReconnectTimer();
     // Detach all event listeners so any in-flight 'message' handler the
     // websocket queued just before close can't still trigger startSession
     // on a half-shut-down bot. Critical for integration tests: without it,
@@ -402,12 +411,13 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     this.reconnectPolicy = policy;
   }
 
-  /** Cancel a pending reconnect (used on shutdown and by tests). */
+  /** Cancel a pending reconnect, cool-down included. */
   clearReconnectTimer(): void {
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
+    this.cooldownActive = false;
   }
 
   /**
@@ -425,6 +435,9 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    * Can be overridden by subclasses to add platform-specific behavior.
    */
   protected scheduleReconnect(): void {
+    // Already cooling down: let it finish rather than restarting the backoff.
+    if (this.cooldownActive) return;
+
     // Clear any existing reconnect timeout to prevent duplicate attempts
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
@@ -454,8 +467,10 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
         `${this.platformId}: reconnection attempts exhausted — retrying in ${Math.round(this.RECONNECT_COOLDOWN_MS / 1000)}s`
       );
       this.reconnectAttempts = 0;
+      this.cooldownActive = true;
       this.reconnectTimeout = setTimeout(() => {
         this.reconnectTimeout = null;
+        this.cooldownActive = false;
         this.scheduleReconnect();
       }, this.RECONNECT_COOLDOWN_MS);
       return;
