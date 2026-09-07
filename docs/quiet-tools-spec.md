@@ -234,7 +234,10 @@ Two PRs so each stands alone:
   times** (memory/routines/watches, #529's, and this PR's details dir + URL).
   The derived config spreads its parent, so the fields are always *there*; it
   is the reader that lists a subset. `resolvePlatformTools(config, path)`
-  takes the whole object so there is no argument list to under-fill.
+  takes the whole `PlatformInstanceConfig`, so there is no argument list to
+  under-fill and a stripped object literal fails to compile. An all-optional
+  parameter shape would have documented the intent without enforcing it — it
+  accepts `{}` — which is what I shipped first.
 - **A retry needs to know what was attempted, not what was confirmed.**
   `headerBody` advanced only on a successful update, so a lost response left
   it stale — and the new header re-render then overwrote the post with the
