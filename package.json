@@ -31,7 +31,7 @@
     "typecheck": "tsc --noEmit",
     "knip": "knip --no-config-hints",
     "prepare": "husky",
-    "test:node-e2e": "bun run build && bun test tests/node-e2e --timeout 180000"
+    "test:node-e2e": "bun run build && bun test tests/node-e2e --timeout 240000"
   },
   "keywords": [
     "claude",

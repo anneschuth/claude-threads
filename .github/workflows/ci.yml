@@ -191,10 +191,11 @@ jobs:
           node dist/mcp/mcp-server.js --help || true
 
   # The built bot, run by Node, driven through a real session: Socket Mode
-  # against the Slack mock, the mock Claude CLI, the MCP server as
-  # `node dist/mcp/mcp-server.js`, a graceful SIGTERM. Every other job runs the
-  # bot's code inside bun; #569 (a leak that only exists under Node's
-  # EventEmitter) passed all of them. This is the one that runs what we ship.
+  # against the Slack mock, the mock Claude CLI, interactive permissions so the
+  # MCP server runs as `node dist/mcp/mcp-server.js`, a !stop, a second
+  # session, a SIGTERM against it. Every other job runs the bot's code inside
+  # bun; #569 (a leak that only exists under Node's EventEmitter) passed all of
+  # them. This is the one that runs what we ship.
   node-e2e:
     runs-on: ubuntu-latest
     needs: build
@@ -220,4 +221,4 @@ jobs:
       - name: End-to-end session under Node ${{ matrix.node-version }}
         run: |
           node --version
-          bun test tests/node-e2e --timeout 180000
+          bun test tests/node-e2e --timeout 240000
