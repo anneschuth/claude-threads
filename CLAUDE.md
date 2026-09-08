@@ -616,6 +616,13 @@ the floor strands users on otherwise-supported LTS lines. Forced to 20 by
   only exists on newer Node breaks the build before reaching users.
 - `ci.yml` has a `node-smoke` matrix (`[20, 22, 24]`) that runs the built
   binary under each currently-relevant Node line.
+- `ci.yml` also has a `node-e2e` matrix (same Node lines) that runs
+  `tests/node-e2e/`: the built bot as `node dist/index.js --headless` against
+  the in-process Slack mock with the mock Claude CLI, through one real session
+  (mention over Socket Mode, reply, graceful SIGTERM, exit 0). Every other
+  test runs the bot's code inside bun; this is the only one that runs what
+  users run. #569 (a listener leak that only exists under Node's
+  `EventEmitter`) is the reason it exists. Locally: `bun run test:node-e2e`.
 
 **When to bump the floor**: only when a real dep forces it. Update
 `package.json#engines.node`, `publish.yml` Node version, the `node-smoke`
@@ -669,6 +676,7 @@ bun run build        # Compile TypeScript to dist/
 bun run dev          # Run from source with watch mode
 bun start            # Run compiled version
 bun run test         # Run unit tests (~3000 tests)
+bun run test:node-e2e  # Build, then drive the built bot under Node through one session (Slack mock)
 bun run lint         # Run ESLint
 ```
 

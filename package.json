@@ -30,7 +30,8 @@
     "lint:fix": "eslint src/ --fix",
     "typecheck": "tsc --noEmit",
     "knip": "knip --no-config-hints",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:node-e2e": "bun run build && bun test tests/node-e2e --timeout 180000"
   },
   "keywords": [
     "claude",
