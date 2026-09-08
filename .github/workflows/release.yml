@@ -34,7 +34,7 @@ concurrency:
 
 env:
   # Keep in lockstep with .github/workflows/ci.yml and publish.yml.
-  BUN_VERSION: 1.3.3
+  BUN_VERSION: 1.4.2
 
 jobs:
   release:
