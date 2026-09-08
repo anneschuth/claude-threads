@@ -20,6 +20,9 @@ function sessionWith() {
     id: 'p1', platformId: 'test', channelId: 'c', message: content, createAt: 0, userId: 'bot',
   }));
   const setPendingBugReport = mock(() => {});
+  // The upload path calls this before anything reaches catbox.moe, so it is
+  // the earliest observable sign that data started leaving the host.
+  const downloadFile = mock(async () => Buffer.from('not-a-real-image'));
   const session = {
     sessionId: 'test-platform:thread-1',
     platformId: 'test-platform',
@@ -33,11 +36,12 @@ function sessionWith() {
       createInteractivePost: mock(async (content: string) => ({
         id: 'preview-1', platformId: 'test', channelId: 'c', message: content, createAt: 0, userId: 'bot',
       })),
+      downloadFile,
       getFormatter: () => createMockFormatter(),
     } as unknown as PlatformClient,
     messageManager: { setPendingBugReport, getPendingBugReport: () => null } as never,
   } as unknown as Session;
-  return { session, createPost, setPendingBugReport };
+  return { session, createPost, setPendingBugReport, downloadFile };
 }
 
 function ctxWithBugReports(enabled: boolean) {
@@ -64,9 +68,22 @@ describe('bugReports: false', () => {
     const { session, setPendingBugReport } = sessionWith();
 
     await commands.reportBug(session, undefined, 'alice', ctxWithBugReports(false), {
-      message: 'boom', stack: 'at x', timestamp: new Date().toISOString(),
-    } as never);
+      postId: 'err-post-1', message: 'boom', timestamp: new Date(),
+    });
 
+    expect(setPendingBugReport).not.toHaveBeenCalled();
+  });
+
+  it('does not download or upload an attachment — the gate sits ABOVE the upload', async () => {
+    // The whole value of this switch is being in front of the egress, not
+    // merely refusing at the end. Without this assertion the gate could be
+    // moved below the catbox upload and every other test here stays green.
+    const { session, downloadFile, setPendingBugReport } = sessionWith();
+    const screenshot = { id: 'f1', name: 'screenshot.png', size: 10 } as never;
+
+    await commands.reportBug(session, 'look at this', 'alice', ctxWithBugReports(false), undefined, [screenshot]);
+
+    expect(downloadFile).not.toHaveBeenCalled();
     expect(setPendingBugReport).not.toHaveBeenCalled();
   });
 
@@ -74,12 +91,15 @@ describe('bugReports: false', () => {
     // The same call with the flag on reaches the end of the preview flow and
     // registers an approval card. Nothing is sent anywhere yet — the GitHub
     // issue is only created once a human approves that card.
-    const { session, setPendingBugReport, createPost } = sessionWith();
+    // Deliberately NOT asserting that the report completes: past the gate the
+    // flow needs a working `gh` CLI, which is an environment fact rather than
+    // anything this switch controls. What matters is that the refusal is
+    // absent — whatever stops it here, it is not the gate.
+    const { session, createPost } = sessionWith();
 
     await commands.reportBug(session, 'something broke', 'alice', ctxWithBugReports(true));
 
-    expect(setPendingBugReport).toHaveBeenCalled();
     const posted = createPost.mock.calls.map((c) => String(c[0])).join('\n');
-    expect(posted.toLowerCase()).not.toContain('disabled');
+    expect(posted).not.toContain('Bug reporting is disabled');
   });
 });

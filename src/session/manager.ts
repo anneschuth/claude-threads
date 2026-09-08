@@ -479,10 +479,13 @@ export class SessionManager extends EventEmitter {
       deferUpdate: (min) => this.autoUpdateManager?.deferUpdate(min),
 
       // Bug report operations
-      // A report card can already be pending from before the operator threw
-      // the switch — persisted state survives the restart that applied it.
-      // Approving one would still file the public issue, so treat approval as
-      // a denial: the card is cleared, nothing is sent.
+      // Defence in depth on the one path that reaches `gh issue create`
+      // without going through `reportBug`. A pending card is NOT persisted
+      // today (`MessageManager.serialize` carries only the task list and the
+      // context prompt), so it cannot currently outlive the restart that
+      // applies this config — but the approval callback is a second door to
+      // the same egress, and it costs one boolean to keep it shut. Approval
+      // becomes a denial: the card clears, nothing is sent.
       handleBugReportApproval: (s, approved, user) =>
         commands.handleBugReportApproval(s, approved && this.bugReportsEnabled, user),
 
