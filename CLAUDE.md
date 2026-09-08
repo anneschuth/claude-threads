@@ -380,8 +380,10 @@ Invariants:
 |------|---------|
 | `src/index.ts` | Entry point. CLI parsing, bot startup, UI rendering |
 | `src/message-handler.ts` | Message routing logic (extracted for testability) |
-| `src/config.ts` | Type exports for config (re-exports from migration.ts) |
-| `src/config/migration.ts` | YAML config loading (`config.yaml`) |
+| `src/config/index.ts` | YAML config loading (`config.yaml`), re-exports of the config types and resolvers |
+| `src/config/types.ts` | Config types plus the per-platform resolvers (memory, routines, watches, audit log, MCP servers, `strictMcpConfig`, `claudeAiConnectors`) |
+| `src/config/mcp-posture.ts` | Startup resolution of each platform's MCP posture; downgrades `strictMcpConfig` when an enterprise managed MCP config is present |
+| `src/config/managed-mcp.ts` | Detection of the CLI's enterprise `managed-mcp.json` paths |
 | `src/onboarding.ts` | Interactive setup wizard for multi-platform config |
 
 ### Session Management
@@ -444,7 +446,8 @@ Each executor owns a specific piece of interactive state:
 | File | Purpose |
 |------|---------|
 | `src/claude/cli.ts` | Spawns Claude CLI with platform-specific MCP config |
-| `src/claude/types.ts` | TypeScript types for Claude stream-json events |
+| `src/claude/quick-query.ts` | One-shot `claude -p` helper (haiku) behind routine/watch parsing, watch confirms, distillation and title suggestions; spawns with the same child env as a session |
+| `src/claude/connector-probe.ts` | Startup probe (`claude -p /usage`, free) for the claude.ai connectors an account has, behind the "connectors off" notice and sticky chip |
 | `src/claude/version-check.ts` | Claude CLI version validation and compatibility check |
 
 ### Platform Layer
@@ -465,7 +468,8 @@ Each executor owns a specific piece of interactive state:
 | `src/platform/slack/formatter.ts` | Slack mrkdwn formatter |
 | `src/platform/slack/mcp-platform-api.ts` | Slack MCP platform API (used by MCP child) |
 | `src/platform/slack/permalink.ts` | Slack permalink parser + resolver + formatter for `read_post` |
-| `src/platform/slack/index.ts` | Slack module exports |
+| `src/platform/slack/upload.ts` | Slack file upload |
+| `src/platform/slack/status.ts` | Slack assistant-thread status (the working indicator) |
 | `src/platform/permalink-shared.ts` | Cross-platform permalink utilities (caps, truncation, quote-block) shared by both permalink modules |
 | `src/platform/test-helpers/fetch-harness.ts` | Shared `fetch` recorder + responder for platform-API unit tests |
 
@@ -485,7 +489,8 @@ Each executor owns a specific piece of interactive state:
 | `src/mcp/decision-bridge.ts` | Per-session local socket between bot and MCP permission server; routes ExitPlanMode approvals and AskUserQuestion answers through the bot's reaction UI |
 | `src/platform/mcp-platform-api-factory.ts` | Factory for platform-specific MCP platform APIs |
 | `src/platform/mcp-platform-api.ts` | McpPlatformApi interface |
-| `src/mattermost/api.ts` | Standalone Mattermost API helpers |
+| `src/platform/mattermost/mcp-platform-api.ts` | Mattermost MCP platform API (used by MCP child) |
+| `src/utils/websocket.ts` | WebSocket compat layer (global vs the `ws` package) and `countPingsAsActivity` for the heartbeat |
 | `src/persistence/session-store.ts` | Multi-platform session persistence |
 | `src/ui/components/Header.tsx` | Terminal header with the ASCII logo |
 
