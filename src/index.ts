@@ -13,6 +13,7 @@ import {
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
   resolveWatchesEnabled,
+  resolveBugReportsEnabled,
   resolveTranscriptionEnabled,
   isOverheadVisibility,
   OVERHEAD_VISIBILITY_VALUES,
@@ -654,7 +655,8 @@ async function startWithoutDaemon() {
     config.limits,  // Resource limits (optional, has sensible defaults)
     config.claudeAccounts,  // Claude account pool (undefined = single-account mode)
     config.respondOnlyWhenMentioned,  // Quiet-mode default for new sessions (#402)
-    config.userAttribution  // Per-message [@username]: attribution (default on; only applied once a thread has >1 participant)
+    config.userAttribution,  // Per-message [@username]: attribution (default on; only applied once a thread has >1 participant)
+    resolveBugReportsEnabled(config.bugReports)  // `!bug` files publicly; false removes the whole path
   );
 
   // Set sticky message customization from config

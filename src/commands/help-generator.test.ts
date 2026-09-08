@@ -118,4 +118,16 @@ describe('slash-command passthrough hint', () => {
     expect(message).toContain('!model sonnet');
     expect(message).toContain('!effort high');
   });
+
+  test('omits !bug when the operator has disabled bug reporting', () => {
+    // Advertising a command that will be refused wastes everyone's time, and
+    // in a locked-down deployment the command should simply not be on offer.
+    const withBug = generateHelpMessage(createMockFormatter());
+    const without = generateHelpMessage(createMockFormatter(), { bugReportsEnabled: false });
+
+    expect(withBug).toContain('!bug');
+    expect(without).not.toContain('!bug');
+    // Everything else survives the filter.
+    expect(without).toContain('!help');
+  });
 });
