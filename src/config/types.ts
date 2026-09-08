@@ -230,7 +230,12 @@ export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): bool
  * the other flags fall back to something harmless, this one would not.
  */
 export function resolveBugReportsEnabled(value: unknown, fieldPath?: string): boolean {
-  if (value === true || value === undefined || value === null) return true;
+  // Only a genuinely ABSENT key means "keep today's behaviour". `null` is what
+  // a bare `bugReports:` parses to — someone wrote the key, so they meant to
+  // set something, and a fail-closed flag must not read that as "on"
+  // (CodeRabbit review).
+  if (value === undefined) return true;
+  if (value === true) return true;
   if (value === false) return false;
   console.warn(
     `Invalid ${fieldPath ?? 'bugReports'} config: expected boolean, got ${JSON.stringify(value)} — ` +
