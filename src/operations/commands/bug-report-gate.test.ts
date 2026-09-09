@@ -14,6 +14,7 @@ import { createMockSessionContext } from '../../test-utils/mock-session-context.
 import type { Session } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
+import { configureBugReports, postError } from '../post-helpers/index.js';
 
 function sessionWith() {
   const createPost = mock(async (content: string) => ({
@@ -85,6 +86,62 @@ describe('bugReports: false', () => {
 
     expect(downloadFile).not.toHaveBeenCalled();
     expect(setPendingBugReport).not.toHaveBeenCalled();
+  });
+
+  it('refuses to file a report card that is already pending', async () => {
+    // The approval callback is the ONLY caller of createGitHubIssue and does
+    // not pass through reportBug, so the gate there does not cover it.
+    // Unreachable today — reportBug refuses before a card is ever created,
+    // and serialize() does not persist one — which is precisely why it needs
+    // a test, or the next reader removes it as dead code (maintainer review).
+    const { session } = sessionWith();
+    const clearPendingBugReport = mock(() => {});
+    const updatePost = mock(async () => {});
+    (session.messageManager as unknown as Record<string, unknown>).getPendingBugReport = () => ({
+      postId: 'card-1', title: 'T', body: 'B', description: 'd', imageUrls: [],
+    });
+    (session.messageManager as unknown as Record<string, unknown>).clearPendingBugReport = clearPendingBugReport;
+    (session.platform as unknown as Record<string, unknown>).updatePost = updatePost;
+
+    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(false));
+
+    // Nothing filed: the only route to createGitHubIssue reports success by
+    // editing the card with an issue URL, so an edit carrying one would mean
+    // the report went out.
+    const edits = updatePost.mock.calls.map((c) => String((c as unknown[])[1])).join('\n');
+    expect(edits).not.toContain('github.com');
+    expect(edits.toLowerCase()).not.toContain('submitted');
+    expect(clearPendingBugReport).toHaveBeenCalled();
+  });
+
+  it('does not offer the 🐛 quick-report reaction on error posts', async () => {
+    // The reaction is an invitation to a path that will refuse. In the
+    // deployments this switch exists for, the button should not be on the
+    // wall at all (maintainer review called this optional; it was cheap via
+    // the same module-level configure pattern as the audit log).
+    const addReaction = mock(async () => {});
+    const errSession = {
+      sessionId: 'test-platform:thread-1', platformId: 'test-platform', threadId: 'thread-1',
+      platform: {
+        createPost: mock(async (content: string) => ({
+          id: 'e1', platformId: 'test', channelId: 'c', message: content, createAt: 0, userId: 'bot',
+        })),
+        addReaction,
+        getFormatter: () => createMockFormatter(),
+      },
+    } as unknown as Session;
+
+    configureBugReports(false);
+    try {
+      await postError(errSession, 'something failed');
+      expect(addReaction).not.toHaveBeenCalled();
+
+      configureBugReports(true);
+      await postError(errSession, 'something failed');
+      expect(addReaction).toHaveBeenCalled();
+    } finally {
+      configureBugReports(true);
+    }
   });
 
   it('leaves the feature working when enabled, so the gate is what stops it', async () => {

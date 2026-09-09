@@ -22,7 +22,7 @@ function createMockContext(): SessionContext {
       chromeEnabled: false,
       debug: false,
       bugReportsEnabled: true,
-    maxSessions: 5,
+      maxSessions: 5,
     },
     ops: {} as never,
   };

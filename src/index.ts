@@ -31,6 +31,7 @@ import { SessionManager } from './session/index.js';
 import { createTranscriber } from './transcription/index.js';
 import { SessionStore } from './persistence/session-store.js';
 import { configureAuditLog } from './persistence/audit-log.js';
+import { configureBugReports } from './operations/post-helpers/index.js';
 import { checkForUpdates } from './update-notifier.js';
 import { VERSION } from './version.js';
 import { keepAlive } from './utils/keep-alive.js';
@@ -644,6 +645,8 @@ async function startWithoutDaemon() {
   // manager tracks all three modes correctly.
   const threadLogsEnabled = config.threadLogs?.enabled ?? true;
   const threadLogsRetentionDays = config.threadLogs?.retentionDays ?? 30;
+  const bugReportsEnabled = resolveBugReportsEnabled(config.bugReports);
+  configureBugReports(bugReportsEnabled);
   const session = new SessionManager(
     workingDir,
     initialPermissionMode,
@@ -656,7 +659,7 @@ async function startWithoutDaemon() {
     config.claudeAccounts,  // Claude account pool (undefined = single-account mode)
     config.respondOnlyWhenMentioned,  // Quiet-mode default for new sessions (#402)
     config.userAttribution,  // Per-message [@username]: attribution (default on; only applied once a thread has >1 participant)
-    resolveBugReportsEnabled(config.bugReports)  // `!bug` files publicly; false removes the whole path
+    bugReportsEnabled  // `!bug` files publicly; false removes the whole path
   );
 
   // Set sticky message customization from config

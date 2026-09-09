@@ -129,7 +129,7 @@ function createSessionContext(): SessionContext {
       permissionMode: 'bypass',
       chromeEnabled: false,
       bugReportsEnabled: true,
-    maxSessions: 5,
+      maxSessions: 5,
     },
     state: {
       sessions: new Map(),

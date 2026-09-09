@@ -1436,11 +1436,20 @@ export async function reportBug(
 export async function handleBugReportApproval(
   session: Session,
   isApproved: boolean,
-  username: string
+  username: string,
+  ctx: SessionContext
 ): Promise<void> {
   // Read from MessageManager (sole source of truth)
   const pending = session.messageManager?.getPendingBugReport();
   if (!pending) return;
+
+  // The second door to `gh issue create`: this is the only caller, and it
+  // does not pass through `reportBug`, so the gate there does not cover it.
+  // Approval becomes a denial — the card is cleared and nothing is filed —
+  // while an explicit denial still works, so a stale card can be dismissed.
+  if (!ctx.config.bugReportsEnabled) {
+    isApproved = false;
+  }
 
   const formatter = session.platform.getFormatter();
 
