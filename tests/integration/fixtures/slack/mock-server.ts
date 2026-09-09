@@ -257,7 +257,14 @@ export class SlackMockServer extends EventEmitter {
       },
     });
 
+    // Port 0 asks the OS for a free one; read back what we got.
+    this.port = this.server.port ?? this.port;
     this.log(`Slack mock server started on port ${this.port}`);
+  }
+
+  /** Socket Mode clients currently connected (a bot that finished its handshake). */
+  getSocketModeConnectionCount(): number {
+    return this.wsConnections.size;
   }
 
   async stop(): Promise<void> {

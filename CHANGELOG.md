@@ -8,7 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`bugReports: false` removes the `!bug` path entirely.** A bug report leaves the operator's infrastructure — attached screenshots go to a public anonymous file host, and the body (session context plus recent daemon log lines) becomes an issue on this project's public repository, behind best-effort redaction. `claudeCanExecute` means the agent can trigger it unprompted. Regulated deployments need one switch that closes all of it: the command, the 🐛 error reaction, a report already pending from before the switch, and the `!help` listing. Defaults to `true`, so nothing changes unless you set it, and it **fails closed** on a malformed value.
+- **`bugReports: false` removes the `!bug` path entirely** (#574). A bug report leaves the operator's infrastructure — attached screenshots go to a public anonymous file host, and the body (session context plus recent daemon log lines) becomes an issue on this project's public repository, behind best-effort redaction. `claudeCanExecute` means the agent can trigger it unprompted. Regulated deployments need one switch that closes all of it: the typed command, Claude invoking it itself, the 🐛 error reaction, the approval that files the issue, and the `!help` listing. Defaults to `true`, so nothing changes unless you set it, and it **fails closed** — a malformed value, or a bare `bugReports:`, disables the feature rather than defaulting to on.
+
+## [1.35.1] - 2026-09-08
+
+### Fixed
+- **A finished session no longer leaks its event listeners** (#569, thanks @R09722akaBennett). `TypedEventEmitter.removeAllListeners()` forwarded its optional argument as an explicit `undefined`, which Node's `EventEmitter` reads as "the event named undefined", so `MessageManager.dispose()` removed nothing and every session's closures stayed alive. Invisible in CI because Bun 1.3.3 behaves differently from Node there; Bun 1.4.2 agrees with Node and fails the existing tests on the old code.
+- **The resume notice no longer promises that interrupted work continued** (#571, thanks @kaza; item 1 of #533). After a daemon restart or a platform re-enable, a thread whose turn was in flight was told "You can continue where you left off" while nothing continued: `isProcessing` starts false and nothing is sent to the CLI. The notice now says why the resume happened and, for the two daemon-initiated cases, that anything still running did not survive; only a resume a person asked for keeps the invitation. Attribution to the session owner is gone from the boot path, where nobody was there.
 
 ## [1.35.0] - 2026-09-07
 
