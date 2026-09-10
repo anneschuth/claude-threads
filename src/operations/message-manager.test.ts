@@ -1215,3 +1215,164 @@ describe('decision bridge abort handling', () => {
     expect(manager.resolveBridgeQuestion([{ header: 'X', answer: 'y' }])).toBe(false);
   });
 });
+
+describe('MessageManager turn marker', () => {
+  let platform: PlatformClient;
+  let session: Session;
+  beforeEach(() => { platform = createMockPlatform(); session = createMockSession(platform); });
+
+  function withMarker(turnMarker: { mode: 'reaction' | 'metadata' | 'off'; emoji?: string }) {
+    return new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined, updateLastMessage: () => undefined, turnMarker,
+    });
+  }
+  const text = { type: 'assistant', message: { content: [{ type: 'text', text: 'Two files.' }] } } as never;
+  const result = { type: 'result', subtype: 'success', result: {} } as never;
+  const failed = { type: 'result', subtype: 'error_during_execution', is_error: true } as never;
+
+  it('metadata: after the result flush the last post is re-sent once with the payload', async () => {
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const updates = (platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>;
+    const marked = updates.filter((c) => c[2]?.metadata);
+    expect(marked).toHaveLength(1);
+    expect(marked[0][0]).toBe('post_1');
+    expect(marked[0][1]).toBe('Two files.');
+    expect(marked[0][2]?.metadata).toEqual({ event_type: 'claude_threads_turn_complete', event_payload: { session: 'test:session-1', turn: 1, ok: true } });
+    expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+  });
+
+  it('reaction: the emoji lands on the last post; an error result says ok false in metadata mode', async () => {
+    const r = withMarker({ mode: 'reaction', emoji: 'checkered_flag' });
+    await r.handleEvent(text);
+    await r.handleEvent(result);
+    expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toEqual([['post_1', 'checkered_flag']]);
+
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(text);
+    await m.handleEvent(failed);
+    const last = (platform.updatePost as ReturnType<typeof mock>).mock.calls.at(-1) as [string, string, { metadata: { event_payload: { ok: boolean; turn: number } } }];
+    expect(last[2].metadata.event_payload.ok).toBe(false);
+  });
+
+  it('a scheduled flush cannot start while the result flush waits for one in progress', async () => {
+    // Gemini review: `await flushInFlight` yields the event loop, so a
+    // pending timer could fire DURING the wait and start a second flush —
+    // and cancelling afterwards is a no-op on a timer that already ran. That
+    // reopens the very overlap the await exists to close: the marker lands on
+    // a post the late soft flush then supersedes.
+    const m = withMarker({ mode: 'metadata' });
+    (m as unknown as { flushDelayMs: number }).flushDelayMs = 1;
+
+    let active = 0;
+    let overlapped = false;
+    const real = (m as unknown as { contentExecutor: { executeFlush: (...a: unknown[]) => Promise<void> } }).contentExecutor;
+    const realFlush = real.executeFlush.bind(real);
+    real.executeFlush = async (...args: unknown[]) => {
+      active++;
+      if (active > 1) overlapped = true;
+      await new Promise((r) => setTimeout(r, 5));
+      try { return await realFlush(...args); } finally { active--; }
+    };
+
+    await m.handleEvent(text);                    // arms a soft-flush timer
+    await new Promise((r) => setTimeout(r, 3));   // it fires: flushInFlight is now pending
+    await m.handleEvent(text);                    // arms a SECOND timer while it runs
+    await m.handleEvent(result);                  // result flush awaits the first...
+    await new Promise((r) => setTimeout(r, 40));  // ...and the second timer fires mid-await
+
+    expect(overlapped).toBe(false);
+  });
+
+  it('a turn whose flush fails still advances the count, so the loss shows as a gap', async () => {
+    // CodeRabbit: the counter tracks turns that HAPPENED — a turn with no
+    // reply post already increments without emitting a marker. A failed
+    // flush was the one case that silently reused the number, hiding the
+    // lost turn instead of leaving a gap the reader can see.
+    const m = withMarker({ mode: 'metadata' });
+    const real = (m as unknown as { contentExecutor: { executeFlush: (...a: unknown[]) => Promise<void> } }).contentExecutor;
+    const realFlush = real.executeFlush.bind(real);
+
+    real.executeFlush = async () => { throw new Error('platform down'); };
+    await m.handleEvent(text);
+    await m.handleEvent(result).catch(() => undefined);
+
+    real.executeFlush = realFlush;
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[2]!.metadata!.event_payload.turn)).toEqual([2]);
+  });
+
+  it('a Claude respawn does not restart the count: the next turn is 3, not 1', async () => {
+    // Maintainer review on #547 asked which behaviour this is, and for the
+    // code to say so. Climbing is correct: `!cd` replaces the CLI process,
+    // not the conversation, so restarting would re-issue {session, turn}
+    // pairs the reader has already seen.
+    const m = withMarker({ mode: 'metadata' });
+    for (const ev of [text, result, text, result]) await m.handleEvent(ev);
+
+    m.clearClaudeSessionState();  // what the !cd / worktree respawn path calls
+
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[2]!.metadata!.event_payload.turn)).toEqual([1, 2, 3]);
+  });
+
+  it('off, or a turn with no reply post, marks nothing; the counter still counts turns', async () => {
+    const off = withMarker({ mode: 'off' });
+    await off.handleEvent(text);
+    await off.handleEvent(result);
+    expect((platform.updatePost as ReturnType<typeof mock>).mock.calls.some((c) => (c as unknown[])[2])).toBe(false);
+
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(result); // nothing was posted this turn
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>).filter((c) => c[2]?.metadata);
+    expect(marked).toHaveLength(1);
+    expect(marked[0][2]?.metadata?.event_payload.turn).toBe(2);
+  });
+
+  it('a soft flush still writing is awaited before the result flush, so the marker lands on the one post (Codex review)', async () => {
+    let release: () => void = () => undefined;
+    let createCalls = 0;
+    (platform.createPost as ReturnType<typeof mock>).mockImplementation(async (content: string) => {
+      createCalls++;
+      if (createCalls === 1) await new Promise<void>((r) => { release = r; });
+      return { id: `post_${createCalls}`, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
+    });
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined, updateLastMessage: () => undefined, turnMarker: { mode: 'metadata' }, flushDelayMs: 1,
+    });
+    await m.handleEvent(text);
+    await new Promise((r) => setTimeout(r, 10)); // the timer fired; createPost is now in flight
+    const resultHandled = m.handleEvent(result);
+    await new Promise((r) => setTimeout(r, 10));
+    release();
+    await resultHandled;
+
+    expect(createCalls).toBe(1);
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>).filter((c) => c[2]?.metadata);
+    expect(marked.map((c) => c[0])).toEqual(['post_1']);
+  });
+
+  it('a marker failure is logged and leaves the reply alone', async () => {
+    (platform.addReaction as ReturnType<typeof mock>).mockImplementationOnce(async () => { throw new Error('Slack API error: already_reacted'); });
+    const r = withMarker({ mode: 'reaction' });
+    await r.handleEvent(text);
+    await expect(r.handleEvent(result)).resolves.toBeUndefined();
+    (platform.addReaction as ReturnType<typeof mock>).mockImplementationOnce(async () => { throw new Error('Slack API error: ratelimited'); });
+    await r.handleEvent(text);
+    await expect(r.handleEvent(result)).resolves.toBeUndefined();
+  });
+});

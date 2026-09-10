@@ -40,6 +40,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostWriteOptions,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
@@ -1020,7 +1021,7 @@ export class SlackClient extends BasePlatformClient {
   async createPost(
     message: string,
     threadId?: string,
-    options?: { unfurl?: boolean }
+    options?: PostWriteOptions & { unfurl?: boolean }
   ): Promise<PlatformPost> {
     // A synthetic DCM thread id is not a real message ts — resolve it to a
     // top-level channel post (direct channel mode).
@@ -1043,6 +1044,9 @@ export class SlackClient extends BasePlatformClient {
     if (resolvedThreadId) {
       body.thread_ts = resolvedThreadId;
     }
+    if (options?.metadata) {
+      body.metadata = options.metadata;
+    }
 
     const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', body);
 
@@ -1060,15 +1064,17 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Update an existing post/message.
    */
-  async updatePost(postId: string, message: string): Promise<PlatformPost> {
+  async updatePost(postId: string, message: string, options?: PostWriteOptions): Promise<PlatformPost> {
     // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
     const truncatedMessage = this.truncateMessageIfNeeded(message);
 
-    const response = await this.api<UpdateMessageResponse>('POST', 'chat.update', {
+    const body: Record<string, unknown> = {
       channel: this.channelId,
       ts: postId,
       text: truncatedMessage,
-    });
+    };
+    if (options?.metadata) body.metadata = options.metadata;
+    const response = await this.api<UpdateMessageResponse>('POST', 'chat.update', body);
 
     return {
       id: response.ts,
