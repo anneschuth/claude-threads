@@ -59,11 +59,19 @@ export interface ExecutorContext {
   /**
    * Create an interactive post with reactions and automatically register + track it.
    * Combines platform.createInteractivePost + registerPost + updateLastMessage.
+   *
+   * `onPostCreated` runs as soon as the post exists and BEFORE its option
+   * reactions are added. An executor that decides whether a reaction belongs
+   * to it by comparing against a stored post id MUST store that id here: the
+   * post is live and reactable for the whole time we spend adding the
+   * options, and a reaction arriving in that window would otherwise find a
+   * null id and be discarded.
    */
   createInteractivePost(
     content: string,
     reactions: string[],
-    options: CreatePostOptions
+    options: CreatePostOptions,
+    onPostCreated?: (post: PlatformPost) => void
   ): Promise<PlatformPost>;
 }
 

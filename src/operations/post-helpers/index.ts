@@ -202,15 +202,27 @@ async function postWithReactions(
 export async function postInteractive(
   session: Session,
   message: string,
-  reactions: string[]
+  reactions: string[],
+  onPostCreated?: (post: PlatformPost) => void
 ): Promise<PlatformPost> {
-  const post = await session.platform.createInteractivePost(message, reactions, session.threadId);
+  const post = await session.platform.createInteractivePost(
+    message,
+    reactions,
+    session.threadId,
+    onPostCreated
+  );
   updateLastMessage(session, post);
   return post;
 }
 
 /**
  * Create an interactive post and register for reaction routing.
+ *
+ * Registration happens as soon as the post exists, BEFORE the option
+ * reactions are added — adding them is one API round trip each, and the post
+ * is already reactable throughout. Registering only after the call returned
+ * left a window in which `registry.findByPost` did not know the post yet and
+ * dropped the user's reaction silently.
  *
  * @param session - The session to post to
  * @param message - The message content
@@ -224,9 +236,9 @@ export async function postInteractiveAndRegister(
   reactions: string[],
   registerPost: (postId: string, threadId: string) => void
 ): Promise<PlatformPost> {
-  const post = await postInteractive(session, message, reactions);
-  registerPost(post.id, session.threadId);
-  return post;
+  return postInteractive(session, message, reactions, (created) =>
+    registerPost(created.id, session.threadId)
+  );
 }
 
 // =============================================================================

@@ -340,13 +340,26 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
    *
    * This is a common pattern for interactive posts that need user response
    * via reactions (e.g., approval prompts, questions, permission requests).
+   *
+   * `onPostCreated` fires as soon as the post exists and BEFORE the option
+   * reactions are added. Adding the options costs one API round trip each, so
+   * the post is visible — and reactable — for the whole of that window. A
+   * caller that only learns the post id from the returned promise cannot
+   * route a reaction that lands inside it: the session registry's post index
+   * would still be missing the id and `findByPost` drops the event with no
+   * retry and no fallback. Registering in the callback closes that window.
    */
   async createInteractivePost(
     message: string,
     reactions: string[],
-    threadId?: string
+    threadId?: string,
+    onPostCreated?: (post: PlatformPost) => void
   ): Promise<PlatformPost> {
     const post = await this.createPost(message, threadId);
+
+    // Let the caller start routing reactions on this post before the options
+    // exist — a fast user can beat our own addReaction calls.
+    onPostCreated?.(post);
 
     // Add each reaction option, continuing even if some fail
     for (const emoji of reactions) {

@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **An answer given before the option emojis finish landing is no longer lost.** A question or plan-approval post goes up first, then its 1️⃣/2️⃣ (or 👍/👎) options are added one API round trip at a time. The post is already visible and reactable for that whole window, but the bot only claimed it afterwards: `MessageManager` registered the post id in the session's reaction index after `createInteractivePost` resolved, and `QuestionApprovalExecutor` recorded `currentPostId` / `pendingApproval` at the same late moment. A reaction arriving in between matched nothing and was discarded silently, with no retry and no fallback. On a modern CLI, where `AskUserQuestion` and `ExitPlanMode` block on the MCP permission prompt, the cost is not a missed click: the decision bridge stays parked and the session hangs until `MCP_TOOL_TIMEOUT` (an hour by default) on a decision the user already made. Both the post id and the executor's pending state are now claimed in a pre-reaction callback, before the first option emoji is sent. The same ordering is fixed for every reaction-gated prompt that goes through `postInteractiveAndRegister` (worktree prompts, message approvals, update prompts, bug reports, routine and watch confirmations). Whoever reacts fastest was most likely to lose their answer, and a loaded host widened the window enough to make it reproducible.
+
 ## [1.36.0] - 2026-09-10
 
 ### Added

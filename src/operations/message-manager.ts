@@ -505,9 +505,23 @@ export class MessageManager {
         this.updateLastMessage(post);
         return post;
       },
-      createInteractivePost: async (content, reactions, options) => {
-        const post = await this.platform.createInteractivePost(content, reactions, this.threadId);
-        this.registerPost(post.id, options);
+      createInteractivePost: async (content, reactions, options, onPostCreated) => {
+        // Register BEFORE the option reactions are added, not after the call
+        // returns: each addReaction is an API round trip during which the post
+        // is already visible and reactable. A user (or a test) that reacts in
+        // that window hits `registry.findByPost` with an unindexed post id,
+        // and the reaction is dropped silently — no retry, no fallback. For a
+        // bridged question or plan approval that means the MCP child waits out
+        // its full MCP_TOOL_TIMEOUT on a decision the user already made.
+        const post = await this.platform.createInteractivePost(
+          content,
+          reactions,
+          this.threadId,
+          (created) => {
+            this.registerPost(created.id, options);
+            onPostCreated?.(created);
+          }
+        );
         this.updateLastMessage(post);
         return post;
       },
