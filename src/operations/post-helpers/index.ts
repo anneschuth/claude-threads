@@ -205,14 +205,34 @@ export async function postInteractive(
   reactions: string[],
   onPostCreated?: (post: PlatformPost) => void
 ): Promise<PlatformPost> {
-  const post = await session.platform.createInteractivePost(
-    message,
-    reactions,
-    session.threadId,
-    onPostCreated
-  );
-  updateLastMessage(session, post);
-  return post;
+  // Mark the create as in flight before it goes out: the platform accepts
+  // reactions on the post from the moment it stores it, which is earlier than
+  // the create response getting back to us. Without the marker a reaction in
+  // that window hits an unknown post id and is dropped for good.
+  // Guard the method itself, not just the manager: a session may carry a
+  // partial MessageManager (tests, and older persisted shapes), and losing the
+  // marker must degrade to the previous behavior rather than throw.
+  const doneInFlight =
+    typeof session.messageManager?.markInteractivePostInFlight === 'function'
+      ? session.messageManager.markInteractivePostInFlight()
+      : () => {};
+  try {
+    const post = await session.platform.createInteractivePost(
+      message,
+      reactions,
+      session.threadId,
+      (created) => {
+        onPostCreated?.(created);
+        // Registered (when the caller registers here) — release waiters now
+        // rather than after the option reactions land.
+        doneInFlight();
+      }
+    );
+    updateLastMessage(session, post);
+    return post;
+  } finally {
+    doneInFlight();
+  }
 }
 
 /**

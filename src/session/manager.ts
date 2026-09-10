@@ -440,6 +440,7 @@ export class SessionManager extends EventEmitter {
 
       // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
+      beginInteractivePost: (tid) => this.registry.beginInteractivePost(tid),
 
       // Streaming & content (inlined - no wrapper methods needed)
       flush: async (s) => {

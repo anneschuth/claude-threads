@@ -503,6 +503,7 @@ function createMessageManager(
       ctx.ops.registerPost(postId, session.threadId);
       postTracker.register(postId, session.threadId, session.sessionId, options);
     },
+    beginInteractivePost: (threadId) => ctx.ops.beginInteractivePost(threadId),
     updateLastMessage: (post) => {
       updateLastMessage(session, post);
     },
