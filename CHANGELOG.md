@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-09-10
+
 ### Added
+- **`!usage` reports the subscription windows for the seat a thread runs on** (#523, thanks @kaza). The session window and the weekly window, as a bar with the percentage used and the time each one resets; `!usage all` does the same for every account in the `claudeAccounts` pool, which is what tells you whether the pool is actually balanced or whether one seat is carrying everything. It reuses the existing `/usage` probe rather than reading the OAuth endpoint directly, so it costs nothing and needs no extra credentials. API-key accounts report no windows and say so. Login emails stay hidden unless you set `usage.showEmails`.
 - **`bugReports: false` removes the `!bug` path entirely** (#574). A bug report leaves the operator's infrastructure — attached screenshots go to a public anonymous file host, and the body (session context plus recent daemon log lines) becomes an issue on this project's public repository, behind best-effort redaction. `claudeCanExecute` means the agent can trigger it unprompted. Regulated deployments need one switch that closes all of it: the typed command, Claude invoking it itself, the 🐛 error reaction, the approval that files the issue, and the `!help` listing. Defaults to `true`, so nothing changes unless you set it, and it **fails closed** — a malformed value, or a bare `bugReports:`, disables the feature rather than defaulting to on.
+
+### Fixed
+- **A quiet Mattermost channel no longer reconnects in a loop** (#498, thanks @Jadefalkner). A channel with no traffic produces no WebSocket frames, and the heartbeat could not tell that apart from a dead socket: after 90 s of silence it declared the connection dead and reconnected, every 90 to 150 s, all day, each teardown a window in which a message can be missed. The heartbeat now sends a `ping` once the socket has been silent for half the interval, and the server's `pong` counts as activity, so a quiet connection stays up while a genuinely dead one is still torn down on the next tick. Verified against Mattermost 11.7.8, and a socket that accepts sends but never replies still reconnects exactly once. This is the Mattermost half; Node 22+ exposes no frame-level ping visibility to the Slack client, so #498 stays open for that.
+- **Exhausted reconnection attempts now exit instead of leaving the process deaf** (#500, thanks @kaza). When the socket was gone for good the bot stayed alive with nothing listening, and systemd still reported the unit `active`: every health check said healthy while the bot heard nothing. It now exits, so `Restart=always` revives it, which is what every deployment already expects. A fail-loud change by design, and configurable through the reconnect policy.
 
 ## [1.35.1] - 2026-09-08
 
