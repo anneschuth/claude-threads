@@ -60,6 +60,7 @@ platforms:
 | `stickyMessage` | Sticky message text customization (see below) | none |
 | `claudeAccounts` | Multi-account pool (see below) | single-account mode |
 | `mcpServers` | MCP servers every platform's sessions get, on top of the bot's own (see [MCP servers and claude.ai connectors](#mcp-servers-and-claudeai-connectors-claudeaiconnectors-mcpservers-strictmcpconfig)) | none |
+| `usage.showEmails` | Print each seat's login email in `!usage` output | `false` |
 
 ### Resource Limits (`limits`)
 
@@ -718,3 +719,44 @@ The bot prevents system sleep while sessions are active (uses `caffeinate` on ma
 ---
 
 _claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._
+
+## `!usage` output
+
+`!usage` reports the subscription windows for the seat the thread is running
+on; `!usage all` reports every account in the `claudeAccounts` pool. The
+numbers come from the same `/usage` probe the account router uses, so what you
+read and what routes can never disagree — it runs zero turns and costs $0.
+
+In a thread with **no session yet** there is no seat to report, so plain
+`!usage` behaves like `!usage all` and lists the whole pool — the seats the
+router would be choosing between. Asking before starting a session is the
+common case, and "which seat has headroom" is the useful answer there.
+
+`!usage` is restricted to users authorized in the thread — the platform's
+`allowedUsers`, plus anyone invited to that session. It spawns one probe per
+pooled seat and names the accounts, so it is not something a passing channel
+member can trigger inside someone else's thread.
+
+```yaml
+usage:
+  showEmails: true    # default false
+```
+
+`showEmails` adds each seat's login address to its row. Off by default: the
+quota bars say nothing about who owns a seat, the address does, and `!usage`
+answers into a channel several people can read and anyone in it can trigger.
+
+Turn it on when the pool is your own seats and directory names like `primary`
+and `backup` do not tell you which account is which — that is the case it
+exists for. The plan badge (`Max 20×`) is shown either way; it explains why one
+seat's week is four times another's and identifies nobody.
+
+Both the address and the badge are read from the profile's `.claude.json`.
+Nothing in `!usage` opens `.credentials.json` or the macOS Keychain.
+
+⚠️ The flag gates the address read from that metadata — it does not sanitize
+labels you chose yourself. A `claudeAccounts` entry whose `id` or `displayName`
+is an email address is printed as the row heading whether or not `showEmails`
+is on, because it is the name the account router uses and a row that cannot be
+matched to a routing decision is worse than useless. Name pool accounts
+`primary` / `backup`, not by address.
