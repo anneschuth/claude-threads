@@ -174,9 +174,16 @@ export class SessionRegistry {
   //
   // So a thread announces that it is creating an interactive post BEFORE it
   // issues the create call. A reaction on an unknown post waits only while
-  // such a create is outstanding on the reacted post's channel, then re-checks
-  // the index. A reaction on a genuinely unrelated post still returns
-  // immediately: nothing is in flight, so there is nothing to wait for.
+  // some create is outstanding, then re-checks the index. A reaction on a
+  // genuinely unrelated post still returns immediately: with nothing in
+  // flight there is nothing to wait for.
+  //
+  // The in-flight check is deliberately global rather than per-thread: the
+  // whole problem is that we do not yet know which thread the reacted post
+  // belongs to (that is exactly what the index would tell us). The waiter is
+  // keyed by post id, so a concurrent create on another thread only makes this
+  // reaction wait until its own id lands or the grace elapses; it can never
+  // resolve it against the wrong session.
   // ---------------------------------------------------------------------------
 
   /** Threads with an interactive-post create outstanding (thread id -> depth). */
