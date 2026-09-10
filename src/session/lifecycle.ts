@@ -5,6 +5,7 @@
  */
 
 import type { Session, InitialSessionOptions } from './types.js';
+import { shouldPostLifecycle } from './lifecycle-visibility.js';
 import {
   createSessionTimers,
   createSessionLifecycle,
@@ -1715,8 +1716,15 @@ async function resumeSessionImpl(
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
       transitionTo(session, 'active');
-    } else {
-      // Fallback: create new post if no lifecyclePostId (e.g., old persisted sessions)
+    } else if (shouldPostLifecycle(
+      ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
+      'resumed'
+    )) {
+      // Fallback: create new post if no lifecyclePostId (e.g., old persisted
+      // sessions). Gated, unlike the branch above: that one EDITS the pause
+      // post, this one adds a post and a push notification. At `hidden` the
+      // pause post is suppressed, so this branch is the only one ever taken —
+      // and a quiet thread announced a bot restart on every resume.
       const suffix = trigger === 'platform-enabled' ? ' (platform re-enabled)' : ` after bot restart (v${VERSION})`;
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')}${suffix}\n${sessionFormatter.formatItalic(outcome)}`;
       await post(session, 'resume', restartMsg);
@@ -2015,10 +2023,15 @@ export async function handleExit(
     const message = session.lifecycle.hasClaudeResponded
       ? `ℹ️ Session paused. Send a new message to continue.`
       : `ℹ️ Session ended before Claude could respond. Send a new message to start fresh.`;
-    const pausePost = await withErrorHandling(
-      () => post(session, 'info', message),
-      { action: 'Post session pause notification', session }
-    );
+    const pausePost = shouldPostLifecycle(
+      ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
+      'paused'
+    )
+      ? await withErrorHandling(
+          () => post(session, 'info', message),
+          { action: 'Post session pause notification', session }
+        )
+      : null;
 
     // Only persist if Claude actually responded (otherwise there's nothing to resume)
     if (session.lifecycle.hasClaudeResponded) {
@@ -2151,7 +2164,11 @@ export async function handleExit(
 
   await ctx.ops.flush(session);
 
-  if (code !== 0 && code !== null) {
+  if (
+    code !== 0 &&
+    code !== null &&
+    shouldPostLifecycle(ctx.ops.getPlatformOverhead(session.platformId).lifecycle, 'abnormal-exit')
+  ) {
     const exitFormatter = session.platform.getFormatter();
     await post(session, 'info', exitFormatter.formatBold(`[Exited: ${code}]`));
   }
@@ -2322,10 +2339,15 @@ export async function cleanupIdleSessions(
         );
       } else {
         // Create new timeout post (no warning was posted)
-        const timeoutPost = await withErrorHandling(
-          () => post(session, 'timeout', timeoutMessage),
-          { action: 'Post session timeout', session }
-        );
+        const timeoutPost = shouldPostLifecycle(
+          ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
+          'timed-out'
+        )
+          ? await withErrorHandling(
+              () => post(session, 'timeout', timeoutMessage),
+              { action: 'Post session timeout', session }
+            )
+          : null;
         if (timeoutPost) {
           session.lifecyclePostId = timeoutPost.id;
           ctx.ops.registerPost(timeoutPost.id, session.threadId);
@@ -2349,7 +2371,11 @@ export async function cleanupIdleSessions(
     // warningMs = how long before timeout to warn (e.g., 5 min = 300000)
     // So warn when: idleMs > (timeoutMs - warningMs)
     const warningThresholdMs = timeoutMs - warningMs;
-    if (idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
+    const idleWarningWanted = shouldPostLifecycle(
+      ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
+      'idle-warning'
+    );
+    if (idleWarningWanted && idleMs > warningThresholdMs && !session.timeoutWarningPosted) {
       const remainingMins = Math.max(0, Math.round((timeoutMs - idleMs) / 60000));
       const warningFormatter = session.platform.getFormatter();
       // Same distinction as the timeout branch (#548): with a turn open this
