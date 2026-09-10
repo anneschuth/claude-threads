@@ -52,7 +52,88 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       currentPostContent: '',
       pendingContent: '',
       updateTimer: null,
+      header: null,
+      headerDirty: false,
+      headerPostId: null,
+      headerBody: '',
+      turnOpen: false,
     };
+  }
+
+  /**
+   * Set the one-line header that rides on the first post of the current
+   * turn (the tool-activity summary; docs/quiet-tools-spec.md). `null`
+   * removes it. The first header of a turn adopts the current post, or the
+   * next post created; the header is rendered on the next flush, which
+   * happens even with nothing else pending.
+   */
+  setHeader(line: string | null): void {
+    if (!this.state.turnOpen) {
+      this.state.turnOpen = true;
+      this.state.headerPostId = this.state.currentPostId;
+      this.state.headerBody = this.state.currentPostContent;
+    }
+    this.state.header = line;
+    this.state.headerDirty = true;
+  }
+
+  /** The post the current turn's header lives on, once it exists. */
+  getHeaderPostId(): string | null {
+    return this.state.headerPostId;
+  }
+
+  /**
+   * Give up the current turn's header post. `turnOpen` and `headerPostId`
+   * otherwise clear only on a `result` flush, and a Claude respawn mid-turn
+   * never produces one — so the next turn's summary would edit the abandoned
+   * reply and its details would thread under it (Codex review). The post
+   * keeps whatever header it last rendered: the turn is dead, and rewriting
+   * it during a respawn is not worth a platform call.
+   */
+  abandonHeaderTurn(): void {
+    this.state.header = null;
+    this.state.headerDirty = false;
+    this.state.headerPostId = null;
+    this.state.headerBody = '';
+    this.state.turnOpen = false;
+  }
+
+  /** What a post's text is, given its body: the header is prepended on the header post only. */
+  private renderFor(postId: string | null, body: string): string {
+    if (this.state.header && postId !== null && postId === this.state.headerPostId) {
+      return body ? `${this.state.header}\n\n${body}` : this.state.header;
+    }
+    return body;
+  }
+
+  /** Length the header adds to a post's text, for the platform limit checks. */
+  private headerReserve(postId: string | null): number {
+    const header = this.state.header;
+    if (!header) return 0;
+    const applies = postId === this.state.headerPostId || (postId === null && this.state.headerPostId === null && this.state.turnOpen);
+    return applies ? header.length + 2 : 0;
+  }
+
+  /** Render the header post again after a header change with nothing pending. */
+  private async renderHeaderOnly(ctx: ExecutorContext): Promise<void> {
+    this.state.headerDirty = false;
+    if (this.state.headerPostId) {
+      const postId = this.state.headerPostId;
+      await this.tryUpdatePost(
+        ctx,
+        postId,
+        this.state.headerBody,
+        'header',
+        { reason: 'header_update', headerLength: this.state.header?.length ?? 0 },
+        { reason: 'header_update_failed' },
+        () => { /* body unchanged */ },
+        () => { /* keep the post; a failed header edit is not a lost reply */ },
+      );
+      return;
+    }
+    if (this.state.header && this.state.turnOpen) {
+      await this.createNewPost(ctx, '', '');
+    }
   }
 
   protected getInitialState(): ContentState {
@@ -93,10 +174,23 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     onFailure: () => void,
   ): Promise<void> {
     try {
-      await ctx.platform.updatePost(postId, content);
+      await ctx.platform.updatePost(postId, this.renderFor(postId, content));
+      if (postId === this.state.headerPostId) {
+        this.state.headerBody = content;
+        this.state.headerDirty = false;
+      }
       onSuccess();
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
+      // The write may still have landed — a lost response throws all the
+      // same. `headerBody` is what a later header render will restore, so it
+      // must track what was ATTEMPTED, not the last confirmed body: updates
+      // replace the whole post, so restoring the attempt is right whether it
+      // arrived or not, while restoring the older body deletes delivered
+      // text (Codex review). `headerDirty` stays set, so the retry happens.
+      if (postId === this.state.headerPostId) {
+        this.state.headerBody = content;
+      }
       ctx.logger.debug(`Update failed (${logTag}): ${err}`);
       const resolvedFailureDetails = typeof failureDetails === 'function'
         ? failureDetails(err)
@@ -167,10 +261,26 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Flush pending content to the platform.
    */
-  async flush(ctx: ExecutorContext, _reason: FlushOp['reason']): Promise<void> {
+  async flush(ctx: ExecutorContext, reason: FlushOp['reason']): Promise<void> {
     if (!this.state.pendingContent.trim()) {
-      return; // Nothing to flush
+      if (this.state.headerDirty) await this.renderHeaderOnly(ctx);
+      if (reason === 'result') this.state.turnOpen = false;
+      return; // Nothing else to flush
     }
+    await this.flushPending(ctx);
+    // The header rides on ONE post, and this flush may have written a
+    // different one — a continuation post after a split, most often the
+    // result flush carrying Claude's closing text. Every path that does write
+    // the header post clears `headerDirty` (tryUpdatePost, createNewPost's
+    // adoption), so a still-dirty header here means the header post was left
+    // untouched and would keep a stale, still-running summary forever.
+    if (this.state.headerDirty) await this.renderHeaderOnly(ctx);
+    // The turn is over: the next header starts a new one. The header itself
+    // stays on its post.
+    if (reason === 'result') this.state.turnOpen = false;
+  }
+
+  private async flushPending(ctx: ExecutorContext): Promise<void> {
 
     // Capture content at start of flush
     const pendingAtFlushStart = this.state.pendingContent;
@@ -200,17 +310,18 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       ctx.contentBreaker.shouldFlushEarly(combinedContent);
 
     // Handle message splitting - use combinedContent so existing post content is preserved
-    if (this.state.currentPostId && (combinedContent.length > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
+    const reserve = this.headerReserve(this.state.currentPostId);
+    if (this.state.currentPostId && (combinedContent.length + reserve > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
       await this.handleSplit(ctx, combinedContent, pendingAtFlushStart, HARD_CONTINUATION_THRESHOLD);
       return;
     }
 
     // Normal case: content fits in current post
-    if (content.length > MAX_POST_LENGTH) {
+    if (content.length + reserve > MAX_POST_LENGTH) {
       ctx.logger.warn(`Content too long (${content.length}), truncating`);
       content = truncateMessageSafely(
         content,
-        MAX_POST_LENGTH,
+        MAX_POST_LENGTH - reserve,
         ctx.formatter.formatItalic('... (truncated)')
       );
     }
@@ -232,7 +343,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 
       // If combined content would exceed MAX_POST_LENGTH, start a new post
       // This prevents content loss when updatePost fails with msg_too_long
-      if (combinedContent.length > MAX_POST_LENGTH) {
+      if (combinedContent.length + reserve > MAX_POST_LENGTH) {
         ctx.logger.debug(`Combined content (${combinedContent.length}) would exceed max (${MAX_POST_LENGTH}), creating continuation post`);
         ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
           contentLength: content.length,
@@ -489,10 +600,23 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     content: string,
     pendingAtFlushStart: string
   ): Promise<void> {
+    // The first post of a turn with a header carries it (docs/quiet-tools-spec.md).
+    const header = this.state.header;
+    const becomesHeaderPost = this.state.turnOpen && this.state.headerPostId === null && header !== null;
+    const rendered = becomesHeaderPost && header !== null ? (content ? `${header}\n\n${content}` : header) : content;
+    const adoptAsHeaderPost = (postId: string) => {
+      if (becomesHeaderPost) {
+        this.state.headerPostId = postId;
+        this.state.headerBody = content;
+        this.state.headerDirty = false;
+      }
+    };
+
     // Try to bump task list first - this reuses the old task list post for content
     if (this.onBumpTaskList) {
-      const bumpedPostId = await this.onBumpTaskList(content, ctx);
+      const bumpedPostId = await this.onBumpTaskList(rendered, ctx);
       if (bumpedPostId) {
+        adoptAsHeaderPost(bumpedPostId);
         this.state.currentPostId = bumpedPostId;
         this.state.currentPostContent = content;
         this.clearFlushedContent(pendingAtFlushStart);
@@ -512,7 +636,8 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 
     // Create new post
     try {
-      const post = await ctx.createPost(content, { type: 'content' });
+      const post = await ctx.createPost(rendered, { type: 'content' });
+      adoptAsHeaderPost(post.id);
       this.state.currentPostId = post.id;
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
