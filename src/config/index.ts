@@ -21,6 +21,9 @@ export type {
   PermissionMode,
   OverheadVisibility,
   PlatformOverhead,
+  ToolActivityMode,
+  ToolDetailsMode,
+  ToolActivitySettings,
   MemoryOption,
   ResolvedMemoryConfig,
   McpServerConfig,
@@ -53,6 +56,10 @@ export {
   isOverheadVisibility,
   resolveOverheadVisibility,
   resolveReconnectPolicy,
+  DEFAULT_TOOL_ACTIVITY,
+  DEFAULT_TOOL_DETAILS_DIR,
+  resolvePlatformTools,
+  resolveToolActivity,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode, OverheadVisibility } from './types.js';
