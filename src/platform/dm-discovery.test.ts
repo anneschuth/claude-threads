@@ -40,4 +40,22 @@ describe('deriveDmPlatformConfig', () => {
     expect(cfg.strictMcpConfig).toBe(true);
     expect(cfg.claudeAiConnectors).toBe(false);
   });
+
+  it('carries all four tool-activity fields, not just the mode pair', () => {
+    // The derived config is where a DM instance gets its details dir and URL
+    // from; a reader that takes only `toolActivity` + `toolDetails` writes to
+    // the default directory with no link (Anne's review on #535).
+    const cfg = deriveDmPlatformConfig({
+      ...parent,
+      toolActivity: 'summary',
+      toolDetails: 'file',
+      toolDetailsDir: '/srv/details',
+      toolDetailsUrl: 'https://agents.example.com/tool-details',
+    }, 'dmchan', ['alice']);
+
+    expect(cfg.toolActivity).toBe('summary');
+    expect(cfg.toolDetails).toBe('file');
+    expect(cfg.toolDetailsDir).toBe('/srv/details');
+    expect(cfg.toolDetailsUrl).toBe('https://agents.example.com/tool-details');
+  });
 });

@@ -23,6 +23,7 @@ import {
   type PermissionMode,
   type OverheadVisibility,
   resolvePlatformMcpPosture,
+  resolvePlatformTools,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -754,6 +755,7 @@ async function startWithoutDaemon() {
           platformConfig.stickyMessage,
           `platforms[${platformConfig.id}].stickyMessage`,
         ),
+        tools: resolvePlatformTools(platformConfig, `platforms[${platformConfig.id}]`),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
@@ -807,6 +809,10 @@ async function startWithoutDaemon() {
         overhead: {
           sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
           stickyMessage: 'hidden',
+          // A derived DM config spreads its parent, so the parent's tool
+          // settings carry over unless the DM entry overrides them — all four
+          // fields, including the details dir and URL.
+          tools: resolvePlatformTools(dmConfig, `dm[${dmConfig.id}]`),
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,
