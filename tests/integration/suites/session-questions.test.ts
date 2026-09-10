@@ -16,6 +16,7 @@ import {
   waitForPostMatching,
   getThreadPosts,
   addReaction,
+  waitForReaction,
   getPlatformBotOptions,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
@@ -122,6 +123,13 @@ describe.skipIf(SKIP)('Session Questions', () => {
         const questionPost = await waitForPostMatching(
           ctx, rootPost.id, /Which approach would you prefer/i, { timeout: 20000 }
         );
+
+        // The question text is posted before the bot adds its own option
+        // reactions, so reacting as soon as the text appears can land in the
+        // gap where nothing is listening yet: the answer is dropped and the
+        // wait below burns its full timeout. Wait for the bot's own '1️⃣' to
+        // show that the post is ready to be answered.
+        await waitForReaction(ctx, questionPost.id, 'one', { timeout: 20000 });
 
         // Answer with option 1: resolves the pending MCP permission call via
         // the bridge; the mock only continues once updatedInput.answers
