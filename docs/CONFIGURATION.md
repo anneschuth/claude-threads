@@ -371,6 +371,30 @@ platforms:
 
 Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-level `Config.stickyMessage: { description, footer }` block, which still customizes the full sticky for platforms not in `hidden` mode.
 
+#### End-of-turn marker
+
+Integrations that read the channel (a voice front end, a phone bridge, a dashboard) need to know when Claude's answer is complete. The daemon streams by editing one post, so without help they can only guess from the text going quiet. With a marker, the daemon stamps the turn's last reply post the moment the turn ends:
+
+```yaml
+platforms:
+  - id: slack-main
+    type: slack
+    turnMarker: metadata          # reaction | metadata | off (default)
+    # turnMarkerEmoji: checkered_flag   # reaction only; this is the default
+```
+
+| `turnMarker` | What happens | Who sees it |
+|---|---|---|
+| `metadata` | the last reply post gets Slack message metadata `event_type: claude_threads_turn_complete`, `event_payload: { v, session, turn, ok }` | integrations reading `conversations.history` with `include_all_metadata=true`; invisible in the UI. Slack only |
+| `reaction` | the bot reacts on the last reply post with `turnMarkerEmoji` | everyone. Slack and Mattermost |
+| `off` | nothing | |
+
+**Format stability.** The marker is a published integration contract, not an internal detail. Within a 1.x release line, `event_type` will not change, and `event_payload` will only gain fields — never lose one or change the meaning of one. `v` is the payload version; a reader should ignore fields it does not recognize and treat an unknown `v` as "marker present, payload unread". `session` is `platformId:threadId` and is stable across bot restarts and Claude respawns. `turn` counts turns within one bot process: it restarts at 1 after a bot restart and is an ordering hint within a single run, never a unique key. Readers that need exactly-once should dedupe by post id.
+
+`ok` is false when the turn ended with an error. A turn with no reply post marks nothing. A marker failure never touches the reply.
+
+Each marked turn costs one extra API call (a `chat.update` or `reactions.add`) beyond the streaming writes.
+
 ### Memory (`memory`, default: fully enabled)
 
 Each platform instance (≈ one channel) can carry persistent memory, modeled on
@@ -665,6 +689,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `CLAUDE_PATH` | Path to the `claude` binary. Overrides the PATH lookup and the common install locations. | `claude` (from PATH) |
 | `DECISION_BRIDGE_TIMEOUT_MS` | How long the MCP permission server waits for a plan approval or question answer routed through the decision bridge (the bot's reaction UI) before falling back to the legacy behavior (generic prompt for plans, auto-allow for questions). | `3600000` (1 h) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
+| `CLAUDE_THREADS_HOME` | Root under which the bot keeps its state (`<root>/.config/claude-threads`, `<root>/.claude-threads`): config, sessions, logs, audit, memory, worktrees, update state. Lets two bots run under the same user without sharing any of it. One process per root; a second start against the same root is refused. | `$HOME` |
 | `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
 | `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
 | `CLAUDE_THREADS_MEMORY_DIR` | Override the root of the persistent memory storage (default `~/.config/claude-threads/memory/`). | - |

@@ -19,7 +19,7 @@ import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '.
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_TURN_MARKER, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
 import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
 import { WatchesStore } from '../persistence/watches-store.js';
@@ -293,6 +293,7 @@ export class SessionManager extends EventEmitter {
       sessionHeader: options?.overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
       stickyMessage: options?.overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
       lifecycle: options?.overhead?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
+      turnMarker: options?.overhead?.turnMarker ?? DEFAULT_TURN_MARKER,
     });
     this.platformMemory.set(platformId, options?.memory ?? DEFAULT_MEMORY_CONFIG);
     this.platformRoutines.set(platformId, options?.routinesEnabled ?? true);
@@ -509,6 +510,7 @@ export class SessionManager extends EventEmitter {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
         lifecycle: DEFAULT_OVERHEAD_VISIBILITY,
+        turnMarker: DEFAULT_TURN_MARKER,
       },
 
       getPlatformMemoryConfig: (pid) => this.platformMemory.get(pid) ?? DEFAULT_MEMORY_CONFIG,

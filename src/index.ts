@@ -23,6 +23,7 @@ import {
   type PermissionMode,
   type OverheadVisibility,
   resolvePlatformMcpPosture,
+  resolveTurnMarker,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -48,6 +49,7 @@ import {
   getRuntimeSettings,
   clearRuntimeSettings,
 } from './auto-update/installer.js';
+import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -458,6 +460,17 @@ async function startWithoutDaemon() {
     console.error('');
   }
 
+  // One process per state directory (see src/utils/instance-lock.ts).
+  let releaseInstanceLock: () => void;
+  try {
+    releaseInstanceLock = acquireInstanceLock();
+  } catch (err) {
+    console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
+    console.error('');
+    process.exit(LOCKED_EXIT_CODE); // terminal for the daemon wrapper: restarting would only collide again
+  }
+  process.on('exit', () => releaseInstanceLock());
+
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
   // forces Claude CLI into permissionMode: default and rejects
   // --dangerously-skip-permissions (verified on CLI 2.1.116). If any platform is
@@ -759,6 +772,12 @@ async function startWithoutDaemon() {
           platformConfig.lifecycle,
           `platforms[${platformConfig.id}].lifecycle`,
         ),
+        turnMarker: resolveTurnMarker(
+          platformConfig.turnMarker,
+          platformConfig.turnMarkerEmoji,
+          platformConfig.type,
+          `platforms[${platformConfig.id}]`,
+        ),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
@@ -817,6 +836,8 @@ async function startWithoutDaemon() {
           // `lifecycle` silently resets DM channels to `full` — which are
           // exactly the assistant-style channels #505 is about.
           lifecycle: resolveOverheadVisibility(dmConfig.lifecycle, `dm[${dmConfig.id}].lifecycle`),
+          // A derived DM config spreads its parent, so the parent's marker carries over.
+          turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,

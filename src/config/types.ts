@@ -94,6 +94,65 @@ export interface PlatformOverhead {
    * `src/session/lifecycle-visibility.ts` for what each level drops.
    */
   lifecycle: OverheadVisibility;
+  /** End-of-turn marker (docs/turn-marker-spec.md). Defaults to `off`. */
+  turnMarker: TurnMarkerSettings;
+}
+
+// =============================================================================
+// Turn marker (per-platform, default off)
+// =============================================================================
+
+export const TURN_MARKER_VALUES = ['reaction', 'metadata', 'off'] as const;
+export type TurnMarkerMode = (typeof TURN_MARKER_VALUES)[number];
+
+export interface TurnMarkerSettings {
+  mode: TurnMarkerMode;
+  /** `reaction` only. */
+  emoji?: string;
+}
+
+export const DEFAULT_TURN_MARKER: TurnMarkerSettings = { mode: 'off' };
+export const DEFAULT_TURN_MARKER_EMOJI = 'checkered_flag';
+/** Slack message metadata `event_type` the daemon stamps on a turn's last reply post. */
+export const TURN_COMPLETE_EVENT_TYPE = 'claude_threads_turn_complete';
+/**
+ * Payload version, carried as `v` in every marker's `event_payload`.
+ *
+ * The marker is a published integration contract, not an internal detail: the
+ * payload leaves the process and is parsed by code we do not control. Within a
+ * 1.x line `event_payload` only ever GAINS fields, so a reader may ignore what
+ * it does not recognize; this number is the escape hatch if that ever has to
+ * break. Bump it only for a change a v1 reader could misinterpret.
+ */
+export const TURN_COMPLETE_PAYLOAD_VERSION = 1;
+
+/**
+ * Normalize the per-platform `turnMarker` / `turnMarkerEmoji` pair. Undefined
+ * → `off`. `metadata` exists only on Slack; an emoji only with `reaction`.
+ * Throws with the field path, so a wrong block fails the boot.
+ */
+export function resolveTurnMarker(
+  mode: unknown,
+  emoji: unknown,
+  platformType: string,
+  fieldPath: string,
+): TurnMarkerSettings {
+  const m = mode === undefined || mode === null ? 'off' : mode;
+  if (!(TURN_MARKER_VALUES as readonly unknown[]).includes(m)) {
+    throw new Error(`Invalid ${fieldPath}.turnMarker: expected one of ${TURN_MARKER_VALUES.join(', ')}, got ${JSON.stringify(mode)}`);
+  }
+  if (m === 'metadata' && platformType !== 'slack') {
+    throw new Error(`Invalid ${fieldPath}.turnMarker: metadata is a Slack feature; use reaction on ${platformType}`);
+  }
+  // An emoji with another mode is ignored (YAML anchors, a commented-out
+  // mode); a malformed one is still an error, whatever the mode.
+  if (emoji !== undefined && emoji !== null) {
+    if (typeof emoji !== 'string' || !/^[a-z0-9_+-]+$/.test(emoji)) {
+      throw new Error(`Invalid ${fieldPath}.turnMarkerEmoji: expected an emoji name like checkered_flag, got ${JSON.stringify(emoji)}`);
+    }
+  }
+  if (m === 'reaction') return { mode: 'reaction', emoji: (emoji as string | undefined) ?? DEFAULT_TURN_MARKER_EMOJI };
+  return { mode: m as TurnMarkerMode };
 }
 
 // =============================================================================
@@ -730,6 +789,14 @@ export interface PlatformInstanceConfig {
    * An abnormal exit is always reported regardless.
    */
   lifecycle?: OverheadVisibility;
+  /**
+   * End-of-turn marker on the reply's last post, for integrations that read
+   * the channel: `reaction` (an emoji, any platform), `metadata` (Slack
+   * message metadata, invisible), `off` (default). See docs/turn-marker-spec.md.
+   */
+  turnMarker?: TurnMarkerMode;
+  /** `turnMarker: reaction` only: the emoji name; default `checkered_flag`. */
+  turnMarkerEmoji?: string;
   /**
    * Persistent memory for this platform instance (default: fully enabled).
    * See `MemoryOption` for the accepted shapes and layer semantics.
