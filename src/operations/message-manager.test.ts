@@ -1241,7 +1241,7 @@ describe('MessageManager turn marker', () => {
     expect(marked).toHaveLength(1);
     expect(marked[0][0]).toBe('post_1');
     expect(marked[0][1]).toBe('Two files.');
-    expect(marked[0][2]?.metadata).toEqual({ event_type: 'claude_threads_turn_complete', event_payload: { session: 'test:session-1', turn: 1, ok: true } });
+    expect(marked[0][2]?.metadata).toEqual({ event_type: 'claude_threads_turn_complete', event_payload: { v: 1, session: 'test:session-1', turn: 1, ok: true } });
     expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
   });
 
@@ -1364,6 +1364,95 @@ describe('MessageManager turn marker', () => {
     expect(createCalls).toBe(1);
     const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>).filter((c) => c[2]?.metadata);
     expect(marked.map((c) => c[0])).toEqual(['post_1']);
+  });
+
+  it('two event-driven flushes do not overlap, so writes on one post stay ordered', async () => {
+    // The sibling test above covers the TIMER flush. This is the other half:
+    // a tool_complete flush and the result flush are both handleFlushOp calls,
+    // and SessionManager.handleEvent does not await its handling, so the
+    // second can start while the first is still writing. Only the timer flush
+    // was recorded in flushInFlight, so the waiter had nothing to wait on and
+    // two updatePost calls raced on one post, completing out of order.
+    const order: string[] = [];
+    let writeNo = 0;
+    const releases: Array<() => void> = [];
+    (platform.updatePost as ReturnType<typeof mock>).mockImplementation(
+      async (_id: string, _content: string) => {
+        const n = ++writeNo;
+        order.push(`start ${n}`);
+        // Stall every write until the test releases it, so an overlapping
+        // second write shows up as an interleaved "start" in the log.
+        await new Promise<void>((r) => { releases.push(r); });
+        order.push(`done ${n}`);
+      }
+    );
+
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined, updateLastMessage: () => undefined,
+      turnMarker: { mode: 'metadata' }, flushDelayMs: 100_000, // no timer flush
+    });
+
+    // Establish the reply post first, so both flushes below are UPDATEs to it.
+    await m.handleEvent(text);
+    await m.flush();
+    releases.shift()?.();
+    order.length = 0;
+    writeNo = 0;
+
+    // Now two flushes driven by events, neither awaited by the caller.
+    // The tool_use block is load-bearing: transformUser only emits the
+    // completion indicator (and with it the `tool_complete` FlushOp) for a
+    // tool whose start time was recorded when its tool_use was rendered
+    // (transformer.ts, `ctx.toolStartTimes.has`). A bare tool_result flushes
+    // nothing, and then there is no second flush to race.
+    const more = { type: 'assistant', message: { content: [{ type: 'text', text: 'More.' }, { type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }] } } as never;
+    await m.handleEvent(more);
+    const first = m.handleEvent({
+      type: 'user',
+      message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: 'ok' }] },
+    } as never);
+    await new Promise((r) => setTimeout(r, 5));
+    const second = m.handleEvent(result);
+    await new Promise((r) => setTimeout(r, 5));
+
+    // Release everything and let both settle.
+    while (releases.length) releases.shift()?.();
+    await new Promise((r) => setTimeout(r, 5));
+    while (releases.length) releases.shift()?.();
+    await Promise.all([first, second]);
+
+    // Guard against a vacuous pass: if the events above stopped producing
+    // writes, the ordering loop below would have nothing to check.
+    expect(order.length).toBeGreaterThanOrEqual(4);
+
+    // No write may begin while another is still running: every "start N" is
+    // immediately followed by its own "done N". Unfixed, this reads
+    // ["start 1", "start 2", "done 1", "done 2", ...] — two updatePost calls
+    // racing on one post, completing out of order, with the marker written
+    // against a post a late write then supersedes.
+    for (let i = 0; i + 1 < order.length; i += 2) {
+      const n = order[i].split(' ')[1];
+      expect([order[i], order[i + 1]]).toEqual([`start ${n}`, `done ${n}`]);
+    }
+  });
+
+  it('the payload carries its version, and the published field set is exactly v/session/turn/ok', async () => {
+    // The marker is an integration contract (docs/CONFIGURATION.md § Format
+    // stability): a reader parses this payload. `v` is the escape hatch if the
+    // shape ever has to break, so it must be present on every marker, and the
+    // field set is pinned here so adding one is a deliberate act with a test
+    // to change — not a silent extension of a published format.
+    const m = withMarker({ mode: 'metadata' });
+    await m.handleEvent(text);
+    await m.handleEvent(result);
+
+    const marked = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: Record<string, unknown> } }?]>)
+      .filter((c) => c[2]?.metadata);
+    expect(marked).toHaveLength(1);
+    const payload = marked[0][2]!.metadata!.event_payload;
+    expect(payload.v).toBe(1);
+    expect(Object.keys(payload).sort()).toEqual(['ok', 'session', 'turn', 'v']);
   });
 
   it('a marker failure is logged and leaves the reply alone', async () => {

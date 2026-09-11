@@ -11,6 +11,7 @@ export type {
   ResolvedLimits,
   StickyMessageCustomization,
   ClaudeAccount,
+  UsageConfig,
   Config,
   PlatformInstanceConfig,
   MattermostPlatformConfig,
@@ -57,6 +58,7 @@ export {
   DEFAULT_TURN_MARKER,
   TURN_COMPLETE_EVENT_TYPE,
   resolveTurnMarker,
+  resolveReconnectPolicy,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode, OverheadVisibility } from './types.js';

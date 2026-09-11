@@ -15,7 +15,7 @@ import type { PlatformClient, PlatformPost, PlatformFile } from '../platform/ind
 import type { PendingQuestionSet, Session } from '../session/types.js';
 import type { ClaudeEvent } from '../claude/cli.js';
 import { transformEvent, type TransformContext } from './transformer.js';
-import { TURN_COMPLETE_EVENT_TYPE, type TurnMarkerSettings } from '../config/types.js';
+import { TURN_COMPLETE_EVENT_TYPE, TURN_COMPLETE_PAYLOAD_VERSION, type TurnMarkerSettings } from '../config/types.js';
 import { TaskTracker, type PersistedTrackedTask } from './task-tracker.js';
 import type { BridgeRequest, BridgeResponse } from '../mcp/decision-bridge.js';
 import {
@@ -114,6 +114,13 @@ export interface MessageManagerOptions {
   worktreePath?: string;
   worktreeBranch?: string;
   registerPost: RegisterPostCallback;
+  /**
+   * Announce an interactive-post create before it goes out; returns the `done`
+   * callback. Lets a reaction that beats the create response wait for the id
+   * instead of being dropped (see SessionRegistry.awaitPendingPost). Optional
+   * so standalone/test construction stays a no-op.
+   */
+  beginInteractivePost?: (threadId: string) => () => void;
   updateLastMessage: UpdateLastMessageCallback;
   /** Callback to build message content (handles image attachments) */
   buildMessageContent?: BuildMessageContentCallback;
@@ -178,6 +185,7 @@ export class MessageManager {
 
   // Callbacks (only structural, not event-based)
   private registerPost: RegisterPostCallback;
+  private beginInteractivePost?: (threadId: string) => () => void;
   private updateLastMessage: UpdateLastMessageCallback;
   private buildMessageContentCallback?: BuildMessageContentCallback;
   private startTypingCallback?: StartTypingCallback;
@@ -246,6 +254,7 @@ export class MessageManager {
     this.worktreePath = options.worktreePath;
     this.worktreeBranch = options.worktreeBranch;
     this.registerPost = options.registerPost;
+    this.beginInteractivePost = options.beginInteractivePost;
     this.updateLastMessage = options.updateLastMessage;
     this.buildMessageContentCallback = options.buildMessageContent;
     this.startTypingCallback = options.startTyping;
@@ -479,8 +488,9 @@ export class MessageManager {
     // (CodeRabbit review).
     if (op.reason === 'result') this.turn++;
 
-    // Execute the flush
-    await this.contentExecutor.executeFlush(op, ctx);
+    // Execute the flush, tracked: the next handleFlushOp must be able to wait
+    // for this one, and event handling is not awaited upstream.
+    await this.runTrackedFlush(op, ctx);
 
     if (op.reason === 'result') {
       await this.markTurnComplete(ctx, op.resultOk !== false);
@@ -500,7 +510,10 @@ export class MessageManager {
     try {
       if (this.turnMarker.mode === 'metadata') {
         await this.platform.updatePost(currentPostId, currentPostContent, {
-          metadata: { event_type: TURN_COMPLETE_EVENT_TYPE, event_payload: { session: this.sessionId, turn: this.turn, ok } },
+          metadata: {
+            event_type: TURN_COMPLETE_EVENT_TYPE,
+            event_payload: { v: TURN_COMPLETE_PAYLOAD_VERSION, session: this.sessionId, turn: this.turn, ok },
+          },
         });
       } else {
         await this.platform.addReaction(currentPostId, this.turnMarker.emoji ?? 'checkered_flag');
@@ -510,6 +523,26 @@ export class MessageManager {
       if (this.turnMarker.mode === 'reaction' && message.includes('already_reacted')) return;
       ctx.logger.warn(`turn marker (${this.turnMarker.mode}) failed on ${currentPostId}: ${message}`);
     }
+  }
+
+  /**
+   * Run a flush and record it in `flushInFlight` for the duration.
+   *
+   * EVERY flush must go through here, not just the scheduled one. The waiter
+   * in `handleFlushOp` is only as good as what gets recorded: while the timer
+   * flush was the sole tracked writer, two event-driven flushes could still
+   * overlap — a `tool_complete` flush and the `result` flush that follows it
+   * are both `handleFlushOp` calls, and `SessionManager.handleEvent` does not
+   * await its handling, so the second can start while the first is still
+   * writing. Two concurrent `updatePost` calls on one post then complete out
+   * of order, and the marker lands on a post a late write supersedes.
+   */
+  private async runTrackedFlush(op: FlushOp, ctx: ExecutorContext): Promise<void> {
+    const running = this.contentExecutor.executeFlush(op, ctx).finally(() => {
+      if (this.flushInFlight === running) this.flushInFlight = null;
+    });
+    this.flushInFlight = running;
+    await running;
   }
 
   /**
@@ -523,10 +556,7 @@ export class MessageManager {
       const flushOp = createFlushOp(this.sessionId, 'soft_threshold');
       // Tracked so a result flush cannot overlap a write still in progress
       // (Codex review: the marker would land on the wrong post).
-      const running = this.contentExecutor.executeFlush(flushOp, ctx).finally(() => {
-        if (this.flushInFlight === running) this.flushInFlight = null;
-      });
-      this.flushInFlight = running;
+      void this.runTrackedFlush(flushOp, ctx).catch(() => undefined);
     }, this.flushDelayMs);
   }
 
@@ -545,8 +575,11 @@ export class MessageManager {
    */
   async flush(): Promise<void> {
     this.cancelScheduledFlush();
+    // Wait for a flush already writing before starting another on the same
+    // post, then track this one for the same reason.
+    if (this.flushInFlight) await this.flushInFlight.catch(() => undefined);
     const flushOp = createFlushOp(this.sessionId, 'explicit');
-    await this.contentExecutor.executeFlush(flushOp, this.getExecutorContext());
+    await this.runTrackedFlush(flushOp, this.getExecutorContext());
   }
 
   /**
@@ -570,13 +603,53 @@ export class MessageManager {
         this.updateLastMessage(post);
         return post;
       },
-      createInteractivePost: async (content, reactions, options) => {
-        const post = await this.platform.createInteractivePost(content, reactions, this.threadId);
-        this.registerPost(post.id, options);
-        this.updateLastMessage(post);
-        return post;
+      createInteractivePost: async (content, reactions, options, onPostCreated) => {
+        // Register BEFORE the option reactions are added, not after the call
+        // returns: each addReaction is an API round trip during which the post
+        // is already visible and reactable. A user (or a test) that reacts in
+        // that window hits `registry.findByPost` with an unindexed post id,
+        // and the reaction is dropped silently — no retry, no fallback. For a
+        // bridged question or plan approval that means the MCP child waits out
+        // its full MCP_TOOL_TIMEOUT on a decision the user already made.
+        //
+        // Registering here still is not early enough on its own: the platform
+        // stores the post — and starts accepting reactions on it — before the
+        // create response gets back to us, so a fast reactor can beat even
+        // this callback. Marking the create as in flight first lets the
+        // reaction router wait for the id instead of dropping the event.
+        const doneInFlight = this.beginInteractivePost?.(this.threadId);
+        try {
+          const post = await this.platform.createInteractivePost(
+            content,
+            reactions,
+            this.threadId,
+            (created) => {
+              this.registerPost(created.id, options);
+              // The id is indexed; anything parked on it can proceed now,
+              // without waiting for the option reactions to finish.
+              doneInFlight?.();
+              onPostCreated?.(created);
+            }
+          );
+          this.updateLastMessage(post);
+          return post;
+        } finally {
+          // No-op when the callback already ran; clears the marker when the
+          // create threw before it could.
+          doneInFlight?.();
+        }
       },
     };
+  }
+
+  /**
+   * Announce an interactive-post create on this session's thread, so a
+   * reaction arriving before the create response can wait for the post id
+   * instead of being dropped. Returns the `done` callback (a no-op when the
+   * manager was built without the hook). See SessionRegistry.awaitPendingPost.
+   */
+  markInteractivePostInFlight(): () => void {
+    return this.beginInteractivePost?.(this.threadId) ?? (() => {});
   }
 
   /**

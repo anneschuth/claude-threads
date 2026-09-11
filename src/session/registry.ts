@@ -153,6 +153,96 @@ export class SessionRegistry {
    */
   registerPost(postId: string, threadId: string): void {
     this.postIndex.set(postId, threadId);
+    // Wake anyone parked in awaitPendingPost for this id.
+    const waiters = this.pendingPostWaiters.get(postId);
+    if (waiters) {
+      this.pendingPostWaiters.delete(postId);
+      for (const resolve of waiters) resolve();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // In-flight interactive posts
+  //
+  // A reaction arrives as a live platform push and is never re-delivered. But
+  // an interactive post is reactable from the instant the SERVER stores it,
+  // which is strictly before the create response travels back and we can index
+  // its id. Anyone quick (or any client whose response is slower than the
+  // reacting user's) lands in that window, and `findByPost` would drop a
+  // decision the user really made — leaving a bridged AskUserQuestion /
+  // ExitPlanMode blocked until MCP_TOOL_TIMEOUT.
+  //
+  // So a thread announces that it is creating an interactive post BEFORE it
+  // issues the create call. A reaction on an unknown post waits only while
+  // some create is outstanding, then re-checks the index. A reaction on a
+  // genuinely unrelated post still returns immediately: with nothing in
+  // flight there is nothing to wait for.
+  //
+  // The in-flight check is deliberately global rather than per-thread: the
+  // whole problem is that we do not yet know which thread the reacted post
+  // belongs to (that is exactly what the index would tell us). The waiter is
+  // keyed by post id, so a concurrent create on another thread only makes this
+  // reaction wait until its own id lands or the grace elapses; it can never
+  // resolve it against the wrong session.
+  // ---------------------------------------------------------------------------
+
+  /** Threads with an interactive-post create outstanding (thread id -> depth). */
+  private inFlightInteractivePosts: Map<string, number> = new Map();
+  /** postId -> resolvers parked in awaitPendingPost. */
+  private pendingPostWaiters: Map<string, Array<() => void>> = new Map();
+
+  /** True while any thread is mid-create of an interactive post. */
+  hasInFlightInteractivePost(): boolean {
+    return this.inFlightInteractivePosts.size > 0;
+  }
+
+  /**
+   * Mark the start of an interactive-post create on a thread. Returns the
+   * matching `done` callback; callers MUST invoke it (a finally block) or the
+   * marker leaks and later stray reactions pay the wait.
+   */
+  beginInteractivePost(threadId: string): () => void {
+    this.inFlightInteractivePosts.set(threadId, (this.inFlightInteractivePosts.get(threadId) ?? 0) + 1);
+    let done = false;
+    return () => {
+      if (done) return;
+      done = true;
+      const depth = (this.inFlightInteractivePosts.get(threadId) ?? 1) - 1;
+      if (depth <= 0) this.inFlightInteractivePosts.delete(threadId);
+      else this.inFlightInteractivePosts.set(threadId, depth);
+    };
+  }
+
+  /**
+   * Wait (bounded) for `postId` to be registered, but only while an
+   * interactive-post create is actually outstanding. Resolves as soon as the
+   * id lands, or when the wait elapses / nothing is in flight.
+   */
+  async awaitPendingPost(postId: string, timeoutMs: number): Promise<void> {
+    if (this.postIndex.has(postId)) return;
+    if (!this.hasInFlightInteractivePost()) return;
+
+    await new Promise<void>((resolve) => {
+      const waiters = this.pendingPostWaiters.get(postId) ?? [];
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        const list = this.pendingPostWaiters.get(postId);
+        if (list) {
+          const idx = list.indexOf(finish);
+          if (idx >= 0) list.splice(idx, 1);
+          if (list.length === 0) this.pendingPostWaiters.delete(postId);
+        }
+        resolve();
+      };
+      const timer = setTimeout(finish, timeoutMs);
+      // Never hold the process open for this.
+      (timer as unknown as { unref?: () => void }).unref?.();
+      waiters.push(finish);
+      this.pendingPostWaiters.set(postId, waiters);
+    });
   }
 
   /**

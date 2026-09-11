@@ -137,6 +137,18 @@ export interface SessionOperations {
   /** Register a post ID to thread ID mapping for reaction routing */
   registerPost(postId: string, threadId: string): void;
 
+  /**
+   * Announce that an interactive post is being created on `threadId`, before
+   * the create call goes out. Returns the `done` callback to invoke once the
+   * post id is registered (or the create failed) — callers MUST call it.
+   *
+   * While a create is outstanding, a reaction on a not-yet-known post id waits
+   * for that registration instead of being dropped: the post is reactable from
+   * the moment the platform stores it, which precedes the create response
+   * reaching us, and a reaction is a live push that is never re-delivered.
+   */
+  beginInteractivePost(threadId: string): () => void;
+
   // ---------------------------------------------------------------------------
   // Streaming & Content
   // ---------------------------------------------------------------------------

@@ -35,6 +35,35 @@ export function isOverheadVisibility(value: unknown): value is OverheadVisibilit
 }
 
 /**
+ * What a platform does when reconnection attempts are exhausted.
+ *
+ * - `retry` (default) — log at error, wait out a cool-down, reset the counter
+ *   and keep trying. Recovers with no supervisor, which is what an
+ *   interactively run bot needs: dying silently overnight because the wifi
+ *   dropped is a worse first impression than a noisy retry loop.
+ * - `exit` — leave through the graceful shutdown path and exit non-zero, for
+ *   deployments where `Restart=always` is the better recovery mechanism.
+ *
+ * Either way the "active but deaf" state — a live process whose socket is
+ * dead — is the one outcome that must not persist silently (#500).
+ */
+export type ReconnectPolicy = 'retry' | 'exit';
+
+export const RECONNECT_POLICY_VALUES: readonly ReconnectPolicy[] = ['retry', 'exit'] as const;
+
+export const DEFAULT_RECONNECT_POLICY: ReconnectPolicy = 'retry';
+
+export function resolveReconnectPolicy(value: unknown, fieldPath: string): ReconnectPolicy {
+  if (value === undefined || value === null) return DEFAULT_RECONNECT_POLICY;
+  if (typeof value === 'string' && (RECONNECT_POLICY_VALUES as readonly string[]).includes(value)) {
+    return value as ReconnectPolicy;
+  }
+  throw new Error(
+    `Invalid ${fieldPath}.reconnectPolicy: expected one of ${RECONNECT_POLICY_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Normalize a per-platform overhead-visibility field. Undefined → default.
  * Throws on any other invalid value so config errors surface at startup
  * instead of silently falling back.
@@ -80,6 +109,16 @@ export const DEFAULT_TURN_MARKER: TurnMarkerSettings = { mode: 'off' };
 export const DEFAULT_TURN_MARKER_EMOJI = 'checkered_flag';
 /** Slack message metadata `event_type` the daemon stamps on a turn's last reply post. */
 export const TURN_COMPLETE_EVENT_TYPE = 'claude_threads_turn_complete';
+/**
+ * Payload version, carried as `v` in every marker's `event_payload`.
+ *
+ * The marker is a published integration contract, not an internal detail: the
+ * payload leaves the process and is parsed by code we do not control. Within a
+ * 1.x line `event_payload` only ever GAINS fields, so a reader may ignore what
+ * it does not recognize; this number is the escape hatch if that ever has to
+ * break. Bump it only for a change a v1 reader could misinterpret.
+ */
+export const TURN_COMPLETE_PAYLOAD_VERSION = 1;
 
 /**
  * Normalize the per-platform `turnMarker` / `turnMarkerEmoji` pair. Undefined
@@ -586,6 +625,21 @@ export interface ClaudeAccount {
   displayName?: string;
 }
 
+/** Options for the `!usage` command. */
+export interface UsageConfig {
+  /**
+   * Print each seat's login email address in `!usage` output. Default `false`.
+   *
+   * ⚠️ Off by default deliberately. The quota bars say nothing about who owns
+   * a seat; the address does, and `!usage` answers in a channel that several
+   * people can read and that anyone in it can trigger. Operators running a
+   * pool of their own seats generally want it on — it is the only thing that
+   * says WHICH account a row is about when directory names do not — but that
+   * is a decision to make, not to inherit.
+   */
+  showEmails?: boolean;
+}
+
 export interface Config {
   version: number;
   workingDir: string;
@@ -639,6 +693,8 @@ export interface Config {
    * are the only servers a session sees.
    */
   mcpServers?: Record<string, McpServerConfig>;
+  /** `!usage` output options. */
+  usage?: UsageConfig;
   platforms: PlatformInstanceConfig[];
 }
 
@@ -688,6 +744,14 @@ export interface PlatformInstanceConfig {
    * `true` uses 👀 (`eyes`); a string names a custom emoji. Default off.
    */
   ackReaction?: boolean | string;
+  /**
+   * What to do when reconnection attempts are exhausted: `retry` (default,
+   * cool down and start over — recovers with no supervisor) or `exit` (leave
+   * through the graceful shutdown path and exit non-zero, for deployments
+   * where `Restart=always` is the better recovery mechanism). Either way the
+   * bot never stays live with a dead socket (#500).
+   */
+  reconnectPolicy?: ReconnectPolicy;
   /**
    * Append-only audit trail of what the bot executed for this platform:
    * tool calls, session lifecycle, security-relevant commands, plan

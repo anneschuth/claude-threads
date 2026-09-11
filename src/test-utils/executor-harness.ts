@@ -52,10 +52,26 @@ export function createMockPlatform(): MockExecutorPlatform {
       posts.set(id, { content, reactions: [] });
       return { id, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
     }),
-    createInteractivePost: mock(async (content: string, reactions: string[], _threadId: string): Promise<PlatformPost> => {
+    // Mirrors BaseClient.createInteractivePost: the post exists (and is
+    // reactable) before the option reactions are added, and `onPostCreated`
+    // fires in that window. Tests that need to act inside it can await the
+    // reaction adds — see the "reaction during the option window" tests.
+    createInteractivePost: mock(async (
+      content: string,
+      reactions: string[],
+      _threadId: string,
+      onPostCreated?: (post: PlatformPost) => void
+    ): Promise<PlatformPost> => {
       const id = `post_${++postIdCounter}`;
-      posts.set(id, { content, reactions });
-      return { id, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
+      posts.set(id, { content, reactions: [] });
+      const post: PlatformPost = { id, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
+      onPostCreated?.(post);
+      const stored = posts.get(id);
+      for (const emoji of reactions) {
+        await Promise.resolve();
+        stored?.reactions.push(emoji);
+      }
+      return post;
     }),
     updatePost: mock(async (postId: string, content: string): Promise<void> => {
       const post = posts.get(postId);
@@ -104,9 +120,14 @@ export function createTestContext(
       updateLastMessage(post);
       return post;
     },
-    createInteractivePost: async (content, reactions, options) => {
-      const post = await p.createInteractivePost(content, reactions, threadId);
-      registerPost(post.id, options);
+    createInteractivePost: async (content, reactions, options, onPostCreated) => {
+      // Register in the pre-reaction callback, exactly like MessageManager:
+      // registering only after the await left a window in which an incoming
+      // reaction could not be routed.
+      const post = await p.createInteractivePost(content, reactions, threadId, (created) => {
+        registerPost(created.id, options);
+        onPostCreated?.(created);
+      });
       updateLastMessage(post);
       return post;
     },

@@ -158,6 +158,7 @@ function createSessionContext(): SessionContext {
       getSessionId: (_p, t) => t,
       findSessionByThreadId: () => undefined,
       registerPost: mock((_postId: string, _threadId: string) => {}),
+    beginInteractivePost: mock((_threadId: string) => () => {}),
       flush: mock(async (_session: Session) => {}),
       startTyping: mock((_session: Session) => {}),
       stopTyping: mock((_session: Session) => {}),
