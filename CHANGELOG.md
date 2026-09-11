@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 - **Per-platform `lifecycle` visibility** (#505, thanks @kaza). Session status posts — the idle warning, the timeout notice, the pause notice, the resume notice and the shutdown notice a deploy leaves in every open thread — are the bulk of what a quiet channel contains when the bot is used as an assistant rather than a task runner. `lifecycle: minimal` drops the idle warning, which predicts a timeout the next message would undo anyway; `hidden` drops the status posts entirely. Defaults to `full`, so nothing changes unless you set it. Editing a post the thread already has is never suppressed: it adds no post and no notification, and leaving a stale "session idle" up across a restart would read worse than the edit. An abnormal exit survives every level, because a session that died must not look like one that finished. At `hidden` there is no post for a 🔄 reaction to resume from, so the channel sticky tells the reader to send a message instead.
 
+### Fixed
+- **Verifying the `bugReports` gate no longer files a public issue** (#586). `createGitHubIssue` called `execSync` directly, so the one test that proves the gate is load-bearing reached the real `gh` CLI the moment the gate was removed. Anyone following the repo's own red-green rule therefore filed a public issue titled "T" from their test suite, three times in one afternoon (#581, #582, #583). The command is now injectable, the same way `checkGitHubCli` already was, and the test passes a stub and asserts directly that no subprocess runs. A second case covers the other direction, so a stub that was never wired up cannot make the first one pass for the wrong reason.
+
 ## [1.36.1] - 2026-09-10
 
 ### Fixed
