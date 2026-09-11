@@ -19,7 +19,7 @@ import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '.
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_MEMORY_CONFIG, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
 import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
 import { WatchesStore } from '../persistence/watches-store.js';
@@ -41,6 +41,7 @@ import * as events from '../operations/events/index.js';
 import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
+import { shouldPostLifecycle } from './lifecycle-visibility.js';
 import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
@@ -107,6 +108,7 @@ export class SessionManager extends EventEmitter {
   private threadLogsEnabled: boolean;
   /** Top-level `bugReports`; false removes the whole `!bug` path. */
   private bugReportsEnabled: boolean;
+  private usageShowEmails: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
   private readonly limits: ResolvedLimits;
@@ -189,7 +191,8 @@ export class SessionManager extends EventEmitter {
     claudeAccounts?: ClaudeAccount[],
     respondOnlyWhenMentioned = false,
     userAttribution = true,
-    bugReportsEnabled = true
+    bugReportsEnabled = true,
+    usage?: UsageConfig
   ) {
     super();
     this.workingDir = workingDir;
@@ -212,6 +215,7 @@ export class SessionManager extends EventEmitter {
     this.watchesStore = new WatchesStore();
     this.registry = new SessionRegistry(this.sessionStore);
     this.accountPool = new AccountPool(claudeAccounts);
+    this.usageShowEmails = usage?.showEmails ?? false;
 
     // Create background tasks (started in initialize())
     this.sessionMonitor = new SessionMonitor({
@@ -438,6 +442,7 @@ export class SessionManager extends EventEmitter {
 
       // Post management
       registerPost: (pid, tid) => this.registerPost(pid, tid),
+      beginInteractivePost: (tid) => this.registry.beginInteractivePost(tid),
 
       // Streaming & content (inlined - no wrapper methods needed)
       flush: async (s) => {
@@ -1027,10 +1032,17 @@ export class SessionManager extends EventEmitter {
         const fmt = session.platform.getFormatter();
         const pauseMessage = `⏸️ ${fmt.formatBold('Platform disabled')} - session paused. Re-enable platform to resume.`;
 
-        // Update or create lifecycle post
+        // Update or create lifecycle post. The edit is ungated for the same
+        // reason as the shutdown path: it replaces a post the thread already
+        // has. Only the create is a new post and a new notification.
         if (session.lifecyclePostId) {
           await session.platform.updatePost(session.lifecyclePostId, pauseMessage);
-        } else {
+        } else if (
+          shouldPostLifecycle(
+            this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
+            'paused'
+          )
+        ) {
           const post = await session.platform.createPost(pauseMessage, session.threadId);
           session.lifecyclePostId = post.id;
         }
@@ -1320,6 +1332,22 @@ export class SessionManager extends EventEmitter {
 
   async resumePausedSession(threadId: string, message: string, files: PlatformFile[] | undefined, username: string, platformId: string): Promise<void> {
     await lifecycle.resumePausedSession(threadId, message, files, this.getContext(), username, platformId);
+  }
+
+  /**
+   * The configured Claude account pool; empty in single-account mode. Exposed
+   * so `!usage` reports the same seats the router is choosing between.
+   */
+  /** Whether `!usage` may print seat email addresses. Off unless configured. */
+  getUsageShowEmails(): boolean {
+    return this.usageShowEmails;
+  }
+
+  getClaudeAccounts(): readonly ClaudeAccount[] {
+    // The pool's own normalized list, not the raw constructor input: the two
+    // must enumerate identically or `!usage` reports seats the router does not
+    // use. Readonly so a caller cannot mutate what the router is reading.
+    return this.accountPool.all;
   }
 
   getPersistedSession(threadId: string, platformId?: string): PersistedSession | undefined {
@@ -1859,9 +1887,16 @@ export class SessionManager extends EventEmitter {
         const shutdownMessage = `⏸️ ${fmt.formatBold('Bot shutting down')} - session will resume on restart`;
 
         if (session.lifecyclePostId) {
-          // Update existing timeout/warning post
+          // Update existing timeout/warning post. Ungated on purpose: editing
+          // a post the thread already has neither adds one nor notifies, and
+          // leaving a stale "session idle" up over a restart would be worse.
           await session.platform.updatePost(session.lifecyclePostId, shutdownMessage);
-        } else {
+        } else if (
+          shouldPostLifecycle(
+            this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
+            'shutdown'
+          )
+        ) {
           // Create new shutdown post and store the ID
           const post = await session.platform.createPost(shutdownMessage, session.threadId);
           session.lifecyclePostId = post.id;

@@ -48,6 +48,15 @@ import { createLogger } from '../utils/logger.js';
 const log = createLogger('manager');
 
 /**
+ * How long a reaction on an unknown post waits for that post's registration,
+ * and only while an interactive-post create is actually outstanding (see
+ * SessionRegistry.awaitPendingPost). It covers the round trip of the create
+ * call we are already waiting on, so it is sized for a slow platform API
+ * rather than for human reaction time.
+ */
+export const UNKNOWN_POST_GRACE_MS = 5000;
+
+/**
  * Dependencies the router needs from `SessionManager`. Passing a plain
  * object keeps the coupling explicit — no hidden access to private state.
  */
@@ -94,8 +103,18 @@ export async function handleReaction(
     if (resumed) return;
   }
 
-  const session = deps.registry.findByPost(postId);
-  if (!session) return;
+  let session = deps.registry.findByPost(postId);
+  if (!session) {
+    // The post id may simply be in flight: an interactive post is reactable
+    // from the moment the platform stores it, which is before its create
+    // response reaches us and we can index the id. A reaction is a live push
+    // that is never re-delivered, so dropping it here loses a real decision.
+    // Wait only while a create is actually outstanding — a reaction on an
+    // unrelated post still returns immediately.
+    await deps.registry.awaitPendingPost(postId, UNKNOWN_POST_GRACE_MS);
+    session = deps.registry.findByPost(postId);
+    if (!session) return;
+  }
 
   // Verify this reaction is from the same platform (composite session IDs
   // make this cheap — a Slack post ID can't collide with a Mattermost one,

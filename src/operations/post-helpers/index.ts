@@ -202,15 +202,47 @@ async function postWithReactions(
 export async function postInteractive(
   session: Session,
   message: string,
-  reactions: string[]
+  reactions: string[],
+  onPostCreated?: (post: PlatformPost) => void
 ): Promise<PlatformPost> {
-  const post = await session.platform.createInteractivePost(message, reactions, session.threadId);
-  updateLastMessage(session, post);
-  return post;
+  // Mark the create as in flight before it goes out: the platform accepts
+  // reactions on the post from the moment it stores it, which is earlier than
+  // the create response getting back to us. Without the marker a reaction in
+  // that window hits an unknown post id and is dropped for good.
+  // Guard the method itself, not just the manager: a session may carry a
+  // partial MessageManager (tests, and older persisted shapes), and losing the
+  // marker must degrade to the previous behavior rather than throw.
+  const doneInFlight =
+    typeof session.messageManager?.markInteractivePostInFlight === 'function'
+      ? session.messageManager.markInteractivePostInFlight()
+      : () => {};
+  try {
+    const post = await session.platform.createInteractivePost(
+      message,
+      reactions,
+      session.threadId,
+      (created) => {
+        onPostCreated?.(created);
+        // Registered (when the caller registers here) — release waiters now
+        // rather than after the option reactions land.
+        doneInFlight();
+      }
+    );
+    updateLastMessage(session, post);
+    return post;
+  } finally {
+    doneInFlight();
+  }
 }
 
 /**
  * Create an interactive post and register for reaction routing.
+ *
+ * Registration happens as soon as the post exists, BEFORE the option
+ * reactions are added — adding them is one API round trip each, and the post
+ * is already reactable throughout. Registering only after the call returned
+ * left a window in which `registry.findByPost` did not know the post yet and
+ * dropped the user's reaction silently.
  *
  * @param session - The session to post to
  * @param message - The message content
@@ -224,9 +256,9 @@ export async function postInteractiveAndRegister(
   reactions: string[],
   registerPost: (postId: string, threadId: string) => void
 ): Promise<PlatformPost> {
-  const post = await postInteractive(session, message, reactions);
-  registerPost(post.id, session.threadId);
-  return post;
+  return postInteractive(session, message, reactions, (created) =>
+    registerPost(created.id, session.threadId)
+  );
 }
 
 // =============================================================================

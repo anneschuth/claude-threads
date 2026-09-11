@@ -662,6 +662,43 @@ describe('cleanupIdleSessions extended', () => {
 
     expect(session.platform.createPost).toHaveBeenCalled();
   });
+
+  // The timeout notice had the same vacuous coverage the idle warning had:
+  // the policy function was tested, the call site was not, so the gate could
+  // be deleted with a green suite. No lifecyclePostId here, which is what
+  // sends it down the create branch rather than the (ungated) edit.
+  it('posts no timeout notice when the platform hides lifecycle notices', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 40 * 60 * 1000), // past the timeout
+      timeoutWarningPosted: true,
+      lifecyclePostId: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+      sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden',
+    });
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.createPost).not.toHaveBeenCalled();
+    // It really did time out, so the silence is the gate and not a no-op.
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+  });
+
+  it('posts the timeout notice at full, so the gate is what silences it', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 40 * 60 * 1000),
+      timeoutWarningPosted: true,
+      lifecyclePostId: undefined,
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.createPost).toHaveBeenCalled();
+  });
 });
 
 describe('killSession edge cases', () => {

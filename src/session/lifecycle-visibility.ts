@@ -18,6 +18,17 @@ export type LifecyclePost =
   /** "Session paused. Send a new message to continue." */
   | 'paused'
   /**
+   * "⏸️ Bot shutting down - session will resume on restart" — the NEW post
+   * made when there is no pause/timeout post to edit. Like `resumed`, editing
+   * an existing post is not this kind: it neither adds a post nor notifies.
+   *
+   * Suppressing the create also keeps the cycle quiet on the way back: with
+   * no `lifecyclePostId` stored, the restart's resume takes the gated
+   * "create" branch instead of the ungated edit, so a deploy costs a hidden
+   * thread nothing at either end.
+   */
+  | 'shutdown'
+  /**
    * "Session resumed after bot restart" — the NEW post resume makes when
    * there is no pause/timeout post to edit. Editing an existing one is not
    * this kind: it neither adds a post nor notifies.

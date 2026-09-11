@@ -750,4 +750,66 @@ describe('SessionRegistry', () => {
       expect(postIndex.get('post-1')).toBe('thread-1');
     });
   });
+
+  // A reaction is a live platform push that is never re-delivered. An
+  // interactive post becomes reactable the moment the platform STORES it,
+  // which is strictly before the create response gets back to us and we can
+  // index the id — so a quick reactor can hit a post id we do not know yet.
+  // awaitPendingPost lets the router wait for that registration instead of
+  // dropping a decision the user really made.
+  describe('awaitPendingPost', () => {
+    it('returns immediately when the post is already registered', async () => {
+      registry.registerPost('post-1', 'thread-1');
+      const started = Date.now();
+      await registry.awaitPendingPost('post-1', 5000);
+      expect(Date.now() - started).toBeLessThan(50);
+    });
+
+    it('returns immediately for an unknown post when no create is in flight', async () => {
+      const started = Date.now();
+      await registry.awaitPendingPost('never-seen', 5000);
+      expect(Date.now() - started).toBeLessThan(50);
+    });
+
+    it('waits for a create that is in flight, then resolves on registration', async () => {
+      const done = registry.beginInteractivePost('thread-1');
+      expect(registry.hasInFlightInteractivePost()).toBe(true);
+
+      let resolved = false;
+      const waiting = registry.awaitPendingPost('post-late', 5000).then(() => { resolved = true; });
+
+      // Still parked while the create is outstanding.
+      await new Promise((r) => setTimeout(r, 30));
+      expect(resolved).toBe(false);
+
+      // The create response lands and the id is indexed.
+      registry.registerPost('post-late', 'thread-1');
+      done();
+      await waiting;
+
+      expect(resolved).toBe(true);
+      expect(registry.findByPost('post-late')).toBeUndefined(); // no session registered in this test
+      expect(registry.getPostIndex().get('post-late')).toBe('thread-1');
+    });
+
+    it('gives up after the timeout if the post never arrives', async () => {
+      const done = registry.beginInteractivePost('thread-1');
+      const started = Date.now();
+      await registry.awaitPendingPost('post-never', 60);
+      expect(Date.now() - started).toBeGreaterThanOrEqual(50);
+      done();
+    });
+
+    it('clears the in-flight marker only when every create has finished', () => {
+      const done1 = registry.beginInteractivePost('thread-1');
+      const done2 = registry.beginInteractivePost('thread-1');
+      done1();
+      expect(registry.hasInFlightInteractivePost()).toBe(true);
+      done2();
+      expect(registry.hasInFlightInteractivePost()).toBe(false);
+      // Idempotent: a stray second call must not underflow the count.
+      done2();
+      expect(registry.hasInFlightInteractivePost()).toBe(false);
+    });
+  });
 });

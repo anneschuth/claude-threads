@@ -1,6 +1,7 @@
 import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
+import { resolveReconnectPolicy } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
@@ -129,6 +130,24 @@ export class SlackClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+    // Validated for every instance so a typo is still a startup error, but
+    // only a client that OWNS a socket can exhaust reconnection. A secondary
+    // on a shared event source never opens one (see connect()), so its own
+    // policy could never fire — set it and it would read as configured while
+    // doing nothing (CodeRabbit review). The parent's policy governs the
+    // shared socket, and its exhaustion is what reaches index.ts.
+    const policy = resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`);
+    if (sharedEventSource) {
+      if (platformConfig.reconnectPolicy !== undefined && policy !== sharedEventSource.reconnectPolicy) {
+        wsLogger.warn(
+          `${platformConfig.id}: reconnectPolicy "${policy}" is ignored — this channel shares ` +
+          `"${sharedEventSource.platformId}"'s Socket Mode connection, whose policy ` +
+          `"${sharedEventSource.reconnectPolicy}" governs reconnection for both.`
+        );
+      }
+    } else {
+      this.setReconnectPolicy(policy);
+    }
   }
 
   // ============================================================================

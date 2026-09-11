@@ -374,6 +374,49 @@ describe('SessionManager', () => {
       await manager.postShutdownMessages();
       // Should not throw
     });
+
+    // A deploy is the single noisiest event for an assistant-style bot: one
+    // post plus one push notification in every open thread, at a moment
+    // nobody asked for anything. `hidden` has to cover it, or the setting
+    // does not deliver what its doc row promises.
+    test('creates no shutdown post when the platform hides lifecycle notices', async () => {
+      const quiet = new SessionManager('/test/dir', true, false, 'prompt', testSessionsPath);
+      quiet.addPlatform('test-platform', platform as unknown as PlatformClient, {
+        overhead: { sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden' },
+      });
+      injectSession(quiet, platform as unknown as PlatformClient, 'thread-quiet');
+
+      await quiet.postShutdownMessages();
+
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Bot shutting down'))).toBe(false);
+    });
+
+    test('creates the shutdown post at full, so the gate is what silences it', async () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-loud');
+
+      await manager.postShutdownMessages();
+
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Bot shutting down'))).toBe(true);
+    });
+
+    // The edit is deliberately ungated: the post already exists, so replacing
+    // it adds nothing, and leaving a stale "session idle" up across a restart
+    // would be worse than the edit.
+    test('still edits an existing lifecycle post at hidden', async () => {
+      const quiet = new SessionManager('/test/dir', true, false, 'prompt', testSessionsPath);
+      quiet.addPlatform('test-platform', platform as unknown as PlatformClient, {
+        overhead: { sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden' },
+      });
+      const session = injectSession(quiet, platform as unknown as PlatformClient, 'thread-edit');
+      session.lifecyclePostId = 'existing-post';
+
+      await quiet.postShutdownMessages();
+
+      const edited = (platform.updatePost as any).mock.calls.map((c: unknown[]) => String(c[1]));
+      expect(edited.some((t: string) => t.includes('Bot shutting down'))).toBe(true);
+    });
   });
 
   describe('shutdown', () => {
@@ -393,6 +436,28 @@ describe('SessionManager', () => {
     test('does nothing when no sessions for platform', async () => {
       await manager.pauseSessionsForPlatform('test-platform');
       // Should not throw
+    });
+
+    test('creates no pause post when the platform hides lifecycle notices', async () => {
+      const quiet = new SessionManager('/test/dir', true, false, 'prompt', testSessionsPath);
+      quiet.addPlatform('test-platform', platform as unknown as PlatformClient, {
+        overhead: { sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden' },
+      });
+      injectSession(quiet, platform as unknown as PlatformClient, 'thread-pause-quiet');
+
+      await quiet.pauseSessionsForPlatform('test-platform');
+
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Platform disabled'))).toBe(false);
+    });
+
+    test('creates the pause post at full, so the gate is what silences it', async () => {
+      injectSession(manager, platform as unknown as PlatformClient, 'thread-pause-loud');
+
+      await manager.pauseSessionsForPlatform('test-platform');
+
+      const created = (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      expect(created.some((t: string) => t.includes('Platform disabled'))).toBe(true);
     });
   });
 

@@ -419,7 +419,10 @@ describe('Worktree Module', () => {
         expect(session.platform.createInteractivePost).toHaveBeenCalledWith(
           expect.stringContaining('Worktree required but creation failed'),
           [],  // No skip option in require mode
-          expect.any(String)
+          expect.any(String),
+          // Registration callback: fires before the option reactions are
+          // added so a reaction in that window is still routed.
+          expect.any(Function)
         );
 
         // The queued prompt should NOT have been sent yet

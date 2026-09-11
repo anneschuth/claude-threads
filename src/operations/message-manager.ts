@@ -113,6 +113,13 @@ export interface MessageManagerOptions {
   worktreePath?: string;
   worktreeBranch?: string;
   registerPost: RegisterPostCallback;
+  /**
+   * Announce an interactive-post create before it goes out; returns the `done`
+   * callback. Lets a reaction that beats the create response wait for the id
+   * instead of being dropped (see SessionRegistry.awaitPendingPost). Optional
+   * so standalone/test construction stays a no-op.
+   */
+  beginInteractivePost?: (threadId: string) => () => void;
   updateLastMessage: UpdateLastMessageCallback;
   /** Callback to build message content (handles image attachments) */
   buildMessageContent?: BuildMessageContentCallback;
@@ -163,6 +170,7 @@ export class MessageManager {
 
   // Callbacks (only structural, not event-based)
   private registerPost: RegisterPostCallback;
+  private beginInteractivePost?: (threadId: string) => () => void;
   private updateLastMessage: UpdateLastMessageCallback;
   private buildMessageContentCallback?: BuildMessageContentCallback;
   private startTypingCallback?: StartTypingCallback;
@@ -231,6 +239,7 @@ export class MessageManager {
     this.worktreePath = options.worktreePath;
     this.worktreeBranch = options.worktreeBranch;
     this.registerPost = options.registerPost;
+    this.beginInteractivePost = options.beginInteractivePost;
     this.updateLastMessage = options.updateLastMessage;
     this.buildMessageContentCallback = options.buildMessageContent;
     this.startTypingCallback = options.startTyping;
@@ -505,13 +514,53 @@ export class MessageManager {
         this.updateLastMessage(post);
         return post;
       },
-      createInteractivePost: async (content, reactions, options) => {
-        const post = await this.platform.createInteractivePost(content, reactions, this.threadId);
-        this.registerPost(post.id, options);
-        this.updateLastMessage(post);
-        return post;
+      createInteractivePost: async (content, reactions, options, onPostCreated) => {
+        // Register BEFORE the option reactions are added, not after the call
+        // returns: each addReaction is an API round trip during which the post
+        // is already visible and reactable. A user (or a test) that reacts in
+        // that window hits `registry.findByPost` with an unindexed post id,
+        // and the reaction is dropped silently — no retry, no fallback. For a
+        // bridged question or plan approval that means the MCP child waits out
+        // its full MCP_TOOL_TIMEOUT on a decision the user already made.
+        //
+        // Registering here still is not early enough on its own: the platform
+        // stores the post — and starts accepting reactions on it — before the
+        // create response gets back to us, so a fast reactor can beat even
+        // this callback. Marking the create as in flight first lets the
+        // reaction router wait for the id instead of dropping the event.
+        const doneInFlight = this.beginInteractivePost?.(this.threadId);
+        try {
+          const post = await this.platform.createInteractivePost(
+            content,
+            reactions,
+            this.threadId,
+            (created) => {
+              this.registerPost(created.id, options);
+              // The id is indexed; anything parked on it can proceed now,
+              // without waiting for the option reactions to finish.
+              doneInFlight?.();
+              onPostCreated?.(created);
+            }
+          );
+          this.updateLastMessage(post);
+          return post;
+        } finally {
+          // No-op when the callback already ran; clears the marker when the
+          // create threw before it could.
+          doneInFlight?.();
+        }
       },
     };
+  }
+
+  /**
+   * Announce an interactive-post create on this session's thread, so a
+   * reaction arriving before the create response can wait for the post id
+   * instead of being dropped. Returns the `done` callback (a no-op when the
+   * manager was built without the hook). See SessionRegistry.awaitPendingPost.
+   */
+  markInteractivePostInFlight(): () => void {
+    return this.beginInteractivePost?.(this.threadId) ?? (() => {});
   }
 
   /**
