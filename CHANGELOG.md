@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-09-11
+
 ### Added
 - **Per-platform `lifecycle` visibility** (#505, thanks @kaza). Session status posts — the idle warning, the timeout notice, the pause notice, the resume notice and the shutdown notice a deploy leaves in every open thread — are the bulk of what a quiet channel contains when the bot is used as an assistant rather than a task runner. `lifecycle: minimal` drops the idle warning, which predicts a timeout the next message would undo anyway; `hidden` drops the status posts entirely. Defaults to `full`, so nothing changes unless you set it. Editing a post the thread already has is never suppressed: it adds no post and no notification, and leaving a stale "session idle" up across a restart would read worse than the edit. An abnormal exit survives every level, because a session that died must not look like one that finished. At `hidden` there is no post for a 🔄 reaction to resume from, so the channel sticky tells the reader to send a message instead.
+- **Per-platform `turnMarker`: the daemon says when a turn is over** (#528, thanks @kaza). An end-of-turn signal an integration can wait for, instead of guessing from "it has been quiet for eight seconds". On Slack it rides as invisible message metadata on the turn's last reply; on Mattermost, which has no metadata channel, as a 🏁 reaction. Default `off`, so nothing appears unless you ask for it. The payload carries a version (`v`), and `docs/CONFIGURATION.md` states what is frozen: `event_type` does not change within a 1.x line and `event_payload` only ever gains fields, `session` is stable across restarts and respawns, and `turn` restarts at 1 after a bot restart, so it is an ordering hint within one run rather than a unique key. Each marked turn costs one extra API call.
 - **`CLAUDE_THREADS_HOME` moves the state root** (#557, thanks @Jadefalkner). Everything the bot persists — config, sessions, thread logs, worktree metadata, memory, uploads — resolves from one root instead of `homedir()` directly, so a second bot can run as the same user by pointing at a different directory. Unset, every path resolves exactly as before: this is a refactor at the default, and an existing install upgrades with its sessions intact.
 
 ### Changed
