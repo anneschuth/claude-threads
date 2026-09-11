@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Verifying the `bugReports` gate no longer files a public issue** (#586). `createGitHubIssue` called `execSync` directly, so the one test that proves the gate is load-bearing reached the real `gh` CLI the moment the gate was removed. Anyone following the repo's own red-green rule therefore filed a public issue titled "T" from their test suite, three times in one afternoon (#581, #582, #583). The command is now injectable, the same way `checkGitHubCli` already was, and the test passes a stub and asserts directly that no subprocess runs. A second case covers the other direction, so a stub that was never wired up cannot make the first one pass for the wrong reason.
+
 ## [1.36.1] - 2026-09-10
 
 ### Fixed

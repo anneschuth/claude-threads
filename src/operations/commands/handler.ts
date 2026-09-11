@@ -1437,7 +1437,10 @@ export async function handleBugReportApproval(
   session: Session,
   isApproved: boolean,
   username: string,
-  ctx: SessionContext
+  ctx: SessionContext,
+  // Injectable so a test can prove the gate below is load-bearing without
+  // filing a real issue. See the note on `createGitHubIssue` (#586).
+  exec?: Parameters<typeof createGitHubIssue>[3]
 ): Promise<void> {
   // Read from MessageManager (sole source of truth)
   const pending = session.messageManager?.getPendingBugReport();
@@ -1459,7 +1462,8 @@ export async function handleBugReportApproval(
       const issueUrl = await createGitHubIssue(
         pending.title,
         pending.body,
-        session.workingDir
+        session.workingDir,
+        exec
       );
 
       // Update the approval post to show success

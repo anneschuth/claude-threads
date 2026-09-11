@@ -707,14 +707,25 @@ export function checkGitHubCli(
  *
  * Note: Images should be uploaded to Catbox.moe first and their URLs
  * embedded in the body markdown before calling this function.
+ *
+ * `exec` is injectable for the same reason it is on `checkGitHubCli`, and for
+ * a sharper one: without it this function cannot be exercised at all without
+ * filing a real issue on the real repository. The `bugReports: false` gate
+ * above it can only be proven load-bearing by removing it and watching a test
+ * go red — and with a hardcoded `execSync` that mutation posts publicly.
+ * It did, three times in one afternoon (#581, #582, #583), which is what
+ * #586 is about. Tests must pass a stub.
  */
 export async function createGitHubIssue(
   title: string,
   body: string,
-  workingDir: string
+  workingDir: string,
+  exec: (command: string, options: { cwd: string; encoding: 'utf-8'; timeout: number; stdio: ['pipe', 'pipe', 'pipe'] }) => string = execSync as never
 ): Promise<string> {
-  // Check gh CLI first
-  const ghStatus = checkGitHubCli();
+  // Check gh CLI first, through the same injected command: a caller that
+  // stubs the subprocess is stubbing the whole `gh` dependency, so the test
+  // does not also depend on a real authenticated CLI on the runner.
+  const ghStatus = checkGitHubCli(exec as never);
   if (!ghStatus.installed || !ghStatus.authenticated) {
     throw new Error(ghStatus.error);
   }
@@ -728,7 +739,7 @@ export async function createGitHubIssue(
     // Create the issue
     const cmd = `gh issue create --repo "${GITHUB_REPO}" --title "${escapeShell(title)}" --body-file "${bodyFile}"`;
 
-    const result = execSync(cmd, {
+    const result = exec(cmd, {
       cwd: workingDir,
       encoding: 'utf-8',
       timeout: 30000,
