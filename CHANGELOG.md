@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.37.2] - 2026-09-18
+
 ### Changed
 - **Claude CLI 2.1.276 is verified.** Anyone running a CLI between 2.1.264 and 2.1.276 loses the "⚠️ untested" marker in the sticky message and session headers. Every capture except `compact-failed` was recorded fresh against it: no event type the bot consumes changed and no new type appeared, so the mock needed no adjustment. `compact-failed` deliberately keeps its older recording, because an immediate `/compact` on a fresh session now succeeds instead of failing, and the failure shape it pins is still live code.
 
