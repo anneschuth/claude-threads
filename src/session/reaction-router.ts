@@ -111,9 +111,23 @@ export async function handleReaction(
     // that is never re-delivered, so dropping it here loses a real decision.
     // Wait only while a create is actually outstanding — a reaction on an
     // unrelated post still returns immediately.
+    const hadInFlight = deps.registry.hasInFlightInteractivePost();
     await deps.registry.awaitPendingPost(postId, UNKNOWN_POST_GRACE_MS);
     session = deps.registry.findByPost(postId);
-    if (!session) return;
+    if (!session) {
+      // Most reactions that land here are on unrelated posts and are meant to
+      // be ignored. The one that matters is a reaction on a post that WAS
+      // being created: that is a decision the user really made, and dropping
+      // it silently leaves a bridged question or plan waiting out its full
+      // MCP_TOOL_TIMEOUT with nothing in the log to explain the stall.
+      if (hadInFlight) {
+        log.debug(
+          `Reaction :${normalizedEmoji}: by @${username} on unknown post ${postId} ` +
+          `dropped after the in-flight grace window (${UNKNOWN_POST_GRACE_MS}ms)`
+        );
+      }
+      return;
+    }
   }
 
   // Verify this reaction is from the same platform (composite session IDs
