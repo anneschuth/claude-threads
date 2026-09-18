@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.37.0] - 2026-09-11
+## [1.37.1] - 2026-09-18
+
+Dependency maintenance only. No source changes, so nothing about how the bot
+behaves is different — but `bun build --target node` bundles dependencies into
+`dist/`, so the versions below are the ones users actually run and they only
+reach anyone through a release.
+
+### Changed
+- **Bundled dependencies updated**: hono 4.13.5 → 4.13.7 (#592), react 19.2.8 → 19.3.0 and zod 4.5.4 → 4.6.5 (#596). Development dependencies moved too, including knip 6.34.0 → 6.35.1 and react-devtools-core 7 → 8 (#593); those do not ship.
+- **`ink-scroll-view` is pinned below 0.4.0** (#595). 0.4.0 imports `useBoxMetrics` from ink, an export that only exists in ink 7, so the build failed outright. Taking it would mean moving to ink 7, which requires Node 22 while this project's floor is Node 20. One optional scroll pane is not a reason to strand users on a supported LTS line, so Dependabot now ignores it until the Node floor moves for an independent reason.
 
 ### Added
 - **Per-platform `lifecycle` visibility** (#505, thanks @kaza). Session status posts — the idle warning, the timeout notice, the pause notice, the resume notice and the shutdown notice a deploy leaves in every open thread — are the bulk of what a quiet channel contains when the bot is used as an assistant rather than a task runner. `lifecycle: minimal` drops the idle warning, which predicts a timeout the next message would undo anyway; `hidden` drops the status posts entirely. Defaults to `full`, so nothing changes unless you set it. Editing a post the thread already has is never suppressed: it adds no post and no notification, and leaving a stale "session idle" up across a restart would read worse than the edit. An abnormal exit survives every level, because a session that died must not look like one that finished. At `hidden` there is no post for a 🔄 reaction to resume from, so the channel sticky tells the reader to send a message instead.
