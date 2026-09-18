@@ -18,6 +18,14 @@ updates:
       # TS 7 support.
       - dependency-name: "typescript"
         versions: [">=7.0.0"]
+      # ink-scroll-view 0.4.0 imports `useBoxMetrics` from ink, which only
+      # exists in ink 7 — the build fails with "No matching export ... for
+      # import useBoxMetrics". ink 7 requires Node >=22, and our floor is
+      # Node 20 (package.json#engines). One optional scroll pane is not a
+      # reason to strand users on maintenance LTS, so stay on 0.3.x until
+      # the Node floor moves for an independent reason.
+      - dependency-name: "ink-scroll-view"
+        versions: [">=0.4.0"]
     groups:
       dev-dependencies:
         dependency-type: "development"
