@@ -60,6 +60,7 @@ export {
   isPresentationMode,
   resolvePresentationMode,
   resolvePresentationOverhead,
+  presentationOverridesAgainstPreset,
   DEFAULT_TURN_MARKER,
   TURN_COMPLETE_EVENT_TYPE,
   resolveTurnMarker,

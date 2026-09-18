@@ -235,7 +235,14 @@ preset and keep one thing:
     sessionHeader: full   # replies only, but keep the per-thread header
 ```
 
-Two things worth knowing:
+One caveat worth knowing if you ran the setup wizard. It writes `sessionHeader`
+and `stickyMessage` into your config whenever your answer differed from the
+default, and those are explicit fields, so they win. Adding `mode: assistant`
+to such a config moves `lifecycle` and leaves the other two where the wizard
+put them. Startup warns and names the fields when that happens; remove them to
+let the preset apply.
+
+Two more things worth knowing:
 
 - The preset is expanded when the config loads, so everything downstream reads
   the same three concrete values it always did. Omitting `mode` resolves to

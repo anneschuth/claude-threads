@@ -1,5 +1,9 @@
 import { describe, test, expect } from 'bun:test';
-import { resolvePresentationMode, resolvePresentationOverhead } from './types.js';
+import {
+  resolvePresentationMode,
+  resolvePresentationOverhead,
+  presentationOverridesAgainstPreset,
+} from './types.js';
 
 describe('resolvePresentationMode', () => {
   test('defaults to full, so an existing config is untouched', () => {
@@ -74,5 +78,38 @@ describe('resolvePresentationOverhead', () => {
     expect(() => resolvePresentationOverhead({ mode: 'silent' }, 'platforms[slack-a]')).toThrow(
       'platforms[slack-a].mode',
     );
+  });
+});
+
+describe('presentationOverridesAgainstPreset', () => {
+  test('says nothing when there is no preset to countermand', () => {
+    expect(presentationOverridesAgainstPreset({})).toEqual([]);
+    expect(presentationOverridesAgainstPreset({ sessionHeader: 'hidden' })).toEqual([]);
+    expect(presentationOverridesAgainstPreset({ mode: 'full', lifecycle: 'minimal' })).toEqual([]);
+  });
+
+  test('says nothing when the explicit field agrees with the preset', () => {
+    expect(
+      presentationOverridesAgainstPreset({ mode: 'assistant', sessionHeader: 'hidden' }),
+    ).toEqual([]);
+  });
+
+  test('names the field a wizard-written config silently countermands', () => {
+    // The real case: the onboarding wizard writes sessionHeader and
+    // stickyMessage whenever the answer differed from the default. Adding
+    // `mode: assistant` afterwards then moves lifecycle and nothing else.
+    expect(
+      presentationOverridesAgainstPreset({
+        mode: 'assistant',
+        sessionHeader: 'minimal',
+        stickyMessage: 'minimal',
+      }),
+    ).toEqual(['sessionHeader', 'stickyMessage']);
+  });
+
+  test('ignores a malformed mode rather than throwing', () => {
+    // resolvePresentationOverhead reports the bad value with its field path;
+    // this helper only decides whether to warn, and must not pre-empt that.
+    expect(presentationOverridesAgainstPreset({ mode: 'nonsense', lifecycle: 'full' })).toEqual([]);
   });
 });

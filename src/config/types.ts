@@ -81,7 +81,7 @@ export function resolveOverheadVisibility(
 
 /**
  * Named presentation preset. `full` is today's behaviour; `assistant` is the
- * replies-only shape three people described independently (#505, #590): no
+ * replies-only shape two deployments described independently (#505, #590): no
  * session header, no channel sticky, no lifecycle notices.
  */
 export type PresentationMode = 'full' | 'assistant';
@@ -102,7 +102,13 @@ const PRESENTATION_MODE_EXPANSIONS: Record<
   PresentationMode,
   Readonly<{ sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility; lifecycle: OverheadVisibility }>
 > = {
-  full: { sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'full' },
+  // `full` is spelled through the shared default rather than three literals,
+  // so it cannot drift away from what an unset field resolves to.
+  full: {
+    sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
+    stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
+    lifecycle: DEFAULT_OVERHEAD_VISIBILITY,
+  },
   assistant: { sessionHeader: 'hidden', stickyMessage: 'hidden', lifecycle: 'hidden' },
 };
 
@@ -150,6 +156,35 @@ export function resolvePresentationOverhead(
     stickyMessage: override(entry.stickyMessage, 'stickyMessage', preset.stickyMessage),
     lifecycle: override(entry.lifecycle, 'lifecycle', preset.lifecycle),
   };
+}
+
+/**
+ * Fields where an explicit value countermands the preset the entry also sets.
+ *
+ * Precedence is right (an explicit field must win, or the preset becomes a
+ * trap), but silence is not: the onboarding wizard writes `sessionHeader` and
+ * `stickyMessage` whenever the answer differs from the default, so someone who
+ * ran the wizard and later adds `mode: assistant` gets a preset that moves
+ * `lifecycle` and nothing else. Nothing in the config says so. Startup names
+ * the fields instead, as a warning rather than an error, because the resolved
+ * behaviour is exactly what the file asks for.
+ *
+ * Returns the empty array when the preset is `full` (nothing to countermand)
+ * or when no field disagrees with it.
+ */
+export function presentationOverridesAgainstPreset(entry: {
+  mode?: unknown;
+  sessionHeader?: unknown;
+  stickyMessage?: unknown;
+  lifecycle?: unknown;
+}): string[] {
+  if (!isPresentationMode(entry.mode) || entry.mode === 'full') return [];
+  const preset = PRESENTATION_MODE_EXPANSIONS[entry.mode];
+  const fields: Array<keyof typeof preset> = ['sessionHeader', 'stickyMessage', 'lifecycle'];
+  return fields.filter((field) => {
+    const value = entry[field];
+    return value !== undefined && value !== null && value !== preset[field];
+  });
 }
 
 /**
