@@ -69,6 +69,20 @@ const BASE_ARGS = [
   // Production keeps the account's claude.ai connectors out of every session
   // (#560); without this a capture lists the recording account's connectors.
   '--settings', '{"disableClaudeAiConnectors":true}',
+  // Load no settings files at all. The recorder's own user-level settings
+  // otherwise reach the capture: a SessionStart hook in ~/.claude/settings.json
+  // adds a system/hook_started + system/hook_response pair to EVERY flow, which
+  // says something about the recording machine rather than about the CLI
+  // dialect the mock is written against. Verified empirically against 2.1.276:
+  // with this flag the hook events disappear and nothing else changes — in
+  // particular rate_limit_event, which belongs to the account's subscription,
+  // still arrives. (An empty CLAUDE_CONFIG_DIR also drops the hooks, but takes
+  // rate_limit_event with it, because credentials live in the OS keychain and
+  // an empty dir is not a logged-in profile. `--settings '{"hooks":{}}'` does
+  // not work either: hooks merge with the user-level ones instead of replacing
+  // them. `--bare` is too blunt — it also disables keychain reads, so OAuth
+  // credentials stop working.)
+  '--setting-sources', '',
 ];
 
 const userEvent = (text: string) =>

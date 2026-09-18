@@ -68,6 +68,10 @@ function runClaude(extraArgs: string[], prompt: string): Promise<string> {
     const proc = spawn('claude', [
       '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
       '--settings', '{"disableClaudeAiConnectors":true}', // as production (#560)
+      // Load no settings files: the runner's own hooks would otherwise run
+      // inside this verification and could fail it for reasons that have
+      // nothing to do with the bridge.
+      '--setting-sources', '',
       '--mcp-config', `${dir}/e2e-mcp-config.json`,
       '--permission-prompt-tool', 'mcp__claude-threads-mcp__permission_prompt',
       '--model', 'claude-haiku-4-5-20251001',
