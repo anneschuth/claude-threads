@@ -62,6 +62,14 @@ Two things to know before the next re-capture:
   wording sent haiku to `TaskCreate` and produced a capture without a subagent.
 - Record on an account without claude.ai connectors, or expect their tool
   names in `system/init`.
+- The harness passes `--setting-sources ''` so no settings file is read. A
+  hook in the recorder's own `~/.claude/settings.json` would otherwise add a
+  `system/hook_started` + `system/hook_response` pair to every flow, which is
+  a property of that machine and not of the CLI. Do not drop this flag; an
+  empty `CLAUDE_CONFIG_DIR` is not a substitute, because it also loses
+  `rate_limit_event` (credentials live in the OS keychain, so an empty dir is
+  not a logged-in profile), and `--settings '{"hooks":{}}'` does not work
+  either — hooks merge with the user-level ones rather than replacing them.
 
 ## Flows
 
