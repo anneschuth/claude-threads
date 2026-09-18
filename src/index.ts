@@ -8,7 +8,8 @@ import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
   resolvePermissionMode,
-  resolveOverheadVisibility,
+  resolvePresentationOverhead,
+  presentationOverridesAgainstPreset,
   resolveMemoryConfig,
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
@@ -378,6 +379,24 @@ async function startWithoutDaemon() {
   if (cliArgs.keepAlive !== undefined) {
     newConfig.keepAlive = cliArgs.keepAlive;
   }
+  // A `mode:` preset that an explicit field countermands is legal and resolves
+  // exactly as written, but it is worth saying out loud: the onboarding wizard
+  // writes `sessionHeader` / `stickyMessage` whenever the answer differed from
+  // the default, so adding `mode: assistant` to a wizard-made config can move
+  // only `lifecycle` while looking like it moved everything. Collected BEFORE
+  // the CLI flags below write those same fields: `--session-header` is a
+  // deliberate per-run override and warning about it would be noise.
+  const presetOverrideWarnings = newConfig.platforms.flatMap((platformConfig) => {
+    const overridden = presentationOverridesAgainstPreset(platformConfig);
+    if (overridden.length === 0) return [];
+    const one = overridden.length === 1;
+    return [
+      `  ⚠️  platforms[${platformConfig.id}]: mode: ${String(platformConfig.mode)} is overridden for ` +
+      `${overridden.join(', ')} by ${one ? 'an explicit field' : 'explicit fields'}. ` +
+      `Remove ${one ? 'it' : 'them'} to let the preset apply.`,
+    ];
+  });
+
   // Apply overhead-visibility overrides to every platform. These flags are
   // global-scoped (one value, applied everywhere) — the per-platform YAML
   // is the right place when you want different values per platform.
@@ -406,14 +425,15 @@ async function startWithoutDaemon() {
   // is a plain startup error with the field path, like a bad
   // --permission-mode, not a throw from inside the platform loop. Derived DM
   // instances spread these entries, so they inherit the validated values.
-  let mcpPostureWarnings: string[] = [];
+  let startupWarnings: string[] = [];
   try {
-    mcpPostureWarnings = resolvePlatformMcpPosture(newConfig.platforms, newConfig.mcpServers).warnings;
+    startupWarnings = resolvePlatformMcpPosture(newConfig.platforms, newConfig.mcpServers).warnings;
   } catch (err) {
     console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
   }
-  for (const w of mcpPostureWarnings) console.warn(w);
+  startupWarnings.push(...presetOverrideWarnings);
+  for (const w of startupWarnings) console.warn(w);
 
   const config = newConfig;
 
@@ -667,7 +687,7 @@ async function startWithoutDaemon() {
   });
   // Startup warnings printed before Ink took the screen are easy to miss;
   // repeat the MCP posture ones in the log panel.
-  for (const w of mcpPostureWarnings) {
+  for (const w of startupWarnings) {
     ui.addLog({ level: 'warn', component: 'config', message: w });
   }
 
@@ -760,18 +780,7 @@ async function startWithoutDaemon() {
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {
       overhead: {
-        sessionHeader: resolveOverheadVisibility(
-          platformConfig.sessionHeader,
-          `platforms[${platformConfig.id}].sessionHeader`,
-        ),
-        stickyMessage: resolveOverheadVisibility(
-          platformConfig.stickyMessage,
-          `platforms[${platformConfig.id}].stickyMessage`,
-        ),
-        lifecycle: resolveOverheadVisibility(
-          platformConfig.lifecycle,
-          `platforms[${platformConfig.id}].lifecycle`,
-        ),
+        ...resolvePresentationOverhead(platformConfig, `platforms[${platformConfig.id}]`),
         turnMarker: resolveTurnMarker(
           platformConfig.turnMarker,
           platformConfig.turnMarkerEmoji,
@@ -829,13 +838,16 @@ async function startWithoutDaemon() {
       // distillation on private DM conversations.
       session.addPlatform(dmConfig.id, dmClient, {
         overhead: {
-          sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+          // `addPlatform` takes a Partial<PlatformOverhead>, so the compiler
+          // still does not force this site to be complete: a field added to
+          // PlatformOverhead later and forgotten here silently falls back to
+          // its default. Resolving all three in one call closes that for the
+          // presentation fields: an omitted `lifecycle` used to reset DM
+          // channels to `full`, which are exactly the assistant-style channels
+          // #505 is about. A DM never carries a channel sticky, so that one
+          // stays pinned regardless of the preset.
+          ...resolvePresentationOverhead(dmConfig, `dm[${dmConfig.id}]`),
           stickyMessage: 'hidden',
-          // `addPlatform` takes a Partial<PlatformOverhead>, so the required-
-          // field compiler net does not reach this site and an omitted
-          // `lifecycle` silently resets DM channels to `full` — which are
-          // exactly the assistant-style channels #505 is about.
-          lifecycle: resolveOverheadVisibility(dmConfig.lifecycle, `dm[${dmConfig.id}].lifecycle`),
           // A derived DM config spreads its parent, so the parent's marker carries over.
           turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },
