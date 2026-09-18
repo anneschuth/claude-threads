@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Claude CLI 2.1.276 is verified.** Anyone running a CLI between 2.1.264 and 2.1.276 loses the "⚠️ untested" marker in the sticky message and session headers. Every capture except `compact-failed` was recorded fresh against it: no event type the bot consumes changed and no new type appeared, so the mock needed no adjustment. `compact-failed` deliberately keeps its older recording, because an immediate `/compact` on a fresh session now succeeds instead of failing, and the failure shape it pins is still live code.
+
 ## [1.37.1] - 2026-09-18
 
 Dependency maintenance only. No source changes, so nothing about how the bot
-behaves is different — but `bun build --target node` bundles dependencies into
+behaves is different, but `bun build --target node` bundles dependencies into
 `dist/`, so the versions below are the ones users actually run and they only
 reach anyone through a release.
 
