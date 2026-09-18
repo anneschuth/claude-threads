@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`mode: assistant` names the replies-only shape** (#590, building on #505). A platform entry already carried three fields deciding how much of the bot's scaffolding a channel sees (`sessionHeader`, `stickyMessage`, `lifecycle`), and two deployments described the same combination of all three in nearly the same words. `mode` names it: `full` (default) is the current behaviour, `assistant` hides all three so Claude's reply is the whole thread. A field set explicitly still wins, so `mode: assistant` with `sessionHeader: full` means "replies only, but keep the header". The preset expands when the config loads, so everything downstream reads the same concrete values as before and omitting `mode` behaves identically to today. `turnMarker` stays outside the preset: it is a signal for integrations reading the channel, not something a human sees.
+
 ## [1.37.2] - 2026-09-18
 
 ### Changed

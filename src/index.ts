@@ -8,7 +8,7 @@ import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
   resolvePermissionMode,
-  resolveOverheadVisibility,
+  resolvePresentationOverhead,
   resolveMemoryConfig,
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
@@ -760,18 +760,7 @@ async function startWithoutDaemon() {
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {
       overhead: {
-        sessionHeader: resolveOverheadVisibility(
-          platformConfig.sessionHeader,
-          `platforms[${platformConfig.id}].sessionHeader`,
-        ),
-        stickyMessage: resolveOverheadVisibility(
-          platformConfig.stickyMessage,
-          `platforms[${platformConfig.id}].stickyMessage`,
-        ),
-        lifecycle: resolveOverheadVisibility(
-          platformConfig.lifecycle,
-          `platforms[${platformConfig.id}].lifecycle`,
-        ),
+        ...resolvePresentationOverhead(platformConfig, `platforms[${platformConfig.id}]`),
         turnMarker: resolveTurnMarker(
           platformConfig.turnMarker,
           platformConfig.turnMarkerEmoji,
@@ -829,13 +818,12 @@ async function startWithoutDaemon() {
       // distillation on private DM conversations.
       session.addPlatform(dmConfig.id, dmClient, {
         overhead: {
-          sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+          // One call resolves all three, so an omitted field can no longer
+          // silently reset DM channels to `full` — which are exactly the
+          // assistant-style channels #505 is about. A DM never carries a
+          // channel sticky, so that one stays pinned regardless of the preset.
+          ...resolvePresentationOverhead(dmConfig, `dm[${dmConfig.id}]`),
           stickyMessage: 'hidden',
-          // `addPlatform` takes a Partial<PlatformOverhead>, so the required-
-          // field compiler net does not reach this site and an omitted
-          // `lifecycle` silently resets DM channels to `full` — which are
-          // exactly the assistant-style channels #505 is about.
-          lifecycle: resolveOverheadVisibility(dmConfig.lifecycle, `dm[${dmConfig.id}].lifecycle`),
           // A derived DM config spreads its parent, so the parent's marker carries over.
           turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },

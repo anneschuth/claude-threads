@@ -169,6 +169,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
+| `mode` | No | Presentation preset: the baseline for `sessionHeader`, `stickyMessage` and `lifecycle`. `full` (default) is the behaviour described below; `assistant` hides all three, so Claude's reply is the whole thread. Any of those three fields set explicitly wins over the preset, so `mode: assistant` with `sessionHeader: full` is valid. `turnMarker` is machine-facing and deliberately not part of the preset. |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 | `lifecycle` | No | Session status posts — idle warning, timeout, pause, resume, and the shutdown notice a deploy leaves in each open thread: `full` (default, all of them) / `minimal` (drops the idle warning, which predicts a timeout the next message would undo anyway) / `hidden` (none). Editing a status post the thread already has is not suppressed at any level: it adds no post and no notification, and leaving a stale "session idle" up across a restart would be worse. ⚠️ An **abnormal exit** (`[Exited: <code>]`, non-zero only) posts at every level including `hidden`: it is a failure report, and silencing it would make a session that died look exactly like one that finished. Note that `hidden` also removes the post a 🔄 reaction resumes from — sending a message in the thread still resumes it, and the channel sticky says so. |
@@ -194,6 +195,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
+| `mode` | No | Presentation preset: the baseline for `sessionHeader`, `stickyMessage` and `lifecycle`. `full` (default) is the behaviour described below; `assistant` hides all three, so Claude's reply is the whole thread. Any of those three fields set explicitly wins over the preset, so `mode: assistant` with `sessionHeader: full` is valid. `turnMarker` is machine-facing and deliberately not part of the preset. |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
 | `lifecycle` | No | Session status posts — idle warning, timeout, pause, resume, and the shutdown notice a deploy leaves in each open thread: `full` (default, all of them) / `minimal` (drops the idle warning, which predicts a timeout the next message would undo anyway) / `hidden` (none). Editing a status post the thread already has is not suppressed at any level: it adds no post and no notification, and leaving a stale "session idle" up across a restart would be worse. ⚠️ An **abnormal exit** (`[Exited: <code>]`, non-zero only) posts at every level including `hidden`: it is a failure report, and silencing it would make a session that died look exactly like one that finished. Note that `hidden` also removes the post a 🔄 reaction resumes from — sending a message in the thread still resumes it, and the channel sticky says so. |
@@ -202,6 +204,49 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `ackReaction` | No | Read receipt: react to every accepted message (session start, follow-up, resume) the instant it is accepted, before Claude produces output. `true` uses 👀 (`eyes`), a string names a custom emoji. Persistent, unlike the typing indicator — useful in busy channels and for messages queued behind an in-flight session start. The receipt means *accepted*, not *delivered*: a later failure (capacity limit, Claude not coming up) is still reported by its own post. `!commands` are not acked — they have their own immediate feedback, and neither are messages accepted through the message-approval flow (an authorized user approving a non-participant's message) — there the approval reaction is already the visible signal. Note: in direct channel mode this is one reaction API call per accepted message. Default off. |
 | `reconnectPolicy` | No | What happens when reconnection attempts run out: `retry` (default — log, cool down 60s, reset the counter and keep trying; recovers with no supervisor) or `exit` (leave through the graceful shutdown path and exit non-zero, for `Restart=always` deployments). The bot never stays alive with a dead socket either way. |
 | `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
+
+### Presentation presets (`mode`)
+
+A platform entry carries three fields that decide how much of the bot's own
+scaffolding a channel sees: `sessionHeader`, `stickyMessage` and `lifecycle`.
+They are useful separately, but almost nobody wants to tune them one by one.
+Two deployments asked for the same combination in nearly the same words: the
+reply, and nothing else.
+
+`mode` names that combination.
+
+```yaml
+platforms:
+  - id: assistant-channel
+    type: slack
+    mode: assistant      # no header, no sticky, no lifecycle notices
+```
+
+| Preset | `sessionHeader` | `stickyMessage` | `lifecycle` |
+|--------|-----------------|-----------------|-------------|
+| `full` (default) | `full` | `full` | `full` |
+| `assistant` | `hidden` | `hidden` | `hidden` |
+
+A field set explicitly always wins over the preset, so you can start from a
+preset and keep one thing:
+
+```yaml
+    mode: assistant
+    sessionHeader: full   # replies only, but keep the per-thread header
+```
+
+Two things worth knowing:
+
+- The preset is expanded when the config loads, so everything downstream reads
+  the same three concrete values it always did. Omitting `mode` resolves to
+  exactly the old defaults, which means an existing config behaves identically.
+- `turnMarker` is **not** part of any preset. It is a signal for integrations
+  reading the channel rather than something a human sees, so it is not
+  something you would switch off because you want a quieter channel.
+
+An abnormal exit is still reported under `mode: assistant`, for the reason
+given in the `lifecycle` row above: a session that died must not look like one
+that finished.
 
 ### Direct Channel Mode
 

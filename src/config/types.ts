@@ -80,6 +80,79 @@ export function resolveOverheadVisibility(
 }
 
 /**
+ * Named presentation preset. `full` is today's behaviour; `assistant` is the
+ * replies-only shape three people described independently (#505, #590): no
+ * session header, no channel sticky, no lifecycle notices.
+ */
+export type PresentationMode = 'full' | 'assistant';
+
+export const PRESENTATION_MODE_VALUES: readonly PresentationMode[] = ['full', 'assistant'] as const;
+
+export function isPresentationMode(value: unknown): value is PresentationMode {
+  return typeof value === 'string' && (PRESENTATION_MODE_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * What each preset expands to. A preset only ever sets the human-facing
+ * overhead fields: `turnMarker` is machine-facing (an end-of-turn signal for
+ * integrations reading the channel), so it is not something you turn off
+ * because you want a quieter channel, and it stays outside the preset.
+ */
+const PRESENTATION_MODE_EXPANSIONS: Record<
+  PresentationMode,
+  Readonly<{ sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility; lifecycle: OverheadVisibility }>
+> = {
+  full: { sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'full' },
+  assistant: { sessionHeader: 'hidden', stickyMessage: 'hidden', lifecycle: 'hidden' },
+};
+
+/**
+ * Normalize a per-platform `mode` field. Undefined → `full`, which expands to
+ * exactly the current defaults, so an existing config is unaffected.
+ */
+export function resolvePresentationMode(value: unknown, fieldPath: string): PresentationMode {
+  if (value === undefined || value === null) return 'full';
+  if (isPresentationMode(value)) return value;
+  throw new Error(
+    `Invalid ${fieldPath}: expected one of ${PRESENTATION_MODE_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
+ * Resolve the three human-facing overhead fields for one platform entry.
+ *
+ * `mode` supplies the baseline and an explicitly set field always wins, so
+ * `mode: assistant` plus `sessionHeader: full` means "replies only, but keep
+ * the header". Expansion happens here, at load time, rather than staying a
+ * layer above the fields: everything downstream keeps reading the three
+ * concrete values and no consumer has to learn about presets (#590).
+ *
+ * Taking all three together is deliberate. Resolving them one by one at the
+ * call site is what let an omitted `lifecycle` silently reset DM channels to
+ * `full` — the exact assistant-style channels #505 is about.
+ */
+export function resolvePresentationOverhead(
+  entry: {
+    mode?: unknown;
+    sessionHeader?: unknown;
+    stickyMessage?: unknown;
+    lifecycle?: unknown;
+  },
+  fieldPath: string,
+): { sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility; lifecycle: OverheadVisibility } {
+  const preset = PRESENTATION_MODE_EXPANSIONS[resolvePresentationMode(entry.mode, `${fieldPath}.mode`)];
+  const override = (value: unknown, field: string, fallback: OverheadVisibility): OverheadVisibility =>
+    value === undefined || value === null
+      ? fallback
+      : resolveOverheadVisibility(value, `${fieldPath}.${field}`);
+  return {
+    sessionHeader: override(entry.sessionHeader, 'sessionHeader', preset.sessionHeader),
+    stickyMessage: override(entry.stickyMessage, 'stickyMessage', preset.stickyMessage),
+    lifecycle: override(entry.lifecycle, 'lifecycle', preset.lifecycle),
+  };
+}
+
+/**
  * Per-platform overhead visibility, captured at platform-registration time.
  * Both fields are required after normalization (defaults applied during
  * `addPlatform`). Used as the value-type for SessionManager's per-platform
@@ -767,7 +840,17 @@ export interface PlatformInstanceConfig {
    */
   auditLog?: boolean;
   /**
-   * Per-thread session header visibility. Default `'full'`.
+   * Named presentation preset: the baseline for `sessionHeader`,
+   * `stickyMessage` and `lifecycle`. `full` (default) is today's behaviour;
+   * `assistant` hides all three, which is the replies-only shape asked for
+   * three times independently (#505, #590). Any of the three fields set
+   * explicitly overrides the preset, so `mode: assistant` with
+   * `sessionHeader: full` is a valid combination. `turnMarker` is
+   * machine-facing and deliberately not part of a preset.
+   */
+  mode?: PresentationMode;
+  /**
+   * Per-thread session header visibility. Overrides `mode`. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the
    * header post entirely so Claude's own response is the first message in
    * the thread.
