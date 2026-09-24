@@ -4,7 +4,7 @@ import { tmpdir } from 'os';
 import { delimiter, join } from 'path';
 
 // We test the module behavior by importing and verifying the exports work correctly
-import { crossSpawn, crossSpawnSync } from './spawn.js';
+import { crossSpawn, crossSpawnSync, findWindowsGitBash } from './spawn.js';
 
 describe('crossSpawn', () => {
   it('exports crossSpawn function', () => {
@@ -86,5 +86,45 @@ describe('crossSpawn argument passing (#600)', () => {
     expect(err).toBe('');
     expect(code).toBe(0);
     expect(JSON.parse(out)).toEqual(args);
+  });
+});
+
+describe('findWindowsGitBash', () => {
+  const env = (path: string, extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
+    SystemRoot: 'C:\\Windows',
+    Path: path,
+    ...extra,
+  });
+
+  it('skips the WSL launcher in System32 and picks Git Bash later on PATH', () => {
+    const present = new Set(['C:\\Windows\\System32\\bash.exe', 'C:\\Program Files\\Git\\usr\\bin\\bash.exe']);
+    const found = findWindowsGitBash(
+      env('C:\\Windows\\system32;C:\\Program Files\\Git\\usr\\bin'),
+      (p) => present.has(p),
+    );
+    expect(found).toBe('C:\\Program Files\\Git\\usr\\bin\\bash.exe');
+  });
+
+  it('skips the WindowsApps alias', () => {
+    const present = new Set(['C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\bash.exe']);
+    const found = findWindowsGitBash(
+      env('C:\\Users\\u\\AppData\\Local\\Microsoft\\WindowsApps\\'),
+      (p) => present.has(p),
+    );
+    expect(found).toBeNull();
+  });
+
+  it('falls back to the default Git for Windows install location', () => {
+    const present = new Set(['C:\\Program Files\\Git\\bin\\bash.exe']);
+    const found = findWindowsGitBash(
+      env('C:\\Windows\\System32', { ProgramFiles: 'C:\\Program Files' }),
+      (p) => present.has(p),
+    );
+    expect(found).toBe('C:\\Program Files\\Git\\bin\\bash.exe');
+  });
+
+  it('returns null when only the WSL launcher exists', () => {
+    const found = findWindowsGitBash(env('C:\\WINDOWS\\System32'), (p) => p === 'C:\\WINDOWS\\System32\\bash.exe');
+    expect(found).toBeNull();
   });
 });

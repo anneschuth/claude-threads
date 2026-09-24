@@ -59,7 +59,7 @@
 - **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
 - **Voice notes** - With `transcription:` configured (ElevenLabs Scribe), an audio clip is transcribed before Claude sees it and the transcript is echoed into the thread; see [Configuration](docs/CONFIGURATION.md#transcription-transcription)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
-- **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
+- **Runs on macOS, Linux, and Windows** - natively or inside WSL; on native Windows, auto-restart needs Git for Windows' bash
 - **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat
 
 ## What Claude can do in your chat

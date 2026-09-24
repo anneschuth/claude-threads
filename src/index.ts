@@ -233,6 +233,8 @@ async function main() {
     const { spawn } = await import('child_process');
     const { dirname, resolve } = await import('path');
     const { fileURLToPath } = await import('url');
+    const { existsSync } = await import('fs');
+    const { findWindowsGitBash } = await import('./utils/spawn.js');
 
     // Find the daemon wrapper script
     const __filename = fileURLToPath(import.meta.url);
@@ -253,10 +255,18 @@ async function main() {
     const binPath = __filename;
 
     // On Windows, the daemon is a bash script that can't be spawned directly.
-    // Use bash (from Git for Windows / WSL) if available, otherwise skip daemon.
+    // It needs Git for Windows' bash: the WSL launcher runs it inside Linux,
+    // where these Windows paths don't exist (#600). Without one, skip the daemon.
     let child;
     if (process.platform === 'win32') {
-      child = spawn('bash', [daemonPath, '--restart-on-error', ...args], {
+      const bashPath = findWindowsGitBash(process.env, existsSync);
+      if (!bashPath) {
+        console.error('Auto-restart requires Git for Windows (bash.exe). Starting without auto-restart...');
+        console.error('');
+        await startWithoutDaemon();
+        return;
+      }
+      child = spawn(bashPath, [daemonPath, '--restart-on-error', ...args], {
         stdio: 'inherit',
         env: {
           ...process.env,
