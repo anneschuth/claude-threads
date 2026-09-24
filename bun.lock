@@ -11,6 +11,7 @@
         "@redactpii/node": "^1.0.16",
         "cli-spinners": "^3.3.0",
         "commander": "^14.0.2",
+        "cross-spawn": "^7.0.6",
         "diff": "^8.0.3",
         "express-rate-limit": "^8.3.0",
         "hono": "4.13.7",
@@ -27,6 +28,7 @@
       "devDependencies": {
         "@eslint/js": "^10.0.1",
         "@types/bun": "latest",
+        "@types/cross-spawn": "^6.0.6",
         "@types/js-yaml": "^4.0.9",
         "@types/node": "^26.1.1",
         "@types/prompts": "^2.4.9",
@@ -200,6 +202,8 @@
     "@types/bun": ["@types/bun@1.4.2", "", { "dependencies": { "bun-types": "1.4.2" } }, "sha512-GimotNn7+ZV0uVArItBbriZsR1oNf0+WTzPkdcFrzShI7k2norL0uzEaJT8T33dWr7O/c9ZDuAFQrctKCi72oQ=="],
 
     "@types/configstore": ["@types/configstore@6.0.2", "", {}, "sha512-OS//b51j9uyR3zvwD04Kfs5kHpve2qalQ18JhY/ho3voGYUTPLEG90/ocfKPI48hyHH8T04f7KEEbK6Ue60oZQ=="],
+
+    "@types/cross-spawn": ["@types/cross-spawn@6.0.6", "", { "dependencies": { "@types/node": "*" } }, "sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA=="],
 
     "@types/esrecurse": ["@types/esrecurse@4.3.1", "", {}, "sha512-xJBAbDifo5hpffDBuHl0Y8ywswbiAp/Wi7Y/GtAgSlZyIABppyurxVueOPE8LUQOxdlgi6Zqce7uoEpqNTeiUw=="],
 

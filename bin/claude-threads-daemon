@@ -52,12 +52,12 @@ if [ -n "$CLAUDE_THREADS_BIN" ]; then
             echo "[daemon] Error: node not found in PATH" >&2
             exit 1
         fi
-        CLAUDE_THREADS_CMD="node $CLAUDE_THREADS_BIN"
+        CLAUDE_THREADS_CMD=(node "$CLAUDE_THREADS_BIN")
     else
-        CLAUDE_THREADS_CMD="$CLAUDE_THREADS_BIN"
+        CLAUDE_THREADS_CMD=("$CLAUDE_THREADS_BIN")
     fi
 else
-    CLAUDE_THREADS_CMD="claude-threads"
+    CLAUDE_THREADS_CMD=(claude-threads)
 fi
 
 # Track restart count
@@ -115,7 +115,7 @@ log() {
 }
 
 log "Starting claude-threads daemon"
-log "Binary: $CLAUDE_THREADS_CMD"
+log "Binary: ${CLAUDE_THREADS_CMD[*]}"
 log "Max restarts: ${MAX_RESTARTS:-unlimited}"
 log "Restart delay: ${RESTART_DELAY}s"
 log "Restart on error: $RESTART_ON_ERROR"
@@ -140,9 +140,10 @@ while true; do
     log "Starting claude-threads (restart #$restart_count)..."
 
     # Run claude-threads with any remaining arguments
-    # Note: CLAUDE_THREADS_CMD may be "bun /path/to/file.js" so we use eval
+    # An array, not eval: eval re-parses the path, dropping the backslashes
+    # of a Windows path and splitting one that contains a space (#600).
     set +e
-    eval $CLAUDE_THREADS_CMD '"$@"' &
+    "${CLAUDE_THREADS_CMD[@]}" "$@" &
     child_pid=$!
     wait $child_pid
     exit_code=$?

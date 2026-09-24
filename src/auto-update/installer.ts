@@ -4,7 +4,7 @@
  * Handles the actual bun/npm install and state persistence.
  */
 
-import { spawn, spawnSync } from 'child_process';
+import { crossSpawn, crossSpawnSync } from '../utils/spawn.js';
 import { stateHome } from '../utils/state-home.js';
 import { existsSync, readFileSync, mkdirSync } from 'fs';
 import { dirname, resolve } from 'path';
@@ -29,7 +29,9 @@ const log = createLogger('installer');
  * Returns the command to use and whether it's bun or npm.
  */
 export function detectPackageManager(): { cmd: string; isBun: boolean } | null {
-  const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  // crossSpawn resolves npm.cmd on Windows; spawning 'npm.cmd' directly
+  // fails with EINVAL since Node 20.12 (CVE-2024-27980).
+  const npmCmd = 'npm';
 
   // Try to detect the original installer by checking where the binary lives
   const originalInstaller = detectOriginalInstaller();
@@ -37,14 +39,14 @@ export function detectPackageManager(): { cmd: string; isBun: boolean } | null {
     log.debug(`Detected original installer: ${originalInstaller}`);
     if (originalInstaller === 'bun') {
       // Verify bun is still available
-      const bunCheck = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+      const bunCheck = crossSpawnSync('bun', ['--version'], { stdio: 'ignore' });
       if (bunCheck.status === 0) {
         return { cmd: 'bun', isBun: true };
       }
       log.warn('Originally installed with bun, but bun not found. Falling back to npm.');
     } else {
       // Verify npm is still available
-      const npmCheck = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
+      const npmCheck = crossSpawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
       if (npmCheck.status === 0) {
         return { cmd: npmCmd, isBun: false };
       }
@@ -53,12 +55,12 @@ export function detectPackageManager(): { cmd: string; isBun: boolean } | null {
   }
 
   // Fall back: prefer bun if available, otherwise npm
-  const bunCheck = spawnSync('bun', ['--version'], { stdio: 'ignore' });
+  const bunCheck = crossSpawnSync('bun', ['--version'], { stdio: 'ignore' });
   if (bunCheck.status === 0) {
     return { cmd: 'bun', isBun: true };
   }
 
-  const npmCheck = spawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
+  const npmCheck = crossSpawnSync(npmCmd, ['--version'], { stdio: 'ignore' });
   if (npmCheck.status === 0) {
     return { cmd: npmCmd, isBun: false };
   }
@@ -95,15 +97,13 @@ export function detectOriginalInstaller(): 'bun' | 'npm' | null {
       return 'bun';
     }
 
-    // Check npm's global prefix
-    // Use npm.cmd on Windows
-    const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-    const npmPrefixResult = spawnSync(npmCmd, ['prefix', '-g'], {
+    // Check npm's global prefix (crossSpawnSync finds npm.cmd on Windows)
+    const npmPrefixResult = crossSpawnSync('npm', ['prefix', '-g'], {
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'ignore'],
     });
     if (npmPrefixResult.status === 0 && npmPrefixResult.stdout) {
-      const npmPrefix = normalizePath(npmPrefixResult.stdout.trim());
+      const npmPrefix = normalizePath(String(npmPrefixResult.stdout).trim());
       // npm global binaries are in {prefix}/bin/ or {prefix}/lib/node_modules/.bin/
       if (scriptPath.startsWith(npmPrefix)) {
         return 'npm';
@@ -250,7 +250,7 @@ export async function installVersion(version: string): Promise<{ success: boolea
 
     log.debug(`Using ${isBun ? 'bun' : 'npm'} for installation`);
 
-    const child = spawn(cmd, args, {
+    const child = crossSpawn(cmd, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: {
         ...process.env,
