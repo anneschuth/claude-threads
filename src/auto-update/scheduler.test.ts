@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach, mock } from 'bun:test';
+import { describe, expect, it, beforeEach, afterEach, mock } from 'bun:test';
 import { UpdateScheduler, type SessionActivityInfo } from './scheduler.js';
 import { DEFAULT_AUTO_UPDATE_CONFIG, type AutoUpdateConfig, type UpdateInfo } from './types.js';
 
@@ -211,6 +211,93 @@ describe('auto-update/scheduler', () => {
 
         // Should not throw
         scheduler.updateConfig(newConfig);
+        scheduler.stop();
+      });
+    });
+
+    describe('countdown re-entry (#601)', () => {
+      // Manual interval clock: the loop in #601 only shows after minutes of
+      // wall time, so drive setInterval/clearInterval deterministically.
+      type FakeInterval = { fn: () => void; ms: number; next: number; live: boolean };
+      let now: number;
+      let intervals: FakeInterval[];
+      const realSetInterval = globalThis.setInterval;
+      const realClearInterval = globalThis.clearInterval;
+
+      beforeEach(() => {
+        now = 0;
+        intervals = [];
+        globalThis.setInterval = ((fn: () => void, ms: number) => {
+          const handle: FakeInterval = { fn, ms, next: now + ms, live: true };
+          intervals.push(handle);
+          return handle;
+        }) as unknown as typeof setInterval;
+        globalThis.clearInterval = ((handle: FakeInterval | null) => {
+          if (handle) handle.live = false;
+        }) as unknown as typeof clearInterval;
+      });
+
+      afterEach(() => {
+        globalThis.setInterval = realSetInterval;
+        globalThis.clearInterval = realClearInterval;
+      });
+
+      const advance = (ms: number) => {
+        const end = now + ms;
+        for (;;) {
+          const due = intervals
+            .filter((i) => i.live && i.next <= end)
+            .sort((a, b) => a.next - b.next)[0];
+          if (!due) break;
+          now = due.next;
+          due.next += due.ms;
+          due.fn();
+        }
+        now = end;
+      };
+
+      it('fires ready once when the first condition check already triggers the countdown', () => {
+        // Quiet mode with long-idle sessions: the very first check in
+        // startChecking() triggers the countdown.
+        config.autoRestartMode = 'quiet';
+        config.quietTimeoutMinutes = 1;
+        mockGetActivity = () => ({
+          activeSessionCount: 1,
+          lastActivityAt: new Date(Date.now() - 60 * 60 * 1000),
+          anySessionBusy: false,
+        });
+        const scheduler = createScheduler();
+        let ready = 0;
+        const countdowns: number[] = [];
+        scheduler.on('ready', () => ready++);
+        scheduler.on('countdown', (s: number) => countdowns.push(s));
+
+        scheduler.scheduleUpdate(createUpdateInfo());
+        // Well past the countdown: a failed install leaves the process
+        // running, which is when the orphaned interval kept firing.
+        advance(10 * 60 * 1000);
+
+        expect(ready).toBe(1);
+        expect(Math.min(...countdowns)).toBe(0);
+        expect(intervals.filter((i) => i.live)).toHaveLength(0);
+        scheduler.stop();
+      });
+
+      it('does not restart a running countdown when triggered again', () => {
+        config.autoRestartMode = 'ask';
+        mockGetThreadIds = () => ['thread-a'];
+        const scheduler = createScheduler();
+        let ready = 0;
+        scheduler.on('ready', () => ready++);
+
+        scheduler.scheduleUpdate(createUpdateInfo()); // posts the ask
+        scheduler.recordAskResponse('thread-a', true); // starts countdown
+        advance(20 * 1000);
+        scheduler.recordAskResponse('thread-a', true); // re-trigger mid-countdown
+        advance(10 * 60 * 1000);
+
+        expect(ready).toBe(1);
+        expect(intervals.filter((i) => i.live)).toHaveLength(0);
         scheduler.stop();
       });
     });

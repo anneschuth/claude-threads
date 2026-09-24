@@ -156,9 +156,10 @@ export class UpdateScheduler extends EventEmitter {
   private startChecking(): void {
     if (this.checkTimer) return;
 
-    // Check immediately, then every 10 seconds
-    this.checkCondition();
+    // Arm the interval before the first check: a check that triggers the
+    // countdown calls stopChecking(), which must see this handle (#601).
     this.checkTimer = setInterval(() => this.checkCondition(), 10000);
+    this.checkCondition();
     log.debug(`Started checking for ${this.config.autoRestartMode} condition`);
   }
 
@@ -324,21 +325,29 @@ export class UpdateScheduler extends EventEmitter {
 
     this.stopChecking();
 
+    // A countdown is already running: starting another would orphan its
+    // interval, which then fires 'ready' every second forever (#601).
+    if (this.countdownTimer) return;
+
     // Start 60-second countdown
     this.scheduledRestartAt = new Date(Date.now() + 60000);
     let secondsRemaining = 60;
 
     this.emit('countdown', secondsRemaining);
 
-    this.countdownTimer = setInterval(() => {
+    const timer = setInterval(() => {
       secondsRemaining--;
       this.emit('countdown', secondsRemaining);
 
       if (secondsRemaining <= 0) {
-        this.stopCountdown();
+        // Clear this interval by its own handle, so it can never outlive
+        // zero even if this.countdownTimer no longer points at it.
+        clearInterval(timer);
+        if (this.countdownTimer === timer) this.countdownTimer = null;
         this.emit('ready', this.pendingUpdate);
       }
     }, 1000);
+    this.countdownTimer = timer;
 
     log.info('Update countdown started (60 seconds)');
   }
