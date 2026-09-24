@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.38.1] - 2026-09-24
 
 ### Fixed
 - **Sessions start on Windows again** (#600). On Windows the bot spawned the Claude CLI with `shell: true`, which makes Node join the arguments into one cmd.exe command line without escaping them. The `|` in the session context passed as `--append-system-prompt` was read as a pipe, so every session exited with code 255 before Claude answered. Any other shell character in an argument had the same effect, including text from a user's message in the one-shot haiku calls, which made this a command-injection path too. Spawning now goes through the `cross-spawn` package: it runs a native `claude.exe` directly and escapes arguments for cmd.exe when the target is an npm `.cmd` shim. The auto-update installer (which spawned `npm.cmd` without a shell, rejected by Node since 20.12) and the self-respawn after an update use the same path. A new `windows-latest` CI job round-trips shell characters through a real `.cmd` shim, so this path is tested on Windows from now on.
