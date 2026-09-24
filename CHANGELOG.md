@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **A failed auto-update no longer retries every second forever** (#601). When the first scheduling check already met the restart condition (quiet or scheduled mode with idle sessions, ask mode with no threads), the countdown started before the 10-second check interval existed, so that interval survived and started a second countdown. The first countdown's interval was orphaned: at zero it cleared the new one instead of itself and kept firing "ready" once a second. A successful install exits the process, so this only showed when the install failed, as two posts per second (installing, failed) for as long as the bot ran. The check interval is now armed before the first check, a running countdown is never restarted, and a countdown clears its own interval at zero.
+- **Deferring, cancelling or forcing an update now controls a running countdown** (#601). `!update defer` during the 60-second countdown left the countdown running, so the update installed anyway, and afterwards nothing re-armed the scheduler: a one-hour deferral silently became "until the next release". A deferral now stops the countdown, holds off every trigger (including late ask votes) for the window, and resumes checking when the window ends, asking again in ask mode. `!update now` during a countdown no longer installs a second time when the countdown reaches zero, and cancelling the schedule stops the countdown too.
 
 ## [1.37.2] - 2026-09-18
 

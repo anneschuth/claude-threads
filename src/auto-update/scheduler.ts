@@ -48,6 +48,7 @@ export class UpdateScheduler extends EventEmitter {
   private pendingUpdate: UpdateInfo | null = null;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
+  private deferTimer: ReturnType<typeof setTimeout> | null = null;
   private idleStartTime: Date | null = null;
   private scheduledRestartAt: Date | null = null;
 
@@ -90,6 +91,8 @@ export class UpdateScheduler extends EventEmitter {
    */
   cancelSchedule(): void {
     this.stopChecking();
+    this.stopCountdown();
+    this.stopDeferTimer();
     this.pendingUpdate = null;
     this.idleStartTime = null;
     this.scheduledRestartAt = null;
@@ -102,9 +105,24 @@ export class UpdateScheduler extends EventEmitter {
    * Defer the update by a specified number of minutes.
    */
   deferUpdate(minutes: number): Date {
-    const deferUntil = new Date(Date.now() + minutes * 60 * 1000);
+    const deferMs = minutes * 60 * 1000;
+    const deferUntil = new Date(Date.now() + deferMs);
+    // A running countdown would otherwise still install the update.
+    this.stopCountdown();
+    this.stopChecking();
+    this.stopDeferTimer();
     this.scheduledRestartAt = null;
     this.idleStartTime = null;
+    // Ask again after the deferral instead of re-reading the old votes,
+    // which would defer again straight away on a majority denial.
+    this.askApprovals.clear();
+    this.askStartTime = null;
+    if (this.pendingUpdate) {
+      this.deferTimer = setTimeout(() => {
+        this.deferTimer = null;
+        this.startChecking();
+      }, deferMs);
+    }
     this.emit('deferred', deferUntil);
     log.info(`Update deferred until ${deferUntil.toLocaleTimeString()}`);
     return deferUntil;
@@ -147,6 +165,7 @@ export class UpdateScheduler extends EventEmitter {
   stop(): void {
     this.stopChecking();
     this.stopCountdown();
+    this.stopDeferTimer();
   }
 
   // ---------------------------------------------------------------------------
@@ -327,7 +346,8 @@ export class UpdateScheduler extends EventEmitter {
 
     // A countdown is already running: starting another would orphan its
     // interval, which then fires 'ready' every second forever (#601).
-    if (this.countdownTimer) return;
+    // A deferral holds off every trigger, including late ask votes.
+    if (this.countdownTimer || this.deferTimer) return;
 
     // Start 60-second countdown
     this.scheduledRestartAt = new Date(Date.now() + 60000);
@@ -356,6 +376,14 @@ export class UpdateScheduler extends EventEmitter {
     if (this.countdownTimer) {
       clearInterval(this.countdownTimer);
       this.countdownTimer = null;
+      this.scheduledRestartAt = null;
+    }
+  }
+
+  private stopDeferTimer(): void {
+    if (this.deferTimer) {
+      clearTimeout(this.deferTimer);
+      this.deferTimer = null;
     }
   }
 }

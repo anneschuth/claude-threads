@@ -166,6 +166,8 @@ export class AutoUpdateManager extends EventEmitter {
     }
 
     log.info('Forcing immediate update');
+    // Stop a running countdown or deferral, or it installs a second time.
+    this.scheduler.stop();
     await this.performUpdate(updateInfo);
   }
 
