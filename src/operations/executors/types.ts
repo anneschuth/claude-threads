@@ -97,6 +97,12 @@ export interface ContentState {
   headerBody: string;
   /** A header has been set for the current turn and no result flush has ended it. */
   turnOpen: boolean;
+  /**
+   * A tool ran since the last text, with its line kept out of the reply
+   * (tool activity summary/hidden). The next text starts a new paragraph,
+   * the spacing the tool line itself provides in `full` mode.
+   */
+  paragraphBreak: boolean;
 }
 
 /**

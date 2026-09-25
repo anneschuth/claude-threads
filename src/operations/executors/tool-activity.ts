@@ -60,6 +60,8 @@ export interface ToolActivityExecutorOptions {
 
 export class ToolActivityExecutor {
   private stats = fresh();
+  /** Tools of this turn that started and have not ended; ends are matched by id, not by count. */
+  private open = new Set<string>();
 
   constructor(private readonly options: ToolActivityExecutorOptions) {}
 
@@ -71,18 +73,38 @@ export class ToolActivityExecutor {
     const now = this.options.now?.() ?? Date.now();
     if (op.kind === 'start') {
       this.stats.started++;
+      this.open.add(op.toolUseId);
       this.stats.firstStartAt ??= now;
       this.stats.lastTool = op.name;
-      await this.options.sink.append(op, ctx);
+      // Header first: on a turn's first tool it claims the new reply post,
+      // and the sink resolves its root from that post. The other way round,
+      // the root was still the previous turn's reply (direct channel mode
+      // threaded turn 2's details under turn 1).
       this.renderHeader(now, ctx);
+      await this.options.sink.append(op, ctx);
     } else if (op.kind === 'end') {
+      // Only the end of a tool this turn started counts. A late result of a
+      // tool that turn_end already closed would otherwise stand in for the
+      // next tool's end (whose real end then got dropped), or open a phantom
+      // `🔧 0 tools` header in an otherwise empty turn.
+      if (!this.open.delete(op.toolUseId)) return;
       this.stats.finished++;
       if (!op.ok) this.stats.failed++;
       this.stats.lastEndAt = now;
-      await this.options.sink.append(op, ctx);
+      // Render before awaiting the sink, as start does: during that await the
+      // result can close the turn and reset the stats, and a render after it
+      // would write `🔧 0 tools` over the final line.
       this.renderHeader(now, ctx);
+      await this.options.sink.append(op, ctx);
     } else if (this.stats.started > 0) {
       // turn_end: the final line, rendered by the result flush that follows.
+      // A tool can end the turn without a result of its own (an interrupt);
+      // the turn is over all the same, so it must not keep a running `…`.
+      if (this.stats.started > this.stats.finished) {
+        this.stats.finished = this.stats.started;
+        this.stats.lastEndAt = now;
+      }
+      this.open.clear();
       this.renderHeader(now, ctx);
     }
   }
@@ -93,8 +115,19 @@ export class ToolActivityExecutor {
    */
   async afterResultFlush(ctx: ExecutorContext): Promise<void> {
     if (this.stats.started === 0) return;
-    await this.options.sink.turnEnded(ctx);
+    // Start the next turn's counter BEFORE awaiting the sink: event handling
+    // is not awaited upstream, so the next turn's first tool can arrive while
+    // this turn's details are being written, and must not count into (and be
+    // wiped with) this turn's stats.
     this.stats = fresh();
+    this.open.clear();
+    try {
+      await this.options.sink.turnEnded(ctx);
+    } catch (err) {
+      // Details are a side channel: a failure there must not cost the turn
+      // its end-of-turn marker, which runs after this.
+      ctx.logger.warn(`tool details: delivering the turn failed: ${(err as Error).message ?? err}`);
+    }
   }
 
   /**
@@ -106,7 +139,13 @@ export class ToolActivityExecutor {
   reset(): void {
     if (this.stats.started === 0) return;
     this.stats = fresh();
+    this.open.clear();
     this.options.sink.reset();
+  }
+
+  /** The manager flushed, so the turn's reply post may exist now: let the sink deliver what waited for it. */
+  wake(): void {
+    this.options.sink.wake?.();
   }
 
   private renderHeader(now: number, ctx: ExecutorContext): void {

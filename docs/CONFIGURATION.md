@@ -444,7 +444,7 @@ platforms:
 
 | `toolDetails` | Where the full tool stream goes when `toolActivity` is not `full` |
 |---|---|
-| `thread` | posted as replies in a thread under the turn's post (in a thread-mode session, after the reply in the same thread: Slack has no nested threads) |
+| `thread` | posted as replies in a thread under the turn's post (in a thread-mode session, after the reply in the same thread, once the turn ends: Slack has no nested threads) |
 | `none` | dropped |
 
 Permission prompts, plan approvals, questions, task lists and errors post as before in every mode. `toolDetails` with `full`, or `thread` with `hidden`, is a startup config error.

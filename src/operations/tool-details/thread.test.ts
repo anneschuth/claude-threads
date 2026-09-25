@@ -24,7 +24,7 @@ function fakeContext(root: string) {
     sessionId: 's',
     threadId: root,
     platform,
-    formatter: { formatMarkdown: (t: string) => t },
+    formatter: { formatMarkdown: (t: string) => t, formatItalic: (t: string) => `_${t}_` },
     logger: { debug: () => undefined, info: () => undefined, warn: (m: string) => warnings.push(m), error: () => undefined },
     postTracker: new PostTracker(),
     contentBreaker: new DefaultContentBreaker(),
@@ -137,5 +137,174 @@ describe('thread sink reset during a drain', () => {
 
     await expect(draining).resolves.toBeUndefined();
     expect(scheduleFlush).not.toHaveBeenCalled();
+  });
+});
+
+describe('thread sink: turn end while a timer flush is writing', () => {
+  it('waits for the in-flight flush instead of creating a second details post', async () => {
+    // The sink's own flush timer fired and its createPost is still in flight
+    // (a slow platform) when the result arrives. The turn-end flush must wait
+    // for it: before, it saw no post yet and created a second one with the
+    // same lines.
+    const { ctx, created } = fakeContext('root-slow');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowCtx = { ...ctx, createPost: async (content: string, options: never) => { await gate; return ctx.createPost(content, options); } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => slowCtx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+    });
+
+    await sink.append(start('t1', 'Bash ls'), slowCtx);
+    await new Promise((r) => setTimeout(r, 600)); // the 500 ms timer fires; its createPost waits on the gate
+    const ending = sink.turnEnded(slowCtx);
+    release();
+    await ending;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(created).toHaveLength(1);
+  });
+});
+
+describe('thread sink: holdUntilTurnEnd', () => {
+  it('posts nothing while the turn runs, then all lines in one post at turn end', async () => {
+    // A thread session: the details share the reply's thread, so a post made
+    // mid-turn would sit above reply posts that are still to come.
+    const { ctx, created } = fakeContext('root-hold');
+    const sink = createThreadSink({
+      contextFor: () => ctx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+      flushDelayMs: 5,
+    });
+
+    await sink.append(start('t1', 'Bash ls'), ctx);
+    await sink.append(end('t1'), ctx);
+    // Longer than any streaming flush delay, including the 500 ms default.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(created).toHaveLength(0);
+
+    await sink.turnEnded(ctx);
+    expect(created).toHaveLength(1);
+    expect(created[0].content).toContain('Bash ls');
+    expect(created[0].content).toContain('↳ ✓');
+  });
+
+  it('a line of the next turn arriving during delivery is not dropped with the ended turn', async () => {
+    const { ctx, created } = fakeContext('root-next');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    let first = true;
+    const slowCtx = { ...ctx, createPost: async (content: string, options: never) => { if (first) { first = false; await gate; } return ctx.createPost(content, options); } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => slowCtx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+
+    await sink.append(start('t1', 'Bash turn-one'), slowCtx);
+    const ending = sink.turnEnded(slowCtx);
+    await sink.append(start('t2', 'Bash turn-two'), slowCtx);
+    release();
+    await ending;
+    await sink.turnEnded(slowCtx);
+
+    expect(created.map((c) => c.content)).toEqual([expect.stringContaining('turn-one'), expect.stringContaining('turn-two')]);
+  });
+});
+
+describe('thread sink: a long held turn', () => {
+  it('delivers every line across several posts instead of truncating one', async () => {
+    // Held until turn end, a long turn reaches the executor as one big append.
+    // A first flush with no post yet truncates at the platform limit, so the
+    // sink has to flush in chunks and let the executor split.
+    const { ctx, created, updated } = fakeContext('root-long');
+    const sink = createThreadSink({
+      contextFor: () => ctx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) {
+      await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), ctx);
+    }
+    await sink.turnEnded(ctx);
+
+    const finalText = new Map<string, string>();
+    created.forEach((c, i) => finalText.set(`d${i + 1}`, c.content));
+    for (const u of updated) finalText.set(u.id, u.content);
+    const all = [...finalText.values()].join('\n');
+    const missing = [...Array(400).keys()].filter((i) => !all.includes(`LINE${i}.`));
+    expect(missing).toEqual([]);
+    expect(all).not.toContain('(truncated)');
+    expect(created.length).toBeGreaterThan(1);
+  });
+});
+
+describe('thread sink: failing platform and late roots (review round 3)', () => {
+  it('stops flushing in chunks once a flush cannot shrink the pending text', async () => {
+    // A rate-limited platform refuses every post; the pending text then never
+    // shrinks, and a flush per line turned one held turn into thousands of
+    // createPost attempts.
+    const { ctx } = fakeContext('root-429');
+    let attempts = 0;
+    const failing = { ...ctx, createPost: async () => { attempts++; throw new Error('429 ratelimited'); } } as unknown as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => failing,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), failing);
+    await sink.turnEnded(failing);
+
+    // What remains is the turn-end flush trying each post-sized chunk once
+    // (about 20 here): bounded by the content, not by the line count. Before
+    // the fix this was 4281.
+    expect(attempts).toBeLessThan(50);
+  });
+
+  it('wake() delivers lines that queued while the turn had no root yet', async () => {
+    const { ctx, created } = fakeContext('root-wake');
+    let root = false;
+    const sink = createThreadSink({
+      contextFor: () => (root ? ctx : null),
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      flushDelayMs: 5,
+    });
+    await sink.append(start('t1', 'Bash build'), ctx); // no reply post yet: queued
+    root = true; // the reply post now exists...
+    (sink as { wake?: () => void }).wake?.(); // ...and the manager says so
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(created.map((c) => c.content)).toEqual([expect.stringContaining('Bash build')]);
+  });
+});
+
+describe('thread sink: a platform that recovers mid-turn (review round 4)', () => {
+  it('keeps chunking with backoff, so nothing is truncated once posts go through again', async () => {
+    // A few refused posts (a short 429 burst), then the platform recovers.
+    // Stopping chunking after one failure left the whole turn to a single
+    // flush with no post, which truncated at the limit; and a refused chunk
+    // of a multi-post flush used to be dropped once a later one went through.
+    const { ctx, created, updated } = fakeContext('root-recover');
+    let refusals = 3;
+    const flaky = { ...ctx, createPost: async (content: string, options: never) => {
+      if (refusals > 0) { refusals--; throw new Error('429 ratelimited'); }
+      return ctx.createPost(content, options);
+    } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => flaky,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), flaky);
+    await sink.turnEnded(flaky);
+
+    const finalText = new Map<string, string>();
+    created.forEach((c, i) => finalText.set(`d${i + 1}`, c.content));
+    for (const u of updated) finalText.set(u.id, u.content);
+    const all = [...finalText.values()].join('\n');
+    expect(all).not.toContain('(truncated)');
+    const missing = [...Array(400).keys()].filter((i) => !all.includes(`LINE${i}.`));
+    expect(missing).toEqual([]);
   });
 });

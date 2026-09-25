@@ -254,6 +254,166 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('A tall flush split over several new posts, one of which fails', () => {
+    // A flush with no current post splits tall content into several posts.
+    // Each success used to clear the WHOLE flush from pending, so a chunk
+    // refused before or after a success was lost for good.
+    const tall = () => Array.from({ length: 300 }, (_, i) => `line ${i} of the tall reply`).join('\n\n');
+
+    it('keeps the refused chunk and everything after it for the next flush', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      const delivered: string[] = [];
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 2) throw new Error('429 ratelimited');
+        delivered.push(content);
+        return realCreate(content, threadId);
+      });
+      await executor.executeAppend(createAppendContentOp('test', tall()), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      // The platform recovered: the next flush delivers what was held back.
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const text = delivered.join('\n') + '\n' + ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[1]).join('\n');
+      const missing = Array.from({ length: 300 }, (_, i) => i).filter((i) => !text.includes(`line ${i} of`));
+      expect(missing).toEqual([]);
+    });
+  });
+
+  describe('A long code block with no post yet (review round 5)', () => {
+    const block = (lines: number) => ['Here is the file:', '```python', ...Array.from({ length: lines }, (_, i) => `x_${i} = compute(${i})  # step ${i}`), '```'].join('\n');
+    const fences = (t: string) => (t.match(/^```/gm) ?? []).length;
+
+    it('stays one intact post while it fits the platform limit, as before', async () => {
+      // Between the soft threshold (12K here) and the hard limit (16K) main
+      // posted it whole; splitting there only broke the fence.
+      const ctx = getContext();
+      const text = block(420); // ~14K
+      expect(text.length).toBeGreaterThan(12000);
+      expect(text.length).toBeLessThan(16000);
+      await executor.executeAppend(createAppendContentOp('test', text), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+      expect(posts).toHaveLength(1);
+      expect(fences(posts[0]) % 2).toBe(0);
+    });
+
+    it('past the limit it splits with every post keeping its fences balanced, and loses nothing', async () => {
+      const ctx = getContext();
+      const text = block(700); // ~24K
+      await executor.executeAppend(createAppendContentOp('test', text), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+      expect(posts.length).toBeGreaterThan(1);
+      for (const post of posts) expect(fences(post) % 2).toBe(0);
+      expect(posts[1].startsWith('```python')).toBe(true);
+      const all = posts.join('\n');
+      const missing = Array.from({ length: 700 }, (_, i) => i).filter((i) => !all.includes(`x_${i} = compute(`));
+      expect(missing).toEqual([]);
+    });
+  });
+
+  describe('Pathological fence lines (review round 6)', () => {
+    // A fence opener longer than a post used to make the split re-add the
+    // opener forever: a synchronous loop that froze every session.
+    for (const [name, text] of [
+      ['a fence line longer than a post', '```' + 'a'.repeat(20000)],
+      ['a one-line fenced JSON blob', '```{"k":"' + 'v'.repeat(17000) + '"}```'],
+    ] as const) {
+      it(`terminates and delivers ${name}`, async () => {
+        const ctx = getContext();
+        await executor.executeAppend(createAppendContentOp('test', text), ctx);
+        await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+        const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+        expect(posts.length).toBeGreaterThan(1);
+        for (const post of posts) expect(post.length).toBeLessThanOrEqual(16000);
+      });
+    }
+  });
+
+  describe('Splitting fuzz: fences, long lines, no post yet (review round 6)', () => {
+    it('always terminates, and every post fits the limit', async () => {
+      let seed = 42;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+      const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
+      const bits = [
+        () => '```', () => '```ts', () => '```' + 'x'.repeat(Math.floor(rnd() * 20000)),
+        () => 'y'.repeat(Math.floor(rnd() * 18000)), () => 'short line', () => '',
+        () => '| a | b |\n|---|---|\n| 1 | 2 |', () => '````', () => '  ```', () => '~~~',
+      ];
+      for (let run = 0; run < 300; run++) {
+        const fresh = new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined });
+        (platform.createPost as ReturnType<typeof mock>).mockClear();
+        const ctx = getContext();
+        const text = Array.from({ length: 1 + Math.floor(rnd() * 12) }, () => pick(bits)()).join('\n');
+        await fresh.executeAppend(createAppendContentOp('test', text), ctx);
+        await fresh.executeFlush(createFlushOp('test', 'result'), ctx);
+        for (const [post] of (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>) {
+          expect(post.length).toBeLessThanOrEqual(16000);
+        }
+      }
+    });
+  });
+
+  describe('A refused post in the middle of a split, then recovery (review round 6)', () => {
+    it('delivers every paragraph exactly once', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 2) throw new Error('429 ratelimited');
+        return realCreate(content, threadId);
+      });
+      const words = 'alpha beta gamma delta epsilon zeta eta theta'.split(' ');
+      const paragraphs = Array.from({ length: 120 }, (_, i) => `P${i}: ` + Array.from({ length: 40 }, (_, j) => words[(i * 7 + j * 3) % 8]).join(' ') + '.');
+      await executor.executeAppend(createAppendContentOp('test', paragraphs.join('\n\n')), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const finalText = new Map<string, string>();
+      (realCreate.mock.calls as Array<[string]>).forEach((c, i) => finalText.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of (platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>) finalText.set(id, text);
+      const all = [...finalText.values()].join('\n');
+      const counts = paragraphs.map((p) => all.split(p).length - 1);
+      expect(counts.filter((n) => n !== 1).length).toBe(0);
+      // A post over the limit is what the platform truncates (Slack) or
+      // refuses (Mattermost); the mock accepts it, so check it directly.
+      for (const text of finalText.values()) expect(text.length).toBeLessThanOrEqual(16000);
+    });
+  });
+
+  describe('Text arriving while a multi-post flush is writing (review round 5)', () => {
+    it('is kept for the next flush instead of being wiped by the second post', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let first = true;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        if (first) {
+          first = false;
+          // Claude streams on while the first post is being created.
+          await executor.executeAppend(createAppendContentOp('test', 'LATE-ARRIVAL'), ctx);
+        }
+        return realCreate(content, threadId);
+      });
+      const tall = Array.from({ length: 300 }, (_, i) => `line ${i} of the tall reply`).join('\n\n');
+      await executor.executeAppend(createAppendContentOp('test', tall), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const texts = [
+        ...realCreate.mock.calls.map((c) => c[0] as string),
+        ...(platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string),
+      ];
+      expect(texts.some((t) => t.includes('LATE-ARRIVAL'))).toBe(true);
+    });
+  });
+
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();

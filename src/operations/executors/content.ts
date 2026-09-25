@@ -57,6 +57,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       headerPostId: null,
       headerBody: '',
       turnOpen: false,
+      paragraphBreak: false,
     };
   }
 
@@ -96,6 +97,18 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.headerPostId = null;
     this.state.headerBody = '';
     this.state.turnOpen = false;
+  }
+
+  /**
+   * The current post's text exactly as it stands on the platform, header
+   * included. `currentPostContent` holds only the body; anything that re-sends
+   * the post (the turn marker's metadata update) must send this instead, or it
+   * strips the summary line, and blanks a post that held only the header.
+   */
+  getRenderedCurrentPost(): { postId: string; text: string } | null {
+    const postId = this.state.currentPostId;
+    if (!postId) return null;
+    return { postId, text: this.renderFor(postId, this.state.currentPostContent) };
   }
 
   /** What a post's text is, given its body: the header is prepended on the header post only. */
@@ -218,9 +231,21 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Execute an append content operation.
    */
+  /**
+   * A tool ran whose line does not go into the reply (tool activity summary
+   * or hidden). Without its line the text on either side would run together:
+   * `Let me search.Found it.`
+   */
+  markParagraphBreak(): void {
+    this.state.paragraphBreak = true;
+  }
+
   async executeAppend(op: AppendContentOp, _ctx: ExecutorContext): Promise<void> {
-    // Tool output needs spacing before and after to separate from text
-    if (op.isToolOutput && this.state.pendingContent.length > 0) {
+    const breakBefore = this.state.paragraphBreak && !op.isToolOutput;
+    if (!op.isToolOutput) this.state.paragraphBreak = false;
+    // Tool output needs spacing before and after to separate from text; so
+    // does text after a tool that was kept out of the reply.
+    if ((op.isToolOutput || breakBefore) && this.state.pendingContent.length > 0) {
       if (!this.state.pendingContent.endsWith('\n\n')) {
         if (this.state.pendingContent.endsWith('\n')) {
           this.state.pendingContent += '\n';
@@ -314,8 +339,12 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       return;
     }
 
-    // Normal case: content fits in current post
-    if (content.length + reserve > MAX_POST_LENGTH) {
+    // Normal case: content fits in current post. With no post yet, too-long
+    // content is split into several new posts below instead of truncated: a
+    // long burst (tool details held until the turn ends, or a reply that
+    // built up while the platform refused posts) would otherwise lose
+    // everything past the limit.
+    if (this.state.currentPostId && content.length + reserve > MAX_POST_LENGTH) {
       ctx.logger.warn(`Content too long (${content.length}), truncating`);
       content = truncateMessageSafely(
         content,
@@ -379,15 +408,45 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       );
     } else {
       // Create new post(s) - split if content is too tall
-      const chunks = splitContentForHeight(content, ctx.contentBreaker);
+      // Only a chunk that cannot fit a post at all is cut by length: below
+      // the platform limit one post is what it always was, and a code block
+      // must not be split just for passing the soft threshold.
+      const chunks = splitContentForHeight(content, ctx.contentBreaker)
+        .flatMap((chunk) => (chunk.length + reserve > MAX_POST_LENGTH
+          ? splitByLength(chunk, HARD_CONTINUATION_THRESHOLD - reserve)
+          : [chunk]));
       ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
         contentLength: content.length,
         chunkCount: chunks.length,
         reason: 'no_currentPostId',
       }, 'flush');
 
+      let lastPosted: { id: string; content: string } | null = null;
       for (let i = 0; i < chunks.length; i++) {
-        await this.createNewPost(ctx, chunks[i], pendingAtFlushStart);
+        // Only the first post clears the flush from pending. Every later one
+        // would find pending no longer starting with it and wipe everything,
+        // including text Claude streamed while the first post was created.
+        const created = await this.createNewPost(ctx, chunks[i], lastPosted ? '' : pendingAtFlushStart);
+        if (!created) {
+          // Stop at the first refused chunk. A success clears the whole
+          // flush from pending, so once an earlier chunk went through, the
+          // refused one and the rest must be put back, or they are lost;
+          // before any success, pending still holds them. Either way the
+          // next flush carries on from here, after the last post that made it.
+          if (lastPosted) {
+            this.state.pendingContent = chunks.slice(i).join('\n\n')
+              + (this.state.pendingContent ? `\n\n${this.state.pendingContent}` : '');
+          }
+          // No current post: the next flush takes this same path and splits
+          // the put-back text into new posts. Resuming on the last post sent
+          // it through the update-and-split path instead, whose remainder is
+          // not cut by length (Slack truncated it, Mattermost refused it and
+          // the text was posted twice later).
+          this.state.currentPostId = null;
+          this.state.currentPostContent = '';
+          break;
+        }
+        lastPosted = { id: this.state.currentPostId as string, content: this.state.currentPostContent };
         // Reset for next chunk so it creates a new post
         // But keep state for the last chunk so getCurrentPostContent() works
         if (i < chunks.length - 1) {
@@ -604,11 +663,12 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Create a new post.
    */
+  /** Returns whether the post now exists; false when the platform refused it. */
   private async createNewPost(
     ctx: ExecutorContext,
     content: string,
     pendingAtFlushStart: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     // The first post of a turn with a header carries it (docs/quiet-tools-spec.md).
     const header = this.state.header;
     const becomesHeaderPost = this.state.turnOpen && this.state.headerPostId === null && header !== null;
@@ -639,7 +699,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         if (this.onBumpTaskListToBottom) {
           await this.onBumpTaskListToBottom();
         }
-        return;
+        return true;
       }
     }
 
@@ -661,8 +721,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (this.onBumpTaskListToBottom) {
         await this.onBumpTaskListToBottom();
       }
+      return true;
     } catch (err) {
       ctx.logger.error(`Failed to create post: ${err}`);
+      return false;
     }
   }
 
@@ -676,4 +738,46 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       this.state.pendingContent = '';
     }
   }
+}
+
+const FENCE_LINE = /^```.*$/gm;
+const FENCE_CLOSE = '\n```';
+
+/**
+ * Cut `text` into pieces no longer than `max`, at a line break where one is
+ * reasonably close to the limit. A code block cut in two is closed at the end
+ * of one piece and reopened, with its language, at the start of the next, so
+ * each post renders on its own.
+ */
+function splitByLength(text: string, max: number): string[] {
+  const room = max - FENCE_CLOSE.length;
+  if (room < 1) return [text];
+  const pieces: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf('\n', room);
+    if (cut < room * 0.5) cut = room;
+    let piece = rest.slice(0, cut);
+    let next = rest.slice(cut).replace(/^\n+/, '');
+    const fences = piece.match(FENCE_LINE) ?? [];
+    const opener = fences[fences.length - 1];
+    // Reopen only when that still makes progress. A fence line as long as a
+    // post (a one-line fenced blob) would otherwise be re-added in full every
+    // round: a synchronous loop that froze the whole bot. Such a line is cut
+    // like any other text instead.
+    if (fences.length % 2 === 1 && opener !== undefined && `${opener}\n${next}`.length < rest.length) {
+      piece += FENCE_CLOSE;
+      next = `${opener}\n${next}`;
+    }
+    pieces.push(piece);
+    // The loop must shrink `rest` every round; anything else is a bug, and
+    // shipping the remainder beats spinning forever.
+    if (next.length >= rest.length) {
+      rest = next;
+      break;
+    }
+    rest = next;
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
 }

@@ -119,3 +119,104 @@ describe('ToolActivityExecutor', () => {
     expect(resets()).toBe(1);
   });
 });
+
+describe('ToolActivityExecutor turn boundaries (pre-release review)', () => {
+  const startOp = (id: string) => createToolActivityOp('s', { kind: 'start', toolUseId: id, name: 'Bash', display: `Bash ${id}` });
+
+  it('a turn ending with a tool still running renders a final line, not a running one', async () => {
+    const headers: string[] = [];
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: noneSink, onHeader: (l) => headers.push(l), now: () => 5000 });
+    await exec.execute(startOp('t1'), ctx); // interrupted: no end op follows
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+
+    expect(headers.at(-1)).not.toContain('…');
+  });
+
+  it('a tool of the next turn arriving while the details are delivered counts for the next turn', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const sink: ToolDetailsSink = { ...noneSink, turnEnded: async () => { await gate; } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => undefined });
+    await exec.execute(startOp('t1'), ctx);
+
+    const delivering = exec.afterResultFlush(ctx); // turn N's details are being written...
+    await exec.execute(startOp('t2'), ctx); // ...when turn N+1's first tool starts
+    release();
+    await delivering;
+
+    expect(exec.getStats().started).toBe(1);
+  });
+});
+
+describe('ToolActivityExecutor after an interrupted turn (review round 2)', () => {
+  const warnCtx = () => {
+    const warnings: string[] = [];
+    return { warnings, c: { formatter, sessionId: 's', logger: { warn: (m: string) => warnings.push(m), debug: () => undefined } } as unknown as ExecutorContext };
+  };
+
+  it('ignores the late end of a tool the previous turn already closed', async () => {
+    const headers: string[] = [];
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: noneSink, onHeader: (l) => headers.push(l), now: () => 1000 });
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'x', name: 'Bash', display: 'x' }), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+    await exec.afterResultFlush(ctx);
+    const before = headers.length;
+
+    // The interrupted tool's result arrives in the next turn.
+    await exec.execute(createToolActivityOp('s', { kind: 'end', toolUseId: 'x', ok: true, elapsedMs: 0, display: 'e' }), ctx);
+
+    expect(headers.length).toBe(before);
+    expect(exec.getStats()).toMatchObject({ started: 0, finished: 0 });
+  });
+
+  it('a failing details sink does not fail the turn end', async () => {
+    const sink: ToolDetailsSink = { ...noneSink, turnEnded: async () => { throw new Error('flush boom'); } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => undefined });
+    const { warnings, c } = warnCtx();
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'x', name: 'Bash', display: 'x' }), c);
+
+    await expect(exec.afterResultFlush(c)).resolves.toBeUndefined();
+    expect(warnings.some((w) => w.includes('flush boom'))).toBe(true);
+  });
+});
+
+describe('ToolActivityExecutor matches ends by tool id (review round 3)', () => {
+  it('a late end of the interrupted tool does not stand in for the next tool\'s end', async () => {
+    const rec = recordingSink();
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: rec.sink, onHeader: () => undefined, now: () => 1000 });
+    const s = (id: string) => createToolActivityOp('s', { kind: 'start', toolUseId: id, name: 'Bash', display: `start ${id}` });
+    const e = (id: string, ok: boolean) => createToolActivityOp('s', { kind: 'end', toolUseId: id, ok, elapsedMs: 0, display: `end ${id}` });
+
+    await exec.execute(s('x'), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx); // interrupted
+    await exec.afterResultFlush(ctx);
+    await exec.execute(s('y'), ctx);
+    await exec.execute(e('x', true), ctx); // late
+    await exec.execute(e('y', false), ctx); // the real one
+
+    expect(exec.getStats()).toMatchObject({ started: 1, finished: 1, failed: 1 });
+    expect(rec.appended.map((op) => op.display)).toContain('end y');
+    expect(rec.appended.map((op) => op.display)).not.toContain('end x');
+  });
+});
+
+describe('ToolActivityExecutor end renders before the sink (review round 4)', () => {
+  it('a result arriving while an end waits on the sink does not get a zero-count header', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const headers: string[] = [];
+    let block = false;
+    const sink: ToolDetailsSink = { ...noneSink, append: async () => { if (block) await gate; } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: (l) => headers.push(l), now: () => 1000 });
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'a', name: 'Bash', display: 'a' }), ctx);
+
+    block = true;
+    const ending = exec.execute(createToolActivityOp('s', { kind: 'end', toolUseId: 'a', ok: true, elapsedMs: 0, display: 'e' }), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+    await exec.afterResultFlush(ctx); // the result: stats start over
+    release();
+    await ending;
+
+    expect(headers.some((h) => h.startsWith('🔧 0 tools'))).toBe(false);
+  });
+});

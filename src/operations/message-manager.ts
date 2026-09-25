@@ -345,6 +345,10 @@ export class MessageManager {
       const sink = this.toolActivity.details === 'thread'
         ? createThreadSink({
             contextFor: () => this.toolDetailsContext(),
+            // In a thread session the details share the reply's thread, so
+            // they must wait for the whole reply; under a DCM reply they have
+            // a thread of their own and can stream.
+            holdUntilTurnEnd: !isDcmThreadId(this.threadId),
             // No task-list bump callbacks: a details post must never repurpose the task list.
             makeExecutor: () => new ContentExecutor({ registerPost: options.registerPost, updateLastMessage: () => undefined }),
           })
@@ -479,6 +483,7 @@ export class MessageManager {
       if (isContentOp(op)) {
         await this.handleContentOp(op, ctx);
       } else if (isToolActivityOp(op)) {
+        if (op.kind === 'start') this.contentExecutor.markParagraphBreak();
         await this.toolActivityExecutor?.execute(op, ctx);
       } else if (isFlushOp(op)) {
         await this.handleFlushOp(op, ctx);
@@ -545,7 +550,9 @@ export class MessageManager {
     // number unadvanced when a flush fails would reuse it on the next turn
     // and hide the loss, where a gap tells the reader a turn went missing
     // (CodeRabbit review).
-    if (op.reason === 'result') this.turn++;
+    // Captured, not re-read later: upstream does not await event handling,
+    // so the next turn's result can bump the counter while this one flushes.
+    const turn = op.reason === 'result' ? ++this.turn : this.turn;
 
     // Execute the flush, tracked: the next handleFlushOp must be able to wait
     // for this one, and event handling is not awaited upstream.
@@ -555,7 +562,7 @@ export class MessageManager {
       // The turn's post now exists (if it ever will): deliver the tool
       // details, then mark the turn, so the marker stays the last signal.
       await this.toolActivityExecutor?.afterResultFlush(ctx);
-      await this.markTurnComplete(ctx, op.resultOk !== false);
+      await this.markTurnComplete(ctx, op.resultOk !== false, turn);
     }
   }
 
@@ -565,16 +572,17 @@ export class MessageManager {
    * the answer is complete. A turn with no reply post marks nothing. A
    * marker failure is logged and never touches the reply.
    */
-  private async markTurnComplete(ctx: ExecutorContext, ok: boolean): Promise<void> {
+  private async markTurnComplete(ctx: ExecutorContext, ok: boolean, turn: number): Promise<void> {
     if (this.turnMarker.mode === 'off') return;
-    const { currentPostId, currentPostContent } = this.contentExecutor.getState();
-    if (!currentPostId) return;
+    const current = this.contentExecutor.getRenderedCurrentPost();
+    if (!current) return;
+    const { postId: currentPostId, text: currentPostText } = current;
     try {
       if (this.turnMarker.mode === 'metadata') {
-        await this.platform.updatePost(currentPostId, currentPostContent, {
+        await this.platform.updatePost(currentPostId, currentPostText, {
           metadata: {
             event_type: TURN_COMPLETE_EVENT_TYPE,
-            event_payload: { v: TURN_COMPLETE_PAYLOAD_VERSION, session: this.sessionId, turn: this.turn, ok },
+            event_payload: { v: TURN_COMPLETE_PAYLOAD_VERSION, session: this.sessionId, turn, ok },
           },
         });
       } else {
@@ -605,6 +613,9 @@ export class MessageManager {
     });
     this.flushInFlight = running;
     await running;
+    // A flush can create the turn's reply post; tool lines that queued for
+    // want of a root can go now instead of at the next tool event.
+    this.toolActivityExecutor?.wake();
   }
 
   /**

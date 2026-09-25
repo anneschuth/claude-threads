@@ -1332,6 +1332,80 @@ describe('MessageManager tool activity (summary / hidden)', () => {
   });
 });
 
+describe('MessageManager tool details in direct channel mode', () => {
+  it('threads each turn\'s details under that turn\'s own reply', async () => {
+    // The first tool of turn 2 used to reach the sink before the header was
+    // re-rendered, while headerPostId still pointed at turn 1's reply.
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:dcm', threadId: 'dcm:test',
+      registerPost: () => undefined, updateLastMessage: () => undefined,
+      toolActivity: { activity: 'summary', details: 'thread' },
+    });
+    const tool = (id: string) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id, input: { command: 'ls' } }] } }) as never;
+    const done = (id: string) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } }) as never;
+    const text = { type: 'assistant', message: { content: [{ type: 'text', text: 'Done.' }] } } as never;
+    const result = { type: 'result', result: {} } as never;
+
+    for (const ev of [tool('a'), done('a'), text, result]) await m.handleEvent(ev);
+    await m.prepareForUserMessage();
+    for (const ev of [tool('b'), done('b'), text, result]) await m.handleEvent(ev);
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>;
+    const replies = calls.map((c, i) => ({ id: `post_${i + 1}`, content: c[0], root: c[1] })).filter((p) => p.content.startsWith('🔧'));
+    const details = calls.map((c, i) => ({ id: `post_${i + 1}`, content: c[0], root: c[1] })).filter((p) => p.content.includes('↳'));
+    expect(replies).toHaveLength(2);
+    expect(details).toHaveLength(2);
+    expect(details[0].root).toBe(replies[0].id);
+    expect(details[1].root).toBe(replies[1].id);
+  });
+
+  it('streams a turn\'s first tool line once the reply post exists, without waiting for another tool', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:dcm', threadId: 'dcm:test',
+      registerPost: () => undefined, updateLastMessage: () => undefined,
+      toolActivity: { activity: 'summary', details: 'thread' },
+    });
+    await m.handleEvent({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 'long', input: { command: 'make build' } }] } } as never);
+    // One long-running tool: no further tool event arrives. The reply post
+    // appears on the manager's timer flush, the details on the sink's.
+    await new Promise((r) => setTimeout(r, 1300));
+
+    const contents = (platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string);
+    expect(contents.some((c) => c.startsWith('🔧'))).toBe(true);
+    expect(contents.some((c) => c.includes('make build') && !c.startsWith('🔧'))).toBe(true);
+  });
+});
+
+describe('MessageManager text around tools in summary/hidden (review round 4)', () => {
+  for (const activity of ['summary', 'hidden'] as const) {
+    it(`${activity}: text before and after a server tool stays two paragraphs`, async () => {
+      const platform = createMockPlatform();
+      const session = createMockSession(platform);
+      const m = new MessageManager({
+        session, platform, postTracker: new PostTracker(), sessionId: 'test:s', threadId: 'thread-1',
+        registerPost: () => undefined, updateLastMessage: () => undefined,
+        toolActivity: { activity, details: 'none' },
+      });
+      await m.handleEvent({ type: 'assistant', message: { content: [
+        { type: 'text', text: 'Let me search.' },
+        { type: 'server_tool_use', name: 'web_search', id: 'srv1', input: { query: 'x' } },
+        { type: 'text', text: 'Found it.' },
+      ] } } as never);
+      await m.handleEvent({ type: 'result', result: {} } as never);
+
+      const texts = [
+        ...(platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string),
+        ...(platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string),
+      ];
+      expect(texts.at(-1)).toContain('Let me search.\n\nFound it.');
+    });
+  }
+});
+
 describe('MessageManager turn marker', () => {
   let platform: PlatformClient;
   let session: Session;
@@ -1359,6 +1433,49 @@ describe('MessageManager turn marker', () => {
     expect(marked[0][1]).toBe('Two files.');
     expect(marked[0][2]?.metadata).toEqual({ event_type: 'claude_threads_turn_complete', event_payload: { v: 1, session: 'test:session-1', turn: 1, ok: true } });
     expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
+  });
+
+  describe('with toolActivity summary', () => {
+    // The marker re-sends the last post's text with the metadata. With a
+    // summary header that text must include the header: the post body alone
+    // stripped the tool line at every turn end, and blanked a tool-only post.
+    function withSummaryAndMarker() {
+      return new MessageManager({
+        session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+        registerPost: () => undefined, updateLastMessage: () => undefined,
+        turnMarker: { mode: 'metadata' }, toolActivity: { activity: 'summary', details: 'none' },
+      });
+    }
+    const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1', input: { command: 'ls' } }] } } as never;
+    const toolDone = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } } as never;
+    const marked = () => ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>)
+      .filter((c) => c[2]?.metadata);
+
+    it('keeps the summary line when the marker re-sends the reply', async () => {
+      const m = withSummaryAndMarker();
+      for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+
+      expect(marked()).toHaveLength(1);
+      expect(marked()[0][1].startsWith('🔧 1 tool')).toBe(true);
+      expect(marked()[0][1]).toContain('Two files.');
+    });
+
+    it('does not blank a post that holds only the summary line', async () => {
+      const m = withSummaryAndMarker();
+      for (const ev of [toolUse, toolDone, result]) await m.handleEvent(ev);
+
+      expect(marked()).toHaveLength(1);
+      expect(marked()[0][1].startsWith('🔧 1 tool')).toBe(true);
+    });
+  });
+
+  it('metadata: each turn carries its own number even when events arrive in a burst', async () => {
+    const m = withMarker({ mode: 'metadata' });
+    // Upstream does not await handleEvent; two turns can overlap.
+    await Promise.all([m.handleEvent(text), m.handleEvent(result), m.handleEvent(text), m.handleEvent(result)]);
+    const turns = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata).map((c) => c[2]!.metadata!.event_payload.turn);
+    expect(turns).toEqual([1, 2]);
   });
 
   it('reaction: the emoji lands on the last post; an error result says ok false in metadata mode', async () => {
