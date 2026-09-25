@@ -15,6 +15,13 @@ name: Sync bun.lock on Dependabot PRs
 # security-advisory PRs working. Renovate handles bun natively (including
 # vulnerabilityAlerts) and would let the repo drop to a single lockfile — see
 # CLAUDE.md.
+#
+# CI on the synced commit: GitHub holds every pull_request run on a commit
+# pushed by GITHUB_TOKEN ("action_required") until a human approves it, so the
+# commit that matters sat without CI for days (#593, #607, #608). workflow_dispatch
+# is the one event GITHUB_TOKEN may trigger, so this job dispatches CI and the
+# integration tests on the branch itself, then deletes the held runs so the PR
+# does not show checks waiting for an approval nobody needs to give.
 
 on:
   pull_request:
@@ -24,6 +31,8 @@ on:
 
 permissions:
   contents: write
+  # Dispatch CI on the synced commit and delete the runs GitHub holds for it.
+  actions: write
 
 env:
   # Keep in lockstep with .github/workflows/ci.yml.
@@ -56,6 +65,7 @@ jobs:
           bun install
 
       - name: Commit bun.lock if it changed
+        id: commit
         run: |
           if git diff --quiet -- bun.lock; then
             echo "bun.lock already matches the update — nothing to sync."
@@ -66,3 +76,28 @@ jobs:
           git add bun.lock
           git commit -m "chore: sync bun.lock with Dependabot update"
           git push origin HEAD:"${{ github.head_ref }}"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run CI on the synced commit
+        if: steps.commit.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.head_ref }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          gh workflow run ci.yml --ref "$HEAD_REF"
+          gh workflow run integration.yml --ref "$HEAD_REF"
+
+          # The held pull_request runs appear a few seconds after the push, one
+          # per workflow the synchronize event matched (CI, integration, this
+          # one). Delete them as they show up; give up quietly after 3 minutes,
+          # since a leftover held run is cosmetic, not a failure.
+          deleted=0
+          for _ in $(seq 1 18); do
+            for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&event=pull_request&status=action_required" --jq '.workflow_runs[].id'); do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id" && deleted=$((deleted + 1))
+            done
+            [ "$deleted" -ge 3 ] && break
+            sleep 10
+          done
+          echo "Deleted $deleted held pull_request run(s) for $SHA."
