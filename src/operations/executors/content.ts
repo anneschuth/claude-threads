@@ -426,6 +426,47 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   }
 
   /**
+   * `content` (the current post's whole new text) no longer fits one post:
+   * put its first length-cut piece in the current post and the rest in new
+   * posts, fences closed and reopened. Returns false, doing nothing, when it
+   * fits, so the caller's update-in-place stays exactly what it was.
+   */
+  private async splitOversized(
+    ctx: ExecutorContext,
+    content: string,
+    pendingAtFlushStart: string,
+    hardThreshold: number,
+  ): Promise<boolean> {
+    const postId = this.state.currentPostId;
+    if (!postId) return false;
+    const reserve = this.headerReserve(postId);
+    if (content.length + reserve <= ctx.platform.getMessageLimits().maxLength) return false;
+
+    const [firstPiece, ...rest] = splitByLength(content, hardThreshold - reserve);
+    let landed = false;
+    await this.tryUpdatePost(
+      ctx,
+      postId,
+      firstPiece,
+      'handleSplit',
+      { reason: 'oversized_code_block', contentLength: content.length, pieces: rest.length + 1 },
+      { reason: 'oversized_code_block_failed' },
+      () => { landed = true; },
+      () => {
+        // Same reasoning as the split's first part: pending is about to be
+        // handed to the new posts, so a later header render must restore
+        // the attempted piece.
+        if (postId === this.state.headerPostId) this.state.headerBody = firstPiece;
+      },
+    );
+    this.state.currentPostId = null;
+    this.state.currentPostContent = '';
+    if (landed) this.clearFlushedContent(pendingAtFlushStart);
+    await this.postChunks(ctx, rest, pendingAtFlushStart, landed);
+    return true;
+  }
+
+  /**
    * Post `chunks` as consecutive new posts.
    *
    * `flushCleared` says whether this flush is already out of pending (the
@@ -570,7 +611,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // Split at code block start if needed
     if (codeBlockOpenPosition !== undefined) {
       if (codeBlockOpenPosition === 0) {
-        // Code block at start - just update and wait.
+        // Code block at start - just update and wait, unless it no longer
+        // fits one post: a block that keeps streaming would otherwise grow
+        // this post without bound (#617).
+        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold)) return;
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(
@@ -598,6 +642,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (breakBeforeCodeBlock > 0) {
         breakPoint = breakBeforeCodeBlock;
       } else {
+        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold)) return;
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(

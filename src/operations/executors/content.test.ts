@@ -445,6 +445,33 @@ describe('ContentExecutor', () => {
       expectDeliveredOnce(finalTexts(realCreate));
     });
 
+    it('a code block that keeps streaming never grows one post past the limit', async () => {
+      // The last remainder post reopens the cut code block, so every later
+      // flush while the block is still open took the "code block at start"
+      // branch, which updated the whole text into one post (55K here; 103K
+      // on main).
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      const codeLines = (from: number, n: number) => Array.from({ length: n }, (_, i) => `const v${from + i} = compute(${from + i}); // step`).join('\n');
+      await executor.executeAppend(createAppendContentOp('test', 'Starting.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', '```ts\n' + codeLines(0, 1500)), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      for (let k = 1; k <= 4; k++) {
+        await executor.executeAppend(createAppendContentOp('test', '\n' + codeLines(k * 1500, 250)), ctx);
+        await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      }
+      await executor.executeAppend(createAppendContentOp('test', '\n```\nDone.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const texts = finalTexts(realCreate);
+      for (const text of texts.values()) expect(text.length).toBeLessThanOrEqual(16000);
+      const all = [...texts.values()].join('\n');
+      const expected = [...Array(1500).keys(), ...[1, 2, 3, 4].flatMap((k) => [...Array(250).keys()].map((i) => k * 1500 + i))];
+      const wrong = expected.filter((n) => all.split(`const v${n} = `).length - 1 !== 1);
+      expect(wrong).toEqual([]);
+    });
+
     it('does not post the delivered first part twice when the remainder is refused once', async () => {
       const ctx = getContext();
       const realCreate = platform.createPost as ReturnType<typeof mock>;
