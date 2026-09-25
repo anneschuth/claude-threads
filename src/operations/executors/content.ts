@@ -662,8 +662,9 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // Start new post for remainder
     // NOTE: Do NOT set pendingContent = remainder here!
     // That would overwrite any new content that arrived during the async updatePost.
-    // Instead, createNewPost will call clearFlushedContent(pendingAtFlushStart) which
-    // properly clears only the flushed content while preserving any new content.
+    // The flush leaves pending through clearFlushedContent(pendingAtFlushStart),
+    // which keeps anything that arrived since: below, right away when the first
+    // part landed, otherwise on the first remainder post that goes through.
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
 
