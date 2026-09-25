@@ -247,6 +247,8 @@ jobs:
   # SHA, which the PR does show, replacing the pending one the sync job set.
   dispatch-status:
     if: always() && github.event_name == 'workflow_dispatch'
+    # Must list EVERY other job in this file: a job left out can fail or
+    # still be running while this reports success.
     needs: [security, lint, typecheck, test, build, windows-spawn, node-smoke, node-e2e]
     runs-on: ubuntu-latest
     permissions:
@@ -264,4 +266,4 @@ jobs:
           done
           gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -f state="$state" -f context="CI (dispatched)" \
-            -f target_url="$RUN_URL" -f description="CI on the synced lockfile: $state"
+            -f target_url="$RUN_URL" -f description="CI (dispatched run): $state"
