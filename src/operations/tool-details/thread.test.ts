@@ -139,3 +139,76 @@ describe('thread sink reset during a drain', () => {
     expect(scheduleFlush).not.toHaveBeenCalled();
   });
 });
+
+describe('thread sink: turn end while a timer flush is writing', () => {
+  it('waits for the in-flight flush instead of creating a second details post', async () => {
+    // The sink's own flush timer fired and its createPost is still in flight
+    // (a slow platform) when the result arrives. The turn-end flush must wait
+    // for it: before, it saw no post yet and created a second one with the
+    // same lines.
+    const { ctx, created } = fakeContext('root-slow');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const slowCtx = { ...ctx, createPost: async (content: string, options: never) => { await gate; return ctx.createPost(content, options); } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => slowCtx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+    });
+
+    await sink.append(start('t1', 'Bash ls'), slowCtx);
+    await new Promise((r) => setTimeout(r, 600)); // the 500 ms timer fires; its createPost waits on the gate
+    const ending = sink.turnEnded(slowCtx);
+    release();
+    await ending;
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(created).toHaveLength(1);
+  });
+});
+
+describe('thread sink: holdUntilTurnEnd', () => {
+  it('posts nothing while the turn runs, then all lines in one post at turn end', async () => {
+    // A thread session: the details share the reply's thread, so a post made
+    // mid-turn would sit above reply posts that are still to come.
+    const { ctx, created } = fakeContext('root-hold');
+    const sink = createThreadSink({
+      contextFor: () => ctx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+      flushDelayMs: 5,
+    });
+
+    await sink.append(start('t1', 'Bash ls'), ctx);
+    await sink.append(end('t1'), ctx);
+    // Longer than any streaming flush delay, including the 500 ms default.
+    await new Promise((r) => setTimeout(r, 600));
+    expect(created).toHaveLength(0);
+
+    await sink.turnEnded(ctx);
+    expect(created).toHaveLength(1);
+    expect(created[0].content).toContain('Bash ls');
+    expect(created[0].content).toContain('↳ ✓');
+  });
+
+  it('a line of the next turn arriving during delivery is not dropped with the ended turn', async () => {
+    const { ctx, created } = fakeContext('root-next');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    let first = true;
+    const slowCtx = { ...ctx, createPost: async (content: string, options: never) => { if (first) { first = false; await gate; } return ctx.createPost(content, options); } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => slowCtx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+
+    await sink.append(start('t1', 'Bash turn-one'), slowCtx);
+    const ending = sink.turnEnded(slowCtx);
+    await sink.append(start('t2', 'Bash turn-two'), slowCtx);
+    release();
+    await ending;
+    await sink.turnEnded(slowCtx);
+
+    expect(created.map((c) => c.content)).toEqual([expect.stringContaining('turn-one'), expect.stringContaining('turn-two')]);
+  });
+});

@@ -345,6 +345,10 @@ export class MessageManager {
       const sink = this.toolActivity.details === 'thread'
         ? createThreadSink({
             contextFor: () => this.toolDetailsContext(),
+            // In a thread session the details share the reply's thread, so
+            // they must wait for the whole reply; under a DCM reply they have
+            // a thread of their own and can stream.
+            holdUntilTurnEnd: !isDcmThreadId(this.threadId),
             // No task-list bump callbacks: a details post must never repurpose the task list.
             makeExecutor: () => new ContentExecutor({ registerPost: options.registerPost, updateLastMessage: () => undefined }),
           })
@@ -567,11 +571,12 @@ export class MessageManager {
    */
   private async markTurnComplete(ctx: ExecutorContext, ok: boolean): Promise<void> {
     if (this.turnMarker.mode === 'off') return;
-    const { currentPostId, currentPostContent } = this.contentExecutor.getState();
-    if (!currentPostId) return;
+    const current = this.contentExecutor.getRenderedCurrentPost();
+    if (!current) return;
+    const { postId: currentPostId, text: currentPostText } = current;
     try {
       if (this.turnMarker.mode === 'metadata') {
-        await this.platform.updatePost(currentPostId, currentPostContent, {
+        await this.platform.updatePost(currentPostId, currentPostText, {
           metadata: {
             event_type: TURN_COMPLETE_EVENT_TYPE,
             event_payload: { v: TURN_COMPLETE_PAYLOAD_VERSION, session: this.sessionId, turn: this.turn, ok },

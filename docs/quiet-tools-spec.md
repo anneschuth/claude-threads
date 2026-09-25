@@ -117,10 +117,15 @@ A `TransformContext.toolActivity` field carries the mode (default `full`).
     (the reply is a channel post, the details thread hangs under it), and
     `rootId = the session's threadId` in thread mode (Slack has no nested
     threads; `thread_ts` of a reply is rejected with `invalid_thread_ts`), so
-    there the details interleave as peers after the reply. It streams the
-    `display` strings exactly like the reply and starts lazily on the first
+    there the details land as peers after the reply. In that mode they are
+    held until the turn ends and then posted in one go, because a details
+    post made mid-turn would sit above reply posts that are still to come.
+    In direct-channel mode they have a thread of their own and stream the
+    `display` strings exactly like the reply, starting lazily on the first
     tool of a turn; if the main post does not exist yet, the first header
-    render creates it.
+    render creates it. Each turn's details are written on a serial chain of
+    their own, so a streaming flush and the turn-end flush never overlap,
+    and the next turn's first tool never lands in the turn being closed.
   - `file`: appends escaped `<pre>` blocks to the turn file (ANSI escape
     sequences stripped first; tool output is full of them) and rewrites
     `index.html`; deterministic path so the link exists from the first tool.

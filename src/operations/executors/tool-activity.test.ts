@@ -119,3 +119,31 @@ describe('ToolActivityExecutor', () => {
     expect(resets()).toBe(1);
   });
 });
+
+describe('ToolActivityExecutor turn boundaries (pre-release review)', () => {
+  const startOp = (id: string) => createToolActivityOp('s', { kind: 'start', toolUseId: id, name: 'Bash', display: `Bash ${id}` });
+
+  it('a turn ending with a tool still running renders a final line, not a running one', async () => {
+    const headers: string[] = [];
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: noneSink, onHeader: (l) => headers.push(l), now: () => 5000 });
+    await exec.execute(startOp('t1'), ctx); // interrupted: no end op follows
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+
+    expect(headers.at(-1)).not.toContain('…');
+  });
+
+  it('a tool of the next turn arriving while the details are delivered counts for the next turn', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const sink: ToolDetailsSink = { ...noneSink, turnEnded: async () => { await gate; } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => undefined });
+    await exec.execute(startOp('t1'), ctx);
+
+    const delivering = exec.afterResultFlush(ctx); // turn N's details are being written...
+    await exec.execute(startOp('t2'), ctx); // ...when turn N+1's first tool starts
+    release();
+    await delivering;
+
+    expect(exec.getStats().started).toBe(1);
+  });
+});

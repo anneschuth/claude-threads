@@ -83,6 +83,12 @@ export class ToolActivityExecutor {
       this.renderHeader(now, ctx);
     } else if (this.stats.started > 0) {
       // turn_end: the final line, rendered by the result flush that follows.
+      // A tool can end the turn without a result of its own (an interrupt);
+      // the turn is over all the same, so it must not keep a running `…`.
+      if (this.stats.started > this.stats.finished) {
+        this.stats.finished = this.stats.started;
+        this.stats.lastEndAt = now;
+      }
       this.renderHeader(now, ctx);
     }
   }
@@ -93,8 +99,12 @@ export class ToolActivityExecutor {
    */
   async afterResultFlush(ctx: ExecutorContext): Promise<void> {
     if (this.stats.started === 0) return;
-    await this.options.sink.turnEnded(ctx);
+    // Start the next turn's counter BEFORE awaiting the sink: event handling
+    // is not awaited upstream, so the next turn's first tool can arrive while
+    // this turn's details are being written, and must not count into (and be
+    // wiped with) this turn's stats.
     this.stats = fresh();
+    await this.options.sink.turnEnded(ctx);
   }
 
   /**

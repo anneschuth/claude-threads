@@ -98,6 +98,18 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.turnOpen = false;
   }
 
+  /**
+   * The current post's text exactly as it stands on the platform, header
+   * included. `currentPostContent` holds only the body; anything that re-sends
+   * the post (the turn marker's metadata update) must send this instead, or it
+   * strips the summary line, and blanks a post that held only the header.
+   */
+  getRenderedCurrentPost(): { postId: string; text: string } | null {
+    const postId = this.state.currentPostId;
+    if (!postId) return null;
+    return { postId, text: this.renderFor(postId, this.state.currentPostContent) };
+  }
+
   /** What a post's text is, given its body: the header is prepended on the header post only. */
   private renderFor(postId: string | null, body: string): string {
     if (this.state.header && postId !== null && postId === this.state.headerPostId) {

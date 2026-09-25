@@ -1361,6 +1361,40 @@ describe('MessageManager turn marker', () => {
     expect((platform.addReaction as ReturnType<typeof mock>).mock.calls).toHaveLength(0);
   });
 
+  describe('with toolActivity summary', () => {
+    // The marker re-sends the last post's text with the metadata. With a
+    // summary header that text must include the header: the post body alone
+    // stripped the tool line at every turn end, and blanked a tool-only post.
+    function withSummaryAndMarker() {
+      return new MessageManager({
+        session, platform, postTracker: new PostTracker(), sessionId: 'test:session-1', threadId: 'thread-123',
+        registerPost: () => undefined, updateLastMessage: () => undefined,
+        turnMarker: { mode: 'metadata' }, toolActivity: { activity: 'summary', details: 'none' },
+      });
+    }
+    const toolUse = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 't1', input: { command: 'ls' } }] } } as never;
+    const toolDone = { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } } as never;
+    const marked = () => ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: unknown }?]>)
+      .filter((c) => c[2]?.metadata);
+
+    it('keeps the summary line when the marker re-sends the reply', async () => {
+      const m = withSummaryAndMarker();
+      for (const ev of [toolUse, toolDone, text, result]) await m.handleEvent(ev);
+
+      expect(marked()).toHaveLength(1);
+      expect(marked()[0][1].startsWith('🔧 1 tool')).toBe(true);
+      expect(marked()[0][1]).toContain('Two files.');
+    });
+
+    it('does not blank a post that holds only the summary line', async () => {
+      const m = withSummaryAndMarker();
+      for (const ev of [toolUse, toolDone, result]) await m.handleEvent(ev);
+
+      expect(marked()).toHaveLength(1);
+      expect(marked()[0][1].startsWith('🔧 1 tool')).toBe(true);
+    });
+  });
+
   it('reaction: the emoji lands on the last post; an error result says ok false in metadata mode', async () => {
     const r = withMarker({ mode: 'reaction', emoji: 'checkered_flag' });
     await r.handleEvent(text);
