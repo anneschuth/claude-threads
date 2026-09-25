@@ -421,38 +421,51 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         reason: 'no_currentPostId',
       }, 'flush');
 
-      let lastPosted: { id: string; content: string } | null = null;
-      for (let i = 0; i < chunks.length; i++) {
-        // Only the first post clears the flush from pending. Every later one
-        // would find pending no longer starting with it and wipe everything,
-        // including text Claude streamed while the first post was created.
-        const created = await this.createNewPost(ctx, chunks[i], lastPosted ? '' : pendingAtFlushStart);
-        if (!created) {
-          // Stop at the first refused chunk. A success clears the whole
-          // flush from pending, so once an earlier chunk went through, the
-          // refused one and the rest must be put back, or they are lost;
-          // before any success, pending still holds them. Either way the
-          // next flush carries on from here, after the last post that made it.
-          if (lastPosted) {
-            this.state.pendingContent = chunks.slice(i).join('\n\n')
-              + (this.state.pendingContent ? `\n\n${this.state.pendingContent}` : '');
-          }
-          // No current post: the next flush takes this same path and splits
-          // the put-back text into new posts. Resuming on the last post sent
-          // it through the update-and-split path instead, whose remainder is
-          // not cut by length (Slack truncated it, Mattermost refused it and
-          // the text was posted twice later).
-          this.state.currentPostId = null;
-          this.state.currentPostContent = '';
-          break;
+      await this.postChunks(ctx, chunks, pendingAtFlushStart, false);
+    }
+  }
+
+  /**
+   * Post `chunks` as consecutive new posts.
+   *
+   * `flushCleared` says whether this flush is already out of pending (the
+   * split's first part landed in the current post, so what remains to deliver
+   * is exactly these chunks). Otherwise the first successful post clears it;
+   * every later one would find pending no longer starting with the flush and
+   * wipe everything, including text Claude streamed meanwhile.
+   *
+   * Stops at the first refused chunk. Once the flush is out of pending, the
+   * refused chunk and the rest go back in front of whatever arrived since, or
+   * they are lost; before that, pending still holds them. Either way no post
+   * is current afterwards: the next flush then takes the no-post path and
+   * splits the put-back text into posts that fit, where resuming on the last
+   * post sent it through the update path (Slack truncated the result,
+   * Mattermost refused it and it was posted twice later).
+   */
+  private async postChunks(
+    ctx: ExecutorContext,
+    chunks: string[],
+    pendingAtFlushStart: string,
+    flushCleared: boolean,
+  ): Promise<void> {
+    let cleared = flushCleared;
+    for (let i = 0; i < chunks.length; i++) {
+      const created = await this.createNewPost(ctx, chunks[i], cleared ? '' : pendingAtFlushStart);
+      if (!created) {
+        if (cleared) {
+          this.state.pendingContent = chunks.slice(i).join('\n\n')
+            + (this.state.pendingContent ? `\n\n${this.state.pendingContent}` : '');
         }
-        lastPosted = { id: this.state.currentPostId as string, content: this.state.currentPostContent };
-        // Reset for next chunk so it creates a new post
-        // But keep state for the last chunk so getCurrentPostContent() works
-        if (i < chunks.length - 1) {
-          this.state.currentPostId = null;
-          this.state.currentPostContent = '';
-        }
+        this.state.currentPostId = null;
+        this.state.currentPostContent = '';
+        return;
+      }
+      cleared = true;
+      // Reset for next chunk so it creates a new post
+      // But keep state for the last chunk so getCurrentPostContent() works
+      if (i < chunks.length - 1) {
+        this.state.currentPostId = null;
+        this.state.currentPostContent = '';
       }
     }
   }
@@ -618,11 +631,11 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // This is because `content` already represents all pending content, and firstPart
     // is the portion that should be in this post. Combining would cause duplication
     // since pendingContent accumulates and isn't always cleared properly.
+    let firstPartLanded = false;
     if (this.state.currentPostId) {
       const postId = this.state.currentPostId;
-      // Split first part: no state mutation on either branch — the caller
-      // unconditionally nulls currentPostId and clears currentPostContent
-      // below to start fresh for the remainder.
+      // Split first part: the caller nulls currentPostId and clears
+      // currentPostContent below to start fresh for the remainder either way.
       await this.tryUpdatePost(
         ctx,
         postId,
@@ -630,7 +643,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         'handleSplit',
         { reason: 'split_first_part', firstPartLength: firstPart.length, remainderLength: remainder.length },
         { reason: 'split_first_part_failed' },
-        () => { /* no-op: caller resets state below */ },
+        () => { firstPartLanded = true; },
         () => {
           // Record the attempted body HERE, where it is right: the caller
           // drops the pending content below whether or not this write landed,
@@ -654,9 +667,22 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
 
-    // Create continuation post if there's content
+    // Create continuation post(s) if there's content. A large burst can
+    // leave a remainder several posts long; one post over the limit is what
+    // Slack truncated and Mattermost refused (#617).
     if (remainder) {
-      await this.createNewPost(ctx, remainder, pendingAtFlushStart);
+      const MAX_POST_LENGTH = ctx.platform.getMessageLimits().maxLength;
+      const reserve = this.headerReserve(null);
+      const chunks = remainder.length + reserve > MAX_POST_LENGTH
+        ? splitByLength(remainder, hardThreshold - reserve)
+        : [remainder];
+      // With the first part delivered, the flush leaves pending now, so a
+      // refused remainder goes back without it: re-posting the first part
+      // was the duplicate.
+      if (firstPartLanded) this.clearFlushedContent(pendingAtFlushStart);
+      await this.postChunks(ctx, chunks, pendingAtFlushStart, firstPartLanded);
+    } else if (firstPartLanded) {
+      this.clearFlushedContent(pendingAtFlushStart);
     }
   }
 

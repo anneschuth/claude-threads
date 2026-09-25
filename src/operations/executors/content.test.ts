@@ -414,6 +414,75 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('A large burst onto an existing post (#617)', () => {
+    const words = 'alpha beta gamma delta epsilon zeta eta theta'.split(' ');
+    const paragraphs = Array.from({ length: 200 }, (_, i) => `P${i}: ` + Array.from({ length: 40 }, (_, j) => words[(i * 7 + j * 3) % 8]).join(' ') + '.');
+    const burst = paragraphs.join('\n\n'); // ~60K
+
+    function finalTexts(realCreate: ReturnType<typeof mock>) {
+      const texts = new Map<string, string>();
+      (realCreate.mock.calls as Array<[string]>).forEach((c, i) => texts.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of (platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>) texts.set(id, text);
+      return texts;
+    }
+    function expectDeliveredOnce(texts: Map<string, string>) {
+      const all = [...texts.values()].join('\n');
+      const wrong = paragraphs.filter((p) => all.split(p).length - 1 !== 1).map((p) => p.slice(0, 5));
+      expect(wrong).toEqual([]);
+      // A post over the limit is what Slack truncates and Mattermost refuses;
+      // the mock accepts it, so check it directly.
+      for (const text of texts.values()) expect(text.length).toBeLessThanOrEqual(16000);
+    }
+
+    it('splits the remainder over posts that fit, on a healthy platform', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      await executor.executeAppend(createAppendContentOp('test', 'Starting.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', burst), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      expectDeliveredOnce(finalTexts(realCreate));
+    });
+
+    it('does not post the delivered first part twice when the remainder is refused once', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 2) throw new Error('429 ratelimited'); // the first remainder post
+        return realCreate(content, threadId);
+      });
+      await executor.executeAppend(createAppendContentOp('test', 'Starting.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeAppend(createAppendContentOp('test', burst), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      expectDeliveredOnce(finalTexts(realCreate));
+    });
+
+    it('a refused first post of a summary turn recovers without over-limit posts', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 1) throw new Error('429 ratelimited'); // the header post
+        return realCreate(content, threadId);
+      });
+      executor.setHeader('🔧 1 tool · 1 s');
+      await executor.executeAppend(createAppendContentOp('test', burst), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      expectDeliveredOnce(finalTexts(realCreate));
+    });
+  });
+
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();
