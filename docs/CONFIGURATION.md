@@ -423,6 +423,32 @@ platforms:
 
 Note: the per-platform `stickyMessage: <mode>` field is distinct from the top-level `Config.stickyMessage: { description, footer }` block, which still customizes the full sticky for platforms not in `hidden` mode.
 
+#### Tool activity: a summary line instead of the stream
+
+By default every tool Claude uses streams into the reply (`Bash …`, `Read …`, `↳ ✓`). For an assistant-style channel where you want the answer, not the shopping, two per-platform fields change that:
+
+```yaml
+platforms:
+  - id: slack-assistant
+    type: slack
+    # ... credentials ...
+    toolActivity: summary    # full (default) | summary | hidden
+    toolDetails: thread      # thread (default for summary) | none
+```
+
+| `toolActivity` | The reply |
+|---|---|
+| `full` | unchanged: every tool inline with its completion indicator |
+| `summary` | one live line at the top of the turn's post, `🔧 12 tools · 40 s · Bash`, updated as tools run; the name is the tool most recently started, so the line shows what the bot is doing; `· 1 ❌` when a tool failed. Claude's text follows |
+| `hidden` | nothing about tools at all |
+
+| `toolDetails` | Where the full tool stream goes when `toolActivity` is not `full` |
+|---|---|
+| `thread` | posted as replies in a thread under the turn's post (in a thread-mode session, after the reply in the same thread: Slack has no nested threads) |
+| `none` | dropped |
+
+Permission prompts, plan approvals, questions, task lists and errors post as before in every mode. `toolDetails` with `full`, or `thread` with `hidden`, is a startup config error.
+
 #### End-of-turn marker
 
 Integrations that read the channel (a voice front end, a phone bridge, a dashboard) need to know when Claude's answer is complete. The daemon streams by editing one post, so without help they can only guess from the text going quiet. With a marker, the daemon stamps the turn's last reply post the moment the turn ends:

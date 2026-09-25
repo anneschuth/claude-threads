@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Per-platform `toolActivity`: `summary` or `hidden` instead of the tool stream** (#534, thanks @kaza). `summary` replaces the inline `Bash …` / `↳ ✓` lines with one live line at the top of the turn's post — `🔧 12 tools · 40 s · Bash`, naming the tool most recently started so the line stays a liveness signal; `hidden` says nothing about tools at all. `toolDetails: thread` keeps the full rendering in a thread under the reply, `none` drops it. Defaults are unchanged (`full` / `none`). Permission prompts, plan approvals, questions, task lists and errors are untouched in every mode. Part of #505.
+
 ## [1.38.1] - 2026-09-24
 
 ### Fixed

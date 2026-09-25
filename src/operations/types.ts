@@ -16,6 +16,7 @@
 /**
  * Base interface for all operations.
  */
+import type { ToolActivityMode } from '../config/types.js';
 export interface BaseOperation {
   /** Operation type discriminator */
   readonly type: string;
@@ -56,6 +57,24 @@ export interface FlushOp extends BaseOperation {
   /** With reason `result` only: whether the turn ended without an error. */
   readonly resultOk?: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Tool Activity Operations (toolActivity: summary | hidden)
+// ---------------------------------------------------------------------------
+
+/**
+ * A tool started, finished, or the turn ended. Emitted instead of inline
+ * tool content when the platform's `toolActivity` is not `full`; the
+ * ToolActivityExecutor keeps the counter and the details sink keeps the text.
+ */
+export type { ToolActivityMode };
+
+export type ToolActivityDetail =
+  | { readonly kind: 'start'; readonly toolUseId: string; readonly name: string; readonly display: string }
+  | { readonly kind: 'end'; readonly toolUseId: string; readonly ok: boolean; readonly elapsedMs: number; readonly display: string }
+  | { readonly kind: 'turn_end' };
+
+export type ToolActivityOp = BaseOperation & { readonly type: 'tool_activity' } & ToolActivityDetail;
 
 // ---------------------------------------------------------------------------
 // Task List Operations
@@ -249,11 +268,19 @@ export type MessageOperation =
   | SystemMessageOp
   | SubagentOp
   | StatusUpdateOp
-  | LifecycleOp;
+  | LifecycleOp
+  | ToolActivityOp;
 
 // ---------------------------------------------------------------------------
 // Type Guards
 // ---------------------------------------------------------------------------
+
+/**
+ * Check if an operation is a tool activity operation.
+ */
+export function isToolActivityOp(op: MessageOperation): op is ToolActivityOp {
+  return op.type === 'tool_activity';
+}
 
 /**
  * Check if an operation is a content operation.
@@ -337,6 +364,13 @@ export function createAppendContentOp(
     content,
     isToolOutput,
   };
+}
+
+/**
+ * Create a tool activity operation.
+ */
+export function createToolActivityOp(sessionId: string, detail: ToolActivityDetail): ToolActivityOp {
+  return { type: 'tool_activity', sessionId, timestamp: Date.now(), ...detail };
 }
 
 /**

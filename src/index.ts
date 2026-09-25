@@ -24,6 +24,7 @@ import {
   type PermissionMode,
   type OverheadVisibility,
   resolvePlatformMcpPosture,
+  resolveToolActivity,
   resolveTurnMarker,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
@@ -797,6 +798,11 @@ async function startWithoutDaemon() {
           platformConfig.type,
           `platforms[${platformConfig.id}]`,
         ),
+        tools: resolveToolActivity(
+          platformConfig.toolActivity,
+          platformConfig.toolDetails,
+          `platforms[${platformConfig.id}]`,
+        ),
       },
       memory: resolveMemoryConfig(
         platformConfig.memory,
@@ -858,6 +864,9 @@ async function startWithoutDaemon() {
           // stays pinned regardless of the preset.
           ...resolvePresentationOverhead(dmConfig, `dm[${dmConfig.id}]`),
           stickyMessage: 'hidden',
+          // A derived DM config spreads its parent, so the parent's tool
+          // settings carry over unless the DM entry overrides them.
+          tools: resolveToolActivity(dmConfig.toolActivity, dmConfig.toolDetails, `dm[${dmConfig.id}]`),
           // A derived DM config spreads its parent, so the parent's marker carries over.
           turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },

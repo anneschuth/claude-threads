@@ -500,6 +500,7 @@ function createMessageManager(
     sessionId: session.sessionId,
     worktreePath: session.worktreeInfo?.worktreePath,
     worktreeBranch: session.worktreeInfo?.branch,
+    toolActivity: ctx.ops.getPlatformOverhead(session.platformId).tools,
     turnMarker: ctx.ops.getPlatformOverhead(session.platformId).turnMarker,
     registerPost: (postId, options) => {
       ctx.ops.registerPost(postId, session.threadId);
