@@ -60,6 +60,7 @@ platforms:
 | `stickyMessage` | Sticky message text customization (see below) | none |
 | `claudeAccounts` | Multi-account pool (see below) | single-account mode |
 | `mcpServers` | MCP servers every platform's sessions get, on top of the bot's own (see [MCP servers and claude.ai connectors](#mcp-servers-and-claudeai-connectors-claudeaiconnectors-mcpservers-strictmcpconfig)) | none |
+| `usage.showEmails` | Print each seat's login email in `!usage` output | `false` |
 
 ### Resource Limits (`limits`)
 
@@ -168,11 +169,14 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
+| `mode` | No | Presentation preset: the baseline for `sessionHeader`, `stickyMessage` and `lifecycle`. `full` (default) is the behaviour described below; `assistant` hides all three, so Claude's reply is the whole thread. Any of those three fields set explicitly wins over the preset, so `mode: assistant` with `sessionHeader: full` is valid. `turnMarker` is machine-facing and deliberately not part of the preset. |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `lifecycle` | No | Session status posts — idle warning, timeout, pause, resume, and the shutdown notice a deploy leaves in each open thread: `full` (default, all of them) / `minimal` (drops the idle warning, which predicts a timeout the next message would undo anyway) / `hidden` (none). Editing a status post the thread already has is not suppressed at any level: it adds no post and no notification, and leaving a stale "session idle" up across a restart would be worse. ⚠️ An **abnormal exit** (`[Exited: <code>]`, non-zero only) posts at every level including `hidden`: it is a failure report, and silencing it would make a session that died look exactly like one that finished. Note that `hidden` also removes the post a 🔄 reaction resumes from — sending a message in the thread still resumes it, and the channel sticky says so. |
 | `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
 | `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 | `ackReaction` | No | Read receipt: react to every accepted message (session start, follow-up, resume) the instant it is accepted, before Claude produces output. `true` uses 👀 (`eyes`), a string names a custom emoji. Persistent, unlike the typing indicator — useful in busy channels and for messages queued behind an in-flight session start. The receipt means *accepted*, not *delivered*: a later failure (capacity limit, Claude not coming up) is still reported by its own post. `!commands` are not acked — they have their own immediate feedback, and neither are messages accepted through the message-approval flow (an authorized user approving a non-participant's message) — there the approval reaction is already the visible signal. Note: in direct channel mode this is one reaction API call per accepted message. Default off. |
+| `reconnectPolicy` | No | What happens when reconnection attempts run out: `retry` (default — log, cool down 60s, reset the counter and keep trying; recovers with no supervisor) or `exit` (leave through the graceful shutdown path and exit non-zero, for `Restart=always` deployments). The bot never stays alive with a dead socket either way. |
 | `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
 | `directMessages` | No | Mattermost only: DM auto-discovery. A direct message from a user on `allowedUsers` spawns a derived direct-channel-mode instance for that DM conversation — no per-DM entry needed. See [DM auto-discovery](#dm-auto-discovery). |
 
@@ -191,12 +195,65 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
+| `mode` | No | Presentation preset: the baseline for `sessionHeader`, `stickyMessage` and `lifecycle`. `full` (default) is the behaviour described below; `assistant` hides all three, so Claude's reply is the whole thread. Any of those three fields set explicitly wins over the preset, so `mode: assistant` with `sessionHeader: full` is valid. `turnMarker` is machine-facing and deliberately not part of the preset. |
 | `sessionHeader` | No | Per-thread header visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no header post) |
 | `stickyMessage` | No | Channel sticky visibility: `full` (default) / `minimal` (status bar only) / `hidden` (no sticky, no bumping) |
+| `lifecycle` | No | Session status posts — idle warning, timeout, pause, resume, and the shutdown notice a deploy leaves in each open thread: `full` (default, all of them) / `minimal` (drops the idle warning, which predicts a timeout the next message would undo anyway) / `hidden` (none). Editing a status post the thread already has is not suppressed at any level: it adds no post and no notification, and leaving a stale "session idle" up across a restart would be worse. ⚠️ An **abnormal exit** (`[Exited: <code>]`, non-zero only) posts at every level including `hidden`: it is a failure report, and silencing it would make a session that died look exactly like one that finished. Note that `hidden` also removes the post a 🔄 reaction resumes from — sending a message in the thread still resumes it, and the channel sticky says so. |
 | `directChannelMode` | No | Direct channel mode: the whole channel is one session, and the bot replies with top-level channel posts instead of thread replies. `true` for defaults, or an options object (`respondTo`). See [Direct Channel Mode](#direct-channel-mode). |
 | `approvals` | No | Who may answer tool-permission prompts and other reaction gates: `owner` (session participants) or `all_users` (everyone on `allowedUsers`). Unset keeps the historical default per mode — `all_users` for thread sessions, `owner` for direct channel mode. See [Approvals](#approvals). |
 | `ackReaction` | No | Read receipt: react to every accepted message (session start, follow-up, resume) the instant it is accepted, before Claude produces output. `true` uses 👀 (`eyes`), a string names a custom emoji. Persistent, unlike the typing indicator — useful in busy channels and for messages queued behind an in-flight session start. The receipt means *accepted*, not *delivered*: a later failure (capacity limit, Claude not coming up) is still reported by its own post. `!commands` are not acked — they have their own immediate feedback, and neither are messages accepted through the message-approval flow (an authorized user approving a non-participant's message) — there the approval reaction is already the visible signal. Note: in direct channel mode this is one reaction API call per accepted message. Default off. |
+| `reconnectPolicy` | No | What happens when reconnection attempts run out: `retry` (default — log, cool down 60s, reset the counter and keep trying; recovers with no supervisor) or `exit` (leave through the graceful shutdown path and exit non-zero, for `Restart=always` deployments). The bot never stays alive with a dead socket either way. |
 | `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
+
+### Presentation presets (`mode`)
+
+A platform entry carries three fields that decide how much of the bot's own
+scaffolding a channel sees: `sessionHeader`, `stickyMessage` and `lifecycle`.
+They are useful separately, but almost nobody wants to tune them one by one.
+Two deployments asked for the same combination in nearly the same words: the
+reply, and nothing else.
+
+`mode` names that combination.
+
+```yaml
+platforms:
+  - id: assistant-channel
+    type: slack
+    mode: assistant      # no header, no sticky, no lifecycle notices
+```
+
+| Preset | `sessionHeader` | `stickyMessage` | `lifecycle` |
+|--------|-----------------|-----------------|-------------|
+| `full` (default) | `full` | `full` | `full` |
+| `assistant` | `hidden` | `hidden` | `hidden` |
+
+A field set explicitly always wins over the preset, so you can start from a
+preset and keep one thing:
+
+```yaml
+    mode: assistant
+    sessionHeader: full   # replies only, but keep the per-thread header
+```
+
+One caveat worth knowing if you ran the setup wizard. It writes `sessionHeader`
+and `stickyMessage` into your config whenever your answer differed from the
+default, and those are explicit fields, so they win. Adding `mode: assistant`
+to such a config moves `lifecycle` and leaves the other two where the wizard
+put them. Startup warns and names the fields when that happens; remove them to
+let the preset apply.
+
+Two more things worth knowing:
+
+- The preset is expanded when the config loads, so everything downstream reads
+  the same three concrete values it always did. Omitting `mode` resolves to
+  exactly the old defaults, which means an existing config behaves identically.
+- `turnMarker` is **not** part of any preset. It is a signal for integrations
+  reading the channel rather than something a human sees, so it is not
+  something you would switch off because you want a quieter channel.
+
+An abnormal exit is still reported under `mode: assistant`, for the reason
+given in the `lifecycle` row above: a session that died must not look like one
+that finished.
 
 ### Direct Channel Mode
 
@@ -391,6 +448,30 @@ platforms:
 | `none` | dropped |
 
 Permission prompts, plan approvals, questions, task lists and errors post as before in every mode. `toolDetails` with `full`, or `thread` with `hidden`, is a startup config error.
+
+#### End-of-turn marker
+
+Integrations that read the channel (a voice front end, a phone bridge, a dashboard) need to know when Claude's answer is complete. The daemon streams by editing one post, so without help they can only guess from the text going quiet. With a marker, the daemon stamps the turn's last reply post the moment the turn ends:
+
+```yaml
+platforms:
+  - id: slack-main
+    type: slack
+    turnMarker: metadata          # reaction | metadata | off (default)
+    # turnMarkerEmoji: checkered_flag   # reaction only; this is the default
+```
+
+| `turnMarker` | What happens | Who sees it |
+|---|---|---|
+| `metadata` | the last reply post gets Slack message metadata `event_type: claude_threads_turn_complete`, `event_payload: { v, session, turn, ok }` | integrations reading `conversations.history` with `include_all_metadata=true`; invisible in the UI. Slack only |
+| `reaction` | the bot reacts on the last reply post with `turnMarkerEmoji` | everyone. Slack and Mattermost |
+| `off` | nothing | |
+
+**Format stability.** The marker is a published integration contract, not an internal detail. Within a 1.x release line, `event_type` will not change, and `event_payload` will only gain fields — never lose one or change the meaning of one. `v` is the payload version; a reader should ignore fields it does not recognize and treat an unknown `v` as "marker present, payload unread". `session` is `platformId:threadId` and is stable across bot restarts and Claude respawns. `turn` counts turns within one bot process: it restarts at 1 after a bot restart and is an ordering hint within a single run, never a unique key. Readers that need exactly-once should dedupe by post id.
+
+`ok` is false when the turn ended with an error. A turn with no reply post marks nothing. A marker failure never touches the reply.
+
+Each marked turn costs one extra API call (a `chat.update` or `reactions.add`) beyond the streaming writes.
 
 ### Memory (`memory`, default: fully enabled)
 
@@ -686,6 +767,7 @@ Exactly one of `home` or `apiKey` should be set per account. Persisted sessions 
 | `CLAUDE_PATH` | Path to the `claude` binary. Overrides the PATH lookup and the common install locations. | `claude` (from PATH) |
 | `DECISION_BRIDGE_TIMEOUT_MS` | How long the MCP permission server waits for a plan approval or question answer routed through the decision bridge (the bot's reaction UI) before falling back to the legacy behavior (generic prompt for plans, auto-allow for questions). | `3600000` (1 h) |
 | `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` | Strip `ANTHROPIC_*`, `AWS_*_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, `GOOGLE_APPLICATION_CREDENTIALS`, and similar from Bash, hook, and stdio-MCP subprocesses Claude spawns. Bot-specific vars like `PLATFORM_TOKEN` pass through. **Also forces permission mode to `default`**; `--dangerously-skip-permissions` will be rejected. Requires Claude CLI 2.1.83+. | - |
+| `CLAUDE_THREADS_HOME` | Root under which the bot keeps its state (`<root>/.config/claude-threads`, `<root>/.claude-threads`): config, sessions, logs, audit, memory, worktrees, update state. Lets two bots run under the same user without sharing any of it. One process per root; a second start against the same root is refused. | `$HOME` |
 | `CLAUDE_THREADS_SESSIONS_PATH` | Override the path to the persisted sessions file (default `~/.config/claude-threads/sessions.json`). | - |
 | `CLAUDE_THREADS_GITHUB_EMAILS_PATH` | Override the path to the GitHub-emails store used for commit attribution. | - |
 | `CLAUDE_THREADS_MEMORY_DIR` | Override the root of the persistent memory storage (default `~/.config/claude-threads/memory/`). | - |
@@ -742,3 +824,44 @@ The bot prevents system sleep while sessions are active (uses `caffeinate` on ma
 ---
 
 _claude-threads is maintained by [Axolotl Systems](https://axolotl.systems). If it makes your team faster, consider [sponsoring the project](https://github.com/sponsors/axolotl-systems)._
+
+## `!usage` output
+
+`!usage` reports the subscription windows for the seat the thread is running
+on; `!usage all` reports every account in the `claudeAccounts` pool. The
+numbers come from the same `/usage` probe the account router uses, so what you
+read and what routes can never disagree — it runs zero turns and costs $0.
+
+In a thread with **no session yet** there is no seat to report, so plain
+`!usage` behaves like `!usage all` and lists the whole pool — the seats the
+router would be choosing between. Asking before starting a session is the
+common case, and "which seat has headroom" is the useful answer there.
+
+`!usage` is restricted to users authorized in the thread — the platform's
+`allowedUsers`, plus anyone invited to that session. It spawns one probe per
+pooled seat and names the accounts, so it is not something a passing channel
+member can trigger inside someone else's thread.
+
+```yaml
+usage:
+  showEmails: true    # default false
+```
+
+`showEmails` adds each seat's login address to its row. Off by default: the
+quota bars say nothing about who owns a seat, the address does, and `!usage`
+answers into a channel several people can read and anyone in it can trigger.
+
+Turn it on when the pool is your own seats and directory names like `primary`
+and `backup` do not tell you which account is which — that is the case it
+exists for. The plan badge (`Max 20×`) is shown either way; it explains why one
+seat's week is four times another's and identifies nobody.
+
+Both the address and the badge are read from the profile's `.claude.json`.
+Nothing in `!usage` opens `.credentials.json` or the macOS Keychain.
+
+⚠️ The flag gates the address read from that metadata — it does not sanitize
+labels you chose yourself. A `claudeAccounts` entry whose `id` or `displayName`
+is an email address is printed as the row heading whether or not `showEmails`
+is on, because it is the name the account router uses and a row that cannot be
+matched to a routing decision is worse than useless. Name pool accounts
+`primary` / `backup`, not by address.

@@ -364,7 +364,10 @@ function formatHistoryEntry(
   // `isRevivable`, not `!cleanedAt`: a stale tombstone still has `cleanedAt`
   // but message routing will happily bring it back, so rendering it with a ✓
   // and no resume hint tells the reader the opposite of what the bot will do.
-  const isTimedOut = isRevivable(session) && session.lifecyclePostId;
+  // Not `&& session.lifecyclePostId`: at `lifecycle: hidden` a paused session
+  // has no lifecycle post, and keying on it rendered exactly the ✓ "completed"
+  // this comment warns against — for a session the next message revives.
+  const isTimedOut = isRevivable(session);
   // Show when the user last worked on it, not when it was cleaned up
   const lastActivity = new Date(session.lastActivityAt);
   const time = formatRelativeTimeShort(lastActivity);
@@ -374,7 +377,14 @@ function formatHistoryEntry(
 
   // Use different indicators: ⏸️ for timed out (resumable), ✓ for completed
   const indicator = isTimedOut ? '⏸️' : '✓';
-  const resumeHint = isTimedOut ? ` · ${formatter.formatItalic('react 🔄 to resume')}` : '';
+  // 🔄 resolves through the lifecycle post, so without one the only door is a
+  // message in the thread. Naming the right one matters more here than
+  // brevity: the reader is being told how to get their session back.
+  const resumeHint = isTimedOut
+    ? ` · ${formatter.formatItalic(
+        session.lifecyclePostId ? 'react 🔄 to resume' : 'send a message to resume'
+      )}`
+    : '';
 
   const lines: string[] = [];
   lines.push(`  ${indicator} ${threadLink} · ${formatter.formatBold(displayName)}${prStr} · ${time}${resumeHint}`);

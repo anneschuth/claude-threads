@@ -31,10 +31,10 @@
  * broadcast as the headless case rather than disappearing silently.
  */
 
-import { spawn } from 'child_process';
 import { existsSync, statSync } from 'fs';
 import { delimiter, join } from 'path';
 import { createLogger } from '../utils/logger.js';
+import { crossSpawn } from '../utils/spawn.js';
 
 const log = createLogger('respawn');
 
@@ -211,17 +211,15 @@ export function spawnReplacement(
   delete childEnv.CLAUDE_THREADS_BIN;
   delete childEnv.CLAUDE_THREADS_INTERACTIVE;
 
-  // On Windows, .cmd/.bat shims must be invoked via the shell since
-  // Node 20.12.2 (CVE-2024-27980). On POSIX, shell:false is correct.
-  const useShell = process.platform === 'win32';
-
+  // On Windows the binary is usually a .cmd shim. crossSpawn runs it
+  // through cmd.exe with the arguments escaped; shell: true would pass them
+  // unescaped (#600).
   let child;
   try {
-    child = spawn(binPath, argv, {
+    child = crossSpawn(binPath, argv, {
       detached: true,
       stdio: 'inherit',
       env: childEnv,
-      shell: useShell,
     });
   } catch (err) {
     // spawn() rarely throws synchronously (only on argument validation

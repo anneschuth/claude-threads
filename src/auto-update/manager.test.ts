@@ -278,6 +278,28 @@ describe('auto-update/manager', () => {
 
         manager.stop();
       });
+
+      it('stops a running countdown so it cannot install a second time', async () => {
+        // Ask mode with no active threads triggers the countdown at once.
+        const manager = new AutoUpdateManager({ ...config, autoRestartMode: 'ask' }, callbacks);
+        const internals = manager as unknown as {
+          scheduler: { scheduleUpdate(info: unknown): void; countdownTimer: unknown };
+          installer: { install: () => Promise<{ success: boolean; error?: string }> };
+          state: { updateInfo?: unknown };
+        };
+        const info = { available: true, currentVersion: '1.0.0', latestVersion: '9.9.9', detectedAt: new Date() };
+        internals.state.updateInfo = info;
+        internals.scheduler.scheduleUpdate(info);
+        expect(internals.scheduler.countdownTimer).not.toBeNull();
+
+        // A failing install keeps the process alive, which is when a
+        // leftover countdown would fire a second install.
+        internals.installer.install = mock(() => Promise.resolve({ success: false, error: 'boom' }));
+        await manager.forceUpdate();
+
+        expect(internals.scheduler.countdownTimer).toBeNull();
+        manager.stop();
+      });
     });
   });
 });

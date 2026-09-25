@@ -106,6 +106,55 @@ const handleUpdate: CommandHandler = async (ctx, args) => {
 /**
  * Handle !stop command.
  */
+/**
+ * Handle !usage / !usage all.
+ *
+ * Posts directly rather than going through the session manager: quota is a
+ * property of the seat, not of a session, and the question is most often asked
+ * before starting one.
+ */
+const handleUsage: CommandHandler = async (ctx, args) => {
+  // Self-gating, unlike most handlers: the first-message and paused paths
+  // authorize before dispatch, but the in-session path does not — so without
+  // this any channel member replying `!usage all` inside someone's thread
+  // spawns one `claude` per pooled seat (10s each) and gets the pool's
+  // account ids, plan badges and emails back.
+  //
+  // `isAllowed` here is isUserAllowedInSession(): the platform allowlist OR a
+  // session invitee. An invitee is a collaborator the owner chose, so this
+  // reads as "authorized in this thread" rather than "on the allowlist" —
+  // documented that way in CONFIGURATION.md (Codex review caught the two
+  // diverging). Tightening it to `ctx.client.isUserAllowed` is one line if
+  // the pool should be narrower than the session.
+  if (!ctx.isAllowed) {
+    return { handled: true };
+  }
+
+  const all = args?.trim().toLowerCase() === 'all';
+  const { collectUsage, renderProfiles } = await import('../usage/index.js');
+
+  // Report the seats the router is actually deciding between. Without the
+  // pool, `!usage all` would list ~/.claude-* directories the bot has stopped
+  // using and none of the accounts burning tokens.
+  const rendered = renderProfiles(
+    await collectUsage({
+      all,
+      accounts: ctx.sessionManager.getClaudeAccounts(),
+      // Scoped to the platform: platformId is the session store's privacy
+      // boundary, and an unscoped thread-id lookup could bind this row to
+      // another platform's session — reporting a seat this thread does not
+      // run on, which is a plausible answer to a different question.
+      sessionAccountId: ctx.sessionManager.getPersistedSession(
+        ctx.threadId,
+        ctx.client.platformId
+      )?.claudeAccountId,
+    }),
+    { showEmails: ctx.sessionManager.getUsageShowEmails() }
+  );
+  await ctx.client.createPost(`\`\`\`\n${rendered}\n\`\`\``, ctx.threadId);
+  return { handled: true };
+};
+
 const handleStop: CommandHandler = async (ctx) => {
   if (ctx.commandContext === 'first-message') {
     return { handled: false }; // !stop doesn't work in first message
@@ -589,6 +638,7 @@ function createPassthroughHandler(slashCommand: string): CommandHandler {
 handlers.set('help', handleHelp);
 handlers.set('release-notes', handleReleaseNotes);
 handlers.set('update', handleUpdate);
+handlers.set('usage', handleUsage);
 handlers.set('stop', handleStop);
 handlers.set('escape', handleEscape);
 handlers.set('approve', handleApprove);

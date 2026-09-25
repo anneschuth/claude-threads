@@ -292,4 +292,97 @@ describe('QuestionApprovalExecutor', () => {
       expect(state!.toolUseId).toBe('tool-hydrate-123');
     });
   });
+
+  // ---------------------------------------------------------------------------
+  // Regression: a reaction that arrives while the option emojis are still
+  // being added.
+  //
+  // The question/plan post is created first and its 1️⃣/2️⃣ (or 👍/👎) options
+  // are added one API round trip at a time. Throughout that window the post is
+  // already visible and reactable. The executor used to record the post id
+  // only AFTER those adds finished, so a user who answered inside the window
+  // hit `currentPostId === null` / `pendingApproval === null`, the reaction was
+  // discarded, and a bridged AskUserQuestion / ExitPlanMode stayed blocked
+  // until MCP_TOOL_TIMEOUT — the user's answer silently lost.
+  // ---------------------------------------------------------------------------
+  describe('reaction during the option window', () => {
+    it('accepts a question answer that lands before the option reactions finish', async () => {
+      const op: QuestionOp = {
+        type: 'question',
+        sessionId: 'test:session-1',
+        timestamp: Date.now(),
+        toolUseId: 'tool-race-1',
+        questions: [
+          {
+            header: 'Approach',
+            question: 'Which approach would you prefer?',
+            options: [
+              { label: 'Option A', description: 'First approach' },
+              { label: 'Option B', description: 'Second approach' },
+            ],
+            multiSelect: false,
+          },
+        ],
+        currentIndex: 0,
+      };
+
+      // React as soon as the post exists — i.e. before execute() resolves,
+      // while the option emojis are still being added.
+      const reactionResults: boolean[] = [];
+      const racingCtx: ExecutorContext = {
+        ...ctx,
+        // Forward the executor's own onPostCreated (that is where it claims
+        // currentPostId), then react in the same window.
+        createInteractivePost: async (content, reactions, options, onPostCreated) =>
+          ctx.createInteractivePost(content, reactions, options, (created) => {
+            onPostCreated?.(created);
+            void executor
+              .handleReaction(created.id, 'one', 'alice', 'added', racingCtx)
+              .then((handled) => { reactionResults.push(handled); });
+          }),
+      };
+
+      await executor.execute(op, racingCtx);
+      // Let the racing reaction settle.
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(reactionResults).toEqual([true]);
+      expect(questionCompleted).not.toBeNull();
+      expect(questionCompleted!.answers).toEqual([{ header: 'Approach', answer: 'Option A' }]);
+      // The answered set must stay cleared — a post-hoc assignment must not
+      // re-open the question the user already answered.
+      expect(executor.hasPendingQuestions()).toBe(false);
+    });
+
+    it('accepts a plan approval that lands before the option reactions finish', async () => {
+      const op: ApprovalOp = {
+        type: 'approval',
+        sessionId: 'test:session-1',
+        timestamp: Date.now(),
+        toolUseId: 'tool-race-2',
+        approvalType: 'plan',
+      };
+
+      const reactionResults: boolean[] = [];
+      const racingCtx: ExecutorContext = {
+        ...ctx,
+        createInteractivePost: async (content, reactions, options, onPostCreated) =>
+          ctx.createInteractivePost(content, reactions, options, (created) => {
+            onPostCreated?.(created);
+            void executor
+              .handleReaction(created.id, '+1', 'alice', 'added', racingCtx)
+              .then((handled) => { reactionResults.push(handled); });
+          }),
+      };
+
+      await executor.execute(op, racingCtx);
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(reactionResults).toEqual([true]);
+      expect(approvalCompleted).not.toBeNull();
+      expect(approvalCompleted!.approved).toBe(true);
+      // Must not be re-armed after the decision was consumed.
+      expect(executor.hasPendingApproval()).toBe(false);
+    });
+  });
 });

@@ -161,6 +161,24 @@ jobs:
   # only exists on newer Node, which would silently break users on the floor.
   # Floor (20) is what publish.yml builds against. 22 and 24 are active LTS
   # and current LTS as of 2026-04.
+  # Windows spawning: the bot starts every Claude CLI through crossSpawn, and
+  # on Windows `claude` is usually an npm .cmd shim that only cmd.exe can run.
+  # #600 shipped because nothing ever exercised that path on Windows; this
+  # round-trips shell metacharacters through a real .cmd shim.
+  windows-spawn:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - run: bun install
+
+      - run: bun test --timeout 15000 src/utils/spawn.test.ts
+
   node-smoke:
     runs-on: ubuntu-latest
     needs: build

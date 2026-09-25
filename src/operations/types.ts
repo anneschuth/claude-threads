@@ -54,6 +54,8 @@ export interface FlushOp extends BaseOperation {
     | 'result'             // Claude finished (result event)
     | 'tool_complete'      // Tool execution completed
     | 'explicit';          // Explicit flush request
+  /** With reason `result` only: whether the turn ended without an error. */
+  readonly resultOk?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -376,13 +378,15 @@ export function createToolActivityOp(sessionId: string, detail: ToolActivityDeta
  */
 export function createFlushOp(
   sessionId: string,
-  reason: FlushOp['reason']
+  reason: FlushOp['reason'],
+  resultOk?: boolean
 ): FlushOp {
   return {
     type: 'flush',
     sessionId,
     timestamp: Date.now(),
     reason,
+    ...(resultOk === undefined ? {} : { resultOk }),
   };
 }
 

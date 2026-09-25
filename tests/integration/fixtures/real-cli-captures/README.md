@@ -29,6 +29,37 @@ These captures are the **ground truth** for the integration mock CLI
 against them. When the mock and a capture disagree, the capture wins — fix
 the mock.
 
+## Re-captured against 2.1.276 (2026-09-18)
+
+Every flow here except `compact-failed` was recorded fresh against 2.1.276,
+with the harness no longer loading the recorder's settings files, so the
+diff against the previous files is dialect and nothing else.
+
+**No event type the bot consumes changed, and no new type appeared.** Five
+types the old files carried are simply gone from the stream — `active_goal`,
+`autocompact_state`, `system/commands_changed`, `system/post_turn_summary`
+and `system/task_summary` — and `grep` finds no reader for any of them in
+`src/`. The mock still emits `active_goal` and `post_turn_summary` in
+`persistent-session.json`, which stays deliberate: it pins that the bot
+tolerates telemetry noise a stream may carry.
+
+Field-level movement inside the shared types, none of it read by the bot:
+`system/init` traded `startup_timing` for `memory_paths`; `result` traded
+`time_origin_ms`, `time_to_request_from_spawn_ms` and `warm_spare_claimed`
+for `first_content_frame_ms`, `local_command` and `result_index`; `assistant`
+gained `wire_tool_inputs`; `user` gained `isReplay` and `isSynthetic`.
+
+**`compact-failed.jsonl` is deliberately still the 2.1.251 recording.** Its
+flow — an immediate `/compact` on a fresh session — no longer fails on
+2.1.276: the compact succeeds, reporting `compact_result: "success"` and a
+real `compact_boundary` (20953 → 1285 tokens), so a fresh recording would
+capture a success under a name that promises a failure. The failure shape is
+not dead code: `handleCompactionFailed` reads `compact_error`, two unit tests
+in `src/operations/events/handler.test.ts` cover it, and the mock's
+`compaction-failed.json` is derived from this very file. Keeping the old
+recording keeps that chain honest. If someone finds a way to provoke a real
+compact failure on a current CLI, re-record it and drop this paragraph.
+
 ## Re-verified against 2.1.263 (2026-09-06)
 
 All flows were re-captured with 2.1.263 on a developer machine and compared
@@ -62,6 +93,14 @@ Two things to know before the next re-capture:
   wording sent haiku to `TaskCreate` and produced a capture without a subagent.
 - Record on an account without claude.ai connectors, or expect their tool
   names in `system/init`.
+- The harness passes `--setting-sources ''` so no settings file is read. A
+  hook in the recorder's own `~/.claude/settings.json` would otherwise add a
+  `system/hook_started` + `system/hook_response` pair to every flow, which is
+  a property of that machine and not of the CLI. Do not drop this flag; an
+  empty `CLAUDE_CONFIG_DIR` is not a substitute, because it also loses
+  `rate_limit_event` (credentials live in the OS keychain, so an empty dir is
+  not a logged-in profile), and `--settings '{"hooks":{}}'` does not work
+  either — hooks merge with the user-level ones rather than replacing them.
 
 ## Flows
 

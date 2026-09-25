@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, chmodSync } from 'fs';
+import { stateHome } from '../utils/state-home.js';
 import { resolve, dirname } from 'path';
-import { homedir } from 'os';
 import yaml from 'js-yaml';
 
 // Re-export all types from types.ts
@@ -11,6 +11,7 @@ export type {
   ResolvedLimits,
   StickyMessageCustomization,
   ClaudeAccount,
+  UsageConfig,
   Config,
   PlatformInstanceConfig,
   MattermostPlatformConfig,
@@ -20,10 +21,13 @@ export type {
   ScheduledWindow,
   PermissionMode,
   OverheadVisibility,
+  PresentationMode,
   PlatformOverhead,
   ToolActivityMode,
   ToolDetailsMode,
   ToolActivitySettings,
+  TurnMarkerMode,
+  TurnMarkerSettings,
   MemoryOption,
   ResolvedMemoryConfig,
   McpServerConfig,
@@ -57,12 +61,21 @@ export {
   resolveOverheadVisibility,
   DEFAULT_TOOL_ACTIVITY,
   resolveToolActivity,
+  PRESENTATION_MODE_VALUES,
+  isPresentationMode,
+  resolvePresentationMode,
+  resolvePresentationOverhead,
+  presentationOverridesAgainstPreset,
+  DEFAULT_TURN_MARKER,
+  TURN_COMPLETE_EVENT_TYPE,
+  resolveTurnMarker,
+  resolveReconnectPolicy,
 } from './types.js';
 
 import type { Config, WorktreeMode as WorktreeModeType, PermissionMode, OverheadVisibility } from './types.js';
 
 // YAML config path
-export const CONFIG_PATH = resolve(homedir(), '.config', 'claude-threads', 'config.yaml');
+export const CONFIG_PATH = resolve(stateHome(), '.config', 'claude-threads', 'config.yaml');
 
 // =============================================================================
 // Config Loading

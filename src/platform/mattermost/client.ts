@@ -1,6 +1,7 @@
 import { WebSocket } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { MattermostPlatformConfig } from '../../config/index.js';
+import { resolveReconnectPolicy } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { formatShortId } from '../../utils/format.js';
 import { escapeRegExp, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
@@ -26,6 +27,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostWriteOptions,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { MattermostFormatter } from './formatter.js';
@@ -72,6 +74,7 @@ export class MattermostClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+    this.setReconnectPolicy(resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`));
   }
 
   // ============================================================================
@@ -342,7 +345,8 @@ export class MattermostClient extends BasePlatformClient {
   }
 
   // Update a message (for streaming updates)
-  async updatePost(postId: string, message: string): Promise<PlatformPost> {
+  // Post metadata is a Slack concept; accepted here and dropped.
+  async updatePost(postId: string, message: string, _options?: PostWriteOptions): Promise<PlatformPost> {
     const request: UpdatePostRequest = {
       id: postId,
       message,

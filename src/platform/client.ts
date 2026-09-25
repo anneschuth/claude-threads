@@ -7,6 +7,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostWriteOptions,
 } from './types.js';
 import type { PlatformFormatter } from './formatter.js';
 
@@ -17,6 +18,13 @@ export interface PlatformClientEvents {
   connected: () => void;
   disconnected: () => void;
   reconnecting: (attempt: number) => void;
+  /**
+   * Reconnection attempts are exhausted and this platform's policy is `exit`.
+   * The client does NOT end the process itself: one platform's dead socket
+   * must not kill sessions on healthy platforms, and the graceful shutdown
+   * path (persist, notify, restore the terminal) belongs to `index.ts`.
+   */
+  'reconnect-exhausted': (platformId: string) => void;
   error: (error: Error) => void;
   message: (post: PlatformPost, user: PlatformUser | null) => void;
   /** Emitted when a reaction is added */
@@ -189,7 +197,7 @@ export interface PlatformClient extends EventEmitter {
    * @param threadId - Optional thread parent ID
    * @returns The created post
    */
-  createPost(message: string, threadId?: string): Promise<PlatformPost>;
+  createPost(message: string, threadId?: string, options?: PostWriteOptions): Promise<PlatformPost>;
 
   /**
    * Update an existing post/message
@@ -197,19 +205,25 @@ export interface PlatformClient extends EventEmitter {
    * @param message - New message text
    * @returns The updated post
    */
-  updatePost(postId: string, message: string): Promise<PlatformPost>;
+  updatePost(postId: string, message: string, options?: PostWriteOptions): Promise<PlatformPost>;
 
   /**
    * Create a post with reaction options (for interactive prompts)
    * @param message - Message text
    * @param reactions - Array of emoji names to add as options
    * @param threadId - Optional thread parent ID
+   * @param onPostCreated - Called with the new post BEFORE any option reaction
+   *   is added. Callers that route incoming reactions by post id (the session
+   *   registry's post index) MUST register here, not after the returned
+   *   promise: adding the options takes one API round trip each, and a user
+   *   who reacts inside that window would otherwise be dropped silently.
    * @returns The created post
    */
   createInteractivePost(
     message: string,
     reactions: string[],
-    threadId?: string
+    threadId?: string,
+    onPostCreated?: (post: PlatformPost) => void
   ): Promise<PlatformPost>;
 
   /**

@@ -60,6 +60,10 @@ function makeDeps(
   const registry: Partial<SessionRegistry> = {
     findByPost: mock(() => session ?? undefined),
     hasById: mock(() => false),
+    // Nothing in flight by default: an unknown post resolves at once, so
+    // these tests keep their original timing.
+    hasInFlightInteractivePost: mock(() => false),
+    awaitPendingPost: mock(() => Promise.resolve()),
     get size() { return 0; },
   };
   const sessionStore: Partial<SessionStore> = {
@@ -403,5 +407,66 @@ describe('DCM approvals scoping (reaction gate)', () => {
     await handleReaction(deps, 'test', 'post-1', '+1', 'bob', 'added');
 
     expect((session.messageManager as any).handleReaction).toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Regression: a reaction that beats the create response.
+//
+// An interactive post is reactable from the moment the platform stores it,
+// which happens before the create response gets back to the bot and the post
+// id can be indexed. The reaction arrives as a live push and is never
+// re-delivered, so dropping it there loses a decision the user really made and
+// leaves a bridged AskUserQuestion / ExitPlanMode blocked until
+// MCP_TOOL_TIMEOUT. The router must wait for the registration instead.
+// ---------------------------------------------------------------------------
+describe('reaction arriving before the post is registered', () => {
+  test('waits for the in-flight registration and then dispatches', async () => {
+    const { SessionRegistry } = await import('./registry.js');
+    const registry = new SessionRegistry(
+      { findByPostId: mock(() => undefined) } as unknown as SessionStore,
+    );
+
+    const session = makeSession({
+      platform: { isUserAllowed: mock(() => true) } as unknown as PlatformClient,
+    });
+    registry.register(session);
+
+    // The bot has started creating the post but its id is not known yet.
+    const done = registry.beginInteractivePost(session.threadId);
+
+    const deps = makeDeps(null, { registry: registry as unknown as SessionRegistry });
+
+    // The reaction lands in the window.
+    const routing = handleReaction(deps, 'test', 'post-inflight', 'one', 'alice', 'added');
+
+    // The create response finally arrives and the id is indexed.
+    await new Promise((r) => setTimeout(r, 20));
+    registry.registerPost('post-inflight', session.threadId);
+    done();
+
+    await routing;
+
+    expect((session.messageManager as any).handleReaction).toHaveBeenCalled();
+  });
+
+  test('still drops a reaction on an unrelated post with nothing in flight', async () => {
+    const { SessionRegistry } = await import('./registry.js');
+    const registry = new SessionRegistry(
+      { findByPostId: mock(() => undefined) } as unknown as SessionStore,
+    );
+    const session = makeSession({
+      platform: { isUserAllowed: mock(() => true) } as unknown as PlatformClient,
+    });
+    registry.register(session);
+
+    const deps = makeDeps(null, { registry: registry as unknown as SessionRegistry });
+
+    const started = Date.now();
+    await handleReaction(deps, 'test', 'some-other-post', 'one', 'alice', 'added');
+
+    // No create outstanding, so no waiting and no dispatch.
+    expect(Date.now() - started).toBeLessThan(100);
+    expect((session.messageManager as any).handleReaction).not.toHaveBeenCalled();
   });
 });

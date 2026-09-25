@@ -48,6 +48,7 @@ export class UpdateScheduler extends EventEmitter {
   private pendingUpdate: UpdateInfo | null = null;
   private checkTimer: ReturnType<typeof setInterval> | null = null;
   private countdownTimer: ReturnType<typeof setInterval> | null = null;
+  private deferTimer: ReturnType<typeof setTimeout> | null = null;
   private idleStartTime: Date | null = null;
   private scheduledRestartAt: Date | null = null;
 
@@ -90,6 +91,8 @@ export class UpdateScheduler extends EventEmitter {
    */
   cancelSchedule(): void {
     this.stopChecking();
+    this.stopCountdown();
+    this.stopDeferTimer();
     this.pendingUpdate = null;
     this.idleStartTime = null;
     this.scheduledRestartAt = null;
@@ -102,9 +105,24 @@ export class UpdateScheduler extends EventEmitter {
    * Defer the update by a specified number of minutes.
    */
   deferUpdate(minutes: number): Date {
-    const deferUntil = new Date(Date.now() + minutes * 60 * 1000);
+    const deferMs = minutes * 60 * 1000;
+    const deferUntil = new Date(Date.now() + deferMs);
+    // A running countdown would otherwise still install the update.
+    this.stopCountdown();
+    this.stopChecking();
+    this.stopDeferTimer();
     this.scheduledRestartAt = null;
     this.idleStartTime = null;
+    // Ask again after the deferral instead of re-reading the old votes,
+    // which would defer again straight away on a majority denial.
+    this.askApprovals.clear();
+    this.askStartTime = null;
+    if (this.pendingUpdate) {
+      this.deferTimer = setTimeout(() => {
+        this.deferTimer = null;
+        this.startChecking();
+      }, deferMs);
+    }
     this.emit('deferred', deferUntil);
     log.info(`Update deferred until ${deferUntil.toLocaleTimeString()}`);
     return deferUntil;
@@ -147,6 +165,7 @@ export class UpdateScheduler extends EventEmitter {
   stop(): void {
     this.stopChecking();
     this.stopCountdown();
+    this.stopDeferTimer();
   }
 
   // ---------------------------------------------------------------------------
@@ -156,9 +175,10 @@ export class UpdateScheduler extends EventEmitter {
   private startChecking(): void {
     if (this.checkTimer) return;
 
-    // Check immediately, then every 10 seconds
-    this.checkCondition();
+    // Arm the interval before the first check: a check that triggers the
+    // countdown calls stopChecking(), which must see this handle (#601).
     this.checkTimer = setInterval(() => this.checkCondition(), 10000);
+    this.checkCondition();
     log.debug(`Started checking for ${this.config.autoRestartMode} condition`);
   }
 
@@ -324,21 +344,30 @@ export class UpdateScheduler extends EventEmitter {
 
     this.stopChecking();
 
+    // A countdown is already running: starting another would orphan its
+    // interval, which then fires 'ready' every second forever (#601).
+    // A deferral holds off every trigger, including late ask votes.
+    if (this.countdownTimer || this.deferTimer) return;
+
     // Start 60-second countdown
     this.scheduledRestartAt = new Date(Date.now() + 60000);
     let secondsRemaining = 60;
 
     this.emit('countdown', secondsRemaining);
 
-    this.countdownTimer = setInterval(() => {
+    const timer = setInterval(() => {
       secondsRemaining--;
       this.emit('countdown', secondsRemaining);
 
       if (secondsRemaining <= 0) {
-        this.stopCountdown();
+        // Clear this interval by its own handle, so it can never outlive
+        // zero even if this.countdownTimer no longer points at it.
+        clearInterval(timer);
+        if (this.countdownTimer === timer) this.countdownTimer = null;
         this.emit('ready', this.pendingUpdate);
       }
     }, 1000);
+    this.countdownTimer = timer;
 
     log.info('Update countdown started (60 seconds)');
   }
@@ -347,6 +376,14 @@ export class UpdateScheduler extends EventEmitter {
     if (this.countdownTimer) {
       clearInterval(this.countdownTimer);
       this.countdownTimer = null;
+      this.scheduledRestartAt = null;
+    }
+  }
+
+  private stopDeferTimer(): void {
+    if (this.deferTimer) {
+      clearTimeout(this.deferTimer);
+      this.deferTimer = null;
     }
   }
 }

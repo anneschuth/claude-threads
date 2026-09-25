@@ -59,7 +59,7 @@
 - **Files both ways** - Drop any file into the chat for Claude to read, with full multimodal for images and PDFs; Claude posts screenshots, plots, or PDFs back with `send_file` (100 MB cap)
 - **Voice notes** - With `transcription:` configured (ElevenLabs Scribe), an audio clip is transcribed before Claude sees it and the transcript is echoed into the thread; see [Configuration](docs/CONFIGURATION.md#transcription-transcription)
 - **Quiet mode and verbosity dials** - `!mentions on` makes a session respond only when mentioned; session headers and the channel sticky each have `full`/`minimal`/`hidden` modes
-- **Runs on macOS, Linux, and Windows** - Windows via Git Bash or WSL
+- **Runs on macOS, Linux, and Windows** - natively or inside WSL; on native Windows, auto-restart needs Git for Windows' bash
 - **Auto-update** - The bot watches npm for new versions; `!update now` applies one from chat
 
 ## What Claude can do in your chat
@@ -202,6 +202,19 @@ claude-threads makes the opposite choice: the whole session stays in the thread 
 A few more things set it apart. The full Claude Code permission model lives in the thread: every tool use can prompt for 👍/✅/👎 approval, with three modes switchable mid-session. Sessions are multiplayer: `!invite` teammates while Claude works, messages from uninvited users are gated behind approval, and commits credit everyone involved as co-author. An optional [account pool](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md#claude-accounts-optional-multi-account-mode) routes each new session to the Claude subscription with the most headroom and cools down rate-limited ones. And nothing assumes GitHub — the session works against any local checkout, whatever its host.
 
 This table is current as of August 2026. All of these products move quickly — if it has gone stale, [open an issue](https://github.com/anneschuth/claude-threads/issues).
+
+## Staying connected
+
+If the connection to Slack or Mattermost drops, the bot reconnects with
+exponential backoff. When those attempts run out it does **not** sit there
+alive with a dead socket — that "active but deaf" state looks healthy to a
+supervisor and looks broken to everyone in the channel. By default it waits a
+minute, resets, and keeps trying, which recovers on its own.
+
+Running under systemd or another supervisor? Set `reconnectPolicy: exit` on
+the platform and the bot shuts down cleanly and exits non-zero instead, so
+`Restart=always` brings it back with a fresh socket. See the
+[Configuration Reference](https://github.com/anneschuth/claude-threads/blob/main/docs/CONFIGURATION.md).
 
 ## Documentation
 

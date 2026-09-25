@@ -185,7 +185,14 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
         ctx.formatter.formatItalic('React to respond');
     }
 
-    // Create interactive post with approval reactions
+    let claimed = false;
+    // Create interactive post with approval reactions.
+    //
+    // Same reasoning as postCurrentQuestion: claim pendingApproval in the
+    // pre-reaction callback so a 👍 that lands while we are still adding the
+    // 👍/👎 options is matched instead of discarded — otherwise the bridged
+    // ExitPlanMode call blocks until MCP_TOOL_TIMEOUT on an approval the user
+    // already gave.
     const post = await ctx.createInteractivePost(
       message,
       [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
@@ -193,15 +200,28 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
         type: 'plan_approval',
         interactionType: 'plan_approval',
         toolUseId: op.toolUseId,
+      },
+      (created) => {
+        claimed = true;
+        this.state.pendingApproval = {
+          postId: created.id,
+          type: op.approvalType,
+          toolUseId: op.toolUseId,
+        };
       }
     );
 
-    // Track pending approval state
-    this.state.pendingApproval = {
-      postId: post.id,
-      type: op.approvalType,
-      toolUseId: op.toolUseId,
-    };
+    // Defensive: only when the callback never ran (a platform override that
+    // ignores it). Never re-arm after it did — the reaction it was waiting
+    // for may already have arrived and cleared the pending state, and
+    // resurrecting it here would swallow the next decision.
+    if (!claimed) {
+      this.state.pendingApproval = {
+        postId: post.id,
+        type: op.approvalType,
+        toolUseId: op.toolUseId,
+      };
+    }
 
     ctx.logger.debug(`Created ${op.approvalType} approval post ${formatShortId(post.id)}`);
   }
@@ -235,7 +255,16 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
       message += '\n';
     }
 
-    // Post the question with reaction options
+    // Post the question with reaction options.
+    //
+    // currentPostId is claimed in the pre-reaction callback, NOT after the
+    // await: handleReaction only accepts a reaction whose postId equals
+    // currentPostId, and the question post is already visible while we spend
+    // an API round trip per option emoji adding 1️⃣/2️⃣. A user who answers
+    // before our own options finish landing would otherwise hit
+    // `currentPostId === null`, have the answer discarded, and leave the
+    // bridged AskUserQuestion call blocked until MCP_TOOL_TIMEOUT.
+    let claimed = false;
     const reactionOptions = NUMBER_EMOJIS.slice(0, q.options.length);
     const post = await ctx.createInteractivePost(
       message,
@@ -244,10 +273,22 @@ export class QuestionApprovalExecutor extends BaseExecutor<QuestionApprovalState
         type: 'question',
         interactionType: 'question',
         toolUseId: this.state.pendingQuestionSet.toolUseId,
+      },
+      (created) => {
+        claimed = true;
+        if (this.state.pendingQuestionSet) {
+          this.state.pendingQuestionSet.currentPostId = created.id;
+        }
       }
     );
 
-    this.state.pendingQuestionSet.currentPostId = post.id;
+    // Defensive: only when the callback never ran (a platform override that
+    // ignores it). Never overwrite after it did — by then the answer may
+    // already have advanced or cleared the set, and re-pointing it at this
+    // post would re-open a question the user has answered.
+    if (!claimed && this.state.pendingQuestionSet) {
+      this.state.pendingQuestionSet.currentPostId = post.id;
+    }
   }
 
   /**

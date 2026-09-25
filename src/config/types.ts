@@ -35,6 +35,35 @@ export function isOverheadVisibility(value: unknown): value is OverheadVisibilit
 }
 
 /**
+ * What a platform does when reconnection attempts are exhausted.
+ *
+ * - `retry` (default) — log at error, wait out a cool-down, reset the counter
+ *   and keep trying. Recovers with no supervisor, which is what an
+ *   interactively run bot needs: dying silently overnight because the wifi
+ *   dropped is a worse first impression than a noisy retry loop.
+ * - `exit` — leave through the graceful shutdown path and exit non-zero, for
+ *   deployments where `Restart=always` is the better recovery mechanism.
+ *
+ * Either way the "active but deaf" state — a live process whose socket is
+ * dead — is the one outcome that must not persist silently (#500).
+ */
+export type ReconnectPolicy = 'retry' | 'exit';
+
+export const RECONNECT_POLICY_VALUES: readonly ReconnectPolicy[] = ['retry', 'exit'] as const;
+
+export const DEFAULT_RECONNECT_POLICY: ReconnectPolicy = 'retry';
+
+export function resolveReconnectPolicy(value: unknown, fieldPath: string): ReconnectPolicy {
+  if (value === undefined || value === null) return DEFAULT_RECONNECT_POLICY;
+  if (typeof value === 'string' && (RECONNECT_POLICY_VALUES as readonly string[]).includes(value)) {
+    return value as ReconnectPolicy;
+  }
+  throw new Error(
+    `Invalid ${fieldPath}.reconnectPolicy: expected one of ${RECONNECT_POLICY_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Normalize a per-platform overhead-visibility field. Undefined → default.
  * Throws on any other invalid value so config errors surface at startup
  * instead of silently falling back.
@@ -51,6 +80,114 @@ export function resolveOverheadVisibility(
 }
 
 /**
+ * Named presentation preset. `full` is today's behaviour; `assistant` is the
+ * replies-only shape two deployments described independently (#505, #590): no
+ * session header, no channel sticky, no lifecycle notices.
+ */
+export type PresentationMode = 'full' | 'assistant';
+
+export const PRESENTATION_MODE_VALUES: readonly PresentationMode[] = ['full', 'assistant'] as const;
+
+export function isPresentationMode(value: unknown): value is PresentationMode {
+  return typeof value === 'string' && (PRESENTATION_MODE_VALUES as readonly string[]).includes(value);
+}
+
+/**
+ * What each preset expands to. A preset only ever sets the human-facing
+ * overhead fields: `turnMarker` is machine-facing (an end-of-turn signal for
+ * integrations reading the channel), so it is not something you turn off
+ * because you want a quieter channel, and it stays outside the preset.
+ */
+const PRESENTATION_MODE_EXPANSIONS: Record<
+  PresentationMode,
+  Readonly<{ sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility; lifecycle: OverheadVisibility }>
+> = {
+  // `full` is spelled through the shared default rather than three literals,
+  // so it cannot drift away from what an unset field resolves to.
+  full: {
+    sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
+    stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
+    lifecycle: DEFAULT_OVERHEAD_VISIBILITY,
+  },
+  assistant: { sessionHeader: 'hidden', stickyMessage: 'hidden', lifecycle: 'hidden' },
+};
+
+/**
+ * Normalize a per-platform `mode` field. Undefined → `full`, which expands to
+ * exactly the current defaults, so an existing config is unaffected.
+ */
+export function resolvePresentationMode(value: unknown, fieldPath: string): PresentationMode {
+  if (value === undefined || value === null) return 'full';
+  if (isPresentationMode(value)) return value;
+  throw new Error(
+    `Invalid ${fieldPath}: expected one of ${PRESENTATION_MODE_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
+ * Resolve the three human-facing overhead fields for one platform entry.
+ *
+ * `mode` supplies the baseline and an explicitly set field always wins, so
+ * `mode: assistant` plus `sessionHeader: full` means "replies only, but keep
+ * the header". Expansion happens here, at load time, rather than staying a
+ * layer above the fields: everything downstream keeps reading the three
+ * concrete values and no consumer has to learn about presets (#590).
+ *
+ * Taking all three together is deliberate. Resolving them one by one at the
+ * call site is what let an omitted `lifecycle` silently reset DM channels to
+ * `full` — the exact assistant-style channels #505 is about.
+ */
+export function resolvePresentationOverhead(
+  entry: {
+    mode?: unknown;
+    sessionHeader?: unknown;
+    stickyMessage?: unknown;
+    lifecycle?: unknown;
+  },
+  fieldPath: string,
+): { sessionHeader: OverheadVisibility; stickyMessage: OverheadVisibility; lifecycle: OverheadVisibility } {
+  const preset = PRESENTATION_MODE_EXPANSIONS[resolvePresentationMode(entry.mode, `${fieldPath}.mode`)];
+  const override = (value: unknown, field: string, fallback: OverheadVisibility): OverheadVisibility =>
+    value === undefined || value === null
+      ? fallback
+      : resolveOverheadVisibility(value, `${fieldPath}.${field}`);
+  return {
+    sessionHeader: override(entry.sessionHeader, 'sessionHeader', preset.sessionHeader),
+    stickyMessage: override(entry.stickyMessage, 'stickyMessage', preset.stickyMessage),
+    lifecycle: override(entry.lifecycle, 'lifecycle', preset.lifecycle),
+  };
+}
+
+/**
+ * Fields where an explicit value countermands the preset the entry also sets.
+ *
+ * Precedence is right (an explicit field must win, or the preset becomes a
+ * trap), but silence is not: the onboarding wizard writes `sessionHeader` and
+ * `stickyMessage` whenever the answer differs from the default, so someone who
+ * ran the wizard and later adds `mode: assistant` gets a preset that moves
+ * `lifecycle` and nothing else. Nothing in the config says so. Startup names
+ * the fields instead, as a warning rather than an error, because the resolved
+ * behaviour is exactly what the file asks for.
+ *
+ * Returns the empty array when the preset is `full` (nothing to countermand)
+ * or when no field disagrees with it.
+ */
+export function presentationOverridesAgainstPreset(entry: {
+  mode?: unknown;
+  sessionHeader?: unknown;
+  stickyMessage?: unknown;
+  lifecycle?: unknown;
+}): string[] {
+  if (!isPresentationMode(entry.mode) || entry.mode === 'full') return [];
+  const preset = PRESENTATION_MODE_EXPANSIONS[entry.mode];
+  const fields: Array<keyof typeof preset> = ['sessionHeader', 'stickyMessage', 'lifecycle'];
+  return fields.filter((field) => {
+    const value = entry[field];
+    return value !== undefined && value !== null && value !== preset[field];
+  });
+}
+
+/**
  * Per-platform overhead visibility, captured at platform-registration time.
  * Both fields are required after normalization (defaults applied during
  * `addPlatform`). Used as the value-type for SessionManager's per-platform
@@ -59,8 +196,73 @@ export function resolveOverheadVisibility(
 export interface PlatformOverhead {
   sessionHeader: OverheadVisibility;
   stickyMessage: OverheadVisibility;
+  /**
+   * Lifecycle notices (idle warning, timeout, pause). Defaults to `full`, so
+   * an existing config behaves exactly as before. See
+   * `src/session/lifecycle-visibility.ts` for what each level drops.
+   */
+  lifecycle: OverheadVisibility;
+  /** End-of-turn marker (docs/turn-marker-spec.md). Defaults to `off`. */
+  turnMarker: TurnMarkerSettings;
   /** Tool rendering (docs/quiet-tools-spec.md). Defaults to `full` / `none`. */
   tools: ToolActivitySettings;
+}
+
+// =============================================================================
+// Turn marker (per-platform, default off)
+// =============================================================================
+
+export const TURN_MARKER_VALUES = ['reaction', 'metadata', 'off'] as const;
+export type TurnMarkerMode = (typeof TURN_MARKER_VALUES)[number];
+
+export interface TurnMarkerSettings {
+  mode: TurnMarkerMode;
+  /** `reaction` only. */
+  emoji?: string;
+}
+
+export const DEFAULT_TURN_MARKER: TurnMarkerSettings = { mode: 'off' };
+export const DEFAULT_TURN_MARKER_EMOJI = 'checkered_flag';
+/** Slack message metadata `event_type` the daemon stamps on a turn's last reply post. */
+export const TURN_COMPLETE_EVENT_TYPE = 'claude_threads_turn_complete';
+/**
+ * Payload version, carried as `v` in every marker's `event_payload`.
+ *
+ * The marker is a published integration contract, not an internal detail: the
+ * payload leaves the process and is parsed by code we do not control. Within a
+ * 1.x line `event_payload` only ever GAINS fields, so a reader may ignore what
+ * it does not recognize; this number is the escape hatch if that ever has to
+ * break. Bump it only for a change a v1 reader could misinterpret.
+ */
+export const TURN_COMPLETE_PAYLOAD_VERSION = 1;
+
+/**
+ * Normalize the per-platform `turnMarker` / `turnMarkerEmoji` pair. Undefined
+ * → `off`. `metadata` exists only on Slack; an emoji only with `reaction`.
+ * Throws with the field path, so a wrong block fails the boot.
+ */
+export function resolveTurnMarker(
+  mode: unknown,
+  emoji: unknown,
+  platformType: string,
+  fieldPath: string,
+): TurnMarkerSettings {
+  const m = mode === undefined || mode === null ? 'off' : mode;
+  if (!(TURN_MARKER_VALUES as readonly unknown[]).includes(m)) {
+    throw new Error(`Invalid ${fieldPath}.turnMarker: expected one of ${TURN_MARKER_VALUES.join(', ')}, got ${JSON.stringify(mode)}`);
+  }
+  if (m === 'metadata' && platformType !== 'slack') {
+    throw new Error(`Invalid ${fieldPath}.turnMarker: metadata is a Slack feature; use reaction on ${platformType}`);
+  }
+  // An emoji with another mode is ignored (YAML anchors, a commented-out
+  // mode); a malformed one is still an error, whatever the mode.
+  if (emoji !== undefined && emoji !== null) {
+    if (typeof emoji !== 'string' || !/^[a-z0-9_+-]+$/.test(emoji)) {
+      throw new Error(`Invalid ${fieldPath}.turnMarkerEmoji: expected an emoji name like checkered_flag, got ${JSON.stringify(emoji)}`);
+    }
+  }
+  if (m === 'reaction') return { mode: 'reaction', emoji: (emoji as string | undefined) ?? DEFAULT_TURN_MARKER_EMOJI };
+  return { mode: m as TurnMarkerMode };
 }
 
 // =============================================================================
@@ -590,6 +792,21 @@ export interface ClaudeAccount {
   displayName?: string;
 }
 
+/** Options for the `!usage` command. */
+export interface UsageConfig {
+  /**
+   * Print each seat's login email address in `!usage` output. Default `false`.
+   *
+   * ⚠️ Off by default deliberately. The quota bars say nothing about who owns
+   * a seat; the address does, and `!usage` answers in a channel that several
+   * people can read and that anyone in it can trigger. Operators running a
+   * pool of their own seats generally want it on — it is the only thing that
+   * says WHICH account a row is about when directory names do not — but that
+   * is a decision to make, not to inherit.
+   */
+  showEmails?: boolean;
+}
+
 export interface Config {
   version: number;
   workingDir: string;
@@ -643,6 +860,8 @@ export interface Config {
    * are the only servers a session sees.
    */
   mcpServers?: Record<string, McpServerConfig>;
+  /** `!usage` output options. */
+  usage?: UsageConfig;
   platforms: PlatformInstanceConfig[];
 }
 
@@ -693,6 +912,14 @@ export interface PlatformInstanceConfig {
    */
   ackReaction?: boolean | string;
   /**
+   * What to do when reconnection attempts are exhausted: `retry` (default,
+   * cool down and start over — recovers with no supervisor) or `exit` (leave
+   * through the graceful shutdown path and exit non-zero, for deployments
+   * where `Restart=always` is the better recovery mechanism). Either way the
+   * bot never stays live with a dead socket (#500).
+   */
+  reconnectPolicy?: ReconnectPolicy;
+  /**
    * Append-only audit trail of what the bot executed for this platform:
    * tool calls, session lifecycle, security-relevant commands, plan
    * approvals. One JSONL stream per platform under
@@ -701,7 +928,17 @@ export interface PlatformInstanceConfig {
    */
   auditLog?: boolean;
   /**
-   * Per-thread session header visibility. Default `'full'`.
+   * Named presentation preset: the baseline for `sessionHeader`,
+   * `stickyMessage` and `lifecycle`. `full` (default) is today's behaviour;
+   * `assistant` hides all three, which is the replies-only shape asked for
+   * three times independently (#505, #590). Any of the three fields set
+   * explicitly overrides the preset, so `mode: assistant` with
+   * `sessionHeader: full` is a valid combination. `turnMarker` is
+   * machine-facing and deliberately not part of a preset.
+   */
+  mode?: PresentationMode;
+  /**
+   * Per-thread session header visibility. Overrides `mode`. Default `'full'`.
    * `'minimal'` keeps only the one-line status bar; `'hidden'` skips the
    * header post entirely so Claude's own response is the first message in
    * the thread.
@@ -715,6 +952,22 @@ export interface PlatformInstanceConfig {
    * the sticky's `description` / `footer` for platforms still rendering it.
    */
   stickyMessage?: OverheadVisibility;
+
+  /**
+   * Lifecycle notices — the idle warning, the timeout notice, the pause
+   * notice. `full` (default) is today's behaviour; `minimal` drops the
+   * predictive idle warning; `hidden` drops the status notices entirely.
+   * An abnormal exit is always reported regardless.
+   */
+  lifecycle?: OverheadVisibility;
+  /**
+   * End-of-turn marker on the reply's last post, for integrations that read
+   * the channel: `reaction` (an emoji, any platform), `metadata` (Slack
+   * message metadata, invisible), `off` (default). See docs/turn-marker-spec.md.
+   */
+  turnMarker?: TurnMarkerMode;
+  /** `turnMarker: reaction` only: the emoji name; default `checkered_flag`. */
+  turnMarkerEmoji?: string;
   /**
    * How Claude's tool calls render in the reply. `full` (default) streams
    * every tool inline; `summary` shows one live line (`🔧 12 tools · 40 s`);

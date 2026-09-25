@@ -8,7 +8,8 @@ import {
   loadConfigWithMigration,
   configExists as checkConfigExists,
   resolvePermissionMode,
-  resolveOverheadVisibility,
+  resolvePresentationOverhead,
+  presentationOverridesAgainstPreset,
   resolveMemoryConfig,
   resolveAuditLogEnabled,
   resolveRoutinesEnabled,
@@ -24,6 +25,7 @@ import {
   type OverheadVisibility,
   resolvePlatformMcpPosture,
   resolveToolActivity,
+  resolveTurnMarker,
 } from './config/index.js';
 import type { CliArgs } from './config/index.js';
 import { runOnboarding } from './onboarding.js';
@@ -49,6 +51,7 @@ import {
   getRuntimeSettings,
   clearRuntimeSettings,
 } from './auto-update/installer.js';
+import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -77,6 +80,16 @@ function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
  * reach it; all state lives inside the runtime instance.
  */
 let activeDmRuntime: DmDiscoveryRuntime | undefined;
+
+/**
+ * Set once `main()` has built the graceful shutdown path. Module-level for the
+ * same reason `activeDmRuntime` is: `wirePlatformEvents` runs for platforms
+ * registered at runtime by DM auto-discovery, long after that loop would have
+ * run — wiring this per-client at startup would have left every derived DM
+ * platform emitting `reconnect-exhausted` to nobody, deaf and alive, which is
+ * the exact failure this feature exists to end.
+ */
+let onReconnectExhausted: ((platformId: string) => void) | undefined;
 
 function wirePlatformEvents(
   platformId: string,
@@ -118,6 +131,22 @@ function wirePlatformEvents(
   client.on('error', (e) => {
     const message = e instanceof Error ? e.message : String(e);
     ui.addLog({ level: 'error', component: platformId, message });
+  });
+
+  // `reconnectPolicy: exit` — this platform has given up on its socket and
+  // wants the supervisor to restart us.
+  client.on('reconnect-exhausted', (id: string) => {
+    if (!onReconnectExhausted) {
+      // Before main() finished wiring there is nothing to shut down
+      // gracefully — but returning here would leave exactly the alive-and-deaf
+      // process the policy exists to prevent, so honour it the blunt way
+      // (Gemini review).
+      const msg = `Platform "${id}" exhausted reconnection during startup. Exiting.`;
+      ui.addLog({ level: 'error', component: '🔌', message: msg });
+      console.error(`\n${msg}\n`);
+      process.exit(1);
+    }
+    onReconnectExhausted(id);
   });
 }
 
@@ -205,6 +234,8 @@ async function main() {
     const { spawn } = await import('child_process');
     const { dirname, resolve } = await import('path');
     const { fileURLToPath } = await import('url');
+    const { existsSync } = await import('fs');
+    const { findWindowsGitBash } = await import('./utils/spawn.js');
 
     // Find the daemon wrapper script
     const __filename = fileURLToPath(import.meta.url);
@@ -225,10 +256,18 @@ async function main() {
     const binPath = __filename;
 
     // On Windows, the daemon is a bash script that can't be spawned directly.
-    // Use bash (from Git for Windows / WSL) if available, otherwise skip daemon.
+    // It needs Git for Windows' bash: the WSL launcher runs it inside Linux,
+    // where these Windows paths don't exist (#600). Without one, skip the daemon.
     let child;
     if (process.platform === 'win32') {
-      child = spawn('bash', [daemonPath, '--restart-on-error', ...args], {
+      const bashPath = findWindowsGitBash(process.env, existsSync);
+      if (!bashPath) {
+        console.error('Auto-restart requires Git for Windows (bash.exe). Starting without auto-restart...');
+        console.error('');
+        await startWithoutDaemon();
+        return;
+      }
+      child = spawn(bashPath, [daemonPath, '--restart-on-error', ...args], {
         stdio: 'inherit',
         env: {
           ...process.env,
@@ -351,6 +390,24 @@ async function startWithoutDaemon() {
   if (cliArgs.keepAlive !== undefined) {
     newConfig.keepAlive = cliArgs.keepAlive;
   }
+  // A `mode:` preset that an explicit field countermands is legal and resolves
+  // exactly as written, but it is worth saying out loud: the onboarding wizard
+  // writes `sessionHeader` / `stickyMessage` whenever the answer differed from
+  // the default, so adding `mode: assistant` to a wizard-made config can move
+  // only `lifecycle` while looking like it moved everything. Collected BEFORE
+  // the CLI flags below write those same fields: `--session-header` is a
+  // deliberate per-run override and warning about it would be noise.
+  const presetOverrideWarnings = newConfig.platforms.flatMap((platformConfig) => {
+    const overridden = presentationOverridesAgainstPreset(platformConfig);
+    if (overridden.length === 0) return [];
+    const one = overridden.length === 1;
+    return [
+      `  ⚠️  platforms[${platformConfig.id}]: mode: ${String(platformConfig.mode)} is overridden for ` +
+      `${overridden.join(', ')} by ${one ? 'an explicit field' : 'explicit fields'}. ` +
+      `Remove ${one ? 'it' : 'them'} to let the preset apply.`,
+    ];
+  });
+
   // Apply overhead-visibility overrides to every platform. These flags are
   // global-scoped (one value, applied everywhere) — the per-platform YAML
   // is the right place when you want different values per platform.
@@ -379,14 +436,15 @@ async function startWithoutDaemon() {
   // is a plain startup error with the field path, like a bad
   // --permission-mode, not a throw from inside the platform loop. Derived DM
   // instances spread these entries, so they inherit the validated values.
-  let mcpPostureWarnings: string[] = [];
+  let startupWarnings: string[] = [];
   try {
-    mcpPostureWarnings = resolvePlatformMcpPosture(newConfig.platforms, newConfig.mcpServers).warnings;
+    startupWarnings = resolvePlatformMcpPosture(newConfig.platforms, newConfig.mcpServers).warnings;
   } catch (err) {
     console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
     process.exit(1);
   }
-  for (const w of mcpPostureWarnings) console.warn(w);
+  startupWarnings.push(...presetOverrideWarnings);
+  for (const w of startupWarnings) console.warn(w);
 
   const config = newConfig;
 
@@ -432,6 +490,17 @@ async function startWithoutDaemon() {
     console.error(yellow(`  ⚠️  --skip-version-check: ${prefix}${claudeValidation.message}`));
     console.error('');
   }
+
+  // One process per state directory (see src/utils/instance-lock.ts).
+  let releaseInstanceLock: () => void;
+  try {
+    releaseInstanceLock = acquireInstanceLock();
+  } catch (err) {
+    console.error(red(`  ❌ ${err instanceof Error ? err.message : String(err)}`));
+    console.error('');
+    process.exit(LOCKED_EXIT_CODE); // terminal for the daemon wrapper: restarting would only collide again
+  }
+  process.on('exit', () => releaseInstanceLock());
 
   // Warn on an incompatible env + config combo: CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1
   // forces Claude CLI into permissionMode: default and rejects
@@ -629,7 +698,7 @@ async function startWithoutDaemon() {
   });
   // Startup warnings printed before Ink took the screen are easy to miss;
   // repeat the MCP posture ones in the log panel.
-  for (const w of mcpPostureWarnings) {
+  for (const w of startupWarnings) {
     ui.addLog({ level: 'warn', component: 'config', message: w });
   }
 
@@ -660,7 +729,8 @@ async function startWithoutDaemon() {
     config.claudeAccounts,  // Claude account pool (undefined = single-account mode)
     config.respondOnlyWhenMentioned,  // Quiet-mode default for new sessions (#402)
     config.userAttribution,  // Per-message [@username]: attribution (default on; only applied once a thread has >1 participant)
-    bugReportsEnabled  // `!bug` files publicly; false removes the whole path
+    bugReportsEnabled,  // `!bug` files publicly; false removes the whole path
+    config.usage  // !usage output options (emails off unless turned on)
   );
 
   // Set sticky message customization from config
@@ -721,13 +791,12 @@ async function startWithoutDaemon() {
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {
       overhead: {
-        sessionHeader: resolveOverheadVisibility(
-          platformConfig.sessionHeader,
-          `platforms[${platformConfig.id}].sessionHeader`,
-        ),
-        stickyMessage: resolveOverheadVisibility(
-          platformConfig.stickyMessage,
-          `platforms[${platformConfig.id}].stickyMessage`,
+        ...resolvePresentationOverhead(platformConfig, `platforms[${platformConfig.id}]`),
+        turnMarker: resolveTurnMarker(
+          platformConfig.turnMarker,
+          platformConfig.turnMarkerEmoji,
+          platformConfig.type,
+          `platforms[${platformConfig.id}]`,
         ),
         tools: resolveToolActivity(
           platformConfig.toolActivity,
@@ -785,11 +854,21 @@ async function startWithoutDaemon() {
       // distillation on private DM conversations.
       session.addPlatform(dmConfig.id, dmClient, {
         overhead: {
-          sessionHeader: resolveOverheadVisibility(dmConfig.sessionHeader, `dm[${dmConfig.id}].sessionHeader`),
+          // `addPlatform` takes a Partial<PlatformOverhead>, so the compiler
+          // still does not force this site to be complete: a field added to
+          // PlatformOverhead later and forgotten here silently falls back to
+          // its default. Resolving all three in one call closes that for the
+          // presentation fields: an omitted `lifecycle` used to reset DM
+          // channels to `full`, which are exactly the assistant-style channels
+          // #505 is about. A DM never carries a channel sticky, so that one
+          // stays pinned regardless of the preset.
+          ...resolvePresentationOverhead(dmConfig, `dm[${dmConfig.id}]`),
           stickyMessage: 'hidden',
           // A derived DM config spreads its parent, so the parent's tool
           // settings carry over unless the DM entry overrides them.
           tools: resolveToolActivity(dmConfig.toolActivity, dmConfig.toolDetails, `dm[${dmConfig.id}]`),
+          // A derived DM config spreads its parent, so the parent's marker carries over.
+          turnMarker: resolveTurnMarker(dmConfig.turnMarker, dmConfig.turnMarkerEmoji, dmConfig.type, `dm[${dmConfig.id}]`),
         },
         memory: resolveMemoryConfig(
           dmConfig.memory,
@@ -1015,7 +1094,21 @@ async function startWithoutDaemon() {
   // that sessions will not get (#560)? Logs and a sticky chip if so.
   void session.noticeClaudeAiConnectors();
 
-  const shutdown = async (_signal: string) => {
+  // The in-flight shutdown, so a second caller AWAITS it rather than getting
+  // an already-resolved promise and exiting mid-teardown. The old early
+  // `return` made `shutdown().finally(() => process.exit())` fire immediately
+  // on the second call — before persistence, before sessions were notified.
+  // Two platforms exhausting at once, or SIGINT then SIGTERM, both hit it
+  // (Codex review).
+  let shutdownInFlight: Promise<void> | null = null;
+
+  const shutdown = async (signal: string): Promise<void> => {
+    if (shutdownInFlight) return shutdownInFlight;
+    shutdownInFlight = runShutdown(signal);
+    return shutdownInFlight;
+  };
+
+  const runShutdown = async (_signal: string) => {
     // Guard against multiple shutdown calls (SIGINT + SIGTERM)
     if (isShuttingDown) return;
     isShuttingDown = true;
@@ -1064,6 +1157,20 @@ async function startWithoutDaemon() {
   triggerShutdown = () => {
     shutdown('Ctrl+C').finally(() => process.exit(0));
   };
+
+  // The decision to end the process belongs here, not in the platform class:
+  // the graceful path persists state, notifies active sessions and restores
+  // the terminal first. `shutdown()` guards against re-entry, so two platforms
+  // exhausting at once still runs it once.
+  onReconnectExhausted = (platformId: string) => {
+    const reason = `Platform "${platformId}" could not reconnect. Exiting so the supervisor can restart with a fresh socket (reconnectPolicy: exit).`;
+    ui.addLog({ level: 'error', component: '🔌', message: reason });
+    // Straight to stderr as well: the Ink UI renders asynchronously, so an
+    // interactive user would otherwise watch the screen clear with no reason.
+    console.error(`\n${reason}\n`);
+    shutdown(`reconnect-exhausted:${platformId}`).finally(() => process.exit(1));
+  };
+
 
   // Remove any existing signal handlers (e.g., from 'when-exit' package)
   // and register our own to ensure graceful shutdown

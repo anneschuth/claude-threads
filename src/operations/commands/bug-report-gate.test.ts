@@ -103,15 +103,49 @@ describe('bugReports: false', () => {
     (session.messageManager as unknown as Record<string, unknown>).clearPendingBugReport = clearPendingBugReport;
     (session.platform as unknown as Record<string, unknown>).updatePost = updatePost;
 
-    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(false));
+    // Stub the subprocess. Without this the mutation that proves this gate is
+    // load-bearing — removing the check and watching this test go red — runs
+    // `gh issue create` against the real repository and files a public issue
+    // titled "T". It did exactly that three times (#581, #582, #583) before
+    // #586 made the command injectable.
+    const exec = mock(() => 'https://github.com/anneschuth/claude-threads/issues/999\n');
 
-    // Nothing filed: the only route to createGitHubIssue reports success by
-    // editing the card with an issue URL, so an edit carrying one would mean
-    // the report went out.
+    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(false), exec);
+
+    // The direct assertion: the gate is upstream of the subprocess, so the
+    // command is never even built, let alone run.
+    expect(exec).not.toHaveBeenCalled();
+
+    // And nothing reached the card either: the only route to createGitHubIssue
+    // reports success by editing it with an issue URL.
     const edits = updatePost.mock.calls.map((c) => String((c as unknown[])[1])).join('\n');
     expect(edits).not.toContain('github.com');
     expect(edits.toLowerCase()).not.toContain('submitted');
     expect(clearPendingBugReport).toHaveBeenCalled();
+  });
+
+  it('files through the injected command when bug reports are enabled', async () => {
+    // The counterpart, and the reason `exec` not being called above means
+    // something: with the gate open this same path DOES reach the subprocess.
+    // Without this case, a stub that is never wired up would pass the test
+    // above for the wrong reason.
+    const { session } = sessionWith();
+    const clearPendingBugReport = mock(() => {});
+    const updatePost = mock(async () => {});
+    (session.messageManager as unknown as Record<string, unknown>).getPendingBugReport = () => ({
+      postId: 'card-1', title: 'T', body: 'B', description: 'd', imageUrls: [],
+    });
+    (session.messageManager as unknown as Record<string, unknown>).clearPendingBugReport = clearPendingBugReport;
+    (session.platform as unknown as Record<string, unknown>).updatePost = updatePost;
+
+    // Answers the `gh --version` / `gh auth status` probes too, so the test
+    // does not need a real authenticated CLI on the runner.
+    const exec = mock(() => 'https://github.com/anneschuth/claude-threads/issues/999\n');
+
+    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(true), exec);
+
+    const ranCommands = exec.mock.calls.map((c) => String((c as unknown[])[0]));
+    expect(ranCommands.some((c) => c.startsWith('gh issue create'))).toBe(true);
   });
 
   it('does not offer the 🐛 quick-report reaction on error posts', async () => {

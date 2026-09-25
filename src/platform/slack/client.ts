@@ -1,6 +1,7 @@
 import { WebSocket, countPingsAsActivity } from '../../utils/websocket.js';
 import type { McpServerConfig } from '../../config/types.js';
 import type { SlackPlatformConfig } from '../../config/index.js';
+import { resolveReconnectPolicy } from '../../config/index.js';
 import { wsLogger, createLogger } from '../../utils/logger.js';
 import { truncateMessageSafely, escapeRegExp, getEmojiName, formatWebSocketError, resolvePostThreadId, isDcmThreadId, normalizeAckReaction, resolveDirectChannelMode, type ResolvedDirectChannelMode, type ApprovalsMode } from '../utils.js';
 import { BasePlatformClient } from '../base-client.js';
@@ -40,6 +41,7 @@ import type {
   PlatformReaction,
   PlatformFile,
   ThreadMessage,
+  PostWriteOptions,
 } from '../index.js';
 import type { PlatformFormatter } from '../formatter.js';
 import { SlackFormatter } from './formatter.js';
@@ -129,6 +131,24 @@ export class SlackClient extends BasePlatformClient {
     this.directChannelMode = resolveDirectChannelMode(platformConfig.directChannelMode);
     this.approvals = platformConfig.approvals;
     this.ackReaction = normalizeAckReaction(platformConfig.ackReaction, `platforms[${platformConfig.id}].ackReaction`);
+    // Validated for every instance so a typo is still a startup error, but
+    // only a client that OWNS a socket can exhaust reconnection. A secondary
+    // on a shared event source never opens one (see connect()), so its own
+    // policy could never fire — set it and it would read as configured while
+    // doing nothing (CodeRabbit review). The parent's policy governs the
+    // shared socket, and its exhaustion is what reaches index.ts.
+    const policy = resolveReconnectPolicy(platformConfig.reconnectPolicy, `platforms[${platformConfig.id}]`);
+    if (sharedEventSource) {
+      if (platformConfig.reconnectPolicy !== undefined && policy !== sharedEventSource.reconnectPolicy) {
+        wsLogger.warn(
+          `${platformConfig.id}: reconnectPolicy "${policy}" is ignored — this channel shares ` +
+          `"${sharedEventSource.platformId}"'s Socket Mode connection, whose policy ` +
+          `"${sharedEventSource.reconnectPolicy}" governs reconnection for both.`
+        );
+      }
+    } else {
+      this.setReconnectPolicy(policy);
+    }
   }
 
   // ============================================================================
@@ -1020,7 +1040,7 @@ export class SlackClient extends BasePlatformClient {
   async createPost(
     message: string,
     threadId?: string,
-    options?: { unfurl?: boolean }
+    options?: PostWriteOptions & { unfurl?: boolean }
   ): Promise<PlatformPost> {
     // A synthetic DCM thread id is not a real message ts — resolve it to a
     // top-level channel post (direct channel mode).
@@ -1043,6 +1063,9 @@ export class SlackClient extends BasePlatformClient {
     if (resolvedThreadId) {
       body.thread_ts = resolvedThreadId;
     }
+    if (options?.metadata) {
+      body.metadata = options.metadata;
+    }
 
     const response = await this.api<PostMessageResponse>('POST', 'chat.postMessage', body);
 
@@ -1060,15 +1083,17 @@ export class SlackClient extends BasePlatformClient {
   /**
    * Update an existing post/message.
    */
-  async updatePost(postId: string, message: string): Promise<PlatformPost> {
+  async updatePost(postId: string, message: string, options?: PostWriteOptions): Promise<PlatformPost> {
     // Truncate message if it exceeds Slack's limit to prevent msg_too_long errors
     const truncatedMessage = this.truncateMessageIfNeeded(message);
 
-    const response = await this.api<UpdateMessageResponse>('POST', 'chat.update', {
+    const body: Record<string, unknown> = {
       channel: this.channelId,
       ts: postId,
       text: truncatedMessage,
-    });
+    };
+    if (options?.metadata) body.metadata = options.metadata;
+    const response = await this.api<UpdateMessageResponse>('POST', 'chat.update', body);
 
     return {
       id: response.ts,
