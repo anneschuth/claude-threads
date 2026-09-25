@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.39.1] - 2026-09-25
+
+### Fixed
+- **A long burst or a long code block no longer overflows one post** (#617, #619). When a lot of text reached a reply that already had a post, the part that did not fit went into one new post of any size, and a code block Claude was still writing kept growing the last post without limit. Slack cut such a post off; Mattermost refused it, and the text was posted twice later. Both now split over posts that fit, with code blocks closed and reopened with their language. Normal replies below the limit are unchanged.
+
 ## [1.39.0] - 2026-09-25
 
 ### Added
