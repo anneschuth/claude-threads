@@ -24,7 +24,7 @@ function fakeContext(root: string) {
     sessionId: 's',
     threadId: root,
     platform,
-    formatter: { formatMarkdown: (t: string) => t },
+    formatter: { formatMarkdown: (t: string) => t, formatItalic: (t: string) => `_${t}_` },
     logger: { debug: () => undefined, info: () => undefined, warn: (m: string) => warnings.push(m), error: () => undefined },
     postTracker: new PostTracker(),
     contentBreaker: new DefaultContentBreaker(),
@@ -210,5 +210,32 @@ describe('thread sink: holdUntilTurnEnd', () => {
     await sink.turnEnded(slowCtx);
 
     expect(created.map((c) => c.content)).toEqual([expect.stringContaining('turn-one'), expect.stringContaining('turn-two')]);
+  });
+});
+
+describe('thread sink: a long held turn', () => {
+  it('delivers every line across several posts instead of truncating one', async () => {
+    // Held until turn end, a long turn reaches the executor as one big append.
+    // A first flush with no post yet truncates at the platform limit, so the
+    // sink has to flush in chunks and let the executor split.
+    const { ctx, created, updated } = fakeContext('root-long');
+    const sink = createThreadSink({
+      contextFor: () => ctx,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) {
+      await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), ctx);
+    }
+    await sink.turnEnded(ctx);
+
+    const finalText = new Map<string, string>();
+    created.forEach((c, i) => finalText.set(`d${i + 1}`, c.content));
+    for (const u of updated) finalText.set(u.id, u.content);
+    const all = [...finalText.values()].join('\n');
+    const missing = [...Array(400).keys()].filter((i) => !all.includes(`LINE${i}.`));
+    expect(missing).toEqual([]);
+    expect(all).not.toContain('(truncated)');
+    expect(created.length).toBeGreaterThan(1);
   });
 });

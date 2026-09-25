@@ -68,9 +68,17 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
     t.executor ??= deps.makeExecutor();
     const lines = t.queued;
     t.queued = [];
+    // Flush in chunks. A held turn arrives here as hundreds of lines at once,
+    // and a first flush with no post yet truncates at the platform limit
+    // instead of splitting; once a post exists, the executor splits.
+    const chunk = Math.floor(t.ctx.platform.getMessageLimits().hardThreshold / 2);
     for (const line of lines) {
       await t.executor.executeAppend(createAppendContentOp(t.ctx.sessionId, line, true), t.ctx);
       if (t.dead) return;
+      if (t.executor.getState().pendingContent.length >= chunk) {
+        await t.executor.executeFlush(createFlushOp(t.ctx.sessionId, 'soft_threshold'), t.ctx);
+        if (t.dead) return;
+      }
     }
   }
 

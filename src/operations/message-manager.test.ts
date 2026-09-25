@@ -1332,6 +1332,36 @@ describe('MessageManager tool activity (summary / hidden)', () => {
   });
 });
 
+describe('MessageManager tool details in direct channel mode', () => {
+  it('threads each turn\'s details under that turn\'s own reply', async () => {
+    // The first tool of turn 2 used to reach the sink before the header was
+    // re-rendered, while headerPostId still pointed at turn 1's reply.
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:dcm', threadId: 'dcm:test',
+      registerPost: () => undefined, updateLastMessage: () => undefined,
+      toolActivity: { activity: 'summary', details: 'thread' },
+    });
+    const tool = (id: string) => ({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id, input: { command: 'ls' } }] } }) as never;
+    const done = (id: string) => ({ type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: id, content: 'ok' }] } }) as never;
+    const text = { type: 'assistant', message: { content: [{ type: 'text', text: 'Done.' }] } } as never;
+    const result = { type: 'result', result: {} } as never;
+
+    for (const ev of [tool('a'), done('a'), text, result]) await m.handleEvent(ev);
+    await m.prepareForUserMessage();
+    for (const ev of [tool('b'), done('b'), text, result]) await m.handleEvent(ev);
+
+    const calls = (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>;
+    const replies = calls.map((c, i) => ({ id: `post_${i + 1}`, content: c[0], root: c[1] })).filter((p) => p.content.startsWith('🔧'));
+    const details = calls.map((c, i) => ({ id: `post_${i + 1}`, content: c[0], root: c[1] })).filter((p) => p.content.includes('↳'));
+    expect(replies).toHaveLength(2);
+    expect(details).toHaveLength(2);
+    expect(details[0].root).toBe(replies[0].id);
+    expect(details[1].root).toBe(replies[1].id);
+  });
+});
+
 describe('MessageManager turn marker', () => {
   let platform: PlatformClient;
   let session: Session;

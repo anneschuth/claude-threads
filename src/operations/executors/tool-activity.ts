@@ -73,9 +73,17 @@ export class ToolActivityExecutor {
       this.stats.started++;
       this.stats.firstStartAt ??= now;
       this.stats.lastTool = op.name;
-      await this.options.sink.append(op, ctx);
+      // Header first: on a turn's first tool it claims the new reply post,
+      // and the sink resolves its root from that post. The other way round,
+      // the root was still the previous turn's reply (direct channel mode
+      // threaded turn 2's details under turn 1).
       this.renderHeader(now, ctx);
+      await this.options.sink.append(op, ctx);
     } else if (op.kind === 'end') {
+      // An end with nothing open belongs to a turn already closed: the late
+      // result of a tool that turn_end counted as finished. Counting it would
+      // open a phantom `🔧 0 tools` header in the next turn.
+      if (this.stats.finished >= this.stats.started) return;
       this.stats.finished++;
       if (!op.ok) this.stats.failed++;
       this.stats.lastEndAt = now;
@@ -104,7 +112,13 @@ export class ToolActivityExecutor {
     // this turn's details are being written, and must not count into (and be
     // wiped with) this turn's stats.
     this.stats = fresh();
-    await this.options.sink.turnEnded(ctx);
+    try {
+      await this.options.sink.turnEnded(ctx);
+    } catch (err) {
+      // Details are a side channel: a failure there must not cost the turn
+      // its end-of-turn marker, which runs after this.
+      ctx.logger.warn(`tool details: delivering the turn failed: ${(err as Error).message ?? err}`);
+    }
   }
 
   /**

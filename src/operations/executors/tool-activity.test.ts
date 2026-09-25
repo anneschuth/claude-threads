@@ -147,3 +147,35 @@ describe('ToolActivityExecutor turn boundaries (pre-release review)', () => {
     expect(exec.getStats().started).toBe(1);
   });
 });
+
+describe('ToolActivityExecutor after an interrupted turn (review round 2)', () => {
+  const warnCtx = () => {
+    const warnings: string[] = [];
+    return { warnings, c: { formatter, sessionId: 's', logger: { warn: (m: string) => warnings.push(m), debug: () => undefined } } as unknown as ExecutorContext };
+  };
+
+  it('ignores the late end of a tool the previous turn already closed', async () => {
+    const headers: string[] = [];
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: noneSink, onHeader: (l) => headers.push(l), now: () => 1000 });
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'x', name: 'Bash', display: 'x' }), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+    await exec.afterResultFlush(ctx);
+    const before = headers.length;
+
+    // The interrupted tool's result arrives in the next turn.
+    await exec.execute(createToolActivityOp('s', { kind: 'end', toolUseId: 'x', ok: true, elapsedMs: 0, display: 'e' }), ctx);
+
+    expect(headers.length).toBe(before);
+    expect(exec.getStats()).toMatchObject({ started: 0, finished: 0 });
+  });
+
+  it('a failing details sink does not fail the turn end', async () => {
+    const sink: ToolDetailsSink = { ...noneSink, turnEnded: async () => { throw new Error('flush boom'); } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: () => undefined });
+    const { warnings, c } = warnCtx();
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'x', name: 'Bash', display: 'x' }), c);
+
+    await expect(exec.afterResultFlush(c)).resolves.toBeUndefined();
+    expect(warnings.some((w) => w.includes('flush boom'))).toBe(true);
+  });
+});
