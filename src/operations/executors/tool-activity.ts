@@ -91,8 +91,11 @@ export class ToolActivityExecutor {
       this.stats.finished++;
       if (!op.ok) this.stats.failed++;
       this.stats.lastEndAt = now;
-      await this.options.sink.append(op, ctx);
+      // Render before awaiting the sink, as start does: during that await the
+      // result can close the turn and reset the stats, and a render after it
+      // would write `🔧 0 tools` over the final line.
       this.renderHeader(now, ctx);
+      await this.options.sink.append(op, ctx);
     } else if (this.stats.started > 0) {
       // turn_end: the final line, rendered by the result flush that follows.
       // A tool can end the turn without a result of its own (an interrupt);

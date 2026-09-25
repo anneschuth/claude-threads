@@ -73,17 +73,20 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
     // instead of splitting; once a post exists, the executor splits.
     const chunk = Math.floor(t.ctx.platform.getMessageLimits().hardThreshold / 2);
     // A flush that leaves the pending text as long as it was has failed (a
-    // rate-limited or refusing platform). Stop chunking for this drain:
-    // retrying on every further line turned one turn into thousands of posts.
-    let chunking = true;
+    // rate-limited or refusing platform). Back off rather than retry on every
+    // line (one turn made thousands of attempts that way) or stop for good
+    // (a platform that recovers mid-turn then got one flush with no post,
+    // which truncates): try again once the pending text has doubled.
+    let nextFlushAt = chunk;
     for (const line of lines) {
       await t.executor.executeAppend(createAppendContentOp(t.ctx.sessionId, line, true), t.ctx);
       if (t.dead) return;
       const pending = t.executor.getState().pendingContent.length;
-      if (chunking && pending >= chunk) {
+      if (pending >= nextFlushAt) {
         await t.executor.executeFlush(createFlushOp(t.ctx.sessionId, 'soft_threshold'), t.ctx);
         if (t.dead) return;
-        if (t.executor.getState().pendingContent.length >= pending) chunking = false;
+        const left = t.executor.getState().pendingContent.length;
+        nextFlushAt = left >= pending ? pending * 2 : chunk;
       }
     }
   }

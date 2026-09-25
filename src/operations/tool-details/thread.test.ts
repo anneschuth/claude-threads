@@ -278,3 +278,33 @@ describe('thread sink: failing platform and late roots (review round 3)', () => 
     expect(created.map((c) => c.content)).toEqual([expect.stringContaining('Bash build')]);
   });
 });
+
+describe('thread sink: a platform that recovers mid-turn (review round 4)', () => {
+  it('keeps chunking with backoff, so nothing is truncated once posts go through again', async () => {
+    // A few refused posts (a short 429 burst), then the platform recovers.
+    // Stopping chunking after one failure left the whole turn to a single
+    // flush with no post, which truncated at the limit; and a refused chunk
+    // of a multi-post flush used to be dropped once a later one went through.
+    const { ctx, created, updated } = fakeContext('root-recover');
+    let refusals = 3;
+    const flaky = { ...ctx, createPost: async (content: string, options: never) => {
+      if (refusals > 0) { refusals--; throw new Error('429 ratelimited'); }
+      return ctx.createPost(content, options);
+    } } as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => flaky,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), flaky);
+    await sink.turnEnded(flaky);
+
+    const finalText = new Map<string, string>();
+    created.forEach((c, i) => finalText.set(`d${i + 1}`, c.content));
+    for (const u of updated) finalText.set(u.id, u.content);
+    const all = [...finalText.values()].join('\n');
+    expect(all).not.toContain('(truncated)');
+    const missing = [...Array(400).keys()].filter((i) => !all.includes(`LINE${i}.`));
+    expect(missing).toEqual([]);
+  });
+});

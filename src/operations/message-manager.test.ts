@@ -1380,6 +1380,32 @@ describe('MessageManager tool details in direct channel mode', () => {
   });
 });
 
+describe('MessageManager text around tools in summary/hidden (review round 4)', () => {
+  for (const activity of ['summary', 'hidden'] as const) {
+    it(`${activity}: text before and after a server tool stays two paragraphs`, async () => {
+      const platform = createMockPlatform();
+      const session = createMockSession(platform);
+      const m = new MessageManager({
+        session, platform, postTracker: new PostTracker(), sessionId: 'test:s', threadId: 'thread-1',
+        registerPost: () => undefined, updateLastMessage: () => undefined,
+        toolActivity: { activity, details: 'none' },
+      });
+      await m.handleEvent({ type: 'assistant', message: { content: [
+        { type: 'text', text: 'Let me search.' },
+        { type: 'server_tool_use', name: 'web_search', id: 'srv1', input: { query: 'x' } },
+        { type: 'text', text: 'Found it.' },
+      ] } } as never);
+      await m.handleEvent({ type: 'result', result: {} } as never);
+
+      const texts = [
+        ...(platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string),
+        ...(platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string),
+      ];
+      expect(texts.at(-1)).toContain('Let me search.\n\nFound it.');
+    });
+  }
+});
+
 describe('MessageManager turn marker', () => {
   let platform: PlatformClient;
   let session: Session;
@@ -1441,6 +1467,15 @@ describe('MessageManager turn marker', () => {
       expect(marked()).toHaveLength(1);
       expect(marked()[0][1].startsWith('🔧 1 tool')).toBe(true);
     });
+  });
+
+  it('metadata: each turn carries its own number even when events arrive in a burst', async () => {
+    const m = withMarker({ mode: 'metadata' });
+    // Upstream does not await handleEvent; two turns can overlap.
+    await Promise.all([m.handleEvent(text), m.handleEvent(result), m.handleEvent(text), m.handleEvent(result)]);
+    const turns = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string, { metadata?: { event_payload: { turn: number } } }?]>)
+      .filter((c) => c[2]?.metadata).map((c) => c[2]!.metadata!.event_payload.turn);
+    expect(turns).toEqual([1, 2]);
   });
 
   it('reaction: the emoji lands on the last post; an error result says ok false in metadata mode', async () => {

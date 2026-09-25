@@ -254,6 +254,34 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('A tall flush split over several new posts, one of which fails', () => {
+    // A flush with no current post splits tall content into several posts.
+    // Each success used to clear the WHOLE flush from pending, so a chunk
+    // refused before or after a success was lost for good.
+    const tall = () => Array.from({ length: 300 }, (_, i) => `line ${i} of the tall reply`).join('\n\n');
+
+    it('keeps the refused chunk and everything after it for the next flush', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      const delivered: string[] = [];
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 2) throw new Error('429 ratelimited');
+        delivered.push(content);
+        return realCreate(content, threadId);
+      });
+      await executor.executeAppend(createAppendContentOp('test', tall()), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      // The platform recovered: the next flush delivers what was held back.
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const text = delivered.join('\n') + '\n' + ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[1]).join('\n');
+      const missing = Array.from({ length: 300 }, (_, i) => i).filter((i) => !text.includes(`line ${i} of`));
+      expect(missing).toEqual([]);
+    });
+  });
+
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();

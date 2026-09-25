@@ -57,6 +57,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       headerPostId: null,
       headerBody: '',
       turnOpen: false,
+      paragraphBreak: false,
     };
   }
 
@@ -230,9 +231,21 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Execute an append content operation.
    */
+  /**
+   * A tool ran whose line does not go into the reply (tool activity summary
+   * or hidden). Without its line the text on either side would run together:
+   * `Let me search.Found it.`
+   */
+  markParagraphBreak(): void {
+    this.state.paragraphBreak = true;
+  }
+
   async executeAppend(op: AppendContentOp, _ctx: ExecutorContext): Promise<void> {
-    // Tool output needs spacing before and after to separate from text
-    if (op.isToolOutput && this.state.pendingContent.length > 0) {
+    const breakBefore = this.state.paragraphBreak && !op.isToolOutput;
+    if (!op.isToolOutput) this.state.paragraphBreak = false;
+    // Tool output needs spacing before and after to separate from text; so
+    // does text after a tool that was kept out of the reply.
+    if ((op.isToolOutput || breakBefore) && this.state.pendingContent.length > 0) {
       if (!this.state.pendingContent.endsWith('\n\n')) {
         if (this.state.pendingContent.endsWith('\n')) {
           this.state.pendingContent += '\n';
@@ -326,8 +339,12 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       return;
     }
 
-    // Normal case: content fits in current post
-    if (content.length + reserve > MAX_POST_LENGTH) {
+    // Normal case: content fits in current post. With no post yet, too-long
+    // content is split into several new posts below instead of truncated: a
+    // long burst (tool details held until the turn ends, or a reply that
+    // built up while the platform refused posts) would otherwise lose
+    // everything past the limit.
+    if (this.state.currentPostId && content.length + reserve > MAX_POST_LENGTH) {
       ctx.logger.warn(`Content too long (${content.length}), truncating`);
       content = truncateMessageSafely(
         content,
@@ -391,15 +408,32 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       );
     } else {
       // Create new post(s) - split if content is too tall
-      const chunks = splitContentForHeight(content, ctx.contentBreaker);
+      const chunks = splitContentForHeight(content, ctx.contentBreaker)
+        .flatMap((chunk) => splitByLength(chunk, HARD_CONTINUATION_THRESHOLD - reserve));
       ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
         contentLength: content.length,
         chunkCount: chunks.length,
         reason: 'no_currentPostId',
       }, 'flush');
 
+      let lastPosted: { id: string; content: string } | null = null;
       for (let i = 0; i < chunks.length; i++) {
-        await this.createNewPost(ctx, chunks[i], pendingAtFlushStart);
+        const created = await this.createNewPost(ctx, chunks[i], pendingAtFlushStart);
+        if (!created) {
+          // Stop at the first refused chunk. A success clears the whole
+          // flush from pending, so once an earlier chunk went through, the
+          // refused one and the rest must be put back, or they are lost;
+          // before any success, pending still holds them. Either way the
+          // next flush carries on from here, after the last post that made it.
+          if (lastPosted) {
+            this.state.pendingContent = chunks.slice(i).join('\n\n')
+              + (this.state.pendingContent ? `\n\n${this.state.pendingContent}` : '');
+            this.state.currentPostId = lastPosted.id;
+            this.state.currentPostContent = lastPosted.content;
+          }
+          break;
+        }
+        lastPosted = { id: this.state.currentPostId as string, content: this.state.currentPostContent };
         // Reset for next chunk so it creates a new post
         // But keep state for the last chunk so getCurrentPostContent() works
         if (i < chunks.length - 1) {
@@ -616,11 +650,12 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   /**
    * Create a new post.
    */
+  /** Returns whether the post now exists; false when the platform refused it. */
   private async createNewPost(
     ctx: ExecutorContext,
     content: string,
     pendingAtFlushStart: string
-  ): Promise<void> {
+  ): Promise<boolean> {
     // The first post of a turn with a header carries it (docs/quiet-tools-spec.md).
     const header = this.state.header;
     const becomesHeaderPost = this.state.turnOpen && this.state.headerPostId === null && header !== null;
@@ -651,7 +686,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         if (this.onBumpTaskListToBottom) {
           await this.onBumpTaskListToBottom();
         }
-        return;
+        return true;
       }
     }
 
@@ -673,8 +708,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (this.onBumpTaskListToBottom) {
         await this.onBumpTaskListToBottom();
       }
+      return true;
     } catch (err) {
       ctx.logger.error(`Failed to create post: ${err}`);
+      return false;
     }
   }
 
@@ -688,4 +725,21 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       this.state.pendingContent = '';
     }
   }
+}
+
+/**
+ * Cut `text` into pieces no longer than `max`, at a line break where one is
+ * reasonably close to the limit.
+ */
+function splitByLength(text: string, max: number): string[] {
+  const pieces: string[] = [];
+  let rest = text;
+  while (rest.length > max) {
+    let cut = rest.lastIndexOf('\n', max);
+    if (cut < max * 0.5) cut = max;
+    pieces.push(rest.slice(0, cut));
+    rest = rest.slice(cut).replace(/^\n+/, '');
+  }
+  if (rest) pieces.push(rest);
+  return pieces;
 }

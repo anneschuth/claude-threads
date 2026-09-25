@@ -199,3 +199,24 @@ describe('ToolActivityExecutor matches ends by tool id (review round 3)', () => 
     expect(rec.appended.map((op) => op.display)).not.toContain('end x');
   });
 });
+
+describe('ToolActivityExecutor end renders before the sink (review round 4)', () => {
+  it('a result arriving while an end waits on the sink does not get a zero-count header', async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const headers: string[] = [];
+    let block = false;
+    const sink: ToolDetailsSink = { ...noneSink, append: async () => { if (block) await gate; } };
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink, onHeader: (l) => headers.push(l), now: () => 1000 });
+    await exec.execute(createToolActivityOp('s', { kind: 'start', toolUseId: 'a', name: 'Bash', display: 'a' }), ctx);
+
+    block = true;
+    const ending = exec.execute(createToolActivityOp('s', { kind: 'end', toolUseId: 'a', ok: true, elapsedMs: 0, display: 'e' }), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx);
+    await exec.afterResultFlush(ctx); // the result: stats start over
+    release();
+    await ending;
+
+    expect(headers.some((h) => h.startsWith('🔧 0 tools'))).toBe(false);
+  });
+});
