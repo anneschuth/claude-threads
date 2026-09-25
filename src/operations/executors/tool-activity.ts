@@ -60,6 +60,8 @@ export interface ToolActivityExecutorOptions {
 
 export class ToolActivityExecutor {
   private stats = fresh();
+  /** Tools of this turn that started and have not ended; ends are matched by id, not by count. */
+  private open = new Set<string>();
 
   constructor(private readonly options: ToolActivityExecutorOptions) {}
 
@@ -71,6 +73,7 @@ export class ToolActivityExecutor {
     const now = this.options.now?.() ?? Date.now();
     if (op.kind === 'start') {
       this.stats.started++;
+      this.open.add(op.toolUseId);
       this.stats.firstStartAt ??= now;
       this.stats.lastTool = op.name;
       // Header first: on a turn's first tool it claims the new reply post,
@@ -80,10 +83,11 @@ export class ToolActivityExecutor {
       this.renderHeader(now, ctx);
       await this.options.sink.append(op, ctx);
     } else if (op.kind === 'end') {
-      // An end with nothing open belongs to a turn already closed: the late
-      // result of a tool that turn_end counted as finished. Counting it would
-      // open a phantom `🔧 0 tools` header in the next turn.
-      if (this.stats.finished >= this.stats.started) return;
+      // Only the end of a tool this turn started counts. A late result of a
+      // tool that turn_end already closed would otherwise stand in for the
+      // next tool's end (whose real end then got dropped), or open a phantom
+      // `🔧 0 tools` header in an otherwise empty turn.
+      if (!this.open.delete(op.toolUseId)) return;
       this.stats.finished++;
       if (!op.ok) this.stats.failed++;
       this.stats.lastEndAt = now;
@@ -97,6 +101,7 @@ export class ToolActivityExecutor {
         this.stats.finished = this.stats.started;
         this.stats.lastEndAt = now;
       }
+      this.open.clear();
       this.renderHeader(now, ctx);
     }
   }
@@ -112,6 +117,7 @@ export class ToolActivityExecutor {
     // this turn's details are being written, and must not count into (and be
     // wiped with) this turn's stats.
     this.stats = fresh();
+    this.open.clear();
     try {
       await this.options.sink.turnEnded(ctx);
     } catch (err) {
@@ -130,7 +136,13 @@ export class ToolActivityExecutor {
   reset(): void {
     if (this.stats.started === 0) return;
     this.stats = fresh();
+    this.open.clear();
     this.options.sink.reset();
+  }
+
+  /** The manager flushed, so the turn's reply post may exist now: let the sink deliver what waited for it. */
+  wake(): void {
+    this.options.sink.wake?.();
   }
 
   private renderHeader(now: number, ctx: ExecutorContext): void {

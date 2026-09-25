@@ -17,6 +17,12 @@ export interface ToolDetailsSink {
   link(): string | null;
   /** Session restart mid-turn: forget this turn's queue and context. */
   reset(): void;
+  /**
+   * The turn's reply post may exist now (the manager just flushed): deliver
+   * what queued while there was no root. Optional; a sink without a root has
+   * nothing to do.
+   */
+  wake?(): void;
 }
 
 /** `toolDetails: none` — the stream is dropped. */

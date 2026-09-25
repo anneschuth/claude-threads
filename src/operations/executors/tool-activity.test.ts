@@ -179,3 +179,23 @@ describe('ToolActivityExecutor after an interrupted turn (review round 2)', () =
     expect(warnings.some((w) => w.includes('flush boom'))).toBe(true);
   });
 });
+
+describe('ToolActivityExecutor matches ends by tool id (review round 3)', () => {
+  it('a late end of the interrupted tool does not stand in for the next tool\'s end', async () => {
+    const rec = recordingSink();
+    const exec = new ToolActivityExecutor({ mode: 'summary', sink: rec.sink, onHeader: () => undefined, now: () => 1000 });
+    const s = (id: string) => createToolActivityOp('s', { kind: 'start', toolUseId: id, name: 'Bash', display: `start ${id}` });
+    const e = (id: string, ok: boolean) => createToolActivityOp('s', { kind: 'end', toolUseId: id, ok, elapsedMs: 0, display: `end ${id}` });
+
+    await exec.execute(s('x'), ctx);
+    await exec.execute(createToolActivityOp('s', { kind: 'turn_end' }), ctx); // interrupted
+    await exec.afterResultFlush(ctx);
+    await exec.execute(s('y'), ctx);
+    await exec.execute(e('x', true), ctx); // late
+    await exec.execute(e('y', false), ctx); // the real one
+
+    expect(exec.getStats()).toMatchObject({ started: 1, finished: 1, failed: 1 });
+    expect(rec.appended.map((op) => op.display)).toContain('end y');
+    expect(rec.appended.map((op) => op.display)).not.toContain('end x');
+  });
+});

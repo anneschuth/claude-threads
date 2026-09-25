@@ -610,6 +610,9 @@ export class MessageManager {
     });
     this.flushInFlight = running;
     await running;
+    // A flush can create the turn's reply post; tool lines that queued for
+    // want of a root can go now instead of at the next tool event.
+    this.toolActivityExecutor?.wake();
   }
 
   /**

@@ -1360,6 +1360,24 @@ describe('MessageManager tool details in direct channel mode', () => {
     expect(details[0].root).toBe(replies[0].id);
     expect(details[1].root).toBe(replies[1].id);
   });
+
+  it('streams a turn\'s first tool line once the reply post exists, without waiting for another tool', async () => {
+    const platform = createMockPlatform();
+    const session = createMockSession(platform);
+    const m = new MessageManager({
+      session, platform, postTracker: new PostTracker(), sessionId: 'test:dcm', threadId: 'dcm:test',
+      registerPost: () => undefined, updateLastMessage: () => undefined,
+      toolActivity: { activity: 'summary', details: 'thread' },
+    });
+    await m.handleEvent({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', id: 'long', input: { command: 'make build' } }] } } as never);
+    // One long-running tool: no further tool event arrives. The reply post
+    // appears on the manager's timer flush, the details on the sink's.
+    await new Promise((r) => setTimeout(r, 1300));
+
+    const contents = (platform.createPost as ReturnType<typeof mock>).mock.calls.map((c) => c[0] as string);
+    expect(contents.some((c) => c.startsWith('🔧'))).toBe(true);
+    expect(contents.some((c) => c.includes('make build') && !c.startsWith('🔧'))).toBe(true);
+  });
 });
 
 describe('MessageManager turn marker', () => {

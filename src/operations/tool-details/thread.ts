@@ -72,12 +72,18 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
     // and a first flush with no post yet truncates at the platform limit
     // instead of splitting; once a post exists, the executor splits.
     const chunk = Math.floor(t.ctx.platform.getMessageLimits().hardThreshold / 2);
+    // A flush that leaves the pending text as long as it was has failed (a
+    // rate-limited or refusing platform). Stop chunking for this drain:
+    // retrying on every further line turned one turn into thousands of posts.
+    let chunking = true;
     for (const line of lines) {
       await t.executor.executeAppend(createAppendContentOp(t.ctx.sessionId, line, true), t.ctx);
       if (t.dead) return;
-      if (t.executor.getState().pendingContent.length >= chunk) {
+      const pending = t.executor.getState().pendingContent.length;
+      if (chunking && pending >= chunk) {
         await t.executor.executeFlush(createFlushOp(t.ctx.sessionId, 'soft_threshold'), t.ctx);
         if (t.dead) return;
+        if (t.executor.getState().pendingContent.length >= pending) chunking = false;
       }
     }
   }
@@ -130,6 +136,15 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
       });
     },
     link: () => null,
+    wake() {
+      // Only a streaming turn still waiting for its root has anything to do.
+      const t = turn;
+      if (deps.holdUntilTurnEnd || t.ctx || t.queued.length === 0) return;
+      void enqueue(t, async () => {
+        await drain(t);
+        if (t.executor) scheduleFlush(t);
+      }).catch(() => undefined);
+    },
     reset() {
       const t = turn;
       t.dead = true;

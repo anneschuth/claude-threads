@@ -239,3 +239,42 @@ describe('thread sink: a long held turn', () => {
     expect(created.length).toBeGreaterThan(1);
   });
 });
+
+describe('thread sink: failing platform and late roots (review round 3)', () => {
+  it('stops flushing in chunks once a flush cannot shrink the pending text', async () => {
+    // A rate-limited platform refuses every post; the pending text then never
+    // shrinks, and a flush per line turned one held turn into thousands of
+    // createPost attempts.
+    const { ctx } = fakeContext('root-429');
+    let attempts = 0;
+    const failing = { ...ctx, createPost: async () => { attempts++; throw new Error('429 ratelimited'); } } as unknown as ExecutorContext;
+    const sink = createThreadSink({
+      contextFor: () => failing,
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      holdUntilTurnEnd: true,
+    });
+    for (let i = 0; i < 400; i++) await sink.append(start(`t${i}`, `🔧 Bash \`cat /some/long/path/file-${i}.ts | grep something\` LINE${i}.`), failing);
+    await sink.turnEnded(failing);
+
+    // What remains is the turn-end flush trying each post-sized chunk once
+    // (about 20 here): bounded by the content, not by the line count. Before
+    // the fix this was 4281.
+    expect(attempts).toBeLessThan(50);
+  });
+
+  it('wake() delivers lines that queued while the turn had no root yet', async () => {
+    const { ctx, created } = fakeContext('root-wake');
+    let root = false;
+    const sink = createThreadSink({
+      contextFor: () => (root ? ctx : null),
+      makeExecutor: () => new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined }),
+      flushDelayMs: 5,
+    });
+    await sink.append(start('t1', 'Bash build'), ctx); // no reply post yet: queued
+    root = true; // the reply post now exists...
+    (sink as { wake?: () => void }).wake?.(); // ...and the manager says so
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(created.map((c) => c.content)).toEqual([expect.stringContaining('Bash build')]);
+  });
+});
