@@ -240,3 +240,28 @@ jobs:
         run: |
           node --version
           bun test tests/node-e2e --timeout 240000
+
+  # A dispatched run (the Dependabot lockfile sync starts one on the synced
+  # commit, see dependabot-sync-lockfile.yml) is not linked to any PR, so its
+  # checks never show there. Report the outcome as a commit status on the same
+  # SHA, which the PR does show, replacing the pending one the sync job set.
+  dispatch-status:
+    if: always() && github.event_name == 'workflow_dispatch'
+    needs: [security, lint, typecheck, test, build, windows-spawn, node-smoke, node-e2e]
+    runs-on: ubuntu-latest
+    permissions:
+      statuses: write
+    steps:
+      - name: Report CI result on the commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          state=success
+          for r in $RESULTS; do
+            case "$r" in success|skipped) ;; *) state=failure ;; esac
+          done
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -f state="$state" -f context="CI (dispatched)" \
+            -f target_url="$RUN_URL" -f description="CI on the synced lockfile: $state"

@@ -22,6 +22,12 @@ name: Sync bun.lock on Dependabot PRs
 # is the one event GITHUB_TOKEN may trigger, so this job dispatches CI and the
 # integration tests on the branch itself, then deletes the held runs so the PR
 # does not show checks waiting for an approval nobody needs to give.
+#
+# A dispatched run is not linked to the PR, so its checks do not show there.
+# Commit statuses do: this job sets "CI (dispatched)" and "Integration Tests
+# (dispatched)" to pending on the synced commit, and the dispatch-status job at
+# the end of each workflow replaces them with the result. Without that the PR
+# would show no checks at all and a green merge button.
 
 on:
   pull_request:
@@ -33,6 +39,8 @@ permissions:
   contents: write
   # Dispatch CI on the synced commit and delete the runs GitHub holds for it.
   actions: write
+  # Pending statuses on the synced commit, so the PR shows CI is running.
+  statuses: write
 
 env:
   # Keep in lockstep with .github/workflows/ci.yml.
@@ -66,6 +74,8 @@ jobs:
 
       - name: Commit bun.lock if it changed
         id: commit
+        env:
+          HEAD_REF: ${{ github.head_ref }}
         run: |
           if git diff --quiet -- bun.lock; then
             echo "bun.lock already matches the update — nothing to sync."
@@ -75,7 +85,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add bun.lock
           git commit -m "chore: sync bun.lock with Dependabot update"
-          git push origin HEAD:"${{ github.head_ref }}"
+          git push origin HEAD:"$HEAD_REF"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Run CI on the synced commit
@@ -87,17 +97,33 @@ jobs:
         run: |
           gh workflow run ci.yml --ref "$HEAD_REF"
           gh workflow run integration.yml --ref "$HEAD_REF"
+          run_list="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions?query=branch%3A$HEAD_REF"
+          for context in "CI (dispatched)" "Integration Tests (dispatched)"; do
+            gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+              -f state=pending -f context="$context" \
+              -f target_url="$run_list" -f description="Running on the synced lockfile"
+          done
 
           # The held pull_request runs appear a few seconds after the push, one
-          # per workflow the synchronize event matched (CI, integration, this
-          # one). Delete them as they show up; give up quietly after 3 minutes,
-          # since a leftover held run is cosmetic, not a failure.
+          # per workflow the synchronize event matched. Delete them as they
+          # show up, and stop once two polls in a row after a deletion find
+          # nothing new (no hardcoded count, so adding a workflow needs no edit
+          # here). Give up quietly after 3 minutes: a leftover held run is
+          # cosmetic, the statuses above are what the PR relies on.
           deleted=0
+          quiet=0
           for _ in $(seq 1 18); do
+            found=0
             for id in $(gh api "repos/$GITHUB_REPOSITORY/actions/runs?head_sha=$SHA&event=pull_request&status=action_required" --jq '.workflow_runs[].id'); do
+              found=1
               gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/runs/$id" && deleted=$((deleted + 1))
             done
-            [ "$deleted" -ge 3 ] && break
+            if [ "$found" -eq 0 ] && [ "$deleted" -gt 0 ]; then
+              quiet=$((quiet + 1))
+              [ "$quiet" -ge 2 ] && break
+            else
+              quiet=0
+            fi
             sleep 10
           done
           echo "Deleted $deleted held pull_request run(s) for $SHA."
