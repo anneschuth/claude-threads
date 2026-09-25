@@ -182,15 +182,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       onSuccess();
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
-      // The write may still have landed — a lost response throws all the
-      // same. `headerBody` is what a later header render will restore, so it
-      // must track what was ATTEMPTED, not the last confirmed body: updates
-      // replace the whole post, so restoring the attempt is right whether it
-      // arrived or not, while restoring the older body deletes delivered
-      // text (Codex review). `headerDirty` stays set, so the retry happens.
-      if (postId === this.state.headerPostId) {
-        this.state.headerBody = content;
-      }
+      // Whether the attempted body must be recorded is the CALL SITE's
+      // decision, not this helper's, per the note above. It is right only
+      // where the pending content is dropped regardless of the outcome (the
+      // split's first part), and wrong on the plain update path, which leaves
+      // pendingContent in place so the next flush re-posts it — recording the
+      // attempt there puts the same text in both posts. `headerDirty` stays
+      // set either way, so the retry still happens.
       ctx.logger.debug(`Update failed (${logTag}): ${err}`);
       const resolvedFailureDetails = typeof failureDetails === 'function'
         ? failureDetails(err)
@@ -574,7 +572,18 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         { reason: 'split_first_part', firstPartLength: firstPart.length, remainderLength: remainder.length },
         { reason: 'split_first_part_failed' },
         () => { /* no-op: caller resets state below */ },
-        () => { /* no-op: caller resets state below */ },
+        () => {
+          // Record the attempted body HERE, where it is right: the caller
+          // drops the pending content below whether or not this write landed,
+          // so a later header render is the only chance to restore firstPart.
+          // The write may also have arrived and only its response been lost,
+          // and an update replaces the whole post, so restoring the attempt is
+          // correct in both cases while restoring the older body would delete
+          // delivered text.
+          if (postId === this.state.headerPostId) {
+            this.state.headerBody = firstPart;
+          }
+        },
       );
     }
 

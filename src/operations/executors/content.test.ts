@@ -1246,6 +1246,40 @@ describe('ContentExecutor', () => {
       expect(post1Writes.at(-1)).toContain('line 0');
     });
 
+    it('a genuinely failed plain update does not duplicate the paragraph into both posts', async () => {
+      // The mirror of the test above, and the reason recording the attempted
+      // body belongs at the split call site rather than in `tryUpdatePost`.
+      // On the PLAIN update path the failure branch leaves pendingContent in
+      // place so the next flush re-posts it. Recording the attempt there too
+      // meant the header re-render wrote `para two` to post 1 while the
+      // pending copy still went to post 2.
+      const ctx = getContext();
+      executor.setHeader('🔧 1 tool · 1 s…');
+      await executor.executeAppend(createAppendContentOp('test', 'para one'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      let failed = false;
+      (platform as { updatePost: unknown }).updatePost = mock((id: string, content: string) => {
+        if (!failed && id === 'post_1') { failed = true; throw new Error('500 rejected'); }
+        return realUpdate(id, content);
+      });
+
+      // The last tool ends (header final, dirty), then a short paragraph
+      // arrives: short enough that the flush UPDATES post 1 rather than
+      // splitting. That update is genuinely rejected.
+      executor.setHeader('🔧 1 tool · 1 s');
+      await executor.executeAppend(createAppendContentOp('test', 'para two'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const writes = [
+        ...((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[0]),
+        ...((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[1]),
+      ];
+      const occurrences = writes.filter((text) => text.includes('para two')).length;
+      expect(occurrences).toBe(1);
+    });
+
     it('a final header set after a split still reaches the header post when the closing text lands on the continuation', async () => {
       // Anne's #534 repro: reply splits → the last tool ends (header goes
       // final, dirty) → Claude's closing text arrives → the result flush
