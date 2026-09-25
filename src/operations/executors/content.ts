@@ -436,9 +436,14 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           if (lastPosted) {
             this.state.pendingContent = chunks.slice(i).join('\n\n')
               + (this.state.pendingContent ? `\n\n${this.state.pendingContent}` : '');
-            this.state.currentPostId = lastPosted.id;
-            this.state.currentPostContent = lastPosted.content;
           }
+          // No current post: the next flush takes this same path and splits
+          // the put-back text into new posts. Resuming on the last post sent
+          // it through the update-and-split path instead, whose remainder is
+          // not cut by length (Slack truncated it, Mattermost refused it and
+          // the text was posted twice later).
+          this.state.currentPostId = null;
+          this.state.currentPostContent = '';
           break;
         }
         lastPosted = { id: this.state.currentPostId as string, content: this.state.currentPostContent };
@@ -745,20 +750,33 @@ const FENCE_CLOSE = '\n```';
  * each post renders on its own.
  */
 function splitByLength(text: string, max: number): string[] {
-  const pieces: string[] = [];
   const room = max - FENCE_CLOSE.length;
+  if (room < 1) return [text];
+  const pieces: string[] = [];
   let rest = text;
   while (rest.length > max) {
     let cut = rest.lastIndexOf('\n', room);
     if (cut < room * 0.5) cut = room;
     let piece = rest.slice(0, cut);
-    rest = rest.slice(cut).replace(/^\n+/, '');
+    let next = rest.slice(cut).replace(/^\n+/, '');
     const fences = piece.match(FENCE_LINE) ?? [];
-    if (fences.length % 2 === 1) {
+    const opener = fences[fences.length - 1];
+    // Reopen only when that still makes progress. A fence line as long as a
+    // post (a one-line fenced blob) would otherwise be re-added in full every
+    // round: a synchronous loop that froze the whole bot. Such a line is cut
+    // like any other text instead.
+    if (fences.length % 2 === 1 && opener !== undefined && `${opener}\n${next}`.length < rest.length) {
       piece += FENCE_CLOSE;
-      rest = `${fences[fences.length - 1]}\n${rest}`;
+      next = `${opener}\n${next}`;
     }
     pieces.push(piece);
+    // The loop must shrink `rest` every round; anything else is a bug, and
+    // shipping the remainder beats spinning forever.
+    if (next.length >= rest.length) {
+      rest = next;
+      break;
+    }
+    rest = next;
   }
   if (rest) pieces.push(rest);
   return pieces;

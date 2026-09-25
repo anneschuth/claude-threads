@@ -317,6 +317,77 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('Pathological fence lines (review round 6)', () => {
+    // A fence opener longer than a post used to make the split re-add the
+    // opener forever: a synchronous loop that froze every session.
+    for (const [name, text] of [
+      ['a fence line longer than a post', '```' + 'a'.repeat(20000)],
+      ['a one-line fenced JSON blob', '```{"k":"' + 'v'.repeat(17000) + '"}```'],
+    ] as const) {
+      it(`terminates and delivers ${name}`, async () => {
+        const ctx = getContext();
+        await executor.executeAppend(createAppendContentOp('test', text), ctx);
+        await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+        const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+        expect(posts.length).toBeGreaterThan(1);
+        for (const post of posts) expect(post.length).toBeLessThanOrEqual(16000);
+      });
+    }
+  });
+
+  describe('Splitting fuzz: fences, long lines, no post yet (review round 6)', () => {
+    it('always terminates, and every post fits the limit', async () => {
+      let seed = 42;
+      const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+      const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
+      const bits = [
+        () => '```', () => '```ts', () => '```' + 'x'.repeat(Math.floor(rnd() * 20000)),
+        () => 'y'.repeat(Math.floor(rnd() * 18000)), () => 'short line', () => '',
+        () => '| a | b |\n|---|---|\n| 1 | 2 |', () => '````', () => '  ```', () => '~~~',
+      ];
+      for (let run = 0; run < 300; run++) {
+        const fresh = new ContentExecutor({ registerPost: () => undefined, updateLastMessage: () => undefined });
+        (platform.createPost as ReturnType<typeof mock>).mockClear();
+        const ctx = getContext();
+        const text = Array.from({ length: 1 + Math.floor(rnd() * 12) }, () => pick(bits)()).join('\n');
+        await fresh.executeAppend(createAppendContentOp('test', text), ctx);
+        await fresh.executeFlush(createFlushOp('test', 'result'), ctx);
+        for (const [post] of (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>) {
+          expect(post.length).toBeLessThanOrEqual(16000);
+        }
+      }
+    });
+  });
+
+  describe('A refused post in the middle of a split, then recovery (review round 6)', () => {
+    it('delivers every paragraph exactly once', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let calls = 0;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        calls++;
+        if (calls === 2) throw new Error('429 ratelimited');
+        return realCreate(content, threadId);
+      });
+      const words = 'alpha beta gamma delta epsilon zeta eta theta'.split(' ');
+      const paragraphs = Array.from({ length: 120 }, (_, i) => `P${i}: ` + Array.from({ length: 40 }, (_, j) => words[(i * 7 + j * 3) % 8]).join(' ') + '.');
+      await executor.executeAppend(createAppendContentOp('test', paragraphs.join('\n\n')), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const finalText = new Map<string, string>();
+      (realCreate.mock.calls as Array<[string]>).forEach((c, i) => finalText.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of (platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>) finalText.set(id, text);
+      const all = [...finalText.values()].join('\n');
+      const counts = paragraphs.map((p) => all.split(p).length - 1);
+      expect(counts.filter((n) => n !== 1).length).toBe(0);
+      // A post over the limit is what the platform truncates (Slack) or
+      // refuses (Mattermost); the mock accepts it, so check it directly.
+      for (const text of finalText.values()) expect(text.length).toBeLessThanOrEqual(16000);
+    });
+  });
+
   describe('Text arriving while a multi-post flush is writing (review round 5)', () => {
     it('is kept for the next flush instead of being wiped by the second post', async () => {
       const ctx = getContext();
