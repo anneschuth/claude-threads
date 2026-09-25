@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.39.0] - 2026-09-25
 
 ### Added
-- **Per-platform `toolActivity`: `summary` or `hidden` instead of the tool stream** (#534, thanks @kaza). `summary` replaces the inline `Bash …` / `↳ ✓` lines with one live line at the top of the turn's post — `🔧 12 tools · 40 s · Bash`, naming the tool most recently started so the line stays a liveness signal; `hidden` says nothing about tools at all. `toolDetails: thread` keeps the full rendering in a thread under the reply, `none` drops it. Defaults are unchanged (`full` / `none`). Permission prompts, plan approvals, questions, task lists and errors are untouched in every mode. Part of #505.
+- **Per-platform `toolActivity`: `summary` or `hidden` instead of the tool stream** (#534, thanks @kaza). `summary` replaces the inline `Bash …` / `↳ ✓` lines with one live line at the top of the turn's post — `🔧 12 tools · 40 s · Bash`, naming the tool most recently started so the line stays a liveness signal; `hidden` says nothing about tools at all. `toolDetails: thread` keeps the full rendering in a thread under the reply, `none` drops it. Defaults are unchanged (`full` / `none`). Permission prompts, plan approvals, questions, task lists and errors are untouched in every mode. Part of #505. Hardened before release in #616: the turn marker keeps the summary line, details in a thread session arrive after the whole reply, and long or rate-limited turns lose no tool lines.
+
+### Fixed
+- **Long replies are no longer cut off at the platform limit** (#616). A reply that reached the chat in one large burst, with no post of its own yet, was truncated past the limit (about 12K characters on Slack, 16K on Mattermost), with "(truncated)" at the end. It is now split over several posts; a code block cut in two is closed and reopened with its language. Normal streaming replies are unchanged.
+- **A refused post no longer loses part of a long reply** (#616). When the platform refused one post of a reply split over several (a rate limit, for instance), the text of that post was dropped once a later one went through, and anything Claude streamed meanwhile could be wiped. The refused part is now kept and posted on the next flush.
+
+### Changed
+- `hono` 4.13.7 → 4.13.8 (#608).
 
 ## [1.38.1] - 2026-09-24
 
