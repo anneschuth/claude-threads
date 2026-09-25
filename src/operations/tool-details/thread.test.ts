@@ -105,3 +105,37 @@ describe('thread sink', () => {
     expect(warnings).toHaveLength(0);
   });
 });
+
+describe('thread sink reset during a drain', () => {
+  it('stops the drain in flight: no crash on the released executor, no flush scheduled after the reset', async () => {
+    // A respawn or the session ending calls reset() while a drain may still
+    // be awaiting its executor. Before the fix, the loop's next iteration
+    // dereferenced the executor reset() had just nulled, and a surviving
+    // drain scheduled a details flush for a turn that no longer exists.
+    const { ctx } = fakeContext('root-r');
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => { release = r; });
+    const scheduleFlush = mock(() => undefined);
+    const fakeExecutor = {
+      executeAppend: mock(async () => { await gate; }),
+      scheduleFlush,
+      executeFlush: mock(async () => undefined),
+      closeCurrentPost: mock(() => undefined),
+      reset: mock(() => undefined),
+    } as unknown as ContentExecutor;
+    let available = false;
+    const sink = createThreadSink({ contextFor: () => (available ? ctx : null), makeExecutor: () => fakeExecutor });
+
+    // Two lines queue while there is no root; the third append drains all three.
+    await sink.append(start('t1', 'Bash a'), ctx);
+    await sink.append(end('t1'), ctx);
+    available = true;
+    const draining = sink.append(start('t2', 'Bash b'), ctx);
+
+    sink.reset();
+    release();
+
+    await expect(draining).resolves.toBeUndefined();
+    expect(scheduleFlush).not.toHaveBeenCalled();
+  });
+});

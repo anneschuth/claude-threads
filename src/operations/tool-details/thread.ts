@@ -24,18 +24,26 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
   let queued: string[] = [];
   let executor: ContentExecutor | null = null;
   let detailsCtx: ExecutorContext | null = null;
+  /** Bumped by reset(), so a drain still awaiting its executor knows its turn is gone. */
+  let generation = 0;
 
   async function drain(): Promise<void> {
     if (queued.length === 0) return;
     detailsCtx ??= deps.contextFor();
     if (!detailsCtx) return;
     executor ??= deps.makeExecutor();
+    const gen = generation;
+    const turnExecutor = executor;
+    const turnCtx = detailsCtx;
     const lines = queued;
     queued = [];
     for (const line of lines) {
-      await executor.executeAppend(createAppendContentOp(detailsCtx.sessionId, line, true), detailsCtx);
+      await turnExecutor.executeAppend(createAppendContentOp(turnCtx.sessionId, line, true), turnCtx);
+      // reset() ran while we waited (a respawn, or the session ending): stop
+      // here rather than write on, or schedule a flush, for a dead turn.
+      if (gen !== generation) return;
     }
-    executor.scheduleFlush(detailsCtx);
+    turnExecutor.scheduleFlush(turnCtx);
   }
 
   return {
@@ -60,6 +68,7 @@ export function createThreadSink(deps: ThreadSinkDeps): ToolDetailsSink {
     },
     link: () => null,
     reset() {
+      generation++;
       queued = [];
       executor?.reset();
       executor = null;
