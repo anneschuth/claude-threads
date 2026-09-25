@@ -282,6 +282,67 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('A long code block with no post yet (review round 5)', () => {
+    const block = (lines: number) => ['Here is the file:', '```python', ...Array.from({ length: lines }, (_, i) => `x_${i} = compute(${i})  # step ${i}`), '```'].join('\n');
+    const fences = (t: string) => (t.match(/^```/gm) ?? []).length;
+
+    it('stays one intact post while it fits the platform limit, as before', async () => {
+      // Between the soft threshold (12K here) and the hard limit (16K) main
+      // posted it whole; splitting there only broke the fence.
+      const ctx = getContext();
+      const text = block(420); // ~14K
+      expect(text.length).toBeGreaterThan(12000);
+      expect(text.length).toBeLessThan(16000);
+      await executor.executeAppend(createAppendContentOp('test', text), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+      expect(posts).toHaveLength(1);
+      expect(fences(posts[0]) % 2).toBe(0);
+    });
+
+    it('past the limit it splits with every post keeping its fences balanced, and loses nothing', async () => {
+      const ctx = getContext();
+      const text = block(700); // ~24K
+      await executor.executeAppend(createAppendContentOp('test', text), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const posts = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+      expect(posts.length).toBeGreaterThan(1);
+      for (const post of posts) expect(fences(post) % 2).toBe(0);
+      expect(posts[1].startsWith('```python')).toBe(true);
+      const all = posts.join('\n');
+      const missing = Array.from({ length: 700 }, (_, i) => i).filter((i) => !all.includes(`x_${i} = compute(`));
+      expect(missing).toEqual([]);
+    });
+  });
+
+  describe('Text arriving while a multi-post flush is writing (review round 5)', () => {
+    it('is kept for the next flush instead of being wiped by the second post', async () => {
+      const ctx = getContext();
+      const realCreate = platform.createPost as ReturnType<typeof mock>;
+      let first = true;
+      (platform as { createPost: unknown }).createPost = mock(async (content: string, threadId: string) => {
+        if (first) {
+          first = false;
+          // Claude streams on while the first post is being created.
+          await executor.executeAppend(createAppendContentOp('test', 'LATE-ARRIVAL'), ctx);
+        }
+        return realCreate(content, threadId);
+      });
+      const tall = Array.from({ length: 300 }, (_, i) => `line ${i} of the tall reply`).join('\n\n');
+      await executor.executeAppend(createAppendContentOp('test', tall), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const texts = [
+        ...realCreate.mock.calls.map((c) => c[0] as string),
+        ...(platform.updatePost as ReturnType<typeof mock>).mock.calls.map((c) => c[1] as string),
+      ];
+      expect(texts.some((t) => t.includes('LATE-ARRIVAL'))).toBe(true);
+    });
+  });
+
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();

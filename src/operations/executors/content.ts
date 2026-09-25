@@ -408,8 +408,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       );
     } else {
       // Create new post(s) - split if content is too tall
+      // Only a chunk that cannot fit a post at all is cut by length: below
+      // the platform limit one post is what it always was, and a code block
+      // must not be split just for passing the soft threshold.
       const chunks = splitContentForHeight(content, ctx.contentBreaker)
-        .flatMap((chunk) => splitByLength(chunk, HARD_CONTINUATION_THRESHOLD - reserve));
+        .flatMap((chunk) => (chunk.length + reserve > MAX_POST_LENGTH
+          ? splitByLength(chunk, HARD_CONTINUATION_THRESHOLD - reserve)
+          : [chunk]));
       ctx.threadLogger?.logExecutor('content', 'create_start', 'none', {
         contentLength: content.length,
         chunkCount: chunks.length,
@@ -418,7 +423,10 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 
       let lastPosted: { id: string; content: string } | null = null;
       for (let i = 0; i < chunks.length; i++) {
-        const created = await this.createNewPost(ctx, chunks[i], pendingAtFlushStart);
+        // Only the first post clears the flush from pending. Every later one
+        // would find pending no longer starting with it and wipe everything,
+        // including text Claude streamed while the first post was created.
+        const created = await this.createNewPost(ctx, chunks[i], lastPosted ? '' : pendingAtFlushStart);
         if (!created) {
           // Stop at the first refused chunk. A success clears the whole
           // flush from pending, so once an earlier chunk went through, the
@@ -727,18 +735,30 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   }
 }
 
+const FENCE_LINE = /^```.*$/gm;
+const FENCE_CLOSE = '\n```';
+
 /**
  * Cut `text` into pieces no longer than `max`, at a line break where one is
- * reasonably close to the limit.
+ * reasonably close to the limit. A code block cut in two is closed at the end
+ * of one piece and reopened, with its language, at the start of the next, so
+ * each post renders on its own.
  */
 function splitByLength(text: string, max: number): string[] {
   const pieces: string[] = [];
+  const room = max - FENCE_CLOSE.length;
   let rest = text;
   while (rest.length > max) {
-    let cut = rest.lastIndexOf('\n', max);
-    if (cut < max * 0.5) cut = max;
-    pieces.push(rest.slice(0, cut));
+    let cut = rest.lastIndexOf('\n', room);
+    if (cut < room * 0.5) cut = room;
+    let piece = rest.slice(0, cut);
     rest = rest.slice(cut).replace(/^\n+/, '');
+    const fences = piece.match(FENCE_LINE) ?? [];
+    if (fences.length % 2 === 1) {
+      piece += FENCE_CLOSE;
+      rest = `${fences[fences.length - 1]}\n${rest}`;
+    }
+    pieces.push(piece);
   }
   if (rest) pieces.push(rest);
   return pieces;
