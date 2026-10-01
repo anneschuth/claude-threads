@@ -103,6 +103,12 @@ export interface ContentState {
    * the spacing the tool line itself provides in `full` mode.
    */
   paragraphBreak: boolean;
+  /**
+   * In-place updates of the current post that failed in a row. The post is
+   * kept and the update retried on the next flush until this reaches a limit
+   * (see ContentExecutor.onInPlaceUpdateFailed).
+   */
+  updateFailures: number;
 }
 
 /**

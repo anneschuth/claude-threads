@@ -58,6 +58,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       headerBody: '',
       turnOpen: false,
       paragraphBreak: false,
+      updateFailures: 0,
     };
   }
 
@@ -192,6 +193,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         this.state.headerBody = content;
         this.state.headerDirty = false;
       }
+      this.state.updateFailures = 0;
       onSuccess();
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
@@ -459,11 +461,40 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         if (postId === this.state.headerPostId) this.state.headerBody = firstPiece;
       },
     );
+    if (!landed) {
+      // The post keeps its older body, which runs past the cut: posting the
+      // rest now would repeat that stretch and leave the fence open (#620).
+      // Retry the whole split on the next flush instead.
+      this.onInPlaceUpdateFailed();
+      return true;
+    }
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
-    if (landed) this.clearFlushedContent(pendingAtFlushStart);
-    await this.postChunks(ctx, rest, pendingAtFlushStart, landed);
+    this.clearFlushedContent(pendingAtFlushStart);
+    await this.postChunks(ctx, rest, pendingAtFlushStart, true);
     return true;
+  }
+
+  /**
+   * An in-place update of the current post failed (#620).
+   *
+   * Abandoning the post at once, as these paths did, starts the continuation
+   * in the middle of whatever the post was in: inside a code block that
+   * means the rest of the block renders as prose, the height estimate splits
+   * it every few lines (a new post per flush), and its closing fence opens a
+   * new block. Most failures are transient, so keep the post and its pending
+   * text and let the next flush retry the same update. Only after several
+   * failures in a row give up on the post, and reopen its code block, if it
+   * was in one, at the start of what comes next.
+   */
+  private onInPlaceUpdateFailed(): void {
+    this.state.updateFailures++;
+    if (this.state.updateFailures < MAX_IN_PLACE_UPDATE_FAILURES) return;
+    const opener = openFenceOf(this.state.currentPostContent);
+    this.state.currentPostId = null;
+    this.state.currentPostContent = '';
+    this.state.updateFailures = 0;
+    if (opener) this.state.pendingContent = `${opener}\n${this.state.pendingContent.replace(/^\n+/, '')}`;
   }
 
   /**
@@ -599,9 +630,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-            },
+            () => this.onInPlaceUpdateFailed(),
           );
         }
         return;
@@ -629,10 +658,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-              this.state.currentPostContent = '';
-            },
+            () => this.onInPlaceUpdateFailed(),
           );
         }
         return;
@@ -657,10 +683,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-              this.state.currentPostContent = '';
-            },
+            () => this.onInPlaceUpdateFailed(),
           );
         }
         return;
@@ -813,6 +836,15 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 }
 
 const FENCE_LINE = /^```.*$/gm;
+
+/** Failed in-place updates in a row before the current post is given up. */
+const MAX_IN_PLACE_UPDATE_FAILURES = 3;
+
+/** The opener line of the code block `text` leaves open, or null when its fences balance. */
+function openFenceOf(text: string): string | null {
+  const fences = text.match(FENCE_LINE) ?? [];
+  return fences.length % 2 === 1 ? fences[fences.length - 1] : null;
+}
 const FENCE_CLOSE = '\n```';
 
 /**

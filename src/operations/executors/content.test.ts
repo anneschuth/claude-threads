@@ -510,6 +510,101 @@ describe('ContentExecutor', () => {
     });
   });
 
+  describe('A failed update while a long code block streams (#620)', () => {
+    const LINES = 2000;
+    const line = (i: number) => `const v${i} = compute(${i}); // step ${i}`;
+
+    /**
+     * Stream a 2000-line code block five lines per flush, failing exactly one
+     * updatePost: the first one `failWhen` picks. Returns the final text of
+     * every post.
+     */
+    async function streamWithOneFailedUpdate(failWhen: (content: string) => boolean) {
+      const ctx = getContext();
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      let failed = false;
+      (platform as { updatePost: unknown }).updatePost = mock(async (id: string, content: string) => {
+        if (!failed && failWhen(content)) { failed = true; throw new Error('500 transient'); }
+        return realUpdate(id, content);
+      });
+      await executor.executeAppend(createAppendContentOp('test', 'Writing the file:\n\n```ts'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      for (let i = 0; i < LINES; i += 5) {
+        const chunk = Array.from({ length: 5 }, (_, k) => line(i + k)).join('\n');
+        await executor.executeAppend(createAppendContentOp('test', '\n' + chunk), ctx);
+        await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      }
+      await executor.executeAppend(createAppendContentOp('test', '\n```\n\nDone.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+      expect(failed).toBe(true);
+
+      const texts = new Map<string, string>();
+      const created = (platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>;
+      created.forEach((c, i) => texts.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of realUpdate.mock.calls as Array<[string, string]>) texts.set(id, text);
+      return [...texts.values()];
+    }
+
+    function expectIntact(posts: string[]) {
+      const all = posts.join('\n');
+      const wrong = Array.from({ length: LINES }, (_, i) => i).filter((i) => all.split(`const v${i} = `).length - 1 !== 1);
+      expect(wrong).toEqual([]);
+      for (const post of posts) {
+        expect(post.length).toBeLessThanOrEqual(16000);
+        expect((post.match(/^```/gm) ?? []).length % 2).toBe(0);
+      }
+      // About 90K of code: a handful of posts, not one per flush.
+      expect(posts.length).toBeLessThan(15);
+    }
+
+    it('the first piece of an oversized split failing does not duplicate lines or leave a fence open', async () => {
+      // splitOversized updates the current post with a piece cut at the
+      // hard threshold; the post keeps its older, longer body on failure.
+      expectIntact(await streamWithOneFailedUpdate((content) => content.length > 12000 && content.length <= 14000));
+    });
+
+    it('a post that keeps refusing updates is given up after a few tries, the block reopened in the next post', async () => {
+      // A deleted post never accepts an update. Retrying forever would hold
+      // the text back; giving up must reopen the code block in the
+      // continuation so the rest still renders as code.
+      const ctx = getContext();
+      let deadPost: string | null = null;
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      (platform as { updatePost: unknown }).updatePost = mock(async (id: string, content: string) => {
+        if (deadPost === null && content.length > 3000) deadPost = id;
+        if (id === deadPost) throw new Error('404 post deleted');
+        return realUpdate(id, content);
+      });
+      await executor.executeAppend(createAppendContentOp('test', 'Writing the file:\n\n```ts'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      for (let i = 0; i < 400; i += 5) {
+        const chunk = Array.from({ length: 5 }, (_, k) => line(i + k)).join('\n');
+        await executor.executeAppend(createAppendContentOp('test', '\n' + chunk), ctx);
+        await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      }
+      await executor.executeAppend(createAppendContentOp('test', '\n```\n\nDone.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const created = ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]);
+      const texts = new Map<string, string>();
+      created.forEach((c, i) => texts.set(`post_${i + 1}`, c));
+      for (const [id, text] of realUpdate.mock.calls as Array<[string, string]>) texts.set(id, text);
+      const live = [...texts.entries()].filter(([id]) => id !== deadPost).map(([, t]) => t);
+      // The continuation reopens the block and every live post balances.
+      expect(live.some((t) => t.startsWith('```ts'))).toBe(true);
+      for (const post of live) expect((post.match(/^```/gm) ?? []).length % 2).toBe(0);
+      // Nothing after the dead post's last good body is lost.
+      const all = [...texts.values()].join('\n');
+      const missing = Array.from({ length: 400 }, (_, i) => i).filter((i) => !all.includes(`const v${i} = `));
+      expect(missing).toEqual([]);
+      expect(live.length).toBeLessThan(6);
+    });
+
+    it('an in-place update of the open block failing does not start a post per flush', async () => {
+      expectIntact(await streamWithOneFailedUpdate((content) => content.length > 3000 && content.length < 6000));
+    });
+  });
+
   describe('Schedule Flush', () => {
     it('schedules delayed flush', async () => {
       const ctx = getContext();
