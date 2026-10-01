@@ -1678,12 +1678,16 @@ describe('ContentExecutor', () => {
       await executor.executeAppend(createAppendContentOp('test', big), ctx);
       await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
 
-      const post1Writes = ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>)
+      const post1Writes = () => ((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>)
         .filter((c) => c[0] === 'post_1')
         .map((c) => c[1]);
-      // The re-render must carry what the failed write attempted, not what
-      // the post held before it.
-      expect(post1Writes.at(-1)).toContain('line 0');
+      // Since #620 the failed split keeps its text pending for a retry
+      // instead of handing it on, so nothing may write the older, shorter
+      // body back over what the lost-response write delivered...
+      expect(post1Writes().some((t) => !t.includes('line 0') && t !== post1Writes()[0])).toBe(false);
+      // ...and the retry on the next flush writes it again.
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      expect(post1Writes().at(-1)).toContain('line 0');
     });
 
     it('a genuinely failed plain update does not duplicate the paragraph into both posts', async () => {
@@ -1712,11 +1716,14 @@ describe('ContentExecutor', () => {
       await executor.executeAppend(createAppendContentOp('test', 'para two'), ctx);
       await executor.executeFlush(createFlushOp('test', 'result'), ctx);
 
-      const writes = [
-        ...((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[0]),
-        ...((platform.updatePost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).map((c) => c[1]),
-      ];
-      const occurrences = writes.filter((text) => text.includes('para two')).length;
+      // What each post finally shows: the refused update never reached
+      // post 1. Since #620 the turn's last flush posts the paragraph as a new
+      // post (before, it was not delivered at all, which this test, counting
+      // attempts, read as "once").
+      const finalText = new Map<string, string>();
+      ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string, string]>).forEach((c, i) => finalText.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of realUpdate.mock.calls as Array<[string, string]>) finalText.set(id, text);
+      const occurrences = [...finalText.values()].filter((text) => text.includes('para two')).length;
       expect(occurrences).toBe(1);
     });
 
