@@ -24,7 +24,7 @@
     "test:integration:slack:setup": "bun run tests/integration/fixtures/slack/mock-server.ts &",
     "test:integration:slack:run": "TEST_PLATFORMS=slack INTEGRATION_TEST=1 bun test tests/integration/suites --timeout 120000",
     "test:integration:slack:teardown": "pkill -f 'mock-server.ts' || true",
-    "test:integration:slack": "bun run test:integration:slack:teardown; bun run tests/integration/fixtures/slack/mock-server.ts & sleep 2 && TEST_PLATFORMS=slack INTEGRATION_TEST=1 bun test tests/integration/suites --timeout 120000; bun run test:integration:slack:teardown",
+    "test:integration:slack": "bun run test:integration:slack:teardown; bun run tests/integration/fixtures/slack/mock-server.ts & sleep 2 && TEST_PLATFORMS=slack INTEGRATION_TEST=1 bun test tests/integration/suites --timeout 120000; status=$?; bun run test:integration:slack:teardown; exit $status",
     "test:integration:all": "bun run test:integration:setup && bun run tests/integration/fixtures/slack/mock-server.ts & sleep 2 && TEST_PLATFORMS=mattermost,slack INTEGRATION_TEST=1 bun test tests/integration/suites --timeout 120000; bun run test:integration:slack:teardown",
     "lint": "eslint src/",
     "lint:fix": "eslint src/ --fix",

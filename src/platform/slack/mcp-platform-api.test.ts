@@ -346,3 +346,25 @@ describe('SlackMcpPlatformApi.waitForReaction after review (#622)', () => {
     expect(calls).toBeLessThanOrEqual(4);
   });
 });
+
+describe('SlackMcpPlatformApi honours the configured API base (#622 review)', () => {
+  it('sends every call there, including the option reactions', async () => {
+    // Two calls still went to the hardcoded slack.com: the 👍 ✅ 👎 option
+    // reactions and addReaction. Against the test mock (or any apiUrl
+    // override) the prompt then had no buttons.
+    fetchResponder = slack((method) => {
+      if (method === 'chat.postMessage') return jsonResponse({ ok: true, ts: '1.5', channel: 'C0123456789' });
+      if (method === 'auth.test') return jsonResponse({ ok: true, user_id: 'U-BOT' });
+      return jsonResponse({ ok: true });
+    });
+    const api = createSlackMcpPlatformApi({
+      platformType: 'slack', botToken: 'xoxb-bot', appToken: '', channelId: 'C0123456789',
+      threadTs: '1.0', allowedUsers: ['alice'], debug: false, apiUrl: 'http://slack-mock.test/api',
+    });
+    await api.createInteractivePost('Permission requested', ['+1', 'white_check_mark', '-1'], '1.0');
+    await api.addReaction!('1.5', 'eyes');
+
+    expect(fetchCalls.length).toBeGreaterThanOrEqual(4);
+    expect(fetchCalls.filter((c) => !c.url.startsWith('http://slack-mock.test/api/')).map((c) => c.url)).toEqual([]);
+  });
+});

@@ -89,7 +89,10 @@ export interface PlatformMcpConfig {
   token: string;
   channelId: string;
   allowedUsers: string[];
-  /** App-level token for Slack Socket Mode (only needed for Slack) */
+  /**
+   * Slack app-level token. The bot's own Socket Mode connection needs it;
+   * the MCP child does not (it polls reactions), so it is not passed on.
+   */
   appToken?: string;
   /** Slack Web API base the MCP child should use (the bot's own `apiUrl`). */
   apiUrl?: string;
@@ -487,9 +490,6 @@ export function buildPermissionArgs(opts: {
       if (features.unattended) mcpEnv[AGENT_FEATURES_ENV.UNATTENDED] = '1';
       if (features.dcm) mcpEnv[AGENT_FEATURES_ENV.DCM] = '1';
     }
-  }
-  if (opts.platformConfig.appToken) {
-    mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
   }
   if (opts.platformConfig.apiUrl) {
     mcpEnv.PLATFORM_API_URL = opts.platformConfig.apiUrl;

@@ -229,7 +229,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
         // Normalize like the client does: strips colons AND maps literal
         // Unicode emoji to their shortcode (reactions.add rejects raw 👍).
         const emojiName = getEmojiName(emoji);
-        await slackApi(
+        await this.slackApi(
           'reactions.add',
           this.config.botToken,
           {
@@ -386,7 +386,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     // is no other channel the bot is reachable in. Callers that resolve
     // permalinks for other channels will hit `wrong-channel` in
     // resolveSlackPermalink before reaching this method.
-    await slackApi(
+    await this.slackApi(
       'reactions.add',
       this.config.botToken,
       {

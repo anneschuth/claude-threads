@@ -244,6 +244,10 @@ describe.skipIf(SKIP)('Session Permissions', () => {
           testThreadIds.push(rootPost.id);
 
           const prompt = await waitForPostMatching(ctx, rootPost.id, /Permission requested/i, { timeout: responseTimeout });
+          // On Mattermost the MCP child opens its WebSocket only after the
+          // prompt and its option reactions are posted; a reaction in that
+          // window is missed. No human reacts that fast, so give it a moment.
+          await new Promise((resolve) => setTimeout(resolve, 2000));
           await addReaction(ctx, prompt.id, emoji[platformType]);
 
           // The MCP server rewrites the prompt with the decision. A missed
