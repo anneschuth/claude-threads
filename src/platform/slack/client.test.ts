@@ -122,7 +122,8 @@ describe('SlackClient getMcpConfig', () => {
     expect(mcp.mcpServers).toEqual(mcpServers);
     expect(mcp.strictMcpConfig).toBe(true);
     expect(mcp.claudeAiConnectors).toBe(true);
-    expect(mcp.appToken).toBe('xapp-app-token');
+    // The MCP child no longer opens Socket Mode, so the app token stays with the bot.
+    expect('appToken' in mcp).toBe(false);
   });
 
   it('leaves the posture undefined when the config has none (resolved upstream)', () => {

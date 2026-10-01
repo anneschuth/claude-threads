@@ -35,12 +35,16 @@ export const MINIMIZE_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_d
 export const BUG_REPORT_EMOJI = 'bug' as const;
 
 /**
- * Slack names an emoji picked with a skin tone `+1::skin-tone-3`. Every
- * predicate below matches the base name: a toned 👍 is still approval, and
- * the permission prompt treats any emoji it does not recognize as deny.
+ * An emoji picked with a skin tone carries it in its name: Slack writes
+ * `+1::skin-tone-3`, Mattermost `+1_medium_skin_tone` (verified against
+ * Mattermost v11, #629). Every predicate below matches the base name: a toned
+ * 👍 is still approval, and the permission prompt treats any emoji it does
+ * not recognize as deny.
  */
 function withoutSkinTone(emoji: string): string {
-  return emoji.replace(/::skin-tone-\d$/, '');
+  return emoji
+    .replace(/::skin-tone-\d$/, '')
+    .replace(/(?<=.)_(?:light|medium_light|medium|medium_dark|dark)_skin_tone$/, '');
 }
 
 /**

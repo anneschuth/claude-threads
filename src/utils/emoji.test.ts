@@ -229,3 +229,21 @@ describe('skin-tone variants (#622 review)', () => {
     expect(isAllowAllEmoji('white_check_mark')).toBe(true);
   });
 });
+
+describe('Mattermost skin-tone variants (#629)', () => {
+  // Verified against Mattermost v11: a toned emoji is the base name plus
+  // `_<tone>_skin_tone`. The permission prompt treats an unrecognized emoji
+  // as deny, so a toned 👍 denied the tool.
+  it('match their base emoji', () => {
+    expect(isApprovalEmoji('+1_light_skin_tone')).toBe(true);
+    expect(isApprovalEmoji('thumbsup_medium_light_skin_tone')).toBe(true);
+    expect(isApprovalEmoji('+1_dark_skin_tone')).toBe(true);
+    expect(isDenialEmoji('-1_medium_dark_skin_tone')).toBe(true);
+    expect(isDenialEmoji('thumbsdown_medium_skin_tone')).toBe(true);
+  });
+
+  it('do not strip a name that merely ends like a tone', () => {
+    expect(isApprovalEmoji('skin_tone')).toBe(false);
+    expect(isApprovalEmoji('+1_skin_tone')).toBe(false);
+  });
+});
