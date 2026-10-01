@@ -216,6 +216,20 @@ export function createDefaultTestData(): Omit<SlackMockState, 'messages' | 'pins
 // Slack Mock Server
 // ============================================================================
 
+
+/** Slack methods that read data; they ignore a JSON body (see the router). */
+const READ_METHOD_PATHS = new Set([
+  '/api/users.info',
+  '/api/users.list',
+  '/api/conversations.history',
+  '/api/conversations.replies',
+  '/api/conversations.info',
+  '/api/conversations.members',
+  '/api/reactions.get',
+  '/api/pins.list',
+  '/api/files.info',
+]);
+
 export class SlackMockServer extends EventEmitter {
   private server: Server<unknown> | null = null;
   private wsConnections: Set<ServerWebSocket<unknown>> = new Set();
@@ -636,7 +650,12 @@ export class SlackMockServer extends EventEmitter {
 
     // Route API endpoints
     try {
-      const body = req.method === 'POST' ? await this.parseBody(req) : {};
+      // Like real Slack, a read method takes its arguments from the query
+      // string or a form body only: a JSON body is ignored. A lenient mock
+      // is how #622 (every MCP-side read sent as JSON) went unnoticed.
+      const jsonOnReadMethod = READ_METHOD_PATHS.has(path)
+        && (req.headers.get('Content-Type') || '').includes('application/json');
+      const body = req.method === 'POST' && !jsonOnReadMethod ? await this.parseBody(req) : {};
 
       switch (path) {
         // Test

@@ -83,7 +83,7 @@ This is a multi-platform bot that lets users interact with Claude Code through c
 
 **MCP Server:**
 - Spawned via `--mcp-config` per Claude CLI instance
-- Each has its own WebSocket/connection to the platform, plus a decision-bridge socket back to the bot (plan approvals / question answers)
+- Talks to the platform on its own (Mattermost: its own WebSocket; Slack: the Web API only, polling `reactions.get`, because a second Socket Mode connection would split the app's events with the bot), plus a decision-bridge socket back to the bot (plan approvals / question answers)
 - Exposes tools to Claude, including:
   - `permission_prompt` — posts permission requests to the session's thread; returns allow/deny based on user reaction
   - `send_file` — uploads a file from the session's working directory into the thread (auto-approved; path-validated)
@@ -509,7 +509,7 @@ Each executor owns a specific piece of interactive state:
    - Receives the permission request via stdio
    - Posts a message to the chat thread: "⚠️ Permission requested: Write `file.txt`"
    - Adds reaction options (👍 ✅ 👎) to the message
-   - Opens a WebSocket to the platform and waits for a reaction
+   - Waits for a reaction: on Mattermost over its own WebSocket, on Slack by polling `reactions.get` (Slack round-robins an app's Socket Mode events across all its connections, so a second connection would miss reactions and steal the bot's events, #622)
 
 4. **User reacts** with an emoji
 
@@ -946,7 +946,7 @@ claude-threads stores sensitive session data locally. The following retention po
 - Enable `DEBUG=1` for verbose MCP logging
 
 ### "Reaction not detected"
-- The MCP server has its own WebSocket connection (separate from main bot)
+- The MCP server watches reactions itself: on Mattermost over its own WebSocket, on Slack by polling `reactions.get` (needs the `reactions:read` scope)
 - Check that the reacting user is in `ALLOWED_USERS`
 - Bot's own reactions (adding the 👍 ✅ 👎 options) are filtered out
 

@@ -218,3 +218,14 @@ describe('emoji helpers', () => {
     });
   });
 });
+
+describe('skin-tone variants (#622 review)', () => {
+  // Slack names a 👍 picked with a skin tone `+1::skin-tone-3`. An exact match
+  // missed it, and the permission prompt treats every other emoji as deny.
+  it('match their base emoji', () => {
+    expect(isApprovalEmoji('+1::skin-tone-3')).toBe(true);
+    expect(isApprovalEmoji('thumbsup::skin-tone-6')).toBe(true);
+    expect(isDenialEmoji('-1::skin-tone-2')).toBe(true);
+    expect(isAllowAllEmoji('white_check_mark')).toBe(true);
+  });
+});

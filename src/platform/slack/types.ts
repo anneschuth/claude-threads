@@ -234,6 +234,13 @@ export interface ConversationsHistoryResponse extends SlackApiResponse {
   };
 }
 
+/** reactions.get with `full=true`: every reaction on the message and who added it. */
+export interface ReactionsGetResponse extends SlackApiResponse {
+  message?: {
+    reactions?: Array<{ name: string; users?: string[]; count?: number }>;
+  };
+}
+
 export interface UsersInfoResponse extends SlackApiResponse {
   user: SlackUser;
 }

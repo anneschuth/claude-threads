@@ -282,7 +282,9 @@ export interface MattermostMcpApiConfig {
 export interface SlackMcpApiConfig {
   platformType: 'slack';
   botToken: string;    // xoxb-... for Web API
-  appToken: string;    // xapp-... for Socket Mode
+  appToken: string;    // xapp-..., kept for config compatibility; the MCP side no longer opens Socket Mode
+  /** Web API base; defaults to https://slack.com/api (tests point it at the Slack mock). */
+  apiUrl?: string;
   channelId: string;
   threadTs?: string;   // Thread timestamp
   allowedUsers: string[];

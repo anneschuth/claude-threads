@@ -143,7 +143,8 @@ const apiConfig: MattermostMcpApiConfig | SlackMcpApiConfig =
     ? {
         platformType: 'slack',
         botToken: PLATFORM_TOKEN,
-        appToken: process.env.PLATFORM_APP_TOKEN || '',
+        appToken: '',
+        apiUrl: process.env.PLATFORM_API_URL || undefined,
         channelId: PLATFORM_CHANNEL_ID,
         threadTs: PLATFORM_THREAD_ID || undefined,
         allowedUsers: ALLOWED_USERS,
