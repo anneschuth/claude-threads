@@ -21,6 +21,8 @@ import {
   waitForSessionEnded,
   getThreadPosts,
   getPlatformBotOptions,
+  waitForPostMatching,
+  addReaction,
   type TestSessionContext,
 } from '../helpers/session-helpers.js';
 import { startTestBot, type TestBot } from '../helpers/bot-starter.js';
@@ -221,6 +223,35 @@ describe.skipIf(SKIP)('Session Permissions', () => {
         const botPosts = allPosts.filter((p) => ctx.botUserIds.includes(p.userId));
         expect(botPosts.length).toBeGreaterThanOrEqual(1);
       });
+
+      // #622: on Slack every reaction to a tool permission prompt was
+      // rejected (users.info sent as JSON → user_not_found) or never seen
+      // (the MCP child's own Socket Mode connection got only part of the
+      // events). The prompt sat until it timed out and denied. The test above
+      // never reacted, so nothing caught it.
+      for (const [label, emoji, outcome] of [
+        ['allows the tool when the user reacts 👍', { mattermost: '+1', slack: 'thumbsup' }, /Allowed.*by/i],
+        ['denies the tool when the user reacts 👎', { mattermost: '-1', slack: 'thumbsdown' }, /Denied.*by/i],
+      ] as const) {
+        it(label, async () => {
+          bot = await startTestBot(getPlatformBotOptions(platformType, {
+            scenario: 'permission-request',
+            skipPermissions: false,
+            debug: process.env.DEBUG === '1',
+          }, ctx));
+
+          const rootPost = await startSession(ctx, 'Write a file', getBotUsername());
+          testThreadIds.push(rootPost.id);
+
+          const prompt = await waitForPostMatching(ctx, rootPost.id, /Permission requested/i, { timeout: responseTimeout });
+          await addReaction(ctx, prompt.id, emoji[platformType]);
+
+          // The MCP server rewrites the prompt with the decision. A missed
+          // reaction leaves it until the timeout, which says "Timed out".
+          const decided = await waitForPostMatching(ctx, rootPost.id, outcome, { timeout: 20000 });
+          expect(decided.id).toBe(prompt.id);
+        });
+      }
     });
   });
 });

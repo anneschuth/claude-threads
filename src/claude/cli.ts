@@ -91,6 +91,8 @@ export interface PlatformMcpConfig {
   allowedUsers: string[];
   /** App-level token for Slack Socket Mode (only needed for Slack) */
   appToken?: string;
+  /** Slack Web API base the MCP child should use (the bot's own `apiUrl`). */
+  apiUrl?: string;
   /**
    * Outbound `send_file` settings, surfaced from the platform-instance
    * config. When omitted the bot defaults to enabled with 100MB cap.
@@ -488,6 +490,9 @@ export function buildPermissionArgs(opts: {
   }
   if (opts.platformConfig.appToken) {
     mcpEnv.PLATFORM_APP_TOKEN = opts.platformConfig.appToken;
+  }
+  if (opts.platformConfig.apiUrl) {
+    mcpEnv.PLATFORM_API_URL = opts.platformConfig.apiUrl;
   }
   // Outbound-file env: only emit when at least one root is known. The MCP
   // child enforces the same invariant on the read side. Names are defined

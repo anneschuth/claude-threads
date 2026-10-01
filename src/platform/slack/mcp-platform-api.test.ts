@@ -1,10 +1,11 @@
 /**
  * Unit tests for the Slack McpPlatformApi implementation.
  *
- * Scope: HTTP-level coverage for readPost / readThread (added with the
- * permalink-follower feature). The other surface area (createInteractivePost,
- * waitForReaction, uploadFile, etc.) is exercised by integration tests
- * since it depends on Socket Mode WebSockets.
+ * HTTP-level coverage of the read methods and the reaction wait. Responders
+ * go through `slack()`, which holds the fake to Slack's real contract: a read
+ * method only reads query parameters (or a form body), so a JSON POST to one
+ * gets the error Slack returns. The old fake answered anything, which is how
+ * #622 (every permission reaction rejected as `user_not_found`) shipped.
  */
 
 import { describe, it, expect, beforeEach } from 'bun:test';
@@ -16,6 +17,27 @@ import {
 } from '../test-helpers/fetch-harness.js';
 
 let fetchResponder: FetchResponder = () => jsonResponse({ ok: true });
+
+/** Slack methods that read data: Slack ignores a JSON body on these. */
+const READ_METHODS = new Set([
+  'users.info', 'conversations.history', 'conversations.replies', 'conversations.info',
+  'conversations.members', 'reactions.get',
+]);
+
+type SlackHandler = (method: string, params: URLSearchParams) => Response | Promise<Response>;
+
+/** A responder that behaves like Slack: read methods take their arguments from the query string only. */
+function slack(handler: SlackHandler): FetchResponder {
+  return (url, init) => {
+    const parsed = new URL(url);
+    const method = parsed.pathname.split('/').pop() ?? '';
+    if (READ_METHODS.has(method) && (init?.method ?? 'GET') !== 'GET') {
+      // What Slack answers when the arguments it needs are not in the query.
+      return jsonResponse({ ok: false, error: method === 'users.info' ? 'user_not_found' : 'invalid_arguments' });
+    }
+    return handler(method, parsed.searchParams);
+  };
+}
 const { calls: fetchCalls } = installFetchHarness(() => fetchResponder);
 
 beforeEach(() => {
@@ -39,19 +61,19 @@ function makeApi() {
 // =============================================================================
 
 describe('SlackMcpPlatformApi.readPost', () => {
-  it('POSTs conversations.history with channel + ts and resolves the username', async () => {
-    fetchResponder = (url) => {
-      if (url.endsWith('/conversations.history')) {
+  it('GETs conversations.history with channel + ts and resolves the username', async () => {
+    fetchResponder = slack((method) => {
+      if (method === 'conversations.history') {
         return jsonResponse({
           ok: true,
           messages: [{ type: 'message', ts: '1234567890.123456', user: 'U-1', text: 'hi' }],
         });
       }
-      if (url.endsWith('/users.info')) {
+      if (method === 'users.info') {
         return jsonResponse({ ok: true, user: { id: 'U-1', name: 'alice' } });
       }
       return jsonResponse({ ok: false, error: 'not_found' });
-    };
+    });
     const api = makeApi();
     const post = await api.readPost!('1234567890.123456');
     expect(post).not.toBeNull();
@@ -62,14 +84,14 @@ describe('SlackMcpPlatformApi.readPost', () => {
     // Slack ts is seconds.microseconds — createAt is ms.
     expect(post!.createAt).toBe(1234567890123);
 
-    const historyCall = fetchCalls.find(c => c.url.endsWith('/conversations.history'));
-    expect(historyCall?.method).toBe('POST');
-    const body = historyCall?.body as Record<string, unknown>;
-    expect(body.channel).toBe('C0123456789');
-    expect(body.latest).toBe('1234567890.123456');
-    expect(body.oldest).toBe('1234567890.123456');
-    expect(body.inclusive).toBe(true);
-    expect(body.limit).toBe(1);
+    const historyCall = fetchCalls.find(c => c.url.includes('/conversations.history'));
+    expect(historyCall?.method).toBe('GET');
+    const params = new URL(historyCall!.url).searchParams;
+    expect(params.get('channel')).toBe('C0123456789');
+    expect(params.get('latest')).toBe('1234567890.123456');
+    expect(params.get('oldest')).toBe('1234567890.123456');
+    expect(params.get('inclusive')).toBe('true');
+    expect(params.get('limit')).toBe('1');
   });
 
   it('returns null when conversations.history returns ok:false', async () => {
@@ -93,8 +115,8 @@ describe('SlackMcpPlatformApi.readPost', () => {
   });
 
   it('preserves threadRootId when the post is a reply (thread_ts != ts)', async () => {
-    fetchResponder = (url) => {
-      if (url.endsWith('/conversations.history')) {
+    fetchResponder = slack((method) => {
+      if (method === 'conversations.history') {
         return jsonResponse({
           ok: true,
           messages: [{
@@ -107,14 +129,14 @@ describe('SlackMcpPlatformApi.readPost', () => {
         });
       }
       return jsonResponse({ ok: true, user: { id: 'U-1', name: 'alice' } });
-    };
+    });
     const post = await makeApi().readPost!('1234567890.123457');
     expect(post?.threadRootId).toBe('1234567890.123456');
   });
 
   it('omits threadRootId for top-level posts (thread_ts equals ts)', async () => {
-    fetchResponder = (url) => {
-      if (url.endsWith('/conversations.history')) {
+    fetchResponder = slack((method) => {
+      if (method === 'conversations.history') {
         return jsonResponse({
           ok: true,
           messages: [{
@@ -127,7 +149,7 @@ describe('SlackMcpPlatformApi.readPost', () => {
         });
       }
       return jsonResponse({ ok: true, user: { id: 'U-1', name: 'alice' } });
-    };
+    });
     const post = await makeApi().readPost!('1234567890.123456');
     expect(post?.threadRootId).toBeUndefined();
   });
@@ -138,9 +160,9 @@ describe('SlackMcpPlatformApi.readPost', () => {
 // =============================================================================
 
 describe('SlackMcpPlatformApi.readThread', () => {
-  it('POSTs conversations.replies, sorts by ts, resolves usernames', async () => {
-    fetchResponder = (url, init) => {
-      if (url.endsWith('/conversations.replies')) {
+  it('GETs conversations.replies, sorts by ts, resolves usernames', async () => {
+    fetchResponder = slack((method, params) => {
+      if (method === 'conversations.replies') {
         return jsonResponse({
           ok: true,
           // Intentionally out of order to exercise the sort.
@@ -151,20 +173,20 @@ describe('SlackMcpPlatformApi.readThread', () => {
           has_more: false,
         });
       }
-      if (url.endsWith('/users.info')) {
-        const body = JSON.parse(init?.body as string) as { user: string };
-        return jsonResponse({ ok: true, user: { id: body.user, name: body.user === 'U-1' ? 'alice' : 'bob' } });
+      if (method === 'users.info') {
+        const user = params.get('user');
+        return jsonResponse({ ok: true, user: { id: user, name: user === 'U-1' ? 'alice' : 'bob' } });
       }
       return jsonResponse({ ok: false });
-    };
+    });
     const messages = await makeApi().readThread!('1234567890.000100');
     expect(messages.map(m => m.message)).toEqual(['first', 'second']);
     expect(messages.map(m => m.username)).toEqual(['alice', 'bob']);
   });
 
   it('caches per-user lookup so repeated authors are fetched once', async () => {
-    fetchResponder = (url) => {
-      if (url.endsWith('/conversations.replies')) {
+    fetchResponder = slack((method) => {
+      if (method === 'conversations.replies') {
         return jsonResponse({
           ok: true,
           messages: [
@@ -175,21 +197,125 @@ describe('SlackMcpPlatformApi.readThread', () => {
         });
       }
       return jsonResponse({ ok: true, user: { id: 'U-1', name: 'alice' } });
-    };
+    });
     await makeApi().readThread!('1.1');
-    const userCalls = fetchCalls.filter(c => c.url.endsWith('/users.info'));
+    const userCalls = fetchCalls.filter(c => c.url.includes('/users.info'));
     expect(userCalls).toHaveLength(1);
   });
 
   it('forwards the limit option to the API', async () => {
     fetchResponder = () => jsonResponse({ ok: true, messages: [] });
     await makeApi().readThread!('1.1', { limit: 7 });
-    const repliesCall = fetchCalls.find(c => c.url.endsWith('/conversations.replies'));
-    expect((repliesCall?.body as Record<string, unknown>).limit).toBe(7);
+    const repliesCall = fetchCalls.find(c => c.url.includes('/conversations.replies'));
+    expect(new URL(repliesCall!.url).searchParams.get('limit')).toBe('7');
   });
 
   it('returns [] when the API errors', async () => {
     fetchResponder = () => jsonResponse({ ok: false, error: 'thread_not_found' });
     expect(await makeApi().readThread!('1.1')).toEqual([]);
+  });
+});
+
+// =============================================================================
+// getUsername and the other read methods (#622)
+// =============================================================================
+
+describe('SlackMcpPlatformApi read methods use GET (#622)', () => {
+  it('getUsername resolves the user, where a JSON POST got user_not_found', async () => {
+    fetchResponder = slack((method, params) => (method === 'users.info'
+      ? jsonResponse({ ok: true, user: { id: params.get('user'), name: 'alice' } })
+      : jsonResponse({ ok: false, error: 'unexpected' })));
+
+    expect(await makeApi().getUsername('U-1')).toBe('alice');
+    const call = fetchCalls.find((c) => c.url.includes('/users.info'));
+    expect(call?.method).toBe('GET');
+    expect(new URL(call!.url).searchParams.get('user')).toBe('U-1');
+  });
+
+  it('every read method reaches Slack as a GET', async () => {
+    fetchResponder = slack((method) => {
+      switch (method) {
+        case 'conversations.history': return jsonResponse({ ok: true, messages: [] });
+        case 'conversations.info': return jsonResponse({ ok: true, channel: { id: 'C1', is_private: false, name: 'general' } });
+        case 'conversations.members': return jsonResponse({ ok: true, members: ['U-1'], response_metadata: { next_cursor: '' } });
+        case 'users.info': return jsonResponse({ ok: true, user: { id: 'U0123ALICE', name: 'alice' } });
+        default: return jsonResponse({ ok: true });
+      }
+    });
+    const api = makeApi();
+    expect(await api.readChannelHistory!('C1')).toEqual([]);
+    expect(await api.getChannelInfo!('C1')).toMatchObject({ id: 'C1' });
+    expect(await api.getChannelMembers!('C1')).toEqual(['U-1']);
+    expect(await api.resolveRecipient!('U0123ALICE')).toMatchObject({ id: 'U0123ALICE', username: 'alice' });
+
+    const reads = fetchCalls.filter((c) => READ_METHODS.has(new URL(c.url).pathname.split('/').pop() ?? ''));
+    expect(reads.length).toBeGreaterThanOrEqual(4);
+    expect(reads.filter((c) => c.method !== 'GET')).toEqual([]);
+  });
+});
+
+// =============================================================================
+// waitForReaction (#622)
+// =============================================================================
+
+describe('SlackMcpPlatformApi.waitForReaction polls reactions.get (#622)', () => {
+  // A second Socket Mode connection on the bot's app token shares Slack's
+  // round-robin with the main bot, so it saw about half the reactions and
+  // stole that half of the bot's events. The wait polls the post instead.
+  function fastApi() {
+    const api = makeApi();
+    (api as unknown as { reactionPollMs: number }).reactionPollMs = 5;
+    return api;
+  }
+  const reactions = (list: Array<{ name: string; users: string[] }>) => jsonResponse({ ok: true, type: 'message', message: { reactions: list } });
+
+  it('returns the first reaction by someone other than the bot, without opening a socket', async () => {
+    let polls = 0;
+    fetchResponder = slack((method, params) => {
+      if (method !== 'reactions.get') return jsonResponse({ ok: false, error: 'unexpected' });
+      expect(params.get('channel')).toBe('C0123456789');
+      expect(params.get('timestamp')).toBe('1.5');
+      polls++;
+      // The bot's own option reactions are there from the start; the user's
+      // reaction arrives on the third poll.
+      return reactions(polls < 3
+        ? [{ name: '+1', users: ['U-BOT'] }]
+        : [{ name: '+1', users: ['U-BOT'] }, { name: '-1', users: ['U-BOT', 'U-ALICE'] }]);
+    });
+
+    const event = await fastApi().waitForReaction('1.5', 'U-BOT', 2000);
+    expect(event).toEqual({ postId: '1.5', userId: 'U-ALICE', emojiName: '-1' });
+    expect(fetchCalls.some((c) => c.url.includes('apps.connections.open'))).toBe(false);
+  });
+
+  it('does not hand back the same reaction twice', async () => {
+    // The caller loops when a reaction is not authorized; returning the same
+    // (user, emoji) again would spin on it until the timeout.
+    fetchResponder = slack(() => reactions([{ name: '+1', users: ['U-BOT', 'U-MALLORY'] }]));
+    const api = fastApi();
+    expect(await api.waitForReaction('1.5', 'U-BOT', 2000)).toMatchObject({ userId: 'U-MALLORY' });
+    expect(await api.waitForReaction('1.5', 'U-BOT', 60)).toBeNull();
+  });
+
+  it('times out with null when nobody reacts', async () => {
+    fetchResponder = slack(() => reactions([{ name: '+1', users: ['U-BOT'] }]));
+    const started = Date.now();
+    expect(await fastApi().waitForReaction('1.5', 'U-BOT', 80)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(1000);
+  });
+
+  it('backs off on a rate limit instead of hammering Slack', async () => {
+    let calls = 0;
+    fetchResponder = slack(() => {
+      calls++;
+      if (calls === 1) return new Response('{}', { status: 429, headers: { 'retry-after': '1' } });
+      return reactions([{ name: '+1', users: ['U-ALICE'] }]);
+    });
+    const started = Date.now();
+    const event = await fastApi().waitForReaction('1.5', 'U-BOT', 5000);
+    expect(event).toMatchObject({ userId: 'U-ALICE' });
+    // Retry-After: 1 second, not the 5 ms poll interval.
+    expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+    expect(calls).toBe(2);
   });
 });

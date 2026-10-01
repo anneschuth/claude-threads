@@ -1,16 +1,17 @@
 /**
  * Slack implementation of McpPlatformApi
  *
- * Handles MCP-side platform operations via Slack Web API and Socket Mode.
+ * Handles MCP-side platform operations via the Slack Web API.
  *
  * Key differences from Mattermost:
- * - Uses two tokens: botToken (xoxb-) for API calls, appToken (xapp-) for Socket Mode
- * - Socket Mode uses a different WebSocket protocol with envelope acknowledgments
+ * - No WebSocket of its own: the main bot already holds the app's Socket Mode
+ *   connection, and Slack round-robins events across every open connection of
+ *   an app, so a second one here missed about half the reactions and stole
+ *   that half of the bot's events (#622). Reactions are polled instead.
  * - Messages are identified by channel + timestamp (ts), not by ID
  * - User mentions use <@USER_ID> format, not @username
  */
 
-import { WebSocket } from '../../utils/websocket.js';
 import type {
   McpPlatformApi,
   ReactionEvent,
@@ -20,7 +21,6 @@ import type {
 import type { PlatformFormatter } from '../formatter.js';
 import type {
   AuthTestResponse,
-  AppsConnectionsOpenResponse,
   PostMessageResponse,
   UpdateMessageResponse,
   UsersInfoResponse,
@@ -29,12 +29,12 @@ import type {
   ConversationsMembersResponse,
   ConversationsOpenResponse,
   ConversationsRepliesResponse,
+  ReactionsGetResponse,
   SlackMessage,
-  SlackSocketModeEvent,
 } from './types.js';
 import { mcpLogger } from '../../utils/logger.js';
 import { SlackFormatter } from './formatter.js';
-import { formatWebSocketError, resolvePostThreadId, getEmojiName } from '../utils.js';
+import { resolvePostThreadId, getEmojiName } from '../utils.js';
 import { uploadFileSlack } from './upload.js';
 import { sanitizeFilename } from '../../utils/safe-filename.js';
 
@@ -54,24 +54,62 @@ import type { SlackMcpApiConfig } from '../mcp-platform-api.js';
 const SLACK_API_BASE = 'https://slack.com/api';
 
 /**
+ * Methods that read data. Slack takes a JSON body only on write methods; on
+ * these it ignores one and answers as if no arguments were given (users.info
+ * says `user_not_found`, which rejected every permission reaction, #622).
+ * They go out as a GET with query parameters, as the main SlackClient does.
+ */
+const READ_METHODS = new Set([
+  'users.info',
+  'conversations.history',
+  'conversations.replies',
+  'conversations.info',
+  'conversations.members',
+  'reactions.get',
+]);
+
+/** Slack answered 429; `retryAfterMs` is its Retry-After. */
+class SlackRateLimitError extends Error {
+  constructor(readonly retryAfterMs: number) {
+    super(`Slack API error: 429 rate limited, retry after ${retryAfterMs} ms`);
+  }
+}
+
+/**
  * Make a Slack API request
  */
 async function slackApi<T>(
   method: string,
   token: string,
-  body?: Record<string, unknown>
+  args?: Record<string, unknown>,
+  apiBase: string = SLACK_API_BASE,
 ): Promise<T> {
-  const url = `${SLACK_API_BASE}/${method}`;
+  let response: Response;
+  if (READ_METHODS.has(method)) {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(args ?? {})) {
+      if (value !== undefined && value !== null) query.set(key, String(value));
+    }
+    const qs = query.toString();
+    response = await fetch(`${apiBase}/${method}${qs ? `?${qs}` : ''}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+  } else {
+    response = await fetch(`${apiBase}/${method}`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: args ? JSON.stringify(args) : undefined,
+    });
+  }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json; charset=utf-8',
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
-
+  if (response.status === 429) {
+    const seconds = Number(response.headers.get('retry-after'));
+    throw new SlackRateLimitError(Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : 5000);
+  }
   if (!response.ok) {
     throw new Error(`Slack API error: ${response.status} ${response.statusText}`);
   }
@@ -93,6 +131,15 @@ async function slackApi<T>(
  * Slack MCP platform API implementation
  */
 class SlackMcpPlatformApi implements McpPlatformApi {
+  /**
+   * The Web API, at the configured base. The MCP child used to hardcode
+   * slack.com, so against the integration suite's Slack mock it never reached
+   * the mock at all, and #622 had no test that could see it.
+   */
+  private slackApi<T>(method: string, token: string, args?: Record<string, unknown>): Promise<T> {
+    return slackApi<T>(method, token, args, this.config.apiUrl || SLACK_API_BASE);
+  }
+
   private readonly config: SlackMcpApiConfig;
   private readonly formatter = new SlackFormatter();
   private botUserIdCache: string | null = null;
@@ -112,7 +159,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     }
 
     mcpLogger.debug('Fetching bot user ID via auth.test...');
-    const response = await slackApi<AuthTestResponse>(
+    const response = await this.slackApi<AuthTestResponse>(
       'auth.test',
       this.config.botToken
     );
@@ -125,7 +172,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   async getUsername(userId: string): Promise<string | null> {
     try {
       mcpLogger.debug(`Looking up username for user ${userId}`);
-      const response = await slackApi<UsersInfoResponse>(
+      const response = await this.slackApi<UsersInfoResponse>(
         'users.info',
         this.config.botToken,
         { user: userId }
@@ -161,7 +208,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     mcpLogger.debug(`Creating interactive post with ${reactions.length} reaction options`);
 
     // Post the message
-    const response = await slackApi<PostMessageResponse>(
+    const response = await this.slackApi<PostMessageResponse>(
       'chat.postMessage',
       this.config.botToken,
       {
@@ -205,7 +252,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   async updatePost(postId: string, message: string): Promise<void> {
     mcpLogger.debug(`Updating post ${postId}`);
 
-    await slackApi<UpdateMessageResponse>(
+    await this.slackApi<UpdateMessageResponse>(
       'chat.update',
       this.config.botToken,
       {
@@ -217,163 +264,51 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     );
   }
 
+  /** How often a pending permission post is polled for reactions. Tests shorten it. */
+  reactionPollMs = 2000;
+  /** (post, user, emoji) already handed out, so a repeat poll does not return the same reaction twice. */
+  private readonly seenReactions = new Set<string>();
+
   async waitForReaction(
     postId: string,
     botUserId: string,
     timeoutMs: number
   ): Promise<ReactionEvent | null> {
-    return new Promise((resolve) => {
-      let resolved = false;
-      let ws: WebSocket | null = null;
-
-      const cleanup = () => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.close();
-        }
-      };
-
-      const timeout = setTimeout(() => {
-        if (!resolved) {
-          mcpLogger.debug(`Reaction wait timed out after ${timeoutMs}ms`);
-          resolved = true;
-          cleanup();
-          resolve(null);
-        }
-      }, timeoutMs);
-
-      // First, get Socket Mode WebSocket URL
-      this.getSocketModeUrl()
-        .then((wsUrl) => {
-          if (resolved) return;
-
-          mcpLogger.debug(`Connecting to Socket Mode: ${wsUrl.substring(0, 50)}...`);
-          ws = new WebSocket(wsUrl);
-
-          ws.onopen = () => {
-            mcpLogger.debug('Socket Mode WebSocket connected');
-          };
-
-          ws.onmessage = (event) => {
-            if (resolved) return;
-
-            try {
-              const data = typeof event.data === 'string' ? event.data : event.data.toString();
-              const socketEvent = JSON.parse(data) as SlackSocketModeEvent;
-
-              // Acknowledge the envelope immediately
-              if (socketEvent.envelope_id) {
-                ws?.send(JSON.stringify({ envelope_id: socketEvent.envelope_id }));
-              }
-
-              mcpLogger.debug(`Socket Mode event type: ${socketEvent.type}`);
-
-              // Handle events_api type (contains the actual event)
-              if (socketEvent.type === 'events_api' && socketEvent.payload?.event) {
-                const slackEvent = socketEvent.payload.event;
-
-                // Check for reaction_added event
-                if (slackEvent.type === 'reaction_added') {
-                  const item = slackEvent.item;
-
-                  // Must be on our message (matching timestamp and channel)
-                  if (
-                    item?.type !== 'message' ||
-                    item.ts !== postId ||
-                    item.channel !== this.config.channelId
-                  ) {
-                    return;
-                  }
-
-                  // Must not be the bot's own reaction
-                  if (slackEvent.user === botUserId) {
-                    mcpLogger.debug('Ignoring bot\'s own reaction');
-                    return;
-                  }
-
-                  const emojiName = slackEvent.reaction || '';
-                  const userId = slackEvent.user || '';
-
-                  mcpLogger.debug(`Reaction received: :${emojiName}: from user: ${userId}`);
-
-                  // Got a valid reaction
-                  resolved = true;
-                  clearTimeout(timeout);
-                  cleanup();
-
-                  resolve({
-                    postId: item.ts,
-                    userId,
-                    emojiName,
-                  });
-                }
-              }
-
-              // Handle hello event (connection successful)
-              if (socketEvent.type === 'hello') {
-                mcpLogger.debug('Socket Mode hello received, connection established');
-              }
-
-              // Handle disconnect event
-              if (socketEvent.type === 'disconnect') {
-                mcpLogger.debug('Socket Mode disconnect requested');
-                if (!resolved) {
-                  resolved = true;
-                  clearTimeout(timeout);
-                  cleanup();
-                  resolve(null);
-                }
-              }
-            } catch (err) {
-              mcpLogger.debug(`Error parsing Socket Mode message: ${err}`);
-            }
-          };
-
-          ws.onerror = (event) => {
-            mcpLogger.error(`Socket Mode WebSocket error: ${formatWebSocketError(event)}`);
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timeout);
-              cleanup();
-              resolve(null);
-            }
-          };
-
-          ws.onclose = () => {
-            mcpLogger.debug('Socket Mode WebSocket closed');
-            if (!resolved) {
-              resolved = true;
-              clearTimeout(timeout);
-              resolve(null);
-            }
-          };
-        })
-        .catch((err) => {
-          mcpLogger.error(`Failed to get Socket Mode URL: ${err}`);
-          if (!resolved) {
-            resolved = true;
-            clearTimeout(timeout);
-            resolve(null);
+    // Poll the post rather than open a Socket Mode connection of our own:
+    // the main bot holds the app's connection, and Slack round-robins events
+    // across all of them (#622). reactions.get is Tier 3, comfortably above
+    // one call every two seconds per pending prompt; a 429 waits as told.
+    const deadline = Date.now() + timeoutMs;
+    const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(ms, deadline - Date.now()))));
+    while (Date.now() < deadline) {
+      let wait = this.reactionPollMs;
+      try {
+        const response = await this.slackApi<ReactionsGetResponse>(
+          'reactions.get',
+          this.config.botToken,
+          { channel: this.config.channelId, timestamp: postId, full: true },
+        );
+        for (const reaction of response.message?.reactions ?? []) {
+          for (const userId of reaction.users ?? []) {
+            if (userId === botUserId) continue;
+            const key = `${postId}|${userId}|${reaction.name}`;
+            if (this.seenReactions.has(key)) continue;
+            this.seenReactions.add(key);
+            mcpLogger.debug(`Reaction received: :${reaction.name}: from user: ${userId}`);
+            return { postId, userId, emojiName: reaction.name };
           }
-        });
-    });
-  }
-
-  /**
-   * Get Socket Mode WebSocket URL
-   *
-   * Calls apps.connections.open to get a fresh WebSocket URL.
-   * The URL is single-use and expires after connection.
-   */
-  private async getSocketModeUrl(): Promise<string> {
-    mcpLogger.debug('Getting Socket Mode WebSocket URL...');
-
-    const response = await slackApi<AppsConnectionsOpenResponse>(
-      'apps.connections.open',
-      this.config.appToken
-    );
-
-    mcpLogger.debug('Got Socket Mode URL');
-    return response.url;
+        }
+      } catch (err) {
+        if (err instanceof SlackRateLimitError) {
+          wait = err.retryAfterMs;
+        } else {
+          mcpLogger.debug(`reactions.get failed, retrying: ${err}`);
+        }
+      }
+      await sleep(wait);
+    }
+    mcpLogger.debug(`Reaction wait timed out after ${timeoutMs}ms`);
+    return null;
   }
 
   async uploadFile(
@@ -390,6 +325,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       filePath,
       filename,
       caption: options?.caption,
+      apiUrl: this.config.apiUrl,
     });
     return { postId: result.postId };
   }
@@ -397,7 +333,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   async readPost(postId: string): Promise<McpPost | null> {
     mcpLogger.debug(`readPost: ts ${postId}`);
     try {
-      const response = await slackApi<ConversationsHistoryResponse>(
+      const response = await this.slackApi<ConversationsHistoryResponse>(
         'conversations.history',
         this.config.botToken,
         {
@@ -447,7 +383,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   ): Promise<McpPost[]> {
     mcpLogger.debug(`readThread: ts ${threadRootId}`);
     try {
-      const response = await slackApi<ConversationsRepliesResponse>(
+      const response = await this.slackApi<ConversationsRepliesResponse>(
         'conversations.replies',
         this.config.botToken,
         {
@@ -490,7 +426,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     const limit = options?.limit ?? 20;
     mcpLogger.debug(`readChannelHistory: ${channelId} (limit=${limit})`);
     try {
-      const response = await slackApi<ConversationsHistoryResponse>(
+      const response = await this.slackApi<ConversationsHistoryResponse>(
         'conversations.history',
         this.config.botToken,
         {
@@ -533,7 +469,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
   ): Promise<{ id: string; channelType: 'public' | 'private'; name?: string } | null> {
     mcpLogger.debug(`getChannelInfo: ${channelId}`);
     try {
-      const response = await slackApi<ConversationsInfoResponse>(
+      const response = await this.slackApi<ConversationsInfoResponse>(
         'conversations.info',
         this.config.botToken,
         { channel: channelId },
@@ -567,7 +503,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
           limit: 1000,
         };
         if (cursor) params.cursor = cursor;
-        const response: ConversationsMembersResponse = await slackApi<ConversationsMembersResponse>(
+        const response: ConversationsMembersResponse = await this.slackApi<ConversationsMembersResponse>(
           'conversations.members',
           this.config.botToken,
           params,
@@ -594,7 +530,7 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       return null;
     }
     try {
-      const response = await slackApi<UsersInfoResponse>(
+      const response = await this.slackApi<UsersInfoResponse>(
         'users.info',
         this.config.botToken,
         { user: id },
@@ -611,13 +547,13 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     message: string,
   ): Promise<{ postId: string }> {
     // Open (or fetch existing) DM channel with the recipient.
-    const opened = await slackApi<ConversationsOpenResponse>(
+    const opened = await this.slackApi<ConversationsOpenResponse>(
       'conversations.open',
       this.config.botToken,
       { users: recipientUserId },
     );
     const dmChannelId = opened.channel.id;
-    const post = await slackApi<PostMessageResponse>(
+    const post = await this.slackApi<PostMessageResponse>(
       'chat.postMessage',
       this.config.botToken,
       {

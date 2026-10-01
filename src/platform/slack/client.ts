@@ -972,7 +972,9 @@ export class SlackClient extends BasePlatformClient {
       token: this.botToken,
       channelId: this.channelId,
       allowedUsers: this.allowedUsers,
-      appToken: this.appToken, // Required for Socket Mode in permission server
+      appToken: this.appToken,
+      // The MCP child calls the same Web API the bot does.
+      apiUrl: this.apiUrl,
       outboundFiles: this.outboundFiles,
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
