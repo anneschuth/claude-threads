@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.39.2] - 2026-10-01
 
 ### Fixed
 - **Slack: reacting to a permission prompt works again** (#622, thanks @elganfd). With interactive permissions on Slack every 👍 / ✅ / 👎 on a tool permission prompt was ignored, so the prompt sat until it timed out and denied. Two causes, each enough on its own: the permission server sent its `users.info` lookup as a JSON body, which Slack ignores on read methods, so every reacting user came back `user_not_found` and counted as unauthorized; and it opened a Socket Mode connection of its own, while Slack spreads an app's events over all its connections, so it saw only part of the reactions (and took that part of the bot's own events while a prompt waited). Read methods now go out as GET requests, and the prompt is polled for reactions instead of watched over a second connection. The same JSON-body problem affected `read_post`, `read_thread`, `read_channel_history`, the channel lookups and DM recipient resolution on Slack; those are fixed too. Plan approvals and questions were never affected.
+- **A skin-toned 👍 no longer denies** (#628). Slack names an emoji picked with a skin tone `+1::skin-tone-3`, and the permission prompt treats any emoji it does not recognize as a denial. Emoji are now matched on their base name, which also covers plan approvals and the other reaction controls.
+
+### Security
+- `fast-uri` 4.1.4 → 4.2.1 (#625) and `ip-address` 10.4.0 → 10.7.2 (#626), both bundled into what users run.
+
+### Changed
+- `@modelcontextprotocol/sdk` 1.30.1, `hono` 4.13.9, `ws` 8.22.0 (#624).
 
 ## [1.39.1] - 2026-09-25
 
