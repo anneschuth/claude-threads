@@ -600,6 +600,85 @@ describe('ContentExecutor', () => {
       expect(live.length).toBeLessThan(6);
     });
 
+    it('the normal update path retries too instead of starting a post per flush', async () => {
+      // A failure while the post is still short goes through the plain
+      // update in flushPending, not handleSplit.
+      expectIntact(await streamWithOneFailedUpdate((content) => content.length > 250 && content.length < 480));
+    });
+
+    it('a content-dependent failure is given up even when a header-only render succeeds in between', async () => {
+      // Header renders succeed (they carry the post's old body), so they must
+      // not reset the retry count, or a post whose update can never succeed
+      // holds the reply back forever.
+      const ctx = getContext();
+      let refused = 0;
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      let rejecting: string | null = null;
+      (platform as { updatePost: unknown }).updatePost = mock(async (id: string, content: string) => {
+        if (rejecting === null && content.includes('const v100 =')) rejecting = id;
+        if (id === rejecting && content.includes('const v100 =')) { refused++; throw new Error('msg_too_long'); }
+        return realUpdate(id, content);
+      });
+      executor.setHeader('🔧 1 tool · 1 s…');
+      await executor.executeAppend(createAppendContentOp('test', 'Writing the file:\n\n```ts'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      for (let i = 0; i < 300; i += 5) {
+        const chunk = Array.from({ length: 5 }, (_, k) => line(i + k)).join('\n');
+        executor.setHeader(`🔧 1 tool · ${i} s…`);
+        await executor.executeAppend(createAppendContentOp('test', '\n' + chunk), ctx);
+        await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      }
+      const all = [
+        ...((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).map((c) => c[0]),
+        ...(realUpdate.mock.calls as Array<[string, string]>).map((c) => c[1]),
+      ].join('\n');
+      expect(refused).toBeLessThanOrEqual(3);
+      expect(all).toContain('const v299 =');
+    });
+
+    it('the header post keeps its real body when a split of it fails', async () => {
+      // splitOversized used to record the attempted first piece as the
+      // header body on failure. With the rest held back for a retry, a later
+      // header render then wrote that piece into the post as well: the same
+      // text twice once the retry went through elsewhere.
+      const ctx = getContext();
+      const realUpdate = platform.updatePost as ReturnType<typeof mock>;
+      // The split's first piece is the update that is suddenly much shorter
+      // than what the post held: fail exactly those, three times.
+      let failures = 0;
+      const lastLength = new Map<string, number>();
+      (platform as { updatePost: unknown }).updatePost = mock(async (id: string, content: string) => {
+        const before = lastLength.get(id) ?? 0;
+        if (failures < 3 && before > 15000 && content.length < before - 2000) { failures++; throw new Error('429'); }
+        await realUpdate(id, content);
+        lastLength.set(id, content.length);
+      });
+      (platform.createPost as ReturnType<typeof mock>).mockImplementation(async (content: string) => {
+        const id = `post_${(platform.createPost as ReturnType<typeof mock>).mock.calls.length}`;
+        lastLength.set(id, content.length);
+        return { id, platformId: 'test', channelId: 'channel-1', message: content, createAt: Date.now(), userId: 'bot' };
+      });
+      executor.setHeader('🔧 1 tool · 1 s…');
+      await executor.executeAppend(createAppendContentOp('test', 'Writing the file:\n\n```ts'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      for (let i = 0; i < 600; i += 5) {
+        const chunk = Array.from({ length: 5 }, (_, k) => line(i + k)).join('\n');
+        executor.setHeader(`🔧 1 tool · ${i} s…`);
+        await executor.executeAppend(createAppendContentOp('test', '\n' + chunk), ctx);
+        await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      }
+      await executor.executeAppend(createAppendContentOp('test', '\n```\n\nDone.'), ctx);
+      await executor.executeFlush(createFlushOp('test', 'result'), ctx);
+
+      const texts = new Map<string, string>();
+      ((platform.createPost as ReturnType<typeof mock>).mock.calls as Array<[string]>).forEach((c, i) => texts.set(`post_${i + 1}`, c[0]));
+      for (const [id, text] of realUpdate.mock.calls as Array<[string, string]>) texts.set(id, text);
+      const all = [...texts.values()].join('\n');
+      const wrong = Array.from({ length: 600 }, (_, i) => i).filter((i) => all.split(`const v${i} = `).length - 1 !== 1);
+      expect(failures).toBe(3);
+      expect(wrong).toEqual([]);
+    });
+
     it('an in-place update of the open block failing does not start a post per flush', async () => {
       expectIntact(await streamWithOneFailedUpdate((content) => content.length > 3000 && content.length < 6000));
     });
@@ -750,12 +829,22 @@ describe('ContentExecutor', () => {
         throw new Error('Update failed');
       });
 
-      // Second flush should handle the error
+      // A failed update keeps the post and its pending text for a retry on the
+      // next flush (#620): most failures are transient, and dropping the post
+      // at once started the continuation mid-content.
       await executor.executeAppend(createAppendContentOp('test', ' World'), ctx);
       await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      const postId = executor.getState().currentPostId;
+      expect(postId).not.toBeNull();
+      expect(executor.getState().pendingContent).toContain('World');
 
-      // currentPostId should be cleared after failure
+      // Still failing after the third try in a row: the post is given up, and
+      // the pending text goes to a new post on the next flush.
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
+      expect(executor.getState().currentPostId).toBe(postId);
+      await executor.executeFlush(createFlushOp('test', 'explicit'), ctx);
       expect(executor.getState().currentPostId).toBeNull();
+      expect(executor.getState().pendingContent).toContain('World');
     });
   });
 

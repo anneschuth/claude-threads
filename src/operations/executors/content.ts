@@ -98,6 +98,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.headerPostId = null;
     this.state.headerBody = '';
     this.state.turnOpen = false;
+    this.state.updateFailures = 0;
   }
 
   /**
@@ -133,6 +134,11 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.headerDirty = false;
     if (this.state.headerPostId) {
       const postId = this.state.headerPostId;
+      // A header render rewrites the post's old body, so its success says
+      // nothing about the content update being retried: it must not reset
+      // the failure count, or a content update that can never succeed
+      // (msg_too_long) is retried forever and the reply never delivered.
+      const failures = this.state.updateFailures;
       await this.tryUpdatePost(
         ctx,
         postId,
@@ -143,6 +149,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         () => { /* body unchanged */ },
         () => { /* keep the post; a failed header edit is not a lost reply */ },
       );
+      this.state.updateFailures = failures;
       return;
     }
     if (this.state.header && this.state.turnOpen) {
@@ -222,6 +229,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     const contentLength = this.state.currentPostContent.length;
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
+    this.state.updateFailures = 0;
     if (ctx?.threadLogger && oldPostId) {
       ctx.threadLogger.logExecutor('content', 'close', oldPostId, {
         contentLength,
@@ -403,10 +411,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           this.state.currentPostContent = combinedContent;
           this.clearFlushedContent(pendingAtFlushStart);
         },
-        () => {
-          this.state.currentPostId = null;
-          this.state.currentPostContent = '';
-        },
+        () => this.onInPlaceUpdateFailed(),
       );
     } else {
       // Create new post(s) - split if content is too tall
@@ -454,12 +459,11 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       { reason: 'oversized_code_block', contentLength: content.length, pieces: rest.length + 1 },
       { reason: 'oversized_code_block_failed' },
       () => { landed = true; },
-      () => {
-        // Same reasoning as the split's first part: pending is about to be
-        // handed to the new posts, so a later header render must restore
-        // the attempted piece.
-        if (postId === this.state.headerPostId) this.state.headerBody = firstPiece;
-      },
+      // No bookkeeping on failure: the post keeps its old body and pending
+      // stays for the retry, so the header body must stay the old body too.
+      // Recording the attempted piece let a later header render write it into
+      // the post while the same text was still pending.
+      () => { /* retried on the next flush */ },
     );
     if (!landed) {
       // The post keeps its older body, which runs past the cut: posting the
@@ -494,7 +498,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
     this.state.updateFailures = 0;
-    if (opener) this.state.pendingContent = `${opener}\n${this.state.pendingContent.replace(/^\n+/, '')}`;
+    if (!opener) return;
+    const rest = this.state.pendingContent.replace(/^\n+/, '');
+    // Pending that starts by closing the block needs no reopening: drop the
+    // closer instead of posting an empty code block.
+    this.state.pendingContent = /^```[ \t]*(\n|$)/.test(rest)
+      ? rest.replace(/^```[ \t]*\n?/, '')
+      : `${opener}\n${rest}`;
   }
 
   /**
@@ -614,8 +624,8 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       } else {
         // No good breakpoint - just update current post with ALL content.
         // We must update the post AND update state to prevent duplication on next flush.
-        // Failure branch nulls postId but deliberately leaves currentPostContent intact
-        // (unlike other sites) so the existing content is preserved for the continuation.
+        // On failure the post and its pending text are kept for a retry on the
+        // next flush (onInPlaceUpdateFailed).
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(
@@ -782,6 +792,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (bumpedPostId) {
         adoptAsHeaderPost(bumpedPostId);
         this.state.currentPostId = bumpedPostId;
+        this.state.updateFailures = 0;
         this.state.currentPostContent = content;
         this.clearFlushedContent(pendingAtFlushStart);
         ctx.threadLogger?.logExecutor('content', 'create', bumpedPostId, {
@@ -803,6 +814,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       const post = await ctx.createPost(rendered, { type: 'content' });
       adoptAsHeaderPost(post.id);
       this.state.currentPostId = post.id;
+      this.state.updateFailures = 0;
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
       ctx.logger.debug(`Created post ${formatShortId(post.id)}`);
