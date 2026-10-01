@@ -78,7 +78,7 @@
     "cross-spawn": "^7.0.6",
     "diff": "^8.0.3",
     "express-rate-limit": "^8.3.0",
-    "hono": "4.13.8",
+    "hono": "4.13.9",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
     "js-yaml": "^4.3.1",
@@ -86,7 +86,7 @@
     "react": "^19.2.3",
     "semver": "7.8.5",
     "update-notifier": "^7.3.1",
-    "ws": "8.21.3",
+    "ws": "8.22.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
