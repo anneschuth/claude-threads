@@ -35,45 +35,54 @@ export const MINIMIZE_TOGGLE_EMOJIS = ['arrow_down_small', 'small_red_triangle_d
 export const BUG_REPORT_EMOJI = 'bug' as const;
 
 /**
+ * Slack names an emoji picked with a skin tone `+1::skin-tone-3`. Every
+ * predicate below matches the base name: a toned 👍 is still approval, and
+ * the permission prompt treats any emoji it does not recognize as deny.
+ */
+function withoutSkinTone(emoji: string): string {
+  return emoji.replace(/::skin-tone-\d$/, '');
+}
+
+/**
  * Check if the emoji indicates approval (thumbs up)
  */
 export function isApprovalEmoji(emoji: string): boolean {
-  return (APPROVAL_EMOJIS as readonly string[]).includes(emoji);
+  return (APPROVAL_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**
  * Check if the emoji indicates denial (thumbs down)
  */
 export function isDenialEmoji(emoji: string): boolean {
-  return (DENIAL_EMOJIS as readonly string[]).includes(emoji);
+  return (DENIAL_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**
  * Check if the emoji indicates "allow all" or invitation
  */
 export function isAllowAllEmoji(emoji: string): boolean {
-  return (ALLOW_ALL_EMOJIS as readonly string[]).includes(emoji);
+  return (ALLOW_ALL_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**
  * Check if the emoji indicates session cancellation
  */
 export function isCancelEmoji(emoji: string): boolean {
-  return (CANCEL_EMOJIS as readonly string[]).includes(emoji);
+  return (CANCEL_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**
  * Check if the emoji indicates escape/pause
  */
 export function isEscapeEmoji(emoji: string): boolean {
-  return (ESCAPE_EMOJIS as readonly string[]).includes(emoji);
+  return (ESCAPE_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**
  * Check if the emoji indicates session resume
  */
 export function isResumeEmoji(emoji: string): boolean {
-  return (RESUME_EMOJIS as readonly string[]).includes(emoji);
+  return (RESUME_EMOJIS as readonly string[]).includes(withoutSkinTone(emoji));
 }
 
 /**

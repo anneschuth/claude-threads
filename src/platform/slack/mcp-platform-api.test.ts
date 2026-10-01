@@ -319,3 +319,30 @@ describe('SlackMcpPlatformApi.waitForReaction polls reactions.get (#622)', () =>
     expect(calls).toBe(2);
   });
 });
+
+describe('SlackMcpPlatformApi.waitForReaction after review (#622)', () => {
+  const reactions = (list: Array<{ name: string; users: string[] }>) => jsonResponse({ ok: true, type: 'message', message: { reactions: list } });
+
+  it('offers a reaction again once the seen window has passed', async () => {
+    // A reaction is marked seen before the caller checks the user. When that
+    // check failed for a passing reason (a 429 on users.info), the reaction
+    // must come back later, or a valid approval is lost for good.
+    fetchResponder = slack(() => reactions([{ name: '+1', users: ['U-ALICE'] }]));
+    const api = makeApi();
+    Object.assign(api as object, { reactionPollMs: 5, seenTtlMs: 40 });
+    expect(await api.waitForReaction('1.5', 'U-BOT', 2000)).toMatchObject({ userId: 'U-ALICE' });
+    expect(await api.waitForReaction('1.5', 'U-BOT', 20)).toBeNull(); // inside the window
+    expect(await api.waitForReaction('1.5', 'U-BOT', 2000)).toMatchObject({ userId: 'U-ALICE' }); // after it
+  });
+
+  it('polls less often once a prompt has waited a while', async () => {
+    // Every open prompt polls reactions.get; several at once approach
+    // Slack's per-app rate limit, so a long wait slows down.
+    let calls = 0;
+    fetchResponder = slack(() => { calls++; return reactions([]); });
+    const api = makeApi();
+    Object.assign(api as object, { reactionPollMs: 5, reactionSlowPollMs: 60, reactionSlowAfterMs: 0 });
+    await api.waitForReaction('1.5', 'U-BOT', 150);
+    expect(calls).toBeLessThanOrEqual(4);
+  });
+});

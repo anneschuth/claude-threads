@@ -264,10 +264,22 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     );
   }
 
-  /** How often a pending permission post is polled for reactions. Tests shorten it. */
+  /** How often a pending permission post is polled for reactions. Tests shorten these. */
   reactionPollMs = 2000;
-  /** (post, user, emoji) already handed out, so a repeat poll does not return the same reaction twice. */
-  private readonly seenReactions = new Set<string>();
+  /**
+   * After this long a prompt polls at `reactionSlowPollMs`: every open prompt
+   * polls reactions.get, and several at once approach Slack's per-app limit.
+   */
+  reactionSlowAfterMs = 30_000;
+  reactionSlowPollMs = 5000;
+  /**
+   * (post, user, emoji) handed out recently, and when. The caller loops past
+   * a reaction it does not accept, so returning it on every poll would spin;
+   * but it may have been refused for a passing reason (a 429 on the username
+   * lookup), so it is offered again once this window has passed.
+   */
+  seenTtlMs = 30_000;
+  private readonly seenReactions = new Map<string, number>();
 
   async waitForReaction(
     postId: string,
@@ -278,10 +290,12 @@ class SlackMcpPlatformApi implements McpPlatformApi {
     // the main bot holds the app's connection, and Slack round-robins events
     // across all of them (#622). reactions.get is Tier 3, comfortably above
     // one call every two seconds per pending prompt; a 429 waits as told.
-    const deadline = Date.now() + timeoutMs;
+    const started = Date.now();
+    const deadline = started + timeoutMs;
+    let warned = false;
     const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Math.min(ms, deadline - Date.now()))));
     while (Date.now() < deadline) {
-      let wait = this.reactionPollMs;
+      let wait = Date.now() - started >= this.reactionSlowAfterMs ? this.reactionSlowPollMs : this.reactionPollMs;
       try {
         const response = await this.slackApi<ReactionsGetResponse>(
           'reactions.get',
@@ -292,8 +306,9 @@ class SlackMcpPlatformApi implements McpPlatformApi {
           for (const userId of reaction.users ?? []) {
             if (userId === botUserId) continue;
             const key = `${postId}|${userId}|${reaction.name}`;
-            if (this.seenReactions.has(key)) continue;
-            this.seenReactions.add(key);
+            const seenAt = this.seenReactions.get(key);
+            if (seenAt !== undefined && Date.now() - seenAt < this.seenTtlMs) continue;
+            this.seenReactions.set(key, Date.now());
             mcpLogger.debug(`Reaction received: :${reaction.name}: from user: ${userId}`);
             return { postId, userId, emojiName: reaction.name };
           }
@@ -301,6 +316,11 @@ class SlackMcpPlatformApi implements McpPlatformApi {
       } catch (err) {
         if (err instanceof SlackRateLimitError) {
           wait = err.retryAfterMs;
+        } else if (!warned) {
+          // Once per wait: a missing scope or a deleted post would otherwise
+          // only surface as a timeout.
+          warned = true;
+          mcpLogger.warn(`reactions.get failed, will keep retrying: ${err}`);
         } else {
           mcpLogger.debug(`reactions.get failed, retrying: ${err}`);
         }
