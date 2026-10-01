@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Mattermost: a skin-toned 👍 no longer denies** (#629). Mattermost names an emoji picked with a skin tone `+1_medium_skin_tone` (verified against Mattermost v11), and the permission prompt treats any emoji it does not recognize as a denial. 1.39.2 fixed Slack's `+1::skin-tone-3` form; the Mattermost form is now matched on its base name too, for permission prompts, plan approvals and the other reaction controls.
+
 ## [1.39.2] - 2026-10-01
 
 ### Fixed

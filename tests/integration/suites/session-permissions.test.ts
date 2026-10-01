@@ -232,6 +232,9 @@ describe.skipIf(SKIP)('Session Permissions', () => {
       for (const [label, emoji, outcome] of [
         ['allows the tool when the user reacts 👍', { mattermost: '+1', slack: 'thumbsup' }, /Allowed.*by/i],
         ['denies the tool when the user reacts 👎', { mattermost: '-1', slack: 'thumbsdown' }, /Denied.*by/i],
+        // A toned 👍 is still approval; the prompt treats an unrecognized
+        // emoji as deny, so a missed tone used to deny the tool (#629).
+        ['allows the tool when the user reacts with a skin-toned 👍', { mattermost: '+1_medium_skin_tone', slack: '+1::skin-tone-3' }, /Allowed.*by/i],
       ] as const) {
         it(label, async () => {
           bot = await startTestBot(getPlatformBotOptions(platformType, {
