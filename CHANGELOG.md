@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Mattermost: a skin-toned 👍 no longer denies** (#629). Mattermost names an emoji picked with a skin tone `+1_medium_skin_tone` (verified against Mattermost v11), and the permission prompt treats any emoji it does not recognize as a denial. 1.39.2 fixed Slack's `+1::skin-tone-3` form; the Mattermost form is now matched on its base name too, for permission prompts, plan approvals and the other reaction controls.
+- **One failed update no longer turns a code block into a post per flush** (#620). When the platform refused an update of the post Claude was writing a code block into, the bot gave up on that post at once. The continuation started in the middle of the block without its opening fence, so the rest rendered as prose, the height check split it every few lines (a new post per flush, close to 200 posts for a 2000-line file), and the closing fence opened a new block. A failed update is now retried on the next flush, which recovers the post completely for a passing error; only after three failures in a row is the post given up, with its code block reopened at the start of the next one.
 
 ## [1.39.2] - 2026-10-01
 

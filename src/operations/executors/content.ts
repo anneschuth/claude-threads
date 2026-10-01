@@ -58,6 +58,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       headerBody: '',
       turnOpen: false,
       paragraphBreak: false,
+      updateFailures: 0,
     };
   }
 
@@ -97,6 +98,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.headerPostId = null;
     this.state.headerBody = '';
     this.state.turnOpen = false;
+    this.state.updateFailures = 0;
   }
 
   /**
@@ -132,6 +134,11 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     this.state.headerDirty = false;
     if (this.state.headerPostId) {
       const postId = this.state.headerPostId;
+      // A header render rewrites the post's old body, so its success says
+      // nothing about the content update being retried: it must not reset
+      // the failure count, or a content update that can never succeed
+      // (msg_too_long) is retried forever and the reply never delivered.
+      const failures = this.state.updateFailures;
       await this.tryUpdatePost(
         ctx,
         postId,
@@ -142,6 +149,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         () => { /* body unchanged */ },
         () => { /* keep the post; a failed header edit is not a lost reply */ },
       );
+      this.state.updateFailures = failures;
       return;
     }
     if (this.state.header && this.state.turnOpen) {
@@ -192,6 +200,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         this.state.headerBody = content;
         this.state.headerDirty = false;
       }
+      this.state.updateFailures = 0;
       onSuccess();
       ctx.threadLogger?.logExecutor('content', 'update', postId, successDetails, logTag);
     } catch (err) {
@@ -218,8 +227,13 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
   closeCurrentPost(ctx?: ExecutorContext): void {
     const oldPostId = this.state.currentPostId;
     const contentLength = this.state.currentPostContent.length;
+    // Closing while an update of this post is being retried: hand its pending
+    // text on the way a give-up does, so a code block it left open is
+    // reopened rather than its closing fence flipping the next turn (#620).
+    if (this.state.updateFailures > 0 && this.state.pendingContent.trim()) this.giveUpCurrentPost();
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
+    this.state.updateFailures = 0;
     if (ctx?.threadLogger && oldPostId) {
       ctx.threadLogger.logExecutor('content', 'close', oldPostId, {
         contentLength,
@@ -290,20 +304,43 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (reason === 'result') this.state.turnOpen = false;
       return; // Nothing else to flush
     }
-    await this.flushPending(ctx);
+    const postBefore = this.state.currentPostId;
+    await this.flushPending(ctx, reason);
+    if (reason === 'result') {
+      // The turn's last flush has no later flush to retry on (#620). Retry a
+      // failed update once right away: most failures are transient, and
+      // giving the post up would leave it without its closing text.
+      if (this.state.updateFailures > 0 && this.state.currentPostId !== null && this.state.pendingContent.trim()) {
+        await this.flushPending(ctx, reason);
+      }
+      // Given up: post the tail now, as a new post, rather than leave it for
+      // the user's next message to drag in below their text.
+      if (postBefore !== null && this.state.currentPostId === null && this.state.pendingContent.trim()) {
+        await this.flushPending(ctx, reason);
+      }
+    }
     // The header rides on ONE post, and this flush may have written a
     // different one — a continuation post after a split, most often the
     // result flush carrying Claude's closing text. Every path that does write
     // the header post clears `headerDirty` (tryUpdatePost, createNewPost's
     // adoption), so a still-dirty header here means the header post was left
     // untouched and would keep a stale, still-running summary forever.
-    if (this.state.headerDirty) await this.renderHeaderOnly(ctx);
+    // While an update of the current post is being retried, the header post
+    // may hold more than its recorded body (a write that landed but whose
+    // response was lost): a header-only render would roll it back. The retry
+    // writes the header with the body, so leave it to that.
+    if (this.state.headerDirty && this.state.updateFailures === 0) await this.renderHeaderOnly(ctx);
     // The turn is over: the next header starts a new one. The header itself
     // stays on its post.
     if (reason === 'result') this.state.turnOpen = false;
   }
 
-  private async flushPending(ctx: ExecutorContext): Promise<void> {
+  /**
+   * `reason` travels as a parameter, not instance state: two flushes can run
+   * at once (the manager does not await event handling), and the turn's last
+   * flush must keep its own reason for the give-up limit.
+   */
+  private async flushPending(ctx: ExecutorContext, reason: FlushOp['reason']): Promise<void> {
 
     // Capture content at start of flush
     const pendingAtFlushStart = this.state.pendingContent;
@@ -335,7 +372,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     // Handle message splitting - use combinedContent so existing post content is preserved
     const reserve = this.headerReserve(this.state.currentPostId);
     if (this.state.currentPostId && (combinedContent.length + reserve > HARD_CONTINUATION_THRESHOLD || shouldBreakEarly)) {
-      await this.handleSplit(ctx, combinedContent, pendingAtFlushStart, HARD_CONTINUATION_THRESHOLD);
+      await this.handleSplit(ctx, combinedContent, pendingAtFlushStart, HARD_CONTINUATION_THRESHOLD, reason);
       return;
     }
 
@@ -401,10 +438,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
           this.state.currentPostContent = combinedContent;
           this.clearFlushedContent(pendingAtFlushStart);
         },
-        () => {
-          this.state.currentPostId = null;
-          this.state.currentPostContent = '';
-        },
+        () => this.onInPlaceUpdateFailed(reason),
       );
     } else {
       // Create new post(s) - split if content is too tall
@@ -436,6 +470,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     content: string,
     pendingAtFlushStart: string,
     hardThreshold: number,
+    reason: FlushOp['reason'],
   ): Promise<boolean> {
     const postId = this.state.currentPostId;
     if (!postId) return false;
@@ -452,18 +487,65 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       { reason: 'oversized_code_block', contentLength: content.length, pieces: rest.length + 1 },
       { reason: 'oversized_code_block_failed' },
       () => { landed = true; },
-      () => {
-        // Same reasoning as the split's first part: pending is about to be
-        // handed to the new posts, so a later header render must restore
-        // the attempted piece.
-        if (postId === this.state.headerPostId) this.state.headerBody = firstPiece;
-      },
+      // No bookkeeping on failure: the post keeps its old body and pending
+      // stays for the retry, so the header body must stay the old body too.
+      // Recording the attempted piece let a later header render write it into
+      // the post while the same text was still pending.
+      () => { /* retried on the next flush */ },
     );
+    if (!landed) {
+      // The post keeps its older body, which runs past the cut: posting the
+      // rest now would repeat that stretch and leave the fence open (#620).
+      // Retry the whole split on the next flush instead.
+      this.onInPlaceUpdateFailed(reason);
+      return true;
+    }
     this.state.currentPostId = null;
     this.state.currentPostContent = '';
-    if (landed) this.clearFlushedContent(pendingAtFlushStart);
-    await this.postChunks(ctx, rest, pendingAtFlushStart, landed);
+    this.clearFlushedContent(pendingAtFlushStart);
+    await this.postChunks(ctx, rest, pendingAtFlushStart, true);
     return true;
+  }
+
+  /**
+   * An in-place update of the current post failed (#620).
+   *
+   * Abandoning the post at once, as these paths did, starts the continuation
+   * in the middle of whatever the post was in: inside a code block that
+   * means the rest of the block renders as prose, the height estimate splits
+   * it every few lines (a new post per flush), and its closing fence opens a
+   * new block. Most failures are transient, so keep the post and its pending
+   * text and let the next flush retry the same update. Only after several
+   * failures in a row give up on the post, and reopen its code block, if it
+   * was in one, at the start of what comes next.
+   */
+  private onInPlaceUpdateFailed(reason: FlushOp['reason']): void {
+    this.state.updateFailures++;
+    // On the turn's last flush, flush() retries once right away, so give up
+    // after that second failure rather than wait for flushes that won't come.
+    const limit = reason === 'result' ? 2 : MAX_IN_PLACE_UPDATE_FAILURES;
+    if (this.state.updateFailures < limit) return;
+    this.giveUpCurrentPost();
+  }
+
+  /**
+   * Stop writing into the current post. Its pending text goes to a new post
+   * on the next flush; when the post left a code block open, that text
+   * starts by reopening it (or, if it begins by closing the block, without
+   * the stray closer).
+   */
+  private giveUpCurrentPost(): void {
+    const opener = openFenceOf(this.state.currentPostContent);
+    this.state.currentPostId = null;
+    this.state.currentPostContent = '';
+    this.state.updateFailures = 0;
+    if (!opener) return;
+    const rest = this.state.pendingContent.replace(/^\n+/, '');
+    // Pending that starts by closing the block needs no reopening: drop the
+    // closer instead of posting an empty code block.
+    this.state.pendingContent = /^```[ \t]*(\n|$)/.test(rest)
+      ? rest.replace(/^```[ \t]*\n?/, '')
+      : `${opener}\n${rest}`;
   }
 
   /**
@@ -518,7 +600,8 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
     ctx: ExecutorContext,
     content: string,
     pendingAtFlushStart: string,
-    hardThreshold: number
+    hardThreshold: number,
+    reason: FlushOp['reason'],
   ): Promise<void> {
     // Determine break point
     let breakPoint: number;
@@ -583,8 +666,8 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       } else {
         // No good breakpoint - just update current post with ALL content.
         // We must update the post AND update state to prevent duplication on next flush.
-        // Failure branch nulls postId but deliberately leaves currentPostContent intact
-        // (unlike other sites) so the existing content is preserved for the continuation.
+        // On failure the post and its pending text are kept for a retry on the
+        // next flush (onInPlaceUpdateFailed).
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(
@@ -599,9 +682,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-            },
+            () => this.onInPlaceUpdateFailed(reason),
           );
         }
         return;
@@ -614,7 +695,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         // Code block at start - just update and wait, unless it no longer
         // fits one post: a block that keeps streaming would otherwise grow
         // this post without bound (#617).
-        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold)) return;
+        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold, reason)) return;
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(
@@ -629,10 +710,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-              this.state.currentPostContent = '';
-            },
+            () => this.onInPlaceUpdateFailed(reason),
           );
         }
         return;
@@ -642,7 +720,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (breakBeforeCodeBlock > 0) {
         breakPoint = breakBeforeCodeBlock;
       } else {
-        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold)) return;
+        if (await this.splitOversized(ctx, content, pendingAtFlushStart, hardThreshold, reason)) return;
         if (this.state.currentPostId) {
           const postId = this.state.currentPostId;
           await this.tryUpdatePost(
@@ -657,10 +735,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
               this.state.currentPostContent = content;
               this.clearFlushedContent(pendingAtFlushStart);
             },
-            () => {
-              this.state.currentPostId = null;
-              this.state.currentPostContent = '';
-            },
+            () => this.onInPlaceUpdateFailed(reason),
           );
         }
         return;
@@ -689,19 +764,17 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
         { reason: 'split_first_part', firstPartLength: firstPart.length, remainderLength: remainder.length },
         { reason: 'split_first_part_failed' },
         () => { firstPartLanded = true; },
-        () => {
-          // Record the attempted body HERE, where it is right: the caller
-          // drops the pending content below whether or not this write landed,
-          // so a later header render is the only chance to restore firstPart.
-          // The write may also have arrived and only its response been lost,
-          // and an update replaces the whole post, so restoring the attempt is
-          // correct in both cases while restoring the older body would delete
-          // delivered text.
-          if (postId === this.state.headerPostId) {
-            this.state.headerBody = firstPart;
-          }
-        },
+        // Nothing to record: the remainder is held back below and the whole
+        // split retried, so the post's old body is still the truth.
+        () => { /* retried on the next flush */ },
       );
+      if (!firstPartLanded) {
+        // The post keeps its old body, which may run past the cut: posting
+        // the remainder now would repeat that stretch (#620). Retry the split
+        // on the next flush, as splitOversized does.
+        this.onInPlaceUpdateFailed(reason);
+        return;
+      }
     }
 
     // Start new post for remainder
@@ -759,6 +832,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       if (bumpedPostId) {
         adoptAsHeaderPost(bumpedPostId);
         this.state.currentPostId = bumpedPostId;
+        this.state.updateFailures = 0;
         this.state.currentPostContent = content;
         this.clearFlushedContent(pendingAtFlushStart);
         ctx.threadLogger?.logExecutor('content', 'create', bumpedPostId, {
@@ -780,6 +854,7 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
       const post = await ctx.createPost(rendered, { type: 'content' });
       adoptAsHeaderPost(post.id);
       this.state.currentPostId = post.id;
+      this.state.updateFailures = 0;
       this.state.currentPostContent = content;
       this.clearFlushedContent(pendingAtFlushStart);
       ctx.logger.debug(`Created post ${formatShortId(post.id)}`);
@@ -813,6 +888,15 @@ export class ContentExecutor extends BaseExecutor<ContentState> {
 }
 
 const FENCE_LINE = /^```.*$/gm;
+
+/** Failed in-place updates in a row before the current post is given up. */
+const MAX_IN_PLACE_UPDATE_FAILURES = 3;
+
+/** The opener line of the code block `text` leaves open, or null when its fences balance. */
+function openFenceOf(text: string): string | null {
+  const fences = text.match(FENCE_LINE) ?? [];
+  return fences.length % 2 === 1 ? fences[fences.length - 1] : null;
+}
 const FENCE_CLOSE = '\n```';
 
 /**
