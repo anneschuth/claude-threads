@@ -130,7 +130,7 @@
     "brace-expansion": ">=5.0.9",
     "ip-address": ">=10.3.1",
     "ws": "$ws",
-    "shell-quote": ">=1.10.0"
+    "shell-quote": ">=1.12.0"
   },
   "resolutions": {
     "hono": "$hono",
@@ -143,6 +143,6 @@
     "brace-expansion": ">=5.0.9",
     "ip-address": ">=10.3.1",
     "ws": "$ws",
-    "shell-quote": ">=1.10.0"
+    "shell-quote": ">=1.12.0"
   }
 }
