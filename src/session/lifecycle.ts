@@ -6,6 +6,7 @@
 
 import type { Session, InitialSessionOptions } from './types.js';
 import { shouldPostLifecycle } from './lifecycle-visibility.js';
+import { deliverLifecycleNotice, updateLifecycleNotice } from './lifecycle-delivery.js';
 import {
   createSessionTimers,
   createSessionLifecycle,
@@ -674,8 +675,8 @@ function createMessageManager(
         session.claude.sendMessage(content);
         ctx.ops.startTyping(session);
       }
-      await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-      await postTranscriptFeedback(session.platform, session.threadId, transcripts);
+      await postSkippedFilesFeedback(session.platform, session.threadId, skipped, (post) => updateLastMessage(session, post));
+      await postTranscriptFeedback(session.platform, session.threadId, transcripts, (post) => updateLastMessage(session, post));
     } catch (err) {
       await logAndNotify(err, { action: 'Send queued message after context prompt', session });
     }
@@ -1295,8 +1296,8 @@ async function startSessionImpl(
   claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
 
   // Surface any skipped attachments to the user, then echo voice-note transcripts
-  await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
-  await postTranscriptFeedback(session.platform, actualThreadId, transcripts);
+  await postSkippedFilesFeedback(session.platform, actualThreadId, skipped, (post) => updateLastMessage(session, post));
+  await postTranscriptFeedback(session.platform, actualThreadId, transcripts, (post) => updateLastMessage(session, post));
 
   // NOTE: We don't persist here. We wait for Claude to actually respond before persisting.
   // This prevents persisting sessions where Claude dies before saving its conversation,
@@ -1566,6 +1567,7 @@ async function resumeSessionImpl(
     messageCount: state.messageCount ?? 0,
     isProcessing: false,  // Resumed sessions are idle until user sends a message
     lifecyclePostId: state.lifecyclePostId,  // Pass through for resume message handling
+    lifecycleNotice: state.lifecycleNotice,
     recentEvents: [],  // Bug report context: recent tool uses/errors (cleared on resume)
     // Thread logger for persisting events to disk (appends to existing log)
     threadLogger: createThreadLogger(platformId, state.threadId, state.claudeSessionId, {
@@ -1712,10 +1714,10 @@ async function resumeSessionImpl(
           ? ' (platform re-enabled)'
           : ` after bot restart (v${VERSION})`;
       const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')}${by}\n${sessionFormatter.formatItalic(outcome)}`;
-      await withErrorHandling(
+      await updateLifecycleNotice(session, 'resumed', () => withErrorHandling(
         () => session.platform.updatePost(postId, resumeMsg),
         { action: 'Update timeout/shutdown post for resume', session }
-      );
+      ));
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
       transitionTo(session, 'active');
@@ -1730,7 +1732,13 @@ async function resumeSessionImpl(
       // and a quiet thread announced a bot restart on every resume.
       const suffix = trigger === 'platform-enabled' ? ' (platform re-enabled)' : ` after bot restart (v${VERSION})`;
       const restartMsg = `${sessionFormatter.formatBold('Session resumed')}${suffix}\n${sessionFormatter.formatItalic(outcome)}`;
-      await post(session, 'resume', restartMsg);
+      await deliverLifecycleNotice(
+        session,
+        ctx.ops.getPlatformOverhead(session.platformId).lifecycleDelivery,
+        'resumed',
+        () => post(session, 'resume', restartMsg),
+        (id) => session.platform.updatePost(id, `🔄 ${restartMsg}`),
+      );
     }
 
     // Update session header
@@ -2030,9 +2038,15 @@ export async function handleExit(
       ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
       'paused'
     )
-      ? await withErrorHandling(
-          () => post(session, 'info', message),
-          { action: 'Post session pause notification', session }
+      ? await deliverLifecycleNotice(
+          session,
+          ctx.ops.getPlatformOverhead(session.platformId).lifecycleDelivery,
+          'paused',
+          () => withErrorHandling(
+            () => post(session, 'info', message),
+            { action: 'Post session pause notification', session }
+          ),
+          (id) => session.platform.updatePost(id, message),
         )
       : null;
 
@@ -2336,19 +2350,25 @@ export async function cleanupIdleSessions(
       if (session.lifecyclePostId) {
         // Update the existing warning post to show timeout
         const postId = session.lifecyclePostId;
-        await withErrorHandling(
+        await updateLifecycleNotice(session, 'timed-out', () => withErrorHandling(
           () => session.platform.updatePost(postId, `⏱️ ${timeoutMessage}`),
           { action: 'Update timeout post', session }
-        );
+        ));
       } else {
         // Create new timeout post (no warning was posted)
         const timeoutPost = shouldPostLifecycle(
           ctx.ops.getPlatformOverhead(session.platformId).lifecycle,
           'timed-out'
         )
-          ? await withErrorHandling(
-              () => post(session, 'timeout', timeoutMessage),
-              { action: 'Post session timeout', session }
+          ? await deliverLifecycleNotice(
+              session,
+              ctx.ops.getPlatformOverhead(session.platformId).lifecycleDelivery,
+              'timed-out',
+              () => withErrorHandling(
+                () => post(session, 'timeout', timeoutMessage),
+                { action: 'Post session timeout', session }
+              ),
+              (id) => session.platform.updatePost(id, `⏱️ ${timeoutMessage}`),
             )
           : null;
         if (timeoutPost) {
@@ -2396,9 +2416,15 @@ export async function cleanupIdleSessions(
           : `${warningFormatter.formatBold('Session idle')} - will timeout in ~${remainingMins} minutes without activity`;
 
       // Create the warning post and store its ID for later updates
-      const warningPost = await withErrorHandling(
-        () => post(session, 'timeout', warningMessage),
-        { action: 'Post timeout warning', session }
+      const warningPost = await deliverLifecycleNotice(
+        session,
+        ctx.ops.getPlatformOverhead(session.platformId).lifecycleDelivery,
+        'idle-warning',
+        () => withErrorHandling(
+          () => post(session, 'timeout', warningMessage),
+          { action: 'Post timeout warning', session }
+        ),
+        (id) => session.platform.updatePost(id, `⏱️ ${warningMessage}`),
       );
       if (warningPost) {
         session.lifecyclePostId = warningPost.id;

@@ -149,7 +149,7 @@ describe('postTranscriptFeedback', () => {
     await postTranscriptFeedback(platform, 'thread-1', [
       { name: 'voice.webm', provider: 'elevenlabs', text: 'first line\n\nsecond paragraph' },
       { name: 'two.m4a', provider: 'elevenlabs', text: 'other note' },
-    ]);
+    ], () => undefined);
 
     expect(platform.createPost).toHaveBeenCalledTimes(2);
     expect(platform.createPost.mock.calls[0]).toEqual([
@@ -159,11 +159,22 @@ describe('postTranscriptFeedback', () => {
     expect(platform.createPost.mock.calls[1]).toEqual(['🎙️ **Transcript of two.m4a:**\n> other note', 'thread-1']);
   });
 
+  test('hands each post to onPosted, for last-message tracking', async () => {
+    const platform = createMockPlatform();
+    const onPosted = mock(() => undefined);
+
+    await postTranscriptFeedback(platform, 'thread-1', [
+      { name: 'voice.webm', provider: 'elevenlabs', text: 'note' },
+    ], onPosted);
+
+    expect(onPosted).toHaveBeenCalledWith({ id: 'post-1' });
+  });
+
   test('posts nothing when there are no transcripts', async () => {
     const platform = createMockPlatform();
 
-    await postTranscriptFeedback(platform, 'thread-1', []);
-    await postTranscriptFeedback(platform, 'thread-1', undefined);
+    await postTranscriptFeedback(platform, 'thread-1', [], () => undefined);
+    await postTranscriptFeedback(platform, 'thread-1', undefined, () => undefined);
 
     expect(platform.createPost).not.toHaveBeenCalled();
   });

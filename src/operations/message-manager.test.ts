@@ -953,6 +953,28 @@ describe('MessageManager', () => {
     });
   });
 
+  // lifecycleDelivery (#606): these feedback posts are the bot's last post,
+  // so they must reach the session's last-message tracking.
+  it('handleUserMessage reports its skipped-files and transcript posts as the last message', async () => {
+    const lastMessages: string[] = [];
+    const m = new MessageManager({
+      session, platform, postTracker,
+      sessionId: 'test:session-1', threadId: 'thread-123',
+      registerPost: () => undefined,
+      updateLastMessage: (post) => { lastMessages.push(post.message); },
+      buildMessageContent: async (text) => ({
+        content: text,
+        skipped: [{ name: 'big.zip', reason: 'Too large' }],
+        transcripts: [{ name: 'voice.webm', provider: 'elevenlabs', text: 'hello' }],
+      }),
+    });
+
+    await m.handleUserMessage('see attached', [], 'alice');
+
+    expect(lastMessages.some((t) => t.includes('could not be processed'))).toBe(true);
+    expect(lastMessages.at(-1)).toContain('Transcript of voice.webm');
+  });
+
   describe('handleUserMessage side-conversation composition', () => {
     it('keeps the [@user]: prefix on the sender turn only — side-conversation context stays OUTSIDE it', async () => {
       // Regression-defender for the attribution/side-conversation collision:
