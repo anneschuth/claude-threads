@@ -92,6 +92,9 @@ async function react(
   kind: LifecycleNoticeKind,
   replacing?: LifecycleNoticeKind,
 ): Promise<boolean> {
+  // Already up: adding it again is an error on Slack (`already_reacted`),
+  // which would read as a failure and fall back to posting.
+  if (replacing === kind) return true;
   const emoji = LIFECYCLE_REACTION_EMOJI[kind];
   try {
     await session.platform.addReaction(postId, emoji);
@@ -161,7 +164,8 @@ export async function updateLifecycleNotice(
   const notice = session.lifecycleNotice;
   const anchored = notice !== undefined && notice.postId === session.lifecyclePostId;
   if (anchored && notice.reaction) {
-    await react(session, notice.postId, kind, notice.kind);
+    // A failed swap leaves the old emoji up; keep tracking that one.
+    if (!(await react(session, notice.postId, kind, notice.kind))) return;
   } else {
     await edit();
   }

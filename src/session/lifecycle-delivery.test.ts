@@ -206,6 +206,32 @@ describe('updateLifecycleNotice', () => {
     expect(session.lifecycleNotice?.kind).toBe('timed-out');
   });
 
+  it('keeps tracking the emoji that is actually up when the swap fails', async () => {
+    const session = makeSession({
+      lifecyclePostId: 'reply-1',
+      lifecycleNotice: { postId: 'reply-1', kind: 'idle-warning', reaction: true, trailing: true },
+    });
+    (session.platform.addReaction as ReturnType<typeof mock>).mockImplementation(() => Promise.reject(new Error('rate limited')));
+
+    await updateLifecycleNotice(session, 'timed-out', mock(() => Promise.resolve()));
+
+    expect(session.platform.removeReaction).not.toHaveBeenCalled();
+    expect(session.lifecycleNotice?.kind).toBe('idle-warning');
+  });
+
+  it('does not re-add an emoji that is already up', async () => {
+    const session = makeSession({
+      lifecycleNotice: { postId: 'reply-1', kind: 'paused', reaction: true, trailing: true },
+    });
+    const create = newPost('x');
+
+    const anchor = await deliverLifecycleNotice(session, 'reaction', 'paused', create);
+
+    expect(session.platform.addReaction).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+    expect(anchor?.id).toBe('reply-1');
+  });
+
   it('still edits when the reaction notice is on another post than the anchor', async () => {
     const session = makeSession({
       lifecyclePostId: 'notice-9',
