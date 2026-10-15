@@ -150,8 +150,11 @@ export async function deliverLifecycleNotice(
     // known after a restart until the bot posts again; then it posts.
     const target = last?.postId ?? session.lastMessageId;
     const replacing = last?.reaction ? last.kind : undefined;
+    const lastBefore = session.lastMessageId;
     if (target && (await react(session, target, kind, replacing))) {
-      session.lifecycleNotice = { postId: target, kind, reaction: true, trailing: true };
+      // A reply posted while the reaction was in flight already ends the thread.
+      const trailing = session.lastMessageId === lastBefore;
+      session.lifecycleNotice = { postId: target, kind, reaction: true, trailing };
       return { id: target };
     }
   }

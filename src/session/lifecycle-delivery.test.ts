@@ -158,6 +158,17 @@ describe('deliverLifecycleNotice', () => {
       expect(session.lifecycleNotice).toEqual({ postId: 'reply-1', kind: 'idle-warning', reaction: true, trailing: true });
     });
 
+    it('does not mark the post trailing when a reply lands while the reaction is in flight', async () => {
+      const session = makeSession({ lastMessageId: 'reply-1' });
+      (session.platform.addReaction as ReturnType<typeof mock>).mockImplementation(async () => {
+        updateLastMessage(session, { id: 'reply-2' } as PlatformPost);
+      });
+
+      await deliverLifecycleNotice(session, 'reaction', 'idle-warning', newPost('x'), refreshOk());
+
+      expect(session.lifecycleNotice?.trailing).toBe(false);
+    });
+
     it('swaps its own previous emoji rather than stacking them', async () => {
       const session = makeSession({
         lastMessageId: 'reply-1',
