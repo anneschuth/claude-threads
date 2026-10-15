@@ -1737,6 +1737,7 @@ async function resumeSessionImpl(
         ctx.ops.getPlatformOverhead(session.platformId).lifecycleDelivery,
         'resumed',
         () => post(session, 'resume', restartMsg),
+        (id) => session.platform.updatePost(id, `🔄 ${restartMsg}`),
       );
     }
 
@@ -2045,6 +2046,7 @@ export async function handleExit(
             () => post(session, 'info', message),
             { action: 'Post session pause notification', session }
           ),
+          (id) => session.platform.updatePost(id, message),
         )
       : null;
 
@@ -2366,6 +2368,7 @@ export async function cleanupIdleSessions(
                 () => post(session, 'timeout', timeoutMessage),
                 { action: 'Post session timeout', session }
               ),
+              (id) => session.platform.updatePost(id, `⏱️ ${timeoutMessage}`),
             )
           : null;
         if (timeoutPost) {
@@ -2421,6 +2424,7 @@ export async function cleanupIdleSessions(
           () => post(session, 'timeout', warningMessage),
           { action: 'Post timeout warning', session }
         ),
+        (id) => session.platform.updatePost(id, `⏱️ ${warningMessage}`),
       );
       if (warningPost) {
         session.lifecyclePostId = warningPost.id;

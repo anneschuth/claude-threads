@@ -461,7 +461,7 @@ describe('SessionManager', () => {
         expect(await reactResume(m, 'thread-react', 'reply-1')).toEqual([expect.stringContaining('Too busy')]);
       });
 
-      test('dedup: skips the shutdown post after a restart already left a resume notice, and 🔄 on that one resumes', async () => {
+      test('dedup: reuses the resume notice a restart left instead of posting, and 🔄 on it resumes', async () => {
         const m = managerWith({ lifecycleDelivery: 'dedup' });
         const session = inject(m, 'thread-dedup', {
           lifecycleNotice: { postId: 'resumed-1', kind: 'resumed', reaction: false, trailing: true },
@@ -470,6 +470,7 @@ describe('SessionManager', () => {
         await m.postShutdownMessages();
 
         expect(created().some((t: string) => t.includes('Bot shutting down'))).toBe(false);
+        expect(platform.updatePost).toHaveBeenCalledWith('resumed-1', expect.stringContaining('Bot shutting down'));
         expect(session.lifecyclePostId).toBe('resumed-1');
         expect(await reactResume(m, 'thread-dedup', 'resumed-1')).toEqual([expect.stringContaining('Too busy')]);
       });

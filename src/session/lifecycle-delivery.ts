@@ -10,7 +10,10 @@
  * - `post` — a new post, exactly as before. Nothing here runs: the create is
  *   called and its result returned untouched.
  * - `dedup` — no new post when the bot's last post in the thread already shows
- *   the same notice. That post becomes the anchor instead.
+ *   the same notice. That post is rewritten to the new text in place (an edit
+ *   notifies nobody) and becomes the anchor instead, so it never reads stale:
+ *   "Session idle" refreshed to "No output for a while", a resume notice back
+ *   to "Bot shutting down".
  * - `reaction` — an emoji on the bot's last post instead of a new post. A
  *   reaction notifies nobody.
  *
@@ -32,6 +35,7 @@
 
 import type { LifecycleDelivery } from '../config/types.js';
 import type { PlatformPost } from '../platform/index.js';
+import { removeReaction } from '../operations/post-helpers/index.js';
 import { createLogger } from '../utils/logger.js';
 import { createSessionLog } from '../utils/session-log.js';
 import type { LifecyclePost } from './lifecycle-visibility.js';
@@ -54,7 +58,9 @@ export interface LifecycleNotice {
   reaction: boolean;
   /**
    * Still the bot's last post in the thread. `updateLastMessage` clears it on
-   * the next post the bot makes there.
+   * the next post the bot makes there. A post that bypasses that helper (a
+   * direct `platform.createPost`, such as the error handler's notice) does
+   * not clear it.
    */
   trailing: boolean;
 }
@@ -77,9 +83,8 @@ export const LIFECYCLE_REACTION_EMOJI: Record<LifecycleNoticeKind, string> = {
  *
  * A shutdown post exists to be rewritten into the resume notice when the bot
  * comes back, so after a restart the thread reads "Session resumed". The next
- * restart's shutdown notice is the start of that same post again; a thread
- * whose last bot post is a resume notice already shows it. Without this, back
- * to back restarts (the case #606 is about) would never dedup.
+ * restart's shutdown notice is the start of that same post again. Without
+ * this, back to back restarts (the case #606 is about) would never dedup.
  */
 function showsSameNotice(shown: LifecycleNoticeKind, next: LifecycleNoticeKind): boolean {
   const restartNotice = (kind: LifecycleNoticeKind) => (kind === 'shutdown' ? 'resumed' : kind);
@@ -103,16 +108,15 @@ async function react(
     return false;
   }
   const previous = replacing && LIFECYCLE_REACTION_EMOJI[replacing];
-  if (previous && previous !== emoji) {
-    await session.platform.removeReaction(postId, previous).catch(() => {});
-  }
+  if (previous && previous !== emoji) await removeReaction(session, postId, previous);
   return true;
 }
 
 /**
  * Deliver a NEW lifecycle notice. `create` makes the post the way the call
  * site always did; it is what runs under `post`, and the fallback when there
- * is nothing to dedup against or react to.
+ * is nothing to dedup against or react to. `refresh` rewrites a post to this
+ * notice's text, for `dedup`; it throws when the edit fails.
  *
  * Returns the post now anchoring the notice — the caller stores it as
  * `lifecyclePostId` — or null when nothing does.
@@ -122,14 +126,22 @@ export async function deliverLifecycleNotice(
   delivery: LifecycleDelivery,
   kind: LifecycleNoticeKind,
   create: () => Promise<PlatformPost | undefined | null>,
+  refresh: (postId: string) => Promise<unknown>,
 ): Promise<{ id: string } | null> {
   if (delivery === 'post') return (await create()) ?? null;
 
   const last = session.lifecycleNotice?.trailing ? session.lifecycleNotice : undefined;
 
-  if (delivery === 'dedup' && last && showsSameNotice(last.kind, kind)) {
-    sessionLog(session).debug(`Lifecycle ${kind} deduped onto ${last.postId}`);
-    return { id: last.postId };
+  // A notice carried as a reaction is on someone else's text: nothing to refresh.
+  if (delivery === 'dedup' && last && !last.reaction && showsSameNotice(last.kind, kind)) {
+    try {
+      await refresh(last.postId);
+      last.kind = kind;
+      sessionLog(session).debug(`Lifecycle ${kind} deduped onto ${last.postId}`);
+      return { id: last.postId };
+    } catch (err) {
+      sessionLog(session).warn(`Lifecycle ${kind} refresh of ${last.postId} failed, posting instead: ${err}`);
+    }
   }
 
   if (delivery === 'reaction') {

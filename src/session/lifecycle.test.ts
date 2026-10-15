@@ -732,7 +732,7 @@ describe('cleanupIdleSessions extended', () => {
     expect(ctx.ops.persistSession).toHaveBeenCalled();
   });
 
-  it('dedups a timeout notice onto the one already ending the thread', async () => {
+  it('dedups a timeout notice onto the one already ending the thread, refreshed in place', async () => {
     const session = createMockSession({
       lastActivityAt: new Date(Date.now() - 40 * 60 * 1000),
       timeoutWarningPosted: true,
@@ -748,6 +748,7 @@ describe('cleanupIdleSessions extended', () => {
     await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
 
     expect(session.platform.createPost).not.toHaveBeenCalled();
+    expect(session.platform.updatePost).toHaveBeenCalledWith('timeout-1', expect.stringContaining('Session timed out'));
     expect(session.lifecyclePostId).toBe('timeout-1');
     expect(ctx.ops.registerPost).toHaveBeenCalledWith('timeout-1', session.threadId);
   });

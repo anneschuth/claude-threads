@@ -26,13 +26,17 @@ function newPost(id: string) {
   return mock(() => Promise.resolve({ id } as PlatformPost));
 }
 
+function refreshOk() {
+  return mock((_postId: string) => Promise.resolve());
+}
+
 describe('deliverLifecycleNotice', () => {
   describe('post', () => {
     it('creates the post and tracks nothing, exactly as before', async () => {
       const session = makeSession({ lastMessageId: 'reply-1' });
       const create = newPost('notice-1');
 
-      const anchor = await deliverLifecycleNotice(session, 'post', 'timed-out', create);
+      const anchor = await deliverLifecycleNotice(session, 'post', 'timed-out', create, refreshOk());
 
       expect(anchor?.id).toBe('notice-1');
       expect(create).toHaveBeenCalledTimes(1);
@@ -47,34 +51,62 @@ describe('deliverLifecycleNotice', () => {
       });
       const create = newPost('notice-2');
 
-      await deliverLifecycleNotice(session, 'post', 'timed-out', create);
+      await deliverLifecycleNotice(session, 'post', 'timed-out', create, refreshOk());
 
       expect(create).toHaveBeenCalledTimes(1);
     });
   });
 
   describe('dedup', () => {
-    it('skips the post when the bot\'s last post is the same notice, and anchors on it', async () => {
+    it('refreshes the bot\'s last post in place when it is the same notice, and anchors on it', async () => {
       const session = makeSession({
         lifecycleNotice: { postId: 'notice-1', kind: 'paused', reaction: false, trailing: true },
       });
       const create = newPost('notice-2');
+      const refresh = refreshOk();
 
-      const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', create);
+      const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', create, refresh);
 
       expect(create).not.toHaveBeenCalled();
+      // An edit, so the text is current and nobody is notified.
+      expect(refresh).toHaveBeenCalledWith('notice-1');
       // The caller stores this as lifecyclePostId, so 🔄 on it resumes.
       expect(anchor?.id).toBe('notice-1');
     });
 
+    it('posts when the refresh fails (the old notice was deleted)', async () => {
+      const session = makeSession({
+        lifecycleNotice: { postId: 'gone', kind: 'paused', reaction: false, trailing: true },
+      });
+      const create = newPost('notice-2');
+
+      const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', create, mock(() => Promise.reject(new Error('404'))));
+
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(anchor?.id).toBe('notice-2');
+    });
+
+    it('does not refresh a notice carried as a reaction: that text is someone else\'s', async () => {
+      const session = makeSession({
+        lifecycleNotice: { postId: 'reply-1', kind: 'paused', reaction: true, trailing: true },
+      });
+      const create = newPost('notice-2');
+      const refresh = refreshOk();
+
+      await deliverLifecycleNotice(session, 'dedup', 'paused', create, refresh);
+
+      expect(refresh).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalledTimes(1);
+    });
+
     it('posts once the bot has posted anything after the notice', async () => {
       const session = makeSession();
-      await deliverLifecycleNotice(session, 'dedup', 'paused', newPost('notice-1'));
+      await deliverLifecycleNotice(session, 'dedup', 'paused', newPost('notice-1'), refreshOk());
       // Claude replies after the session resumed: the notice no longer ends the thread.
       updateLastMessage(session, { id: 'reply-1' } as PlatformPost);
       const create = newPost('notice-2');
 
-      const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', create);
+      const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', create, refreshOk());
 
       expect(create).toHaveBeenCalledTimes(1);
       expect(anchor?.id).toBe('notice-2');
@@ -87,7 +119,7 @@ describe('deliverLifecycleNotice', () => {
       });
       const create = newPost('notice-2');
 
-      await deliverLifecycleNotice(session, 'dedup', 'paused', create);
+      await deliverLifecycleNotice(session, 'dedup', 'paused', create, refreshOk());
 
       expect(create).toHaveBeenCalledTimes(1);
     });
@@ -100,11 +132,15 @@ describe('deliverLifecycleNotice', () => {
         lifecycleNotice: { postId: 'notice-1', kind: 'resumed', reaction: false, trailing: true },
       });
       const create = newPost('notice-2');
+      const refresh = refreshOk();
 
-      const anchor = await deliverLifecycleNotice(session, 'dedup', 'shutdown', create);
+      const anchor = await deliverLifecycleNotice(session, 'dedup', 'shutdown', create, refresh);
 
       expect(create).not.toHaveBeenCalled();
+      // It reads "Bot shutting down" again, not a stale "Session resumed".
+      expect(refresh).toHaveBeenCalledWith('notice-1');
       expect(anchor?.id).toBe('notice-1');
+      expect(session.lifecycleNotice?.kind).toBe('shutdown');
     });
   });
 
@@ -113,7 +149,7 @@ describe('deliverLifecycleNotice', () => {
       const session = makeSession({ lastMessageId: 'reply-1' });
       const create = newPost('notice-1');
 
-      const anchor = await deliverLifecycleNotice(session, 'reaction', 'idle-warning', create);
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'idle-warning', create, refreshOk());
 
       expect(create).not.toHaveBeenCalled();
       expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'hourglass_flowing_sand');
@@ -128,7 +164,7 @@ describe('deliverLifecycleNotice', () => {
         lifecycleNotice: { postId: 'reply-1', kind: 'resumed', reaction: true, trailing: true },
       });
 
-      await deliverLifecycleNotice(session, 'reaction', 'shutdown', newPost('x'));
+      await deliverLifecycleNotice(session, 'reaction', 'shutdown', newPost('x'), refreshOk());
 
       expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'electric_plug');
       expect(session.platform.removeReaction).toHaveBeenCalledWith('reply-1', 'sunrise');
@@ -139,7 +175,7 @@ describe('deliverLifecycleNotice', () => {
       const session = makeSession();
       const create = newPost('notice-1');
 
-      const anchor = await deliverLifecycleNotice(session, 'reaction', 'resumed', create);
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'resumed', create, refreshOk());
 
       expect(create).toHaveBeenCalledTimes(1);
       expect(anchor?.id).toBe('notice-1');
@@ -150,7 +186,7 @@ describe('deliverLifecycleNotice', () => {
       (session.platform.addReaction as ReturnType<typeof mock>).mockImplementation(() => Promise.reject(new Error('not found')));
       const create = newPost('notice-1');
 
-      const anchor = await deliverLifecycleNotice(session, 'reaction', 'timed-out', create);
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'timed-out', create, refreshOk());
 
       expect(create).toHaveBeenCalledTimes(1);
       expect(anchor?.id).toBe('notice-1');
@@ -159,7 +195,7 @@ describe('deliverLifecycleNotice', () => {
 
   it('returns null when the create fails', async () => {
     const session = makeSession();
-    const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', mock(() => Promise.resolve(undefined)));
+    const anchor = await deliverLifecycleNotice(session, 'dedup', 'paused', mock(() => Promise.resolve(undefined)), refreshOk());
     expect(anchor).toBeNull();
     expect(session.lifecycleNotice).toBeUndefined();
   });
@@ -225,7 +261,7 @@ describe('updateLifecycleNotice', () => {
     });
     const create = newPost('x');
 
-    const anchor = await deliverLifecycleNotice(session, 'reaction', 'paused', create);
+    const anchor = await deliverLifecycleNotice(session, 'reaction', 'paused', create, refreshOk());
 
     expect(session.platform.addReaction).not.toHaveBeenCalled();
     expect(create).not.toHaveBeenCalled();

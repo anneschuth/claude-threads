@@ -1057,6 +1057,7 @@ export class SessionManager extends EventEmitter {
             this.platformOverhead.get(session.platformId)?.lifecycleDelivery ?? DEFAULT_LIFECYCLE_DELIVERY,
             'paused',
             () => session.platform.createPost(pauseMessage, session.threadId),
+            (id) => session.platform.updatePost(id, pauseMessage),
           );
           session.lifecyclePostId = post?.id;
         }
@@ -1918,6 +1919,7 @@ export class SessionManager extends EventEmitter {
             this.platformOverhead.get(session.platformId)?.lifecycleDelivery ?? DEFAULT_LIFECYCLE_DELIVERY,
             'shutdown',
             () => session.platform.createPost(shutdownMessage, session.threadId),
+            (id) => session.platform.updatePost(id, shutdownMessage),
           );
           session.lifecyclePostId = post?.id;
         }
