@@ -82,9 +82,10 @@ export function resolveOverheadVisibility(
 /**
  * How a NEW lifecycle notice reaches the thread (#606). `lifecycle` decides
  * whether a notice is wanted at all; this decides its shape. `post` (default)
- * is today's behaviour; `dedup` skips a notice the bot's last post in the
- * thread already shows; `reaction` puts an emoji on the bot's last post
- * instead, which notifies nobody. See `src/session/lifecycle-delivery.ts`.
+ * is today's behaviour; `dedup` refreshes the bot's trailing notice in place
+ * when it already shows the same notice, instead of posting it again;
+ * `reaction` puts an emoji on the bot's last post instead, which notifies
+ * nobody. See `src/session/lifecycle-delivery.ts`.
  */
 export type LifecycleDelivery = 'post' | 'dedup' | 'reaction';
 
@@ -988,10 +989,10 @@ export interface PlatformInstanceConfig {
   lifecycle?: OverheadVisibility;
   /**
    * How a new lifecycle notice is delivered: `post` (default, a new post),
-   * `dedup` (skip it when the bot's last post in the thread already shows the
-   * same notice) or `reaction` (an emoji on the bot's last post, no new post
-   * and no notification). An abnormal exit always posts. Editing an existing
-   * status post in place is unaffected.
+   * `dedup` (when the bot's trailing notice already shows the same notice,
+   * refresh it in place instead of posting) or `reaction` (an emoji on the
+   * bot's last post, no new post and no notification). An abnormal exit
+   * always posts. Editing an existing status post in place is unaffected.
    */
   lifecycleDelivery?: LifecycleDelivery;
   /**

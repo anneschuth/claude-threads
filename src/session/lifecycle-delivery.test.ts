@@ -181,6 +181,51 @@ describe('deliverLifecycleNotice', () => {
       expect(session.platform.removeReaction).toHaveBeenCalledWith('reply-1', 'sunrise');
     });
 
+    // That post shows the earlier notice's text: an emoji next to it would
+    // contradict it, so it is rewritten like dedup does.
+    it('refreshes its own fallback post in place instead of reacting to it', async () => {
+      const session = makeSession({
+        lastMessageId: 'notice-1',
+        lifecycleNotice: { postId: 'notice-1', kind: 'resumed', reaction: false, trailing: true },
+      });
+      const create = newPost('notice-2');
+      const refresh = refreshOk();
+
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'idle-warning', create, refresh);
+
+      expect(refresh).toHaveBeenCalledWith('notice-1');
+      expect(session.platform.addReaction).not.toHaveBeenCalled();
+      expect(create).not.toHaveBeenCalled();
+      expect(anchor?.id).toBe('notice-1');
+      expect(session.lifecycleNotice).toEqual({ postId: 'notice-1', kind: 'idle-warning', reaction: false, trailing: true });
+    });
+
+    it('posts rather than reacting when refreshing its fallback post fails', async () => {
+      const session = makeSession({
+        lastMessageId: 'notice-1',
+        lifecycleNotice: { postId: 'notice-1', kind: 'resumed', reaction: false, trailing: true },
+      });
+      const create = newPost('notice-2');
+
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'idle-warning', create, mock(() => Promise.reject(new Error('404'))));
+
+      expect(session.platform.addReaction).not.toHaveBeenCalled();
+      expect(anchor?.id).toBe('notice-2');
+    });
+
+    it('reacts to a later post once its fallback post is no longer the last', async () => {
+      const session = makeSession({
+        lifecycleNotice: { postId: 'notice-1', kind: 'resumed', reaction: false, trailing: true },
+      });
+      updateLastMessage(session, { id: 'reply-1' } as PlatformPost);
+      const refresh = refreshOk();
+
+      await deliverLifecycleNotice(session, 'reaction', 'idle-warning', newPost('x'), refresh);
+
+      expect(refresh).not.toHaveBeenCalled();
+      expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'hourglass_flowing_sand');
+    });
+
     // After a restart nothing is known about the thread until the bot posts.
     it('posts when there is no bot post to react to', async () => {
       const session = makeSession();

@@ -1379,8 +1379,8 @@ export class MessageManager {
     this.session.claude.sendMessage(content);
 
     // Post feedback for skipped files, then echo any voice-note transcripts
-    await postSkippedFilesFeedback(this.platform, this.threadId, skippedFiles);
-    await postTranscriptFeedback(this.platform, this.threadId, transcripts);
+    await postSkippedFilesFeedback(this.platform, this.threadId, skippedFiles, this.updateLastMessage);
+    await postTranscriptFeedback(this.platform, this.threadId, transcripts, this.updateLastMessage);
 
     // Update activity time
     this.session.lastActivityAt = new Date();

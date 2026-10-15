@@ -7,7 +7,7 @@ import { describe, test, expect, mock } from 'bun:test';
 import { mkdtemp, rm } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { buildMessageContent, postTranscriptFeedback } from './handler.js';
+import { buildMessageContent, postSkippedFilesFeedback, postTranscriptFeedback } from './handler.js';
 import type { PlatformClient, PlatformFile } from '../../platform/index.js';
 import type { Transcriber, TranscribeInput } from '../../transcription/index.js';
 import { createMockFormatter } from '../../test-utils/mock-formatter.js';
@@ -159,6 +159,17 @@ describe('postTranscriptFeedback', () => {
     expect(platform.createPost.mock.calls[1]).toEqual(['🎙️ **Transcript of two.m4a:**\n> other note', 'thread-1']);
   });
 
+  test('hands each post to onPosted, for last-message tracking', async () => {
+    const platform = createMockPlatform();
+    const onPosted = mock(() => undefined);
+
+    await postTranscriptFeedback(platform, 'thread-1', [
+      { name: 'voice.webm', provider: 'elevenlabs', text: 'note' },
+    ], onPosted);
+
+    expect(onPosted).toHaveBeenCalledWith({ id: 'post-1' });
+  });
+
   test('posts nothing when there are no transcripts', async () => {
     const platform = createMockPlatform();
 
@@ -166,5 +177,27 @@ describe('postTranscriptFeedback', () => {
     await postTranscriptFeedback(platform, 'thread-1', undefined);
 
     expect(platform.createPost).not.toHaveBeenCalled();
+  });
+});
+
+describe('postSkippedFilesFeedback', () => {
+  test('hands the post to onPosted, for last-message tracking', async () => {
+    const platform = createMockPlatform();
+    const onPosted = mock(() => undefined);
+
+    await postSkippedFilesFeedback(platform, 'thread-1', [{ name: 'big.zip', reason: 'Too large' }], onPosted);
+
+    expect(platform.createPost).toHaveBeenCalledTimes(1);
+    expect(onPosted).toHaveBeenCalledWith({ id: 'post-1' });
+  });
+
+  test('posts nothing when nothing was skipped', async () => {
+    const platform = createMockPlatform();
+    const onPosted = mock(() => undefined);
+
+    await postSkippedFilesFeedback(platform, 'thread-1', [], onPosted);
+
+    expect(platform.createPost).not.toHaveBeenCalled();
+    expect(onPosted).not.toHaveBeenCalled();
   });
 });

@@ -675,8 +675,8 @@ function createMessageManager(
         session.claude.sendMessage(content);
         ctx.ops.startTyping(session);
       }
-      await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-      await postTranscriptFeedback(session.platform, session.threadId, transcripts);
+      await postSkippedFilesFeedback(session.platform, session.threadId, skipped, (post) => updateLastMessage(session, post));
+      await postTranscriptFeedback(session.platform, session.threadId, transcripts, (post) => updateLastMessage(session, post));
     } catch (err) {
       await logAndNotify(err, { action: 'Send queued message after context prompt', session });
     }
@@ -1296,8 +1296,8 @@ async function startSessionImpl(
   claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
 
   // Surface any skipped attachments to the user, then echo voice-note transcripts
-  await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);
-  await postTranscriptFeedback(session.platform, actualThreadId, transcripts);
+  await postSkippedFilesFeedback(session.platform, actualThreadId, skipped, (post) => updateLastMessage(session, post));
+  await postTranscriptFeedback(session.platform, actualThreadId, transcripts, (post) => updateLastMessage(session, post));
 
   // NOTE: We don't persist here. We wait for Claude to actually respond before persisting.
   // This prevents persisting sessions where Claude dies before saving its conversation,

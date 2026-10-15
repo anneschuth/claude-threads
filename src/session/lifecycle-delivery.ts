@@ -15,7 +15,9 @@
  *   "Session idle" refreshed to "No output for a while", a resume notice back
  *   to "Bot shutting down".
  * - `reaction` — an emoji on the bot's last post instead of a new post. A
- *   reaction notifies nobody.
+ *   reaction notifies nobody. When that last post is a notice the bot had to
+ *   post itself (nothing to react to at the time), it is refreshed in place
+ *   like `dedup` instead, so its text and emoji never disagree.
  *
  * Two invariants:
  *
@@ -58,9 +60,10 @@ export interface LifecycleNotice {
   reaction: boolean;
   /**
    * Still the bot's last post in the thread. `updateLastMessage` clears it on
-   * the next post the bot makes there. A post that bypasses that helper (a
-   * direct `platform.createPost`, such as the error handler's notice) does
-   * not clear it.
+   * the next post the bot makes there. Known limitation: a post that bypasses
+   * that helper does not clear it — the direct `createPost` calls in
+   * `SessionManager`, the tool-details sink, and permission prompts posted by
+   * the MCP child process.
    */
   trailing: boolean;
 }
@@ -115,8 +118,9 @@ async function react(
 /**
  * Deliver a NEW lifecycle notice. `create` makes the post the way the call
  * site always did; it is what runs under `post`, and the fallback when there
- * is nothing to dedup against or react to. `refresh` rewrites a post to this
- * notice's text, for `dedup`; it throws when the edit fails.
+ * is nothing to dedup against or react to. `refresh` rewrites a post the bot
+ * made to this notice's text, for `dedup` and for `reaction`'s fallback post;
+ * it throws when the edit fails.
  *
  * Returns the post now anchoring the notice — the caller stores it as
  * `lifecyclePostId` — or null when nothing does.
@@ -131,25 +135,29 @@ export async function deliverLifecycleNotice(
   if (delivery === 'post') return (await create()) ?? null;
 
   const last = session.lifecycleNotice?.trailing ? session.lifecycleNotice : undefined;
+  // A notice the bot posted itself, not one carried as a reaction on someone
+  // else's text: ours to refresh.
+  const own = last && !last.reaction ? last : undefined;
 
-  // A notice carried as a reaction is on someone else's text: nothing to refresh.
-  if (delivery === 'dedup' && last && !last.reaction && showsSameNotice(last.kind, kind)) {
+  // Under `reaction` that post is the fallback of an earlier notice. An emoji
+  // on it would sit next to the old text, so its text is refreshed instead.
+  if (own && (delivery === 'reaction' || showsSameNotice(own.kind, kind))) {
     try {
-      await refresh(last.postId);
-      last.kind = kind;
-      sessionLog(session).debug(`Lifecycle ${kind} deduped onto ${last.postId}`);
-      return { id: last.postId };
+      await refresh(own.postId);
+      own.kind = kind;
+      sessionLog(session).debug(`Lifecycle ${kind} refreshed onto ${own.postId}`);
+      return { id: own.postId };
     } catch (err) {
-      sessionLog(session).warn(`Lifecycle ${kind} refresh of ${last.postId} failed, posting instead: ${err}`);
+      sessionLog(session).warn(`Lifecycle ${kind} refresh of ${own.postId} failed, posting instead: ${err}`);
     }
   }
 
-  if (delivery === 'reaction') {
+  if (delivery === 'reaction' && !own) {
     // The bot's last post: the notice it already carries if nothing came
     // after it, otherwise the last post the session made this run. Neither is
     // known after a restart until the bot posts again; then it posts.
     const target = last?.postId ?? session.lastMessageId;
-    const replacing = last?.reaction ? last.kind : undefined;
+    const replacing = last?.kind;
     const lastBefore = session.lastMessageId;
     if (target && (await react(session, target, kind, replacing))) {
       // A reply posted while the reaction was in flight already ends the thread.

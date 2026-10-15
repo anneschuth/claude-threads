@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`lifecycleDelivery`: lifecycle notices without the notification** (#606). A new per-platform option next to `lifecycle` decides how a new status notice (idle warning, timeout, pause, shutdown, resume) reaches the thread: `post` (default, unchanged), `dedup` (when the bot's last post in the thread already shows the same notice, update that post in place instead of adding one, so back-to-back restarts leave one post instead of a stack) or `reaction` (an emoji on the bot's last post instead of a new post, which notifies nobody). The deduped or reacted-to post is the one a 🔄 reaction resumes the session from. The abnormal-exit report (`[Exited: <code>]`) always posts, and `lifecycle: hidden` still delivers nothing.
+- **`lifecycleDelivery`: lifecycle notices without the notification** (#606). A new per-platform option next to `lifecycle` decides how a new status notice (idle warning, timeout, pause, shutdown, resume) reaches the thread: `post` (default, unchanged), `dedup` (when the bot's last post in the thread already shows the same notice, update that post in place instead of adding one, so back-to-back restarts leave one post instead of a stack) or `reaction` (an emoji on the bot's last post instead of a new post, which notifies nobody; a notice the bot had to post itself is updated in place instead). The deduped or reacted-to post is the one a 🔄 reaction resumes the session from. The abnormal-exit report (`[Exited: <code>]`) always posts, and `lifecycle: hidden` still delivers nothing.
 
 ## [1.39.3] - 2026-10-01
 

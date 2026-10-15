@@ -13,7 +13,7 @@ import { hasStateHomeOverride, stateHome } from '../../utils/state-home.js';
 import { lstat, mkdir, mkdtemp, rm, writeFile } from 'fs/promises';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import type { PlatformClient, PlatformFile } from '../../platform/index.js';
+import type { PlatformClient, PlatformFile, PlatformPost } from '../../platform/index.js';
 import type { Session } from '../../session/types.js';
 import { isTranscribable, type Transcriber, type Transcript } from '../../transcription/index.js';
 import { createLogger } from '../../utils/logger.js';
@@ -348,32 +348,38 @@ function sanitizeTranscript(text: string): string {
 
 /**
  * Echo each transcript into the thread as a quote so teammates (and the
- * audit trail) see what Claude heard. No-op for an empty list.
+ * audit trail) see what Claude heard. No-op for an empty list. `onPosted`
+ * receives each post, for the session's last-message tracking.
  */
 export async function postTranscriptFeedback(
   platform: PlatformClient,
   threadId: string,
   transcripts: Transcript[] | undefined,
+  onPosted?: (post: PlatformPost) => void,
 ): Promise<void> {
   if (!transcripts || transcripts.length === 0) return;
   const formatter = platform.getFormatter();
   for (const t of transcripts) {
     const quoted = t.text.split('\n').map(line => formatter.formatBlockquote(line)).join('\n');
-    await platform.createPost(`🎙️ ${formatter.formatBold(`Transcript of ${t.name}:`)}\n${quoted}`, threadId);
+    const post = await platform.createPost(`🎙️ ${formatter.formatBold(`Transcript of ${t.name}:`)}\n${quoted}`, threadId);
+    onPosted?.(post);
   }
 }
 
 /**
  * Post a skipped-files warning to the thread, if any.
  * No-op when skipped is empty, so callers can invoke unconditionally.
+ * `onPosted` receives the post, for the session's last-message tracking.
  */
 export async function postSkippedFilesFeedback(
   platform: PlatformClient,
   threadId: string,
   skipped: SkippedFile[],
+  onPosted?: (post: PlatformPost) => void,
 ): Promise<void> {
   if (skipped.length === 0) return;
-  await platform.createPost(formatSkippedFilesFeedback(skipped), threadId);
+  const post = await platform.createPost(formatSkippedFilesFeedback(skipped), threadId);
+  onPosted?.(post);
 }
 
 /**

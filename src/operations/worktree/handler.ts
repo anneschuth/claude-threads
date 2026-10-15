@@ -43,6 +43,7 @@ import {
   updatePost,
   updatePostSuccess,
   removeReaction,
+  updateLastMessage,
 } from '../post-helpers/index.js';
 import { createLogger } from '../../utils/logger.js';
 import { createSessionLog } from '../../utils/session-log.js';
@@ -818,7 +819,7 @@ export async function createAndSwitchToWorktree(
         const { content, skipped } = await options.buildMessageContent(messageToSend, session, undefined);
         session.claude.sendMessage(content);
         options.startTyping(session);
-        await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
+        await postSkippedFilesFeedback(session.platform, session.threadId, skipped, (post) => updateLastMessage(session, post));
 
         sessionLog(session).debug(`🌿 Auto-included ${threadMessages.length} messages + work summary for mid-session worktree`);
       }
