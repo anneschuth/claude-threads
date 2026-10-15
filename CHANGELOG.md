@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`lifecycleDelivery`: lifecycle notices without the notification** (#606). A new per-platform option next to `lifecycle` decides how a new status notice (idle warning, timeout, pause, shutdown, resume) reaches the thread: `post` (default, unchanged), `dedup` (skip it when the bot's last post in the thread already shows the same notice, so back-to-back restarts leave one post instead of a stack) or `reaction` (an emoji on the bot's last post instead of a new post, which notifies nobody). The deduped or reacted-to post is the one a 🔄 reaction resumes the session from. The abnormal-exit report (`[Exited: <code>]`) always posts, and `lifecycle: hidden` still delivers nothing.
+
 ## [1.39.3] - 2026-10-01
 
 ### Fixed

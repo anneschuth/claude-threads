@@ -699,6 +699,58 @@ describe('cleanupIdleSessions extended', () => {
 
     expect(session.platform.createPost).toHaveBeenCalled();
   });
+
+  // lifecycleDelivery: reaction (#606). The idle warning lands on Claude's
+  // last reply, which becomes the 🔄 anchor; the timeout then swaps the emoji
+  // and must never rewrite that reply.
+  it('delivers idle warning and timeout as reactions on the bot\'s last post', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 26 * 60 * 1000),
+      timeoutWarningPosted: false,
+      lastMessageId: 'reply-1',
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+      sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'full', lifecycleDelivery: 'reaction',
+    });
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.createPost).not.toHaveBeenCalled();
+    expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'hourglass_flowing_sand');
+    expect(session.lifecyclePostId).toBe('reply-1');
+    expect(ctx.ops.registerPost).toHaveBeenCalledWith('reply-1', session.threadId);
+
+    session.lastActivityAt = new Date(Date.now() - 40 * 60 * 1000);
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.updatePost).not.toHaveBeenCalled();
+    expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'alarm_clock');
+    // Persisted with the reply as anchor: that is what a 🔄 resumes from.
+    expect(session.lifecyclePostId).toBe('reply-1');
+    expect(ctx.ops.persistSession).toHaveBeenCalled();
+  });
+
+  it('dedups a timeout notice onto the one already ending the thread', async () => {
+    const session = createMockSession({
+      lastActivityAt: new Date(Date.now() - 40 * 60 * 1000),
+      timeoutWarningPosted: true,
+      lifecyclePostId: undefined,
+      lifecycleNotice: { postId: 'timeout-1', kind: 'timed-out', reaction: false, trailing: true },
+    });
+    const sessions = new Map([['test-platform:thread-123', session]]);
+    const ctx = createMockSessionContext(sessions);
+    (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+      sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'full', lifecycleDelivery: 'dedup',
+    });
+
+    await lifecycle.cleanupIdleSessions(30 * 60 * 1000, 5 * 60 * 1000, ctx);
+
+    expect(session.platform.createPost).not.toHaveBeenCalled();
+    expect(session.lifecyclePostId).toBe('timeout-1');
+    expect(ctx.ops.registerPost).toHaveBeenCalledWith('timeout-1', session.threadId);
+  });
 });
 
 describe('killSession edge cases', () => {
@@ -1251,6 +1303,32 @@ describe('handleExit', () => {
     const posts = (mockCreatePost as any).mock.calls.map((c: any[]) => c[0]);
     expect(posts.some((msg: string) => msg.includes('[Exited: 42]'))).toBe(true);
   });
+
+  // A session that died must not look like one that finished, so the failure
+  // report is a post under every lifecycleDelivery, even when the thread
+  // already ends in a notice or has a post to react to (#606).
+  for (const lifecycleDelivery of ['dedup', 'reaction'] as const) {
+    it(`posts [Exited: code] under lifecycleDelivery: ${lifecycleDelivery}`, async () => {
+      const session = createExitTestSession({ hasClaudeResponded: true });
+      const mockCreatePost = mock(() => Promise.resolve({
+        id: 'p', platformId: 'test-platform', channelId: 'c', userId: 'bot', message: '', createAt: 0,
+      }));
+      session.platform = createMockPlatform({ createPost: mockCreatePost as any });
+      session.lastMessageId = 'reply-1';
+      session.lifecycleNotice = { postId: 'reply-1', kind: 'resumed', reaction: false, trailing: true };
+      const sessions = new Map([[session.sessionId, session]]);
+      const ctx = createMockSessionContext(sessions);
+      (ctx.ops.getPlatformOverhead as any).mockReturnValue({
+        sessionHeader: 'full', stickyMessage: 'full', lifecycle: 'hidden', lifecycleDelivery,
+      });
+
+      await lifecycle.handleExit(session.sessionId, 42, ctx);
+
+      const posts = (mockCreatePost as any).mock.calls.map((c: any[]) => c[0]);
+      expect(posts.some((msg: string) => msg.includes('[Exited: 42]'))).toBe(true);
+      expect(session.platform.addReaction).not.toHaveBeenCalled();
+    });
+  }
 });
 
 // ===========================================================================

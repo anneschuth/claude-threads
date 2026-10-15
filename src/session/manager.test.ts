@@ -417,6 +417,96 @@ describe('SessionManager', () => {
       const edited = (platform.updatePost as any).mock.calls.map((c: unknown[]) => String(c[1]));
       expect(edited.some((t: string) => t.includes('Bot shutting down'))).toBe(true);
     });
+
+    // lifecycleDelivery (#606). A restart is the one event that hits every
+    // open thread of every bot at once.
+    describe('lifecycleDelivery', () => {
+      function managerWith(overhead: Record<string, string>): SessionManager {
+        const m = new SessionManager('/test/dir', true, false, 'prompt', testSessionsPath);
+        m.addPlatform('test-platform', platform as unknown as PlatformClient, { overhead: overhead as any });
+        return m;
+      }
+      const created = () => (platform.createPost as any).mock.calls.map((c: unknown[]) => String(c[0]));
+      // Persistable, unlike a bare injected session: the 🔄 lookup reads the
+      // anchor back from sessions.json.
+      function inject(m: SessionManager, threadId: string, overrides: Record<string, unknown>) {
+        const session = injectSession(m, platform as unknown as PlatformClient, threadId, overrides);
+        session.messageManager.serialize = () => ({});
+        return session;
+      }
+
+      // The anchor must still be a resume door: a 🔄 on it reaches the resume
+      // decision. Filling every slot stops the resume just short of spawning
+      // Claude, and the "Too busy" reply in the thread proves the router got
+      // there through that post.
+      async function reactResume(m: SessionManager, threadId: string, postId: string): Promise<string[]> {
+        (m.registry as any).sessions.delete(`test-platform:${threadId}`);
+        for (let i = 0; i < 5; i++) injectSession(m, platform as unknown as PlatformClient, `busy-${i}`);
+        (platform.createPost as any).mockClear();
+        await (m as any).handleReaction('test-platform', postId, 'arrows_counterclockwise', 'alice', 'added');
+        return (platform.createPost as any).mock.calls
+          .filter((c: unknown[]) => c[1] === threadId)
+          .map((c: unknown[]) => String(c[0]));
+      }
+
+      test('reaction: reacts to the bot\'s last post instead of posting, and 🔄 on it resumes', async () => {
+        const m = managerWith({ lifecycleDelivery: 'reaction' });
+        const session = inject(m, 'thread-react', { lastMessageId: 'reply-1' });
+
+        await m.postShutdownMessages();
+
+        expect(created().some((t: string) => t.includes('Bot shutting down'))).toBe(false);
+        expect(platform.addReaction).toHaveBeenCalledWith('reply-1', 'electric_plug');
+        expect(session.lifecyclePostId).toBe('reply-1');
+        expect(await reactResume(m, 'thread-react', 'reply-1')).toEqual([expect.stringContaining('Too busy')]);
+      });
+
+      test('dedup: skips the shutdown post after a restart already left a resume notice, and 🔄 on that one resumes', async () => {
+        const m = managerWith({ lifecycleDelivery: 'dedup' });
+        const session = inject(m, 'thread-dedup', {
+          lifecycleNotice: { postId: 'resumed-1', kind: 'resumed', reaction: false, trailing: true },
+        });
+
+        await m.postShutdownMessages();
+
+        expect(created().some((t: string) => t.includes('Bot shutting down'))).toBe(false);
+        expect(session.lifecyclePostId).toBe('resumed-1');
+        expect(await reactResume(m, 'thread-dedup', 'resumed-1')).toEqual([expect.stringContaining('Too busy')]);
+      });
+
+      test('dedup: posts when the bot\'s last post is not a notice', async () => {
+        const m = managerWith({ lifecycleDelivery: 'dedup' });
+        inject(m, 'thread-dedup-first', { lastMessageId: 'reply-1' });
+
+        await m.postShutdownMessages();
+
+        expect(created().some((t: string) => t.includes('Bot shutting down'))).toBe(true);
+      });
+
+      test('hidden still wins: no post and no reaction', async () => {
+        const m = managerWith({ lifecycle: 'hidden', lifecycleDelivery: 'reaction' });
+        const session = inject(m, 'thread-hidden', { lastMessageId: 'reply-1' });
+
+        await m.postShutdownMessages();
+
+        expect(created().some((t: string) => t.includes('Bot shutting down'))).toBe(false);
+        expect(platform.addReaction).not.toHaveBeenCalled();
+        expect(session.lifecyclePostId).toBeUndefined();
+      });
+
+      test('an existing notice post is still edited in place', async () => {
+        const m = managerWith({ lifecycleDelivery: 'reaction' });
+        inject(m, 'thread-edit-react', {
+          lastMessageId: 'reply-1',
+          lifecyclePostId: 'notice-1',
+        });
+
+        await m.postShutdownMessages();
+
+        expect(platform.updatePost).toHaveBeenCalledWith('notice-1', expect.stringContaining('Bot shutting down'));
+        expect(platform.addReaction).not.toHaveBeenCalled();
+      });
+    });
   });
 
   describe('shutdown', () => {
@@ -853,7 +943,7 @@ describe('SessionManager', () => {
         'tasksPostId', 'lastTasksContent', 'tasksCompleted', 'tasksMinimized',
         'worktreeInfo', 'isWorktreeOwner', 'pendingWorktreePrompt', 'worktreePromptDisabled',
         'queuedPrompt', 'queuedByUsername', 'queuedFiles', 'firstPrompt', 'pendingContextPrompt',
-        'needsContextPromptOnNextMessage', 'lifecyclePostId', 'isPaused', 'sessionTitle',
+        'needsContextPromptOnNextMessage', 'lifecyclePostId', 'lifecycleNotice', 'isPaused', 'sessionTitle',
         'sessionDescription', 'sessionTags', 'pullRequestUrl', 'messageCount',
         'resumeFailCount', 'claudeAccountId', 'sessionHeaderMode', 'taskTrackerState',
         'unattended',

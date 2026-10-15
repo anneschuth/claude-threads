@@ -80,6 +80,30 @@ export function resolveOverheadVisibility(
 }
 
 /**
+ * How a NEW lifecycle notice reaches the thread (#606). `lifecycle` decides
+ * whether a notice is wanted at all; this decides its shape. `post` (default)
+ * is today's behaviour; `dedup` skips a notice the bot's last post in the
+ * thread already shows; `reaction` puts an emoji on the bot's last post
+ * instead, which notifies nobody. See `src/session/lifecycle-delivery.ts`.
+ */
+export type LifecycleDelivery = 'post' | 'dedup' | 'reaction';
+
+export const LIFECYCLE_DELIVERY_VALUES: readonly LifecycleDelivery[] = ['post', 'dedup', 'reaction'] as const;
+
+export const DEFAULT_LIFECYCLE_DELIVERY: LifecycleDelivery = 'post';
+
+/** Normalize a per-platform `lifecycleDelivery` field. Undefined → `post`. */
+export function resolveLifecycleDelivery(value: unknown, fieldPath: string): LifecycleDelivery {
+  if (value === undefined || value === null) return DEFAULT_LIFECYCLE_DELIVERY;
+  if (typeof value === 'string' && (LIFECYCLE_DELIVERY_VALUES as readonly string[]).includes(value)) {
+    return value as LifecycleDelivery;
+  }
+  throw new Error(
+    `Invalid ${fieldPath}: expected one of ${LIFECYCLE_DELIVERY_VALUES.join(', ')}, got ${JSON.stringify(value)}`,
+  );
+}
+
+/**
  * Named presentation preset. `full` is today's behaviour; `assistant` is the
  * replies-only shape two deployments described independently (#505, #590): no
  * session header, no channel sticky, no lifecycle notices.
@@ -202,6 +226,8 @@ export interface PlatformOverhead {
    * `src/session/lifecycle-visibility.ts` for what each level drops.
    */
   lifecycle: OverheadVisibility;
+  /** How a new lifecycle notice is delivered. Defaults to `post`. */
+  lifecycleDelivery: LifecycleDelivery;
   /** End-of-turn marker (docs/turn-marker-spec.md). Defaults to `off`. */
   turnMarker: TurnMarkerSettings;
   /** Tool rendering (docs/quiet-tools-spec.md). Defaults to `full` / `none`. */
@@ -960,6 +986,14 @@ export interface PlatformInstanceConfig {
    * An abnormal exit is always reported regardless.
    */
   lifecycle?: OverheadVisibility;
+  /**
+   * How a new lifecycle notice is delivered: `post` (default, a new post),
+   * `dedup` (skip it when the bot's last post in the thread already shows the
+   * same notice) or `reaction` (an emoji on the bot's last post, no new post
+   * and no notification). An abnormal exit always posts. Editing an existing
+   * status post in place is unaffected.
+   */
+  lifecycleDelivery?: LifecycleDelivery;
   /**
    * End-of-turn marker on the reply's last post, for integrations that read
    * the channel: `reaction` (an emoji, any platform), `metadata` (Slack

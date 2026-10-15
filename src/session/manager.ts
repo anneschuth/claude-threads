@@ -19,7 +19,7 @@ import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '.
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_TURN_MARKER, DEFAULT_MEMORY_CONFIG, DEFAULT_TOOL_ACTIVITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_LIFECYCLE_DELIVERY, DEFAULT_TURN_MARKER, DEFAULT_MEMORY_CONFIG, DEFAULT_TOOL_ACTIVITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
 import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
 import { WatchesStore } from '../persistence/watches-store.js';
@@ -42,6 +42,7 @@ import * as commands from '../operations/commands/index.js';
 import * as lifecycle from './lifecycle.js';
 import { CHAT_PLATFORM_PROMPT } from './lifecycle.js';
 import { shouldPostLifecycle } from './lifecycle-visibility.js';
+import { deliverLifecycleNotice, updateLifecycleNotice } from './lifecycle-delivery.js';
 import * as worktreeModule from '../operations/worktree/index.js';
 import * as contextPrompt from '../operations/context-prompt/index.js';
 import * as stickyMessage from '../operations/sticky-message/index.js';
@@ -293,6 +294,7 @@ export class SessionManager extends EventEmitter {
       sessionHeader: options?.overhead?.sessionHeader ?? DEFAULT_OVERHEAD_VISIBILITY,
       stickyMessage: options?.overhead?.stickyMessage ?? DEFAULT_OVERHEAD_VISIBILITY,
       lifecycle: options?.overhead?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
+      lifecycleDelivery: options?.overhead?.lifecycleDelivery ?? DEFAULT_LIFECYCLE_DELIVERY,
       turnMarker: options?.overhead?.turnMarker ?? DEFAULT_TURN_MARKER,
       tools: options?.overhead?.tools ?? DEFAULT_TOOL_ACTIVITY,
     });
@@ -511,6 +513,7 @@ export class SessionManager extends EventEmitter {
         sessionHeader: DEFAULT_OVERHEAD_VISIBILITY,
         stickyMessage: DEFAULT_OVERHEAD_VISIBILITY,
         lifecycle: DEFAULT_OVERHEAD_VISIBILITY,
+        lifecycleDelivery: DEFAULT_LIFECYCLE_DELIVERY,
         turnMarker: DEFAULT_TURN_MARKER,
         tools: DEFAULT_TOOL_ACTIVITY,
       },
@@ -835,6 +838,7 @@ export class SessionManager extends EventEmitter {
       pendingContextPrompt: contextPromptSnapshot,
       needsContextPromptOnNextMessage: session.needsContextPromptOnNextMessage,
       lifecyclePostId: session.lifecyclePostId,
+      lifecycleNotice: session.lifecycleNotice,
       isPaused: session.lifecycle.state === 'paused' || session.lifecycle.state === 'interrupted',
       sessionTitle: session.sessionTitle,
       sessionDescription: session.sessionDescription,
@@ -1040,15 +1044,21 @@ export class SessionManager extends EventEmitter {
         // reason as the shutdown path: it replaces a post the thread already
         // has. Only the create is a new post and a new notification.
         if (session.lifecyclePostId) {
-          await session.platform.updatePost(session.lifecyclePostId, pauseMessage);
+          const postId = session.lifecyclePostId;
+          await updateLifecycleNotice(session, 'paused', () => session.platform.updatePost(postId, pauseMessage));
         } else if (
           shouldPostLifecycle(
             this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
             'paused'
           )
         ) {
-          const post = await session.platform.createPost(pauseMessage, session.threadId);
-          session.lifecyclePostId = post.id;
+          const post = await deliverLifecycleNotice(
+            session,
+            this.platformOverhead.get(session.platformId)?.lifecycleDelivery ?? DEFAULT_LIFECYCLE_DELIVERY,
+            'paused',
+            () => session.platform.createPost(pauseMessage, session.threadId),
+          );
+          session.lifecyclePostId = post?.id;
         }
 
         // Stop typing indicator
@@ -1894,7 +1904,8 @@ export class SessionManager extends EventEmitter {
           // Update existing timeout/warning post. Ungated on purpose: editing
           // a post the thread already has neither adds one nor notifies, and
           // leaving a stale "session idle" up over a restart would be worse.
-          await session.platform.updatePost(session.lifecyclePostId, shutdownMessage);
+          const postId = session.lifecyclePostId;
+          await updateLifecycleNotice(session, 'shutdown', () => session.platform.updatePost(postId, shutdownMessage));
         } else if (
           shouldPostLifecycle(
             this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
@@ -1902,8 +1913,13 @@ export class SessionManager extends EventEmitter {
           )
         ) {
           // Create new shutdown post and store the ID
-          const post = await session.platform.createPost(shutdownMessage, session.threadId);
-          session.lifecyclePostId = post.id;
+          const post = await deliverLifecycleNotice(
+            session,
+            this.platformOverhead.get(session.platformId)?.lifecycleDelivery ?? DEFAULT_LIFECYCLE_DELIVERY,
+            'shutdown',
+            () => session.platform.createPost(shutdownMessage, session.threadId),
+          );
+          session.lifecyclePostId = post?.id;
         }
         // Persist so resume can find the post ID
         this.persistSession(session);
