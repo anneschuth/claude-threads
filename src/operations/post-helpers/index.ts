@@ -25,6 +25,9 @@ import { withErrorHandling } from '../../utils/error-handler/index.js';
 import { BUG_REPORT_EMOJI } from '../../utils/emoji.js';
 import { updateWorktreeActivity } from '../../git/worktree.js';
 import { formatShortId } from '../../utils/format.js';
+import { updateLastMessage } from './last-message.js';
+
+export { updateLastMessage };
 
 const log = createLogger('helpers');
 const sessionLog = createSessionLog(log);
@@ -380,27 +383,6 @@ export function resetSessionActivity(session: Session): void {
   // This is fire-and-forget - we don't want to block session activity on disk I/O.
   if (session.worktreeInfo?.worktreePath) {
     void updateWorktreeActivity(session.worktreeInfo.worktreePath, session.sessionId);
-  }
-}
-
-/**
- * Update the session's last message tracking.
- * This enables "jump to bottom" functionality in thread links.
- *
- * @param session - The session to update
- * @param post - The post that was just created
- */
-export function updateLastMessage(session: Session, post: PlatformPost): void {
-  session.lastMessageId = post.id;
-  // A newer bot post: the last lifecycle notice no longer ends the thread, so
-  // `dedup` must not skip against it nor `reaction` land on it.
-  if (session.lifecycleNotice && session.lifecycleNotice.postId !== post.id) {
-    session.lifecycleNotice.trailing = false;
-  }
-  // For Slack, we need the timestamp as well (format: "1234567890.123456")
-  // The post ID in Slack is the timestamp, so we can use it directly
-  if (session.platform.platformType === 'slack') {
-    session.lastMessageTs = post.id;
   }
 }
 

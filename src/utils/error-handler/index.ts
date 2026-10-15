@@ -13,7 +13,7 @@
  */
 
 import type { Session } from '../../session/types.js';
-import { updateLastMessage } from '../../operations/post-helpers/index.js';
+import { updateLastMessage } from '../../operations/post-helpers/last-message.js';
 import { createLogger } from '../logger.js';
 import { formatShortId } from '../format.js';
 

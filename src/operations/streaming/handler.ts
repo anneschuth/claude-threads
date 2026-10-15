@@ -349,20 +349,21 @@ function sanitizeTranscript(text: string): string {
 /**
  * Echo each transcript into the thread as a quote so teammates (and the
  * audit trail) see what Claude heard. No-op for an empty list. `onPosted`
- * receives each post, for the session's last-message tracking.
+ * receives each post, for the session's last-message tracking (required, so
+ * no caller can forget it).
  */
 export async function postTranscriptFeedback(
   platform: PlatformClient,
   threadId: string,
   transcripts: Transcript[] | undefined,
-  onPosted?: (post: PlatformPost) => void,
+  onPosted: (post: PlatformPost) => void,
 ): Promise<void> {
   if (!transcripts || transcripts.length === 0) return;
   const formatter = platform.getFormatter();
   for (const t of transcripts) {
     const quoted = t.text.split('\n').map(line => formatter.formatBlockquote(line)).join('\n');
     const post = await platform.createPost(`🎙️ ${formatter.formatBold(`Transcript of ${t.name}:`)}\n${quoted}`, threadId);
-    onPosted?.(post);
+    onPosted(post);
   }
 }
 
@@ -375,11 +376,11 @@ export async function postSkippedFilesFeedback(
   platform: PlatformClient,
   threadId: string,
   skipped: SkippedFile[],
-  onPosted?: (post: PlatformPost) => void,
+  onPosted: (post: PlatformPost) => void,
 ): Promise<void> {
   if (skipped.length === 0) return;
   const post = await platform.createPost(formatSkippedFilesFeedback(skipped), threadId);
-  onPosted?.(post);
+  onPosted(post);
 }
 
 /**

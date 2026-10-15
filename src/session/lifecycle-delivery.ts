@@ -62,8 +62,9 @@ export interface LifecycleNotice {
    * Still the bot's last post in the thread. `updateLastMessage` clears it on
    * the next post the bot makes there. Known limitation: a post that bypasses
    * that helper does not clear it — the direct `createPost` calls in
-   * `SessionManager`, the tool-details sink, and permission prompts posted by
-   * the MCP child process.
+   * `SessionManager`, `message-handler.ts` and `reaction-router.ts`, command
+   * replies in `src/commands/executor.ts` (!help and others), the
+   * tool-details sink, and permission prompts posted by the MCP child process.
    */
   trailing: boolean;
 }
