@@ -317,6 +317,51 @@ describe('Bash Formatter', () => {
     expect(/[\uD800-\uDFFF]/u.test(result!.permissionText!)).toBe(false);
   });
 
+  it('keeps a truncated command on one line outside detailed mode', () => {
+    const command = `journalctl -u strata.service --since "-10min" --no-pager | tail -40`;
+    const result = bashToolFormatter.format('Bash', { command }, options);
+
+    expect(result!.display).toContain('...');
+    expect(result!.display).not.toContain('\n');
+  });
+
+  it('adds the full command as a wrapped block below a truncated one in detailed mode', () => {
+    const command = `journalctl -u strata.service --since "-10min" --no-pager | tail -40; date`;
+    const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
+
+    const [inline, ...rest] = result!.display!.split('\n');
+    expect(inline).toContain('...');
+    const block = rest.join('\n');
+    expect(block).toContain('```bash');
+    expect(block).toContain('tail -40;');
+    expect(block).toContain('date');
+    // Every command line in the block fits the wrap width.
+    const lines = block.split('\n').filter((l) => !l.startsWith('```'));
+    expect(lines.length).toBeGreaterThan(1);
+    for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
+  });
+
+  it('adds no block for a short command in detailed mode', () => {
+    const result = bashToolFormatter.format('Bash', { command: 'ls -la' }, { ...options, detailed: true });
+
+    expect(result!.display).not.toContain('\n');
+  });
+
+  it('caps the full-command block like the permission prompt', () => {
+    const result = bashToolFormatter.format('Bash', { command: 'y'.repeat(5000) }, { ...options, detailed: true });
+
+    expect(result!.display).toContain('[... truncated]');
+    expect(result!.display!.length).toBeLessThan(2500);
+  });
+
+  it('defuses backtick fences in the full-command block', () => {
+    const command = `printf "\`\`\`" && ${'x'.repeat(80)}`;
+    const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
+
+    const inner = result!.display!.split('```bash')[1] ?? '';
+    expect(inner.replace(/```$/, '')).not.toContain('```');
+  });
+
   it('shortens worktree paths in commands', () => {
     const result = bashToolFormatter.format(
       'Bash',
