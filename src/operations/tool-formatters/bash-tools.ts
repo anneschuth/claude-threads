@@ -2,7 +2,7 @@
  * Bash tool formatter
  *
  * Handles formatting of Bash command execution with:
- * - Command truncation for long commands
+ * - Command truncation for long commands (full command below in detailed mode)
  * - Worktree path shortening in commands
  */
 
@@ -33,6 +33,47 @@ function truncateAtCodePoint(text: string, max: number): { text: string; truncat
   return { text: points.slice(0, max).join(''), truncated: true };
 }
 
+/**
+ * Width of a line in the full-command block. Mattermost mobile renders a code
+ * block without wrapping (its full-screen code view scrolls sideways), so a
+ * one-line command stays unreadable on a phone even once expanded. The block is
+ * display-only, so it is pre-wrapped for reading; the permission prompt keeps
+ * the command verbatim.
+ */
+const COMMAND_BLOCK_WIDTH = 40;
+
+/**
+ * Wrap a command for display: break after `;`, `&&`, `||` and `|`, then at
+ * spaces so no line exceeds `width` (a longer word is split). Continuation
+ * lines are indented by two spaces. Runs of spaces collapse to one, so the
+ * result is for reading, not for copying back into a shell.
+ */
+function wrapCommandForDisplay(cmd: string, width = COMMAND_BLOCK_WIDTH): string {
+  const out: string[] = [];
+  for (const rawLine of cmd.split('\n')) {
+    for (const part of rawLine.split(/(?<=;|&&|\|\||\|)[ \t]+/)) {
+      let line = '';
+      for (let word of part.split(/[ \t]+/)) {
+        if (!word) continue;
+        if (line.trim() && line.length + 1 + word.length > width) {
+          out.push(line);
+          line = '  ';
+        }
+        if (line.trim()) line += ' ';
+        while (line.length + word.length > width) {
+          const room = Math.max(1, width - line.length);
+          out.push(line + word.slice(0, room));
+          word = word.slice(room);
+          line = '  ';
+        }
+        line += word;
+      }
+      if (line.trim()) out.push(line);
+    }
+  }
+  return out.join('\n');
+}
+
 // ---------------------------------------------------------------------------
 // Bash Formatter
 // ---------------------------------------------------------------------------
@@ -46,7 +87,7 @@ export const bashToolFormatter: ToolFormatter = {
   format(toolName: string, input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
     if (toolName !== 'Bash') return null;
 
-    const { formatter, maxCommandLength = 50, worktreeInfo } = options;
+    const { formatter, detailed = false, maxCommandLength = 50, worktreeInfo } = options;
 
     let cmd = (input.command as string) || '';
 
@@ -68,8 +109,21 @@ export const bashToolFormatter: ToolFormatter = {
     const permission = truncateAtCodePoint(cmd, PERMISSION_COMMAND_MAX);
     const permissionCmd = escapeCodeBlockContent(permission.text) + (permission.truncated ? '\n[... truncated]' : '');
 
+    let display = `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(displayCmd + (truncated ? '...' : ''))}`;
+
+    // A truncated one-liner hides the part of the command that matters, and
+    // once approved the permission prompt is gone. In detailed mode (like the
+    // Edit diff and Write preview) show the full command, same cap as the
+    // prompt, as a fenced block: Mattermost mobile collapses a long block
+    // behind "+N more lines", so the thread stays compact until it is opened.
+    if (detailed && truncated) {
+      const block = escapeCodeBlockContent(wrapCommandForDisplay(permission.text))
+        + (permission.truncated ? '\n[... truncated]' : '');
+      display += `\n${formatter.formatCodeBlock(block, 'bash')}`;
+    }
+
     return {
-      display: `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(displayCmd + (truncated ? '...' : ''))}`,
+      display,
       permissionText: `💻 ${formatter.formatBold('Bash')}\n${formatter.formatCodeBlock(permissionCmd, 'bash')}`,
       isDestructive: true, // Bash commands can be destructive
     };
