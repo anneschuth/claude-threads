@@ -500,7 +500,6 @@ describe('context-prompt', () => {
     it('attributes the queued prompt on the no-context branch when the session flag is on', async () => {
       const session = createMockSession({
         platformOverrides: { getThreadHistory: mock(() => Promise.resolve([])) },
-        // Attribution only applies once a thread is genuinely shared.
         sessionOverrides: { userAttribution: true, sessionAllowedUsers: new Set(['testuser', 'collaborator']) },
       });
       const sent: string[] = [];
@@ -539,7 +538,6 @@ describe('context-prompt', () => {
       const session = createMockSession({
         sessionOverrides: {
           userAttribution: true,
-          // Attribution only applies once a thread is genuinely shared.
           sessionAllowedUsers: new Set(['testuser', 'collaborator']),
           messageManager: {
             getPendingContextPrompt: () => pending,

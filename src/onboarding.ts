@@ -453,7 +453,7 @@ export async function runOnboarding(reconfigure = false): Promise<void> {
       name: 'userAttribution',
       message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
       initial: existingConfig?.userAttribution ?? true,
-      hint: 'Only applied once a thread has more than one participant; default on',
+      hint: 'Applies to solo and shared threads; default on',
     },
   ], { onCancel });
 
@@ -682,7 +682,7 @@ async function runReconfigureFlow(existingConfig: Config): Promise<void> {
           name: 'userAttribution',
           message: "Prefix each message with the sender's @username so Claude can tell who is speaking?",
           initial: config.userAttribution ?? true,
-          hint: 'Only applied once a thread has more than one participant; default on',
+          hint: 'Applies to solo and shared threads; default on',
         },
       ], { onCancel });
 
