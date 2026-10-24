@@ -2,7 +2,7 @@
  * User attribution formatter
  *
  * Wraps a single user-turn message with an inline `[@username]:` prefix so
- * Claude can tell who is speaking when several people share one thread.
+ * Claude can identify its sender, including in solo threads.
  *
  * Applied at the send boundary ONLY — the sender identity is carried
  * separately so stored prompts (firstPrompt/queuedPrompt) stay raw and never
@@ -30,7 +30,7 @@ export function sanitizeUsername(username: string): string {
  * `enabled` is the session's `userAttribution` flag. It is a REQUIRED
  * parameter so the compiler forces every send site to decide; the "disabled"
  * semantics live here, in one tested place. When `false` the message always
- * passes through unchanged (the feature is opt-in, default off).
+ * passes through unchanged (the setting defaults to enabled for new sessions).
  *
  * - Usable username → `[@<sanitized>]: <message>`.
  * - Empty / falsy / "unknown" / sanitizes-to-empty → `message` unchanged
@@ -41,25 +41,16 @@ export function sanitizeUsername(username: string): string {
  * downstream (buildMessageContent, the platform) already handles it.
  */
 /**
- * Whether a session should actually attribute its turns right now.
+ * Whether a session should attribute its user turns. The setting applies to
+ * solo and shared threads; a valid session has at least its owner in the
+ * participant allowlist. Keeping the empty-list guard avoids attributing a
+ * malformed session with no participants.
  *
- * The config flag says the feature is *available*; this says it is *useful*.
- * A prefix on a solo thread is pure noise — there is only one person it could
- * be — so attribution stays silent until a session genuinely has more than one
- * participant. `participantCount` is the size of the session allowlist, which
- * starts at 1 (the owner) and grows only on real collaboration events:
- * `!invite`, or another user reviving a paused session.
- *
- * Evaluated per send rather than once at session start, so a thread that
- * becomes shared mid-session starts attributing from that point on. The
- * system-prompt note is emitted whenever the flag is on, precisely so Claude
- * is already primed for a prefix that may only start arriving later.
- *
- * Kept as a pure predicate over primitives (not a `Session`) so it stays
- * trivially testable and introduces no import cycle into the session module.
+ * Evaluated per send and kept as a pure predicate over primitives (not a
+ * `Session`) so it stays trivially testable and introduces no import cycle.
  */
 export function shouldAttribute(enabled: boolean, participantCount: number): boolean {
-  return enabled && participantCount > 1;
+  return enabled && participantCount > 0;
 }
 
 export function formatUserTurn(

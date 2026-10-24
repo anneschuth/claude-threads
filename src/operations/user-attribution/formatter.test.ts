@@ -47,13 +47,11 @@ describe('sanitizeUsername', () => {
 });
 
 describe('shouldAttribute', () => {
-  it('stays silent in a solo session even when the flag is on', () => {
-    // The whole point of the multi-user gate: a prefix on a one-person thread
-    // names the only person who could have spoken.
-    expect(shouldAttribute(true, 1)).toBe(false);
+  it('attributes a solo session when the setting is enabled', () => {
+    expect(shouldAttribute(true, 1)).toBe(true);
   });
 
-  it('attributes once a session has more than one participant', () => {
+  it('also attributes a shared session', () => {
     expect(shouldAttribute(true, 2)).toBe(true);
     expect(shouldAttribute(true, 5)).toBe(true);
   });
