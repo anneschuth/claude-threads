@@ -1122,8 +1122,6 @@ bun run test
 - [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
 - [x] Multi-platform architecture - **Done in v0.14.0**
 - [x] Modular session management - **Done in v0.14.0**
-- [ ] Add rate limiting for API calls
-- [ ] Support file uploads via Mattermost attachments
 - [ ] Keep task list at the bottommost message (always update to latest position)
 - [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
 - [x] Accurate context usage: Use per-request `usage` field from result events instead of cumulative billing tokens - **Done**

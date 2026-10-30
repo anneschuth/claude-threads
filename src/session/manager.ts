@@ -1614,7 +1614,10 @@ export class SessionManager extends EventEmitter {
     const updateInfo = await this.autoUpdateManager.checkNow();
 
     if (!updateInfo || !updateInfo.available) {
-      await platform.createPost(`✅ ${formatter.formatBold('Up to date')} - no updates available`, threadId);
+      const blocked = this.autoUpdateManager.getBlockedUpdate();
+      await platform.createPost(blocked
+        ? `⚠️ ${formatter.formatBold(`v${blocked.latestVersion} is available but not installable`)}: ${blocked.reason}`
+        : `✅ ${formatter.formatBold('Up to date')} - no updates available`, threadId);
       return;
     }
 

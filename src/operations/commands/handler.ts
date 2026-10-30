@@ -1189,6 +1189,7 @@ export interface AutoUpdateManagerInterface {
   hasUpdate(): boolean;
   getUpdateInfo(): { available: boolean; currentVersion: string; latestVersion: string; detectedAt: Date } | undefined;
   getScheduledRestartAt(): Date | null;
+  getBlockedUpdate(): { latestVersion: string; reason: string } | null;
   checkNow(): Promise<{ available: boolean; currentVersion: string; latestVersion: string; detectedAt: Date } | null>;
   forceUpdate(): Promise<void>;
   deferUpdate(minutes?: number): void;
@@ -1219,6 +1220,11 @@ export async function showUpdateStatus(
   const updateInfo = await updateManager.checkNow();
 
   if (!updateInfo || !updateInfo.available) {
+    const blocked = updateManager.getBlockedUpdate();
+    if (blocked) {
+      await post(session, 'warning', `${formatter.formatBold(`v${blocked.latestVersion} is available but not installable`)}: ${blocked.reason}`);
+      return;
+    }
     await post(session, 'success', `${formatter.formatBold('Up to date')} - no updates available`);
     return;
   }
@@ -1278,7 +1284,10 @@ export async function forceUpdateNow(
   const updateInfo = await updateManager.checkNow();
 
   if (!updateInfo || !updateInfo.available) {
-    await post(session, 'info', `No update available to install`);
+    const blocked = updateManager.getBlockedUpdate();
+    await post(session, 'info', blocked
+      ? `Not installing v${blocked.latestVersion}: ${blocked.reason}`
+      : `No update available to install`);
     return;
   }
 
