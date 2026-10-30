@@ -317,28 +317,37 @@ describe('Bash Formatter', () => {
     expect(/[\uD800-\uDFFF]/u.test(result!.permissionText!)).toBe(false);
   });
 
+  const longCommand = `ssh -i ~/.ssh/proxmox root@192.168.0.15 'pct exec 101 -- bash -c "cd /srv && git pull && systemctl restart app && systemctl status app --no-pager"'`;
+
   it('keeps a truncated command on one line outside detailed mode', () => {
-    const command = `journalctl -u strata.service --since "-10min" --no-pager | tail -40`;
-    const result = bashToolFormatter.format('Bash', { command }, options);
+    const result = bashToolFormatter.format('Bash', { command: longCommand }, options);
 
     expect(result!.display).toContain('...');
     expect(result!.display).not.toContain('\n');
   });
 
-  it('adds the full command as a wrapped block below a truncated one in detailed mode', () => {
-    const command = `journalctl -u strata.service --since "-10min" --no-pager | tail -40; date`;
-    const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
+  it('adds the full command verbatim below a long one in detailed mode', () => {
+    const result = bashToolFormatter.format('Bash', { command: longCommand }, { ...options, detailed: true });
 
     const [inline, ...rest] = result!.display!.split('\n');
     expect(inline).toContain('...');
-    const block = rest.join('\n');
-    expect(block).toContain('```bash');
-    expect(block).toContain('tail -40;');
-    expect(block).toContain('date');
-    // Every command line in the block fits the wrap width.
-    const lines = block.split('\n').filter((l) => !l.startsWith('```'));
-    expect(lines.length).toBeGreaterThan(1);
-    for (const line of lines) expect(line.length).toBeLessThanOrEqual(40);
+    // The quoted && stays on the line it was written on.
+    expect(rest).toEqual(['```bash', longCommand, '```']);
+  });
+
+  it('keeps a heredoc and its indentation intact in the block', () => {
+    const command = "python3 - <<'PY'\nfor x in range(3):\n    if x:\n        print(x)\nPY";
+    const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
+
+    expect(result!.display).toContain('```bash\n' + command + '\n```');
+  });
+
+  it('keeps a command just past the inline cap on one line in detailed mode', () => {
+    const command = `journalctl -u strata.service --since "-10min" --no-pager | tail -40`;
+    const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
+
+    expect(result!.display).toContain('...');
+    expect(result!.display).not.toContain('\n');
   });
 
   it('adds no block for a short command in detailed mode', () => {
@@ -355,7 +364,7 @@ describe('Bash Formatter', () => {
   });
 
   it('defuses backtick fences in the full-command block', () => {
-    const command = `printf "\`\`\`" && ${'x'.repeat(80)}`;
+    const command = `printf "\`\`\`" && ${'x'.repeat(150)}`;
     const result = bashToolFormatter.format('Bash', { command }, { ...options, detailed: true });
 
     const inner = result!.display!.split('```bash')[1] ?? '';
