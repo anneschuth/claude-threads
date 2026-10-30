@@ -3,9 +3,8 @@
  * Only shows info/warn/error level (filters out debug noise)
  */
 import React from 'react';
-import { Box, Text, useInput, useStdout } from 'ink';
-import { ScrollView } from 'ink-scroll-view';
-import type { ScrollViewRef } from 'ink-scroll-view';
+import { Box, Text, useBoxMetrics, useInput } from 'ink';
+import type { DOMElement } from 'ink';
 import type { LogEntry } from '../types.js';
 
 interface LogPanelProps {
@@ -34,8 +33,11 @@ function padComponent(name: string): string {
 }
 
 export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps) {
-  const scrollRef = React.useRef<ScrollViewRef>(null);
-  const { stdout } = useStdout();
+  const viewportRef = React.useRef<DOMElement>(null);
+  const contentRef = React.useRef<DOMElement>(null);
+  const { clientHeight: viewportHeight } = useBoxMetrics(viewportRef);
+  const { height: contentHeight } = useBoxMetrics(contentRef);
+  const [scrollTop, setScrollTop] = React.useState(0);
 
   // Filter out debug logs unless DEBUG mode is enabled
   const isDebug = process.env.DEBUG === '1';
@@ -44,38 +46,32 @@ export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps
   // Keep more logs in scroll buffer for history
   const visibleLogs = displayLogs.slice(-Math.max(maxLines * 3, 100));
 
-  // Handle terminal resize
-  React.useEffect(() => {
-    const handleResize = () => scrollRef.current?.remeasure();
-    stdout?.on('resize', handleResize);
-    return () => {
-      stdout?.off('resize', handleResize);
-    };
-  }, [stdout]);
+  const maxScroll = Math.max(0, contentHeight - viewportHeight);
+  const offset = Math.min(scrollTop, maxScroll);
 
-  // Auto-scroll to bottom when new logs arrive (only if not focused/scrolling)
+  // Follow the newest logs while not focused, so focusing starts at the bottom
   React.useEffect(() => {
-    if (!focused && scrollRef.current) {
-      scrollRef.current.scrollToBottom();
-    }
-  }, [displayLogs.length, focused]);
+    if (!focused) setScrollTop(maxScroll);
+  }, [maxScroll, focused]);
+
+  const scrollTo = (target: number) => setScrollTop(Math.min(Math.max(0, target), maxScroll));
 
   // Handle keyboard input for scrolling when focused
   useInput((input, key) => {
     if (!focused) return;
 
     if (key.upArrow) {
-      scrollRef.current?.scrollBy(-1);
+      scrollTo(offset - 1);
     } else if (key.downArrow) {
-      scrollRef.current?.scrollBy(1);
+      scrollTo(offset + 1);
     } else if (key.pageUp) {
-      scrollRef.current?.scrollBy(-5);
+      scrollTo(offset - 5);
     } else if (key.pageDown) {
-      scrollRef.current?.scrollBy(5);
+      scrollTo(offset + 5);
     } else if (input === 'g') {
-      scrollRef.current?.scrollToTop();
+      scrollTo(0);
     } else if (input === 'G') {
-      scrollRef.current?.scrollToBottom();
+      scrollTo(maxScroll);
     }
   }, { isActive: focused });
 
@@ -84,15 +80,15 @@ export function LogPanel({ logs, maxLines = 10, focused = false }: LogPanelProps
   }
 
   return (
-    <Box flexDirection="column" flexGrow={1} overflow="hidden">
-      <ScrollView ref={scrollRef}>
+    <Box ref={viewportRef} flexDirection="column" flexGrow={1} overflow="hidden" contentOffsetY={focused ? offset : maxScroll}>
+      <Box ref={contentRef} flexDirection="column" flexShrink={0}>
         {visibleLogs.map((log) => (
           <Box key={log.id}>
             <Text dimColor>[{padComponent(log.component)}]</Text>
             <Text color={getLevelColor(log.level)}> {log.message}</Text>
           </Box>
         ))}
-      </ScrollView>
+      </Box>
     </Box>
   );
 }

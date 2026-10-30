@@ -23,7 +23,7 @@ The whole path, for either platform:
 4. **Mention the bot** in the configured channel: `@claude-code fix the failing test in ci.yml`
 5. **Follow the thread**: output streams in live, and permission prompts are approved with a 👍 reaction
 
-Prerequisites: **Bun 1.2.21+** or **Node 20+**, and the **Claude Code CLI** (check with `claude --version`).
+Prerequisites: **Bun 1.2.21+** or **Node 22+**, and the **Claude Code CLI** (check with `claude --version`).
 
 ---
 
