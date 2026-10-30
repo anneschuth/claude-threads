@@ -29,6 +29,22 @@ These captures are the **ground truth** for the integration mock CLI
 against them. When the mock and a capture disagree, the capture wins — fix
 the mock.
 
+## Re-captured against 2.1.314 (2026-10-30)
+
+Every flow here except `compact-failed` was recorded fresh against 2.1.314.
+
+**Nothing the bot reads moved.** No event type appeared or disappeared, no
+field was removed, and the content blocks and tool names are identical. The
+only change is new fields that have no reader in `src/`: `system/init` gained
+`original_cwd`, `additional_directories`, `per_turn_effort_active` and
+`view_mode`; `assistant` gained `thinking_duration_ms` and `thinking_display`;
+`user` gained `agent_id`; `result` gained `safety_stops` and
+`model_usage_since_last_result`; the `system/task_*` events gained `run_id`.
+
+The harness now rewrites the recorder's home directory to `/home/user`, because
+the CLI reports absolute paths (memory directory, plan files) and these files
+are published. The recordings were scrubbed the same way.
+
 ## Re-captured against 2.1.276 (2026-09-18)
 
 Every flow here except `compact-failed` was recorded fresh against 2.1.276,
