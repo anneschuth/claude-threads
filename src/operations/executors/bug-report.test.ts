@@ -15,8 +15,6 @@ function createSampleBugReport(overrides?: Partial<PendingBugReport>): PendingBu
     title: 'Test Bug Report',
     body: 'This is the bug report body',
     userDescription: 'User found an issue',
-    imageUrls: [],
-    imageErrors: [],
     ...overrides,
   };
 }
@@ -175,8 +173,7 @@ describe('BugReportExecutor', () => {
           title: 'Persisted Bug',
           body: 'Persisted body',
           userDescription: 'Persisted description',
-          imageUrls: ['http://example.com/image.png'],
-          imageErrors: ['Error 1'],
+          screenshots: [{ id: 'f1', name: 'a.png', size: 1, mimeType: 'image/png' }],
         },
       };
 
@@ -185,7 +182,7 @@ describe('BugReportExecutor', () => {
       expect(executor.hasPendingBugReport()).toBe(true);
       expect(executor.getPendingBugReport()?.postId).toBe('post-persisted-456');
       expect(executor.getPendingBugReport()?.title).toBe('Persisted Bug');
-      expect(executor.getPendingBugReport()?.imageUrls).toEqual(['http://example.com/image.png']);
+      expect(executor.getPendingBugReport()?.screenshots).toHaveLength(1);
     });
 
     it('hydrateState handles null pendingBugReport', () => {
@@ -584,26 +581,18 @@ describe('BugReportExecutor', () => {
       expect(retrieved?.errorContext?.message).toBe('An error occurred');
     });
 
-    it('handles report with image urls', () => {
+    it('handles report with screenshots', () => {
       const report = createSampleBugReport({
-        imageUrls: ['http://example.com/img1.png', 'http://example.com/img2.png'],
+        screenshots: [
+          { id: 'f1', name: 'a.png', size: 1, mimeType: 'image/png' },
+          { id: 'f2', name: 'b.png', size: 1, mimeType: 'image/png' },
+        ],
       });
       executor.setPendingBugReport(report);
 
       const retrieved = executor.getPendingBugReport();
-      expect(retrieved?.imageUrls).toHaveLength(2);
-      expect(retrieved?.imageUrls[0]).toBe('http://example.com/img1.png');
-    });
-
-    it('handles report with image errors', () => {
-      const report = createSampleBugReport({
-        imageErrors: ['Failed to upload image 1', 'Failed to upload image 2'],
-      });
-      executor.setPendingBugReport(report);
-
-      const retrieved = executor.getPendingBugReport();
-      expect(retrieved?.imageErrors).toHaveLength(2);
-      expect(retrieved?.imageErrors[0]).toBe('Failed to upload image 1');
+      expect(retrieved?.screenshots).toHaveLength(2);
+      expect(retrieved?.screenshots?.[0].id).toBe('f1');
     });
   });
 });

@@ -12,6 +12,7 @@ import type { Logger } from '../../utils/logger.js';
 import type { ThreadLogger } from '../../persistence/thread-logger.js';
 import type { ParsedRoutineRequest } from '../../routines/parser.js';
 import type { ParsedWatchRequest } from '../../watches/parser.js';
+import type { PlatformFile } from '../../platform/types.js';
 
 // ---------------------------------------------------------------------------
 // Executor Context
@@ -228,8 +229,8 @@ export interface PendingBugReport {
   title: string;
   body: string;
   userDescription: string;
-  imageUrls: string[];
-  imageErrors: string[];
+  /** Downloaded and attached only once the report is approved. */
+  screenshots?: PlatformFile[];
   errorContext?: {
     postId: string;
     message: string;

@@ -33,8 +33,12 @@ import {
   generateIssueTitle,
   formatBugPreview,
   checkGitHubCli,
+  inspectBugReportTarget,
   createGitHubIssue,
-  uploadImages,
+  selectScreenshots,
+  saveScreenshots,
+  withOmittedScreenshots,
+  type GhExec,
   type ErrorContext,
 } from '../bug-report/index.js';
 import type { PlatformFile } from '../../platform/types.js';
@@ -1334,14 +1338,17 @@ export async function reportBug(
   username: string,
   ctx: SessionContext,
   errorContext?: ErrorContext,
-  attachedFiles?: PlatformFile[]
+  attachedFiles?: PlatformFile[],
+  // Injectable so tests never reach a real `gh`. See `createGitHubIssue`.
+  exec?: GhExec
 ): Promise<void> {
   const formatter = session.platform.getFormatter();
 
   // The one command that sends session data OFF the operator's
-  // infrastructure: screenshots to a public anonymous file host, and a body
-  // carrying session context plus recent daemon log lines to a public issue
-  // on the maintainer's repository, behind best-effort redaction. Gated here
+  // infrastructure: a body carrying session context plus recent daemon log
+  // lines, and any attached screenshots, to an issue on the configured
+  // repository (by default the maintainer's public one), behind best-effort
+  // redaction. Gated here
   // rather than at the command table because this function is also the 🐛
   // error-reaction path and the route Claude takes when it runs `!bug`
   // itself (`claudeCanExecute: true`) — a gate on the command alone would
@@ -1367,7 +1374,7 @@ export async function reportBug(
   }
 
   // Check if gh CLI is available first
-  const ghStatus = checkGitHubCli();
+  const ghStatus = checkGitHubCli(exec);
   if (!ghStatus.installed || !ghStatus.authenticated) {
     await postError(session, ghStatus.error || 'GitHub CLI not configured');
     return;
@@ -1380,35 +1387,17 @@ export async function reportBug(
   // Collect context
   const context = await collectBugReportContext(session, errorContext);
 
-  // Upload any attached images to Catbox.moe
-  let imageUrls: string[] = [];
-  let imageErrors: string[] = [];
+  // Work out what can be attached. Nothing is downloaded or uploaded here:
+  // that waits for the approval below, so the preview can say where it goes.
+  const target = inspectBugReportTarget(ctx.config.bugReportRepo, exec);
+  const { screenshots, skipped } = selectScreenshots(attachedFiles ?? [], target);
 
-  const downloadFile = session.platform.downloadFile?.bind(session.platform);
-  if (attachedFiles && attachedFiles.length > 0 && downloadFile) {
-    // Show upload progress
-    await post(session, 'info', `📤 Uploading ${attachedFiles.length} image(s)...`);
-
-    const uploadResults = await uploadImages(
-      attachedFiles,
-      downloadFile
-    );
-
-    imageUrls = uploadResults
-      .filter((r): r is typeof r & { url: string } => r.success && typeof r.url === 'string')
-      .map(r => r.url);
-
-    imageErrors = uploadResults
-      .filter(r => !r.success)
-      .map(r => `${r.originalFile.name}: ${r.error}`);
-  }
-
-  // Generate issue content (include uploaded images)
+  // Generate issue content
   const title = generateIssueTitle(bugDescription);
-  const body = formatIssueBody(context, bugDescription, imageUrls);
+  const body = formatIssueBody(context, bugDescription, skipped.length);
 
   // Create preview message
-  const preview = formatBugPreview(title, bugDescription, context, imageUrls, imageErrors, formatter);
+  const preview = formatBugPreview(title, bugDescription, context, target, screenshots.length, skipped, formatter);
   const previewMessage = `🐛 ${preview}`;
 
   // Post preview with approval reactions
@@ -1425,8 +1414,7 @@ export async function reportBug(
     title,
     body,
     userDescription: bugDescription,
-    imageUrls,
-    imageErrors,
+    screenshots,
     errorContext,
   });
 
@@ -1444,7 +1432,7 @@ export async function handleBugReportApproval(
   ctx: SessionContext,
   // Injectable so a test can prove the gate below is load-bearing without
   // filing a real issue. See the note on `createGitHubIssue` (#586).
-  exec?: Parameters<typeof createGitHubIssue>[3]
+  exec?: GhExec
 ): Promise<void> {
   // Read from MessageManager (sole source of truth)
   const pending = session.messageManager?.getPendingBugReport();
@@ -1461,27 +1449,36 @@ export async function handleBugReportApproval(
   const formatter = session.platform.getFormatter();
 
   if (isApproved) {
+    const saved = await saveScreenshots(
+      pending.screenshots ?? [],
+      session.platform.downloadFile?.bind(session.platform)
+    );
+
     try {
-      // Create the GitHub issue (images are already embedded in the body as URLs)
-      const issueUrl = await createGitHubIssue(
+      const issue = await createGitHubIssue(
         pending.title,
-        pending.body,
+        withOmittedScreenshots(pending.body, saved.failed),
         session.workingDir,
-        exec
+        { repo: ctx.config.bugReportRepo, attachments: saved.paths, exec }
       );
+
+      const incomplete = issue.attachmentsIncomplete || saved.failed > 0;
 
       // Update the approval post to show success
       await updatePostSuccess(session, pending.postId,
-        `${formatter.formatBold('Bug report submitted')}: ${issueUrl}`
+        `${formatter.formatBold('Bug report submitted')}: ${issue.url}` +
+        (incomplete ? '\n⚠️ Not every screenshot could be attached. Add the missing ones to the issue by hand.' : '')
       );
 
-      sessionLog(session).info(`🐛 Bug report created by @${username}: ${issueUrl}`);
+      sessionLog(session).info(`🐛 Bug report created by @${username}: ${issue.url}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       await updatePostError(session, pending.postId,
         `${formatter.formatBold('Failed to create bug report')}: ${errorMessage}`
       );
       sessionLog(session).error(`Failed to create bug report: ${errorMessage}`);
+    } finally {
+      saved.cleanup();
     }
   } else {
     // Cancelled

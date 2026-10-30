@@ -38,6 +38,8 @@ export interface SessionConfig {
    * already pending. See resolveBugReportsEnabled for what it sends.
    */
   bugReportsEnabled: boolean;
+  /** GitHub repository (owner/name) that `!bug` files its issue on. */
+  bugReportRepo: string;
   /** Base working directory for sessions */
   workingDir: string;
   /** Effective permission mode. See `PermissionMode` for semantics. */

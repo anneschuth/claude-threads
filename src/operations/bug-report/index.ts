@@ -5,10 +5,11 @@
  */
 
 export {
-  // Image upload
-  uploadImageToCatbox,
-  uploadImages,
-  type ImageUploadResult,
+  // Screenshots
+  selectScreenshots,
+  saveScreenshots,
+  withOmittedScreenshots,
+  type SavedScreenshots,
 
   // Types
   type RecentEvent,
@@ -34,5 +35,9 @@ export {
 
   // Issue creation
   checkGitHubCli,
+  inspectBugReportTarget,
   createGitHubIssue,
+  type BugReportTarget,
+  type CreatedIssue,
+  type GhExec,
 } from './handler.js';

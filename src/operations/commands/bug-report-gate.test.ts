@@ -1,9 +1,8 @@
 /**
  * `bugReports: false` has to remove the whole path, not just the command.
  *
- * `!bug` uploads attached screenshots to a public anonymous file host and
- * files session context plus recent daemon log lines as an issue on a public
- * repository. `claudeCanExecute: true` means the agent can trigger it with no
+ * `!bug` files session context, recent daemon log lines and attached
+ * screenshots as an issue on a GitHub repository, public by default. `claudeCanExecute: true` means the agent can trigger it with no
  * human typing anything, and a report card can already be pending from before
  * the switch was thrown. An operator who turns this off in a regulated
  * environment needs all of those closed.
@@ -21,8 +20,8 @@ function sessionWith() {
     id: 'p1', platformId: 'test', channelId: 'c', message: content, createAt: 0, userId: 'bot',
   }));
   const setPendingBugReport = mock(() => {});
-  // The upload path calls this before anything reaches catbox.moe, so it is
-  // the earliest observable sign that data started leaving the host.
+  // Screenshots are fetched just before they are attached, so this is the
+  // earliest observable sign that data started leaving the host.
   const downloadFile = mock(async () => Buffer.from('not-a-real-image'));
   const session = {
     sessionId: 'test-platform:thread-1',
@@ -78,7 +77,7 @@ describe('bugReports: false', () => {
   it('does not download or upload an attachment — the gate sits ABOVE the upload', async () => {
     // The whole value of this switch is being in front of the egress, not
     // merely refusing at the end. Without this assertion the gate could be
-    // moved below the catbox upload and every other test here stays green.
+    // moved below the attachment download and every other test here stays green.
     const { session, downloadFile, setPendingBugReport } = sessionWith();
     const screenshot = { id: 'f1', name: 'screenshot.png', size: 10 } as never;
 
@@ -98,7 +97,7 @@ describe('bugReports: false', () => {
     const clearPendingBugReport = mock(() => {});
     const updatePost = mock(async () => {});
     (session.messageManager as unknown as Record<string, unknown>).getPendingBugReport = () => ({
-      postId: 'card-1', title: 'T', body: 'B', description: 'd', imageUrls: [],
+      postId: 'card-1', title: 'T', body: 'B', description: 'd', screenshots: [],
     });
     (session.messageManager as unknown as Record<string, unknown>).clearPendingBugReport = clearPendingBugReport;
     (session.platform as unknown as Record<string, unknown>).updatePost = updatePost;
@@ -133,7 +132,7 @@ describe('bugReports: false', () => {
     const clearPendingBugReport = mock(() => {});
     const updatePost = mock(async () => {});
     (session.messageManager as unknown as Record<string, unknown>).getPendingBugReport = () => ({
-      postId: 'card-1', title: 'T', body: 'B', description: 'd', imageUrls: [],
+      postId: 'card-1', title: 'T', body: 'B', description: 'd', screenshots: [],
     });
     (session.messageManager as unknown as Record<string, unknown>).clearPendingBugReport = clearPendingBugReport;
     (session.platform as unknown as Record<string, unknown>).updatePost = updatePost;
@@ -144,8 +143,8 @@ describe('bugReports: false', () => {
 
     await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(true), exec);
 
-    const ranCommands = exec.mock.calls.map((c) => String((c as unknown[])[0]));
-    expect(ranCommands.some((c) => c.startsWith('gh issue create'))).toBe(true);
+    const ranCommands = exec.mock.calls.map((c) => ((c as unknown[])[0] as string[]).join(' '));
+    expect(ranCommands.some((c) => c.startsWith('issue create'))).toBe(true);
   });
 
   it('does not offer the 🐛 quick-report reaction on error posts', async () => {
@@ -183,14 +182,84 @@ describe('bugReports: false', () => {
     // registers an approval card. Nothing is sent anywhere yet — the GitHub
     // issue is only created once a human approves that card.
     // Deliberately NOT asserting that the report completes: past the gate the
-    // flow needs a working `gh` CLI, which is an environment fact rather than
-    // anything this switch controls. What matters is that the refusal is
-    // absent — whatever stops it here, it is not the gate.
+    // flow's `gh` is stubbed, so nothing here depends on the machine. What
+    // matters is that the refusal is absent.
     const { session, createPost } = sessionWith();
 
-    await commands.reportBug(session, 'something broke', 'alice', ctxWithBugReports(true));
+    await commands.reportBug(session, 'something broke', 'alice', ctxWithBugReports(true), undefined, undefined, () => '{}');
 
     const posted = createPost.mock.calls.map((c) => String(c[0])).join('\n');
     expect(posted).not.toContain('Bug reporting is disabled');
+  });
+});
+
+describe('bug report screenshots', () => {
+  const screenshot = { id: 'f1', name: 'shot.png', size: 10, mimeType: 'image/png' };
+  const issueUrl = 'https://github.com/test-owner/test-repo/issues/1';
+
+  const gh = (repo = { viewerPermission: 'WRITE', visibility: 'PUBLIC' }) =>
+    mock((args: string[]) => {
+      if (args[0] === '--version') return 'gh version 2.103.3 (2026-10-26)\n';
+      if (args[0] === 'repo') return JSON.stringify(repo);
+      if (args[0] === 'issue') return `${issueUrl}\n`;
+      return '';
+    });
+
+  function pendingCard(session: Session, screenshots: unknown[]) {
+    const manager = session.messageManager as unknown as Record<string, unknown>;
+    manager.getPendingBugReport = () => ({ postId: 'card-1', title: 'T', body: 'B', userDescription: 'd', screenshots });
+    manager.clearPendingBugReport = mock(() => {});
+    (session.platform as unknown as Record<string, unknown>).updatePost = mock(async () => {});
+  }
+
+  it('sends nothing anywhere before someone approves the preview', async () => {
+    // Screenshots used to go to a file host while the preview was being built,
+    // so denying the card did not undo anything.
+    const { session, downloadFile, setPendingBugReport } = sessionWith();
+    const exec = gh();
+
+    await commands.reportBug(session, 'look', 'alice', ctxWithBugReports(true), undefined, [screenshot as never], exec);
+
+    expect(downloadFile).not.toHaveBeenCalled();
+    expect(exec.mock.calls.some(([args]) => args[0] === 'issue')).toBe(false);
+    expect(setPendingBugReport.mock.calls[0]).toMatchObject([{ screenshots: [screenshot] }]);
+  });
+
+  it('files on the configured repository with the screenshot attached', async () => {
+    const { session, downloadFile } = sessionWith();
+    pendingCard(session, [screenshot]);
+    const exec = gh();
+
+    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(true), exec);
+
+    expect(downloadFile).toHaveBeenCalledWith('f1');
+    const create = exec.mock.calls.map(([args]) => args).find((args) => args[0] === 'issue')!;
+    expect(create[create.indexOf('--repo') + 1]).toBe('test-owner/test-repo');
+    expect(create.join(' ')).toContain('screenshot-1.png#Screenshot 1');
+  });
+
+  it('does not download a screenshot when the report is cancelled', async () => {
+    const { session, downloadFile } = sessionWith();
+    pendingCard(session, [screenshot]);
+    const exec = gh();
+
+    await commands.handleBugReportApproval(session, false, 'alice', ctxWithBugReports(true), exec);
+
+    expect(downloadFile).not.toHaveBeenCalled();
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it('files a report that was pending from before this change', async () => {
+    // No `screenshots` field on a card written by an older version.
+    const { session } = sessionWith();
+    pendingCard(session, []);
+    (session.messageManager as unknown as Record<string, unknown>).getPendingBugReport = () => ({
+      postId: 'card-1', title: 'T', body: 'B', userDescription: 'd', imageUrls: [], imageErrors: [],
+    });
+    const exec = gh();
+
+    await commands.handleBugReportApproval(session, true, 'alice', ctxWithBugReports(true), exec);
+
+    expect(exec.mock.calls.some(([args]) => args[0] === 'issue')).toBe(true);
   });
 });

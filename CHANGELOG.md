@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **`bugReports: { repo: owner/name }` files `!bug` reports in your own repository** (#577). `true` and `false` keep their meaning, and a malformed `repo` disables bug reports rather than falling back to the public default.
+
+### Changed
+- **Screenshots no longer go to catbox.moe** (#577). They are attached to the GitHub issue with `gh issue create --attach`, which needs `gh` 2.99 or newer and write access to the target repository. Without those the report is filed without them and says so. Attachments on a public repository stay online permanently, even if the issue is deleted, and the preview warns about that.
+- **Nothing leaves before approval.** Screenshots used to be uploaded while the preview was being built, so a cancelled report had already sent them. The preview now also names the destination repository and whether it is public.
+
+### Security
+- **The `!bug` title can no longer run commands on the host.** The title went into a shell string with only double quotes escaped, so `$(...)` and backticks in a bug description were executed. `gh` is now called with an argument list.
+
 ## [1.40.0] - 2026-10-30
 
 ### Fixed
