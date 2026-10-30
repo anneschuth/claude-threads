@@ -10,7 +10,7 @@
 import { EventEmitter } from 'events';
 import { createLogger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
-import { UpdateChecker } from './checker.js';
+import { UpdateChecker, type BlockedUpdate } from './checker.js';
 import { UpdateScheduler, type SessionActivityInfo } from './scheduler.js';
 import { UpdateInstaller, getRollbackInstructions } from './installer.js';
 import type {
@@ -205,6 +205,13 @@ export class AutoUpdateManager extends EventEmitter {
    */
   getUpdateInfo(): UpdateInfo | undefined {
     return this.state.updateInfo;
+  }
+
+  /**
+   * Get the newer release this host cannot run (if any).
+   */
+  getBlockedUpdate(): BlockedUpdate | null {
+    return this.checker.getBlockedUpdate();
   }
 
   /**

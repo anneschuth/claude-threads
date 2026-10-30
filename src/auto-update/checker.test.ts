@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, mock } from 'bun:test';
-import { UpdateChecker } from './checker.js';
+import { UpdateChecker, unmetEngine } from './checker.js';
 import { DEFAULT_AUTO_UPDATE_CONFIG, type AutoUpdateConfig } from './types.js';
 
 // Mock fetch globally
@@ -65,6 +65,46 @@ describe('auto-update/checker', () => {
         const result = await checker.check();
 
         expect(result).toBeNull();
+      });
+
+      it('holds back a release this runtime cannot run', async () => {
+        globalThis.fetch = mockFetch(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({
+              version: '99.0.0',
+              engines: { node: '>=999.0.0', bun: '>=999.0.0' },
+            }),
+          } as Response)
+        );
+
+        const checker = new UpdateChecker(config);
+        const onUpdate = mock(() => {});
+        checker.on('update', onUpdate);
+
+        const result = await checker.check();
+
+        expect(result).toBeNull();
+        expect(onUpdate).not.toHaveBeenCalled();
+        expect(checker.getBlockedUpdate()?.latestVersion).toBe('99.0.0');
+      });
+
+      it('clears the hold once the latest release runs here again', async () => {
+        let engines: Record<string, string> = { node: '>=999.0.0', bun: '>=999.0.0' };
+        globalThis.fetch = mockFetch(() =>
+          Promise.resolve({
+            ok: true,
+            json: () => Promise.resolve({ version: '99.0.0', engines }),
+          } as Response)
+        );
+
+        const checker = new UpdateChecker(config);
+        await checker.check();
+        engines = {};
+        const result = await checker.check();
+
+        expect(result?.latestVersion).toBe('99.0.0');
+        expect(checker.getBlockedUpdate()).toBeNull();
       });
 
       it('returns update info when newer version available', async () => {
@@ -277,5 +317,32 @@ describe('auto-update/checker', () => {
         checker.stop();
       });
     });
+  });
+});
+
+describe('unmetEngine', () => {
+  const engines = { node: '>=22.0.0', bun: '>=1.2.21' };
+
+  it('passes a Node host on the floor', () => {
+    expect(unmetEngine(engines, { node: '22.0.0' })).toBeNull();
+  });
+
+  it('stops a Node host below the floor', () => {
+    expect(unmetEngine(engines, { node: '20.20.2' })).toBe('requires node >=22.0.0, this host runs 20.20.2');
+  });
+
+  it('judges a Bun host by the bun entry, not the node version it reports', () => {
+    expect(unmetEngine(engines, { node: '20.20.2', bun: '1.4.2' })).toBeNull();
+    expect(unmetEngine(engines, { node: '24.0.0', bun: '1.1.0' })).toBe('requires bun >=1.2.21, this host runs 1.1.0');
+  });
+
+  it('accepts a prerelease of a new enough Node', () => {
+    expect(unmetEngine(engines, { node: '23.0.0-nightly' })).toBeNull();
+  });
+
+  it('does not stop updates over missing or unreadable engines', () => {
+    expect(unmetEngine(undefined, { node: '20.0.0' })).toBeNull();
+    expect(unmetEngine({ bun: '>=1.0.0' }, { node: '20.0.0' })).toBeNull();
+    expect(unmetEngine({ node: 'not a range' }, { node: '20.0.0' })).toBeNull();
   });
 });
