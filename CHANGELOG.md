@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
+- ⚠️ **Breaking: Node 22 is now the minimum** (Node 20 reached end of life in April 2026). `ink` 8 requires it. Bun users are unaffected. To stay on Node 20, stay on 1.39.x.
+- `ink` 6 → 8. The log panel now scrolls with `ink`'s own `contentOffsetY`, so `ink-scroll-view` is gone.
 - **Verified against Claude CLI 2.1.314.** `CLAUDE_CLI_LATEST_VERIFIED` moves from 2.1.276 to 2.1.314. The event streams were re-recorded and the decision-bridge e2e passes; the CLI only added fields the bot does not read.
 
 ## [1.39.4] - 2026-10-30

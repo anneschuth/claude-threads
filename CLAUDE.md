@@ -602,19 +602,19 @@ something to do incidentally.
 
 ### Runtime Version Policy
 
-**Floor**: Node 20 (in maintenance LTS through April 2026), Bun 1.2.21.
+**Floor**: Node 22, Bun 1.2.21.
 Both are declared in `package.json#engines`.
 
-**Why Node 20 and not higher**: no production dep requires more, and bumping
-the floor strands users on otherwise-supported LTS lines. Forced to 20 by
-`@hono/node-server@2` in v1.8.2.
+**Why Node 22 and not higher**: no production dep requires more, and bumping
+the floor strands users on otherwise-supported LTS lines. Forced to 22 by
+`ink@7+`, after Node 20 reached end of life in April 2026.
 
 **CI strategy**:
 - Bun is pinned (`BUN_VERSION` env in every workflow) so a Bun release can't
   silently break us. Bump in lockstep when upgrading.
-- `publish.yml` builds under Node 20 (the floor) so any unsafe API call that
+- `publish.yml` builds under Node 22 (the floor) so any unsafe API call that
   only exists on newer Node breaks the build before reaching users.
-- `ci.yml` has a `node-smoke` matrix (`[20, 22, 24]`) that runs the built
+- `ci.yml` has a `node-smoke` matrix (`[22, 24]`) that runs the built
   binary under each currently-relevant Node line.
 - `ci.yml` also has a `node-e2e` matrix (same Node lines) that runs
   `tests/node-e2e/`: the built bot as `node dist/index.js --headless` against
