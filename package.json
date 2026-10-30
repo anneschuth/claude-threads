@@ -1,6 +1,6 @@
 {
   "name": "claude-threads",
-  "version": "1.39.3",
+  "version": "1.39.4",
   "description": "Run Claude Code from Slack or Mattermost. Sessions stream live into threads where your whole team can watch and steer.",
   "main": "dist/index.js",
   "type": "module",
@@ -69,45 +69,45 @@
     "package.json"
   ],
   "dependencies": {
-    "@hono/node-server": "2.1.1",
+    "@hono/node-server": "2.1.5",
     "@inkjs/ui": "^2.0.0",
-    "@modelcontextprotocol/sdk": "^1.26.0",
-    "@redactpii/node": "^1.0.16",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@redactpii/node": "^1.0.19",
     "cli-spinners": "^3.3.0",
     "commander": "^14.0.2",
     "cross-spawn": "^7.0.6",
     "diff": "^8.0.3",
-    "express-rate-limit": "^8.3.0",
-    "hono": "4.13.9",
+    "express-rate-limit": "^8.7.1",
+    "hono": "4.13.13",
     "ink": "^6.6.0",
     "ink-scroll-view": "^0.3.5",
     "js-yaml": "^4.3.1",
     "prompts": "^2.4.2",
-    "react": "^19.2.3",
+    "react": "^19.3.1",
     "semver": "7.8.5",
     "update-notifier": "^7.3.1",
     "ws": "8.22.0",
-    "zod": "^4.3.6"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
     "@types/cross-spawn": "^6.0.6",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.1.1",
+    "@types/node": "^26.6.5",
     "@types/prompts": "^2.4.9",
     "@types/react": "^19.2.7",
     "@types/semver": "^7.7.1",
     "@types/update-notifier": "^6.0.8",
-    "@types/ws": "^8.18.0",
-    "eslint": "^10.7.0",
+    "@types/ws": "^8.18.2",
+    "eslint": "^10.13.0",
     "husky": "^9.1.7",
-    "knip": "6.38.0",
+    "knip": "6.41.0",
     "lint-staged": "^17.0.4",
-    "prettier": "^3.9.5",
+    "prettier": "^3.9.10",
     "react-devtools-core": "^8.0.0",
     "typescript": "^6.0.2",
-    "typescript-eslint": "^8.64.0"
+    "typescript-eslint": "^8.71.2"
   },
   "engines": {
     "node": ">=20.0.0",
@@ -126,11 +126,13 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=4.2.1",
+    "fast-uri": ">=4.2.3",
     "brace-expansion": ">=5.0.9",
     "ip-address": ">=10.3.1",
     "ws": "$ws",
-    "shell-quote": ">=1.10.0"
+    "shell-quote": ">=1.12.0",
+    "proxy-addr": ">=2.0.8",
+    "body-parser": ">=2.4.0"
   },
   "resolutions": {
     "hono": "$hono",
@@ -139,10 +141,12 @@
     "flatted": ">=3.4.0",
     "picomatch": ">=2.3.2",
     "path-to-regexp": ">=8.4.0",
-    "fast-uri": ">=4.2.1",
+    "fast-uri": ">=4.2.3",
     "brace-expansion": ">=5.0.9",
     "ip-address": ">=10.3.1",
     "ws": "$ws",
-    "shell-quote": ">=1.10.0"
+    "shell-quote": ">=1.12.0",
+    "proxy-addr": ">=2.0.8",
+    "body-parser": ">=2.4.0"
   }
 }
