@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A stray `_` no longer appears before the reply.** Thinking text can end in blank lines, which pushed the closing italic marker of the 💭 line onto the reply below, leaving a visible `_` on both. The preview is now flattened to one line, which also keeps multi-paragraph thinking inside its quote. A thinking block with only whitespace is skipped.
+
 ### Changed
 - ⚠️ **Breaking: Node 22 is now the minimum** (Node 20 reached end of life in April 2026). `ink` 8 requires it. Bun users are unaffected. To stay on Node 20, stay on 1.39.x.
 - `ink` 6 → 8. The log panel now scrolls with `ink`'s own `contentOffsetY`, so `ink-scroll-view` is gone.

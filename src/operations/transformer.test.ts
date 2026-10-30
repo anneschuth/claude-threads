@@ -93,6 +93,33 @@ describe('Event Transformer', () => {
       expect((ops[0] as { content: string }).content).toContain('Read');
     });
 
+    it('keeps the thinking preview on one line so its italic markers match', () => {
+      const event: ClaudeEvent = {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'thinking', thinking: 'First paragraph.\n\nSecond paragraph.\n\n' },
+            { type: 'text', text: 'Hi there' },
+          ],
+        },
+      };
+
+      const ops = transformEvent(event, ctx);
+
+      expect((ops[0] as { content: string }).content).toBe('> 💭 _First paragraph. Second paragraph._\n\nHi there');
+    });
+
+    it('skips a thinking block with only whitespace', () => {
+      const event: ClaudeEvent = {
+        type: 'assistant',
+        message: { content: [{ type: 'thinking', thinking: '\n\n' }, { type: 'text', text: 'Hi there' }] },
+      };
+
+      const ops = transformEvent(event, ctx);
+
+      expect((ops[0] as { content: string }).content).toBe('Hi there');
+    });
+
     it('handles thinking blocks', () => {
       const event: ClaudeEvent = {
         type: 'assistant',
