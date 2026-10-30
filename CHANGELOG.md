@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A stray `_` no longer appears before the reply.** Thinking text can end in blank lines, which pushed the closing italic marker of the 💭 line onto the reply below, leaving a visible `_` on both. The preview is now flattened to one line, which also keeps multi-paragraph thinking inside its quote. A thinking block with only whitespace is skipped.
+
 ### Changed
 - **Verified against Claude CLI 2.1.314.** `CLAUDE_CLI_LATEST_VERIFIED` moves from 2.1.276 to 2.1.314. The event streams were re-recorded and the decision-bridge e2e passes; the CLI only added fields the bot does not read.
 
