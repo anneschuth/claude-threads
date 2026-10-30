@@ -129,6 +129,7 @@ function createSessionContext(): SessionContext {
       permissionMode: 'bypass',
       chromeEnabled: false,
       bugReportsEnabled: true,
+      bugReportRepo: 'test-owner/test-repo',
       maxSessions: 5,
     },
     state: {

@@ -19,7 +19,7 @@ import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '.
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import { GitHubEmailsStore } from '../persistence/github-emails-store.js';
-import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_TURN_MARKER, DEFAULT_MEMORY_CONFIG, DEFAULT_TOOL_ACTIVITY, resolveLimits, effectivePermissionMode } from '../config/index.js';
+import { WorktreeMode, type LimitsConfig, type ResolvedLimits, type ClaudeAccount, type UsageConfig, type PermissionMode, type OverheadVisibility, type PlatformOverhead, type ResolvedMemoryConfig, DEFAULT_OVERHEAD_VISIBILITY, DEFAULT_TURN_MARKER, DEFAULT_MEMORY_CONFIG, DEFAULT_TOOL_ACTIVITY, DEFAULT_BUG_REPORT_REPO, resolveLimits, effectivePermissionMode } from '../config/index.js';
 import { MemoryStore } from '../memory/store.js';
 import { RoutinesStore, type Routine, type RoutineRunStatus } from '../persistence/routines-store.js';
 import { WatchesStore } from '../persistence/watches-store.js';
@@ -108,6 +108,8 @@ export class SessionManager extends EventEmitter {
   private threadLogsEnabled: boolean;
   /** Top-level `bugReports`; false removes the whole `!bug` path. */
   private bugReportsEnabled: boolean;
+  /** Top-level `bugReports: { repo }`; where `!bug` files its issue. */
+  private bugReportRepo: string;
   private usageShowEmails: boolean;
   private threadLogsRetentionDays: number;
   // Resolved limits configuration
@@ -192,7 +194,8 @@ export class SessionManager extends EventEmitter {
     respondOnlyWhenMentioned = false,
     userAttribution = true,
     bugReportsEnabled = true,
-    usage?: UsageConfig
+    usage?: UsageConfig,
+    bugReportRepo = DEFAULT_BUG_REPORT_REPO
   ) {
     super();
     this.workingDir = workingDir;
@@ -205,6 +208,7 @@ export class SessionManager extends EventEmitter {
     this.respondOnlyWhenMentioned = respondOnlyWhenMentioned;
     this.userAttribution = userAttribution;
     this.bugReportsEnabled = bugReportsEnabled;
+    this.bugReportRepo = bugReportRepo;
     this.threadLogsEnabled = threadLogsEnabled;
     this.threadLogsRetentionDays = threadLogsRetentionDays;
     this.limits = resolveLimits(limits);
@@ -423,6 +427,7 @@ export class SessionManager extends EventEmitter {
       permissionTimeoutMs: this.limits.permissionTimeoutSeconds * 1000,
       flushDelayMs: this.limits.flushDelayMs,
       bugReportsEnabled: this.bugReportsEnabled,
+      bugReportRepo: this.bugReportRepo,
     };
 
     const state: SessionState = {

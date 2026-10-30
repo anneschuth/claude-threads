@@ -133,8 +133,6 @@ describe('TypedEventEmitter', () => {
           title: 'Bug Report Title',
           body: 'Bug report body content',
           userDescription: 'User description of the bug',
-          imageUrls: [],
-          imageErrors: [],
           errorContext: {
             postId: 'error-post-1',
             message: 'Test error',
@@ -506,8 +504,6 @@ describe('Event Payload Types', () => {
         title: 'Bug Report',
         body: 'Report body',
         userDescription: 'User description',
-        imageUrls: [],
-        imageErrors: [],
         errorContext: {
           postId: 'error-post-1',
           message: 'Error message',

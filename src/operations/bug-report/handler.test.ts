@@ -2,7 +2,8 @@
  * Bug Report Module Tests
  */
 
-import { describe, test, expect } from 'bun:test';
+import { describe, test, expect, mock } from 'bun:test';
+import { existsSync, readFileSync, statSync } from 'fs';
 import {
   sanitizePath,
   sanitizeText,
@@ -12,8 +13,14 @@ import {
   getRecentEvents,
   formatBugPreview,
   checkGitHubCli,
-  uploadImages,
+  inspectBugReportTarget,
+  createGitHubIssue,
+  selectScreenshots,
+  saveScreenshots,
+  withOmittedScreenshots,
   type BugReportContext,
+  type BugReportTarget,
+  type GhExec,
   type RecentEvent,
 } from './handler.js';
 import type { Session } from '../../session/types.js';
@@ -324,6 +331,9 @@ describe('formatIssueBody', () => {
 // =============================================================================
 
 describe('formatBugPreview', () => {
+  const publicTarget: BugReportTarget = { repo: 'owner/public', isPublic: true, canAttach: true };
+  const privateTarget: BugReportTarget = { repo: 'owner/private', isPublic: false, canAttach: true };
+
   const mockFormatter = {
     formatBold: (text: string) => `**${text}**`,
     formatCode: (text: string) => `\`${text}\``,
@@ -346,18 +356,18 @@ describe('formatBugPreview', () => {
   };
 
   test('includes title', () => {
-    const preview = formatBugPreview('Test title', 'Test desc', mockContext, [], [], mockFormatter);
+    const preview = formatBugPreview('Test title', 'Test desc', mockContext, publicTarget, 0, [], mockFormatter);
     expect(preview).toContain('**Title:**');
     expect(preview).toContain('Test title');
   });
 
   test('includes description as blockquote', () => {
-    const preview = formatBugPreview('Title', 'Bug description', mockContext, [], [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Bug description', mockContext, publicTarget, 0, [], mockFormatter);
     expect(preview).toContain('> Bug description');
   });
 
   test('includes environment info', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, [], [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Desc', mockContext, publicTarget, 0, [], mockFormatter);
     expect(preview).toContain('v0.49.0');
     expect(preview).toContain('2.0.76');
     expect(preview).toContain('mattermost');
@@ -365,23 +375,39 @@ describe('formatBugPreview', () => {
   });
 
   test('includes approval instructions', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, [], [], mockFormatter);
+    const preview = formatBugPreview('Title', 'Desc', mockContext, publicTarget, 0, [], mockFormatter);
     expect(preview).toContain('👍');
     expect(preview).toContain('👎');
     expect(preview).toContain('GitHub issue');
     expect(preview).toContain('cancel');
   });
 
-  test('shows uploaded images count', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, ['https://files.catbox.moe/abc.png'], [], mockFormatter);
-    expect(preview).toContain('Screenshots');
-    expect(preview).toContain('1 image(s) uploaded');
+  test('names the destination and says when it is public', () => {
+    const publicPreview = formatBugPreview('Title', 'Desc', mockContext, publicTarget, 0, [], mockFormatter);
+    expect(publicPreview).toContain('`owner/public`');
+    expect(publicPreview).toContain('public: anyone can read it');
+
+    const privatePreview = formatBugPreview('Title', 'Desc', mockContext, privateTarget, 0, [], mockFormatter);
+    expect(privatePreview).toContain('`owner/private`');
+    expect(privatePreview).not.toContain('public');
   });
 
-  test('shows image upload errors', () => {
-    const preview = formatBugPreview('Title', 'Desc', mockContext, [], ['screenshot.png: Upload failed'], mockFormatter);
+  test('warns that a screenshot on a public repo cannot be removed', () => {
+    const preview = formatBugPreview('Title', 'Desc', mockContext, publicTarget, 1, [], mockFormatter);
+    expect(preview).toContain('1 image(s) will be attached');
+    expect(preview).toContain('stay online permanently');
+  });
+
+  test('does not warn about permanence on a private repo', () => {
+    const preview = formatBugPreview('Title', 'Desc', mockContext, privateTarget, 1, [], mockFormatter);
+    expect(preview).toContain('1 image(s) will be attached');
+    expect(preview).not.toContain('stay online permanently');
+  });
+
+  test('says which images stay behind and why', () => {
+    const preview = formatBugPreview('Title', 'Desc', mockContext, publicTarget, 0, ['a.png: larger than 10 MB'], mockFormatter);
     expect(preview).toContain('Screenshots');
-    expect(preview).toContain('1 image(s) failed');
+    expect(preview).toContain('1 image(s) not attached (a.png: larger than 10 MB)');
   });
 });
 
@@ -408,8 +434,8 @@ describe('checkGitHubCli', () => {
   });
 
   test('reports not authenticated when gh auth status fails', () => {
-    const result = checkGitHubCli((command) => {
-      if (command === 'gh auth status') throw new Error('not logged in');
+    const result = checkGitHubCli((args) => {
+      if (args[0] === 'auth') throw new Error('not logged in');
       return '';
     });
     expect(result.installed).toBe(true);
@@ -419,64 +445,222 @@ describe('checkGitHubCli', () => {
 });
 
 // =============================================================================
-// uploadImages tests
+// inspectBugReportTarget tests
 // =============================================================================
 
-describe('uploadImages', () => {
-  test('filters non-image files', async () => {
-    const files: PlatformFile[] = [
-      { id: '1', name: 'doc.pdf', size: 1000, mimeType: 'application/pdf' },
-      { id: '2', name: 'text.txt', size: 100, mimeType: 'text/plain' },
-    ];
+describe('inspectBugReportTarget', () => {
+  const ghWith = (repo: { viewerPermission?: string; visibility?: string }, version = '2.103.3'): GhExec =>
+    (args) => (args[0] === '--version' ? `gh version ${version} (2026-10-26)\n` : JSON.stringify(repo));
 
-    const mockDownload = async (_id: string) => Buffer.from('test');
-    const results = await uploadImages(files, mockDownload);
-
-    expect(results).toHaveLength(2);
-    expect(results[0].success).toBe(false);
-    expect(results[0].error).toBe('Not an image file');
-    expect(results[1].success).toBe(false);
-    expect(results[1].error).toBe('Not an image file');
+  test('can attach with write access on a new enough gh', () => {
+    const target = inspectBugReportTarget('o/r', ghWith({ viewerPermission: 'WRITE', visibility: 'PRIVATE' }));
+    expect(target).toEqual({ repo: 'o/r', isPublic: false, canAttach: true });
   });
 
-  test('handles download errors gracefully', async () => {
-    const files: PlatformFile[] = [
-      { id: '1', name: 'image.png', size: 1000, mimeType: 'image/png' },
-    ];
-
-    const mockDownload = async (_id: string): Promise<Buffer> => {
-      throw new Error('Download failed');
-    };
-    const results = await uploadImages(files, mockDownload);
-
-    expect(results).toHaveLength(1);
-    expect(results[0].success).toBe(false);
-    expect(results[0].error).toContain('Download failed');
-    expect(results[0].originalFile.name).toBe('image.png');
+  test('cannot attach without write access', () => {
+    const target = inspectBugReportTarget('o/r', ghWith({ viewerPermission: 'READ', visibility: 'PUBLIC' }));
+    expect(target.canAttach).toBe(false);
+    expect(target.isPublic).toBe(true);
+    expect(target.attachBlocker).toContain('write access');
   });
 
-  test('preserves original file info in results', async () => {
-    const files: PlatformFile[] = [
-      { id: 'file123', name: 'screenshot.jpg', size: 5000, mimeType: 'image/jpeg' },
-    ];
+  test('cannot attach on a gh older than 2.99', () => {
+    const target = inspectBugReportTarget('o/r', ghWith({ viewerPermission: 'ADMIN', visibility: 'PUBLIC' }, '2.98.0'));
+    expect(target.canAttach).toBe(false);
+    expect(target.attachBlocker).toContain('2.99.0');
+  });
 
-    // This will fail because we can't actually upload, but it tests the structure
-    const mockDownload = async (_id: string): Promise<Buffer> => {
-      throw new Error('Mock error');
-    };
-    const results = await uploadImages(files, mockDownload);
+  test('leaves an empty permission to the endpoint, as gh does for an app installation', () => {
+    const target = inspectBugReportTarget('o/r', ghWith({ viewerPermission: '', visibility: 'PUBLIC' }));
+    expect(target.canAttach).toBe(true);
+  });
 
-    expect(results[0].originalFile.id).toBe('file123');
-    expect(results[0].originalFile.name).toBe('screenshot.jpg');
-    expect(results[0].originalFile.mimeType).toBe('image/jpeg');
+  test('treats a repo it cannot read as public', () => {
+    const target = inspectBugReportTarget('o/r', () => {
+      throw new Error('Could not resolve to a Repository');
+    });
+    expect(target.isPublic).toBe(true);
+    expect(target.canAttach).toBe(false);
   });
 });
 
 // =============================================================================
-// formatIssueBody with images tests
+// selectScreenshots tests
 // =============================================================================
 
-describe('formatIssueBody with images', () => {
+describe('selectScreenshots', () => {
+  const canAttach: BugReportTarget = { repo: 'o/r', isPublic: true, canAttach: true };
+  const png: PlatformFile = { id: '1', name: 'a.png', size: 1000, mimeType: 'image/png' };
+
+  test('keeps images and explains the rest', () => {
+    const pdf: PlatformFile = { id: '2', name: 'doc.pdf', size: 1000, mimeType: 'application/pdf' };
+    const big: PlatformFile = { id: '3', name: 'big.png', size: 11 * 1024 * 1024, mimeType: 'image/png' };
+
+    const { screenshots, skipped } = selectScreenshots([png, pdf, big], canAttach);
+
+    expect(screenshots).toEqual([png]);
+    expect(skipped).toEqual(['doc.pdf: not an image', 'big.png: larger than 10 MB']);
+  });
+
+  test('keeps nothing when the target cannot take attachments', () => {
+    const { screenshots, skipped } = selectScreenshots([png], {
+      ...canAttach,
+      canAttach: false,
+      attachBlocker: 'attaching needs write access to o/r',
+    });
+
+    expect(screenshots).toEqual([]);
+    expect(skipped).toEqual(['a.png: attaching needs write access to o/r']);
+  });
+});
+
+// =============================================================================
+// saveScreenshots tests
+// =============================================================================
+
+describe('saveScreenshots', () => {
+  test('writes owner-only files and removes them on cleanup', async () => {
+    const saved = await saveScreenshots(
+      [{ id: '1', name: 'my shot#1.png', size: 4, mimeType: 'image/png' }],
+      async () => Buffer.from('data')
+    );
+
+    expect(saved.failed).toBe(0);
+    expect(saved.paths).toHaveLength(1);
+    // Not the uploaded name: it reaches a command line, and `#` starts alt text.
+    expect(saved.paths[0]).toEndWith('/screenshot-1.png');
+    expect(readFileSync(saved.paths[0], 'utf-8')).toBe('data');
+    expect(statSync(saved.paths[0]).mode & 0o777).toBe(0o600);
+
+    saved.cleanup();
+    expect(existsSync(saved.paths[0])).toBe(false);
+  });
+
+  test('counts a failed download and keeps the rest', async () => {
+    const saved = await saveScreenshots(
+      [
+        { id: 'bad', name: 'a.png', size: 1, mimeType: 'image/png' },
+        { id: 'good', name: 'b.jpg', size: 1, mimeType: 'image/jpeg', extension: 'jpg' },
+      ],
+      async (id) => {
+        if (id === 'bad') throw new Error('Download failed');
+        return Buffer.from('data');
+      }
+    );
+
+    expect(saved.failed).toBe(1);
+    expect(saved.paths).toHaveLength(1);
+    expect(saved.paths[0]).toEndWith('/screenshot-2.jpg');
+    saved.cleanup();
+  });
+
+  test('counts everything as failed on a platform that cannot download', async () => {
+    const saved = await saveScreenshots([{ id: '1', name: 'a.png', size: 1, mimeType: 'image/png' }], undefined);
+
+    expect(saved.failed).toBe(1);
+    expect(saved.paths).toEqual([]);
+    saved.cleanup();
+  });
+});
+
+// =============================================================================
+// createGitHubIssue tests
+// =============================================================================
+
+describe('createGitHubIssue', () => {
+  const issueUrl = 'https://github.com/o/r/issues/7';
+
+  /** A gh whose `issue create` is `create`; everything else succeeds. */
+  function fakeGh(create: (args: string[], body: string) => string) {
+    return mock<GhExec>((args) => {
+      if (args[0] !== 'issue') return '';
+      return create(args, readFileSync(args[args.indexOf('--body-file') + 1], 'utf-8'));
+    });
+  }
+
+  const createCalls = (exec: ReturnType<typeof fakeGh>) =>
+    exec.mock.calls.map(([args]) => args).filter((args) => args[0] === 'issue');
+
+  test('passes hostile text as one argument, so a shell can never read it', async () => {
+    const title = 'crash $(touch /tmp/pwned) `id` "quoted"';
+    const exec = fakeGh(() => `${issueUrl}\n`);
+
+    const issue = await createGitHubIssue(title, 'body', '/tmp', { repo: 'o/r', exec });
+
+    expect(issue).toEqual({ url: issueUrl, attachmentsIncomplete: false });
+    const [args] = createCalls(exec);
+    expect(args[args.indexOf('--title') + 1]).toBe(title);
+    expect(args[args.indexOf('--repo') + 1]).toBe('o/r');
+    expect(args).not.toContain('--attach');
+  });
+
+  test('attaches each screenshot with alt text', async () => {
+    const exec = fakeGh(() => `${issueUrl}\n`);
+
+    await createGitHubIssue('T', 'B', '/tmp', { repo: 'o/r', attachments: ['/t/a.png', '/t/b.png'], exec });
+
+    const [args] = createCalls(exec);
+    expect(args.filter((_, i) => args[i - 1] === '--attach')).toEqual(['/t/a.png#Screenshot 1', '/t/b.png#Screenshot 2']);
+  });
+
+  test('does not file twice when gh fails after creating the issue', async () => {
+    // Part of the uploads succeeded: gh creates the issue, prints its URL and
+    // exits non-zero. A retry here would be a duplicate public issue.
+    const exec = fakeGh(() => {
+      throw Object.assign(new Error('exit 1'), { stdout: `${issueUrl}\n`, stderr: 'could not upload' });
+    });
+
+    const issue = await createGitHubIssue('T', 'B', '/tmp', { repo: 'o/r', attachments: ['/t/a.png'], exec });
+
+    expect(issue).toEqual({ url: issueUrl, attachmentsIncomplete: true });
+    expect(createCalls(exec)).toHaveLength(1);
+  });
+
+  test('files without screenshots when gh could not upload any', async () => {
+    // Nothing uploaded means gh refused before creating anything, so the
+    // report is filed once more, without attachments, and says so.
+    const bodies: string[] = [];
+    const exec = fakeGh((args, body) => {
+      bodies.push(body);
+      if (args.includes('--attach')) {
+        throw Object.assign(new Error('exit 1'), { stdout: '', stderr: 'requires write access' });
+      }
+      return `${issueUrl}\n`;
+    });
+
+    const issue = await createGitHubIssue('T', 'B', '/tmp', { repo: 'o/r', attachments: ['/t/a.png'], exec });
+
+    expect(issue).toEqual({ url: issueUrl, attachmentsIncomplete: true });
+    expect(createCalls(exec)).toHaveLength(2);
+    expect(bodies[1]).toBe(withOmittedScreenshots('B', 1));
+  });
+
+  test('does not retry after a timeout, the issue may already exist', async () => {
+    const exec = fakeGh(() => {
+      throw Object.assign(new Error('timed out'), { code: 'ETIMEDOUT', stdout: '' });
+    });
+
+    await expect(
+      createGitHubIssue('T', 'B', '/tmp', { repo: 'o/r', attachments: ['/t/a.png'], exec })
+    ).rejects.toThrow('timed out');
+    expect(createCalls(exec)).toHaveLength(1);
+  });
+
+  test('still throws when a report without screenshots fails', async () => {
+    const exec = fakeGh(() => {
+      throw new Error('repository not found');
+    });
+
+    await expect(createGitHubIssue('T', 'B', '/tmp', { repo: 'o/r', exec })).rejects.toThrow('repository not found');
+    expect(createCalls(exec)).toHaveLength(1);
+  });
+});
+
+// =============================================================================
+// formatIssueBody with screenshots tests
+// =============================================================================
+
+describe('formatIssueBody with screenshots', () => {
   const mockContext: BugReportContext = {
     version: '0.50.0',
     claudeCliVersion: '2.0.76',
@@ -491,23 +675,14 @@ describe('formatIssueBody with images', () => {
     recentEvents: [],
   };
 
-  test('includes screenshots section when images provided', () => {
-    const body = formatIssueBody(mockContext, 'Bug description', ['https://files.catbox.moe/abc.png']);
+  test('mentions screenshots that could not be attached', () => {
+    const body = formatIssueBody(mockContext, 'Bug description', 2);
     expect(body).toContain('## Screenshots');
-    expect(body).toContain('![Screenshot 1](https://files.catbox.moe/abc.png)');
+    expect(body).toContain('2 screenshot(s) were shared in the chat thread');
   });
 
-  test('includes multiple screenshots', () => {
-    const body = formatIssueBody(mockContext, 'Bug', [
-      'https://files.catbox.moe/a.png',
-      'https://files.catbox.moe/b.png',
-    ]);
-    expect(body).toContain('![Screenshot 1](https://files.catbox.moe/a.png)');
-    expect(body).toContain('![Screenshot 2](https://files.catbox.moe/b.png)');
-  });
-
-  test('omits screenshots section when no images', () => {
-    const body = formatIssueBody(mockContext, 'Bug description', []);
+  test('omits the section when nothing was left behind', () => {
+    const body = formatIssueBody(mockContext, 'Bug description');
     expect(body).not.toContain('## Screenshots');
   });
 });
