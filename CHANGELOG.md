@@ -5,15 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.40.0] - 2026-10-30
 
 ### Fixed
-- **A stray `_` no longer appears before the reply.** Thinking text can end in blank lines, which pushed the closing italic marker of the 💭 line onto the reply below, leaving a visible `_` on both. The preview is now flattened to one line, which also keeps multi-paragraph thinking inside its quote. A thinking block with only whitespace is skipped.
+- **A stray `_` no longer appears before the reply.** Thinking text can end in blank lines, which pushed the closing italic marker of the 💭 line onto the reply below, leaving a visible `_` on both. The preview is now flattened to one line, which also keeps multi-paragraph thinking inside its quote. A thinking block with only whitespace is skipped (#654).
 
 ### Changed
-- ⚠️ **Breaking: Node 22 is now the minimum** (Node 20 reached end of life in April 2026). `ink` 8 requires it. Bun users are unaffected. To stay on Node 20, stay on 1.39.x.
-- `ink` 6 → 8. The log panel now scrolls with `ink`'s own `contentOffsetY`, so `ink-scroll-view` is gone.
-- **Verified against Claude CLI 2.1.314.** `CLAUDE_CLI_LATEST_VERIFIED` moves from 2.1.276 to 2.1.314. The event streams were re-recorded and the decision-bridge e2e passes; the CLI only added fields the bot does not read.
+- ⚠️ **Breaking: Node 22 is now the minimum** (Node 20 reached end of life in April 2026). `ink` 8 requires it. Bun users are unaffected. To stay on Node 20, stay on 1.39.x and turn off `autoUpdate`, because the updater does not check `engines` (#653).
+- `ink` 6 → 8. The log panel now scrolls with `ink`'s own `contentOffsetY`, so `ink-scroll-view` is gone (#653).
+- **Verified against Claude CLI 2.1.314.** `CLAUDE_CLI_LATEST_VERIFIED` moves from 2.1.276 to 2.1.314. The event streams were re-recorded and the decision-bridge e2e passes; the CLI only added fields the bot does not read (#652).
 
 ## [1.39.4] - 2026-10-30
 
