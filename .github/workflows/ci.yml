@@ -31,6 +31,9 @@ jobs:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
+          # The action's default binary (v0.70.0) is older than the minimum
+          # several current checks require, so Trivy skipped them silently.
+          version: "v0.76.1"
           scan-type: "fs"
           scan-ref: "."
           scanners: "vuln,secret,misconfig"
