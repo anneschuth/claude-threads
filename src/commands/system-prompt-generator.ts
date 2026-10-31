@@ -177,7 +177,7 @@ export function formatCollaboratorListForChat(collaborators: ResolvedCollaborato
  * System-prompt note for per-message user attribution. Appended by
  * `buildAppendSystemPrompt` ONLY when the session has `userAttribution`
  * enabled — otherwise Claude would be told about a prefix that never
- * arrives (the feature is opt-in, default off).
+ * arrives (the setting defaults to enabled for new sessions).
  */
 export const USER_ATTRIBUTION_NOTE =
   'Each user message is prefixed with `[@username]:` identifying who sent it. Treat the prefix as metadata about the speaker — do not echo it in your replies and do not include it in commit messages.';
