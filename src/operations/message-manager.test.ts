@@ -928,13 +928,13 @@ describe('MessageManager', () => {
   });
 
   describe('handleUserMessage attribution', () => {
-    it('prefixes the sent message with the sender login when the session flag is on', async () => {
+    it('keeps solo turns unprefixed and attributes an uninvited platform user and later owner turns', async () => {
       session.userAttribution = true;
-      // Attribution only applies once a thread is genuinely shared.
-      session.sessionAllowedUsers.add('collaborator');
-      await manager.handleUserMessage('deploy it', undefined, 'alice');
-      const sent = (session.claude.sendMessage as any).mock.calls[0][0];
-      expect(sent).toBe('[@alice]: deploy it');
+      await manager.handleUserMessage('solo', undefined, 'testuser');
+      await manager.handleUserMessage('colleague', undefined, 'alice');
+      await manager.handleUserMessage('owner again', undefined, 'testuser');
+      const calls = (session.claude.sendMessage as any).mock.calls;
+      expect(calls.map((call: any[]) => call[0])).toEqual(['solo', '[@alice]: colleague', '[@testuser]: owner again']);
     });
 
     it('sends the raw message when the session flag is off (default)', async () => {
@@ -945,8 +945,6 @@ describe('MessageManager', () => {
 
     it('does NOT attribute when no username is provided (system/control send)', async () => {
       session.userAttribution = true;
-      // Attribution only applies once a thread is genuinely shared.
-      session.sessionAllowedUsers.add('collaborator');
       await manager.handleUserMessage('/context', undefined, undefined);
       const sent = (session.claude.sendMessage as any).mock.calls[0][0];
       expect(sent).toBe('/context');
@@ -961,7 +959,6 @@ describe('MessageManager', () => {
       // A revert to "wrap the whole sideContext+message" would prefix bob's
       // words with [@alice]: and fail the negative assertion below.
       session.userAttribution = true;
-      // Attribution only applies once a thread is genuinely shared.
       session.sessionAllowedUsers.add('collaborator');
       session.pendingSideConversations = [
         { fromUser: 'bob', mentionedUser: 'carol', message: 'ping carol', timestamp: new Date() },
