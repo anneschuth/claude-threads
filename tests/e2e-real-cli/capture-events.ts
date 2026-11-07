@@ -17,6 +17,7 @@
  */
 import { spawn, execSync, type ChildProcess } from 'node:child_process';
 import { writeFileSync, mkdirSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DecisionBridgeServer } from '../../src/mcp/decision-bridge.js';
@@ -230,7 +231,10 @@ async function runFlow(flow: Flow): Promise<void> {
     eventCount: events.length,
   };
   const outPath = join(CAPTURE_DIR, `${flow.name}.jsonl`);
-  writeFileSync(outPath, [JSON.stringify(meta), ...events].join('\n') + '\n');
+  // Captures are committed to a public repo: the CLI reports absolute paths
+  // (memory dir, plan files) under the recorder's home.
+  const scrubHome = (line: string) => line.replaceAll(homedir(), '/home/user');
+  writeFileSync(outPath, [JSON.stringify(meta), ...events].map(scrubHome).join('\n') + '\n');
   console.log(`[capture] ✔ ${flow.name}: ${events.length} events → ${outPath}`);
   if (events.length === 0) {
     console.log(`[capture]   stderr tail: ${stderrLines.join('').slice(-500)}`);

@@ -87,7 +87,7 @@ jobs:
       - uses: actions/setup-node@v7
         if: steps.check.outputs.release == 'true'
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
       - run: bun install

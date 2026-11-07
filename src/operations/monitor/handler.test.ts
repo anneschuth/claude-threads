@@ -22,6 +22,7 @@ function createMockContext(): SessionContext {
       chromeEnabled: false,
       debug: false,
       bugReportsEnabled: true,
+      bugReportRepo: 'test-owner/test-repo',
       maxSessions: 5,
     },
     ops: {} as never,

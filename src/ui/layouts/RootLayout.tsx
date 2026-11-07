@@ -30,8 +30,8 @@ interface RootLayoutProps {
  */
 export function RootLayout({ header, footer, modal, children }: RootLayoutProps) {
   const { stdout } = useStdout();
-  const terminalRows = stdout?.rows ?? 24;
-  const terminalCols = stdout?.columns ?? 80;
+  const terminalRows = (stdout as NodeJS.WriteStream)?.rows ?? 24;
+  const terminalCols = (stdout as NodeJS.WriteStream)?.columns ?? 80;
 
   // Header and footer have fixed heights
   const headerHeight = 5; // Logo (3 lines + border)

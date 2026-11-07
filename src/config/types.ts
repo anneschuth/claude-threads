@@ -468,21 +468,32 @@ export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): bool
   return resolveBooleanFeature(value, fieldPath ?? 'auditLog', { default: false, verb: 'audit log stays off' });
 }
 
+/** Where `!bug` files a report unless `bugReports: { repo }` says otherwise. */
+export const DEFAULT_BUG_REPORT_REPO = 'anneschuth/claude-threads';
+
+const GITHUB_REPO_PATTERN = /^[A-Za-z0-9][\w.-]*\/[A-Za-z0-9][\w.-]*$/;
+
+function isBugReportRepoConfig(value: unknown): value is { repo: string } {
+  const repo = (value as { repo?: unknown } | null)?.repo;
+  return typeof repo === 'string' && GITHUB_REPO_PATTERN.test(repo);
+}
+
 /**
  * Normalize the top-level `bugReports` field.
  *
  * `!bug` is the one command that sends session data OFF the operator's
- * infrastructure: screenshots to a public anonymous file host, and a report
- * body — session context plus recent daemon log lines — to a public GitHub
- * issue on the maintainer's repository. Redaction is best-effort by
- * construction, and `claudeCanExecute` means the agent can trigger it without
- * a human typing anything.
+ * infrastructure: a report body — session context plus recent daemon log
+ * lines — and any attached screenshots go to a GitHub issue, by default on the
+ * maintainer's public repository. Redaction is best-effort by construction,
+ * and `claudeCanExecute` means the agent can trigger it without a human typing
+ * anything.
  *
- * Unlike its siblings this **fails closed**: absent or `true` keeps today's
- * behaviour, but any malformed value disables the feature rather than falling
- * back to enabled. A `bugReports: "flase"` in a config an operator wrote in
- * order to RESTRICT the bot must not silently leave the egress path open —
- * the other flags fall back to something harmless, this one would not.
+ * Unlike its siblings this **fails closed**: absent, `true` or
+ * `{ repo: owner/name }` keep the feature on, but any malformed value disables
+ * it rather than falling back to enabled. A `bugReports: "flase"` in a config an
+ * operator wrote in order to RESTRICT the bot must not silently leave the egress
+ * path open, and neither may a mistyped `repo` quietly report to the public
+ * default — the other flags fall back to something harmless, this one would not.
  */
 export function resolveBugReportsEnabled(value: unknown, fieldPath?: string): boolean {
   // Only a genuinely ABSENT key means "keep today's behaviour". `null` is what
@@ -492,11 +503,17 @@ export function resolveBugReportsEnabled(value: unknown, fieldPath?: string): bo
   if (value === undefined) return true;
   if (value === true) return true;
   if (value === false) return false;
+  if (isBugReportRepoConfig(value)) return true;
   console.warn(
-    `Invalid ${fieldPath ?? 'bugReports'} config: expected boolean, got ${JSON.stringify(value)} — ` +
+    `Invalid ${fieldPath ?? 'bugReports'} config: expected boolean or { repo: owner/name }, got ${JSON.stringify(value)} — ` +
     `bug reports are DISABLED (this flag fails closed: it controls data leaving your infrastructure)`,
   );
   return false;
+}
+
+/** The repository `!bug` files on; only meaningful when bug reports are enabled. */
+export function resolveBugReportRepo(value: unknown): string {
+  return isBugReportRepoConfig(value) ? value.repo : DEFAULT_BUG_REPORT_REPO;
 }
 
 /**
@@ -837,10 +854,11 @@ export interface Config {
   keepAlive?: boolean; // Optional, defaults to true when undefined
   /**
    * Allow `!bug` to file a report. Default `true`. Set `false` to remove the
-   * command entirely — see resolveBugReportsEnabled for what it sends and
-   * where. Fails closed on a malformed value.
+   * command entirely, or `{ repo: owner/name }` to file in your own repository
+   * — see resolveBugReportsEnabled for what it sends and where. Fails closed
+   * on a malformed value.
    */
-  bugReports?: boolean;
+  bugReports?: boolean | { repo: string };
   autoUpdate?: Partial<AutoUpdateConfig>; // Optional auto-update configuration
   threadLogs?: ThreadLogsConfig; // Optional thread logging configuration
   limits?: LimitsConfig; // Optional resource limits and timeouts

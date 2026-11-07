@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.40.2] - 2026-10-30
+
+### Changed
+- `hono` 4.13.14, plus dev tooling (#655, #656).
+
+### Fixed
+- **Auto-update respects `engines`.** The updater now skips a release this host's Node or Bun cannot run, logs why, and `!update` says so instead of reporting "Up to date". npm only warns about `engines`, so an update used to install anyway. A host that is held back gets no further releases until its runtime is upgraded (#659).
+
+## [1.40.1] - 2026-10-30
+
+### Added
+- **`bugReports: { repo: owner/name }` files `!bug` reports in your own repository** (#577). `true` and `false` keep their meaning, and a malformed `repo` disables bug reports rather than falling back to the public default.
+
+### Changed
+- **Screenshots no longer go to catbox.moe** (#577). They are attached to the GitHub issue with `gh issue create --attach`, which needs `gh` 2.99 or newer and write access to the target repository. Without those the report is filed without them and says so. Attachments on a public repository stay online permanently, even if the issue is deleted, and the preview warns about that.
+- **Nothing leaves before approval.** Screenshots used to be uploaded while the preview was being built, so a cancelled report had already sent them. The preview now also names the destination repository and whether it is public.
+
+### Security
+- **The `!bug` title can no longer run commands on the host.** The title went into a shell string with only double quotes escaped, so `$(...)` and backticks in a bug description were executed. `gh` is now called with an argument list.
+
+## [1.40.0] - 2026-10-30
+
+### Fixed
+- **A stray `_` no longer appears before the reply.** Thinking text can end in blank lines, which pushed the closing italic marker of the 💭 line onto the reply below, leaving a visible `_` on both. The preview is now flattened to one line, which also keeps multi-paragraph thinking inside its quote. A thinking block with only whitespace is skipped (#654).
+
+### Changed
+- ⚠️ **Breaking: Node 22 is now the minimum** (Node 20 reached end of life in April 2026). `ink` 8 requires it. Bun users are unaffected. To stay on Node 20, stay on 1.39.x and turn off `autoUpdate`, because the updater does not check `engines` (#653).
+- `ink` 6 → 8. The log panel now scrolls with `ink`'s own `contentOffsetY`, so `ink-scroll-view` is gone (#653).
+- **Verified against Claude CLI 2.1.314.** `CLAUDE_CLI_LATEST_VERIFIED` moves from 2.1.276 to 2.1.314. The event streams were re-recorded and the decision-bridge e2e passes; the CLI only added fields the bot does not read (#652).
+
+## [1.39.4] - 2026-10-30
+
+### Security
+- `proxy-addr` 2.0.7 → 2.0.8 (critical, IP spoofing), `@modelcontextprotocol/sdk` 1.30.1 → 1.32.2 (three high advisories), `body-parser` 2.3.0 → 2.4.0, `fast-uri` 4.2.1 → 4.2.3, `shell-quote` 1.10.0 → 1.12.0 and `hono` 4.13.9 → 4.13.13, all bundled into what users run (#650). Supersedes the separate Dependabot PRs, none of which could go green on its own.
+
+### Changed
+- `@hono/node-server` 2.1.5, `express-rate-limit` 8.7.1, `@redactpii/node` 1.0.19, `react` 19.3.1, `zod` 4.6.7, plus dev tooling (`eslint`, `knip`, `prettier`, `typescript-eslint`, `@types/*`). `ink` stays on 6.x; the 8.0 major is left for a separate change.
+
 ## [1.39.3] - 2026-10-01
 
 ### Fixed

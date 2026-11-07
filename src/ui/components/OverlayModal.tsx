@@ -16,7 +16,7 @@ interface OverlayModalProps {
 
 export function OverlayModal({ title, children, hint, width = 50 }: OverlayModalProps) {
   const { stdout } = useStdout();
-  const terminalWidth = stdout?.columns ?? 80;
+  const terminalWidth = (stdout as NodeJS.WriteStream)?.columns ?? 80;
   const modalWidth = Math.min(width, terminalWidth - 4);
   const separatorWidth = modalWidth - 6;  // Account for padding and border
 

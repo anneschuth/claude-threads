@@ -5,11 +5,12 @@
  * Supports both !bug command and bug reaction on error messages.
  */
 
-import { execSync } from 'child_process';
-import { writeFileSync, unlinkSync } from 'fs';
+import { execSync, execFileSync } from 'child_process';
+import { writeFileSync, unlinkSync, mkdtempSync, rmSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import { Redactor } from '@redactpii/node';
+import { coerce, lt } from 'semver';
 
 // Create a single redactor instance with aggressive mode for enhanced PII detection
 // Aggressive mode catches obfuscated patterns like "user [at] example [dot] com"
@@ -25,98 +26,113 @@ import type { PendingBugReport } from '../executors/types.js';
 export type { PendingBugReport };
 
 // =============================================================================
-// Image Upload (Catbox.moe)
+// Screenshots
 // =============================================================================
 
-const CATBOX_API_URL = 'https://catbox.moe/user/api.php';
+/** First `gh` release with `gh issue create --attach`. */
+const GH_MIN_ATTACH_VERSION = '2.99.0';
+
+/** GitHub's limit for an image attached to an issue. */
+const MAX_SCREENSHOT_BYTES = 10 * 1024 * 1024;
+
+/** Repository permissions that may attach a file, as `gh` itself checks them. */
+const ATTACH_PERMISSIONS = ['ADMIN', 'MAINTAIN', 'WRITE'];
 
 /**
- * Result of uploading an image to Catbox.moe
+ * Screenshots saved to disk for `gh issue create --attach`.
  */
-export interface ImageUploadResult {
-  success: boolean;
-  url?: string;
-  error?: string;
-  originalFile: PlatformFile;
+export interface SavedScreenshots {
+  paths: string[];
+  /** How many could not be downloaded or written. */
+  failed: number;
+  cleanup: () => void;
 }
 
 /**
- * Upload an image buffer to Catbox.moe for permanent hosting.
- * Returns the URL of the uploaded image.
+ * Split attached files into the screenshots that can go along with the issue
+ * and a human-readable reason for each one that cannot.
  */
-export async function uploadImageToCatbox(
-  imageBuffer: Buffer,
-  filename: string
-): Promise<string> {
-  // Create form data with the image
-  // Convert Buffer to ArrayBuffer for Blob compatibility
-  const arrayBuffer = imageBuffer.buffer.slice(
-    imageBuffer.byteOffset,
-    imageBuffer.byteOffset + imageBuffer.byteLength
-  ) as ArrayBuffer;
-  const formData = new FormData();
-  formData.append('reqtype', 'fileupload');
-  formData.append('fileToUpload', new Blob([arrayBuffer]), filename);
-
-  const response = await fetch(CATBOX_API_URL, {
-    method: 'POST',
-    body: formData,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Catbox upload failed: ${response.status} ${response.statusText}`);
-  }
-
-  const responseText = await response.text();
-
-  // Catbox returns the URL directly as plain text on success
-  // On error, it returns an error message
-  if (responseText.startsWith('https://')) {
-    return responseText.trim();
-  }
-
-  throw new Error(`Catbox upload failed: ${responseText}`);
-}
-
-/**
- * Upload multiple images and return results.
- * Continues even if some uploads fail.
- */
-export async function uploadImages(
+export function selectScreenshots(
   files: PlatformFile[],
-  downloadFile: (fileId: string) => Promise<Buffer>
-): Promise<ImageUploadResult[]> {
-  const results: ImageUploadResult[] = [];
+  target: BugReportTarget
+): { screenshots: PlatformFile[]; skipped: string[] } {
+  const screenshots: PlatformFile[] = [];
+  const skipped: string[] = [];
 
   for (const file of files) {
-    // Only process image files
     if (!file.mimeType.startsWith('image/')) {
-      results.push({
-        success: false,
-        error: 'Not an image file',
-        originalFile: file,
-      });
-      continue;
-    }
-
-    try {
-      const buffer = await downloadFile(file.id);
-      const url = await uploadImageToCatbox(buffer, file.name);
-      results.push({
-        success: true,
-        url,
-        originalFile: file,
-      });
-    } catch (err) {
-      results.push({
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-        originalFile: file,
-      });
+      skipped.push(`${file.name}: not an image`);
+    } else if (file.size > MAX_SCREENSHOT_BYTES) {
+      skipped.push(`${file.name}: larger than 10 MB`);
+    } else if (!target.canAttach) {
+      skipped.push(`${file.name}: ${target.attachBlocker}`);
+    } else {
+      screenshots.push(file);
     }
   }
 
-  return results;
+  return { screenshots, skipped };
+}
+
+/**
+ * Download screenshots into a private temp directory.
+ * Continues even if some downloads fail.
+ *
+ * Runs on approval, not at preview time: nothing leaves the chat platform
+ * until someone has seen where it is going and said yes.
+ */
+export async function saveScreenshots(
+  files: PlatformFile[],
+  downloadFile: ((fileId: string) => Promise<Buffer>) | undefined
+): Promise<SavedScreenshots> {
+  if (files.length === 0) {
+    return { paths: [], failed: 0, cleanup: () => {} };
+  }
+
+  const dir = mkdtempSync(join(tmpdir(), 'bug-screenshots-'));
+  const paths: string[] = [];
+  let failed = 0;
+
+  for (const [index, file] of files.entries()) {
+    try {
+      if (!downloadFile) throw new Error('Platform cannot download files');
+      const buffer = await downloadFile(file.id);
+      // The name is ours: it goes on a command line, and `#` separates a path
+      // from its alt text in `--attach`.
+      const extension = (file.extension ?? file.mimeType.split('/')[1] ?? '').replace(/^\./, '').toLowerCase();
+      const path = join(dir, `screenshot-${index + 1}.${/^[a-z0-9]+$/.test(extension) ? extension : 'png'}`);
+      writeFileSync(path, buffer, { mode: 0o600 });
+      paths.push(path);
+    } catch {
+      failed++;
+    }
+  }
+
+  return {
+    paths,
+    failed,
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
+      }
+    },
+  };
+}
+
+/**
+ * Note for the issue body when screenshots were shared but did not make it.
+ */
+function omittedScreenshotsNote(count: number): string {
+  return `${count} screenshot(s) were shared in the chat thread but are not attached to this issue.`;
+}
+
+/**
+ * Add the omitted-screenshots note to a body that has already been formatted.
+ */
+export function withOmittedScreenshots(body: string, count: number): string {
+  return count > 0 ? `${body}\n\n${omittedScreenshotsNote(count)}` : body;
 }
 
 // =============================================================================
@@ -185,9 +201,6 @@ export interface BugReportContext {
 
 /** Maximum number of recent events to track */
 const MAX_RECENT_EVENTS = 10;
-
-/** GitHub repository for bug reports */
-const GITHUB_REPO = 'anneschuth/claude-threads';
 
 // =============================================================================
 // Event Tracking
@@ -562,19 +575,17 @@ function formatLogEntries(entries: LogEntry[]): string {
 export function formatIssueBody(
   context: BugReportContext,
   userDescription: string,
-  imageUrls: string[] = []
+  omittedScreenshots = 0
 ): string {
   const sections: string[] = [];
 
   // Description
   sections.push(`## Description\n\n${sanitizeText(userDescription)}`);
 
-  // Screenshots/images if any
-  if (imageUrls.length > 0) {
-    const imageSection = imageUrls.map((url, i) =>
-      `![Screenshot ${i + 1}](${url})`
-    ).join('\n\n');
-    sections.push(`## Screenshots\n\n${imageSection}`);
+  // Attached screenshots are added by `gh` itself; only the ones left behind
+  // need a mention, or the reader cannot know they exist.
+  if (omittedScreenshots > 0) {
+    sections.push(`## Screenshots\n\n${omittedScreenshotsNote(omittedScreenshots)}`);
   }
 
   // Environment table
@@ -651,12 +662,28 @@ ${sanitizeText(context.errorContext.message)}
 // Issue Creation
 // =============================================================================
 
+type GhOptions = {
+  cwd?: string;
+  encoding: 'utf-8';
+  timeout: number;
+  stdio: ['pipe', 'pipe', 'pipe'];
+};
+
 /**
- * Escape a string for use in shell commands
+ * Runs `gh` with an argument list and returns its stdout.
+ *
+ * An argument list rather than a command string: the title comes from whatever
+ * someone typed after `!bug`, and in a shell string `$(...)` runs on this host.
  */
-function escapeShell(str: string): string {
-  return str.replace(/"/g, '\\"');
-}
+export type GhExec = (args: string[], options: GhOptions) => string;
+
+const runGh: GhExec = (args, options) => execFileSync('gh', args, options);
+
+const GH_CHECK_OPTIONS: GhOptions = {
+  encoding: 'utf-8',
+  timeout: 5000,
+  stdio: ['pipe', 'pipe', 'pipe'],
+};
 
 /**
  * Check if GitHub CLI is installed and authenticated.
@@ -666,15 +693,11 @@ function escapeShell(str: string): string {
  * budget on a slow CI runner (seen as a flaky timeout on main).
  */
 export function checkGitHubCli(
-  exec: (command: string, options: { encoding: 'utf-8'; timeout: number; stdio: ['pipe', 'pipe', 'pipe'] }) => unknown = execSync
+  exec: GhExec = runGh
 ): { installed: boolean; authenticated: boolean; error?: string } {
   try {
     // Check if gh is installed
-    exec('gh --version', {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    exec(['--version'], GH_CHECK_OPTIONS);
   } catch {
     return {
       installed: false,
@@ -685,11 +708,7 @@ export function checkGitHubCli(
 
   try {
     // Check if authenticated
-    exec('gh auth status', {
-      encoding: 'utf-8',
-      timeout: 5000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    exec(['auth', 'status'], GH_CHECK_OPTIONS);
   } catch {
     return {
       installed: true,
@@ -702,11 +721,74 @@ export function checkGitHubCli(
 }
 
 /**
+ * What the preview tells the reporter about where a report is going.
+ */
+export interface BugReportTarget {
+  repo: string;
+  /** Assumed true when GitHub cannot be asked: it is the warning that matters. */
+  isPublic: boolean;
+  canAttach: boolean;
+  /** Why screenshots cannot be attached, when `canAttach` is false. */
+  attachBlocker?: string;
+}
+
+/**
+ * Look up the report target and whether this `gh` login can attach to it.
+ *
+ * Attaching needs write access. A reporter filing on someone else's repository
+ * does not have it, so without this check the preview would promise screenshots
+ * that `gh` then refuses.
+ */
+export function inspectBugReportTarget(repo: string, exec: GhExec = runGh): BugReportTarget {
+  let visibility: string | undefined;
+  let viewerPermission: string | undefined;
+
+  try {
+    const info = JSON.parse(exec(['repo', 'view', repo, '--json', 'viewerPermission,visibility'], GH_CHECK_OPTIONS));
+    visibility = info.visibility;
+    viewerPermission = info.viewerPermission;
+  } catch {
+    return { repo, isPublic: true, canAttach: false, attachBlocker: `could not read ${repo}` };
+  }
+
+  const isPublic = visibility !== 'PRIVATE' && visibility !== 'INTERNAL';
+
+  // Empty for a GitHub App installation, which `gh` leaves to the endpoint too.
+  if (viewerPermission && !ATTACH_PERMISSIONS.includes(viewerPermission)) {
+    return { repo, isPublic, canAttach: false, attachBlocker: `attaching needs write access to ${repo}` };
+  }
+
+  let ghVersion: ReturnType<typeof coerce> = null;
+  try {
+    ghVersion = coerce(exec(['--version'], GH_CHECK_OPTIONS));
+  } catch {
+    // Unknown version: try the upload, createGitHubIssue recovers if it fails.
+  }
+  if (ghVersion && lt(ghVersion, GH_MIN_ATTACH_VERSION)) {
+    return { repo, isPublic, canAttach: false, attachBlocker: `attaching needs gh ${GH_MIN_ATTACH_VERSION} or newer` };
+  }
+
+  return { repo, isPublic, canAttach: true };
+}
+
+/**
+ * Result of filing an issue.
+ */
+export interface CreatedIssue {
+  url: string;
+  /** The issue exists, but not every screenshot made it onto it. */
+  attachmentsIncomplete: boolean;
+}
+
+/**
  * Create a GitHub issue using the gh CLI.
  * Returns the issue URL on success, throws on failure.
  *
- * Note: Images should be uploaded to Catbox.moe first and their URLs
- * embedded in the body markdown before calling this function.
+ * Failing to attach never costs the report. `gh` refuses before it creates
+ * anything when it cannot upload at all (old version, no write access), so the
+ * issue is then filed without screenshots. If an upload dies halfway the issue
+ * already exists and `gh` exits non-zero with its URL on stdout; filing again
+ * there would duplicate it.
  *
  * `exec` is injectable for the same reason it is on `checkGitHubCli`, and for
  * a sharper one: without it this function cannot be exercised at all without
@@ -720,33 +802,58 @@ export async function createGitHubIssue(
   title: string,
   body: string,
   workingDir: string,
-  exec: (command: string, options: { cwd: string; encoding: 'utf-8'; timeout: number; stdio: ['pipe', 'pipe', 'pipe'] }) => string = execSync as never
-): Promise<string> {
+  options: { repo: string; attachments?: string[]; exec?: GhExec }
+): Promise<CreatedIssue> {
+  const { repo, attachments = [], exec = runGh } = options;
+
   // Check gh CLI first, through the same injected command: a caller that
   // stubs the subprocess is stubbing the whole `gh` dependency, so the test
   // does not also depend on a real authenticated CLI on the runner.
-  const ghStatus = checkGitHubCli(exec as never);
+  const ghStatus = checkGitHubCli(exec);
   if (!ghStatus.installed || !ghStatus.authenticated) {
     throw new Error(ghStatus.error);
   }
 
-  // Write body to temp file to avoid shell escaping issues
+  // Write body to temp file: it is long and full of markdown
   const bodyFile = join(tmpdir(), `bug-body-${Date.now()}.md`);
 
+  const create = (issueBody: string, paths: string[]): string => {
+    writeFileSync(bodyFile, issueBody, 'utf-8');
+    return exec(
+      [
+        'issue', 'create',
+        '--repo', repo,
+        '--title', title,
+        '--body-file', bodyFile,
+        ...paths.flatMap((path, index) => ['--attach', `${path}#Screenshot ${index + 1}`]),
+      ],
+      {
+        cwd: workingDir,
+        encoding: 'utf-8',
+        timeout: paths.length > 0 ? 120000 : 30000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      }
+    ).trim();
+  };
+
   try {
-    writeFileSync(bodyFile, body, 'utf-8');
+    try {
+      return { url: create(body, attachments), attachmentsIncomplete: false };
+    } catch (err) {
+      if (attachments.length === 0) throw err;
 
-    // Create the issue
-    const cmd = `gh issue create --repo "${GITHUB_REPO}" --title "${escapeShell(title)}" --body-file "${bodyFile}"`;
+      const failure = err as { stdout?: unknown; code?: unknown };
+      const url = String(failure.stdout ?? '').match(/https:\/\/\S+\/issues\/\d+/)?.[0];
+      if (url) return { url, attachmentsIncomplete: true };
 
-    const result = exec(cmd, {
-      cwd: workingDir,
-      encoding: 'utf-8',
-      timeout: 30000,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+      // Killed mid-run: the issue may exist, so filing again could duplicate it.
+      if (failure.code === 'ETIMEDOUT') throw err;
 
-    return result.trim();
+      return {
+        url: create(withOmittedScreenshots(body, attachments.length), []),
+        attachmentsIncomplete: true,
+      };
+    }
   } finally {
     // Clean up temp file
     try {
@@ -764,8 +871,9 @@ export function formatBugPreview(
   title: string,
   description: string,
   context: BugReportContext,
-  imageUrls: string[],
-  imageErrors: string[],
+  target: BugReportTarget,
+  screenshotCount: number,
+  skippedScreenshots: string[],
   formatter: {
     formatBold: (text: string) => string;
     formatCode: (text: string) => string;
@@ -803,15 +911,28 @@ export function formatBugPreview(
     }
   }
 
-  // Show image upload status
-  if (imageUrls.length > 0 || imageErrors.length > 0) {
+  // What leaves this machine, and where it goes (#577)
+  lines.push('');
+  lines.push(formatter.formatBold('Destination:'));
+  lines.push(formatter.formatListItem(
+    `Issue on ${formatter.formatCode(target.repo)}${target.isPublic ? ' (public: anyone can read it)' : ''}`
+  ));
+
+  if (screenshotCount > 0 || skippedScreenshots.length > 0) {
     lines.push('');
     lines.push(formatter.formatBold('Screenshots:'));
-    if (imageUrls.length > 0) {
-      lines.push(formatter.formatListItem(`✅ ${imageUrls.length} image(s) uploaded successfully`));
+    if (screenshotCount > 0) {
+      lines.push(formatter.formatListItem(`📎 ${screenshotCount} image(s) will be attached when you approve`));
+      if (target.isPublic) {
+        lines.push(formatter.formatListItem(
+          '⚠️ Attachments on a public repository stay online permanently, even if the issue is deleted. Check them for personal data first.'
+        ));
+      }
     }
-    if (imageErrors.length > 0) {
-      lines.push(formatter.formatListItem(`⚠️ ${imageErrors.length} image(s) failed: ${imageErrors[0]}`));
+    if (skippedScreenshots.length > 0) {
+      lines.push(formatter.formatListItem(
+        `⚠️ ${skippedScreenshots.length} image(s) not attached (${skippedScreenshots[0]}). Add them to the issue by hand if needed.`
+      ));
     }
   }
 

@@ -20,12 +20,12 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       # Build under the engines.node floor so we catch unsafe API use that
-      # would silently break users on Node 20. CI's node-smoke matrix verifies
-      # the built artifact also runs on 22 and 24. Do not bump this past the
+      # would silently break users on Node 22. CI's node-smoke matrix verifies
+      # the built artifact also runs on 24. Do not bump this past the
       # floor without updating engines.node in package.json.
       - uses: actions/setup-node@v7
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
       - run: bun install
