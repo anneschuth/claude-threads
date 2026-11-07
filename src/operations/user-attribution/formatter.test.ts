@@ -47,8 +47,8 @@ describe('sanitizeUsername', () => {
 });
 
 describe('shouldAttribute', () => {
-  it('attributes a solo session when the setting is enabled', () => {
-    expect(shouldAttribute(true, 1)).toBe(true);
+  it('does not attribute a solo session when the setting is enabled', () => {
+    expect(shouldAttribute(true, 1)).toBe(false);
   });
 
   it('also attributes a shared session', () => {

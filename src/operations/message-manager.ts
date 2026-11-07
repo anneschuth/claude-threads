@@ -75,7 +75,7 @@ import {
 import { createLogger } from '../utils/logger.js';
 import { TypedEventEmitter, createMessageManagerEvents } from './message-manager-events.js';
 import { postSkippedFilesFeedback, postTranscriptFeedback, type BuiltMessageContent, type SkippedFile } from './streaming/handler.js';
-import { formatUserTurn, shouldAttribute } from './user-attribution/index.js';
+import { formatUserTurn, shouldAttributeSession } from './user-attribution/index.js';
 import { formatSideConversationsForClaude } from './side-conversation/index.js';
 
 const log = createLogger('msg-mgr');
@@ -1349,7 +1349,7 @@ export class MessageManager {
     // thread. Wrap the raw message BEFORE buildMessageContent so any file-list
     // header it prepends stays OUTSIDE the [@user]: prefix. A system/control
     // follow-up carries no username → formatUserTurn returns it unchanged.
-    const attributed = formatUserTurn(message, username, shouldAttribute(this.session.userAttribution, this.session.sessionAllowedUsers.size));
+    const attributed = formatUserTurn(message, username, shouldAttributeSession(this.session, username));
 
     // Prepend any pending side-conversation context OUTSIDE the [@user]: prefix,
     // by the same rule as the file-list header: the prefix must tag only the

@@ -2,7 +2,7 @@
  * User attribution formatter
  *
  * Wraps a single user-turn message with an inline `[@username]:` prefix so
- * Claude can identify its sender, including in solo threads.
+ * Claude can identify its sender in shared threads.
  *
  * Applied at the send boundary ONLY — the sender identity is carried
  * separately so stored prompts (firstPrompt/queuedPrompt) stay raw and never
@@ -42,15 +42,29 @@ export function sanitizeUsername(username: string): string {
  */
 /**
  * Whether a session should attribute its user turns. The setting applies to
- * solo and shared threads; a valid session has at least its owner in the
- * participant allowlist. Keeping the empty-list guard avoids attributing a
- * malformed session with no participants.
+ * shared threads; a valid session has at least its owner in the allowlist.
  *
  * Evaluated per send and kept as a pure predicate over primitives (not a
  * `Session`) so it stays trivially testable and introduces no import cycle.
  */
 export function shouldAttribute(enabled: boolean, participantCount: number): boolean {
-  return enabled && participantCount > 0;
+  return enabled && participantCount > 1;
+}
+
+// Deliberately ephemeral: resumed sessions begin counting speakers again.
+const speakersBySession = new WeakMap<object, Set<string>>();
+
+export function shouldAttributeSession(
+  session: { startedBy: string; userAttribution: boolean; sessionAllowedUsers: Set<string> },
+  username?: string,
+): boolean {
+  let speakers = speakersBySession.get(session);
+  if (!speakers) {
+    speakers = new Set([session.startedBy]);
+    speakersBySession.set(session, speakers);
+  }
+  if (username && username.toLowerCase() !== UNKNOWN_USERNAME && sanitizeUsername(username)) speakers.add(username);
+  return shouldAttribute(session.userAttribution, Math.max(session.sessionAllowedUsers.size, speakers.size));
 }
 
 export function formatUserTurn(

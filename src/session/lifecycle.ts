@@ -47,7 +47,7 @@ import {
   getThreadMessagesForContext,
   formatContextForClaude,
 } from '../operations/context-prompt/index.js';
-import { formatUserTurn, shouldAttribute } from '../operations/user-attribution/index.js';
+import { formatUserTurn, shouldAttributeSession } from '../operations/user-attribution/index.js';
 import {
   cleanupSessionUploads,
   getSessionUploadDir,
@@ -619,7 +619,7 @@ function createMessageManager(
 
   messageManager.events.on('context-prompt:complete', async ({ selection, queuedPrompt, queuedByUsername, queuedFiles: _queuedFiles, threadMessageCount: _threadMessageCount }) => {
     // Build message with or without context
-    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size));
+    const userTurn = formatUserTurn(queuedPrompt, queuedByUsername, shouldAttributeSession(session, queuedByUsername));
     let messageToSend = userTurn;
 
     // Get any previous work summary (from directory change)
@@ -1292,7 +1292,7 @@ async function startSessionImpl(
   // pipeline; kept because SessionManager.startSession's signature allows
   // omitting replyToPostId.
   session.messageCount++;
-  claude.sendMessage(formatUserTurn(content, username, shouldAttribute(session.userAttribution, session.sessionAllowedUsers.size)));
+  claude.sendMessage(formatUserTurn(content, username, shouldAttributeSession(session, username)));
 
   // Surface any skipped attachments to the user, then echo voice-note transcripts
   await postSkippedFilesFeedback(session.platform, actualThreadId, skipped);

@@ -5,4 +5,4 @@
  * send boundary for every genuine user turn.
  */
 
-export { formatUserTurn, shouldAttribute } from './formatter.js';
+export { formatUserTurn, shouldAttribute, shouldAttributeSession } from './formatter.js';
