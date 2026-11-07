@@ -489,9 +489,16 @@ describe('formatSkippedFilesFeedback', () => {
 });
 
 describe('postSkippedFilesFeedback', () => {
+  it('hands the post to onPosted, for last-message tracking', async () => {
+    const platform = createMockPlatform();
+    const onPosted = mock(() => undefined);
+    await postSkippedFilesFeedback(platform, 'thread-1', [{ name: 'big.zip', reason: 'Too large' }], onPosted);
+    expect(onPosted).toHaveBeenCalledTimes(1);
+  });
+
   it('is a no-op when the skipped list is empty', async () => {
     const platform = createMockPlatform();
-    await postSkippedFilesFeedback(platform, 'thread-1', []);
+    await postSkippedFilesFeedback(platform, 'thread-1', [], () => undefined);
     expect(platform.createPost).not.toHaveBeenCalled();
   });
 
@@ -500,7 +507,7 @@ describe('postSkippedFilesFeedback', () => {
     await postSkippedFilesFeedback(platform, 'thread-1', [
       { name: 'bad.bin', reason: 'File too large', suggestion: 'Split it' },
       { name: 'flaky.png', reason: 'Download failed: timeout' },
-    ]);
+    ], () => undefined);
 
     expect(platform.createPost).toHaveBeenCalledTimes(1);
     const [body, threadId] = (platform.createPost as ReturnType<typeof mock>).mock.calls[0];

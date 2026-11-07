@@ -431,8 +431,8 @@ async function sendWithContext(
     session.claude.sendMessage(content);
     ctx.startTyping(session);
   }
-  await postSkippedFilesFeedback(session.platform, session.threadId, skipped);
-  await postTranscriptFeedback(session.platform, session.threadId, transcripts);
+  await postSkippedFilesFeedback(session.platform, session.threadId, skipped, (post) => updateLastMessage(session, post));
+  await postTranscriptFeedback(session.platform, session.threadId, transcripts, (post) => updateLastMessage(session, post));
 }
 
 /**

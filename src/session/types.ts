@@ -12,6 +12,7 @@ import type { ThreadLogger } from '../persistence/thread-logger.js';
 import type { MessageManager } from '../operations/message-manager.js';
 import type { DecisionBridgeServer } from '../mcp/decision-bridge.js';
 import type { QuestionOption } from '../operations/types.js';
+import type { LifecycleNotice } from './lifecycle-delivery.js';
 import type { SessionTimers } from './timer-manager.js';
 import { checkTransition } from './lifecycle-fsm.js';
 
@@ -384,6 +385,7 @@ export interface Session {
 
   // Resume support
   lifecyclePostId?: string;  // Post ID of timeout message (for resume via reaction)
+  lifecycleNotice?: LifecycleNotice;  // Latest notice under lifecycleDelivery dedup/reaction (lifecycle-delivery.ts)
 
   // Compaction support
   compactionPostId?: string;  // Post ID of "Compacting..." message (for updating on completion)

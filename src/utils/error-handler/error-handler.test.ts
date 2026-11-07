@@ -190,6 +190,18 @@ describe('handleError', () => {
     );
   });
 
+  // lifecycleDelivery (#606): the error notice is now the bot's last post, so
+  // `dedup` must not refresh and `reaction` must not land on the notice above it.
+  it('marks the error notice as the bot\'s last post', async () => {
+    const session = createMockSession();
+    session.lifecycleNotice = { postId: 'notice-1', kind: 'paused', reaction: false, trailing: true };
+
+    await handleError(new Error('test error'), { action: 'Test action', session, notifyUser: true }, 'recoverable');
+
+    expect(session.lastMessageId).toBe('post-1');
+    expect(session.lifecycleNotice.trailing).toBe(false);
+  });
+
   it('does not notify user when notifyUser is false', async () => {
     const session = createMockSession();
     const error = new Error('test error');

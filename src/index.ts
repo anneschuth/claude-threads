@@ -9,6 +9,7 @@ import {
   configExists as checkConfigExists,
   resolvePermissionMode,
   resolvePresentationOverhead,
+  resolveLifecycleDelivery,
   presentationOverridesAgainstPreset,
   resolveMemoryConfig,
   resolveAuditLogEnabled,
@@ -794,6 +795,10 @@ async function startWithoutDaemon() {
     session.addPlatform(platformConfig.id, client, {
       overhead: {
         ...resolvePresentationOverhead(platformConfig, `platforms[${platformConfig.id}]`),
+        lifecycleDelivery: resolveLifecycleDelivery(
+          platformConfig.lifecycleDelivery,
+          `platforms[${platformConfig.id}].lifecycleDelivery`,
+        ),
         turnMarker: resolveTurnMarker(
           platformConfig.turnMarker,
           platformConfig.turnMarkerEmoji,
@@ -866,6 +871,7 @@ async function startWithoutDaemon() {
           // stays pinned regardless of the preset.
           ...resolvePresentationOverhead(dmConfig, `dm[${dmConfig.id}]`),
           stickyMessage: 'hidden',
+          lifecycleDelivery: resolveLifecycleDelivery(dmConfig.lifecycleDelivery, `dm[${dmConfig.id}].lifecycleDelivery`),
           // A derived DM config spreads its parent, so the parent's tool
           // settings carry over unless the DM entry overrides them.
           tools: resolveToolActivity(dmConfig.toolActivity, dmConfig.toolDetails, `dm[${dmConfig.id}]`),

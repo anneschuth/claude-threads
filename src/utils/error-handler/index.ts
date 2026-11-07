@@ -13,6 +13,7 @@
  */
 
 import type { Session } from '../../session/types.js';
+import { updateLastMessage } from '../../operations/post-helpers/last-message.js';
 import { createLogger } from '../logger.js';
 import { formatShortId } from '../format.js';
 
@@ -128,10 +129,11 @@ export async function handleError(
   if (context.notifyUser && context.session) {
     try {
       const fmt = context.session.platform.getFormatter();
-      await context.session.platform.createPost(
+      const post = await context.session.platform.createPost(
         `⚠️ ${fmt.formatBold('Error')}: ${context.action} failed - ${message}`,
         context.session.threadId
       );
+      updateLastMessage(context.session, post);
     } catch (notifyError) {
       log.warn(`Could not notify user: ${notifyError}`);
     }

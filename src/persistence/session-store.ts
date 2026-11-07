@@ -7,6 +7,7 @@ import type { PlatformFile } from '../platform/types.js';
 import type { PersistedTrackedTask } from '../operations/task-tracker.js';
 import type { ContextPromptFile } from '../operations/executors/types.js';
 import type { OverheadVisibility } from '../config/types.js';
+import type { LifecycleNotice } from '../session/lifecycle-delivery.js';
 import { stateHome } from '../utils/state-home.js';
 
 const log = createLogger('persist');
@@ -125,6 +126,7 @@ export interface PersistedSession {
   needsContextPromptOnNextMessage?: boolean;     // Offer context prompt on next follow-up message (after !cd)
   // Resume support
   lifecyclePostId?: string;                        // Post ID of timeout/shutdown message (for resume via reaction or restart)
+  lifecycleNotice?: LifecycleNotice;               // lifecycleDelivery dedup/reaction state (undefined under `post` and on old data)
   isPaused?: boolean;                              // True if session was paused (timeout/interrupt) - won't auto-resume on restart
   // Session title and description
   sessionTitle?: string;                         // Short title describing the session topic
