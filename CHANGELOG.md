@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Turns are attributed once a second person speaks in a thread.** Attribution used to count only invited users, so a thread where several platform-allowed users talked stayed unprefixed and Claude could not tell them apart. It now also counts the distinct people who actually spoke. Solo threads stay unprefixed (#640, #648).
+
 ## [1.40.2] - 2026-10-30
 
 ### Changed

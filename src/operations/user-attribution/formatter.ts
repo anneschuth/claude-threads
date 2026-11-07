@@ -41,19 +41,39 @@ export function sanitizeUsername(username: string): string {
  * downstream (buildMessageContent, the platform) already handles it.
  */
 /**
- * Whether a session should attribute its user turns. The setting applies to
- * shared threads; a valid session has at least its owner in the allowlist.
+ * Whether a session should actually attribute its turns right now.
  *
- * Evaluated per send and kept as a pure predicate over primitives (not a
- * `Session`) so it stays trivially testable and introduces no import cycle.
+ * The config flag says the feature is *available*; this says it is *useful*.
+ * A prefix on a solo thread is pure noise (there is only one person it could
+ * be), so attribution stays silent until a session genuinely has more than one
+ * participant.
+ *
+ * Evaluated per send rather than once at session start, so a thread that
+ * becomes shared mid-session starts attributing from that point on. The
+ * system-prompt note is emitted whenever the flag is on, precisely so Claude
+ * is already primed for a prefix that may only start arriving later.
+ *
+ * Kept as a pure predicate over primitives (not a `Session`) so it stays
+ * trivially testable and introduces no import cycle into the session module.
  */
 export function shouldAttribute(enabled: boolean, participantCount: number): boolean {
   return enabled && participantCount > 1;
 }
 
 // Deliberately ephemeral: resumed sessions begin counting speakers again.
+// Keyed by the session object, so a respawn (!cd, !permissions) keeps the count.
 const speakersBySession = new WeakMap<object, Set<string>>();
 
+/**
+ * Records `username` as a speaker in `session`, then decides attribution for
+ * this send. Call it once per user turn at the send boundary; every send site
+ * goes through here so the gate cannot drift.
+ *
+ * The participant count is the larger of the session allowlist (grows on
+ * `!invite`) and the distinct speakers seen so far. The allowlist alone misses
+ * #640: a user on the platform's `allowedUsers` can post in any session
+ * without ever being added to it.
+ */
 export function shouldAttributeSession(
   session: { startedBy: string; userAttribution: boolean; sessionAllowedUsers: Set<string> },
   username?: string,
