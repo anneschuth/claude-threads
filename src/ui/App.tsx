@@ -71,7 +71,7 @@ export function App({ config, onStateReady, onResizeReady, onQuit, toggleCallbac
 
   // Get terminal dimensions for calculating available height
   const { stdout } = useStdout();
-  const terminalRows = stdout?.rows ?? 24;
+  const terminalRows = (stdout as NodeJS.WriteStream)?.rows ?? 24;
 
   // Resize counter to force re-render on terminal resize (value used indirectly)
   // eslint-disable-next-line @typescript-eslint/no-unused-vars

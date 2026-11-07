@@ -6,11 +6,20 @@
  */
 
 import { EventEmitter } from 'events';
+import { satisfies, validRange } from 'semver';
 import { createLogger } from '../utils/logger.js';
 import { VERSION } from '../version.js';
 import type { UpdateInfo, AutoUpdateConfig } from './types.js';
 
 const log = createLogger('checker');
+
+/**
+ * A newer release this host cannot run.
+ */
+export interface BlockedUpdate {
+  latestVersion: string;
+  reason: string;
+}
 
 // Package name for npm registry lookup
 const PACKAGE_NAME = 'claude-threads';
@@ -36,10 +45,38 @@ function compareVersions(a: string, b: string): number {
 }
 
 /**
- * Fetch the latest version from npm registry.
+ * What the npm registry says about the latest release.
+ */
+interface LatestRelease {
+  version: string;
+  engines?: Record<string, string>;
+}
+
+/**
+ * Describe the runtime requirement this host fails, or null when it meets it.
+ *
+ * Bun reports a `node` version of its own, so it is checked first: a Bun host
+ * must not be held back by the Node floor.
+ */
+export function unmetEngine(
+  engines: Record<string, string> | undefined,
+  versions: { node: string; bun?: string } = process.versions
+): string | null {
+  const [runtime, running] = versions.bun ? ['bun', versions.bun] : ['node', versions.node];
+  const required = engines?.[runtime];
+
+  // A range we cannot read is no reason to stop updating
+  if (!required || !validRange(required)) return null;
+  if (satisfies(running, required, { includePrerelease: true })) return null;
+
+  return `requires ${runtime} ${required}, this host runs ${running}`;
+}
+
+/**
+ * Fetch the latest release from npm registry.
  * Uses the npm registry API directly to avoid spawning processes.
  */
-async function fetchLatestVersion(): Promise<string | null> {
+async function fetchLatestRelease(): Promise<LatestRelease | null> {
   try {
     const response = await fetch(`https://registry.npmjs.org/${PACKAGE_NAME}/latest`, {
       headers: {
@@ -52,8 +89,8 @@ async function fetchLatestVersion(): Promise<string | null> {
       return null;
     }
 
-    const data = await response.json() as { version?: string };
-    return data.version ?? null;
+    const data = await response.json() as { version?: string; engines?: Record<string, string> };
+    return data.version ? { version: data.version, engines: data.engines } : null;
   } catch (err) {
     log.warn(`Failed to fetch latest version: ${err}`);
     return null;
@@ -74,6 +111,7 @@ export class UpdateChecker extends EventEmitter {
   private checkInterval: ReturnType<typeof setInterval> | null = null;
   private lastCheck: Date | null = null;
   private lastUpdateInfo: UpdateInfo | null = null;
+  private blockedUpdate: BlockedUpdate | null = null;
   private isChecking = false;
 
   constructor(config: AutoUpdateConfig) {
@@ -136,16 +174,30 @@ export class UpdateChecker extends EventEmitter {
     try {
       log.debug('Checking for updates...');
 
-      const latestVersion = await fetchLatestVersion();
-      if (!latestVersion) {
+      const latest = await fetchLatestRelease();
+      if (!latest) {
         this.emit('check:complete', false);
         return null;
       }
 
       this.lastCheck = new Date();
 
+      const latestVersion = latest.version;
       const currentVersion = VERSION;
       const hasUpdate = compareVersions(latestVersion, currentVersion) > 0;
+      const blockedReason = hasUpdate ? unmetEngine(latest.engines) : null;
+
+      if (blockedReason) {
+        // npm only warns about `engines`, so nothing else stops this install.
+        if (this.blockedUpdate?.latestVersion !== latestVersion) {
+          log.warn(`⚠️ Not updating to v${latestVersion}: ${blockedReason}`);
+        }
+        this.blockedUpdate = { latestVersion, reason: blockedReason };
+        this.emit('check:complete', false);
+        return null;
+      }
+
+      this.blockedUpdate = null;
 
       if (hasUpdate) {
         const updateInfo: UpdateInfo = {
@@ -183,6 +235,13 @@ export class UpdateChecker extends EventEmitter {
    */
   getLastUpdateInfo(): UpdateInfo | null {
     return this.lastUpdateInfo;
+  }
+
+  /**
+   * Get the newer release this host cannot run (if any).
+   */
+  getBlockedUpdate(): BlockedUpdate | null {
+    return this.blockedUpdate;
   }
 
   /**

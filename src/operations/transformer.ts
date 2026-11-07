@@ -198,12 +198,17 @@ function transformAssistant(
       }
     } else if (block.type === 'thinking' && block.thinking) {
       // Extended thinking - show abbreviated version
-      const thinking = block.thinking as string;
-      const preview = truncateAtWord(thinking, 200);
-      const formatted = ctx.formatter.formatBlockquote(
-        `💭 ${ctx.formatter.formatItalic(preview)}`
-      );
-      textBuffer.push(formatted);
+      // Flattened first: a line break inside the italic markers leaves them
+      // unmatched, so the closing marker lands on the reply below (the CLI
+      // ends thinking text with blank lines).
+      const thinking = (block.thinking as string).replace(/\s*\n\s*/g, ' ').trim();
+      if (thinking) {
+        const preview = truncateAtWord(thinking, 200);
+        const formatted = ctx.formatter.formatBlockquote(
+          `💭 ${ctx.formatter.formatItalic(preview)}`
+        );
+        textBuffer.push(formatted);
+      }
     } else if (block.type === 'server_tool_use' && block.name) {
       // Server-managed tools (e.g., web search) - treat as tool output
       flushTextBuffer();

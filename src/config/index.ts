@@ -50,6 +50,8 @@ export {
   resolveWatchesEnabled,
   resolveAuditLogEnabled,
   resolveBugReportsEnabled,
+  resolveBugReportRepo,
+  DEFAULT_BUG_REPORT_REPO,
   LIMITS_DEFAULTS,
   resolveLimits,
   resolvePermissionMode,

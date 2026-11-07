@@ -53,6 +53,7 @@ function createMockAutoUpdateManager(): AutoUpdateManagerInterface & {
       detectedAt: new Date(),
     }),
     getScheduledRestartAt: () => null,
+    getBlockedUpdate: () => null,
     checkNow: async () => ({
       available: true,
       currentVersion: '0.1.0',

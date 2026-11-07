@@ -50,6 +50,7 @@ export function createMockSessionContext(makePlatform: () => import('../platform
       chromeEnabled: false,
       debug: false,
       bugReportsEnabled: true,
+      bugReportRepo: 'test-owner/test-repo',
       maxSessions: 5,
     },
     state: {

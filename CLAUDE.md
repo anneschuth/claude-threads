@@ -602,19 +602,19 @@ something to do incidentally.
 
 ### Runtime Version Policy
 
-**Floor**: Node 20 (in maintenance LTS through April 2026), Bun 1.2.21.
+**Floor**: Node 22, Bun 1.2.21.
 Both are declared in `package.json#engines`.
 
-**Why Node 20 and not higher**: no production dep requires more, and bumping
-the floor strands users on otherwise-supported LTS lines. Forced to 20 by
-`@hono/node-server@2` in v1.8.2.
+**Why Node 22 and not higher**: no production dep requires more, and bumping
+the floor strands users on otherwise-supported LTS lines. Forced to 22 by
+`ink@7+`, after Node 20 reached end of life in April 2026.
 
 **CI strategy**:
 - Bun is pinned (`BUN_VERSION` env in every workflow) so a Bun release can't
   silently break us. Bump in lockstep when upgrading.
-- `publish.yml` builds under Node 20 (the floor) so any unsafe API call that
+- `publish.yml` builds under Node 22 (the floor) so any unsafe API call that
   only exists on newer Node breaks the build before reaching users.
-- `ci.yml` has a `node-smoke` matrix (`[20, 22, 24]`) that runs the built
+- `ci.yml` has a `node-smoke` matrix (`[22, 24]`) that runs the built
   binary under each currently-relevant Node line.
 - `ci.yml` also has a `node-e2e` matrix (same Node lines) that runs
   `tests/node-e2e/`: the built bot as `node dist/index.js --headless` against
@@ -639,7 +639,7 @@ The version is checked at startup against a three-tier policy
 | CLI version | Behavior |
 |-------------|----------|
 | Below `2.0.74` (hard floor) | Error message and **exit** — the bot can't work at all |
-| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.263) | Runs normally |
+| `>=2.0.74 <2.2.0` (verified range; latest verified: 2.1.314) | Runs normally |
 | Newer 2.x above the verified range | **Warn-and-run**: startup warning + "⚠️ untested" marker in the sticky message and session headers. A new CLI minor must not take every bot down until a claude-threads release ships |
 | A new major (3.x+) | Error message and **exit** — different contract, warn-and-run would be reckless |
 
@@ -650,7 +650,7 @@ next to the CLI version in the sticky message and session headers.
 
 To install the latest verified version:
 ```bash
-npm install -g @anthropic-ai/claude-code@2.1.263
+npm install -g @anthropic-ai/claude-code@2.1.314
 ```
 
 The Claude CLI version is displayed:
@@ -1122,8 +1122,6 @@ bun run test
 - [x] Add `!kill` command to emergency shutdown all sessions and exit - **Done in v0.10.0**
 - [x] Multi-platform architecture - **Done in v0.14.0**
 - [x] Modular session management - **Done in v0.14.0**
-- [ ] Add rate limiting for API calls
-- [ ] Support file uploads via Mattermost attachments
 - [ ] Keep task list at the bottommost message (always update to latest position)
 - [ ] Session restart improvements: verify all important state is preserved (cwd ✓, permissions ✓, worktree ✓)
 - [x] Accurate context usage: Use per-request `usage` field from result events instead of cumulative billing tokens - **Done**

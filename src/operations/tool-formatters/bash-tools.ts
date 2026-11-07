@@ -2,7 +2,7 @@
  * Bash tool formatter
  *
  * Handles formatting of Bash command execution with:
- * - Command truncation for long commands
+ * - Command truncation for long commands (full long command below in detailed mode)
  * - Worktree path shortening in commands
  */
 
@@ -33,6 +33,14 @@ function truncateAtCodePoint(text: string, max: number): { text: string; truncat
   return { text: points.slice(0, max).join(''), truncated: true };
 }
 
+/**
+ * A command longer than this (or spanning several lines) also gets its full
+ * text as a block below the tool line. Commands just past the inline cap stay
+ * on one line, so the block only appears where the cut hides a real part of
+ * the command.
+ */
+const COMMAND_BLOCK_MIN_LENGTH = 120;
+
 // ---------------------------------------------------------------------------
 // Bash Formatter
 // ---------------------------------------------------------------------------
@@ -46,7 +54,7 @@ export const bashToolFormatter: ToolFormatter = {
   format(toolName: string, input: ToolInput, options: ToolFormatOptions): ToolFormatResult | null {
     if (toolName !== 'Bash') return null;
 
-    const { formatter, maxCommandLength = 50, worktreeInfo } = options;
+    const { formatter, detailed = false, maxCommandLength = 50, worktreeInfo } = options;
 
     let cmd = (input.command as string) || '';
 
@@ -68,8 +76,18 @@ export const bashToolFormatter: ToolFormatter = {
     const permission = truncateAtCodePoint(cmd, PERMISSION_COMMAND_MAX);
     const permissionCmd = escapeCodeBlockContent(permission.text) + (permission.truncated ? '\n[... truncated]' : '');
 
+    let display = `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(displayCmd + (truncated ? '...' : ''))}`;
+
+    // Once the permission prompt is answered (or when the command never needed
+    // one), the cut tool line is all the thread keeps. In detailed mode (like
+    // the Edit diff and Write preview) show a long or multi-line command in
+    // full, verbatim and with the prompt's cap, as a fenced block.
+    if (detailed && truncated && (cmd.length > COMMAND_BLOCK_MIN_LENGTH || cmd.includes('\n'))) {
+      display += `\n${formatter.formatCodeBlock(permissionCmd, 'bash')}`;
+    }
+
     return {
-      display: `💻 ${formatter.formatBold('Bash')} ${formatter.formatCode(displayCmd + (truncated ? '...' : ''))}`,
+      display,
       permissionText: `💻 ${formatter.formatBold('Bash')}\n${formatter.formatCodeBlock(permissionCmd, 'bash')}`,
       isDestructive: true, // Bash commands can be destructive
     };

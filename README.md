@@ -96,7 +96,7 @@ The interactive wizard configures your Slack or Mattermost bot, tests the creden
 
 **Prerequisites**
 
-- **Bun 1.2.21+** or **Node 20+** - [Install Bun](https://bun.sh/) or [Install Node](https://nodejs.org/)
+- **Bun 1.2.21+** or **Node 22+** - [Install Bun](https://bun.sh/) or [Install Node](https://nodejs.org/)
 - **Claude Code CLI** - test with `claude --version` (needs a subscription or API key)
 
 Then mention the bot in your channel:
