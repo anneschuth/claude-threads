@@ -709,6 +709,8 @@ describe('cleanupIdleSessions extended', () => {
       timeoutWarningPosted: false,
       lastMessageId: 'reply-1',
     });
+    // reply-1 is Claude's reply, a post the emoji may land on.
+    (session.messageManager as any).isReactionAnchor = (postId: string) => postId === 'reply-1';
     const sessions = new Map([['test-platform:thread-123', session]]);
     const ctx = createMockSessionContext(sessions);
     (ctx.ops.getPlatformOverhead as any).mockReturnValue({

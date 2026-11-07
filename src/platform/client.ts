@@ -31,6 +31,13 @@ export interface PlatformClientEvents {
   reaction: (reaction: PlatformReaction, user: PlatformUser | null) => void;
   /** Emitted when a reaction is removed */
   reaction_removed: (reaction: PlatformReaction, user: PlatformUser | null) => void;
+  /**
+   * Emitted for every new reply in a thread of this client's channel, before
+   * any author filtering: users, other bots, and the bot's own posts echoed
+   * back, including those the MCP child made. Carries only ids, for state
+   * that tracks "is this still the thread's last post" (lifecycleDelivery).
+   */
+  thread_post: (postId: string, threadId: string) => void;
   /** Emitted when someone posts at channel level (not in a thread) */
   channel_post: (post: PlatformPost, user: PlatformUser | null) => void;
   /**

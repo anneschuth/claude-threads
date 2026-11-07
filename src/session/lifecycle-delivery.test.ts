@@ -18,6 +18,10 @@ function makeSession(overrides: Partial<Session> = {}): Session {
       addReaction: mock(() => Promise.resolve()),
       removeReaction: mock(() => Promise.resolve()),
     },
+    // Claude's replies are fair anchors; a question post is not.
+    messageManager: {
+      isReactionAnchor: mock((postId: string) => !postId.startsWith('question')),
+    },
     ...overrides,
   } as unknown as Session;
 }
@@ -226,6 +230,20 @@ describe('deliverLifecycleNotice', () => {
       expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'hourglass_flowing_sand');
     });
 
+    // On a question or plan post the reactions are the answers: a ⏳ among
+    // the options reads as one of them.
+    it('posts instead of reacting when the last post is a question or a prompt', async () => {
+      const session = makeSession({ lastMessageId: 'question-1' });
+      const create = newPost('notice-1');
+
+      const anchor = await deliverLifecycleNotice(session, 'reaction', 'idle-warning', create, refreshOk());
+
+      expect(session.platform.addReaction).not.toHaveBeenCalled();
+      expect(create).toHaveBeenCalledTimes(1);
+      expect(anchor?.id).toBe('notice-1');
+      expect(session.lifecycleNotice).toEqual({ postId: 'notice-1', kind: 'idle-warning', reaction: false, trailing: true });
+    });
+
     // After a restart nothing is known about the thread until the bot posts.
     it('posts when there is no bot post to react to', async () => {
       const session = makeSession();
@@ -265,7 +283,7 @@ describe('updateLifecycleNotice', () => {
     });
     const edit = mock(() => Promise.resolve());
 
-    await updateLifecycleNotice(session, 'timed-out', edit);
+    await updateLifecycleNotice(session, 'timed-out', edit, newPost('x'));
 
     expect(edit).toHaveBeenCalledTimes(1);
     expect(session.lifecycleNotice?.kind).toBe('timed-out');
@@ -275,7 +293,7 @@ describe('updateLifecycleNotice', () => {
     const session = makeSession({ lifecyclePostId: 'notice-1' });
     const edit = mock(() => Promise.resolve());
 
-    await updateLifecycleNotice(session, 'resumed', edit);
+    await updateLifecycleNotice(session, 'resumed', edit, newPost('x'));
 
     expect(edit).toHaveBeenCalledTimes(1);
     expect(session.platform.addReaction).not.toHaveBeenCalled();
@@ -290,7 +308,7 @@ describe('updateLifecycleNotice', () => {
     });
     const edit = mock(() => Promise.resolve());
 
-    await updateLifecycleNotice(session, 'timed-out', edit);
+    await updateLifecycleNotice(session, 'timed-out', edit, newPost('x'));
 
     expect(edit).not.toHaveBeenCalled();
     expect(session.platform.addReaction).toHaveBeenCalledWith('reply-1', 'alarm_clock');
@@ -298,17 +316,47 @@ describe('updateLifecycleNotice', () => {
     expect(session.lifecycleNotice?.kind).toBe('timed-out');
   });
 
-  it('keeps tracking the emoji that is actually up when the swap fails', async () => {
+  // A ⏳ left up on a session that already timed out tells the reader the
+  // wrong thing, so the notice is posted and the stale emoji taken down.
+  it('posts the notice and drops the stale emoji when the swap fails', async () => {
+    const session = makeSession({
+      lifecyclePostId: 'reply-1',
+      lifecycleNotice: { postId: 'reply-1', kind: 'idle-warning', reaction: true, trailing: true },
+    });
+    (session.platform.addReaction as ReturnType<typeof mock>).mockImplementation(() => Promise.reject(new Error('rate limited')));
+    const edit = mock(() => Promise.resolve());
+    const create = newPost('notice-1');
+
+    const anchor = await updateLifecycleNotice(session, 'timed-out', edit, create);
+
+    expect(edit).not.toHaveBeenCalled();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(session.platform.removeReaction).toHaveBeenCalledWith('reply-1', 'hourglass_flowing_sand');
+    expect(anchor?.id).toBe('notice-1');
+    expect(session.lifecycleNotice).toEqual({ postId: 'notice-1', kind: 'timed-out', reaction: false, trailing: true });
+  });
+
+  it('returns null and tracks nothing when the swap fails and posting fails too', async () => {
     const session = makeSession({
       lifecyclePostId: 'reply-1',
       lifecycleNotice: { postId: 'reply-1', kind: 'idle-warning', reaction: true, trailing: true },
     });
     (session.platform.addReaction as ReturnType<typeof mock>).mockImplementation(() => Promise.reject(new Error('rate limited')));
 
-    await updateLifecycleNotice(session, 'timed-out', mock(() => Promise.resolve()));
+    const anchor = await updateLifecycleNotice(session, 'timed-out', mock(() => Promise.resolve()), mock(() => Promise.resolve(undefined)));
 
-    expect(session.platform.removeReaction).not.toHaveBeenCalled();
-    expect(session.lifecycleNotice?.kind).toBe('idle-warning');
+    expect(anchor).toBeNull();
+    expect(session.lifecycleNotice).toBeUndefined();
+  });
+
+  it('returns the existing anchor when nothing had to be posted', async () => {
+    const session = makeSession({ lifecyclePostId: 'notice-1' });
+    const create = newPost('x');
+
+    const anchor = await updateLifecycleNotice(session, 'timed-out', mock(() => Promise.resolve()), create);
+
+    expect(anchor?.id).toBe('notice-1');
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('does not re-add an emoji that is already up', async () => {
@@ -331,7 +379,7 @@ describe('updateLifecycleNotice', () => {
     });
     const edit = mock(() => Promise.resolve());
 
-    await updateLifecycleNotice(session, 'timed-out', edit);
+    await updateLifecycleNotice(session, 'timed-out', edit, newPost('x'));
 
     expect(edit).toHaveBeenCalledTimes(1);
   });

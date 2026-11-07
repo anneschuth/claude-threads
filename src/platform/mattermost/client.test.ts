@@ -392,3 +392,30 @@ describe('heartbeat probe', () => {
     expect(reconnects).toBe(0);
   });
 });
+
+describe('thread_post event', () => {
+  function posted(client: MattermostClient, post: Record<string, unknown>) {
+    (client as any).handleEvent({
+      event: 'posted',
+      data: { post: JSON.stringify({ channel_id: 'c-123', message: 'hi', ...post }) },
+      broadcast: {},
+      seq: 1,
+    });
+  }
+
+  // lifecycleDelivery needs to know when anything lands after its notice,
+  // the bot's own posts included, even though they never reach 'message'.
+  it('fires for every thread reply in the channel, the bot\'s own included', () => {
+    const client = makeClient();
+    (client as any).botUserId = 'bot-1';
+    const seen: Array<[string, string]> = [];
+    client.on('thread_post', (postId, threadId) => seen.push([postId, threadId]));
+
+    posted(client, { id: 'p1', root_id: 'root-1', user_id: 'bot-1' });
+    posted(client, { id: 'p2', root_id: 'root-1', user_id: 'alice-id' });
+    posted(client, { id: 'p3', root_id: '', user_id: 'alice-id' }); // top level
+    posted(client, { id: 'p4', root_id: 'root-9', user_id: 'alice-id', channel_id: 'other' });
+
+    expect(seen).toEqual([['p1', 'root-1'], ['p2', 'root-1']]);
+  });
+});

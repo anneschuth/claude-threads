@@ -670,6 +670,19 @@ export class SlackClient extends BasePlatformClient {
       }
     }
 
+    // Any new reply in one of our threads, before the bot filter below: the
+    // bot's own posts (also the MCP child's) end a thread too. Edits and
+    // deletes are not new posts.
+    if (
+      event.type === 'message'
+      && event.subtype !== 'message_changed'
+      && event.subtype !== 'message_deleted'
+      && event.channel === this.channelId
+      && event.ts && event.thread_ts && event.thread_ts !== event.ts
+    ) {
+      this.emit('thread_post', event.ts, event.thread_ts);
+    }
+
     // Handle message events
     // Note: file_share subtype is used when a user uploads a file with a message
     if (event.type === 'message' && (!event.subtype || event.subtype === 'file_share')) {

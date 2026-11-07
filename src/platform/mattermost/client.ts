@@ -625,6 +625,11 @@ export class MattermostClient extends BasePlatformClient {
       try {
         const post = JSON.parse(data.post) as MattermostPost;
 
+        // Before the self filter: the bot's own replies end a thread too.
+        if (post.channel_id === this.channelId && post.root_id) {
+          this.emit('thread_post', post.id, post.root_id);
+        }
+
         // Ignore messages from ourselves
         if (post.user_id === this.botUserId) return;
 

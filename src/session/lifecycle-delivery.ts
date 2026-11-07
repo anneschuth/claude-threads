@@ -59,12 +59,11 @@ export interface LifecycleNotice {
   /** Carried as a reaction: the post's text is not ours to edit. */
   reaction: boolean;
   /**
-   * Still the bot's last post in the thread. `updateLastMessage` clears it on
-   * the next post the bot makes there. Known limitation: a post that bypasses
-   * that helper does not clear it — the direct `createPost` calls in
-   * `SessionManager`, `message-handler.ts` and `reaction-router.ts`, command
-   * replies in `src/commands/executor.ts` (!help and others), the
-   * tool-details sink, and permission prompts posted by the MCP child process.
+   * Still the last post in the thread. Cleared by any other post there:
+   * `SessionManager.noteThreadPost` sees every new reply over the platform
+   * socket (users, other bots, the bot's own, the MCP child's), and
+   * `updateLastMessage` clears it at once for the bot's own posts, before
+   * their echo arrives. Posts made while the bot is down are not seen.
    */
   trailing: boolean;
 }
@@ -156,8 +155,12 @@ export async function deliverLifecycleNotice(
   if (delivery === 'reaction' && !own) {
     // The bot's last post: the notice it already carries if nothing came
     // after it, otherwise the last post the session made this run. Neither is
-    // known after a restart until the bot posts again; then it posts.
-    const target = last?.postId ?? session.lastMessageId;
+    // known after a restart until the bot posts again; then it posts. A fresh
+    // target must be a reply or a status post: on a question, a plan or a
+    // prompt the reactions are the answers.
+    const fresh = last ? undefined : session.lastMessageId;
+    const target = last?.postId
+      ?? (fresh && session.messageManager?.isReactionAnchor(fresh) ? fresh : undefined);
     const replacing = last?.kind;
     const lastBefore = session.lastMessageId;
     if (target && (await react(session, target, kind, replacing))) {
@@ -179,19 +182,37 @@ export async function deliverLifecycleNotice(
  * `edit` is the call site's own update. When the anchor carries the notice as
  * a reaction its text is someone else's message, so the emoji is swapped and
  * the text left alone.
+ *
+ * When that swap fails, the old emoji would keep showing a state the session
+ * has left (⏳ on a session that timed out), so the notice is posted with
+ * `create` instead and the old emoji taken down. Returns the post anchoring
+ * the notice now: `lifecyclePostId` unchanged, the new post, or null when the
+ * swap failed and nothing could be posted.
  */
 export async function updateLifecycleNotice(
   session: Session,
   kind: LifecycleNoticeKind,
   edit: () => Promise<unknown>,
-): Promise<void> {
+  create: () => Promise<PlatformPost | undefined | null>,
+): Promise<{ id: string } | null> {
+  const anchor = session.lifecyclePostId ? { id: session.lifecyclePostId } : null;
   const notice = session.lifecycleNotice;
   const anchored = notice !== undefined && notice.postId === session.lifecyclePostId;
   if (anchored && notice.reaction) {
-    // A failed swap leaves the old emoji up; keep tracking that one.
-    if (!(await react(session, notice.postId, kind, notice.kind))) return;
+    if (!(await react(session, notice.postId, kind, notice.kind))) {
+      await removeReaction(session, notice.postId, LIFECYCLE_REACTION_EMOJI[notice.kind]);
+      const created = await create();
+      if (!created) {
+        session.lifecycleNotice = undefined;
+        return null;
+      }
+      session.lifecycleNotice = { postId: created.id, kind, reaction: false, trailing: true };
+      sessionLog(session).debug(`Lifecycle ${kind} posted as ${created.id}: reaction swap failed`);
+      return created;
+    }
   } else {
     await edit();
   }
   if (anchored) notice.kind = kind;
+  return anchor;
 }
