@@ -681,6 +681,7 @@ describe('Worktree Module', () => {
           pendingWorktreePrompt: false,  // Mid-session
           firstPrompt: 'continue my work',
           userAttribution: true,
+          // Attribution only applies once a thread is genuinely shared.
           sessionAllowedUsers: new Set(['testuser', 'collaborator']),
         });
         const options = createMockOptions();
