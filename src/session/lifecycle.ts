@@ -1714,10 +1714,19 @@ async function resumeSessionImpl(
           ? ' (platform re-enabled)'
           : ` after bot restart (v${VERSION})`;
       const resumeMsg = `🔄 ${sessionFormatter.formatBold('Session resumed')}${by}\n${sessionFormatter.formatItalic(outcome)}`;
-      await updateLifecycleNotice(session, 'resumed', () => withErrorHandling(
-        () => session.platform.updatePost(postId, resumeMsg),
-        { action: 'Update timeout/shutdown post for resume', session }
-      ));
+      // The return is not kept: lifecyclePostId is cleared just below.
+      await updateLifecycleNotice(
+        session,
+        'resumed',
+        () => withErrorHandling(
+          () => session.platform.updatePost(postId, resumeMsg),
+          { action: 'Update timeout/shutdown post for resume', session }
+        ),
+        () => withErrorHandling(
+          () => session.platform.createPost(resumeMsg, session.threadId),
+          { action: 'Post resume notice', session }
+        ),
+      );
       // Clear the paused state since we're now active again
       session.lifecyclePostId = undefined;
       transitionTo(session, 'active');
@@ -2350,10 +2359,22 @@ export async function cleanupIdleSessions(
       if (session.lifecyclePostId) {
         // Update the existing warning post to show timeout
         const postId = session.lifecyclePostId;
-        await updateLifecycleNotice(session, 'timed-out', () => withErrorHandling(
-          () => session.platform.updatePost(postId, `⏱️ ${timeoutMessage}`),
-          { action: 'Update timeout post', session }
-        ));
+        const anchor = await updateLifecycleNotice(
+          session,
+          'timed-out',
+          () => withErrorHandling(
+            () => session.platform.updatePost(postId, `⏱️ ${timeoutMessage}`),
+            { action: 'Update timeout post', session }
+          ),
+          () => withErrorHandling(
+            () => post(session, 'timeout', timeoutMessage),
+            { action: 'Post session timeout', session }
+          ),
+        );
+        if (anchor && anchor.id !== postId) {
+          session.lifecyclePostId = anchor.id;
+          ctx.ops.registerPost(anchor.id, session.threadId);
+        }
       } else {
         // Create new timeout post (no warning was posted)
         const timeoutPost = shouldPostLifecycle(

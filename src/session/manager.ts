@@ -307,6 +307,7 @@ export class SessionManager extends EventEmitter {
     this.platformWatches.set(platformId, options?.watchesEnabled ?? true);
     this.platformTranscription.set(platformId, options?.transcriptionEnabled ?? true);
     client.on('message', (post, user) => this.handleMessage(platformId, post, user));
+    client.on('thread_post', (postId, threadId) => this.noteThreadPost(platformId, postId, threadId));
     client.on('reaction', (reaction, user) => {
       if (user) {
         this.handleReaction(platformId, reaction.postId, reaction.emojiName, user.username, 'added');
@@ -591,6 +592,18 @@ export class SessionManager extends EventEmitter {
    */
   emitSessionRemove(sessionId: string): void {
     this.emit('session:remove', sessionId);
+  }
+
+  /**
+   * A new post in a session's thread. Any post other than the lifecycle
+   * notice's own means the notice no longer ends the thread, so `dedup` must
+   * not refresh it nor `reaction` land on it again. This is the one place that
+   * sees every post: users, other bots, and the bot's own, including the MCP
+   * child's permission prompts that never pass `updateLastMessage`.
+   */
+  private noteThreadPost(platformId: string, postId: string, threadId: string): void {
+    const notice = this.registry.find(platformId, threadId)?.lifecycleNotice;
+    if (notice && notice.postId !== postId) notice.trailing = false;
   }
 
   private registerPost(postId: string, threadId: string): void {
@@ -1050,7 +1063,13 @@ export class SessionManager extends EventEmitter {
         // has. Only the create is a new post and a new notification.
         if (session.lifecyclePostId) {
           const postId = session.lifecyclePostId;
-          await updateLifecycleNotice(session, 'paused', () => session.platform.updatePost(postId, pauseMessage));
+          const post = await updateLifecycleNotice(
+            session,
+            'paused',
+            () => session.platform.updatePost(postId, pauseMessage),
+            () => session.platform.createPost(pauseMessage, session.threadId),
+          );
+          if (post) session.lifecyclePostId = post.id;
         } else if (
           shouldPostLifecycle(
             this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,
@@ -1914,7 +1933,13 @@ export class SessionManager extends EventEmitter {
           // a post the thread already has neither adds one nor notifies, and
           // leaving a stale "session idle" up over a restart would be worse.
           const postId = session.lifecyclePostId;
-          await updateLifecycleNotice(session, 'shutdown', () => session.platform.updatePost(postId, shutdownMessage));
+          const post = await updateLifecycleNotice(
+            session,
+            'shutdown',
+            () => session.platform.updatePost(postId, shutdownMessage),
+            () => session.platform.createPost(shutdownMessage, session.threadId),
+          );
+          if (post) session.lifecyclePostId = post.id;
         } else if (
           shouldPostLifecycle(
             this.platformOverhead.get(session.platformId)?.lifecycle ?? DEFAULT_OVERHEAD_VISIBILITY,

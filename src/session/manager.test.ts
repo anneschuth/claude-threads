@@ -90,6 +90,44 @@ describe('SessionManager', () => {
     manager.addPlatform('test-platform', platform as unknown as PlatformClient);
   });
 
+  describe('thread_post (lifecycleDelivery trailing)', () => {
+    function threadPostHandler(): (postId: string, threadId: string) => void {
+      const call = (platform.on as ReturnType<typeof mock>).mock.calls.find((c: unknown[]) => c[0] === 'thread_post');
+      if (!call) throw new Error('thread_post listener not registered');
+      return call[1] as (postId: string, threadId: string) => void;
+    }
+
+    function sessionWithNotice() {
+      const session = {
+        threadId: 'test-thread',
+        sessionId: 'test-platform:test-thread',
+        lifecycleNotice: { postId: 'notice-1', kind: 'idle-warning', reaction: false, trailing: true },
+      };
+      (manager.registry as any).sessions.set('test-platform:test-thread', session);
+      return session;
+    }
+
+    // A permission prompt from the MCP child, a !help reply, another user:
+    // none of them pass updateLastMessage, all of them arrive here.
+    test('any other post in the thread ends the notice\'s trailing', () => {
+      const session = sessionWithNotice();
+      threadPostHandler()('mcp-permission-prompt', 'test-thread');
+      expect(session.lifecycleNotice.trailing).toBe(false);
+    });
+
+    test('the notice\'s own post echoing back keeps it trailing', () => {
+      const session = sessionWithNotice();
+      threadPostHandler()('notice-1', 'test-thread');
+      expect(session.lifecycleNotice.trailing).toBe(true);
+    });
+
+    test('a post in another thread leaves it alone', () => {
+      const session = sessionWithNotice();
+      threadPostHandler()('other-post', 'other-thread');
+      expect(session.lifecycleNotice.trailing).toBe(true);
+    });
+  });
+
   describe('constructor', () => {
     test('creates instance with default options', () => {
       const m = new SessionManager('/test');
@@ -452,6 +490,8 @@ describe('SessionManager', () => {
       test('reaction: reacts to the bot\'s last post instead of posting, and 🔄 on it resumes', async () => {
         const m = managerWith({ lifecycleDelivery: 'reaction' });
         const session = inject(m, 'thread-react', { lastMessageId: 'reply-1' });
+        // reply-1 is Claude's reply, a post the emoji may land on.
+        session.messageManager.isReactionAnchor = (postId: string) => postId === 'reply-1';
 
         await m.postShutdownMessages();
 

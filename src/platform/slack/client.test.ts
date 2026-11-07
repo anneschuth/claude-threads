@@ -587,6 +587,23 @@ describe('SlackClient bot-authored filter', () => {
     expect(seen).toEqual([]);
   });
 
+  // lifecycleDelivery needs to know when anything lands after its notice,
+  // the bot's own posts included, even though they never reach 'message'.
+  it('emits thread_post for every thread reply, the bot\'s own included', async () => {
+    const client = makeClient();
+    await primeBotUser(client, 'U-BOT');
+    hello(client);
+    const seen: Array<[string, string]> = [];
+    client.on('thread_post', (postId, threadId) => seen.push([postId, threadId]));
+
+    await inject(client, { user: 'U-BOT', bot_id: 'B-OURS', app_id: OUR_APP, ts: '2.1', thread_ts: '1.0' });
+    await inject(client, { user: 'U-ALMIR', ts: '2.2', thread_ts: '1.0' });
+    await inject(client, { user: 'U-ALMIR', ts: '3.0' }); // top level
+    await inject(client, { subtype: 'message_changed', ts: '2.3', thread_ts: '1.0' });
+
+    expect(seen).toEqual([['2.1', '1.0'], ['2.2', '1.0']]);
+  });
+
   it('another app\'s bot posts stay ignored', async () => {
     const client = makeClient();
     await primeBotUser(client);

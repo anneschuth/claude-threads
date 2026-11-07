@@ -52,7 +52,7 @@ import type {
   PendingWatchPrompt,
   PendingBugReport,
 } from './executors/types.js';
-import { PostTracker } from './post-tracker.js';
+import { PostTracker, type PostType } from './post-tracker.js';
 import { DefaultContentBreaker } from './content-breaker.js';
 import type {
   MessageOperation,
@@ -79,6 +79,14 @@ import { formatUserTurn, shouldAttributeSession } from './user-attribution/index
 import { formatSideConversationsForClaude } from './side-conversation/index.js';
 
 const log = createLogger('msg-mgr');
+
+/**
+ * Posts a lifecycle emoji may land on under `lifecycleDelivery: reaction`:
+ * Claude's reply and the status posts that follow it. On a question, a plan
+ * approval or a prompt the reactions are the answers, and one more emoji there
+ * reads as an option.
+ */
+const REACTION_ANCHOR_TYPES: ReadonlySet<PostType> = new Set(['content', 'task_list', 'subagent']);
 
 /**
  * Callback to build message content (handles image attachments)
@@ -1052,6 +1060,16 @@ export class MessageManager {
    */
   clearPendingBugReport(): void {
     this.bugReportExecutor.clearPendingBugReport();
+  }
+
+  /**
+   * Whether a lifecycle notice may ride on `postId` as a reaction. Only posts
+   * this session registered as a reply or a status post qualify; anything
+   * else, including a post it does not know, gets the notice as its own post.
+   */
+  isReactionAnchor(postId: string): boolean {
+    const type = this.postTracker.get(postId)?.type;
+    return type !== undefined && REACTION_ANCHOR_TYPES.has(type);
   }
 
   /**
