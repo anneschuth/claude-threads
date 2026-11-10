@@ -54,6 +54,7 @@ import {
   clearRuntimeSettings,
 } from './auto-update/installer.js';
 import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
+import { planSlackEventSources } from './platform/slack/event-source-plan.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -62,12 +63,12 @@ import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js'
 /**
  * Create a platform client based on the config type.
  */
-function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
+function createPlatformClient(config: PlatformInstanceConfig, sharedEventSource?: SlackClient): PlatformClient {
   switch (config.type) {
     case 'mattermost':
       return new MattermostClient(config as MattermostPlatformConfig);
     case 'slack':
-      return new SlackClient(config as SlackPlatformConfig);
+      return new SlackClient(config as SlackPlatformConfig, sharedEventSource);
     default:
       throw new Error(`Unsupported platform type: ${(config as PlatformInstanceConfig).type}`);
   }
@@ -772,7 +773,21 @@ async function startWithoutDaemon() {
 
   // Initialize all configured platforms
   ui.addLog({ level: 'debug', component: 'init', message: `Initializing ${config.platforms.length} platform(s)` });
-  for (const platformConfig of config.platforms) {
+
+  // Slack entries on one app token share one Socket Mode connection: Slack
+  // round-robins envelopes across an app's connections, so a socket per entry
+  // loses events in every channel. Parents are created first; secondaries are
+  // built on them and register with them (#502 shared event source).
+  const eventSourcePlan = planSlackEventSources(
+    config.platforms as ReadonlyArray<{ id: string; type: string; appToken?: string }>,
+    (id) => platformEnabledState.get(id) ?? true,
+  );
+  const orderedPlatforms = [
+    ...config.platforms.filter((p) => !eventSourcePlan.has(p.id)),
+    ...config.platforms.filter((p) => eventSourcePlan.has(p.id)),
+  ];
+
+  for (const platformConfig of orderedPlatforms) {
     const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
     const isEnabled = platformEnabledState.get(platformConfig.id) ?? true; // Default to enabled
     ui.addLog({ level: 'info', component: 'init', message: `Creating ${platformConfig.type} platform: ${platformConfig.id}${isEnabled ? '' : ' (disabled)'}` });
@@ -787,7 +802,12 @@ async function startWithoutDaemon() {
     });
 
     // Create platform client using factory
-    const client = createPlatformClient(platformConfig);
+    const parentId = eventSourcePlan.get(platformConfig.id);
+    const sharedEventSource = parentId ? (platforms.get(parentId) as SlackClient) : undefined;
+    if (parentId) {
+      ui.addLog({ level: 'info', component: 'init', message: `${platformConfig.id} shares ${parentId}'s Socket Mode connection` });
+    }
+    const client = createPlatformClient(platformConfig, sharedEventSource);
     platforms.set(platformConfig.id, client);
     configureAuditLog(platformConfig.id, resolveAuditLogEnabled(platformConfig.auditLog, `platforms[${platformConfig.id}].auditLog`));
 
@@ -953,21 +973,28 @@ async function startWithoutDaemon() {
   );
   const disabledCount = platforms.size - enabledPlatforms.length;
   ui.addLog({ level: 'info', component: 'init', message: `Connecting ${enabledPlatforms.length} platform(s)...${disabledCount > 0 ? ` (${disabledCount} disabled)` : ''}` });
-  const connectionResults = await Promise.allSettled(
-    enabledPlatforms.map(async ([id, client]) => {
-      ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
-      try {
-        await client.connect();
-        ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
-        return { id, success: true, client };
-      } catch (err) {
-        ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
-        // Mark the platform as disabled so we don't try to use it
-        platformEnabledState.set(id, false);
-        return { id, success: false, error: err, client };
-      }
-    })
+  // Secondaries register with their parent before the parent's socket goes
+  // live, so no event for their channel hits the unregistered-channel drop.
+  const connectOne = async ([id, client]: [string, PlatformClient]) => {
+    ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
+    try {
+      await client.connect();
+      ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
+      return { id, success: true, client };
+    } catch (err) {
+      ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
+      // Mark the platform as disabled so we don't try to use it
+      platformEnabledState.set(id, false);
+      return { id, success: false, error: err, client };
+    }
+  };
+  const secondaryResults = await Promise.allSettled(
+    enabledPlatforms.filter(([id]) => eventSourcePlan.has(id)).map(connectOne),
   );
+  const ownerResults = await Promise.allSettled(
+    enabledPlatforms.filter(([id]) => !eventSourcePlan.has(id)).map(connectOne),
+  );
+  const connectionResults = [...secondaryResults, ...ownerResults];
 
   // Settle reconstructed DM instances: a connected one leaves the forwarding
   // window; a failed one must not keep owning its channel (that would block
