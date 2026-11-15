@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { program } from 'commander';
+import { statSync } from 'fs';
+import { findChannelDirProblems } from './claude/cli.js';
 import { createDmDiscoveryRuntime, type DmDiscoveryRuntime } from './platform/dm-discovery-runtime.js';
 import { DM_PLATFORM_SEP } from './platform/dm-discovery.js';
 import type { DirectChannelModeConfig } from './platform/utils.js';
@@ -858,6 +860,15 @@ async function startWithoutDaemon() {
     if (!client) throw new Error(`No client was built for platform ${platformConfig.id}`);
     platforms.set(platformConfig.id, client);
     configureAuditLog(platformConfig.id, resolveAuditLogEnabled(platformConfig.auditLog, `platforms[${platformConfig.id}].auditLog`));
+    for (const problem of findChannelDirProblems(platformConfig, (path) => {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    })) {
+      ui.addLog({ level: 'error', component: 'init', message: problem });
+    }
 
     // Register with session manager (passes per-platform overhead visibility)
     session.addPlatform(platformConfig.id, client, {

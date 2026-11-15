@@ -948,7 +948,9 @@ async function startSessionImpl(
   // Per-channel working directory (config.yaml `platforms[].workingDir`) overrides
   // the bot-wide default; `!cd` below still wins.
   const channelWorkingDir = platform.getMcpConfig().workingDir;
-  let workingDir = channelWorkingDir ? expandHomeDir(channelWorkingDir) : ctx.config.workingDir;
+  let workingDir = typeof channelWorkingDir === 'string' && channelWorkingDir
+    ? expandHomeDir(channelWorkingDir)
+    : ctx.config.workingDir;
   // Start from the bot-wide default. The legacy `skipPermissions` boolean is
   // still consumed by some callers, but the effective mode is what drives
   // Claude CLI spawn below.

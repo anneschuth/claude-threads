@@ -14,7 +14,7 @@ import {
   buildPermissionArgs,
   type ClaudeCliOptions,
   type StatusLineData,
-  type McpConfigBlob, expandHomeDir, buildAddDirArgs } from './cli.js';
+  type McpConfigBlob, expandHomeDir, buildAddDirArgs, findChannelDirProblems } from './cli.js';
 
 describe('ClaudeCli', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -679,6 +679,25 @@ describe('buildPermissionArgs', () => {
   it('buildAddDirArgs passes each channel directory as --add-dir with ~ expanded', () => {
     expect(buildAddDirArgs(['~/Projects/a', '/srv/b'])).toEqual(['--add-dir', `${homedir()}/Projects/a`, '--add-dir', '/srv/b']);
     expect(buildAddDirArgs(undefined)).toEqual([]);
+  });
+
+  it('buildAddDirArgs drops what is not a path instead of crashing the spawn', () => {
+    expect(buildAddDirArgs('~/not-a-list')).toEqual([]);
+    expect(buildAddDirArgs(['/srv/a', 42, '', null])).toEqual(['--add-dir', '/srv/a']);
+  });
+
+  it('findChannelDirProblems names each directory that is missing or not a path', () => {
+    const exists = (path: string) => path === '/srv/ok' || path === `${homedir()}/ok`;
+    expect(findChannelDirProblems({ id: 'p', workingDir: '~/ok', additionalDirectories: ['/srv/ok'] }, exists)).toEqual([]);
+    expect(findChannelDirProblems({ id: 'p' }, exists)).toEqual([]);
+    expect(findChannelDirProblems({ id: 'p', workingDir: '/srv/typo', additionalDirectories: ['/srv/ok', '/srv/gone', 7] }, exists)).toEqual([
+      'platforms[p].workingDir: /srv/typo is not an existing directory',
+      'platforms[p].additionalDirectories: /srv/gone is not an existing directory',
+      'platforms[p].additionalDirectories must be a path, got 7',
+    ]);
+    expect(findChannelDirProblems({ id: 'p', additionalDirectories: '/srv/ok' }, exists)).toEqual([
+      'platforms[p].additionalDirectories must be a list of paths',
+    ]);
   });
 
   it('expandHomeDir expands only a leading ~', () => {

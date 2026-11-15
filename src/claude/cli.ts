@@ -420,9 +420,47 @@ export function expandHomeDir(dir: string): string {
   return dir === '~' || dir.startsWith('~/') ? homedir() + dir.slice(1) : dir;
 }
 
+/**
+ * A channel's `additionalDirectories` as a list of expanded paths. The value
+ * comes straight from config.yaml, so anything that is not a list of
+ * non-empty strings is dropped here instead of crashing the spawn.
+ */
+export function resolveAdditionalDirs(dirs: unknown): string[] {
+  if (!Array.isArray(dirs)) return [];
+  return dirs.filter((dir): dir is string => typeof dir === 'string' && dir.length > 0).map(expandHomeDir);
+}
+
 /** `--add-dir` arguments for a channel's `additionalDirectories` (`~` expanded). */
-export function buildAddDirArgs(dirs: string[] | undefined): string[] {
-  return (dirs ?? []).flatMap((dir) => ['--add-dir', expandHomeDir(dir)]);
+export function buildAddDirArgs(dirs: unknown): string[] {
+  return resolveAdditionalDirs(dirs).flatMap((dir) => ['--add-dir', dir]);
+}
+
+/**
+ * What is wrong with a platform entry's `workingDir` / `additionalDirectories`,
+ * as messages for the startup log. A typo here otherwise only shows up when
+ * the first session in that channel fails to start.
+ */
+export function findChannelDirProblems(
+  entry: { id: string; workingDir?: unknown; additionalDirectories?: unknown },
+  isDirectory: (path: string) => boolean,
+): string[] {
+  const problems: string[] = [];
+  const check = (field: string, dir: unknown) => {
+    if (typeof dir !== 'string' || dir.length === 0) {
+      problems.push(`platforms[${entry.id}].${field} must be a path, got ${JSON.stringify(dir)}`);
+    } else if (!isDirectory(expandHomeDir(dir))) {
+      problems.push(`platforms[${entry.id}].${field}: ${dir} is not an existing directory`);
+    }
+  };
+  if (entry.workingDir !== undefined) check('workingDir', entry.workingDir);
+  if (entry.additionalDirectories !== undefined) {
+    if (!Array.isArray(entry.additionalDirectories)) {
+      problems.push(`platforms[${entry.id}].additionalDirectories must be a list of paths`);
+    } else {
+      entry.additionalDirectories.forEach((dir) => check('additionalDirectories', dir));
+    }
+  }
+  return problems;
 }
 
 export function buildPermissionArgs(opts: {
@@ -517,7 +555,7 @@ export function buildPermissionArgs(opts: {
   if (opts.platformConfig.allowAllReaction === false) {
     mcpEnv.PERMISSION_ALLOW_ALL = '0';
   }
-  const extraDirs = (opts.platformConfig.additionalDirectories ?? []).map(expandHomeDir);
+  const extraDirs = resolveAdditionalDirs(opts.platformConfig.additionalDirectories);
   if (extraDirs.length > 0) {
     mcpEnv[OUTBOUND_ENV.SESSION_ADDITIONAL_DIRS] = extraDirs.join('\n');
   }

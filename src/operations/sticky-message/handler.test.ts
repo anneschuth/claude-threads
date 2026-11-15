@@ -1,5 +1,5 @@
 import { describe, it, expect, mock, beforeEach } from 'bun:test';
-import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, markNeedsBump, initialize } from './handler.js';
+import { buildStickyMessage, StickyMessageConfig, getPendingPrompts, formatPendingPrompts, setShuttingDown, cleanupOldStickyMessages, updateStickyMessage, markNeedsBump, initialize, withChannelDirs } from './handler.js';
 import type { Session } from '../../session/types.js';
 import { createSessionTimers, createSessionLifecycle } from '../../session/types.js';
 import type { PlatformClient } from '../../platform/index.js';
@@ -255,6 +255,20 @@ describe('buildStickyMessage', () => {
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`📂 /home/user/projects`');
+  });
+
+  it('counts a channel\'s extra directories also when it sets no working directory of its own', () => {
+    const channel = withChannelDirs(testConfig, { additionalDirectories: ['/srv/a', '/srv/b'] });
+    expect(channel.workingDir).toBe(testConfig.workingDir);
+    expect(channel.additionalDirCount).toBe(2);
+  });
+
+  it('uses the channel\'s working directory, and ignores values that are not paths', () => {
+    expect(withChannelDirs(testConfig, { workingDir: '/srv/project' }).workingDir).toBe('/srv/project');
+    const broken = withChannelDirs(testConfig, { workingDir: 42, additionalDirectories: 'not-a-list' });
+    expect(broken.workingDir).toBe(testConfig.workingDir);
+    expect(broken.additionalDirCount).toBe(0);
+    expect(withChannelDirs(testConfig, undefined).additionalDirCount).toBe(0);
   });
 
   it('shows the number of per-channel extra directories next to the working directory', async () => {

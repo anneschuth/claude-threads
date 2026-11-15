@@ -166,7 +166,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `channelId` | Yes | Channel to listen in |
 | `botName` | No | Mention name (default: `claude-code`) |
 | `allowedUsers` | No | List of usernames who can use the bot |
-| `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. |
+| `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. A directory that does not exist is reported in the log at startup. |
 | `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. |
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
@@ -196,7 +196,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `channelId` | Yes | Channel ID (e.g., `C0123456789`) |
 | `botName` | No | Mention name (default: `claude`) |
 | `allowedUsers` | No | List of Slack usernames |
-| `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. |
+| `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. A directory that does not exist is reported in the log at startup. |
 | `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. |
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
