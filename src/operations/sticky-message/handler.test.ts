@@ -47,6 +47,7 @@ function createMockPlatform(platformId: string): PlatformClient {
     downloadFile: mock(),
     getFileInfo: mock(),
     getFormatter: mock(),
+    getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     getThreadLink: mock((threadId: string) => `/_redirect/pl/${threadId}`),
     connect: mock(),
     disconnect: mock(),
@@ -254,6 +255,13 @@ describe('buildStickyMessage', () => {
     const result = await buildStickyMessage(sessions, 'test-platform', testConfig, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
 
     expect(result).toContain('`📂 /home/user/projects`');
+  });
+
+  it('shows the number of per-channel extra directories next to the working directory', async () => {
+    const sessions = new Map<string, Session>();
+    const result = await buildStickyMessage(sessions, 'test-platform', { ...testConfig, additionalDirCount: 6 }, mockFormatter, (threadId) => `/_redirect/pl/${threadId}`);
+
+    expect(result).toContain('`📂 /home/user/projects +6`');
   });
 
   it('shows active sessions in card-style list', async () => {
@@ -1160,6 +1168,7 @@ describe('updateStickyMessage with bump', () => {
       getPinnedPosts,
       getPost,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     // Initialize with a mock session store that has the old sticky post ID
@@ -1235,6 +1244,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getBotUser,
       getPinnedPosts,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     // Initialize with an existing sticky post ID
@@ -1304,6 +1314,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getBotUser,
       getPinnedPosts,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     // Initialize with an existing sticky post ID
@@ -1364,6 +1375,7 @@ describe('updateStickyMessage validates lastMessageId', () => {
       getBotUser,
       getPinnedPosts,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     // Initialize with an existing sticky post ID
@@ -1474,6 +1486,7 @@ describe('updateStickyMessage (overhead: hidden)', () => {
       unpinPost,
       deletePost,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     // Empty session store so the cleanup branch has nothing to do.
@@ -1521,6 +1534,7 @@ describe('updateStickyMessage (overhead: hidden)', () => {
       getBotUser,
       getPinnedPosts,
       getFormatter,
+      getMcpConfig: () => ({ type: 'mattermost', url: '', token: '', channelId: '', allowedUsers: [] }),
     } as unknown as PlatformClient;
 
     const removeStickyPostId = mock(() => {});

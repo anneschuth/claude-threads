@@ -288,6 +288,33 @@ describe('handlePermissionWith', () => {
     expect(api.createdPosts).toHaveLength(1);
   });
 
+  it('allowAllReaction: false offers only 👍 / 👎', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '+1' }],
+    });
+    const cfg = { ...makeCfg(api), allowAllReaction: false };
+    await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+    expect(api.createdPosts[0].message).not.toContain('Allow all');
+    expect(api.createdPosts[0].reactions).toEqual(['+1', '-1']);
+  });
+
+  it('allowAllReaction: false treats a ✅ as allow-once, so the next call prompts again', async () => {
+    const api = new FakeApi({
+      reactions: [
+        { postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' },
+        { postId: 'post-2', userId: 'u-alice', emojiName: '-1' },
+      ],
+    });
+    const cfg = { ...makeCfg(api), allowAllReaction: false };
+    const first = await handlePermissionWith('Bash', { command: 'ls' }, cfg);
+    expect(first.behavior).toBe('allow');
+    expect(cfg.getAllowAllState()).toBe(false);
+    expect(api.updatedPosts[0].message).not.toContain('Allowed all');
+    const second = await handlePermissionWith('Bash', { command: 'git push --force' }, cfg);
+    expect(second.behavior).toBe('deny');
+    expect(api.createdPosts).toHaveLength(2);
+  });
+
   it('denies when authorized user reacts with -1', async () => {
     const api = new FakeApi({
       reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: '-1' }],

@@ -47,6 +47,9 @@ export class MattermostClient extends BasePlatformClient {
   private channelId: string;
   private directMessages: boolean;
   private outboundFiles?: { enabled?: boolean; maxBytes?: number };
+  private allowAllReaction?: boolean;
+  private workingDir?: string;
+  private additionalDirectories?: string[];
   private mcpServers?: Record<string, McpServerConfig>;
   private strictMcpConfig?: boolean;
   private claudeAiConnectors?: boolean;
@@ -68,6 +71,9 @@ export class MattermostClient extends BasePlatformClient {
     this.botName = platformConfig.botName;
     this.allowedUsers = platformConfig.allowedUsers;
     this.outboundFiles = platformConfig.outboundFiles;
+    this.allowAllReaction = platformConfig.allowAllReaction;
+    this.workingDir = platformConfig.workingDir;
+    this.additionalDirectories = platformConfig.additionalDirectories;
     this.mcpServers = platformConfig.mcpServers;
     this.strictMcpConfig = platformConfig.strictMcpConfig;
     this.claudeAiConnectors = platformConfig.claudeAiConnectors;
@@ -774,6 +780,9 @@ export class MattermostClient extends BasePlatformClient {
       mcpServers: this.mcpServers,
       strictMcpConfig: this.strictMcpConfig,
       claudeAiConnectors: this.claudeAiConnectors,
+      allowAllReaction: this.allowAllReaction,
+      workingDir: this.workingDir,
+      additionalDirectories: this.additionalDirectories,
     };
   }
 

@@ -59,6 +59,7 @@ describe('OUTBOUND_ENV contract', () => {
     expect(Object.keys(OUTBOUND_ENV).sort()).toEqual([
       'OUTBOUND_FILES_ENABLED',
       'OUTBOUND_FILES_MAX_BYTES',
+      'SESSION_ADDITIONAL_DIRS',
       'SESSION_UPLOAD_DIR',
       'SESSION_WORKING_DIR',
     ]);

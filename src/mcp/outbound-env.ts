@@ -17,6 +17,8 @@
 export const OUTBOUND_ENV = {
   /** Absolute path to the session's working directory (CWD Claude was started in). */
   SESSION_WORKING_DIR: 'SESSION_WORKING_DIR',
+  /** Newline-separated per-channel extra directories (`additionalDirectories`), also send_file roots. */
+  SESSION_ADDITIONAL_DIRS: 'SESSION_ADDITIONAL_DIRS',
   /** Absolute path to the per-thread upload directory. */
   SESSION_UPLOAD_DIR: 'SESSION_UPLOAD_DIR',
   /** '0' to disable; any other value (including unset) means enabled. */

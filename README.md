@@ -144,7 +144,7 @@ Unknown `!commands` are checked against Claude Code's own slash commands and pas
 **Permission approval** - When Claude wants to run a tool:
 
 - 👍 Allow this action
-- ✅ Allow all future actions
+- ✅ Allow all future actions (unless `allowAllReaction: false`)
 - 👎 Deny
 
 **Plan approval** - When Claude presents a plan: 👍 approve, 👎 request changes

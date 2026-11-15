@@ -6,6 +6,7 @@
  * The message is updated whenever sessions start or end.
  */
 
+import { expandHomeDir } from '../../claude/cli.js';
 import type { Session } from '../../session/types.js';
 import { getSessionStatus } from '../../session/types.js';
 import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
@@ -156,6 +157,8 @@ export interface StickyMessageConfig {
   permissionMode: PermissionMode;
   worktreeMode: WorktreeMode;
   workingDir: string;
+  /** Number of per-channel extra directories (`additionalDirectories`); shown next to the working directory. */
+  additionalDirCount?: number;
   debug: boolean;
   /** Optional update status info */
   updateStatus?: UpdateStatusInfo;
@@ -512,7 +515,8 @@ async function buildStatusBar(
 
   // Working directory (shortened)
   const shortDir = config.workingDir.replace(process.env.HOME || '', '~');
-  items.push(formatter.formatCode(`📂 ${shortDir}`));
+  const extraDirs = config.additionalDirCount ? ` +${config.additionalDirCount}` : '';
+  items.push(formatter.formatCode(`📂 ${shortDir}${extraDirs}`));
 
   return items.join(' · ');
 }
@@ -921,10 +925,16 @@ async function updateStickyMessageImpl(
   await validateLastMessageIds(platform, platformSessions);
 
   const formatter = platform.getFormatter();
+  // Per-channel working directory and extra directories override the bot-wide ones.
+  // Partial platform doubles in tests may lack getMcpConfig; then the bot-wide values apply.
+  const channel = typeof platform.getMcpConfig === 'function' ? platform.getMcpConfig() : undefined;
+  const channelConfig: StickyMessageConfig = channel?.workingDir
+    ? { ...config, workingDir: expandHomeDir(channel.workingDir), additionalDirCount: channel.additionalDirectories?.length ?? 0 }
+    : config;
   const content = await buildStickyMessage(
     sessions,
     platform.platformId,
-    config,
+    channelConfig,
     formatter,
     (threadId) => platform.getThreadLink(threadId)
   );

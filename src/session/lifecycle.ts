@@ -23,7 +23,7 @@ import { isAuthorizedForSession, sessionAllowedUserSet } from './authorization.j
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
-import { ClaudeCli } from '../claude/cli.js';
+import { ClaudeCli, expandHomeDir } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
 import { isRevivable } from '../persistence/session-store.js';
 import type { PersistedSession } from '../persistence/session-store.js';
@@ -945,7 +945,10 @@ async function startSessionImpl(
   // ---------------------------------------------------------------------------
   // Apply initial options from first-message commands (!cd, !permissions)
   // ---------------------------------------------------------------------------
-  let workingDir = ctx.config.workingDir;
+  // Per-channel working directory (config.yaml `platforms[].workingDir`) overrides
+  // the bot-wide default; `!cd` below still wins.
+  const channelWorkingDir = platform.getMcpConfig().workingDir;
+  let workingDir = channelWorkingDir ? expandHomeDir(channelWorkingDir) : ctx.config.workingDir;
   // Start from the bot-wide default. The legacy `skipPermissions` boolean is
   // still consumed by some callers, but the effective mode is what drives
   // Claude CLI spawn below.
