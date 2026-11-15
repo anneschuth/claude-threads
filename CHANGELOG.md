@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+- `hono` 4.13.14 → 4.13.18 (five advisories, four medium and one low) and `@hono/node-server` 2.1.5 → 2.1.8 (two medium advisories). Both are bundled into what users run (#671).
+- `minimatch` is forced to 11.x through an override (medium, denial of service in glob expansion). It only reaches the linter, so nothing users run changes (#671).
+
+### Changed
+- `express-rate-limit` 8.7.4, `semver` 7.8.6, `knip` 6.44.2 (#671).
+
 ## [1.41.0] - 2026-11-08
 
 ### Added
