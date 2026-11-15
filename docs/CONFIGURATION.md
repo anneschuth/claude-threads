@@ -207,6 +207,33 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `reconnectPolicy` | No | What happens when reconnection attempts run out: `retry` (default — log, cool down 60s, reset the counter and keep trying; recovers with no supervisor) or `exit` (leave through the graceful shutdown path and exit non-zero, for `Restart=always` deployments). The bot never stays alive with a dead socket either way. |
 | `auditLog` | No | Append-only audit trail of what the bot executed for this platform — tool calls (incl. subagents), session lifecycle, security-relevant commands, plan approvals. One JSONL stream per platform under `~/.claude-threads/audit/` (override: `CLAUDE_THREADS_AUDIT_DIR`), files `0600`. The bot never deletes it — rotation/retention is the operator's job (logrotate, SIEM ingestion). See [Audit log](#audit-log). Default off. |
 
+#### Several channels on one Slack app
+
+To serve more than one channel with the same Slack app, add one `platforms:` entry per channel and give them the same `botToken` and `appToken`:
+
+```yaml
+platforms:
+  - id: slack-dev
+    type: slack
+    botToken: xoxb-your-bot-token
+    appToken: xapp-your-app-token
+    channelId: C0123456789
+  - id: slack-ops
+    type: slack
+    botToken: xoxb-your-bot-token
+    appToken: xapp-your-app-token
+    channelId: C0987654321
+```
+
+Entries with the same `appToken` share one Socket Mode connection. The first enabled entry in the file opens it, and the others receive their events through it. At startup the log shows `slack-ops shares slack-dev's Socket Mode connection`.
+
+Two consequences:
+
+- `reconnectPolicy` on the entry that owns the connection applies to all of them. On the other entries it is ignored.
+- Disabling the owning entry in the terminal UI closes the connection, so the other entries stop receiving messages. The UI shows them as disconnected and the log names them. Restart the bot to restore them: the next enabled entry then opens the connection.
+
+Each entry needs its own `channelId`. Two entries on the same app and the same channel are reported as an error at startup, because only one of them can receive that channel's messages. Entries on different Slack apps (different `appToken`) each keep their own connection.
+
 ### Presentation presets (`mode`)
 
 A platform entry carries three fields that decide how much of the bot's own
@@ -312,7 +339,7 @@ Notes for operators:
 
 ### Direct messages (DM)
 
-**Mattermost only.** A Mattermost DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id — no separate feature needed. (This recipe does NOT work on Slack: Socket Mode distributes event envelopes across an app's active connections, so a second platform entry sharing the same app credentials can consume and discard events meant for the other entry. Slack DM support needs a single-connection, channel-aware implementation.)
+**Mattermost only.** A Mattermost DM is just a private channel with its own id, so a bot DM conversation is direct channel mode pointed at that id, with no separate feature needed. (This recipe is not supported on Slack. Two entries on one Slack app do share a connection, see [Several channels on one Slack app](#several-channels-on-one-slack-app), but pointing an entry at a Slack DM has not been verified.)
 
 ```yaml
 platforms:
