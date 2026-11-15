@@ -3,9 +3,9 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, it } from 'bun:test';
-import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, readdirSync } from 'fs';
+import { mkdtempSync, rmSync, readFileSync, statSync, existsSync, readdirSync, mkdirSync, symlinkSync, realpathSync } from 'fs';
 import { tmpdir, homedir } from 'os';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import {
   ClaudeCli,
   buildClaudeChildEnv,
@@ -14,7 +14,7 @@ import {
   buildPermissionArgs,
   type ClaudeCliOptions,
   type StatusLineData,
-  type McpConfigBlob, expandHomeDir, buildAddDirArgs, findChannelDirProblems } from './cli.js';
+  type McpConfigBlob, expandHomeDir, buildAddDirArgs, findChannelDirProblems, resolveChannelWorkingDir, resolveSendFileRoots } from './cli.js';
 
 describe('ClaudeCli', () => {
   let originalEnv: NodeJS.ProcessEnv;
@@ -697,6 +697,36 @@ describe('buildPermissionArgs', () => {
     ]);
     expect(findChannelDirProblems({ id: 'p', additionalDirectories: '/srv/ok' }, exists)).toEqual([
       'platforms[p].additionalDirectories must be a list of paths',
+    ]);
+  });
+
+  it('resolveChannelWorkingDir gives an absolute path, or the fallback when the channel sets none', () => {
+    expect(resolveChannelWorkingDir('~/repo', '/bot')).toBe(`${homedir()}/repo`);
+    expect(resolveChannelWorkingDir('rel/dir', '/bot')).toBe(resolve('rel/dir'));
+    expect(resolveChannelWorkingDir(undefined, '/bot')).toBe('/bot');
+    expect(resolveChannelWorkingDir('', '/bot')).toBe('/bot');
+    expect(resolveChannelWorkingDir(42, '/bot')).toBe('/bot');
+  });
+
+  it('resolveSendFileRoots resolves symlinks and leaves out roots that are too wide', () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'ct-roots-')));
+    try {
+      mkdirSync(join(base, 'real'));
+      symlinkSync(join(base, 'real'), join(base, 'link'));
+      // The validator compares against the resolved path of the file, so the
+      // root has to be resolved too or a file under the symlink never matches.
+      expect(resolveSendFileRoots([join(base, 'link')])).toEqual([join(base, 'real')]);
+      // One wide root makes the validator refuse every send_file call.
+      expect(resolveSendFileRoots(['/opt', '/tmp', join(base, 'real')])).toEqual([join(base, 'real')]);
+      expect(resolveSendFileRoots(['/srv/does-not-exist'])).toEqual(['/srv/does-not-exist']);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  it('findChannelDirProblems warns about an extra directory that is too wide for send_file', () => {
+    expect(findChannelDirProblems({ id: 'p', additionalDirectories: ['/opt'] }, () => true)).toEqual([
+      'platforms[p].additionalDirectories: /opt is too wide for send_file, which will not accept files from it',
     ]);
   });
 

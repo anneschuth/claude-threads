@@ -13,7 +13,7 @@
  */
 
 import { EventEmitter } from 'events';
-import { ClaudeEvent } from '../claude/cli.js';
+import { ClaudeEvent, resolveChannelWorkingDir } from '../claude/cli.js';
 import type { ClaudeCli } from '../claude/cli.js';
 import type { PlatformClient, PlatformUser, PlatformPost, PlatformFile } from '../platform/index.js';
 import { SessionStore, PersistedSession, PersistedContextPrompt } from '../persistence/session-store.js';
@@ -1801,11 +1801,13 @@ export class SessionManager extends EventEmitter {
 
     const formatter = platform.getFormatter();
 
-    // Use the default working directory since there's no session
+    // No session yet, so use the directory a new session in this channel
+    // would start in: the channel's own `workingDir`, or the bot-wide one.
+    const channelDir = resolveChannelWorkingDir(platform.getMcpConfig().workingDir, this.workingDir);
     const message = await worktreeModule.buildWorktreeListMessageFromDir(
-      this.workingDir,
+      channelDir,
       formatter,
-      this.workingDir
+      channelDir
     );
 
     if (message === null) {
@@ -1833,13 +1835,14 @@ export class SessionManager extends EventEmitter {
     // Find the worktree
     const { listWorktrees, getRepositoryRoot, isGitRepository } = await import('../git/worktree.js');
 
-    const isRepo = await isGitRepository(this.workingDir);
+    const channelDir = resolveChannelWorkingDir(platform.getMcpConfig().workingDir, this.workingDir);
+    const isRepo = await isGitRepository(channelDir);
     if (!isRepo) {
       await platform.createPost(`❌ Current directory is not a git repository`, threadId);
       return;
     }
 
-    const repoRoot = await getRepositoryRoot(this.workingDir);
+    const repoRoot = await getRepositoryRoot(channelDir);
     const worktrees = await listWorktrees(repoRoot);
 
     // Find matching worktree

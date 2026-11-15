@@ -71,7 +71,7 @@ const DANGEROUSLY_WIDE_ROOTS = new Set([
   '/opt',
 ]);
 
-function isDangerouslyWide(root: string): boolean {
+export function isDangerouslyWide(root: string): boolean {
   if (DANGEROUSLY_WIDE_ROOTS.has(root)) return true;
   // On macOS /tmp resolves to /private/tmp; cover the resolved form too.
   if (root === '/private/tmp' || root === '/private/var' || root === '/private/etc') return true;

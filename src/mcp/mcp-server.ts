@@ -1227,6 +1227,11 @@ export interface SendDmHandlerConfig {
    */
   counts: Map<string, number>;
   allowedRecipients: Set<string>;
+  /**
+   * Offer ✅ "allow all DMs to this recipient" (default true). When false the
+   * prompt offers only 👍 / 👎, and a ✅ that arrives anyway allows this DM only.
+   */
+  allowAllReaction?: boolean;
   /** Recipients with a permission prompt currently awaiting a reaction.
    *  Used to short-circuit duplicate prompts when Claude fans out parallel
    *  send_dm tool_use blocks to the same recipient. */
@@ -1422,10 +1427,11 @@ async function promptForDmPermission(
   const now = cfg.now ?? Date.now;
   const formatter = cfg.api.getFormatter();
   const recipientLabel = recipientUsername ? `@${recipientUsername}` : recipientId;
+  const allowAllReaction = cfg.allowAllReaction ?? true;
   const message =
     `⚠️ ${formatter.formatBold('Permission requested')}\n\n` +
     `claude-threads wants to send a DM to ${formatter.formatBold(recipientLabel)}.\n\n` +
-    `👍 Allow once | ✅ Allow all DMs to this recipient | 👎 Deny`;
+    (allowAllReaction ? `👍 Allow once | ✅ Allow all DMs to this recipient | 👎 Deny` : `👍 Allow once | 👎 Deny`);
 
   let post: { id: string };
   let botUserId: string;
@@ -1433,7 +1439,9 @@ async function promptForDmPermission(
     botUserId = await cfg.api.getBotUserId();
     post = await cfg.api.createInteractivePost(
       message,
-      [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]],
+      allowAllReaction
+        ? [APPROVAL_EMOJIS[0], ALLOW_ALL_EMOJIS[0], DENIAL_EMOJIS[0]]
+        : [APPROVAL_EMOJIS[0], DENIAL_EMOJIS[0]],
       cfg.threadId,
     );
   } catch (err) {
@@ -1450,6 +1458,11 @@ async function promptForDmPermission(
       await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(decision.username)} — sending DM to ${recipientLabel}`);
       return 'allow-once';
     case 'allow-all':
+      if (!allowAllReaction) {
+        // With allowAllReaction off, a ✅ that arrives anyway allows this DM only.
+        await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allowed')} by ${formatter.formatUserMention(decision.username)} — sending DM to ${recipientLabel}`);
+        return 'allow-once';
+      }
       await safeUpdatePost(cfg.api, post.id, `✅ ${formatter.formatBold('Allow all')} by ${formatter.formatUserMention(decision.username)} — DMs to ${recipientLabel} won't prompt again this session`);
       return 'allow-all';
     case 'deny':
@@ -1526,6 +1539,7 @@ async function handleSendDm(
     promptTimeoutMs: PERMISSION_TIMEOUT_MS,
     counts: sendDmCounts,
     allowedRecipients: sendDmAllowedRecipients,
+    allowAllReaction: PERMISSION_ALLOW_ALL,
     inFlightPrompts: sendDmInFlightPrompts,
     memberCache: { get value() { return sendDmMemberCache; }, set value(v) { sendDmMemberCache = v; } },
     channelLabelCache: { get value() { return sendDmChannelLabel; }, set value(v) { sendDmChannelLabel = v; } },

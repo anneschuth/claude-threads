@@ -1810,6 +1810,30 @@ describe('handleSendDmWith', () => {
     expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(true);
   });
 
+  it('with allowAllReaction off, ✅ is not offered and sends this one DM without promoting the recipient', async () => {
+    const api = new FakeApi({
+      reactions: [{ postId: 'post-1', userId: 'u-alice', emojiName: 'white_check_mark' }],
+    });
+    api.resolveRecipientImpl = async () => ({ id: DM_RECIPIENT_ID, username: 'bob' });
+    api.getChannelMembersImpl = async () => [DM_RECIPIENT_ID, 'u-alice'];
+    const offered: string[][] = [];
+    const createInteractivePost = api.createInteractivePost.bind(api);
+    api.createInteractivePost = async (message: string, reactions: string[], threadId?: string) => {
+      offered.push(reactions);
+      expect(message).not.toMatch(/Allow all/);
+      return createInteractivePost(message, reactions, threadId);
+    };
+    const state = makeSendDmState();
+    const result = await handleSendDmWith(
+      { recipient: 'bob', message: 'first' },
+      { ...makeSendDmCfg(api, state), allowAllReaction: false },
+    );
+    expect(result.ok).toBe(true);
+    expect(offered).toHaveLength(1);
+    expect(offered[0]).toHaveLength(2);
+    expect(state.allowedRecipients.has(DM_RECIPIENT_ID)).toBe(false);
+  });
+
   it('refuses when the user denies the prompt', async () => {
     // RED test: a deny reaction must abort. Fails if the deny path falls
     // through to send.

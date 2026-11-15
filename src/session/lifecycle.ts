@@ -23,7 +23,7 @@ import { isAuthorizedForSession, sessionAllowedUserSet } from './authorization.j
 import type { PlatformClient, PlatformFile } from '../platform/index.js';
 import type { ClaudeCliOptions, ClaudeEvent, RateLimitHit } from '../claude/cli.js';
 import { DecisionBridgeServer, BridgeUnavailableError } from '../mcp/decision-bridge.js';
-import { ClaudeCli, expandHomeDir } from '../claude/cli.js';
+import { ClaudeCli, resolveChannelWorkingDir } from '../claude/cli.js';
 import { cooldownDeadline } from '../claude/rate-limit-detector.js';
 import { isRevivable } from '../persistence/session-store.js';
 import type { PersistedSession } from '../persistence/session-store.js';
@@ -34,7 +34,7 @@ import {
   buildAppendSystemPrompt,
 } from '../commands/index.js';
 import { randomUUID } from 'crypto';
-import { existsSync } from 'fs';
+import { existsSync, statSync } from 'fs';
 import { keepAlive } from '../utils/keep-alive.js';
 import { logAndNotify, withErrorHandling } from '../utils/error-handler/index.js';
 import { createLogger } from '../utils/logger.js';
@@ -75,6 +75,14 @@ const sessionLog = createSessionLog(log);
  * Get sessions map with correct mutable type.
  * Reduces type casting noise throughout the module.
  */
+function isExistingDirectory(path: string): boolean {
+  try {
+    return statSync(path).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
 function mutableSessions(ctx: SessionContext): Map<string, Session> {
   return ctx.state.sessions as Map<string, Session>;
 }
@@ -948,9 +956,7 @@ async function startSessionImpl(
   // Per-channel working directory (config.yaml `platforms[].workingDir`) overrides
   // the bot-wide default; `!cd` below still wins.
   const channelWorkingDir = platform.getMcpConfig().workingDir;
-  let workingDir = typeof channelWorkingDir === 'string' && channelWorkingDir
-    ? expandHomeDir(channelWorkingDir)
-    : ctx.config.workingDir;
+  let workingDir = resolveChannelWorkingDir(channelWorkingDir, ctx.config.workingDir);
   // Start from the bot-wide default. The legacy `skipPermissions` boolean is
   // still consumed by some callers, but the effective mode is what drives
   // Claude CLI spawn below.
@@ -995,6 +1001,18 @@ async function startSessionImpl(
 
     workingDir = resolvedDir;
     log.info(`Starting session in directory: ${workingDir} (from !cd command)`);
+  } else if (workingDir !== ctx.config.workingDir && !isExistingDirectory(workingDir)) {
+    // The channel's own `workingDir` from config.yaml. Spawning Claude in a
+    // directory that is not there fails with an ENOENT that reads like a
+    // missing `claude` binary, so say what is actually wrong.
+    const msg = `❌ This channel's working directory does not exist: ${formatter.formatCode(workingDir)}. Fix ${formatter.formatCode('workingDir')} for this platform in config.yaml.`;
+    if (startPost) {
+      await platform.updatePost(startPost.id, msg);
+    } else {
+      await platform.createPost(msg, replyToPostId);
+    }
+    releasePendingStart();
+    return;
   }
 
   // First-message `!permissions <mode>` — honor the explicit mode.
@@ -1174,7 +1192,7 @@ async function startSessionImpl(
   });
   session.threadLogger?.logLifecycle('start', {
     username,
-    workingDir: ctx.config.workingDir,
+    workingDir,
   });
 
   // Register session — the reservation can now be released since the real

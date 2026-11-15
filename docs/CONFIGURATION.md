@@ -167,7 +167,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `botName` | No | Mention name (default: `claude-code`) |
 | `allowedUsers` | No | List of usernames who can use the bot |
 | `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. A directory that does not exist is reported in the log at startup. |
-| `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. |
+| `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. A directory as wide as `/opt`, `/tmp` or `/home` still reaches Claude through `--add-dir`, but `send_file` does not accept files from it; the log says so at startup. |
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
@@ -197,7 +197,7 @@ What happens: every `audio/*` attachment (or a file with an audio extension when
 | `botName` | No | Mention name (default: `claude`) |
 | `allowedUsers` | No | List of Slack usernames |
 | `workingDir` | No | Working directory for new sessions in this channel; overrides the bot-wide working directory. `~` expands to `$HOME`. `!cd` still wins. The channel sticky shows it. A directory that does not exist is reported in the log at startup. |
-| `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. |
+| `additionalDirectories` | No | Extra directories this channel's sessions use as if they were the working directory: passed to Claude as `--add-dir`, accepted as `send_file` roots, and counted in the sticky (`📂 ~/dir +2`). `~` expands to `$HOME`. A directory as wide as `/opt`, `/tmp` or `/home` still reaches Claude through `--add-dir`, but `send_file` does not accept files from it; the log says so at startup. |
 | `permissionMode` | No | How tool-use is gated: `default` / `auto` / `bypass` (default: `default`). See [Permission Modes](#permission-modes). |
 | `skipPermissions` | No | **Deprecated.** Use `permissionMode`. `true` maps to `bypass`, `false` to `default`. `permissionMode` wins when both are set. |
 | `outboundFiles` | No | `send_file` settings: `{ enabled, maxBytes }` (defaults: enabled `true`, `maxBytes` 100 MB) |
@@ -325,7 +325,7 @@ Unset keeps the historical default per mode, so existing setups are unaffected: 
 
 Under effective `owner` mode the scoping is enforced consistently across every path, so the boundary cannot be talked around: the text alternatives (`!approve`, message-based resume) apply the same participant check as their reaction counterparts, and the owner-gated session commands (`!invite`, `!kick`, `!cd`, `!permissions`, …) additionally require the caller to be a session participant — a platform-allowlisted non-participant can neither approve directly nor `!invite` themselves into the approval set.
 
-With `allowAllReaction: false` the ✅ reaction is not offered and never approves more than the one call it answers. A session-wide allow-all otherwise also approves calls that hooks or `ask` rules send to the prompt, such as a force push or a deploy.
+With `allowAllReaction: false` the ✅ reaction is not offered and never approves more than the one call it answers. That also holds for the `send_dm` prompt, where ✅ otherwise allows every later DM to that recipient. A value that is not `true` or `false` is logged at startup and treated as `false`. A session-wide allow-all otherwise also approves calls that hooks or `ask` rules send to the prompt, such as a force push or a deploy.
 
 The approval set is fixed when the Claude CLI is spawned; a later `!invite` extends message access immediately but reaches the approval set on the next CLI respawn (e.g. via `!cd` or `!permissions`).
 

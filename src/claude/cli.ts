@@ -4,7 +4,8 @@ import { crossSpawn } from '../utils/spawn.js';
 import { EventEmitter } from 'events';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync, readdirSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync, watchFile, unwatchFile, unlinkSync, statSync, readdirSync, writeFileSync, realpathSync } from 'fs';
+import { isDangerouslyWide } from '../mcp/path-validator.js';
 import { tmpdir, homedir } from 'os';
 import { join } from 'path';
 import { createLogger } from '../utils/logger.js';
@@ -406,33 +407,54 @@ export function materializeMcpConfig(
   return { mode: 'file', path };
 }
 
-/**
- * Compute the permission-related CLI arguments for Claude and, when applicable,
- * materialize the MCP config tempfile. Extracted so the three-mode branching
- * is covered by unit tests (spawning the real Claude CLI is not viable).
- *
- * Returns `{ args, tempFile }`. `tempFile` is set only when the MCP config
- * was written to disk (i.e. not inline-mode) and must be cleaned up by the
- * caller on process exit.
- */
 /** Expand a leading `~` to the user's home directory. */
 export function expandHomeDir(dir: string): string {
   return dir === '~' || dir.startsWith('~/') ? homedir() + dir.slice(1) : dir;
 }
 
 /**
- * A channel's `additionalDirectories` as a list of expanded paths. The value
+ * A channel's `workingDir` as an absolute path, or `fallback` when the
+ * channel sets none. The value comes straight from config.yaml, so anything
+ * that is not a non-empty string counts as not set.
+ */
+export function resolveChannelWorkingDir(value: unknown, fallback: string): string {
+  return typeof value === 'string' && value.length > 0 ? resolve(expandHomeDir(value)) : fallback;
+}
+
+/**
+ * A channel's `additionalDirectories` as a list of absolute paths. The value
  * comes straight from config.yaml, so anything that is not a list of
  * non-empty strings is dropped here instead of crashing the spawn.
  */
 export function resolveAdditionalDirs(dirs: unknown): string[] {
   if (!Array.isArray(dirs)) return [];
-  return dirs.filter((dir): dir is string => typeof dir === 'string' && dir.length > 0).map(expandHomeDir);
+  return dirs
+    .filter((dir): dir is string => typeof dir === 'string' && dir.length > 0)
+    .map((dir) => resolve(expandHomeDir(dir)));
 }
 
-/** `--add-dir` arguments for a channel's `additionalDirectories` (`~` expanded). */
+/** `--add-dir` arguments for a channel's `additionalDirectories`. */
 export function buildAddDirArgs(dirs: unknown): string[] {
   return resolveAdditionalDirs(dirs).flatMap((dir) => ['--add-dir', dir]);
+}
+
+/**
+ * The channel's extra directories that `send_file` accepts files from.
+ * Symlinks are resolved, because the validator compares against the resolved
+ * path of the file. A root as wide as `/opt` or `/tmp` is left out: the
+ * validator refuses to run at all with one in the list, which would turn off
+ * `send_file` for the working directory as well.
+ */
+export function resolveSendFileRoots(dirs: unknown): string[] {
+  return resolveAdditionalDirs(dirs)
+    .map((dir) => {
+      try {
+        return realpathSync(dir);
+      } catch {
+        return dir;
+      }
+    })
+    .filter((dir) => !isDangerouslyWide(dir));
 }
 
 /**
@@ -445,24 +467,41 @@ export function findChannelDirProblems(
   isDirectory: (path: string) => boolean,
 ): string[] {
   const problems: string[] = [];
-  const check = (field: string, dir: unknown) => {
+  const check = (field: string, dir: unknown): boolean => {
     if (typeof dir !== 'string' || dir.length === 0) {
       problems.push(`platforms[${entry.id}].${field} must be a path, got ${JSON.stringify(dir)}`);
-    } else if (!isDirectory(expandHomeDir(dir))) {
-      problems.push(`platforms[${entry.id}].${field}: ${dir} is not an existing directory`);
+      return false;
     }
+    if (!isDirectory(resolve(expandHomeDir(dir)))) {
+      problems.push(`platforms[${entry.id}].${field}: ${dir} is not an existing directory`);
+      return false;
+    }
+    return true;
   };
   if (entry.workingDir !== undefined) check('workingDir', entry.workingDir);
   if (entry.additionalDirectories !== undefined) {
     if (!Array.isArray(entry.additionalDirectories)) {
       problems.push(`platforms[${entry.id}].additionalDirectories must be a list of paths`);
     } else {
-      entry.additionalDirectories.forEach((dir) => check('additionalDirectories', dir));
+      for (const dir of entry.additionalDirectories) {
+        if (check('additionalDirectories', dir) && resolveSendFileRoots([dir]).length === 0) {
+          problems.push(`platforms[${entry.id}].additionalDirectories: ${dir} is too wide for send_file, which will not accept files from it`);
+        }
+      }
     }
   }
   return problems;
 }
 
+/**
+ * Compute the permission-related CLI arguments for Claude and, when applicable,
+ * materialize the MCP config tempfile. Extracted so the three-mode branching
+ * is covered by unit tests (spawning the real Claude CLI is not viable).
+ *
+ * Returns `{ args, tempFile }`. `tempFile` is set only when the MCP config
+ * was written to disk (i.e. not inline-mode) and must be cleaned up by the
+ * caller on process exit.
+ */
 export function buildPermissionArgs(opts: {
   permissionMode: PermissionMode;
   mcpServerPath: string;
@@ -555,7 +594,7 @@ export function buildPermissionArgs(opts: {
   if (opts.platformConfig.allowAllReaction === false) {
     mcpEnv.PERMISSION_ALLOW_ALL = '0';
   }
-  const extraDirs = resolveAdditionalDirs(opts.platformConfig.additionalDirectories);
+  const extraDirs = resolveSendFileRoots(opts.platformConfig.additionalDirectories);
   if (extraDirs.length > 0) {
     mcpEnv[OUTBOUND_ENV.SESSION_ADDITIONAL_DIRS] = extraDirs.join('\n');
   }

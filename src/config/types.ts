@@ -495,6 +495,22 @@ export function resolveAuditLogEnabled(value: unknown, fieldPath?: string): bool
   return resolveBooleanFeature(value, fieldPath ?? 'auditLog', { default: false, verb: 'audit log stays off' });
 }
 
+/**
+ * Normalize the per-platform `allowAllReaction` field. Unset or `true` keeps
+ * the ✅ allow-all reaction. `false` removes it. Anything else warns and
+ * removes it too: the field exists to take a permission away, so a value the
+ * bot cannot read must not leave that permission in place.
+ */
+export function resolveAllowAllReaction(value: unknown, fieldPath?: string): boolean {
+  if (value === undefined || value === null || value === true) return true;
+  if (value !== false) {
+    console.warn(
+      `Invalid ${fieldPath ?? 'allowAllReaction'} config: expected boolean, got ${JSON.stringify(value)} — the allow-all reaction stays off`,
+    );
+  }
+  return false;
+}
+
 /** Where `!bug` files a report unless `bugReports: { repo }` says otherwise. */
 export const DEFAULT_BUG_REPORT_REPO = 'anneschuth/claude-threads';
 

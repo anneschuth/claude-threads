@@ -6,7 +6,7 @@
  * The message is updated whenever sessions start or end.
  */
 
-import { expandHomeDir, resolveAdditionalDirs } from '../../claude/cli.js';
+import { resolveChannelWorkingDir, resolveAdditionalDirs } from '../../claude/cli.js';
 import type { Session } from '../../session/types.js';
 import { getSessionStatus } from '../../session/types.js';
 import type { PlatformClient, PlatformFormatter } from '../../platform/index.js';
@@ -880,9 +880,6 @@ export function clearHiddenCleanupTracking(platformId: string): void {
 }
 
 /**
- * Internal implementation of sticky message update.
- */
-/**
  * The sticky config for one channel: its own working directory when it sets
  * one, and its count of extra directories, which it can have without one.
  */
@@ -892,11 +889,14 @@ export function withChannelDirs(
 ): StickyMessageConfig {
   return {
     ...config,
-    workingDir: typeof channel?.workingDir === 'string' && channel.workingDir ? expandHomeDir(channel.workingDir) : config.workingDir,
+    workingDir: resolveChannelWorkingDir(channel?.workingDir, config.workingDir),
     additionalDirCount: resolveAdditionalDirs(channel?.additionalDirectories).length,
   };
 }
 
+/**
+ * Internal implementation of sticky message update.
+ */
 async function updateStickyMessageImpl(
   platform: PlatformClient,
   sessions: Map<string, Session>,
@@ -941,9 +941,7 @@ async function updateStickyMessageImpl(
 
   const formatter = platform.getFormatter();
   // Per-channel working directory and extra directories override the bot-wide ones.
-  // Partial platform doubles in tests may lack getMcpConfig; then the bot-wide values apply.
-  const channel = typeof platform.getMcpConfig === 'function' ? platform.getMcpConfig() : undefined;
-  const channelConfig = withChannelDirs(config, channel);
+  const channelConfig = withChannelDirs(config, platform.getMcpConfig());
   const content = await buildStickyMessage(
     sessions,
     platform.platformId,
