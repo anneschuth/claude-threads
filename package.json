@@ -69,7 +69,7 @@
     "package.json"
   ],
   "dependencies": {
-    "@hono/node-server": "2.1.5",
+    "@hono/node-server": "2.1.8",
     "@inkjs/ui": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@redactpii/node": "^1.0.19",
@@ -78,12 +78,12 @@
     "cross-spawn": "^7.0.6",
     "diff": "^8.0.3",
     "express-rate-limit": "^8.7.1",
-    "hono": "4.13.14",
+    "hono": "4.13.18",
     "ink": "^8.0.0",
     "js-yaml": "^4.3.1",
     "prompts": "^2.4.2",
     "react": "^19.3.1",
-    "semver": "7.8.5",
+    "semver": "7.8.6",
     "update-notifier": "^7.3.1",
     "ws": "8.22.1",
     "zod": "^4.6.7"
@@ -101,7 +101,7 @@
     "@types/ws": "^8.18.2",
     "eslint": "^10.13.0",
     "husky": "^9.1.7",
-    "knip": "6.44.1",
+    "knip": "6.44.2",
     "lint-staged": "^17.0.4",
     "prettier": "^3.9.10",
     "react-devtools-core": "^8.0.0",
@@ -131,7 +131,8 @@
     "ws": "$ws",
     "shell-quote": ">=1.12.0",
     "proxy-addr": ">=2.0.8",
-    "body-parser": ">=2.4.0"
+    "body-parser": ">=2.4.0",
+    "minimatch": ">=11.0.1"
   },
   "resolutions": {
     "hono": "$hono",
@@ -146,6 +147,7 @@
     "ws": "$ws",
     "shell-quote": ">=1.12.0",
     "proxy-addr": ">=2.0.8",
-    "body-parser": ">=2.4.0"
+    "body-parser": ">=2.4.0",
+    "minimatch": ">=11.0.1"
   }
 }
