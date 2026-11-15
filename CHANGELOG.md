@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **A platform that was disabled and enabled again in the terminal UI answers again.** Disabling a platform detached all of its event listeners, and enabling it only reconnected the socket. The platform showed as connected and then ignored every message and reaction until the bot was restarted. This affected Mattermost and Slack since 1.8.3. The listeners are now kept while the platform is off and put back when it is enabled.
+- Slack: when the entry that owns a shared connection is disabled, enabling it again now restores the entries that share it, so a restart is no longer needed. The log message says so.
+
 ## [1.41.2] - 2026-11-15
 
 ### Fixed

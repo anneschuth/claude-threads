@@ -674,7 +674,7 @@ async function startWithoutDaemon() {
             if (sharedWith && client instanceof SlackClient && !client.eventSourceConnected) {
               // Registered, but its only event feed is a connection that is down.
               ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
-              ui.addLog({ level: 'warn', component: 'toggle', message: `Platform ${platformId} is enabled but receives nothing: it shares ${sharedWith}'s connection, which is down. Restart the bot to restore it.` });
+              ui.addLog({ level: 'warn', component: 'toggle', message: `Platform ${platformId} is enabled but receives nothing: it shares ${sharedWith}'s connection, which is down. Enable ${sharedWith} too, or restart the bot.` });
             } else {
               ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
             }
@@ -706,7 +706,7 @@ async function startWithoutDaemon() {
             ui.setPlatformStatus(id, { connected: false, reconnecting: false });
           }
           if (cutOff.length > 0) {
-            ui.addLog({ level: 'warn', component: 'toggle', message: `${cutOff.join(', ')} shared ${platformId}'s connection and now receive nothing. Restart the bot to move the connection to another entry.` });
+            ui.addLog({ level: 'warn', component: 'toggle', message: `${cutOff.join(', ')} shared ${platformId}'s connection and now receive nothing. Enable ${platformId} again to restore them, or restart the bot to move the connection to another entry.` });
           }
         }
       },

@@ -373,6 +373,9 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     return post;
   }
 
+  /** Listeners detached by disconnect(), kept for prepareForReconnect(). */
+  private readonly detachedListeners = new Map<string | symbol, Array<(...args: unknown[]) => void>>();
+
   /**
    * Disconnect from the platform.
    *
@@ -399,6 +402,17 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     // sessions on the same Mattermost bot token (visible in CI as a
     // "Session started" log immediately followed by another from a
     // different bot, two mock-claude pids, and downstream test failures).
+    //
+    // They are kept aside, not dropped: a platform that is disabled and
+    // enabled again in the terminal UI reuses this client, and its listeners
+    // are attached only once, at startup. prepareForReconnect() puts them back.
+    for (const event of this.eventNames()) {
+      const kept = this.detachedListeners.get(event) ?? [];
+      for (const listener of this.rawListeners(event) as Array<(...args: unknown[]) => void>) {
+        if (!kept.includes(listener)) kept.push(listener);
+      }
+      this.detachedListeners.set(event, kept);
+    }
     this.removeAllListeners();
     return this.forceCloseConnection();
   }
@@ -413,6 +427,15 @@ export abstract class BasePlatformClient extends EventEmitter implements Platfor
     this.isIntentionalDisconnect = false;
     this.reconnectAttempts = 0;
     this.exhaustedEmitted = false;
+    // Put back what disconnect() detached. A listener that is attached again
+    // in the meantime (a subclass re-arming its own) is not added twice.
+    for (const [event, listeners] of this.detachedListeners) {
+      const attached = this.rawListeners(event);
+      for (const listener of listeners) {
+        if (!attached.includes(listener)) this.on(event, listener);
+      }
+    }
+    this.detachedListeners.clear();
   }
 
   /**
