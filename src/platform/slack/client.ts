@@ -227,6 +227,14 @@ export class SlackClient extends BasePlatformClient {
     this.channelClients.delete(channelId);
   }
 
+  /**
+   * Whether the socket this client gets its events from is up: its own, or
+   * the parent's for a secondary.
+   */
+  get eventSourceConnected(): boolean {
+    return (this.sharedEventSource ?? this).socketConnected;
+  }
+
   /** Secondary-side: receive an event injected by the parent's socket. */
   _injectSlackEvent(event: Parameters<SlackClient['handleSlackEvent']>[0], appId?: string | null): void {
     if (appId) this.appId = appId;
@@ -238,6 +246,11 @@ export class SlackClient extends BasePlatformClient {
     // the base teardown is still safe to run (it has no socket to close).
     if (this.sharedEventSource) {
       this.sharedEventSource.unregisterChannelClient(this.channelId, this);
+    } else {
+      // The close handler that normally clears this is detached on an
+      // intentional close. Left set, a secondary that connects afterwards
+      // would announce 'connected' on a socket that is gone.
+      this.socketConnected = false;
     }
     // Base teardown calls removeAllListeners() synchronously and then returns
     // the socket-close promise, which can stay pending. Re-arm before that

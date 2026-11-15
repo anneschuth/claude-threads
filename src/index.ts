@@ -54,6 +54,13 @@ import {
   clearRuntimeSettings,
 } from './auto-update/installer.js';
 import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
+import {
+  planSlackEventSources,
+  secondariesOf,
+  findSharedChannelConflicts,
+  buildPlatformClients,
+  connectSecondariesFirst,
+} from './platform/slack/event-source-plan.js';
 
 // =============================================================================
 // Platform Factory and Event Wiring
@@ -62,12 +69,12 @@ import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js'
 /**
  * Create a platform client based on the config type.
  */
-function createPlatformClient(config: PlatformInstanceConfig): PlatformClient {
+function createPlatformClient(config: PlatformInstanceConfig, sharedEventSource?: SlackClient): PlatformClient {
   switch (config.type) {
     case 'mattermost':
       return new MattermostClient(config as MattermostPlatformConfig);
     case 'slack':
-      return new SlackClient(config as SlackPlatformConfig);
+      return new SlackClient(config as SlackPlatformConfig, sharedEventSource);
     default:
       throw new Error(`Unsupported platform type: ${(config as PlatformInstanceConfig).type}`);
   }
@@ -663,7 +670,14 @@ async function startWithoutDaemon() {
             // in-memory snapshot the DM discovery runtime consults.
             sessionStore.setPlatformEnabled(platformId, true);
             platformEnabledState.set(platformId, true);
-            ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
+            const sharedWith = eventSourcePlan.get(platformId);
+            if (sharedWith && client instanceof SlackClient && !client.eventSourceConnected) {
+              // Registered, but its only event feed is a connection that is down.
+              ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
+              ui.addLog({ level: 'warn', component: 'toggle', message: `Platform ${platformId} is enabled but receives nothing: it shares ${sharedWith}'s connection, which is down. Restart the bot to restore it.` });
+            } else {
+              ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
+            }
             // Resume paused sessions for this platform
             await sessionManager?.resumePausedSessionsForPlatform(platformId);
           } catch (err) {
@@ -684,6 +698,16 @@ async function startWithoutDaemon() {
           platformEnabledState.set(platformId, false);
           ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
           ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
+          // The socket this entry owned also fed every entry on the same Slack
+          // app. They are deaf now, so say so instead of showing them connected.
+          const cutOff = secondariesOf(eventSourcePlan, platformId)
+            .filter((id) => platformEnabledState.get(id) ?? true);
+          for (const id of cutOff) {
+            ui.setPlatformStatus(id, { connected: false, reconnecting: false });
+          }
+          if (cutOff.length > 0) {
+            ui.addLog({ level: 'warn', component: 'toggle', message: `${cutOff.join(', ')} shared ${platformId}'s connection and now receive nothing. Restart the bot to move the connection to another entry.` });
+          }
         }
       },
       onForceUpdate: () => {
@@ -772,6 +796,26 @@ async function startWithoutDaemon() {
 
   // Initialize all configured platforms
   ui.addLog({ level: 'debug', component: 'init', message: `Initializing ${config.platforms.length} platform(s)` });
+
+  // Slack entries on one app token share one Socket Mode connection: Slack
+  // round-robins envelopes across an app's connections, so a socket per entry
+  // loses events in every channel. Parents are created first; secondaries are
+  // built on them and register with them (#502 shared event source).
+  const eventSourcePlan = planSlackEventSources(
+    config.platforms as ReadonlyArray<{ id: string; type: string; appToken?: string }>,
+    (id) => platformEnabledState.get(id) ?? true,
+  );
+  for (const [id, earlierId, channelId] of findSharedChannelConflicts(
+    config.platforms as ReadonlyArray<{ id: string; type: string; appToken?: string; channelId?: string }>,
+  )) {
+    ui.addLog({ level: 'error', component: 'init', message: `${id} and ${earlierId} are the same Slack app and the same channel (${channelId}). Only one of them can receive its messages; give each entry its own channelId.` });
+  }
+  const platformClients = buildPlatformClients(
+    config.platforms,
+    eventSourcePlan,
+    (platformConfig, parent?: PlatformClient) => createPlatformClient(platformConfig, parent as SlackClient | undefined),
+  );
+
   for (const platformConfig of config.platforms) {
     const typedConfig = platformConfig as MattermostPlatformConfig | SlackPlatformConfig;
     const isEnabled = platformEnabledState.get(platformConfig.id) ?? true; // Default to enabled
@@ -787,7 +831,12 @@ async function startWithoutDaemon() {
     });
 
     // Create platform client using factory
-    const client = createPlatformClient(platformConfig);
+    const parentId = eventSourcePlan.get(platformConfig.id);
+    if (parentId) {
+      ui.addLog({ level: 'info', component: 'init', message: `${platformConfig.id} shares ${parentId}'s Socket Mode connection` });
+    }
+    const client = platformClients.get(platformConfig.id);
+    if (!client) throw new Error(`No client was built for platform ${platformConfig.id}`);
     platforms.set(platformConfig.id, client);
     configureAuditLog(platformConfig.id, resolveAuditLogEnabled(platformConfig.auditLog, `platforms[${platformConfig.id}].auditLog`));
 
@@ -953,21 +1002,40 @@ async function startWithoutDaemon() {
   );
   const disabledCount = platforms.size - enabledPlatforms.length;
   ui.addLog({ level: 'info', component: 'init', message: `Connecting ${enabledPlatforms.length} platform(s)...${disabledCount > 0 ? ` (${disabledCount} disabled)` : ''}` });
-  const connectionResults = await Promise.allSettled(
-    enabledPlatforms.map(async ([id, client]) => {
-      ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
-      try {
-        await client.connect();
-        ui.addLog({ level: 'info', component: 'init', message: `✓ Connected to ${id}` });
-        return { id, success: true, client };
-      } catch (err) {
-        ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
-        // Mark the platform as disabled so we don't try to use it
-        platformEnabledState.set(id, false);
-        return { id, success: false, error: err, client };
-      }
-    })
+  // Secondaries register with their parent before the parent's socket goes
+  // live, so no event for their channel hits the unregistered-channel drop.
+  const connectOne = async ([id, client]: [string, PlatformClient]) => {
+    ui.addLog({ level: 'debug', component: 'init', message: `Connecting to ${id}...` });
+    try {
+      await client.connect();
+      const sharedWith = eventSourcePlan.get(id);
+      ui.addLog({
+        level: 'info',
+        component: 'init',
+        message: sharedWith ? `✓ ${id} registered on ${sharedWith}'s connection` : `✓ Connected to ${id}`,
+      });
+      return { id, success: true, client };
+    } catch (err) {
+      ui.addLog({ level: 'error', component: 'init', message: `✗ Failed to connect to ${id}: ${err}` });
+      // Mark the platform as disabled so we don't try to use it
+      platformEnabledState.set(id, false);
+      return { id, success: false, error: err, client };
+    }
+  };
+  const connectionResults = await connectSecondariesFirst(enabledPlatforms, eventSourcePlan, connectOne);
+
+  // A secondary that registered fine still has no event feed when the entry
+  // that owns the connection did not come up. Do not count it as connected.
+  const connectedIds = new Set(
+    connectionResults.flatMap((r) => (r.status === 'fulfilled' && r.value.success ? [r.value.id] : [])),
   );
+  for (const result of connectionResults) {
+    if (result.status !== 'fulfilled' || !result.value.success) continue;
+    const sharedWith = eventSourcePlan.get(result.value.id);
+    if (sharedWith === undefined || connectedIds.has(sharedWith)) continue;
+    result.value.success = false;
+    ui.addLog({ level: 'warn', component: 'init', message: `${result.value.id} receives nothing: it shares ${sharedWith}'s connection, and ${sharedWith} is not connected.` });
+  }
 
   // Settle reconstructed DM instances: a connected one leaves the forwarding
   // window; a failed one must not keep owning its channel (that would block

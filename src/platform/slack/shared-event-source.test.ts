@@ -238,6 +238,24 @@ describe('lifecycle and safety', () => {
     expect(seen).toEqual(['connected']);
   });
 
+  it("a secondary does not announce 'connected' after the parent was disconnected", async () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    setSocketConnected(parent, true);
+    expect(secondary.eventSourceConnected).toBe(true);
+
+    // An intentional close detaches the socket's close handler, the only
+    // other place that clears the flag.
+    await parent.disconnect();
+    expect(secondary.eventSourceConnected).toBe(false);
+    expect(parent.eventSourceConnected).toBe(false);
+
+    const seen: string[] = [];
+    secondary.on('connected', () => seen.push('connected'));
+    await secondary.connect();
+    expect(seen).toEqual([]);
+  });
+
   it('re-arms the mirror before the socket close settles', () => {
     const parent = makeParent();
     const secondary = makeSecondary(parent, 'C-TASK');
