@@ -159,10 +159,8 @@ export class SlackClient extends BasePlatformClient {
    * A secondary's only event feed is the parent's socket, so the parent's
    * connection state IS the secondary's connection state — mirror it.
    *
-   * Stable handler identities, so re-arming is idempotent: overlapping
-   * `disconnect()` calls each clear the listeners and each re-arm, and a
-   * fresh closure per install would leave the mirror stacked and every
-   * later event duplicated into the secondaries.
+   * Stable handler identities, so installing twice cannot stack the mirror
+   * and duplicate every later event into the secondaries.
    */
   private readonly stateMirrors = (['connected', 'disconnected', 'reconnecting'] as const).map(
     (state) => ({
@@ -247,26 +245,12 @@ export class SlackClient extends BasePlatformClient {
     if (this.sharedEventSource) {
       this.sharedEventSource.unregisterChannelClient(this.channelId, this);
     } else {
-      // The close handler that normally clears this is detached on an
-      // intentional close. Left set, a secondary that connects afterwards
-      // would announce 'connected' on a socket that is gone.
+      // The socket's close handler, which normally clears this, is detached
+      // on an intentional close. Left set, a secondary that connects
+      // afterwards would announce 'connected' on a socket that is gone.
       this.socketConnected = false;
     }
-    // Base teardown calls removeAllListeners() synchronously and then returns
-    // the socket-close promise, which can stay pending. Re-arm before that
-    // promise settles: without the mirror, a parent that reconnects while the
-    // close is still in flight emits 'connected' into nothing and its
-    // secondaries miss it permanently.
-    //
-    // Synchronous try/finally, not async: the base promise is returned
-    // unchanged (a synchronous throw stays synchronous) and the mirror is
-    // re-armed on the throwing path too — a failed close must not also leave
-    // the parent permanently mute.
-    try {
-      return super.disconnect();
-    } finally {
-      this.installStateMirror();
-    }
+    return super.disconnect();
   }
 
   // ============================================================================

@@ -227,7 +227,6 @@ describe('lifecycle and safety', () => {
     const secondary = makeSecondary(parent, 'C-TASK');
     parent.registerChannelClient('C-TASK', secondary);
 
-    // Base teardown detaches every listener, the state mirror included.
     await parent.disconnect();
     parent.prepareForReconnect();
 
@@ -256,7 +255,31 @@ describe('lifecycle and safety', () => {
     expect(seen).toEqual([]);
   });
 
-  it('re-arms the mirror before the socket close settles', () => {
+  it('a parent that is turned off and on again serves itself and its secondaries, with the listeners from startup', async () => {
+    const parent = makeParent();
+    const secondary = makeSecondary(parent, 'C-TASK');
+    parent.registerChannelClient('C-TASK', secondary);
+
+    // Attached once, before the toggle, the way index.ts and the session
+    // manager do it at startup.
+    const seen: string[] = [];
+    parent.on('connected', () => seen.push('parent connected'));
+    secondary.on('connected', () => seen.push('secondary connected'));
+    secondary.on('message', () => seen.push('secondary message'));
+
+    await parent.disconnect();
+    parent.emit('connected');
+    expect(seen).toEqual([]); // off means off, for the secondaries too
+
+    parent.prepareForReconnect();
+    parent.emit('connected');
+    (parent as unknown as { handleSlackEvent: (e: unknown) => void }).handleSlackEvent(messageEvent('C-TASK'));
+    await flush();
+
+    expect(seen.sort()).toEqual(['parent connected', 'secondary connected', 'secondary message']);
+  });
+
+  it('mirrors a reconnect that lands before the socket close settles', () => {
     const parent = makeParent();
     const secondary = makeSecondary(parent, 'C-TASK');
     parent.registerChannelClient('C-TASK', secondary);
@@ -264,11 +287,11 @@ describe('lifecycle and safety', () => {
     const seen: string[] = [];
     secondary.on('connected', () => seen.push('connected'));
 
-    // Base teardown drops the listeners synchronously but the socket close is
-    // a promise that can stay pending. A reconnect landing inside that window
-    // must not emit into a mirror-less parent — the secondaries would miss it
+    // The socket close is a promise that can stay pending. A reconnect landing
+    // inside that window must still reach the secondaries, or they miss it
     // permanently. Deliberately not awaited: that IS the window.
     const closing = parent.disconnect();
+    parent.prepareForReconnect();
     parent.emit('connected');
 
     expect(seen).toEqual(['connected']);
@@ -280,10 +303,9 @@ describe('lifecycle and safety', () => {
     const secondary = makeSecondary(parent, 'C-TASK');
     parent.registerChannelClient('C-TASK', secondary);
 
-    // Both calls clear the listeners before either re-arms; a non-idempotent
-    // install leaves two mirrors, so every later event reaches the secondary
-    // twice.
+    // Two mirrors would make every later event reach the secondary twice.
     await Promise.all([parent.disconnect(), parent.disconnect()]);
+    parent.prepareForReconnect();
 
     const seen: string[] = [];
     secondary.on('connected', () => seen.push('connected'));
@@ -292,7 +314,7 @@ describe('lifecycle and safety', () => {
     expect(seen).toEqual(['connected']);
   });
 
-  it('re-arms the mirror even when the socket close throws synchronously', () => {
+  it('still mirrors after a socket close that throws synchronously', () => {
     const parent = makeParent();
     const secondary = makeSecondary(parent, 'C-TASK');
     parent.registerChannelClient('C-TASK', secondary);
@@ -307,6 +329,7 @@ describe('lifecycle and safety', () => {
     // The failure must still propagate — but it must not also leave the parent
     // permanently mute towards its secondaries.
     expect(() => parent.disconnect()).toThrow('close blew up');
+    parent.prepareForReconnect();
 
     const seen: string[] = [];
     secondary.on('connected', () => seen.push('connected'));

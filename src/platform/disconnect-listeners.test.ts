@@ -1,11 +1,11 @@
 /**
  * Listeners across an intentional disconnect.
  *
- * `disconnect()` detaches every listener, so a handler the socket queued just
+ * After `disconnect()` no handler may run, so one the socket queued just
  * before close cannot act on a bot that is shutting down. The terminal UI can
  * also disable a platform and enable it again, and the listeners are attached
- * only once, at startup. Without putting them back, the re-enabled platform
- * reconnects and then ignores every message.
+ * only once, at startup. They used to be detached on disconnect, which left
+ * the re-enabled platform connected and ignoring every message.
  */
 import { describe, it, expect } from 'bun:test';
 import { BasePlatformClient } from './base-client.js';
@@ -22,7 +22,7 @@ abstract class ListenerHarness extends BasePlatformClient {
 const TestClient = ListenerHarness as unknown as new () => ListenerHarness;
 
 describe('listeners across an intentional disconnect', () => {
-  it('stay detached while the client is disconnected', async () => {
+  it('hear nothing while the client is disconnected', async () => {
     const client = new TestClient();
     const seen: string[] = [];
     client.on('message', () => seen.push('message'));
@@ -47,7 +47,7 @@ describe('listeners across an intentional disconnect', () => {
     expect(seen).toEqual(['message', 'reaction']);
   });
 
-  it('are restored once, also after overlapping disconnects and repeated toggles', async () => {
+  it('fire once per event, also after overlapping disconnects and repeated toggles', async () => {
     const client = new TestClient();
     const seen: string[] = [];
     client.on('message', () => seen.push('message'));
@@ -62,18 +62,28 @@ describe('listeners across an intentional disconnect', () => {
     expect(seen).toEqual(['message']);
   });
 
-  it('does not double a listener that was attached again while disconnected', async () => {
+  it('respects a listener removed while disconnected', async () => {
     const client = new TestClient();
     const seen: string[] = [];
     const handler = () => seen.push('connected');
     client.on('connected', handler);
 
     await client.disconnect();
-    client.on('connected', handler);
+    client.off('connected', handler);
     client.prepareForReconnect();
     client.emit('connected');
 
-    expect(seen).toEqual(['connected']);
+    expect(seen).toEqual([]);
+  });
+
+  it('does not replay missed messages when it was disabled in the middle of a reconnect', async () => {
+    const client = new TestClient();
+    (client as unknown as { isReconnecting: boolean }).isReconnecting = true;
+
+    await client.disconnect();
+    client.prepareForReconnect();
+
+    expect((client as unknown as { isReconnecting: boolean }).isReconnecting).toBe(false);
   });
 
   it('keeps a once-listener one-shot', async () => {

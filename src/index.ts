@@ -54,6 +54,7 @@ import {
   clearRuntimeSettings,
 } from './auto-update/installer.js';
 import { acquireInstanceLock, LOCKED_EXIT_CODE } from './utils/instance-lock.js';
+import { createSerialByKey } from './utils/serial-by-key.js';
 import {
   planSlackEventSources,
   secondariesOf,
@@ -89,6 +90,9 @@ function createPlatformClient(config: PlatformInstanceConfig, sharedEventSource?
  * reach it; all state lives inside the runtime instance.
  */
 let activeDmRuntime: DmDiscoveryRuntime | undefined;
+
+/** Platform toggles from the terminal UI, one at a time per platform. */
+const togglePlatformSerially = createSerialByKey<string>();
 
 /**
  * Set once `main()` has built the graceful shutdown path. Module-level for the
@@ -643,72 +647,87 @@ async function startWithoutDaemon() {
         ui.addLog({ level: 'info', component: 'toggle', message: `Keep-alive ${enabled ? 'enabled' : 'disabled'}` });
         sessionManager?.updateAllStickyMessages();
       },
-      onPlatformToggle: async (platformId, enabled) => {
-        const client = platforms.get(platformId);
-        if (!client) {
-          // A derived DM instance may legitimately have no live client (torn
-          // down, or skipped at boot because it was disabled). Persist the
-          // desired state anyway — enabling means the next incoming DM
-          // re-discovers the channel.
-          if (platformId.includes(DM_PLATFORM_SEP)) {
-            sessionStore.setPlatformEnabled(platformId, enabled);
-            platformEnabledState.set(platformId, enabled);
-            ui.addLog({ level: 'info', component: 'toggle', message: `DM instance ${platformId} ${enabled ? 'enabled (re-discovered on next DM)' : 'disabled'}` });
+      onPlatformToggle: (platformId, enabled) => {
+        // One toggle at a time per platform. A disable that lands while an
+        // enable is still connecting would otherwise leave that connect
+        // running, and the next enable would open a second socket beside it.
+        void togglePlatformSerially(platformId, async () => {
+          const client = platforms.get(platformId);
+          if (!client) {
+            // A derived DM instance may legitimately have no live client (torn
+            // down, or skipped at boot because it was disabled). Persist the
+            // desired state anyway — enabling means the next incoming DM
+            // re-discovers the channel.
+            if (platformId.includes(DM_PLATFORM_SEP)) {
+              sessionStore.setPlatformEnabled(platformId, enabled);
+              platformEnabledState.set(platformId, enabled);
+              ui.addLog({ level: 'info', component: 'toggle', message: `DM instance ${platformId} ${enabled ? 'enabled (re-discovered on next DM)' : 'disabled'}` });
+              return;
+            }
+            ui.addLog({ level: 'error', component: 'toggle', message: `Platform ${platformId} not found` });
             return;
           }
-          ui.addLog({ level: 'error', component: 'toggle', message: `Platform ${platformId} not found` });
-          return;
-        }
 
-        if (enabled) {
-          // Re-enable platform: reconnect and resume sessions
-          ui.addLog({ level: 'info', component: 'toggle', message: `Enabling platform ${platformId}...` });
-          try {
-            client.prepareForReconnect();
-            await client.connect();
-            // Persist enabled state after successful connect — including the
-            // in-memory snapshot the DM discovery runtime consults.
-            sessionStore.setPlatformEnabled(platformId, true);
-            platformEnabledState.set(platformId, true);
-            const sharedWith = eventSourcePlan.get(platformId);
-            if (sharedWith && client instanceof SlackClient && !client.eventSourceConnected) {
-              // Registered, but its only event feed is a connection that is down.
-              ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
-              ui.addLog({ level: 'warn', component: 'toggle', message: `Platform ${platformId} is enabled but receives nothing: it shares ${sharedWith}'s connection, which is down. Enable ${sharedWith} too, or restart the bot.` });
-            } else {
-              ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
+          if (enabled) {
+            // Re-enable platform: reconnect and resume sessions
+            ui.addLog({ level: 'info', component: 'toggle', message: `Enabling platform ${platformId}...` });
+            try {
+              client.prepareForReconnect();
+              await client.connect();
+              // Persist enabled state after successful connect — including the
+              // in-memory snapshot the DM discovery runtime consults.
+              sessionStore.setPlatformEnabled(platformId, true);
+              platformEnabledState.set(platformId, true);
+              const sharedWith = eventSourcePlan.get(platformId);
+              if (sharedWith && client instanceof SlackClient && !client.eventSourceConnected) {
+                // Registered, but its only event feed is a connection that is down.
+                ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
+                ui.addLog({ level: 'warn', component: 'toggle', message: `Platform ${platformId} is enabled but receives nothing: it shares ${sharedWith}'s connection, which is down. Enable ${sharedWith} too, or restart the bot.` });
+              } else {
+                ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} reconnected` });
+              }
+              // Resume paused sessions for this platform
+              await sessionManager?.resumePausedSessionsForPlatform(platformId);
+            } catch (err) {
+              ui.addLog({ level: 'error', component: 'toggle', message: `Failed to reconnect ${platformId}: ${err}` });
+              // Revert UI state since connect failed
+              ui.setPlatformStatus(platformId, { enabled: false });
+              // And switch the client off again. The failed connect may have
+              // scheduled a background reconnect, and a platform that shows as
+              // disabled must not come back on its own and start answering.
+              try {
+                client.disconnect().catch(() => undefined);
+              } catch {
+                // nothing left to close
+              }
             }
-            // Resume paused sessions for this platform
-            await sessionManager?.resumePausedSessionsForPlatform(platformId);
-          } catch (err) {
-            ui.addLog({ level: 'error', component: 'toggle', message: `Failed to reconnect ${platformId}: ${err}` });
-            // Revert UI state since connect failed
-            ui.setPlatformStatus(platformId, { enabled: false });
+          } else {
+            // Disable platform: pause sessions and disconnect
+            ui.addLog({ level: 'info', component: 'toggle', message: `Disabling platform ${platformId}...` });
+            // Pause all active sessions for this platform first
+            await sessionManager?.pauseSessionsForPlatform(platformId);
+            client.disconnect();
+            // Persist disabled state — including the in-memory snapshot the DM
+            // discovery runtime consults, so the next incoming DM cannot
+            // silently re-enable this instance.
+            sessionStore.setPlatformEnabled(platformId, false);
+            platformEnabledState.set(platformId, false);
+            ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
+            ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
+            // The socket this entry owned also fed every entry on the same Slack
+            // app. They are deaf now, so say so instead of showing them connected.
+            const cutOff = secondariesOf(eventSourcePlan, platformId)
+              .filter((id) => platformEnabledState.get(id) ?? true);
+            for (const id of cutOff) {
+              ui.setPlatformStatus(id, { connected: false, reconnecting: false });
+            }
+            if (cutOff.length > 0) {
+              ui.addLog({ level: 'warn', component: 'toggle', message: `${cutOff.join(', ')} shared ${platformId}'s connection and now receive nothing. Enable ${platformId} again to restore them, or restart the bot to move the connection to another entry.` });
+            }
           }
-        } else {
-          // Disable platform: pause sessions and disconnect
-          ui.addLog({ level: 'info', component: 'toggle', message: `Disabling platform ${platformId}...` });
-          // Pause all active sessions for this platform first
-          await sessionManager?.pauseSessionsForPlatform(platformId);
-          client.disconnect();
-          // Persist disabled state — including the in-memory snapshot the DM
-          // discovery runtime consults, so the next incoming DM cannot
-          // silently re-enable this instance.
-          sessionStore.setPlatformEnabled(platformId, false);
-          platformEnabledState.set(platformId, false);
-          ui.setPlatformStatus(platformId, { connected: false, reconnecting: false });
-          ui.addLog({ level: 'info', component: 'toggle', message: `✓ Platform ${platformId} disabled` });
-          // The socket this entry owned also fed every entry on the same Slack
-          // app. They are deaf now, so say so instead of showing them connected.
-          const cutOff = secondariesOf(eventSourcePlan, platformId)
-            .filter((id) => platformEnabledState.get(id) ?? true);
-          for (const id of cutOff) {
-            ui.setPlatformStatus(id, { connected: false, reconnecting: false });
-          }
-          if (cutOff.length > 0) {
-            ui.addLog({ level: 'warn', component: 'toggle', message: `${cutOff.join(', ')} shared ${platformId}'s connection and now receive nothing. Enable ${platformId} again to restore them, or restart the bot to move the connection to another entry.` });
-          }
-        }
+        }).catch((err) => {
+          ui.addLog({ level: 'error', component: 'toggle', message: `Toggling ${platformId} failed: ${err}` });
+        });
       },
       onForceUpdate: () => {
         if (autoUpdateManager?.hasUpdate()) {
